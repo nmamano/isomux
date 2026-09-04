@@ -1,9 +1,9 @@
-// Sessions resource handlers - Phase 3a slice 3a.4b. The active-session auth
+// Sessions resource handlers. The active-session auth
 // surface on the unified REST surface (opIds sessions.{list,revoke,logout}).
 //
 // Mirrors the 3a.4a invites slice: leaf REST mappers over a slim SessionsDeps;
 // the isomux-office.ts seam owns mutate→emit (there is no auth event sink). Owner/member
-// resolves from the user RECORD (Option A), uniformly across the scoped list,
+// resolves from the user RECORD, uniformly across the scoped list,
 // the sessionOwnerOrSelf precondition, and the revoke branch.
 //
 // EMITS (set in the seam, never the handler): session_revoked → liveEmit

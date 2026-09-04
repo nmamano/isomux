@@ -62,8 +62,6 @@ import { appHostDomain, appPublicUrl } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppErrorCode, AppState } from "../shared/contract-shapes.ts";
 
-// --- constants --------------------------------------------------------------
-
 // Resource limits. Plain named constants, not per-deployment configuration:
 // the point is a ceiling low enough that one runaway app cannot take the box
 // (and with it the office) down, which is the failure mode the design doc names
@@ -121,8 +119,6 @@ export const APP_LOG_LINES_MAX = 1000;
 // than borrowed. This is the tail of it - the bit every Linux box has.
 const SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin";
 
-// --- errors -----------------------------------------------------------------
-
 // A supervisor failure carries the same wire vocabulary as a registry failure,
 // so the route handler maps one exhaustive table of codes to statuses. Distinct
 // CLASS, though, not a subclass of AppRegistryError: "the registry refused" and
@@ -142,8 +138,6 @@ const failed = (what: string, detail: string): AppSupervisorError =>
     "supervisor_failed",
     `${what}: ${detail.trim() || "no error output"}`,
   );
-
-// --- the seam ---------------------------------------------------------------
 
 export interface RunResult {
   code: number;
@@ -225,8 +219,6 @@ export function createSystemdHost(): SupervisorHost {
   };
 }
 
-// --- the unit namespace -----------------------------------------------------
-
 // The unit-name prefix for an office on `stateRoot`.
 //
 // The production office (default state root) gets the bare `isomux-app-`
@@ -259,8 +251,6 @@ export function unitPrefixFor(stateRoot: string, isDefault: boolean): string {
 
 export const unitNameFor = (prefix: string, appName: string): string =>
   `${prefix}${appName}.service`;
-
-// --- unit + launcher rendering (pure) ---------------------------------------
 
 // Interpolating a value into a unit file, and systemd's rules are NOT uniform
 // across directives - which is the sort of thing only a real systemd finds out.
@@ -379,8 +369,6 @@ export function parseTokenEnv(contents: string | null): string | null {
 // that an installed unit carries it cannot drift apart.
 export const tokenEnvDirective = (tokenEnvPath: string): string =>
   `EnvironmentFile=-${unitPathValue(tokenEnvPath, "the app's token file path")}`;
-
-// --- the app's public URL in the unit ---------------------------------------
 
 // The one place the URL directive's text lives, for the same reason as the
 // token's: the renderer writes it and boot reconciliation compares against it,
@@ -520,8 +508,6 @@ WantedBy=default.target
 `;
 }
 
-// --- reading systemd's answer (pure) ----------------------------------------
-
 export interface AppRuntime {
   state: AppState;
   restartCount: number;
@@ -624,8 +610,6 @@ function stateFrom(
       return "unknown";
   }
 }
-
-// --- the supervisor ---------------------------------------------------------
 
 export interface AppSupervisor {
   // The unit name an app maps to. Exposed because the logs route and the tests

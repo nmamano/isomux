@@ -1,4 +1,4 @@
-// Host-based dispatch for registered apps (phase 3, slice 3).
+// Host-based dispatch for registered apps (slice 3).
 //
 // An office serves one hostname today. Once registered apps get stable
 // origins, a second class of hostname arrives: the URL shape is FLAT, so an
@@ -53,8 +53,6 @@ import { appHostDomain, isHostname } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
 import { APP_FAVICON_PATH, appFavicon } from "./app-favicon.ts";
 
-// --- hostname grammar (pure) ------------------------------------------------
-
 // Every code point a hostname may carry before any structural check. Anything
 // outside printable ASCII - C0 controls, DEL (0x7f), and all non-ASCII
 // including IDN - is refused here rather than sneaking into a label test.
@@ -98,8 +96,6 @@ export function normalizeRequestHost(
   return isHostname(host) ? host : null;
 }
 
-// --- host matching (pure) ---------------------------------------------------
-
 export type AppHostMatch =
   // Exactly one label below the office host: a candidate app.
   | { kind: "label"; label: string }
@@ -127,8 +123,6 @@ export function matchAppHost(
   // unknown label reaching the office is the hole this arm exists to close.
   return { kind: "label", label };
 }
-
-// --- the arm ----------------------------------------------------------------
 
 // Reserved on every app host from day one: the auth handshake mounts here
 // (slice 4), and the relay must never be able to serve or shadow it.
@@ -221,8 +215,9 @@ export function handleAppHostRequest(
   const match = matchAppHost(host, domain);
   if (match === null) return null;
 
-  // Everything below here is DIVERTED. No office handler sees this request.
   if (match.kind === "under") return neutralNotFound();
+
+  // Everything below here is DIVERTED. No office handler sees this request.
 
   // ONE snapshot, used for both questions asked of the registry: which app owns
   // this label, and (in the relay) which names to ask the supervisor about. A

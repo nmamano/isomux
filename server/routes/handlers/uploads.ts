@@ -1,4 +1,4 @@
-// Upload + file-serving handlers - Phase 3a slice 3a.3b. The two browser-facing
+// Upload + file-serving handlers. The two browser-facing
 // file routes on the unified REST surface (opIds agents.upload / agents.getFile).
 //
 // agents.upload  POST /api/agents/:id/uploads  - `file:upload` + requiresRoomAccess(:id)
@@ -11,7 +11,7 @@
 // untrimmed until the post-3a UI migration; these new routes don't collide
 // (distinct path shapes) and delegate to the SAME persistence helpers.
 //
-// Limits (Nil-confirmed, behavior-preserving): 5 files / 200MB each / 400MB total
+// Limits: 5 files / 200MB each / 400MB total
 // - matching the legacy route + the saveFile MAX_FILE_BYTES storage backstop.
 //
 // Multipart: the executor skips JSON body-parse for multipart/form-data and passes

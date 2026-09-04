@@ -4,8 +4,8 @@
 //
 // Scopes: agent, room, office, boss. On APPEND the author + date are server-
 // stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
-// not an authority claim. Authority is intentionally permissive (Nil's product
-// decision): any authenticated caller (agent token OR user cookie) may read,
+// not an authority claim. Authority is intentionally permissive: any
+// authenticated caller (agent token OR user cookie) may read,
 // append, or REPLACE ANY scope and ANY existing target - there is deliberately NO
 // per-scope access gate on any verb, only target-EXISTENCE validation. Restraint
 // (especially "don't make big changes to office-wide memory") lives in the
@@ -72,7 +72,7 @@ export interface MemoryDeps {
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
   // Target-EXISTENCE checks. Existence only - there is deliberately NO access
-  // gate (the model is permissive per Nil); never reuse requiresRoomAccess.
+  // gate; never reuse requiresRoomAccess.
   roomExists(roomId: string): boolean;
   agentExists(agentId: string): boolean;
   userExists(userId: string): boolean;
@@ -198,7 +198,6 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       });
     },
 
-    // APPEND - one server-stamped line (the safe default). One fact per line.
     "memory.append": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;
       if (typeof body.text !== "string") {

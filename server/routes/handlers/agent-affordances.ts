@@ -1,4 +1,4 @@
-// Agent self-affordance handlers - Phase 3a slice 3a.3a. The agent-scope analogue
+// Agent self-affordance handlers. The agent-scope analogue
 // of the cron RUN-affordances: read-file / diff / edit-file / terminal-command on
 // the unified REST surface (opIds agents.readFile/diff/editFile/terminalCommand).
 //
@@ -20,7 +20,7 @@
 //
 // LEAF over the executor + shared types. AgentAffordanceDeps is deliberately slim:
 // JUST the affordance emit methods - no agent maps, rooms, or emit helpers.
-// preview-url (task dcfd5a97) is the one async member: it runs a headless-
+// preview-url is the one async member: it runs a headless-
 // browser capture (see preview-capture.ts) before emitting its file-view card.
 
 import {

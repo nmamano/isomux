@@ -1,4 +1,4 @@
-// Invites resource handlers - Phase 3a slice 3a.4a. The auth invite surface on
+// Invites resource handlers. The auth invite surface on
 // the unified REST surface (opIds invites.{mint,mintSelf,list,revoke}).
 //
 // Strangler EXPAND: these REST handlers + the still-living WS arms
@@ -14,7 +14,7 @@
 // back a status-mapped outcome; these handlers are PURE REST mappers that never
 // receive liveEmit and never emit directly.
 //
-// ROLE SOURCE (locked with Reviewer1 - Option A): the seam resolves owner/member
+// ROLE SOURCE: the seam resolves owner/member
 // from the live user RECORD (getUserById), uniformly across the scoped list
 // projection, the inviteOwnerOrSelf precondition, and the revoke branch - because
 // the recipient-scoped emit is userId-keyed and must resolve the record anyway.
@@ -51,8 +51,8 @@ type RevokeOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string };
 
 export interface InvitesDeps {
-  // Owner mint (officeOwner guard already enforced) - NEW users only (task
-  // eb3354e6 revision): an existing username is rejected by the auth core
+  // Owner mint (officeOwner guard already enforced) - NEW users only: an
+  // existing username is rejected by the auth core
   // (USER_EXISTS → 409). Device links for existing accounts are self-service
   // via mintSelf; owners deliberately cannot mint them for others. createdBy
   // is token-derived in the seam; on ok the seam fans out emitInvitesList().
@@ -68,8 +68,8 @@ export interface InvitesDeps {
   // replacePriorForUsername; on ok the seam fans out emitInvitesList().
   mintSelf(identity: Identity): Promise<MintOutcome>;
   // Owner recovery mint (officeOwner guard already enforced) - a device link
-  // for an EXISTING user who is locked out of every device (task eb3354e6
-  // final revision). Target resolves by stable userId (404 when missing);
+  // for an EXISTING user who is locked out of every device. Target resolves by
+  // stable userId (404 when missing);
   // the seam derives name/role from the record and fixes TTL/replacement;
   // on ok it fans out emitInvitesList().
   mintRecovery(userId: string, identity: Identity): Promise<MintOutcome>;

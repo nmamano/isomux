@@ -1,5 +1,5 @@
 // Per-recipient task delta - the rule that turns ONE board mutation into the
-// ONE wire message a given socket should receive (task b13445e2).
+// ONE wire message a given socket should receive.
 //
 // Why a delta at all: the board push used to re-send every task on every
 // mutation. Measured on the live office at 535 tasks that is 635KB per mutation

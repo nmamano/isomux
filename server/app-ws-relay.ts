@@ -1,4 +1,4 @@
-// The WebSocket relay behind app hostnames (phase 3, slice 6b).
+// The WebSocket relay behind app hostnames (slice 6b).
 //
 // Slice 6a built the upstream half - a frame codec and an in-house client over a
 // raw TCP socket, with a queue that has a number on it - and wired it into
@@ -61,9 +61,7 @@ import {
 import { isTransmittableCloseCode, truncateCloseReason } from "./ws-frames.ts";
 import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 
-// --- constants (plain named values, no env vars) -----------------------------
-
-// The socket caps, ruled by Nil (2026-08-07): 64 concurrent relayed sockets
+// The socket caps: 64 concurrent relayed sockets
 // office-wide, 32 for any one app. Their own pool, deliberately separate from
 // the HTTP relay's permits in app-proxy.ts - the two resources are not alike. An
 // HTTP request occupies a permit for as long as one response takes; a WebSocket
@@ -131,8 +129,6 @@ const CLOSE_TOO_LARGE = 1009; // a message over the slice-6a cap
 const CLOSE_REVOKED = 1008; // policy: the session or the app went away
 const CLOSE_GOING_AWAY = 1001; // the office is shutting the socket down
 
-// --- the browser's subprotocol offer (pure) ---------------------------------
-
 // The offered list, parsed strictly, or `null` for "this request is malformed".
 //
 // Strict because of a measured Bun behavior: when the client offers
@@ -164,8 +160,6 @@ export function parseOfferedProtocols(header: string | null): string[] | null {
   return out;
 }
 
-// --- origin (pure) -----------------------------------------------------------
-
 // A browser always sends `Origin` on an upgrade, so ABSENT means a client that
 // is not a browser - and a client that is not a browser has no ambient cookies
 // to be abused. That is the whole argument for allowing it, and it is worth
@@ -183,8 +177,6 @@ export function originAllowed(
   if (originHeader === null) return true;
   return originHeader === `https://${appHost}`;
 }
-
-// --- socket permits ----------------------------------------------------------
 
 // Keyed by ISSUANCE - label plus generation - for the reason app-proxy.ts spells
 // out: a name is reusable, an issuance is not, and a release from a dead app
@@ -253,8 +245,6 @@ export function _testResetWsRelay(): void {
   perApp.clear();
   totalOpen = 0;
 }
-
-// --- the relay ---------------------------------------------------------------
 
 export interface AppWsRelayContext {
   app: AppRecord;
@@ -414,8 +404,6 @@ export class AppWsRelay {
     private readonly onFinish: () => void = () => {},
   ) {}
 
-  // --- upstream callbacks ----------------------------------------------------
-
   onUpstreamMessage(message: Buffered): void {
     if (this.shuttingDown) return;
     if (this.state === "open") {
@@ -470,8 +458,6 @@ export class AppWsRelay {
     );
   }
 
-  // --- browser callbacks (from the office's shared websocket handlers) -------
-
   attachBrowser(ws: ServerWebSocket<AppRelayWsData>): void {
     if (this.shuttingDown) {
       // The relay died between the 101 and this callback. Nothing to relay to
@@ -480,7 +466,6 @@ export class AppWsRelay {
       try {
         ws.close(CLOSE_GOING_AWAY, "app closed");
       } catch {
-        // already gone
       }
       return;
     }
@@ -537,7 +522,6 @@ export class AppWsRelay {
         );
         return;
       case "closing":
-        // The app leg is already going; its own close callback finishes this.
         return;
     }
   }
@@ -567,8 +551,6 @@ export class AppWsRelay {
     // above told the app in its own vocabulary.
     this.finish({ browser: null, upstream: null }, `browser closed (${code})`);
   }
-
-  // --- internals -------------------------------------------------------------
 
   // Called IMMEDIATELY BEFORE the runtime is asked to take the socket, never
   // after it answers.
@@ -713,7 +695,6 @@ export class AppWsRelay {
         if (ending.browser.kind === "terminate") ws.terminate();
         else ws.close(ending.browser.code, ending.browser.reason);
       } catch {
-        // The socket went while we were deciding how to end it.
       }
     }
     if (ending.upstream !== null && this.upstream.isOpen()) {
@@ -771,8 +752,6 @@ function endingFor(event: UpstreamCloseEvent): BrowserEnding {
     reason: truncateCloseReason(event.reason),
   };
 }
-
-// --- the entry point ---------------------------------------------------------
 
 // An upgrade on an app host. Returns a Response for every refusal, and
 // `undefined` exactly when the socket was handed to the runtime - which is what
@@ -880,7 +859,6 @@ export async function relayWsToApp(
 
   const dial = await dialAppUpstream({
     port: ctx.app.port,
-    // Path and query verbatim, from the URL the arm already parsed.
     target: `${url.pathname}${url.search}`,
     host: ctx.host,
     headers,

@@ -1,5 +1,5 @@
 // Storage resource handlers - disk-usage visibility and manual pruning of the
-// office's on-disk history (task 2366ccb0).
+// office's on-disk history.
 //
 // GET /api/storage/usage - office:read + authenticated: every human, plus
 // privileged agents (the same posture as /api/backup/status; a plain agent

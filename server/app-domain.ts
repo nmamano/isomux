@@ -1,4 +1,4 @@
-// Where an app's public address comes from (phase 3): the office's own
+// Where an app's public address comes from: the office's own
 // hostname, the grammar that decides whether it can carry app hostnames at
 // all, and the URL an app is reachable at.
 //
@@ -10,8 +10,6 @@
 // supervisor side can depend on it and neither depends on the other.
 
 import { buildPublicOrigin } from "./auth.ts";
-
-// --- hostname grammar (pure) ------------------------------------------------
 
 // RFC 1035 label and name ceilings. The label pattern is the one the app
 // registry holds app names to (server/app-registry.ts), because an app's name
@@ -37,8 +35,6 @@ export function isHostname(host: string, minLabels = 1): boolean {
   return labels.every(isHostLabel);
 }
 
-// --- the app-host domain (pure) ---------------------------------------------
-
 // Hostnames app hostnames cannot hang off: loopback names (a `.localhost`
 // suffix is loopback by RFC 6761, not just the bare name) and address
 // literals. `URL.hostname` exposes an IPv6 literal bracketed.
@@ -55,7 +51,7 @@ function isLoopbackOrLiteral(hostname: string): boolean {
 // CHILDREN - MagicDNS has no wildcard records and a Tailscale certificate
 // covers the node's own name only - so deriving a domain here would hand every
 // app an address that resolves nowhere and put that address in its
-// environment. A tailnet office keeps port links instead (Nil, 2026-08-08).
+// environment. A tailnet office keeps port links instead.
 //
 // Matched on the LABEL boundary, so `myts.net` and `ts.net.example.com` are
 // ordinary domains. Matched AFTER the URL parse, which is what makes it hold
@@ -114,8 +110,6 @@ export function appPublicUrl(
   if (domain === null) return null;
   return `https://${hostLabel}.${domain}`;
 }
-
-// --- the boot-frozen value --------------------------------------------------
 
 let frozenDomain: string | null = null;
 let frozen = false;

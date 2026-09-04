@@ -1,16 +1,16 @@
-// The single emit helper - Phase 2.3. The ONLY path to the wire in the new
+// The single emit helper. The ONLY path to the wire in the new
 // transport layer. See internal-docs/generic-runtime-refactor.md → "One wire
 // stream, plural audiences" + "Event registry".
 //
-// Separation of concerns (the hybrid agreed with Reviewer1):
+// Separation of concerns:
 //   - emit() owns AUDIENCE DISPATCH + RECIPIENT SELECTION, derived EXECUTABLY
 //     from the registry's {audience, projectionKey}. This is what makes
 //     projectionKey non-decorative: a mis-declared audience or a delete/move
 //     event that forgot to carry its pre-mutation room id is caught by a test,
 //     not trusted from a comment.
 //   - the injected EmitDeps seam owns TRANSPORT DELIVERY + per-recipient payload
-//     shaping/projection. In 2.3 tests record (strategy, recipients); Phase-3
-//     production wires deliver() to today's dense-index projection helpers
+//     shaping/projection. Production wires deliver() to the dense-index
+//     projection helpers
 //     (visibleRoomProjection / projectAgentForSession / routeAgentEventToWs),
 //     so the live wire stays byte-identical.
 //
@@ -44,7 +44,7 @@ export interface EmitContext {
 
 // The injected transport seam. `S` is an opaque session handle - emit NEVER
 // inspects it; it only asks deps for recipient sets and hands them back to
-// deliver(). Tests use a fake session record; Phase-3 production uses the live
+// deliver(). Tests use a fake session record; production uses the live
 // ServerWebSocket. This keeps emit pure and the audience logic unit-testable.
 export interface EmitDeps<S> {
   allSessions(): readonly S[];
@@ -114,7 +114,6 @@ function deriveRoomIds<S>(
         if (!(hasOld && hasNew)) return null;
         return [oldId, newId];
       }
-      // Non-move update: project to the agent's CURRENT room.
       const agentId = readPath(payload, pk.agentPath);
       if (!nonEmptyString(agentId)) return null;
       const roomId = deps.roomIdForAgent(agentId);

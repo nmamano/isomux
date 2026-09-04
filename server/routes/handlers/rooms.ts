@@ -1,4 +1,4 @@
-// Room resource handlers - Phase 3d slice 6 (rooms CRUD). The room-structure
+// Room resource handlers. The room-structure
 // mutation surface (opIds rooms.{create,close,rename,setSettings}) on the
 // unified REST surface, plus the read side of the settings pair
 // (rooms.getSettings - same ACL as the PUT, so a writer can read the prompt

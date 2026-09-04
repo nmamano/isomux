@@ -1,10 +1,10 @@
-// Personal-preference handler (opId prefs.update) - task 49d4e2f6. The
+// Personal-preference handler (opId prefs.update). The
 // self-scoped write path for the settings that follow a boss across devices:
 // reply language.
 //
 // SELF-only by construction: the route table gates it with user:self +
 // authenticated and the handler acts on the CALLER's own userId, never on a
-// :username param. That mirrors the view.* surface and respects the Option A
+// :username param. That mirrors the view.* surface and respects the
 // split in users.ts - an owner sets a member's ACCESS, never their personal
 // settings. user:self is absent from both agent capability sets, so an agent
 // token gets 403 here, matching what the agent system prompt already promises.

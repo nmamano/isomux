@@ -1,19 +1,15 @@
-// Typed route table (skeleton) - Phase 2.3. The single source of truth that, in
-// Phase 3, REPLACES the ~1,940-line dispatchCommand switch + the ad-hoc HTTP
-// handlers. Each route declares { opId, method, path, auth, emits } plus its
-// request/response TYPES (type-level only in 2.3 - no runtime validation lib;
-// that lands with handler migration in Phase 3). See
+// Typed route table. The single source of truth for route declarations. Each
+// route declares { opId, method, path, auth, emits } plus its request/response
+// TYPES. See
 // internal-docs/generic-runtime-refactor.md → "Server API Spec" → REST route table.
 //
-// ADDITIVE: this is data + types, contract-tested for structural invariants
-// (unique opId, unique method+path, every emit resolves to a registry event, a
-// valid capability + guard on every capability route, and - the carried-forward
-// 2.2 caution - NO public route is ever fed to authorize()). It is NOT wired
-// into the live HTTP server in 2.3.
+// This data is contract-tested for structural invariants: unique opId, unique
+// method+path, every emit resolves to a registry event, a valid capability +
+// guard on every capability route, and NO public route is ever fed to
+// authorize().
 //
 // Boundaries deliberately kept OUT of the resourceGuard (the core op enforces
-// them against LIVE state in Phase 3, not pure authz - same posture as
-// messageSend's recipient-existence in 2.2) are declared as the TYPED
+// them against LIVE state, not pure authz) are declared as the TYPED
 // `preconditions` field (see RoutePrecondition) and pinned by a contract test,
 // NOT left as prose: agents.revive's lastRoomId access; invites.revoke /
 // sessions.revoke member-own scoping + not-last-owner lockout; validate.env's
@@ -151,8 +147,8 @@ import type {
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-// A route's authorization, as a discriminated union so the carried-forward 2.2
-// caution is STRUCTURAL: a `public` route carries no resourceGuard, so by TYPE
+// A route's authorization, as a discriminated union so the caution is
+// STRUCTURAL: a `public` route carries no resourceGuard, so by TYPE
 // it cannot be passed to authorize() (which 401s on a null identity); an
 // `authenticated` route needs identity but no capability (e.g. logout). A
 // contract test pins that no public route reaches authorize() and that every
@@ -162,16 +158,15 @@ export type RouteAuth =
   | { kind: "authenticated"; resourceGuard: Guard }
   | { kind: "public" };
 
-// Route-contract PRECONDITIONS: semantic checks the Phase-3 core op MUST enforce
+// Route-contract PRECONDITIONS: semantic checks the core op MUST enforce
 // against LIVE state, deliberately kept OUT of the pure resourceGuard (a guard
-// has no live-state dependency - the same boundary 2.2 drew for messageSend's
-// recipient-existence). Encoded as TYPED DATA, not prose, so the audit surface
-// (Reviewer4) and Phase 3 can ENUMERATE them and a contract test can pin each
-// route's set - comments alone are too easy to forget.
+// has no live-state dependency). Encoded as TYPED DATA, not prose, so the audit
+// surface can ENUMERATE them and a contract test can pin each route's set -
+// comments alone are too easy to forget.
 export type RoutePrecondition =
   // agents.revive: caller must also have access to the killed agent's lastRoomId.
   // The resourceGuard covers only the TARGET room (body.roomId); lastRoomId is
-  // live-state (the killed agent's last room), with no RoomRef kind in 2.2.
+  // live-state (the killed agent's last room), with no RoomRef kind.
   | "reviveLastRoomAccess"
   // invites.revoke: owner may revoke any invite; a member only their own (needs
   // the invite-owner lookup, not in GuardDeps).
@@ -207,11 +202,11 @@ export interface RouteDef<Req = unknown, Res = unknown> {
   // registry (enforced by the `EventId[]` type + a contract test). The HTTP
   // response is separate (the caller's outcome).
   emits: readonly EventId[];
-  // Live-state semantic preconditions the Phase-3 handler must enforce (NOT pure
+  // Live-state semantic preconditions the handler must enforce (NOT pure
   // authz; see RoutePrecondition). Absent ⇒ none. Pinned by a contract test.
   preconditions?: readonly RoutePrecondition[];
   // Phantom type carriers (no runtime presence): bind the request/response types
-  // for Phase-3 handler typing. defineRoute<Req,Res> attaches them.
+  // for handler typing. defineRoute<Req,Res> attaches them.
   readonly __req?: Req;
   readonly __res?: Res;
 }
@@ -225,7 +220,6 @@ export function defineRoute<Req = void, Res = void>(
   return def;
 }
 
-// --- auth shorthands --------------------------------------------------------
 function cap(
   requiredCapability: Capability | readonly Capability[],
   resourceGuard: Guard,
@@ -237,7 +231,6 @@ function authn(resourceGuard: Guard): RouteAuth {
 }
 const pub: RouteAuth = { kind: "public" };
 
-// --- room-ref shorthands ----------------------------------------------------
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
 // Capability-free agent routes also use this shorthand. APP stays outside;
@@ -252,17 +245,16 @@ const agentParam = (name: string): Guard => {
 const bodyRoom = (name: string): Guard =>
   requiresRoomAccess({ kind: "bodyRoomId", name });
 
-// Common no-content / small response shapes.
 type NoContent = void;
 type MessageAck = { messageId: string };
-// agents.sendMessage's own ack (task 425facdd). `queued` answers the question the
+// agents.sendMessage's own ack. `queued` answers the question the
 // sender cannot otherwise see: true = the message is parked behind the receiver's
 // in-flight turn and lands when that turn ends; false = it went straight into a
 // turn. Optional because only the AGENT branch knows: the USER branch is
 // fire-and-forget (empty messageId, no enqueue result), and a deduped retry is an
 // ack for the ORIGINAL send, whose queued/delivered answer this call never
 // learned. A point-in-time fact about THIS send, not receiver state.
-// `steered` / `steerDeclined` (task 80b2bb08) ride the same rule and appear only
+// `steered` / `steerDeclined` ride the same rule and appear only
 // when the send asked to steer: steered:true = an in-flight turn was interrupted
 // for this message; steered:false with no reason = there was no turn to
 // interrupt; steerDeclined = a guard rail refused, and the message is queued.
@@ -278,9 +270,9 @@ type AgentMessageAck = {
 type ScheduledAck = { scheduledId: string; deliverAt: string };
 type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
 type AgentEnvelope = { agent: AgentInfo };
-// agents.readInstructions (task 68891fa1): the customInstructions blob + its
+// agents.readInstructions: the customInstructions blob + its
 // concurrency token - the read half of the read-then-PATCH flow that
-// agents.update's version guard (44a2c98d) expects. Field names match
+// agents.update's version guard expects. Field names match
 // EditAgentReq exactly so a caller reads, edits, and echoes the version back.
 type AgentInstructionsRes = {
   customInstructions: string | null;
@@ -293,11 +285,7 @@ type InteractionResponseRes = {
   status: "settled" | "canceled";
 };
 
-// ---------------------------------------------------------------------------
-// The /api route table
-// ---------------------------------------------------------------------------
 export const API_ROUTES: readonly RouteDef[] = [
-  // --- Agents - lifecycle ---------------------------------------------------
   defineRoute<SpawnReq, AgentEnvelope>({
     opId: "agents.spawn",
     method: "POST",
@@ -317,7 +305,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/revive",
     // Guard: access to the TARGET room (body.roomId). The ∧ lastRoomId access
-    // check is a typed Phase-3 precondition (killed-agent last room is live-state).
+    // check is a typed precondition (killed-agent last room is live-state).
     auth: cap("agent:manage", bodyRoom("roomId")),
     emits: ["agent_added", "killed_agent_removed"],
     preconditions: ["reviveLastRoomAccess"],
@@ -336,8 +324,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:manage", agentParam("id")),
     emits: ["agent_updated"],
   }),
-  // Read an agent's customInstructions blob + version token (task 68891fa1).
-  // `authenticated` (no capability), Nil-ruled: EVERY agent may read any agent
+  // Read an agent's customInstructions blob + version token.
+  // `authenticated` (no capability): EVERY agent may read any agent
   // it can see - privilege gates the WRITE (agents.update), and the version
   // token is a lost-update/race guard, NOT an authorization mechanism. The
   // agentParam guard matches the roster's room-access VISIBILITY (who you can
@@ -357,7 +345,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // DOUBLE-GATED so no agent - privileged or not - can ever flip the flag:
   // stage-1 cap `agent:privilege` is absent from both the AGENT and the
   // privileged-agent capability sets (only USER scope holds it), and stage-2
-  // `userScope` blocks any non-user scope. CONFERRAL SCOPE is (i-b), Nil-ruled:
+  // `userScope` blocks any non-user scope. CONFERRAL SCOPE:
   // an office owner toggles any agent; a member toggles ONLY agents they manage
   // (manager-match on AgentInfo.userId) - NOT mere room co-membership, which
   // would let a member elevate another member's agent (cross-user confused
@@ -402,7 +390,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["agent_updated"], // ×2 at runtime; one registry id
   }),
 
-  // --- Agents - conversation ------------------------------------------------
   defineRoute<SendMessageReq, AgentMessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
     method: "POST",
@@ -412,7 +399,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // With body.deliverAt (AGENT branch only) the send becomes a SCHEDULED
     // message: stored durably, fired later by scheduled-messages.ts; the ack is
     // ScheduledAck instead of MessageAck. Same route on purpose - one send
-    // surface, one new field (design-pinned, task 8ff369b5).
+    // surface, one new field.
     auth: cap(
       [
         "agent:converse",
@@ -439,7 +426,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
     emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   }),
-  // --- Agents - scheduled messages (task 8ff369b5) ---------------------------
   // `:id` is the SENDER here (the outbox being managed) - the deliberate
   // asymmetry with the send route above, where `:id` is the recipient. See
   // scheduledMessagesOwner for the scope-switched authority rules.
@@ -490,7 +476,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
     emits: ["clear_logs"],
   }),
-  // Instant self-handoff (task 8883e45d): reset the session (like
+  // Instant self-handoff: reset the session (like
   // new-conversation) AND deliver {text} into the fresh session as the agent's
   // own brief, in one call - the fast path the /handoff skill uses instead of the
   // up-to-30s deliverAt + separate reset detour. One handoff at a time per agent
@@ -525,7 +511,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents - self-affordances (AGENT scope, own chat) --------------------
   defineRoute<AffordanceReadFileReq, OkTrue>({
     opId: "agents.readFile",
     method: "POST",
@@ -572,7 +557,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // Conversation-log search + retrieval (tasks da7b2899, b6d07978). ONE route
+  // Conversation-log search + retrieval. ONE route
   // with three modes, chosen by the query: ?q= searches, ?session= retrieves,
   // neither lists the agent's sessions. Read-only, so nothing is emitted.
   //
@@ -588,7 +573,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents - editor (browser) --------------------------------------------
   defineRoute<
     void,
     // `path` is the RESOLVED absolute path (the client opens by a possibly-relative
@@ -623,7 +607,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents - uploads / file serving --------------------------------------
   defineRoute<unknown, { attachments: Attachment[] }>({
     opId: "agents.upload",
     method: "POST",
@@ -639,7 +622,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Rooms ----------------------------------------------------------------
   defineRoute<RoomCreateReq, { room: RoomWire }>({
     opId: "rooms.create",
     method: "POST",
@@ -684,7 +666,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("room:manage", roomParam("roomId")),
     emits: ["room_settings_updated"],
   }),
-  // --- View preferences (per-user; visibility, never security) --------------
+  // View preferences affect visibility only; they never grant or deny access.
   defineRoute<ViewOrderReq, NoContent>({
     opId: "view.setOrder",
     method: "PUT",
@@ -698,8 +680,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/me/view/shown",
     auth: cap("view:manage", authenticated),
     // full_state for the hidden change; user_updated when the notifRooms
-    // re-clamp (hiding a notified room) changes the record. Restored by task
-    // 9301d0f4 (removed as callerless in the Phase 4 close-out).
+    // re-clamp (hiding a notified room) changes the record.
     emits: ["full_state", "user_updated"],
   }),
   defineRoute<NotifRoomsReq, NoContent>({
@@ -709,7 +690,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("view:manage", authenticated),
     emits: ["user_updated"],
   }),
-  // Self-scoped accessible-rooms read (task 9301d0f4): id+name for every room
+  // Self-scoped accessible-rooms read: id+name for every room
   // the caller can ACCESS, hidden included - the read that makes re-show
   // possible for members (projected full_state excludes hidden rooms and
   // all_rooms_list is owner-only). Pure read, no emits.
@@ -721,12 +702,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Personal preferences (per-user; self-only) ---------------------------
   // Settings that follow a boss across devices (reply language). Sibling of
   // the view.* surface rather than a field on
   // users.update, because users.update is selfOrOwner and personal preferences
-  // are deliberately NOT something an owner sets for a member (the Option A
-  // split - see routes/handlers/users.ts). user:self keeps agents out: it is
+  // are deliberately NOT something an owner sets for a member (see
+  // routes/handlers/users.ts). user:self keeps agents out: it is
   // absent from AGENT_CAPABILITIES and PRIVILEGED_AGENT_CAPABILITIES.
   defineRoute<PreferencesReq, NoContent>({
     opId: "prefs.update",
@@ -852,7 +832,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Users ----------------------------------------------------------------
   // Response is UserSelfWire (self) or UserAdminWire (owner) - same UserRecord
   // shape; the audience distinction is enforced by the handler, not the type.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
@@ -860,7 +839,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
-    // Option A (Nil-gated): record fields only (name/env/prompt/avatar).
+    // Record fields only (name/env/prompt/avatar).
     // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not
     // editable here, so nothing re-projects the subject's rooms.
     emits: ["user_updated", "users_list"],
@@ -873,7 +852,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // allowedRooms + the atomic notif/default prune-clamp - a PRIVATE-only change,
     // so SCOPED events only (no public user_updated/users_list): owners see the
     // new grants via user_admin_updated, the target re-projects via full_state +
-    // its own user_self_updated. (Option A boundary.)
+    // its own user_self_updated.
     emits: ["user_admin_updated", "user_self_updated", "full_state"],
   }),
   defineRoute<void, NoContent>({
@@ -885,7 +864,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     preconditions: ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
   }),
 
-  // --- Sessions, invites, access (auth surface) -----------------------------
   defineRoute<InviteMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mint",
     method: "POST",
@@ -900,9 +878,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("invite:manage", authenticated),
     emits: ["invites_list"],
   }),
-  // Owner recovery for an EXISTING user locked out of every device (task
-  // eb3354e6 final revision): a device link minted by the owner, targeted by
-  // stable userId. Kept as its OWN op - invites.mint stays new-user only, so
+  // Owner recovery for an EXISTING user locked out of every device: a device
+  // link minted by the owner, targeted by stable userId. Kept as its OWN op -
+  // invites.mint stays new-user only, so
   // the wire semantics read "invites create users; recovery links restore
   // access". Ungated on current sessions (an owner may pre-empt a lockout).
   defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
@@ -923,7 +901,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "invites.revoke",
     method: "DELETE",
     path: "/api/invites/:tokenPrefix",
-    // owner unrestricted; member own-only is a typed Phase-3 precondition
+    // owner unrestricted; member own-only is a typed precondition
     // (invite-owner lookup, not in GuardDeps).
     auth: cap("invite:manage", authenticated),
     emits: ["invite_revoked", "invites_list"],
@@ -940,7 +918,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "sessions.revoke",
     method: "DELETE",
     path: "/api/sessions/:sessionPrefix",
-    // owner global / member self + not-last-owner lockout: typed Phase-3 preconditions.
+    // Owner global / member self + not-last-owner lockout: typed preconditions.
     auth: cap("session:manage", authenticated),
     emits: ["session_revoked", "sessions_active_list", "session_expired"],
     preconditions: ["sessionOwnerOrSelf", "notLastOwnerLockout"],
@@ -950,7 +928,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/sessions/current",
     // Cap is `authenticated` in the spec: any identity with a current session,
-    // no specific capability. not-last-owner lockout is a typed Phase-3 precondition.
+    // no specific capability. not-last-owner lockout is a typed precondition.
     auth: authn(authenticated),
     emits: ["session_expired"],
     preconditions: ["notLastOwnerLockout"],
@@ -1003,7 +981,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Office settings, validation, backends --------------------------------
   defineRoute<void, OfficeSettingsRes>({
     opId: "office.getSettings",
     method: "GET",
@@ -1056,7 +1033,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Tasks (global shared board; attribution from token) ------------------
   defineRoute<void, TaskItem[]>({
     opId: "tasks.list",
     method: "GET",
@@ -1071,6 +1047,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("task:read", operationalAuthenticated),
     emits: [],
   }),
+  // Task attribution comes from the caller token, never the request body.
   defineRoute<TaskCreateReq, TaskItem>({
     opId: "tasks.create",
     method: "POST",
@@ -1109,7 +1086,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["tasks"],
   }),
 
-  // --- Apps (agent-built web apps isomux runs) ------------------------------
   // The registry: register an app by name, isomux allocates the port. Ownership
   // is the USER's, so reads/deletes are owner-or-office-owner - the cronjob
   // rule, cronjobs being the precedent for "a thing isomux runs that is not an
@@ -1196,7 +1172,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["app_upserted"],
   }),
 
-  // --- The app-SELF surface (an app speaking for itself) --------------------
   // Singular `/api/app` on purpose: everything under /api/apps/:name is the
   // OWNER's management surface, and this is the one route the app itself
   // reaches. It carries no :name and no recipient - the token says which app is
@@ -1216,11 +1191,10 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["log_entry"],
   }),
 
-  // --- Memory (isomux-memory; durable shared facts) -------------------------
   // Three verbs: READ (whole file + version), APPEND (one server-stamped line),
   // REPLACE (whole-file overwrite, version-guarded). All scopes; authenticated +
-  // target-existence gated (permissive on every verb, no per-scope access gate -
-  // Nil's product decision; restraint lives in the system-prompt affordance).
+  // target-existence gated (permissive on every verb, no per-scope access gate;
+  // restraint lives in the system-prompt affordance).
   defineRoute<void, MemoryReadRes>({
     opId: "memory.read",
     method: "GET",
@@ -1243,9 +1217,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Skill usage (per-user Sk-menu sort counts; task f1769b1a) ------------
-  // The CALLER's own skill-use counters (keyed off the token/cookie userId,
-  // never a param - one user cannot read another's counts through this route).
+  // The CALLER's own skill-use counters order the skill menu. They are keyed off
+  // the token/cookie userId, never a param - one user cannot read another's
+  // counts through this route.
   // office:read keeps plain agent tokens out (they lack it); the Sk popover is
   // the intended consumer.
   defineRoute<void, SkillUsageCountsRes>({
@@ -1256,7 +1230,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Cronjobs -------------------------------------------------------------
   defineRoute<void, Cronjob[]>({
     opId: "cron.list",
     method: "GET",
@@ -1303,8 +1276,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.setPrompt",
     method: "PUT",
     path: "/api/cron-prompt",
-    // off the :id namespace to avoid shadowing /api/cronjobs/:id. Tightened to
-    // owner ([behavior-change]; today has no role check) - enforced in Phase 3.
+    // off the :id namespace to avoid shadowing /api/cronjobs/:id.
     auth: cap("cron:manage", officeOwner),
     emits: ["cronjobs_prompt_updated"],
   }),
@@ -1358,7 +1330,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["cron_run_log_entry"],
   }),
 
-  // --- System ---------------------------------------------------------------
   defineRoute<void, BackupStatusWire>({
     opId: "system.backupStatus",
     method: "GET",
@@ -1366,8 +1337,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
-  // Deployment version identity (release-channel slice C1). Any authenticated
-  // caller, agents included (Nil 2026-07-19): version identity is harmless
+  // Deployment version identity. Any authenticated caller, agents included:
+  // version identity is harmless
   // metadata and agents legitimately reason about what's deployed.
   defineRoute<
     void,
@@ -1380,7 +1351,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Storage (task 2366ccb0) ----------------------------------------------
   // Disk-usage breakdown of the office footprint. Same posture as
   // backupStatus - office:read + authenticated: every human, plus PRIVILEGED
   // agents (a plain agent token lacks office:read and gets 403). The handler
@@ -1413,12 +1383,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 ];
 
-// ---------------------------------------------------------------------------
 // Public login / static surface (NOT /api). Represented here as bypass metadata
 // so the "no public route reaches authorize()" invariant is testable over one
 // table. These stay bespoke origin-checked handlers in production (the
 // cookie-minting browser surface); they are never dispatched through authorize().
-// ---------------------------------------------------------------------------
 export const PUBLIC_ROUTES: readonly RouteDef[] = [
   defineRoute({
     opId: "auth.loginPage",
@@ -1476,7 +1444,6 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
   }),
 ];
 
-// The full table the contract tests sweep.
 export const ALL_ROUTES: readonly RouteDef[] = [
   ...API_ROUTES,
   ...PUBLIC_ROUTES,

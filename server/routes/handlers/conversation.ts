@@ -1,4 +1,4 @@
-// Agents - conversation resource handlers - Phase 3d slice 6a. The
+// Agents - conversation resource handlers. The
 // send/edit/cancel/sendNow/newConversation/resume/listSessions surface moves off
 // the WS command bus to REST. EXPAND+CUT in one slice (like slices 6/7): the rows
 // were table-declared but never handler-registered, so this slice BUILDS the
@@ -56,13 +56,13 @@ import { formatApiTokenDevice } from "../../../shared/identity.ts";
 // handler stays a thin mapper and the legacy POST /agents/:id/message contract
 // (400 self/unknown, 404 unknown-receiver, 409 agent_error/agent_stopped, 429
 // queue_full) is preserved bit-for-bit. 500 persist_failed is new with durable
-// queues (task 9870b472): the durable write failed, the message was rolled
+// queues: the durable write failed, the message was rolled
 // back, and the sender should retry.
-// `queued` (task 425facdd) is the enqueue outcome for THIS send: true = parked
+// `queued` is the enqueue outcome for THIS send: true = parked
 // behind the receiver's in-flight turn, false = handed straight to a turn.
 // Undefined when this call never learned the answer (a deduped retry acks the
 // original send), and the ack then omits the field rather than guessing false.
-// `steered` / `steerDeclined` (task 80b2bb08) answer the second question a
+// `steered` / `steerDeclined` answer the second question a
 // steering sender has - was a turn actually interrupted, and if not, which guard
 // rail refused. Both undefined unless this call asked to steer.
 export type SendAsAgentResult =
@@ -80,7 +80,7 @@ export type SendAsAgentResult =
       message: string;
     };
 
-// The self-handoff outcome (task 8883e45d). Mirrors SendAsAgentResult's failure
+// The self-handoff outcome. Mirrors SendAsAgentResult's failure
 // shape: the reset always runs, but the brief's transactional enqueue can fail
 // (persist_failed 500 / agent_stopped 409 / queue_full 429 / agent-gone 404), so
 // the handler maps a failure to a real HTTP error instead of a false {ok:true}.
@@ -127,8 +127,8 @@ export interface ConversationDeps {
     senderAgentId: string,
     text: string,
     clientMessageId: string | undefined,
-    // Interrupt the receiver's in-flight turn so this message lands now
-    // (task 80b2bb08). Enqueue + interrupt happen inside one manager call.
+    // Interrupt the receiver's in-flight turn so this message lands now.
+    // Enqueue + interrupt happen inside one manager call.
     steer: boolean,
   ): SendAsAgentResult;
   // CRON-RUN send. The dependency resolves the live job and constructs its
@@ -166,11 +166,11 @@ export interface ConversationDeps {
   ): void;
   cancelQueued(agentId: string, messageId: string): void;
   // Returns the outcome rather than void: "flush started" and "cannot flush"
-  // are different answers and the caller has to be able to tell them apart
-  // (task 5dcb0a02). Synchronous - it decides, then kicks the delivery off.
+  // are different answers and the caller has to be able to tell them apart.
+  // Synchronous - it decides, then kicks the delivery off.
   sendNow(agentId: string): SendNowResult;
   newConversation(agentId: string, agentType?: AgentBackendType): void;
-  // Self-handoff (task 8883e45d): reset the agent's session then deliver `text`
+  // Self-handoff: reset the agent's session then deliver `text`
   // into the fresh session as a self-handoff brief. The manager guards to one
   // in-flight handoff per agent (a concurrent second is rejected). AWAITED (not
   // fire-and-forget) so the brief's transactional enqueue failure surfaces as a
@@ -484,7 +484,7 @@ export function conversationHandlers(
       return noContent();
     },
 
-    // Scheduled-message outbox (task 8ff369b5). `:id` is the SENDER here; the
+    // Scheduled-message outbox. `:id` is the SENDER here; the
     // scheduledMessagesOwner guard already proved the caller may manage that
     // sender's outbox (the agent itself, or a user with room access to it).
     "agents.listScheduledMessages": (ctx) =>
@@ -499,7 +499,7 @@ export function conversationHandlers(
       return noContent();
     },
 
-    // Reports refusals instead of swallowing them (task 5dcb0a02). The common
+    // Reports refusals instead of swallowing them. The common
     // one is an agent in `error` after its backend died: every queue-flush
     // trigger is gated on an idle state, so the flush silently does nothing,
     // and the old unconditional 204 was indistinguishable from a delivery.
@@ -523,7 +523,7 @@ export function conversationHandlers(
       return noContent();
     },
 
-    // Instant self-handoff (task 8883e45d): reset the session then deliver the
+    // Instant self-handoff: reset the session then deliver the
     // brief into the fresh session, in one call. Same auth split as
     // newConversation (conversationReset). 422 on empty/missing text - a handoff
     // with no brief is useless, and matches resume's required-field style. AWAITS

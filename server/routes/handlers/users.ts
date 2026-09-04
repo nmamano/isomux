@@ -1,21 +1,14 @@
-// Users resource handlers - Phase 3d slice 3d.9b (Group 7, auth surface). The
+// Users resource handlers. The
 // user-management surface on the unified REST surface (opIds users.{list,update,
 // setAccess,delete}).
 //
-// EXPAND+CUT (re-verified in Phase 1, contra the group-7 scope note): UNLIKE
-// invites/sessions/access (registered in 3a), the users.* rows were table-
-// declared but NEVER registered - an unauth probe of /api/users returned the
-// LEGACY flat {error:"..."} shape (identical to a nonexistent path). So this
-// slice BUILDS the handlers AND deletes the WS update_user/delete_user/claim_user
-// cases.
-//
-// The update_user SPLIT (Nil-gated to OPTION A): users.update carries ONLY the
+// users.update carries ONLY the
 // record fields (name/env/prompt/avatar) via UserUpdateReq; users.setAccess
 // carries allowedRooms and PRUNE-clamps the target's existing notif/default
 // against the new accessible set in ONE write. View prefs (notif/default) are
-// SELF-only via view.* - owners no longer set a member's personal prefs (the
-// deliberate capability removal Nil chose over preserving it via a wider
-// SetAccessReq). claim_user's first-login pref migration becomes view.* PUTs.
+// SELF-only via view.* - owners do not set a member's personal prefs. That
+// capability was removed rather than preserved through a wider SetAccessReq.
+// claim_user's first-login pref migration becomes view.* PUTs.
 //
 // LEAF over the executor + shared types. The seam (isomux-office.ts) owns mutate→emit:
 // the deps run updateUserById/deleteUser + emitUserUpdated/emitUsersList/

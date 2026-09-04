@@ -1,4 +1,4 @@
-// Office-settings resource handlers - Phase 3a slice 3a.5. The office-wide
+// Office-settings resource handlers. The office-wide
 // prompt / display-name surface on the unified REST surface (opIds
 // office.{getSettings,setSettings}). Owner-only - the route table gates both with
 // office:admin + officeOwner.
@@ -40,7 +40,6 @@ export type ApplyOfficeSettingsResult =
   | { ok: false; conflict: true; version: string };
 
 export interface OfficeSettingsDeps {
-  // Editable settings + their optimistic-concurrency version.
   getSettings(): OfficeSettingsRes;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.

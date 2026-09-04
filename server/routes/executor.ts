@@ -1,10 +1,10 @@
-// HTTP executor - Phase 3a. The single pipeline that consumes the typed route
+// HTTP executor. The single pipeline that consumes the typed route
 // table for the migrated /api surface. Given a matched route + a resolved
 // identity, it runs:
 //
 //   authorize(route.auth) -> route preconditions -> idempotency.run(handler) -> render
 //
-// ORDER MATTERS (locked with Reviewer1): authorize + preconditions run on EVERY
+// ORDER MATTERS: authorize + preconditions run on EVERY
 // call and are NEVER cached, so a transient permission / last-owner / invite-
 // ownership change re-evaluates on a retry. Idempotency wraps ONLY the handler,
 // and only for a MUTATING method carrying an Idempotency-Key; GETs and keyless
@@ -30,7 +30,6 @@ import {
 } from "../identity/guards.ts";
 import type { IdempotencyCache } from "../transport/idempotency.ts";
 
-// --- Handler result model ---------------------------------------------------
 // A typed union so resource handlers never construct a Response directly; the
 // executor renders it (status, envelope, idempotency storage). `file` is for
 // byte/stream responses (agents.getFile); everything else is JSON / no-content /
@@ -295,7 +294,6 @@ export async function executeRoute(
     callerSessionIdHash: opts?.callerSessionIdHash,
   };
 
-  // Stage 1 + 2 authorization.
   const authz = runAuthorize(
     route.auth,
     identity,
@@ -305,7 +303,6 @@ export async function executeRoute(
   );
   if (!authz.ok) return render(fail(authz.status, authz.code));
 
-  // Preconditions: live-state semantic checks, never cached.
   for (const pid of route.preconditions ?? []) {
     const fn = deps.preconditions.get(pid);
     if (!fn) {
@@ -322,7 +319,6 @@ export async function executeRoute(
   const handler = deps.handlers.get(route.opId);
   if (!handler) return render(fail(404, "not_found"));
 
-  // Idempotency wraps ONLY the handler, for a mutating method with a key.
   const idempotencyKey =
     !isGet && !isMultipart ? req.headers.get("Idempotency-Key") : null;
 

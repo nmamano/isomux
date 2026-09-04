@@ -1,4 +1,4 @@
-// Cronjob resource handlers - Phase 3a slice 2. Cronjob metadata + runs on the
+// Cronjob resource handlers. Cronjob metadata + runs on the
 // unified REST surface (opIds cron.list/get/create/update/delete/runNow/setPrompt
 // /listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
 // live alongside these once 3a.2b lands.
@@ -102,7 +102,6 @@ export interface CronDeps {
     createdBy: string;
     username: string | undefined;
   };
-  // Returns an error message if the cwd is invalid, or null if it is fine.
   validateCwd(cwd: string): string | null;
   saveRecentCwd(cwd: string): void;
   modelFamilyError(
@@ -205,7 +204,6 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     },
 
     "cron.setPrompt": (ctx) => {
-      // Tightened to officeOwner via the route guard. value is string | null.
       const body = (ctx.body ?? {}) as Partial<CronPromptReq>;
       const value =
         typeof body.value === "string" && body.value.length > 0

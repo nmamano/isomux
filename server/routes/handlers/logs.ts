@@ -1,6 +1,5 @@
 // Conversation-log read surface - GET /api/agents/:id/logs (opId agents.logs).
-// Tasks da7b2899 (search your history) and b6d07978 (cleaned-up conversation
-// retrieval), which is the tier ladder below.
+// The tier ladder below supports history search and conversation retrieval.
 //
 // AUTH is `log:read` + the logSearchAccess guard: a human reaches any agent in
 // a room they can access, and an AGENT token reaches ITSELF plus any agent in a
@@ -9,9 +8,8 @@
 //
 // The target need not be ALIVE. A killed agent keeps its transcripts, and the
 // whole read path below is disk-backed (nothing here consults the roster), so
-// the only thing that had to change for task ffb90761 was the guard, which
-// answers for a dead agent on its own rule: the boss that spawned it, or an
-// office owner.
+// the guard answers for a dead agent on its own rule: the boss that spawned it,
+// or an office owner.
 //
 // Read-only: nothing lands in chat, so the route emits nothing.
 //
@@ -65,7 +63,7 @@ export interface LogsDeps {
     query: LogQuery,
   ): Promise<SearchOutcome>;
   // Which two-step prompt the agent is parked on RIGHT NOW, or null when it is
-  // not parked (task 29daebe2). Null for a killed agent, which cannot be
+  // not parked. Null for a killed agent, which cannot be
   // waiting for anything.
   pendingPrompt(agentId: string): PendingPromptKind | null;
   // Live turn state for this agent. Null for killed/idle agents.
@@ -99,7 +97,7 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
         }
       }
 
-      // LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). Attached to the
+      // LIVE AGENT STATE, NOT SESSION HISTORY. Attached to the
       // two transcript-reading modes because that is where its absence misled
       // people: a permission prompt is written as an ephemeral log entry, so it
       // never reaches disk, and a reader sees a turn that simply stops and

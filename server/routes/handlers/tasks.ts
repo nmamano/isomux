@@ -1,4 +1,4 @@
-// Tasks resource handlers - Phase 3a slice 1. The global shared board on the
+// Tasks resource handlers. The global shared board on the
 // unified REST surface (opIds tasks.{list,get,create,update,claim,done,delete}).
 //
 // Strangler: complete. These handlers are the ONLY task surface - the legacy
@@ -102,7 +102,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       // office-global tasks; the status/assignee/title filters narrow within that.
       const accessible = deps.accessibleRoomIds(ctx.identity);
       let filtered = deps.listTasks().filter((t) => taskVisible(t, accessible));
-      // Explicit room filter (task 43c55a3b), same grammar as the create/update
+      // Explicit room filter, same grammar as the create/update
       // roomId field so one value means one thing across all three verbs:
       //   ?roomId=<id>  -> that room only, IF the caller can access it
       //   ?roomId=      -> office-global tasks only
@@ -152,7 +152,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (body.priority !== undefined && !isValidPriority(body.priority)) {
         return fail(400, "invalid_request", "invalid priority, must be P0-P3");
       }
-      // Resolve which room the task is filed under (Nil's create-stamping rule):
+      // Resolve which room the task is filed under:
       //   - body omits roomId       → scope default (agent's room / global)
       //   - body roomId === ""       → office-global (explicit)
       //   - body roomId is a room id → that room, IF the caller can access it
@@ -197,7 +197,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
           "invalid status, must be open|in_progress|backlog|done",
         );
       }
-      // `priority: null` CLEARS the priority (task dc642af2); anything else
+      // `priority: null` CLEARS the priority; anything else
       // non-null must name a real level. An empty string is not a clear - it is
       // a malformed level, same as "P9".
       if (

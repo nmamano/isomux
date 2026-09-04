@@ -1,4 +1,4 @@
-// Agents - browser editor resource handlers - Phase 3d slice 6b. The
+// Agents - browser editor resource handlers. The
 // open/save/close file surface moves off the WS command bus to REST. EXPAND+CUT
 // in one slice (like 6a): the rows were table-declared but never handler-
 // registered.

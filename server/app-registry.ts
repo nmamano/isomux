@@ -11,7 +11,7 @@
 // app for as long as that app exists, and there is no verb that rewrites either
 // - both outlive isomux's reach the moment somebody bookmarks the address, so
 // moving a live app's address is the failure this registry exists to prevent.
-// Deleting an app frees both for reuse (Nil's ruling, 2026-08-06). What is
+// Deleting an app frees both for reuse. What is
 // NEVER freed is the app's hostname lineage: the ledger in apps.json records
 // every label ever issued. A reused name returns to the lineage's most recently
 // issued address. A separate registration generation prevents server-held app
@@ -67,8 +67,6 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import type { AppRecord } from "../shared/types.ts";
 import type { AppErrorCode } from "../shared/contract-shapes.ts";
 
-// --- constants --------------------------------------------------------------
-
 // The allocation window. Chosen to dodge three separate hazards rather than for
 // aesthetics:
 //   - ABOVE 10080, the highest entry in the WHATWG fetch spec's "bad port" list
@@ -81,7 +79,7 @@ import type { AppErrorCode } from "../shared/contract-shapes.ts";
 export const APP_PORT_MIN = 21000;
 export const APP_PORT_MAX = 21999;
 
-// Sanity ceiling, not a product limit (Nil's ruling: no app cap beyond a sanity
+// Sanity ceiling, not a product limit: there is no app cap beyond a sanity
 // check). A plain constant - nothing about it differs per deployment.
 export const MAX_REGISTERED_APPS = 100;
 
@@ -126,8 +124,6 @@ export const RESERVED_APP_NAMES: ReadonlySet<string> = new Set([
   "cdn",
 ]);
 
-// --- errors -----------------------------------------------------------------
-
 // Every refusal and every failure the registry can raise, carrying the wire
 // `error.code` the caller will see. The handler maps code -> HTTP status; the
 // registry decides nothing about transport.
@@ -155,8 +151,6 @@ const corrupt = (file: string, why: string): AppRegistryError =>
       `retry. Do not delete it or move it aside - missing state is treated as a ` +
       `fresh registry.`,
   );
-
-// --- pure validation --------------------------------------------------------
 
 // Validate a proposed app name against the grammar and the reserved list.
 // Returns the error to raise, or null when the name is acceptable. REJECTS
@@ -226,8 +220,6 @@ export function assertDescription(description: string): void {
   }
 }
 
-// --- port allocation --------------------------------------------------------
-
 // Whether a port can actually be bound right now. Skips the two "somebody else
 // has it" outcomes and PROPAGATES anything else, so a programmer or system
 // error surfaces instead of quietly reading as "port busy" a thousand times
@@ -272,8 +264,6 @@ export function allocatePort(
   );
 }
 
-// --- label allocation -------------------------------------------------------
-
 // One issued hostname label, kept forever. `label` is the origin; `name` and
 // `gen` say which app generation it was minted for, and are what makes the
 // reverse collision rule below expressible - a bare list of strings cannot tell
@@ -310,7 +300,6 @@ export function labelFor(name: string, gen: number): string {
 // ledger, so an over-long candidate is never proposed and never returned - the
 // only way past the check is a name that has genuinely been recycled ~100
 // times, and the honest answer there is "use a different name".
-// --- persistence ------------------------------------------------------------
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
@@ -738,8 +727,6 @@ function archiveDataDir(dataRoot: string, name: string, at: number): void {
   }
   renameSync(from, to);
 }
-
-// --- the registry -----------------------------------------------------------
 
 export interface RegisterAppInput {
   name: string;

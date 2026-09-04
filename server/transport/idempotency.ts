@@ -1,4 +1,4 @@
-// Centralized Idempotency-Key middleware - Phase 2.3. Idempotency lives at the
+// Centralized Idempotency-Key middleware. Idempotency lives at the
 // transport layer, not per-endpoint. See
 // internal-docs/generic-runtime-refactor.md → Conventions "Idempotency".
 //
@@ -16,10 +16,6 @@
 // key+body awaits the first call's result rather than double-running the handler;
 // a concurrent same-key call with a DIFFERENT body still 409s. Failures are NOT
 // cached (a rejected handler evicts the in-flight entry so a retry re-runs).
-//
-// Today's per-receiver `clientMessageId` queue dedup folds into this in Phase 3.
-// ADDITIVE: standalone + unit-tested in 2.3; not wired into the live HTTP path
-// (the live clientMessageId path keeps running).
 
 import { createHash } from "crypto";
 import type { Identity } from "../identity/index.ts";

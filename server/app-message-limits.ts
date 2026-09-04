@@ -22,8 +22,6 @@
 // while persisting it would put a disk write on every message. Nothing here
 // claims to be durable, and the report says the same.
 
-// --- constants (plain named values, no env vars) -----------------------------
-
 // Burst: how many messages one app may send in the window. Five rather than
 // three so an event-driven app (a webhook that fires a few times in a row, a
 // nightly job reporting several results) does not trip the limit doing something
@@ -44,8 +42,6 @@ export const APP_MESSAGE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 // is JS string length (UTF-16 code units), not bytes - what the caller counted
 // in its own source is what is measured here.
 export const APP_MESSAGE_MAX_CHARS = 4000;
-
-// --- the limiter -------------------------------------------------------------
 
 export type AppMessageLimitOutcome =
   | { ok: true }

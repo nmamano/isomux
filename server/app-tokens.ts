@@ -38,8 +38,6 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import { APP_CAPABILITIES, type Identity } from "./identity/index.ts";
 import { appRegistry } from "./app-registry.ts";
 
-// --- constants --------------------------------------------------------------
-
 // 256 bits, matching the agent/cron-run tokens and auth.ts's session tokens.
 const TOKEN_BYTES = 32;
 
@@ -57,16 +55,12 @@ export const APP_TOKEN_DIR_MODE = 0o700;
 // than written.
 export const APP_TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-// --- errors -----------------------------------------------------------------
-
 export class AppTokenError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "AppTokenError";
   }
 }
-
-// --- persistence ------------------------------------------------------------
 
 interface StoredAppToken {
   hash: string; // sha256(raw) hex
@@ -102,8 +96,6 @@ function safeHashEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
-
-// --- the store --------------------------------------------------------------
 
 export interface AppTokenStore {
   // Mint a token for an app, replacing any it already had. Returns the
@@ -260,8 +252,6 @@ export function createAppTokenStore(
 
 // Production singleton over STATE_ROOT/apps. Touches no disk until used.
 export const appTokens: AppTokenStore = createAppTokenStore();
-
-// --- identity ---------------------------------------------------------------
 
 // Resolve a bearer to an APP identity, or null. Wired into the ONE bearer
 // resolution point (auth-middleware), after the in-memory agent/cron-run store.

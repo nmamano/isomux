@@ -1,4 +1,4 @@
-// The sign-in handshake for registered-app hostnames (phase 3, slice 4).
+// The sign-in handshake for registered-app hostnames (slice 4).
 //
 // An app lives at `hello.office.example` and the office at `office.example`.
 // The office session cookie is host-only, deliberately - that is what keeps a
@@ -46,8 +46,6 @@ import {
   handshakeRedirect,
   neutralNotFound,
 } from "./app-host-responses.ts";
-
-// --- constants (plain named values, no env vars) -----------------------------
 
 // The app-host route the handshake lands on, inside the `/__isomux` prefix
 // slice 3 reserved for it. An app can never serve or shadow this path.
@@ -110,8 +108,6 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 const TOKEN_BYTES = 32; // 256 bits, matching the office session id
 
-// --- primitives -------------------------------------------------------------
-
 function randomTokenValue(): string {
   return randomBytes(TOKEN_BYTES).toString("base64url");
 }
@@ -127,8 +123,6 @@ function safeHashEq(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
-
-// --- fixed-window rate limiting ---------------------------------------------
 
 // Same shape as ready-limiter.ts, twice, with the failure posture as a
 // constructor argument because the two sides fail in opposite directions:
@@ -182,8 +176,6 @@ const redeemLimiter = new FixedWindowLimiter(
   true,
 );
 
-// --- the two tables ---------------------------------------------------------
-
 // A minted, not-yet-redeemed code. `codeHash` is stored alongside being the
 // map key so the constant-time re-check after a lookup has something to
 // compare against; the raw code is never stored anywhere.
@@ -233,8 +225,6 @@ function pruneExpired<T extends { expiresAt: number }>(
   }
 }
 
-// --- return-path validation (pure) ------------------------------------------
-
 // `r` is a path on the app host and nothing else. The rules exist so that a
 // crafted value cannot turn the handshake into an open redirect, and so that
 // the value can be put in a `Location` header without any further escaping:
@@ -267,11 +257,8 @@ export function validateReturnPath(raw: string | null): string | null {
   return raw;
 }
 
-// --- who may start the handshake (pure) -------------------------------------
-
 // Only a request that could actually FINISH the handshake is sent into it.
-// Manager ruling, 2026-08-06 (final, after two revisions), and the first half
-// of it is about correctness rather than security:
+// The first half of this rule is about correctness rather than security:
 //
 //   - a 302 on a POST loses the method and the body, so an unauthenticated
 //     form submission would arrive at the app as a GET with nothing in it;
@@ -319,8 +306,6 @@ export function mayInitiateHandshake(req: Request): boolean {
   return mode === "navigate" && dest === "document";
 }
 
-// --- the app cookie ---------------------------------------------------------
-
 // Attributes in the same order auth.ts writes the office cookie. `Secure` is
 // unconditional: the app-host arm only exists on an https office, and the
 // `__Host-` prefix makes a browser drop the cookie without it.
@@ -358,8 +343,6 @@ export function readAppCookie(req: Request): string | null {
   }
   return null;
 }
-
-// --- the code store ---------------------------------------------------------
 
 export type MintFailure = "rate_limited" | "no_capacity";
 
@@ -434,8 +417,6 @@ export function redeemAppCode(
     return null;
   return record;
 }
-
-// --- the app-session store --------------------------------------------------
 
 // Start a session for a redeemed code. The deadline is the office session's
 // absolute cap or this session's own TTL, whichever comes first: an app
@@ -561,8 +542,6 @@ export function invalidateAppRegistration(
   }
 }
 
-// --- office side: GET /auth/app?app=<label>&r=<path> -------------------------
-
 // Exactly one value per parameter. A repeated parameter is a request somebody
 // built by hand, and "first one wins" is the kind of ambiguity that turns into
 // a bypass when two layers disagree about which one won.
@@ -595,7 +574,7 @@ function liveAppByLabel(
 //
 // The wall does NOT bring a CSRF check with it - authenticate() checks Origin
 // only on unsafe methods - so this GET can be triggered cross-site by any page
-// a signed-in user visits. Accepted deliberately (manager ruling, 2026-08-06):
+// a signed-in user visits. Accepted deliberately:
 // the attacker cannot read the code, the cookie it produces is bound to the
 // victim's own session and to an app that user may already open, and the cost
 // is a slice of that session's mint budget. It is the shape every SSO
@@ -611,7 +590,6 @@ export function handleAppMintRequest(
     now?: number;
   },
 ): Response {
-  // Defined as a GET. Any other method is not this route at all.
   if (req.method !== "GET") return neutralNotFound();
   // No app-host domain means this office has no app hostnames, so there is no
   // origin to send anybody to. Same refusal as an unknown label: the office's
@@ -653,8 +631,6 @@ export function handleAppMintRequest(
     `https://${appHost}${APP_AUTH_PATH}?code=${encodeURIComponent(minted.code)}`,
   );
 }
-
-// --- app-host side ----------------------------------------------------------
 
 export interface AppHostContext {
   // The request's normalized Host, and the live app it resolved to. Both come

@@ -127,7 +127,6 @@ export interface AppsDeps {
   capturePreview(app: AppRecord): Promise<AppPreviewResult>;
   invalidatePreview(name: string): void;
 
-  // --- the wire seam -------------------------------------------------------
   // Tell every socket that may see this app about it. Called with the SAME wire
   // object the response carries, so what the caller is told and what the office
   // is told cannot drift. Only ever called for an outcome that COMMITTED: a
@@ -142,7 +141,6 @@ export interface AppsDeps {
   // creator facts after the registry removes it.
   announceRemoved(app: AppRecord): void;
 
-  // --- the token seam (server/app-tokens.ts + the supervisor) --------------
   // Provision the app's token: mint it, persist its hash, and write the
   // plaintext into the environment file its unit reads. Returns whether the app
   // ended up with one. NEVER throws - an app that could not be given a token is
@@ -159,7 +157,6 @@ export interface AppsDeps {
   retireRegistration(app: AppRecord): void;
   invalidateRegistration(app: AppRecord): void;
 
-  // --- the supervisor seam (server/app-supervisor.ts) ---
   // Write the unit and start the app. Throws only when the unit could not be
   // INSTALLED; an app that installs and then fails to run is a state, not an
   // error (see the register handler).
@@ -178,7 +175,6 @@ export interface AppsDeps {
   states(names: readonly string[]): Map<string, AppRuntime>;
   logs(name: string, lines: number): string[];
 
-  // --- the messaging seam (apps.sendMessage) --------------------------------
   // Deliver a message from `appName` to `targetAgentId`. The SENDER is built
   // server-side by the wiring, from the app name the token resolved to - so
   // nothing a caller writes can appear as the sender, and no app can speak as
@@ -602,7 +598,6 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // and how it is labelled comes from the app's registered name. A body field
     // for any of those would be a field to lie in.
     "apps.sendMessage": (ctx) => {
-      // appScope proved both the scope and the presence of appName.
       const appName = ctx.identity.appName ?? "";
       const body = (ctx.body ?? {}) as { text?: unknown };
       if (typeof body.text !== "string" || body.text.trim() === "") {

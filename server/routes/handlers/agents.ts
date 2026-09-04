@@ -1,4 +1,4 @@
-// Agent-lifecycle resource handlers - Phase 3d slice 7. The agent
+// Agent-lifecycle resource handlers. The agent
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
 // unified REST surface (every op caps `agent:manage`).
 //
@@ -41,8 +41,8 @@ import type { AgentInfo } from "../../../shared/types.ts";
 import { DESK_COUNT, isValidDesk } from "../../../shared/desks.ts";
 
 // A desk outside the room's grid names no slot to draw the agent at, so both
-// spawn and revive reject it here rather than letting it reach the core (task
-// e87d9c7d: spawn used to create a real but unrenderable agent that broke the
+// spawn and revive reject it here rather than letting it reach the core. Spawn
+// used to create a real but unrenderable agent that broke the
 // office view for the whole room; revive reported it as an occupied desk).
 const DESK_RANGE_MESSAGE = `desk must be a whole number from 0 to ${DESK_COUNT - 1}`;
 import type {
@@ -79,8 +79,8 @@ export type EditResult =
         | "edit_failed";
       message: string;
     }
-  // The customInstructions blob changed since the caller's read (task
-  // 44a2c98d): carries the CURRENT version so the caller can re-read and
+  // The customInstructions blob changed since the caller's read: carries the
+  // CURRENT version so the caller can re-read and
   // retry. Mapped to 409 version_conflict.
   | { ok: false; reason: "version_conflict"; version: string };
 // revive delegates to the core, which already returns this discriminated shape.
@@ -93,8 +93,8 @@ export interface AgentsDeps {
   // guard already gated existence + access, so a stale id is a harmless no-op.
   kill(agentId: string): Promise<void>;
   // Stops whatever the agent is doing: cancels the in-flight turn, and denies
-  // a permission prompt it is parked on. Returns the outcome rather than void
-  // (task 29daebe2) - an agent with no turn and no prompt has nothing to stop,
+  // a permission prompt it is parked on. Returns the outcome rather than void:
+  // an agent with no turn and no prompt has nothing to stop,
   // and reporting that as success told operators the opposite of the truth.
   abort(agentId: string): Promise<AbortResult>;
   // Moves an agent to targetRoomId. Returns the moved AgentInfo (or, for a
@@ -114,14 +114,10 @@ export interface AgentsDeps {
         ok: false;
         reason: "no_free_desk" | "room_not_found" | "agent_not_found";
       };
-  // Swaps two desks within a room. No-op safe.
   swapDesks(roomId: string, deskA: number, deskB: number): void;
-  // Sets an agent's topic. No-op safe.
   setTopic(agentId: string, topic: string): void;
-  // Clears an agent's topic (back to auto-generated). No-op safe.
   clearTopic(agentId: string): void;
 
-  // --- response-driven trio (7b) -------------------------------------------
   // Token-derived attribution (createdBy/username from identity, NEVER the body),
   // so a spawning user can't be spoofed; spawn reads userId off the identity too.
   attributionFor(identity: Identity): {
@@ -168,7 +164,7 @@ export interface AgentsDeps {
     agentId: string,
     privileged: boolean,
   ): Promise<AgentInfo | null>;
-  // Live AgentInfo lookup for the instructions read (task 68891fa1). The
+  // Live AgentInfo lookup for the instructions read. The
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
   getAgent(agentId: string): AgentInfo | undefined;
@@ -218,8 +214,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       return noContent();
     },
 
-    // Sanctioned read of the customInstructions blob + version token (task
-    // 68891fa1): the read half of the read-then-PATCH flow agents.update's
+    // Sanctioned read of the customInstructions blob + version token: the read
+    // half of the read-then-PATCH flow agents.update's
     // version guard expects. Authorization is the route's `authenticated` +
     // agentParam guard (every agent with room access may read - see table.ts);
     // this just projects the two fields off the live agent.
@@ -288,7 +284,6 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.cwd !== "string" || b.cwd.length === 0) {
         return fail(422, "invalid_cwd", "cwd is required");
       }
-      // roomId is guaranteed by the bodyRoom("roomId") guard; read defensively.
       if (typeof b.roomId !== "string" || b.roomId.length === 0) {
         return fail(422, "invalid_request", "roomId is required");
       }
@@ -363,7 +358,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
-      // Blob-bearing writes are version-guarded (task 44a2c98d): a PATCH that
+      // Blob-bearing writes are version-guarded: a PATCH that
       // carries customInstructions must echo the agent's
       // customInstructionsVersion - read off full_state / agent_updated (UI)
       // or GET /api/agents/:id/instructions (agents.readInstructions, the

@@ -1,4 +1,4 @@
-// The HTTP relay behind app hostnames (phase 3, slice 5).
+// The HTTP relay behind app hostnames (slice 5).
 //
 // Slices 3 and 4 built the road: a request whose Host is a strict child of the
 // office host is diverted before any office handler sees it, and a caller who
@@ -36,8 +36,6 @@ import {
   neutral,
 } from "./app-host-responses.ts";
 
-// --- constants (plain named values, no env vars) -----------------------------
-
 // How long the app has to produce RESPONSE HEADERS. Cleared the moment they
 // arrive: a stream that then runs for a day is a feature (SSE), so this can
 // never become a total-duration cap.
@@ -62,8 +60,6 @@ export const APP_RELAY_MAX_CONCURRENT_TOTAL = 512;
 // already applies - the app-host arm is the same Bun.serve as the office - so a
 // second number here would be one more thing to keep consistent with the
 // office's own story, buying no behavior it does not already have.
-
-// --- header sets (pure) ------------------------------------------------------
 
 // RFC 7230 section 6.1: connection-specific, never forwarded by a proxy in
 // either direction. `Connection` also NAMES further headers that are
@@ -173,8 +169,6 @@ export function stripIsomuxCookies(header: string | null): string | null {
   return kept.length > 0 ? kept.join("; ") : null;
 }
 
-// --- concurrency permits -----------------------------------------------------
-
 // Keyed by the app's ISSUANCE - label plus generation - and never by its name.
 // A name is reusable: an app can be deleted and re-registered while one of its
 // responses is still unwinding, and a release from the dead app must not
@@ -228,8 +222,6 @@ export function _testResetRelay(): void {
   totalInFlight = 0;
 }
 
-// --- building the upstream request (pure) -----------------------------------
-
 // The peer address as an `X-Forwarded-For` node.
 //
 // Bun reports a loopback peer on a dual-stack socket as `::ffff:127.0.0.1` -
@@ -280,7 +272,6 @@ export function buildUpstreamHeaders(
   return out;
 }
 
-// The headers the browser sees.
 export function buildDownstreamHeaders(
   upstream: Response,
   opts: { rewriteEncoding: boolean },
@@ -309,10 +300,7 @@ export function buildDownstreamHeaders(
   return out;
 }
 
-// --- the relay ---------------------------------------------------------------
-
 export interface RelayContext {
-  // The live app record, and the normalized hostname the arm resolved it from.
   app: AppRecord;
   host: string;
   // The SAME registry snapshot the arm matched the label against. Passed in
@@ -383,14 +371,12 @@ export async function relayToApp(
     ac.abort();
     terminateStartedResponse();
   });
-  // 1. The app is running - proven before anything opens a socket.
   const running = proveAppRunning(ctx);
   if (!running.ok) {
     stopWatchingRetirement();
     return running.response;
   }
 
-  // 2. A permit, taken in this same synchronous turn.
   const permit = acquirePermit(permitKey(ctx.app), {
     perApp: ctx.maxPerApp ?? APP_RELAY_MAX_CONCURRENT_PER_APP,
     total: ctx.maxTotal ?? APP_RELAY_MAX_CONCURRENT_TOTAL,

@@ -1,4 +1,4 @@
-// Access-settings resource handlers - Phase 3a slice 3a.4c. The office
+// Access-settings resource handlers. The office
 // bind/origin policy on the unified REST surface (opIds office.{getAccess,
 // setAccess}). Owner-only - the route table gates both with office:admin +
 // officeOwner; there is no member or scoped variant.

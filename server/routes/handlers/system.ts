@@ -1,8 +1,8 @@
-// System resource handlers - Phase 3a slice 3a.6 (backup health probe) plus
+// System resource handlers for the backup health probe and
 // the deployment version identity (release-channel slice C1). backupStatus is
 // office:read + authenticated (any human, plus privileged agents); version is
-// authenticated-only - every signed-in caller, agents included (Nil
-// 2026-07-19): version identity is harmless metadata.
+// authenticated-only: every signed-in caller, agents included. Version identity
+// is harmless metadata.
 //
 // GET /api/backup/status returns the NORMALIZED wire shape
 // { lastRunAt, ok, error, retention, destDir } - a rename/projection of the

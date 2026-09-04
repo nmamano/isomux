@@ -1,4 +1,4 @@
-// The relay's WebSocket client to an app on loopback (phase 3, slice 6a).
+// The relay's WebSocket client to an app on loopback (slice 6a).
 //
 // One connection to one app, over a raw TCP socket, using the codec in
 // ws-frames.ts. Bun's own WebSocket client would be less code; it is not used
@@ -73,8 +73,6 @@ import {
   type DecodedMessage,
 } from "./ws-frames.ts";
 
-// --- limits (plain named values, no env vars) --------------------------------
-
 // The largest message relayed in either direction. Applies to a single frame and
 // to a reassembled fragmented message alike. 1MB is far above what a WebSocket
 // app protocol sends per message and far below anything that threatens the
@@ -143,8 +141,6 @@ function withCause(existing: string | null, cause: string): string {
 
 // The fixed GUID every WebSocket handshake hashes with (RFC 6455 section 1.3).
 const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-
-// --- request building (pure) -------------------------------------------------
 
 // A header name must be an RFC 7230 token, and a value must carry no control
 // character. This is not pedantry: the request below is BYTES, assembled with
@@ -252,8 +248,6 @@ export function handshakeAccept(key: string): string {
     .update(key + WS_GUID)
     .digest("base64");
 }
-
-// --- handshake response validation (pure) ------------------------------------
 
 export type HandshakeCheck =
   | { ok: true; protocol: string | null }
@@ -369,10 +363,7 @@ export function checkHandshakeResponse(
   return { ok: true, protocol: chosen };
 }
 
-// --- the connection ----------------------------------------------------------
-
 export type SendOutcome =
-  // Handed to the socket or queued inside the cap.
   | "sent"
   // Over the queue ceiling: the caller's contract is to end the connection.
   | "queue_full"
@@ -572,8 +563,6 @@ export class AppUpstream {
     this.finish({ code: null, reason: "", abnormal: true, detail });
   }
 
-  // --- internals -------------------------------------------------------------
-
   private enqueue(frame: Buffer, isControl: boolean): SendOutcome {
     const ceiling = isControl
       ? this.limits.queueMaxBytes
@@ -766,8 +755,8 @@ export class AppUpstream {
   //     could leave. The handshake did not complete. The peer's code and reason
   //     are still the truth about WHY, so they are kept - but calling this clean
   //     would make a peer that vanishes mid-goodbye look exactly like one that
-  //     completed the exchange, which is the same false-clean error in the
-  //     opposite direction from the one fixed last round.
+  //     completed the exchange, which is the false-clean error in the opposite
+  //     direction.
   //   - a pending close of OUR OWN with nothing owed back is the other direction:
   //     we said goodbye and the peer never answered.
   //   - neither: nothing was exchanged at all, so there is no code to report.
@@ -826,13 +815,10 @@ export class AppUpstream {
     try {
       this.socket.end();
     } catch {
-      // Already gone; nothing to do.
     }
     this.handlers.onClose(event);
   }
 }
-
-// --- dialing ----------------------------------------------------------------
 
 // Connect, upgrade, and hand back a live connection - or a failure that the
 // relay can turn into an HTTP status, because none of this has happened behind a
@@ -910,7 +896,6 @@ export async function dialAppUpstream(
       try {
         socket?.end();
       } catch {
-        // already gone
       }
       return true;
     };
@@ -929,7 +914,6 @@ export async function dialAppUpstream(
       try {
         socket?.end();
       } catch {
-        // already gone
       }
     };
 
@@ -984,9 +968,9 @@ export async function dialAppUpstream(
             return;
           }
           if (abandoned(socket)) return;
-          // --- 4. PHASE BOUNDARY. The response is not even looked at until our
-          // request has left in full. A peer that answers early - it has seen the
-          // key by then, so it can produce a valid-looking 101 - would otherwise
+          // The response is not inspected until our request has left in full. A
+          // peer that answers early has seen the key by then, so it can produce
+          // a valid-looking 101. It would otherwise
           // get a connection published while HTTP bytes were still queued behind
           // it, and the next drain would write the tail of an HTTP request into
           // what is now a WebSocket stream. A real server cannot answer before it

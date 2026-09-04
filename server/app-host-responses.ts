@@ -14,8 +14,6 @@
 // code or session material, so there is no reflection surface at all, and no
 // response varies with who is asking.
 
-// --- bodies -----------------------------------------------------------------
-
 // The refusal. Sent for a label that names no live app - never issued, or
 // issued once and retired - and for anything under an app host that is not a
 // route. "This label used to be somebody's app" is not the internet's
@@ -102,8 +100,6 @@ export const APP_WS_PROTOCOL_MISMATCH_BODY =
 // nothing they can act on - it is here rather than as a bare status so the
 // surface has no unnamed bodies.
 export const APP_WS_UPGRADE_FAILED_BODY = "websocket upgrade failed\n";
-
-// --- responses --------------------------------------------------------------
 
 // The plain refusal, exactly as slice 3 shipped it. Byte-for-byte frozen:
 // app-host-dispatch.test.ts compares whole responses, and the indistinguisha-
