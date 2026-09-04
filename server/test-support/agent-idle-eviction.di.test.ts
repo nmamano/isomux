@@ -90,7 +90,7 @@ const WAKE_PARTIAL =
 const WAKE_REJECTION_TALK = "rejected";
 const WAKE_CATEGORICAL = "is from the shutdown, not a human";
 // The built-in envelope block runAgentTurn wraps the note in on its way to the
-// backend (plugin-hooks.ts). Its presence in a sent prompt is what proves the
+// backend (agent-turn.ts). Its presence in a sent prompt is what proves the
 // AGENT was told, not just the isomux log.
 const WAKE_BLOCK_OPEN = "--- begin isomux: wake-notice ---";
 

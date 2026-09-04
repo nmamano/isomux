@@ -45,7 +45,7 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
-import { stripOutboundEnvelope } from "./plugin-hooks.ts";
+import { stripOutboundEnvelope } from "./agent-turn.ts";
 import { memorySection } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import type {
@@ -1890,7 +1890,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
     // block (such as a context-fullness notice)
     // contributed a prefix block - the SDK records the wrapped form built in
-    // plugin-hooks.ts, but log entries only carry `sdkText`. Without the strip,
+    // agent-turn.ts, but log entries only carry `sdkText`. Without the strip,
     // every edit on a turn that carried an envelope block would fall through to
     // the "could not locate" branch below.
     let matchCount = 0;

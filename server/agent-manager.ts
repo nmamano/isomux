@@ -201,7 +201,7 @@ import {
   CONTEXT_NOTICE_BANDS,
   CONTEXT_NOTICE_SAMPLE_WAIT_MS,
   formatMemoryNotice,
-} from "./plugin-hooks.ts";
+} from "./agent-turn.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
 import { stripAttachmentNotices } from "./attachment-prompt.ts";
 // --- Dependency injection (Phase 0.2) ---

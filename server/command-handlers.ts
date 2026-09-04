@@ -52,7 +52,7 @@ import {
   type AgentEvent,
   type EnqueueResult,
 } from "./internal-types.ts";
-import { runAgentTurn } from "./plugin-hooks.ts";
+import { runAgentTurn } from "./agent-turn.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 

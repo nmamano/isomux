@@ -4,9 +4,9 @@
  * `runAgentTurn` is the single entry point for every send-and-await-turn
  * path: sendMessage, flushQueue, executeSkill, editMessage. It owns:
  *
- *   1. Assembling the outbound envelope from built-in blocks (the wake,
- *      context-fullness and memory-size notices - server coordination, NOT
- *      plugins), prepended to the outgoing text with a `User message:` separator.
+ *   1. Assembling the outbound envelope from the built-in blocks (the wake,
+ *      context-fullness and memory-size notices), prepended to the outgoing
+ *      text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
  *      matching).
  *   2. beginTurn + createTurnDeferred + session.send + await turn.

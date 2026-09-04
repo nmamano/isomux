@@ -17,7 +17,7 @@ A watchdog sweep (`sweepStuckFlushes`, `:3873`) treats "items queued while the a
 flush in progress" as a bug and re-fires the flush; a flush stuck over 60s gets a forced session replacement
 (rate-limited to one per 5 min).
 
-**Turn assembly.** `runAgentTurn` (`server/plugin-hooks.ts:2-20`) is the single send-and-await entry point for
+**Turn assembly.** `runAgentTurn` (`server/agent-turn.ts:2-20`) is the single send-and-await entry point for
 every path that produces a model turn: `sendMessage`, `flushQueue`, `executeSkill`, `editMessage`. It assembles
 an outbound envelope (`:201-241`): server built-in blocks first (context-fullness notice, session-start memory
 notice), then plugin blocks, then the payload. Built-ins are consumed (marked fired) only **after** the send is
@@ -177,7 +177,7 @@ that happened automatically" is no longer guaranteed.
 
 **B'. Separate channel, server-delivered.** Same separate store, same untouched delivery core, but the content
 rides the envelope directly, as a third **built-in block** in `runAgentTurn` alongside the context and memory
-notices (`plugin-hooks.ts:201-241`). That is one integration point, not several: `runAgentTurn` is the single
+notices (`agent-turn.ts:201-241`). That is one integration point, not several: `runAgentTurn` is the single
 send-and-await path for `sendMessage`, `flushQueue`, `executeSkill`, and `editMessage`, and handoff, scheduled,
 and cron deliveries all reach a turn through it. Local slash commands produce no model turn and correctly see nothing.
 

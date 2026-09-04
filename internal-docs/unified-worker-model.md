@@ -8,7 +8,7 @@ Isomux today has roughly five de-facto runtime categories. Each one was added fo
 
 | # | Category | Lives as | "Trigger" | "Function" |
 |---|---|---|---|---|
-| 1 | Agent turn | `agent-manager.ts` + `runAgentTurn` in `plugin-hooks.ts` | boss msg, queued, skill, edit-fork | `session.send` to provider CLI |
+| 1 | Agent turn | `agent-manager.ts` + `runAgentTurn` in `agent-turn.ts` | boss msg, queued, skill, edit-fork | `session.send` to provider CLI |
 | 2 | HTTP routes | manual `pathname` switch in `index.ts` (~7 path families) | HTTP request | hand-written response handler |
 | 3 | Task board | HTTP routes + JSON file | POST /tasks | `addTask` / `updateTask` |
 | 4 | Cronjob | `cronjob-manager.ts` (separate scheduler) | cron expression | fresh SDK session spawn |

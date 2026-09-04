@@ -1,5 +1,5 @@
 // Tests for the strip-side of the outbound envelope wrap. The wrap itself is
-// applied in `runAgentTurn` (see plugin-hooks.ts); these tests anchor
+// applied in `runAgentTurn` (see agent-turn.ts); these tests anchor
 // the inverse operation so edit-message matching stays in sync with the
 // wrap format if it ever changes.
 //
@@ -20,7 +20,7 @@ import {
   markContextThresholdFired,
   pickContextThreshold,
   stripOutboundEnvelope,
-} from "./plugin-hooks.ts";
+} from "./agent-turn.ts";
 import type { ManagedAgent } from "./internal-types.ts";
 import type { ContextUsageSnapshot } from "./internal-types.ts";
 

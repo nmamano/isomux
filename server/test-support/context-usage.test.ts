@@ -25,7 +25,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { stripOutboundEnvelope } from "../plugin-hooks.ts";
+import { stripOutboundEnvelope } from "../agent-turn.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { AgentEvent } from "../internal-types.ts";
 import { createAgentManager } from "../agent-manager.ts";

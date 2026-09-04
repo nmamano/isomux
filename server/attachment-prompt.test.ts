@@ -9,7 +9,7 @@ import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { STATE_ROOT } from "./config.ts";
-import { stripOutboundEnvelope } from "./plugin-hooks.ts";
+import { stripOutboundEnvelope } from "./agent-turn.ts";
 import {
   resolveAttachmentNotices,
   formatAttachmentLines,

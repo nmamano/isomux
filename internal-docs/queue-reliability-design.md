@@ -23,7 +23,7 @@ changes on 3 points; this is v2 with his findings folded in - deltas marked
 
 ### Root cause (the lost-wakeup class)
 
-The wrap-and-wake pattern has an orphaning hole. `runAgentTurn` (plugin-hooks.ts
+The wrap-and-wake pattern has an orphaning hole. `runAgentTurn` (agent-turn.ts
 ~258) cleans up its deferred on a `session.send` throw ONLY when
 `managed.pendingTurn === ownPending`. Once a waiter has wrapped the deferred,
 that identity check is false, so runAgentTurn skips the reject - and if no
