@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "fs";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
 import { errMessage } from "../../../shared/errors.ts";
 import { STATE_ROOT } from "../../config.ts";
 import {
@@ -183,7 +183,22 @@ function ownedMatcher(): HookMatcher {
   };
 }
 
-function isOwnedMatcher(value: unknown): value is HookMatcher {
+function isIsomuxShapedMatcher(value: unknown): value is HookMatcher {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const matcher = value as HookMatcher;
+  if (!Array.isArray(matcher.hooks)) return false;
+  return matcher.hooks.some(
+    (hook) =>
+      !!hook &&
+      typeof hook === "object" &&
+      !Array.isArray(hook) &&
+      typeof (hook as HookCommand).command === "string" &&
+      basename((hook as HookCommand).command as string) ===
+        basename(CODEX_SAFETY_HOOK_PATH),
+  );
+}
+
+function isCurrentOwnedMatcher(value: unknown): value is HookMatcher {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const matcher = value as HookMatcher;
   if (!Array.isArray(matcher.hooks)) return false;
@@ -205,6 +220,8 @@ function atomicWriteText(path: string, text: string, mode = 0o600): void {
 function mergeHooksFile(codexHome: string): {
   hooksPath: string;
   matcherIndex: number;
+  removedOwnedIndices: number[];
+  trustKeyRewrites: Map<string, string>;
 } {
   mkdirSync(codexHome, { recursive: true, mode: 0o700 });
   const hooksPath = join(codexHome, "hooks.json");
@@ -228,32 +245,50 @@ function mergeHooksFile(codexHome: string): {
   }
   const matchers = Array.isArray(current) ? [...current] : [];
   const ownedIndices = matchers
-    .map((matcher, index) => (isOwnedMatcher(matcher) ? index : -1))
+    .map((matcher, index) => (isIsomuxShapedMatcher(matcher) ? index : -1))
     .filter((index) => index >= 0);
   let matcherIndex: number;
+  const removedOwnedIndices: number[] = [];
+  const trustKeyRewrites = new Map<string, string>();
   if (ownedIndices.length === 0) {
     matcherIndex = matchers.length;
     matchers.push(ownedMatcher());
   } else {
     matcherIndex = ownedIndices[0];
-    const existing = matchers[matcherIndex] as HookMatcher;
-    if (!Array.isArray(existing.hooks) || existing.hooks.length !== 1) {
-      throw new Error("Isomux hook group contains additional user hooks");
+    for (const ownedIndex of ownedIndices) {
+      const existing = matchers[ownedIndex] as HookMatcher;
+      if (!Array.isArray(existing.hooks) || existing.hooks.length !== 1) {
+        throw new Error("Isomux hook group contains additional user hooks");
+      }
     }
     if (ownedIndices.length > 1) {
-      const lastOwned = ownedIndices[ownedIndices.length - 1];
-      if (
-        matchers
-          .slice(matcherIndex + 1, lastOwned)
-          .some((m) => !isOwnedMatcher(m))
-      ) {
-        throw new Error(
-          "duplicate Isomux hook groups surround user hook groups",
-        );
+      const ownedSet = new Set(ownedIndices);
+      let newIndex = 0;
+      for (let oldIndex = 0; oldIndex < matchers.length; oldIndex++) {
+        if (ownedSet.has(oldIndex) && oldIndex !== matcherIndex) {
+          removedOwnedIndices.push(oldIndex);
+          continue;
+        }
+        if (!ownedSet.has(oldIndex) && oldIndex !== newIndex) {
+          const userHooks = (matchers[oldIndex] as HookMatcher | undefined)
+            ?.hooks;
+          if (Array.isArray(userHooks)) {
+            for (let hookIndex = 0; hookIndex < userHooks.length; hookIndex++) {
+              trustKeyRewrites.set(
+                trustKey(hooksPath, oldIndex, hookIndex),
+                trustKey(hooksPath, newIndex, hookIndex),
+              );
+            }
+          }
+        }
+        newIndex++;
       }
-      for (let index = ownedIndices.length - 1; index >= 1; index--) {
-        matchers.splice(ownedIndices[index], 1);
-      }
+      const duplicates = new Set(removedOwnedIndices);
+      matchers.splice(
+        0,
+        matchers.length,
+        ...matchers.filter((_, index) => !duplicates.has(index)),
+      );
     }
     matchers[matcherIndex] = ownedMatcher();
   }
@@ -264,29 +299,56 @@ function mergeHooksFile(codexHome: string): {
   return {
     hooksPath,
     matcherIndex,
+    removedOwnedIndices,
+    trustKeyRewrites,
   };
 }
 
-function removeOwnedTrustBlocks(text: string, currentKey: string): string {
+function rewriteTrustBlocks(
+  text: string,
+  ownedKeyPatterns: RegExp[],
+  keyRewrites: Map<string, string>,
+): string {
   const lines = text.split("\n");
   const kept: string[] = [];
   for (let index = 0; index < lines.length; ) {
-    const ownedHeader = `[hooks.state.${JSON.stringify(currentKey)}]`;
-    if (lines[index] === ownedHeader) {
+    const owned = ownedKeyPatterns.some((pattern) =>
+      pattern.test(lines[index]),
+    );
+    if (owned) {
       if (kept[kept.length - 1] === TRUST_SENTINEL) kept.pop();
       index++;
-      // Isomux always appends its trust block last. This bracket scan is safe
-      // only under that invariant; it must not parse arbitrary user TOML.
+      // A Codex hooks.state block contains simple key/value lines and ends at
+      // the next TOML table header. This scan does not parse arbitrary TOML.
       while (index < lines.length && !/^\s*\[/.test(lines[index])) index++;
       continue;
     }
-    kept.push(lines[index++]);
+    const rewritten = keyRewrites.get(lines[index]);
+    kept.push(rewritten ?? lines[index]);
+    index++;
   }
   return kept.join("\n").replace(/\n+$/, "");
 }
 
-function trustKey(hooksPath: string, matcherIndex: number): string {
-  return `${hooksPath}:pre_tool_use:${matcherIndex}:0`;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function trustHeaderPattern(hooksPath: string, matcherIndex: number): RegExp {
+  const quotedPrefix = JSON.stringify(
+    `${hooksPath}:pre_tool_use:${matcherIndex}:`,
+  ).slice(0, -1);
+  return new RegExp(
+    `^\\[hooks\\.state\\.${escapeRegExp(quotedPrefix)}\\d+"\\]$`,
+  );
+}
+
+function trustKey(
+  hooksPath: string,
+  matcherIndex: number,
+  hookIndex = 0,
+): string {
+  return `${hooksPath}:pre_tool_use:${matcherIndex}:${hookIndex}`;
 }
 
 function handlerDisplayOrder(
@@ -308,6 +370,8 @@ function mergeTrustConfig(
   codexHome: string,
   hooksPath: string,
   matcherIndex: number,
+  removedOwnedIndices: number[],
+  trustKeyRewrites: Map<string, string>,
   trustedHash: string,
 ): void {
   const configPath = join(codexHome, "config.toml");
@@ -315,11 +379,19 @@ function mergeTrustConfig(
     ? readFileSync(configPath, "utf8")
     : "";
   const key = trustKey(hooksPath, matcherIndex);
-  // Ownership is decided from current live hook state: this key resolves to
-  // the matcher whose command is our installed path. The sentinel is only a
-  // secondary marker. A detached sentinel or stale positional key that now
-  // resolves to a user matcher is never removed.
-  const base = removeOwnedTrustBlocks(original, key);
+  // Ownership comes from the pre-merge matcher positions returned above. A
+  // detached sentinel or stale positional key that resolved to a user matcher
+  // is never removed.
+  const ownedKeyPatterns = [matcherIndex, ...removedOwnedIndices].map((index) =>
+    trustHeaderPattern(hooksPath, index),
+  );
+  const headerRewrites = new Map(
+    [...trustKeyRewrites].map(([oldKey, newKey]) => [
+      `[hooks.state.${JSON.stringify(oldKey)}]`,
+      `[hooks.state.${JSON.stringify(newKey)}]`,
+    ]),
+  );
+  const base = rewriteTrustBlocks(original, ownedKeyPatterns, headerRewrites);
   const block = [
     TRUST_SENTINEL,
     `[hooks.state.${JSON.stringify(key)}]`,
@@ -339,7 +411,10 @@ function verifyConfiguration(
 ): CodexSafetyHookIdentity {
   const hooksFile = JSON.parse(readFileSync(hooksPath, "utf8")) as HooksFile;
   const matchers = hooksFile.hooks?.PreToolUse;
-  if (!Array.isArray(matchers) || !isOwnedMatcher(matchers[matcherIndex])) {
+  if (
+    !Array.isArray(matchers) ||
+    !isCurrentOwnedMatcher(matchers[matcherIndex])
+  ) {
     throw new Error("post-write hooks.json verification failed");
   }
   const matcher = matchers[matcherIndex];
@@ -453,6 +528,8 @@ export async function ensureCodexSafetyHook(
         codexHome,
         merged.hooksPath,
         merged.matcherIndex,
+        merged.removedOwnedIndices,
+        merged.trustKeyRewrites,
         artifact.trustedHash,
       );
     } catch (err) {

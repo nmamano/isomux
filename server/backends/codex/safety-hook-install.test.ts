@@ -32,6 +32,10 @@ function userEntry(command: string) {
   return { matcher: "user-tool", hooks: [{ type: "command", command }] };
 }
 
+function isomuxEntry(command: string) {
+  return { matcher: ".*", hooks: [{ type: "command", command }] };
+}
+
 describe("Codex safety hook installation", () => {
   it("bounds a non-settling boot trust measurement", async () => {
     const never = new Promise<never>(() => {});
@@ -229,7 +233,11 @@ describe("Codex safety hook installation", () => {
       hookIdentity: { sourcePath: hooksPath, displayOrder: 1 },
     });
     const configText = readFileSync(join(home, "config.toml"), "utf8");
-    const config = Bun.TOML.parse(configText) as any;
+    const config = Bun.TOML.parse(configText) as {
+      hooks: {
+        state: Record<string, { enabled: boolean; trusted_hash: string }>;
+      };
+    };
     expect(config.hooks.state[userKey]).toEqual({
       enabled: true,
       trusted_hash: userHash,
@@ -242,6 +250,178 @@ describe("Codex safety hook installation", () => {
         new RegExp(ownedKey.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
       ),
     ).toHaveLength(1);
+  });
+
+  it("converges live-shaped foreign Isomux matchers and trust without changing user hooks", async () => {
+    const home = join(STATE_ROOT, "users/live-shaped/codex-home");
+    mkdirSync(home, { recursive: true });
+    const hooksPath = join(home, "hooks.json");
+    const user = userEntry("/tmp/user-hook-before-isomux");
+    const foreignEntries = Array.from({ length: 11 }, (_, index) =>
+      isomuxEntry(
+        index === 0
+          ? CODEX_SAFETY_HOOK_PATH
+          : `/tmp/stale-state-${index}/bin/isomux-codex-safety-hook`,
+      ),
+    );
+    writeFileSync(
+      hooksPath,
+      `${JSON.stringify(
+        { hooks: { PreToolUse: [user, ...foreignEntries] } },
+        null,
+        2,
+      )}\n`,
+    );
+    const userKey = `${hooksPath}:pre_tool_use:0:0`;
+    const userBlock = [
+      `[hooks.state.${JSON.stringify(userKey)}]`,
+      "enabled = true",
+      'trusted_hash = "sha256:user-live-shaped"',
+    ].join("\n");
+    const ownedBlocks = foreignEntries.map((_, offset) => {
+      const index = offset + 1;
+      const lines = [
+        `[hooks.state.${JSON.stringify(`${hooksPath}:pre_tool_use:${index}:0`)}]`,
+        "enabled = true",
+        `trusted_hash = "sha256:stale-${index}"`,
+      ];
+      return offset < 6 ? [_test.trustSentinel, ...lines].join("\n") : lines.join("\n");
+    });
+    writeFileSync(
+      join(home, "config.toml"),
+      [userBlock, ...ownedBlocks, ""].join("\n"),
+    );
+
+    expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
+    expect(hooks.hooks.PreToolUse).toEqual([
+      user,
+      isomuxEntry(CODEX_SAFETY_HOOK_PATH),
+    ]);
+    const configText = readFileSync(join(home, "config.toml"), "utf8");
+    const config = Bun.TOML.parse(configText) as {
+      hooks: {
+        state: Record<string, { enabled: boolean; trusted_hash: string }>;
+      };
+    };
+    expect(config.hooks.state[userKey]).toEqual({
+      enabled: true,
+      trusted_hash: "sha256:user-live-shaped",
+    });
+    expect(Object.keys(config.hooks.state)).toEqual([
+      userKey,
+      `${hooksPath}:pre_tool_use:1:0`,
+    ]);
+    expect(configText.match(/# isomux-managed-codex-safety-hook/g)).toHaveLength(
+      1,
+    );
+  });
+
+  it("renames every trust key when duplicate Isomux groups shift a user matcher", async () => {
+    const home = join(STATE_ROOT, "users/trailing-user/codex-home");
+    mkdirSync(home, { recursive: true });
+    const hooksPath = join(home, "hooks.json");
+    const user = {
+      matcher: "user-tool",
+      hooks: [
+        { type: "command", command: "/tmp/user-hook-after-isomux" },
+        { type: "command", command: "/tmp/second-user-hook-after-isomux" },
+      ],
+    };
+    const beforeUser = isomuxEntry(
+      "/tmp/old-state/bin/isomux-codex-safety-hook",
+    );
+    const duplicateBeforeUser = isomuxEntry(
+      "/tmp/second-state/bin/isomux-codex-safety-hook",
+    );
+    const removable = isomuxEntry(
+      "/tmp/third-state/bin/isomux-codex-safety-hook",
+    );
+    writeFileSync(
+      hooksPath,
+      `${JSON.stringify(
+        {
+          hooks: {
+            PreToolUse: [beforeUser, duplicateBeforeUser, user, removable],
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const oldUserKey = `${hooksPath}:pre_tool_use:2:0`;
+    const oldSecondUserKey = `${hooksPath}:pre_tool_use:2:1`;
+    const userBody = [
+      "enabled = true",
+      'trusted_hash = "sha256:old-user"',
+      "# keep-user-body-byte-identical",
+    ].join("\n");
+    const blocks = [0, 1, 3].map((index) =>
+      [
+        `[hooks.state.${JSON.stringify(`${hooksPath}:pre_tool_use:${index}:0`)}]`,
+        "enabled = true",
+        `trusted_hash = "sha256:old-${index}"`,
+      ].join("\n"),
+    );
+    const staleRemovedSubIndex = `${hooksPath}:pre_tool_use:1:1`;
+    blocks.splice(
+      2,
+      0,
+      [
+        `[hooks.state.${JSON.stringify(staleRemovedSubIndex)}]`,
+        "enabled = true",
+        'trusted_hash = "sha256:stale-removed-sub-index"',
+      ].join("\n"),
+    );
+    blocks.splice(
+      2,
+      0,
+      `[hooks.state.${JSON.stringify(oldUserKey)}]\n${userBody}`,
+      [
+        `[hooks.state.${JSON.stringify(oldSecondUserKey)}]`,
+        "enabled = true",
+        'trusted_hash = "sha256:old-second-user"',
+      ].join("\n"),
+    );
+    writeFileSync(join(home, "config.toml"), `${blocks.join("\n")}\n`);
+
+    expect((await ensureCodexSafetyHook(home)).warning).toBeNull();
+
+    const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
+    expect(hooks.hooks.PreToolUse).toEqual([
+      isomuxEntry(CODEX_SAFETY_HOOK_PATH),
+      user,
+    ]);
+    const configText = readFileSync(join(home, "config.toml"), "utf8");
+    const config = Bun.TOML.parse(configText) as {
+      hooks: {
+        state: Record<string, { enabled: boolean; trusted_hash: string }>;
+      };
+    };
+    const newUserKey = `${hooksPath}:pre_tool_use:1:0`;
+    const newSecondUserKey = `${hooksPath}:pre_tool_use:1:1`;
+    expect(config.hooks.state[newUserKey]).toEqual({
+      enabled: true,
+      trusted_hash: "sha256:old-user",
+    });
+    expect(config.hooks.state[newSecondUserKey]).toEqual({
+      enabled: true,
+      trusted_hash: "sha256:old-second-user",
+    });
+    expect(config.hooks.state[oldUserKey]).toBeUndefined();
+    expect(config.hooks.state[oldSecondUserKey]).toBeUndefined();
+    expect(config.hooks.state[`${hooksPath}:pre_tool_use:3:0`]).toBeUndefined();
+    expect(Object.keys(config.hooks.state).sort()).toEqual(
+      [
+        `${hooksPath}:pre_tool_use:0:0`,
+        newUserKey,
+        newSecondUserKey,
+      ].sort(),
+    );
+    expect(configText).toContain(
+      `[hooks.state.${JSON.stringify(newUserKey)}]\n${userBody}`,
+    );
   });
 
   it("fails open with the exact warning when hooks.json cannot be merged", async () => {

@@ -46,6 +46,12 @@ An event without a permission request id is different: Isomux cannot answer it w
 
 Codex uses two numbering systems for hooks. A trust key uses the matcher-group index plus the hook's index within that group. A `hook/completed` event uses `displayOrder`, the flat handler position across all `PreToolUse` groups. These values are equal in layouts with one hook per group, which can hide an incorrect implementation. Isomux keeps them separate so a failed Isomux hook produces the safety warning without mislabeling a user's failed hook.
 
+On 2026-09-04, a Codex 0.144.6 `hooks/list` probe put the same command in two matcher groups and returned the same `currentHash` at both positions. Changing the matcher string changed the hash. This shows that the trust hash binds to the matcher and command, not the positional trust key, so Isomux can rename a user's trust key when a removed group shifts its position.
+
+Before each Codex spawn, Isomux replaces the first matcher whose command basename is `isomux-codex-safety-hook` and removes later Isomux matchers. The merge removes every trust sub-index at their pre-merge positions, including records without the Isomux sentinel, and renames every trust key for a shifted user group in one pass. It does not remove or rename a detached or out-of-range key. User trust block bodies stay unchanged.
+
+The last Isomux process to merge wins. A process with a foreign state root replaces the single matcher with its own hook path. If that temporary path is later removed, the file can name one missing hook until an office Codex process spawns and repairs it. Sessions that are already running do not re-run the pre-spawn repair.
+
 ## Boot trust probe
 
 At boot, Isomux starts a scratch Codex App Server without authentication and asks `hooks/list` for the trust hash used by the bundled Codex version. The complete scratch measurement, including process start, initialization, and `hooks/list`, has a 10-second deadline. On 2026-08-29, full boot preparation including compilation, closure analysis, source-stamp verification, and the trust measurement took about 2.41 seconds, so the deadline has about four times the observed headroom. If boot-probe timeouts appear in the server logs, this deadline is the first constant to inspect.
