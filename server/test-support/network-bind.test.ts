@@ -48,9 +48,7 @@ describe("office network bind and origin-policy split", () => {
       new URL("../isomux-office.ts", import.meta.url),
       "utf8",
     );
-    expect(source).toContain(
-      "export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;",
-    );
+    expect(source).toContain("export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;");
     expect(source).toContain("idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,");
   });
 

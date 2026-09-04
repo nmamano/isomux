@@ -83,13 +83,9 @@ describe("resolvePreferenceForm - edited form", () => {
 
   it("editing back to the stored value disables Save again", () => {
     expect(
-      resolvePreferenceForm(
-        record({ language: "es" }),
-        "en-US",
-        {
-          language: "es",
-        },
-      ).canSave,
+      resolvePreferenceForm(record({ language: "es" }), "en-US", {
+        language: "es",
+      }).canSave,
     ).toBe(false);
   });
 

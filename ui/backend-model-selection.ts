@@ -38,7 +38,8 @@ export async function fetchBackendModels(
   const fetchFn = opts.fetchFn ?? apiFetch<BackendModelsResponse>;
   const retries = opts.retries ?? BACKEND_MODEL_FETCH_RETRIES;
   const retryDelayMs = opts.retryDelayMs ?? BACKEND_MODEL_RETRY_DELAY_MS;
-  const sleepFn = opts.sleepFn ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const sleepFn =
+    opts.sleepFn ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   const startingTimer = opts.onStarting
     ? setTimeout(
         opts.onStarting,

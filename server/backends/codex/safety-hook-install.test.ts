@@ -285,7 +285,9 @@ describe("Codex safety hook installation", () => {
         "enabled = true",
         `trusted_hash = "sha256:stale-${index}"`,
       ];
-      return offset < 6 ? [_test.trustSentinel, ...lines].join("\n") : lines.join("\n");
+      return offset < 6
+        ? [_test.trustSentinel, ...lines].join("\n")
+        : lines.join("\n");
     });
     writeFileSync(
       join(home, "config.toml"),
@@ -313,9 +315,9 @@ describe("Codex safety hook installation", () => {
       userKey,
       `${hooksPath}:pre_tool_use:1:0`,
     ]);
-    expect(configText.match(/# isomux-managed-codex-safety-hook/g)).toHaveLength(
-      1,
-    );
+    expect(
+      configText.match(/# isomux-managed-codex-safety-hook/g),
+    ).toHaveLength(1);
   });
 
   it("renames every trust key when duplicate Isomux groups shift a user matcher", async () => {
@@ -413,11 +415,7 @@ describe("Codex safety hook installation", () => {
     expect(config.hooks.state[oldSecondUserKey]).toBeUndefined();
     expect(config.hooks.state[`${hooksPath}:pre_tool_use:3:0`]).toBeUndefined();
     expect(Object.keys(config.hooks.state).sort()).toEqual(
-      [
-        `${hooksPath}:pre_tool_use:0:0`,
-        newUserKey,
-        newSecondUserKey,
-      ].sort(),
+      [`${hooksPath}:pre_tool_use:0:0`, newUserKey, newSecondUserKey].sort(),
     );
     expect(configText).toContain(
       `[hooks.state.${JSON.stringify(newUserKey)}]\n${userBody}`,

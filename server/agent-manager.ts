@@ -6991,7 +6991,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // never covers exactly the case where the stamp matters most.
     managed.abortCancelToken = managed.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
-      // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
+    // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
     if (!managed.pendingTurn) {
       // A parked permission prompt is the case this branch used to answer with

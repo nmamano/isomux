@@ -18,11 +18,7 @@ import {
   signOutButtonLabel,
 } from "./components/ProviderSignInCard.tsx";
 import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
-import type {
-  AppWire,
-  LogEntry,
-  TaskItem,
-} from "../shared/types.ts";
+import type { AppWire, LogEntry, TaskItem } from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };

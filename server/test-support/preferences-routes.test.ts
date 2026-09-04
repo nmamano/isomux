@@ -218,9 +218,9 @@ describe("prefs.update - live event contract", () => {
     const before = bag(sock, "user_self_updated").length;
 
     // Same values again.
-    expect(
-      await putPrefs(server, owner.rawSessionId, { language: "es" }),
-    ).toBe(204);
+    expect(await putPrefs(server, owner.rawSessionId, { language: "es" })).toBe(
+      204,
+    );
     await sleep(50);
     expect(bag(sock, "user_self_updated").length).toBe(before);
     expect(bag(sock, "user_admin_updated").length).toBe(0);

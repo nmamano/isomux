@@ -61,13 +61,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     );
   }
 
-  const {
-    managed,
-    sdkText,
-    attachments,
-    humanInput,
-    onSendAccepted,
-  } = opts;
+  const { managed, sdkText, attachments, humanInput, onSendAccepted } = opts;
   const agentId = managed.info.id;
 
   // 1. Claim the turn lifecycle immediately. Concurrent ingress (sendMessage,
