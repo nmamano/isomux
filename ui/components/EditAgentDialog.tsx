@@ -62,6 +62,7 @@ import {
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 import {
   defaultBackendModel,
+  fetchBackendModels,
   openCodeModelSelectionReady,
   partitionBackendModelsForPicker,
   modelListErrorMessage,
@@ -381,6 +382,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     null,
   );
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsStarting, setModelsStarting] = useState(false);
   const [modelsError, setModelsError] = useState<{
     message: string;
     authError: boolean;
@@ -630,16 +632,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // Seed loading flags synchronously so the dropdown shows the spinner.
     /* eslint-disable react-hooks/set-state-in-effect */
     setModelsLoading(true);
+    setModelsStarting(false);
     setModelsError(null);
     setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    apiFetch<{
-      models: BackendModelWire[];
-      authError?: boolean;
-      error?: string;
-    }>(
-      "GET",
+    fetchBackendModels(
       `/api/backends/${encodeURIComponent(targetEngine)}/models?cwd=${encodeURIComponent(cwd)}`,
+      { onStarting: () => !cancelled && setModelsStarting(true) },
     )
       .then((r) => {
         if (cancelled) return;
@@ -1988,7 +1987,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       margin: "3px 0 0",
                     }}
                   >
-                    Loading available models…
+                    {modelsStarting && isOpenCode
+                      ? "OpenCode is starting. Loading available models…"
+                      : "Loading available models…"}
                   </p>
                 )}
                 {usesBackendModels && modelsError && !modelsLoading && (

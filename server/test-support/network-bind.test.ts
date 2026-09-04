@@ -43,6 +43,17 @@ async function bootClaimed(
 }
 
 describe("office network bind and origin-policy split", () => {
+  it("wires the 120-second idle timeout into Bun.serve", () => {
+    const source = readFileSync(
+      new URL("../isomux-office.ts", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain(
+      "export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;",
+    );
+    expect(source).toContain("idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,");
+  });
+
   it("keeps the seven deployment shapes on independent bind and origin policies", async () => {
     const shapes = [
       ["1 hosted new", "https://one.example", "loopback", true, "one.example"],

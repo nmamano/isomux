@@ -4820,6 +4820,11 @@ function withCookieMigration(
 
 const PORT = parseInt(process.env.PORT || "4000");
 
+// OpenCode discovery can spend about 56 seconds in its bounded cold-start poll.
+// This also covers the app proxy and the preview route, which can exceed Bun's
+// 10-second default while legitimately waiting on an upstream process.
+export const OFFICE_IDLE_TIMEOUT_SECONDS = 120;
+
 function securityTxt(): string {
   return `Contact: mailto:llc@isomux.com
 Expires: 2027-08-22T00:00:00Z
@@ -4841,6 +4846,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
   return Bun.serve<WsData>({
     port: startOpts.port ?? PORT,
+    idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,
     // Default is ~128MB, below our 200MB per-file / 400MB per-upload limits, so a
     // large upload would 413 before reaching the handler. Keep this above MAX_TOTAL.
     maxRequestBodySize: 512 * 1024 * 1024, // 512MB

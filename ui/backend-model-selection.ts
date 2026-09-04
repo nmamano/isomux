@@ -4,6 +4,65 @@ import {
   type BackendModelWire,
 } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
+import { apiFetch, ApiError } from "./api.ts";
+
+export interface BackendModelsResponse {
+  models: BackendModelWire[];
+  authError?: boolean;
+  error?: string;
+}
+
+interface FetchBackendModelsOptions {
+  fetchFn?: (method: "GET", path: string) => Promise<BackendModelsResponse>;
+  retries?: number;
+  retryDelayMs?: number;
+  sleepFn?: (ms: number) => Promise<void>;
+  onStarting?: () => void;
+  startingDelayMs?: number;
+}
+
+// One retry can catch the server just after a cold start; the second covers a
+// transient proxy failure without making a broken backend retry indefinitely.
+export const BACKEND_MODEL_FETCH_RETRIES = 2;
+// Keep retries close together because the request itself already waits for the
+// bounded cold start; this pause only lets a newly started server settle.
+export const BACKEND_MODEL_RETRY_DELAY_MS = 750;
+// Warm discovery was measured at 2-5 seconds, so show startup state near the
+// upper end of that range while the first cold-start request is still pending.
+export const BACKEND_MODEL_STARTING_DELAY_MS = 4_000;
+
+export async function fetchBackendModels(
+  path: string,
+  opts: FetchBackendModelsOptions = {},
+): Promise<BackendModelsResponse> {
+  const fetchFn = opts.fetchFn ?? apiFetch<BackendModelsResponse>;
+  const retries = opts.retries ?? BACKEND_MODEL_FETCH_RETRIES;
+  const retryDelayMs = opts.retryDelayMs ?? BACKEND_MODEL_RETRY_DELAY_MS;
+  const sleepFn = opts.sleepFn ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const startingTimer = opts.onStarting
+    ? setTimeout(
+        opts.onStarting,
+        opts.startingDelayMs ?? BACKEND_MODEL_STARTING_DELAY_MS,
+      )
+    : undefined;
+
+  try {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const result = await fetchFn("GET", path);
+        if (!result.error || result.authError || attempt >= retries)
+          return result;
+      } catch (error) {
+        const retryable = !(error instanceof ApiError) || error.status >= 500;
+        if (!retryable || attempt >= retries) throw error;
+      }
+      opts.onStarting?.();
+      await sleepFn(retryDelayMs);
+    }
+  } finally {
+    if (startingTimer !== undefined) clearTimeout(startingTimer);
+  }
+}
 
 export function defaultBackendModel(
   models: BackendModelWire[],

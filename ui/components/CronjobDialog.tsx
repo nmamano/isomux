@@ -31,6 +31,7 @@ import {
 import { shortenCwd } from "../cwd-display.ts";
 import {
   defaultBackendModel,
+  fetchBackendModels,
   modelListErrorMessage,
   modelSelectCursor,
   openCodeModelSelectionReady,
@@ -198,6 +199,7 @@ export function CronjobDialog({
     null,
   );
   const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsStarting, setModelsStarting] = useState(false);
   const [modelsError, setModelsError] = useState<{
     message: string;
     authError: boolean;
@@ -256,16 +258,13 @@ export function CronjobDialog({
     let cancelled = false;
     /* eslint-disable react-hooks/set-state-in-effect */
     setModelsLoading(true);
+    setModelsStarting(false);
     setModelsError(null);
     setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    apiFetch<{
-      models: BackendModelWire[];
-      authError?: boolean;
-      error?: string;
-    }>(
-      "GET",
+    fetchBackendModels(
       `/api/backends/${encodeURIComponent(agentType)}/models?cwd=${encodeURIComponent(cwd)}`,
+      { onStarting: () => !cancelled && setModelsStarting(true) },
     )
       .then((r) => {
         if (cancelled) return;
@@ -816,7 +815,9 @@ export function CronjobDialog({
                 margin: "3px 0 0",
               }}
             >
-              Loading available models…
+              {modelsStarting && isOpenCode
+                ? "OpenCode is starting. Loading available models…"
+                : "Loading available models…"}
             </p>
           )}
           {usesBackendModels && modelsError && !modelsLoading && (
