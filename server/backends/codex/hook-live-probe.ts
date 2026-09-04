@@ -105,8 +105,9 @@ function installSignalCleanup(): () => void {
 export async function runSignalCleanupFixture(root: string): Promise<never> {
   mkdirSync(root, { recursive: true, mode: 0o700 });
   scratchRoots.add(root);
-  writeFileSync(join(root, "ready"), "ready\n");
+  // Handlers first: the parent sends SIGTERM as soon as it sees "ready".
   installSignalCleanup();
+  writeFileSync(join(root, "ready"), "ready\n");
   return await new Promise<never>(() => {});
 }
 
