@@ -124,84 +124,80 @@ describe("wiring", () => {
     }
   });
 
-  test(
-    "the office entry point renames its own process on a normal boot",
-    async () => {
-      const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
-      const startedAt = performance.now();
-      const proc = Bun.spawn(["bun", "run", ENTRY_POINT], {
-        env: {
-          ...process.env,
-          HOME: stateDir,
-          ISOMUX_HOME: stateDir,
-          ISOMUX_BACKUP_DIR: stateDir,
-          XDG_CONFIG_HOME: stateDir,
-          PORT: "0",
-        },
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      const stderrPromise = new Response(proc.stderr).text();
-      const deadline = startedAt + 15_000;
-      let firstComm: string | undefined;
-      let lastComm: string | undefined;
-      let observedRenameMs: number | undefined;
-      let failure: Error | undefined;
+  test("the office entry point renames its own process on a normal boot", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
+    const startedAt = performance.now();
+    const proc = Bun.spawn(["bun", "run", ENTRY_POINT], {
+      env: {
+        ...process.env,
+        HOME: stateDir,
+        ISOMUX_HOME: stateDir,
+        ISOMUX_BACKUP_DIR: stateDir,
+        XDG_CONFIG_HOME: stateDir,
+        PORT: "0",
+      },
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    const stderrPromise = new Response(proc.stderr).text();
+    const deadline = startedAt + 15_000;
+    let firstComm: string | undefined;
+    let lastComm: string | undefined;
+    let observedRenameMs: number | undefined;
+    let failure: Error | undefined;
 
-      try {
-        while (performance.now() < deadline) {
-          try {
-            lastComm = readFileSync(`/proc/${proc.pid}/comm`, "utf8").trim();
-          } catch (error) {
-            const exitCode = await proc.exited;
-            const stderr = await stderrPromise;
-            const phase =
-              firstComm === undefined
-                ? "spawn error before first read"
-                : "exited before rename";
+    try {
+      while (performance.now() < deadline) {
+        try {
+          lastComm = readFileSync(`/proc/${proc.pid}/comm`, "utf8").trim();
+        } catch (error) {
+          const exitCode = await proc.exited;
+          const stderr = await stderrPromise;
+          const phase =
+            firstComm === undefined
+              ? "spawn error before first read"
+              : "exited before rename";
+          failure = new Error(
+            `office child ${phase}: last comm=${lastComm ?? "unread"}, alive=false, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+            { cause: error },
+          );
+          break;
+        }
+
+        if (firstComm === undefined) {
+          firstComm = lastComm;
+          if (firstComm !== "bun") {
             failure = new Error(
-              `office child ${phase}: last comm=${lastComm ?? "unread"}, alive=false, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
-              { cause: error },
+              `office child was not observed before rename: first comm=${firstComm}`,
             );
             break;
           }
-
-          if (firstComm === undefined) {
-            firstComm = lastComm;
-            if (firstComm !== "bun") {
-              failure = new Error(
-                `office child was not observed before rename: first comm=${firstComm}`,
-              );
-              break;
-            }
-          }
-          if (lastComm === OFFICE_PROCESS_NAME) {
-            observedRenameMs = performance.now() - startedAt;
-            break;
-          }
-          await Bun.sleep(50);
         }
-
-        if (observedRenameMs === undefined && failure === undefined) {
-          const alive = proc.exitCode === null;
-          if (alive) proc.kill();
-          const exitCode = await proc.exited;
-          const stderr = await stderrPromise;
-          failure = new Error(
-            `office child did not rename before deadline: last comm=${lastComm ?? "unread"}, alive=${alive}, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
-          );
+        if (lastComm === OFFICE_PROCESS_NAME) {
+          observedRenameMs = performance.now() - startedAt;
+          break;
         }
-      } finally {
-        if (proc.exitCode === null) proc.kill();
-        await proc.exited;
-        await stderrPromise;
-        rmSync(stateDir, { recursive: true, force: true });
+        await Bun.sleep(50);
       }
 
-      if (failure) throw failure;
-      expect(firstComm).toBe("bun");
-      expect(lastComm).toBe(OFFICE_PROCESS_NAME);
-    },
-    30_000,
-  );
+      if (observedRenameMs === undefined && failure === undefined) {
+        const alive = proc.exitCode === null;
+        if (alive) proc.kill();
+        const exitCode = await proc.exited;
+        const stderr = await stderrPromise;
+        failure = new Error(
+          `office child did not rename before deadline: last comm=${lastComm ?? "unread"}, alive=${alive}, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+        );
+      }
+    } finally {
+      if (proc.exitCode === null) proc.kill();
+      await proc.exited;
+      await stderrPromise;
+      rmSync(stateDir, { recursive: true, force: true });
+    }
+
+    if (failure) throw failure;
+    expect(firstComm).toBe("bun");
+    expect(lastComm).toBe(OFFICE_PROCESS_NAME);
+  }, 30_000);
 });

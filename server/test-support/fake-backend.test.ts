@@ -194,5 +194,4 @@ describe("FakeSession - stream lifecycle", () => {
       false,
     );
   });
-
 });
