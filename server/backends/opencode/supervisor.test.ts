@@ -179,9 +179,10 @@ function alive(pid: number): boolean {
 async function binaryProcessCount(): Promise<number> {
   const binary = resolveOpenCodeBinary();
   let count = 0;
-  for await (const name of new Bun.Glob("[0-9]*/cmdline").scan("/proc")) {
+  for (const pid of await readdir("/proc")) {
+    if (!/^\d+$/.test(pid)) continue;
     try {
-      const argv0 = (await readFile(join("/proc", name)))
+      const argv0 = (await readFile(join("/proc", pid, "cmdline")))
         .toString()
         .split("\0", 1)[0];
       if (argv0 === binary) count++;

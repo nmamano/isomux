@@ -11,6 +11,7 @@ const supervisor = new OpenCodeSupervisor({
   profileDir: `${root}/profile`,
   serverCwd: root,
   config,
+  binary: process.env.S4_BINARY,
   environmentRevision: "s4-process-loss",
 });
 const backend = createOpenCodeBackend({ supervisor });
