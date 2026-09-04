@@ -27,6 +27,17 @@ export const OPENCODE_PERMISSION_ID_WARNING =
   "with the request, so Isomux had no way to answer it. Tell the office " +
   "owner and check the isomux service logs.";
 
+export const OPENCODE_AUTH_FAILURE =
+  "OpenCode authentication is not configured.";
+
+export function openCodeModelUnavailableFailure(model: string): string {
+  return `OpenCode cannot use model \`${model}\`: the provider refused this model. Pick another model with \`/model\`.`;
+}
+
+export function openCodeModelNotFoundPrefix(model: string): string {
+  return `Model not found: ${model}. Did you mean:`;
+}
+
 export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
@@ -628,13 +639,16 @@ export class OpenCodeTransport {
               this.authorityBinding?.deactivate();
               this.lease?.endTurn();
               this.safeErrorSink?.(event.error);
-              const auth = await this.isAuthenticationError(event.error);
+              const failure = await this.classifyProviderFailure(event.error);
               sink({
                 kind: "turn_completed",
                 status: "failed",
-                error: auth
-                  ? "OpenCode authentication is not configured."
-                  : "OpenCode reported a provider or transport error.",
+                error:
+                  failure === "model_unavailable"
+                    ? openCodeModelUnavailableFailure(this.model)
+                    : failure === "authentication"
+                      ? OPENCODE_AUTH_FAILURE
+                      : "OpenCode reported a provider or transport error.",
               });
               this.abortController?.abort();
               return;
@@ -700,23 +714,22 @@ export class OpenCodeTransport {
     return response;
   }
 
-  private async isAuthenticationError(
+  private async classifyProviderFailure(
     error: SafeOpenCodeError,
-  ): Promise<boolean> {
-    if (error.statusCode === 401 || error.statusCode === 403) return true;
+  ): Promise<OpenCodeProviderFailure> {
+    if (error.statusCode === 401 || error.statusCode === 403)
+      return classifyOpenCodeError(error, this.model, []);
     if (
       error.name !== "UnknownError" ||
-      !error.message?.startsWith(
-        `Model not found: ${this.model}. Did you mean:`,
-      )
+      !error.message?.startsWith(openCodeModelNotFoundPrefix(this.model))
     )
-      return false;
+      return null;
     try {
       const response = await this.request("/provider");
       const connected = allowConnectedProviders(await response.json());
-      return isAuthenticationError(error, this.model, connected);
+      return classifyOpenCodeError(error, this.model, connected);
     } catch {
-      return false;
+      return null;
     }
   }
 }
@@ -1061,19 +1074,25 @@ function allowError(value: unknown): SafeOpenCodeError {
   };
 }
 
-export function isAuthenticationError(
+export type OpenCodeProviderFailure =
+  | "authentication"
+  | "model_unavailable"
+  | null;
+
+export function classifyOpenCodeError(
   error: SafeOpenCodeError,
   selectedModel: string,
   connectedProviders: string[],
-): boolean {
-  if (error.statusCode === 401 || error.statusCode === 403) return true;
-  if (error.name !== "UnknownError" || !error.message) return false;
+): OpenCodeProviderFailure {
+  if (error.statusCode === 403) return "model_unavailable";
+  if (error.statusCode === 401) return "authentication";
+  if (error.name !== "UnknownError" || !error.message) return null;
   const providerID = splitModel(selectedModel)[0];
-  return (
-    error.message.startsWith(
-      `Model not found: ${selectedModel}. Did you mean:`,
-    ) && !connectedProviders.includes(providerID)
-  );
+  if (!error.message.startsWith(openCodeModelNotFoundPrefix(selectedModel)))
+    return null;
+  return connectedProviders.includes(providerID)
+    ? "model_unavailable"
+    : "authentication";
 }
 
 function allowConnectedProviders(raw: unknown): string[] {

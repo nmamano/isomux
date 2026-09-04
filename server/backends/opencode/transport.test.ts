@@ -2,12 +2,14 @@ import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
   toolUpdateEvents,
-  isAuthenticationError,
+  classifyOpenCodeError,
   allowDiscoveredModels,
   discoverOpenCodeModels,
   allowMessages,
   OpenCodeTransport,
+  OPENCODE_AUTH_FAILURE,
   OPENCODE_PERMISSION_ID_WARNING,
+  openCodeModelUnavailableFailure,
   handleOpenCodePermission,
   parseAllowedEvent,
   openCodeModelIsFree,
@@ -616,21 +618,46 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(parsed)).not.toContain(canary);
   });
 
-  it("classifies only observed structured authentication failures", () => {
+  it("classifies observed provider failures", () => {
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "APIError",
-          message: "invalid credential",
+          message:
+            "The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_01M14CXRV15MZRVVQ0ZPQHET0F/go",
+          statusCode: 403,
+          isRetryable: false,
+        },
+        "opencode-go/deepseek-v4-pro",
+        ["opencode-go"],
+      ),
+    ).toBe("model_unavailable");
+    expect(
+      classifyOpenCodeError(
+        {
+          name: "APIError",
+          message: "your plan does not include this model",
+          statusCode: 403,
+          isRetryable: false,
+        },
+        "provider/other-model",
+        ["provider"],
+      ),
+    ).toBe("model_unavailable");
+    expect(
+      classifyOpenCodeError(
+        {
+          name: "APIError",
+          message: "invalid gate credential",
           statusCode: 401,
           isRetryable: false,
         },
-        "openai/gpt-4o",
+        "gate/gate-model",
         [],
       ),
-    ).toBe(true);
+    ).toBe("authentication");
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "UnknownError",
           message:
@@ -639,9 +666,9 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         "openai/gpt-4o",
         [],
       ),
-    ).toBe(true);
+    ).toBe("authentication");
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "UnknownError",
           message: "Model not found: openai/typo. Did you mean: gpt-4o?",
@@ -649,9 +676,9 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         "openai/gpt-4o",
         [],
       ),
-    ).toBe(false);
+    ).toBeNull();
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "APIError",
           message: "provider unavailable",
@@ -661,9 +688,9 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         "openai/gpt-4o",
         [],
       ),
-    ).toBe(false);
+    ).toBeNull();
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "UnknownError",
           message: "Model not found: opencode/fake. Did you mean: fake?",
@@ -671,9 +698,9 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         "opencode/fake",
         ["opencode"],
       ),
-    ).toBe(false);
+    ).toBe("model_unavailable");
     expect(
-      isAuthenticationError(
+      classifyOpenCodeError(
         {
           name: "UnknownError",
           message: "Model not found: openai/retired. Did you mean: current?",
@@ -681,7 +708,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         "openai/retired",
         ["openai"],
       ),
-    ).toBe(false);
+    ).toBe("model_unavailable");
   });
 
   it("refuses to record a credential-shaped fixture before writing", async () => {
@@ -871,6 +898,7 @@ describe("OpenCode permission event integration", () => {
   async function runFrames(
     frames: unknown[],
     agent?: string,
+    connectedProviders: string[] = [],
   ): Promise<{ events: NormalizedEvent[]; replies: unknown[] }> {
     const replies: unknown[] = [];
     const server = Bun.serve({
@@ -886,6 +914,8 @@ describe("OpenCode permission event integration", () => {
             { headers: { "content-type": "text/event-stream" } },
           );
         }
+        if (url.pathname === "/provider")
+          return Response.json({ connected: connectedProviders });
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
         if (url.pathname.startsWith("/permission/") && request.body) {
           replies.push(await request.json());
@@ -926,6 +956,83 @@ describe("OpenCode permission event integration", () => {
     await server.stop(true);
     return { events, replies };
   }
+
+  it("reports the observed model refusal as model unavailable", async () => {
+    const result = await runFrames([
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message:
+                "The latest version of this model is only available hosted in China and requires explicit opt in: https://opencode.ai/workspace/wrk_01M14CXRV15MZRVVQ0ZPQHET0F/go",
+              statusCode: 403,
+              isRetryable: false,
+            },
+          },
+        },
+      },
+    ]);
+    expect(result.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error:
+        "OpenCode cannot use model `provider/model`: the provider refused this model. Pick another model with `/model`.",
+    });
+  });
+
+  it("keeps the observed missing-auth failure classified as authentication", async () => {
+    const result = await runFrames([
+      {
+        type: "session.error",
+        properties: {
+          sessionID: "session-1",
+          error: {
+            name: "APIError",
+            data: {
+              message: "invalid gate credential",
+              statusCode: 401,
+              isRetryable: false,
+            },
+          },
+        },
+      },
+    ]);
+    expect(result.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: "OpenCode authentication is not configured.",
+    });
+  });
+
+  it("classifies model-not-found through connected-provider discovery", async () => {
+    const frame = {
+      type: "session.error",
+      properties: {
+        sessionID: "session-1",
+        error: {
+          name: "UnknownError",
+          data: {
+            message: "Model not found: provider/model. Did you mean: other",
+          },
+        },
+      },
+    };
+    const disconnected = await runFrames([frame]);
+    expect(disconnected.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: OPENCODE_AUTH_FAILURE,
+    });
+    const connected = await runFrames([frame], undefined, ["provider"]);
+    expect(connected.events.at(-1)).toEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: openCodeModelUnavailableFailure("provider/model"),
+    });
+  });
 
   it("fails a no-id request visibly without claiming an allow", async () => {
     const result = await runFrames([

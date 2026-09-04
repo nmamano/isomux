@@ -11,6 +11,7 @@ import {
   permissionAgent,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
+import { openCodeModelUnavailableFailure } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
 import permissionRejectMessage from "./fixtures/permission-reject-message.json";
 
@@ -114,7 +115,7 @@ describe("OpenCode deterministic tracer", () => {
     ]);
   });
 
-  it("renders Connections guidance without a login command", async () => {
+  it("renders backend guidance without API-key advice", async () => {
     const backend = createOpenCodeTracerBackend({ failAuth: true });
     const session = backend.createSession(opts);
     await session.send("hello");
@@ -128,8 +129,13 @@ describe("OpenCode deterministic tracer", () => {
     expect(backend.getLoginInstructions()).toEqual({
       kind: "login",
       cardEligible: false,
-      text: "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.",
+      text: "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.",
     });
+    const modelFailure = openCodeModelUnavailableFailure(
+      "opencode-go/deepseek-v4-pro",
+    );
+    expect(backend.detectAuthError(modelFailure)).toBe(false);
+    expect(getBackend("opencode").detectAuthError(modelFailure)).toBe(false);
   });
 });
 

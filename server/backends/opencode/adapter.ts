@@ -30,6 +30,7 @@ import {
 import { preferredFreeOpenCodeModel } from "../../../shared/opencode-model.ts";
 import {
   discoverOpenCodeModels,
+  OPENCODE_AUTH_FAILURE,
   OpenCodeTransport,
   splitModel,
   type OpenCodeContextBreakdown,
@@ -47,9 +48,8 @@ import {
   resolveAttachmentNotices,
 } from "../../attachment-prompt.ts";
 
-const AUTH_FAILURE = "OpenCode authentication is not configured.";
 const AUTH_GUIDANCE =
-  "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.";
+  "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.";
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -297,7 +297,7 @@ class OpenCodeTracerSession implements BackendSession {
       this.push({
         kind: "turn_completed",
         status: "failed",
-        error: AUTH_FAILURE,
+        error: OPENCODE_AUTH_FAILURE,
       });
       return;
     }
@@ -401,7 +401,7 @@ export function createOpenCodeTracerBackend(
     },
 
     detectAuthError(text: string): boolean {
-      return text.includes(AUTH_FAILURE);
+      return text.includes(OPENCODE_AUTH_FAILURE);
     },
 
     getLoginInstructions() {
@@ -676,7 +676,7 @@ export function createOpenCodeBackend(
       }
     },
     detectAuthError(text: string): boolean {
-      return text.includes(AUTH_FAILURE);
+      return text.includes(OPENCODE_AUTH_FAILURE);
     },
     getLoginInstructions() {
       return {
