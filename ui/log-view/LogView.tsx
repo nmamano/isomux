@@ -79,7 +79,7 @@ const STATE_LABELS: Partial<Record<AgentState, string>> = {
   tool_executing: "Running tool",
 };
 
-// Header label for an agent parked on a two-step prompt (task 29daebe2). It
+// Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is
 // blank for a parked agent, since `waiting_for_response` has no STATE_LABELS
 // entry, so a parked agent rendered identically to one that had simply finished
@@ -153,7 +153,7 @@ function escalationColor(elapsedMs: number, baseColor: string): string {
 // Debounce abort sends across all sites (textarea Ctrl+C, ActivityIndicator
 // button, mobile Stop). Users tap Ctrl+C twice when the first tap doesn't
 // visibly do anything, and the second frame races with the in-flight abort -
-// see task 154e2c14 for the full investigation.
+// see task 154e2c14, still open, for the full investigation.
 const lastAbortAtPerAgent = new Map<string, number>();
 function sendAbortDebounced(agentId: string) {
   const now = performance.now();
@@ -968,7 +968,6 @@ export function LogView({
     };
   }, [agentCmds]);
 
-  // Filter commands based on input
   const showAutocomplete =
     input.startsWith("/") && !input.includes(" ") && input.length > 0;
   const partial = input.slice(1).toLowerCase();
@@ -978,7 +977,6 @@ export function LogView({
     return allCommands.filter((c) => c.toLowerCase().startsWith(partial));
   }, [showAutocomplete, partial, allCommands]);
 
-  // Reset selection when filter changes
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIdx(0);
@@ -1067,8 +1065,8 @@ export function LogView({
 
   // Cite-from-selection: when the boss highlights text in the chat log, show
   // a floating "Cite" pill that inserts the selection into the draft as a
-  // triple-quoted block. Gated to pointer-fine devices for v1 - Nil flagged
-  // mobile scroll as already finicky and asked us to never regress it. The
+  // triple-quoted block. Gated to pointer-fine devices because mobile scroll
+  // is already finicky and must not regress. The
   // hook is a pure observer (no scroll/focus side-effects); the click handler
   // below (handleCite) is the only place we mutate draft / focus / selection.
   // Scroll-hide lives in handleScroll below - keeping the hook
@@ -1192,7 +1190,6 @@ export function LogView({
     for (let i = 0; i < logs.length; i++) {
       const entry = logs[i];
       if (entry.kind === "user_message") {
-        // Close previous agent turn if it has entries
         if (currentTurn.entries.length > 0) {
           turns.push(currentTurn);
         }
@@ -1207,7 +1204,6 @@ export function LogView({
       turns.push(currentTurn);
     }
 
-    // Build per-entry lookup
     const entryMap = new Map<
       string,
       { isLastInTurn: boolean; turnEntries: LogEntry[] }
@@ -1401,7 +1397,7 @@ export function LogView({
     // The Web Speech API has no auto-detect: it transcribes whatever locale it
     // is told and mangles anything else, so this has to come from somewhere.
     // The user's language preference if they have set one, otherwise whatever
-    // the browser reports (task e80c39c4; it was pinned to en-US before).
+    // the browser reports; it was pinned to en-US before.
     recognition.lang = speechLocale;
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimRaw = "";
@@ -1921,7 +1917,7 @@ export function LogView({
             {agent.pendingPrompt && !interaction && (
               <PendingPromptLabel kind={agent.pendingPrompt} />
             )}
-            {/* Topic (conversation summary) stacked over cwd (task efdabed3). */}
+            {/* Topic (conversation summary) stacked over cwd. */}
             <div
               style={{
                 display: "flex",
@@ -2796,7 +2792,6 @@ export function LogView({
                     // the composition consume Enter and other keys; we don't
                     // want to send, autocomplete, or abort mid-composition.
                     if (e.nativeEvent.isComposing) return;
-                    // Autocomplete navigation
                     if (showAutocomplete && filteredCommands.length > 0) {
                       if (e.key === "ArrowUp") {
                         e.preventDefault();

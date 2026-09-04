@@ -1,8 +1,7 @@
 // Owner-only "Access" section: where can people reach this office from?
 // Mounts on the User Settings page (UserSettingsView) when the current
-// session's role is "owner". One of the three panes the old all-in-one
-// "Access & invites" section was split into (task 07514e7f) - see also
-// InvitesPane and SessionsPane.
+// session's role is "owner". The other panes from the old all-in-one
+// "Access & invites" section are InvitesPane and SessionsPane.
 //
 // Pre-claim or with external access disabled, isomux binds 127.0.0.1 only and
 // the office is reachable only from the host machine (or via an SSH tunnel).
@@ -183,7 +182,7 @@ function ExternalAccessSection({
 
   // Tab-close guard while dirty: in-app navigation already routes through
   // the discard prompt, but closing/reloading the tab was the one silent
-  // loss path (save-flow friction pass, task 4733fa30). No deps - the
+  // loss path. No deps - the
   // handler must see the current `dirty` each render.
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {

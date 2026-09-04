@@ -11,7 +11,7 @@
 // save footer. On mobile exactly one of the two panes shows at a time - the
 // list first, then the detail with a back row.
 //
-// The user rows double as a roster (task 8e882cd4): a green dot on the
+// The user rows double as a roster: a green dot on the
 // avatar for users with a live connection (store.onlineUserIds, an
 // all-audience presence aggregate), plus - for OWNER viewers only - a
 // session count / last-seen summary derived from the active-sessions list.
@@ -55,11 +55,9 @@ import {
 } from "./ExpandableTextarea.tsx";
 import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
 
-// Account-section entries in the sidebar. Owners get the three admin panes
-// the old "Access & invites" section was split into (task 07514e7f) plus the
-// two self-scoped panes ("My devices" - task eb3354e6 revision: device links
-// are self-service for everyone - and "Preferences", task 49d4e2f6); members
-// get the two self-scoped ones.
+// Account-section entries in the sidebar. Owners get three admin panes plus
+// the two self-scoped panes: "My devices", where device links are self-service
+// for everyone, and "Preferences". Members get the two self-scoped panes.
 type AccountSection =
   | "access"
   | "invites"
@@ -100,7 +98,7 @@ export function UserSettingsView({
     [users],
   );
 
-  // Roster signals (task 8e882cd4). Seed the invites + sessions lists here
+  // Roster signals. Seed the invites + sessions lists here
   // (not just in the account panes): the owner sidebar's per-user session
   // count / last-seen needs sessions data even when no account pane is open.
   // For members the seed only feeds the My devices pane - their roster rows
@@ -254,9 +252,9 @@ export function UserSettingsView({
 
   const accountAvailable = isOwner || !!sessionContext;
   // Owner: the three admin panes the old "Access & invites" section was split
-  // into, plus the personal My devices pane (task eb3354e6 revision: device
-  // links are self-service for EVERYONE - admin sections first, the personal
-  // one last). Member: the single self-scoped devices pane.
+  // into, plus the personal My devices pane. Device links are self-service for
+  // EVERYONE - admin sections first, the personal one last. Member: the single
+  // self-scoped devices pane.
   const accountEntries: { section: AccountSection; label: string }[] = isOwner
     ? [
         { section: "access", label: "Access" },
@@ -366,8 +364,8 @@ export function UserSettingsView({
               padding: "12px 0",
             }}
           >
-            {/* Account section sits ABOVE the user list (Nil spec, task
-                07514e7f): the entries must stay reachable however long the
+            {/* Account section sits ABOVE the user list: the entries must stay
+                reachable however long the
                 roster below grows. */}
             {accountAvailable && (
               <>
@@ -715,7 +713,7 @@ function sameRoomSet(a: string[], b: string[]): boolean {
   return true;
 }
 
-// One-line roster summary under the user's name (task 8e882cd4). Replaces the
+// One-line roster summary under the user's name. Replaces the
 // old rooms/env/profile line, which truncated into invisibility and answered
 // nothing anyone asked; this one answers "are they here, and if not, when
 // were they last?". Kept short enough to never ellipsize at sidebar width.
@@ -761,7 +759,7 @@ function UserEditPanel({
   // but we also hide the editor here so members don't see disabled
   // controls they can't use.
   const isOwner = sessionContext?.role === "owner";
-  // Self-edit vs owner-editing-another. Option A (Nil-gated): Notifications are
+  // Self-edit vs owner-editing-another. Notifications are
   // SELF-only (view.*), so they render only when isMe; an owner editing a
   // member manages record fields + access, not their prefs.
   const isMe = sessionContext?.userId === user.id;
@@ -782,7 +780,7 @@ function UserEditPanel({
   const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
   );
-  // Per-user DISPLAY preference (task 9301d0f4): room ids the user has hidden
+  // Per-user DISPLAY preference: room ids the user has hidden
   // from their own view. SELF-only, like notifications - an owner editing a
   // member manages access, not their view. Saved as the complement (the
   // "shown" list) via PUT /api/me/view/shown. The three room settings are
@@ -791,8 +789,8 @@ function UserEditPanel({
   // The room ids the TARGET can reach, for rendering their self prefs: an owner
   // reaches every live room by rule; a member SELF-editing reads their LIVE
   // record (user.allowedRooms - they have no Access column, and the record
-  // refreshes via user_self_updated if an owner grants mid-edit, Reviewer1
-  // P1); an owner editing a member uses the editable allowedSetting. Without
+  // refreshes via user_self_updated if an owner grants mid-edit); an owner
+  // editing a member uses the editable allowedSetting. Without
   // the owner rule an owner self-editing sees disabled notification toggles
   // (their allowedRooms is [] by rule).
   const accessibleForPrefs = targetIsOwner
@@ -806,7 +804,7 @@ function UserEditPanel({
   // member self-edit and REFETCHED whenever their access set changes (an
   // owner granting/revoking a room while this panel is mounted lands as a
   // user_self_updated refresh of user.allowedRooms), so the rows can't go
-  // permanently stale (Reviewer1 P1). Owners already hold the live allRooms.
+  // permanently stale. Owners already hold the live allRooms.
   const [meRooms, setMeRooms] = useState<{ id: string; name: string }[] | null>(
     null,
   );
@@ -976,7 +974,7 @@ function UserEditPanel({
     };
   });
 
-  // Tab-close guard while dirty (save-flow friction pass, task 4733fa30):
+  // Tab-close guard while dirty:
   // in-app navigation already routes through the discard prompt, but closing
   // or reloading the tab was the one silent loss path. No deps - the handler
   // must see fresh form state each render.
@@ -1012,7 +1010,7 @@ function UserEditPanel({
       normalizedColor !== user.avatarColor ||
       avatarVariant !== user.avatarVariant;
     try {
-      // The update_user SPLIT (Option A), sequenced to preserve the WS atomicity
+      // The update_user split is sequenced to preserve the WS atomicity
       // guarantees and dodge the rename->404. (1) Owner access change FIRST,
       // against the ORIGINAL username, so a combined rename + grant doesn't 404
       // the access PUT after the record renames; setAccess prune-clamps the
@@ -1048,16 +1046,16 @@ function UserEditPanel({
           return;
         }
       }
-      // (3) View prefs are SELF-only (Option A: the fields render only for
-      // isMe). Shown FIRST: the server clamps notifRooms to the effective
+      // (3) View prefs are SELF-only: the fields render only for isMe. Shown
+      // FIRST: the server clamps notifRooms to the effective
       // shown set on every shown write, so re-showing a room and enabling its
       // notification in one save only works in this order. The shown list is
       // the complement of hiddenSetting over the accessible set - and because
       // any accessible room OMITTED from it becomes hidden, the complement is
       // computed over a FRESH authoritative accessible list fetched at save
-      // time, never a possibly stale client snapshot (Reviewer1 P1: a room
+      // time, never a possibly stale client snapshot. A room
       // granted/created while this panel is mounted must default to shown,
-      // not get silently hidden). If the pre-write read fails, fail the save
+      // not get silently hidden. If the pre-write read fails, fail the save
       // rather than risk a destructive stale complement.
       if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) {
         let accessibleNow: { id: string }[];
@@ -1165,10 +1163,10 @@ function UserEditPanel({
           style={{ ...inputStyle, maxWidth: 340 }}
         />
 
-        {/* Rooms (task 9301d0f4): ONE table for the three hierarchical
+        {/* Rooms: ONE table for the three hierarchical
             per-room settings - ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
             Access is owner-managed on member targets; Displayed and
-            Notifications are SELF-only view prefs (Option A), so at most two
+            Notifications are SELF-only view prefs, so at most two
             columns ever render at once (owner-editing-member: Access only;
             self-edit: Displayed + Notifications). A member viewer only ever
             mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
@@ -1393,7 +1391,7 @@ function UserEditPanel({
           }}
         />
 
-        {/* Aesthetics last (task a0da9bcf): looks are secondary to the
+        {/* Aesthetics last: looks are secondary to the
             settings that change behavior. */}
         <h5 style={sectionTitleStyle}>Appearance</h5>
         <label style={subLabelStyle}>

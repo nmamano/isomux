@@ -222,8 +222,7 @@ type Action =
   | { type: "disconnected" }
   // CLIENT-LOCAL (no longer a ServerMessage): ContextMenu dispatches this after
   // the REST agents.listSessions fetch (GET /api/agents/:id/sessions) to seed the
-  // per-agent sessions map. The WS sessions_list push it replaced was retired in
-  // Phase 3d slice 6a.
+  // per-agent sessions map. The WS sessions_list push it replaced was retired.
   | {
       type: "sessions_list";
       agentId: string;
@@ -314,7 +313,6 @@ type Action =
     }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
-// States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 
 // Silent fallback for a `log_replay_complete` that never arrives. The one case
@@ -504,7 +502,6 @@ export function reducer(state: AppState, action: Action): AppState {
         a.id === action.agentId ? { ...a, ...action.changes } : a,
       );
       const needsAttention = new Set(state.needsAttention);
-      // Track when state changes for elapsed time display
       const stateChangedAt = action.changes.state
         ? new Map(state.stateChangedAt).set(action.agentId, Date.now())
         : state.stateChangedAt;
@@ -1035,7 +1032,6 @@ function ensureAudioContext() {
   return audioCtx;
 }
 
-// Initialize audio on first click anywhere
 if (typeof document !== "undefined") {
   document.addEventListener("click", () => ensureAudioContext(), {
     once: true,
@@ -1130,7 +1126,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => clearTimeout(id);
   }, [state.sessionExpired]);
 
-  // Track mobile viewport
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>;
     function handleResize() {
@@ -1233,7 +1228,7 @@ function getInitialThemeId(): string {
   return getSystemThemeId();
 }
 
-// The wall sun/moon walks this loop, in Nil's chosen order.
+// The wall sun/moon walks this fixed order.
 const THEME_CYCLE_ORDER = [
   "light",
   "solarized-light",

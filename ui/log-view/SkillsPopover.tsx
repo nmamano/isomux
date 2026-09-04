@@ -31,7 +31,7 @@ export function SkillsPopover({
   const filterRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
   // The viewing user's per-skill use counters (server-side so they follow the
-  // user across devices - task f1769b1a). Fetched fresh on every open; until
+  // user across devices). Fetched fresh on every open; until
   // (or if never) loaded, all counts read 0 and the alphabetical order stands.
   const [counts, setCounts] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -95,7 +95,7 @@ export function SkillsPopover({
         right: isMobile ? 8 : 20,
         marginBottom: 4,
         // Solid variant on purpose: the popover floats over chat content and
-        // the translucent --bg-surface lets it bleed through (Nil 2026-07-17).
+        // the translucent --bg-surface lets it bleed through.
         background: "var(--bg-surface-solid)",
         border: "1px solid var(--border-medium)",
         borderRadius: 8,

@@ -346,7 +346,6 @@ export function CronjobDialog({
     setConfirmDiscard(false);
   }
 
-  // ESC to close
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;

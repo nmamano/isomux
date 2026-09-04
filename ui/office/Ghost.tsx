@@ -94,8 +94,6 @@ function makeClickHandler(
   };
 }
 
-// --- Body (SVG only) -----------------------------------------------------
-
 export function GhostBody({
   left,
   top,
@@ -135,8 +133,6 @@ export function GhostBody({
     </div>
   );
 }
-
-// --- Tag (label chip) ----------------------------------------------------
 
 export function GhostTag({
   left,

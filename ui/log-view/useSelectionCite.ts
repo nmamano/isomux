@@ -12,7 +12,7 @@ export type CiteSelection = {
  * Track the user's text selection inside `containerRef` and expose it as a
  * `CiteSelection` whenever it's a non-empty, fully-contained selection.
  *
- * Design rules baked in (see Phase 2 design with Reviewer1):
+ * Design rules baked in:
  *  - rAF-throttled `selectionchange` listener - coalesces iOS bursts and
  *    avoids per-event synchronous rect reads.
  *  - Both `anchorNode` and `focusNode` must be inside the container, so a

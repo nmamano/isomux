@@ -3,8 +3,8 @@ import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import { deskPixelPos } from "./grid.ts";
 
-// "Outside SE wall" lobby coordinates. Until the desk repositioning in
-// task 11384153 lands, idle ghosts can't fit anywhere on the floor;
+// "Outside SE wall" lobby coordinates. Until the desk repositioning lands,
+// idle ghosts cannot fit on the floor;
 // they line up here, past the SE wall. Adjacent ghosts step right by
 // `GHOST_LOBBY_GAP` so the name tags don't collide.
 const GHOST_LOBBY_BASE_X = 600;
@@ -108,7 +108,7 @@ function computeNaturalPlacements(
       // SE of the chair. Chair anchor is (deskLeft+90, deskTop+116);
       // the ghost top-left sits a touch lower-right of that so the
       // body's visual centroid hovers near the chair shoulder. Layout
-      // is intentionally cramped pre-desk-repositioning (task 11384153).
+      // is intentionally cramped before desk repositioning.
       left = deskLeft + 130 + i * GHOST_STACK_DX;
       top = deskTop + 90 + i * GHOST_STACK_DY;
     }

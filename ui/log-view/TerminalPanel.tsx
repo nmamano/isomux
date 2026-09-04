@@ -345,7 +345,6 @@ export function TerminalPanel({
     [agentId, onCommandHandled],
   );
 
-  // Handle server messages for this terminal
   const handleRawMessage = useCallback(
     (data: string) => {
       try {
@@ -422,7 +421,6 @@ export function TerminalPanel({
     [agentId, setCtrl],
   );
 
-  // Initialize terminal
   useEffect(() => {
     if (!containerRef.current) return;
     if (mobile) ensureMobileTerminalStyle();
@@ -513,10 +511,8 @@ export function TerminalPanel({
     // (survives reconnects, avoids unnecessary React re-renders)
     addRawListener(handleRawMessage);
 
-    // Open the PTY on the server
     send({ type: "terminal_open", agentId });
 
-    // Resize observer
     const observer = new ResizeObserver(() => {
       fitAddon.fit();
       send({
@@ -538,7 +534,6 @@ export function TerminalPanel({
     };
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update theme without re-creating terminal
   useEffect(() => {
     if (termRef.current) {
       termRef.current.options.theme =

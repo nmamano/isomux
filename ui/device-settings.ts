@@ -41,8 +41,7 @@ export function setDevice(label: string | null): void {
   else localStorage.removeItem(KEY_DEVICE);
 }
 
-// App previews are on unless this device opts out (Nil's ruling 2026-08-29,
-// made once screenshot capture was proven to work). A cold, serialized fill
+// App previews are on unless this device opts out. A cold, serialized fill
 // of a large Apps page can take tens of seconds; the toggle remains the out.
 export function getAppPreviews(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -144,7 +143,7 @@ export function clearLegacyUserPrefs(): void {
 }
 
 // Which plan-allowance limit the usage pill's number tracks, per device per
-// agent (task df489513). The pill defaults to the most constrained window;
+// agent. The pill defaults to the most constrained window;
 // pinning overrides that for people who care about one specific limit. Stored
 // as one JSON object { [provider:agentId]: { label, index } }.
 //

@@ -1,11 +1,11 @@
-// Named request and wire-projection shapes - Phase 2.3.
+// Named request and wire-projection shapes.
 //
 // The contract-first aliases referenced by the typed route table
 // (server/routes/table.ts) and the event registry (server/events/registry.ts).
 // See internal-docs/generic-runtime-refactor.md → "Named request and wire
 // shapes". LEAF over shared/types.ts: type aliases only, zero runtime, no
-// validation (schemas are type-level in 2.3; runtime validation lands with
-// handler migration in Phase 3). Indexed-access types keep every alias in
+// validation (schemas are type-level; runtime validation lands with
+// handler migration). Indexed-access types keep every alias in
 // lockstep with the canonical shapes - a field rename in shared/types.ts
 // propagates here at compile time.
 
@@ -23,8 +23,6 @@ import type {
   PendingPromptKind,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
-
-// --- Wire projections (response / event shapes) -----------------------------
 
 // UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
 // ServerMessage, which references it). Re-exported here so the route-table /
@@ -48,7 +46,6 @@ export interface AccessSettings {
   boundLoopback: boolean;
 }
 
-// --- Request bodies ---------------------------------------------------------
 // Indexed-access into the canonical types wherever a field mirrors AgentInfo /
 // TaskItem / Cronjob, so the request alias and the entity stay in lockstep.
 
@@ -86,10 +83,10 @@ export type EditAgentReq = Partial<
     | "agentType"
   >
 > & {
-  // REQUIRED iff customInstructions is present in the body (task 44a2c98d):
+  // REQUIRED iff customInstructions is present in the body:
   // echo back AgentInfo.customInstructionsVersion as read off full_state /
   // agent_updated (UI) or GET /api/agents/:id/instructions
-  // (agents.readInstructions, task 68891fa1 - the agent-facing read). Missing
+  // (agents.readInstructions, the agent-facing read). Missing
   // then -> 400 invalid_version; stale -> 409 version_conflict with the
   // current version. Scalar-only edits omit it and stay friction-free.
   customInstructionsVersion?: string;
@@ -143,7 +140,7 @@ export interface SendMessageReq {
   // their existing paths. Present on an AGENT-scope call → 400 (agents pass
   // `steer` below instead).
   sendNow?: boolean;
-  // AGENT branch only (task 80b2bb08): interrupt the receiver's in-flight turn
+  // AGENT branch only: interrupt the receiver's in-flight turn
   // so this message lands now instead of after it. Enqueue and interrupt happen
   // in one request, decided against the same state read - the two-call
   // enqueue-then-send-now sequence could have the receiver go idle in between,
@@ -174,7 +171,7 @@ export interface NewConversationReq {
 // Hand off to a fresh copy of the SAME agent: reset the session (like
 // newConversation) then deliver `text` into the fresh session, marked as a
 // self-handoff so the clean copy resumes on the brief without replying to
-// itself (task 8883e45d).
+// itself.
 export interface HandoffReq {
   text: string;
 }
@@ -281,7 +278,7 @@ export interface LogSessionIndexResp {
   /**
    * Which two-step prompt the agent is parked on RIGHT NOW, or null.
    *
-   * LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). It describes the
+   * LIVE AGENT STATE, NOT SESSION HISTORY. It describes the
    * agent at the moment of THIS request and says nothing about the session
    * being read: a transcript fetched for an old session still reports the
    * agent's current prompt, and re-reading the same session later can return a
@@ -383,7 +380,7 @@ export interface LogRetrieveResp {
   /**
    * Which two-step prompt the agent is parked on RIGHT NOW, or null.
    *
-   * LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). It describes the
+   * LIVE AGENT STATE, NOT SESSION HISTORY. It describes the
    * agent at the moment of THIS request and says nothing about the session
    * being read: a transcript fetched for an old session still reports the
    * agent's current prompt, and re-reading the same session later can return a
@@ -442,13 +439,13 @@ export interface ViewOrderReq {
 
 // view.setShown: the FULL list of accessible rooms the caller wants displayed;
 // hidden becomes accessible minus this (clamped server-side). Removed as
-// callerless in the Phase 4 close-out, restored by task 9301d0f4 alongside the
+// callerless, restored alongside the
 // hide-rooms UI on the Users page.
 export interface ShownRoomsReq {
   shown: string[];
 }
 
-// view.listRooms (GET /api/me/rooms) - task 9301d0f4. Minimal reference to a
+// view.listRooms (GET /api/me/rooms). Minimal reference to a
 // room the CALLER can access, hidden ones included (the projected full_state
 // rooms exclude hidden, and members don't get the owner-only all_rooms_list,
 // so this read is what makes re-SHOW possible). id+name only - everything
@@ -466,9 +463,9 @@ export interface NotifRoomsReq {
   notifRooms: string[];
 }
 
-// prefs.update (PATCH /api/me/preferences) - task 49d4e2f6. SELF-only personal
+// prefs.update (PATCH /api/me/preferences). SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
-// Option A split keeps an owner out of a member's personal settings. A Partial
+// split keeps an owner out of a member's personal settings. A Partial
 // so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
@@ -537,7 +534,7 @@ export interface SetAccessReq {
   allowedRooms: string[];
 }
 
-// Owner-minted invites create NEW users only (task eb3354e6 revision): an
+// Owner-minted invites create NEW users only: an
 // existing username is rejected server-side (409). Device links for existing
 // accounts ride POST /api/invites/self - or, when the user is locked out of
 // every device, the owner recovery op below.
@@ -553,7 +550,7 @@ export interface InviteMintReq {
 }
 
 // invites.mintRecovery (POST /api/invites/recovery) - owner-only recovery for
-// an EXISTING user (task eb3354e6 final revision): device links are normally
+// an EXISTING user: device links are normally
 // self-service, but a user signed out of every device can't mint one. Target
 // is the stable userId; the server derives name/role from the record and
 // fixes TTL/replacement policy - no other knobs on the wire.
@@ -636,7 +633,7 @@ export type TaskUpdateReq = Partial<{
 // isomux-memory: APPEND a durable fact (the safe default). scope/scopeId select
 // the TARGET file; author + date are server-stamped (never from the body) -
 // except on an agent's note to its OWN agent scope, where the stored line
-// carries no author at all (task f9d2bbac).
+// carries no author at all.
 export interface MemoryCreateReq {
   scope: MemoryScope;
   scopeId?: string | null;
@@ -680,7 +677,7 @@ export interface TaskClaimReq {
 
 // skills.usageCounts response: the CALLING user's per-skill use counters
 // (skill name -> count; skills never used are absent). Drives the Sk-menu
-// sort order (task f1769b1a).
+// sort order.
 export interface SkillUsageCountsRes {
   counts: Record<string, number>;
 }
@@ -720,7 +717,6 @@ export interface CronPromptReq {
   value: string | null;
 }
 
-// --- Agent-built apps -------------------------------------------------------
 // The wire contract for the app registry (internal-docs/agent-apps-design.md).
 // Defined here rather than in server/app-registry.ts so the route table, the
 // registry, and the handler cannot drift.
@@ -811,7 +807,6 @@ export type AppErrorCode =
   // and a failure is simply a failure.
   | "supervisor_failed";
 
-// --- Storage retention (task 2366ccb0) --------------------------------------
 // The wire contract for the disk-usage breakdown and the manual pruner. Defined
 // here rather than in the server modules so the route table and the
 // implementation cannot drift: server/storage-usage.ts and
@@ -865,8 +860,6 @@ export interface StorageUsageWire {
   // agents in rooms the caller may not see).
   agents: AgentStorageWire[];
 }
-
-// --- Token usage -----------------------------------------------------------
 
 export interface UsageBucketWire {
   totalIn: number;

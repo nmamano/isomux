@@ -99,7 +99,7 @@ export function DeskUnit({
     isWorking && stateChangedAt ? now - stateChangedAt : undefined;
   const pos = DESK_SLOTS[agent.desk];
   // An agent whose desk names no slot has nowhere to be drawn. OfficeState
-  // rejects such a desk at spawn (task e87d9c7d), so this only fires for a
+  // rejects such a desk at spawn, so this only fires for a
   // record that predates that check or was hand-edited on disk: skip the one
   // desk instead of throwing and taking the whole room view down with it.
   if (!pos) return null;
@@ -292,7 +292,7 @@ export function DeskUnit({
               unread
             </span>
           )}
-          {/* Parked on a two-step prompt (task 29daebe2). Distinct from the
+          {/* Parked on a two-step prompt. Distinct from the
               unread badge: unread means "someone spoke to it", this means "it
               asked YOU something and is waiting". Amber rather than purple so
               the two never read as the same signal at a glance. */}

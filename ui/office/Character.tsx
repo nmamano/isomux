@@ -1,6 +1,5 @@
 import type { AgentState, AgentOutfit } from "../../shared/types.ts";
 
-// Map our states to visual poses
 function visualState(
   state: AgentState,
 ): "working" | "waiting_for_response" | "error" | "idle" {
@@ -182,7 +181,6 @@ function Beard({
   headCx: number;
   headCy: number;
 }) {
-  // Slightly darker version of hair color for beard
   switch (type) {
     case "stubble":
       return (

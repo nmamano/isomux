@@ -228,7 +228,6 @@ export function OfficeView({
     viewport.zoomOut,
   ]);
 
-  // Filter agents to current room for rendering
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   // Final ghost placement list - natural desk / lobby positions, plus
   // door-slide overrides for ghosts whose presence just crossed into / out

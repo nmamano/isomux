@@ -88,7 +88,7 @@ function writeTabs(agentId: string, paths: string[]) {
 // Most-recently-opened file paths, per agent, newest first. Distinct from
 // TABS_KEY (currently-open tabs): recents survive a full close of every tab
 // so the empty editor offers a one-click reopen. A fuller always-visible file
-// browser is the separate, more ambitious file-nav sidebar (task 4c8740f5) -
+// browser is the separate, more ambitious file-nav sidebar -
 // deliberately NOT built here; this is the lightweight quick-reopen affordance.
 const RECENT_KEY = (agentId: string) => `isomux:editor:recent:${agentId}`;
 const MAX_RECENT = 12;
@@ -1394,7 +1394,7 @@ export function EditorPanel({
       {/* Recently-opened files: shown only in the empty editor as a quick
           reopen list. When any tab is open the editor body takes over. A
           persistent, always-visible file browser is the separate file-nav
-          sidebar (task 4c8740f5), intentionally out of scope here. */}
+          sidebar, intentionally out of scope here. */}
       {tabs.length === 0 && recentPaths.length > 0 && (
         <div
           style={{

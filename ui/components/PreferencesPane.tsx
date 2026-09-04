@@ -1,4 +1,4 @@
-// Self-scoped "Preferences" pane on the User Settings page (task 49d4e2f6):
+// Self-scoped "Preferences" pane on the User Settings page:
 // the settings that belong to a PERSON rather than to a browser, so they
 // follow them to their phone. Sits next to My devices, which is its opposite
 // number - the device label there stays local on purpose.

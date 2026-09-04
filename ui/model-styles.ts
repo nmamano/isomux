@@ -1,4 +1,4 @@
-// Model -> visual style mapping (task c269ff78; design in
+// Model -> visual style mapping (design in
 // internal-docs/model-style-mapping-design.md).
 //
 // Single source for everything a model controls visually: the nametag badge
@@ -26,7 +26,7 @@ export interface ModelStyle {
 // former MODEL_TINT tables (previously duplicated in DeskUnit.tsx and
 // LogView.tsx) so known models keep their exact tints.
 //
-// Desk props encode capability TIER, not identity (Nil, 2026-07-12): frontier
+// Desk props encode capability TIER, not identity: frontier
 // models get the book (opus, fable, gpt-5.6-sol), small/fast models get the
 // crayons (haiku, gpt-5.4-mini, gpt-5.6-luna), mid models get a bare desk.
 // At-a-glance encoding: color hue ~ provider/family, desk prop ~ tier.

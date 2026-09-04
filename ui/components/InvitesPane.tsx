@@ -1,12 +1,11 @@
 // Owner-only "Invites" section: mint NEW-USER invite URLs and manage the
 // outstanding ones. Device links for existing accounts are self-service in
-// MyDevicesPane (task eb3354e6 revision) - an existing typed name gets an
+// MyDevicesPane - an existing typed name gets an
 // inline hint and a disabled submit (the server also rejects it, 409). The
 // Recovery card is the one owner-side exception: a device link FOR an
 // existing user who is locked out of every device (invites.mintRecovery). Mounts on the User Settings page (UserSettingsView) when the current
-// session's role is "owner". One of the three panes the old all-in-one
-// "Access & invites" section was split into (task 07514e7f) - see also
-// ExternalAccessPane and SessionsPane.
+// session's role is "owner". The other panes from the old all-in-one
+// "Access & invites" section are ExternalAccessPane and SessionsPane.
 
 import { useMemo, useState } from "react";
 import { useAppState } from "../store.tsx";
@@ -31,7 +30,7 @@ export function InvitesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      {/* Task eb3354e6 (revised): invites mint NEW users only. Device links
+      {/* Invites mint NEW users only. Device links
           for existing accounts are self-service from each user's own
           My devices section - owners deliberately can't mint them for
           others. An existing typed name gets an inline hint (below) instead
@@ -46,7 +45,7 @@ export function InvitesPane() {
 
       <IssueInviteForm />
 
-      {/* Owner recovery (task eb3354e6 final revision): device links are
+      {/* Owner recovery: device links are
           self-service, but a user signed out of EVERY device can't mint one - 
           this is the owner's escape hatch. A card here (not its own sidebar
           entry) keeps the account list un-crowded; it lives next to invites
@@ -139,7 +138,7 @@ function IssueInviteForm() {
         maxLength={64}
         style={dialogInput}
       />
-      {/* Existing-name hint (task eb3354e6 revised): no mode flip - invites
+      {/* Existing-name hint: no mode flip - invites
           are new-user only (the server rejects existing names too), so point
           at the self-service device-link flow instead. */}
       {existing && (

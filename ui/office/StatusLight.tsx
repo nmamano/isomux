@@ -22,7 +22,6 @@ export function StatusLight({
   elapsedMs?: number;
 }) {
   let c = COLORS[state] || "var(--text-muted)";
-  // Apply escalation colors for active states
   if (
     elapsedMs != null &&
     (state === "thinking" || state === "tool_executing")

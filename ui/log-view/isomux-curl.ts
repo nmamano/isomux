@@ -63,7 +63,7 @@ export type IsomuxCurlRequest = {
    * They are NOT semantically validated - a `sed w` script can still write a
    * file - so the collapsed card must never show less of the tail than the raw
    * collapsed rendering would; run it through pipeTailForDisplay(), which is
-   * what guarantees that. Length does not gate the parse (task c9f35c77):
+   * what guarantees that. Length does not gate the parse:
    * dropping the card over a long jq program left the reader with the raw
    * summary, which shows even less.
    */
@@ -98,8 +98,6 @@ export type IsomuxCurlRequest = {
    */
   trailingCommand: string | null;
 };
-
-// --- shell tokenizer ---------------------------------------------------------
 
 type OutputRedirect = { path: string; append: boolean };
 
@@ -272,8 +270,6 @@ function tokenize(
   return { tokens, pipeTail: null, outputRedirect };
 }
 
-// --- statement splitting -----------------------------------------------------
-
 type Statement = { sep: string; text: string };
 
 /**
@@ -352,8 +348,6 @@ function splitStatements(command: string): Statement[] | null {
   out.push({ sep, text: command.slice(start) });
   return out;
 }
-
-// --- heredoc extraction ------------------------------------------------------
 
 // A heredoc feeding the command: `line` is the command with the `<<DELIM`
 // operator removed, `body` is the heredoc text, and `literal` is true when the
@@ -596,8 +590,6 @@ function isSafeStage(text: string, allowed: ReadonlySet<string>): boolean {
   return stage.pipeTail === null || isSafePipeTail(stage.pipeTail);
 }
 
-// --- curl flag tables --------------------------------------------------------
-
 // Boolean long options that don't change what we display. Not a blanket
 // claim that they preserve request semantics: -L/--location can change the
 // effective target via server redirects. It's accepted because the target is
@@ -710,8 +702,6 @@ const ARG_LONG: Record<string, ArgKind> = {
 // displayed.
 const ALLOWED_HEADERS = new Set(["content-type", "authorization"]);
 
-// --- URL matching ------------------------------------------------------------
-
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
 /**
@@ -736,8 +726,6 @@ function matchIsomuxUrl(
   const path = m[3] ?? "/";
   return path.startsWith("/") ? path : `/${path}`;
 }
-
-// --- route naming ------------------------------------------------------------
 
 // Known isomux routes worth a human label in the card. "*" matches exactly one
 // path segment. Kept to the routes agents actually hit from transcripts; an
@@ -830,8 +818,6 @@ export function describeIsomuxRoute(
   return null;
 }
 
-// --- humanized labels ----------------------------------------------------------
-
 function truncateLabel(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
@@ -869,7 +855,6 @@ export function humanizeIsomuxRequest(
     resolveAgentName?.(id) ?? truncateLabel(id, 18);
   const m = req.method;
 
-  // Memory
   if (segs.length === 1 && segs[0] === "memory") {
     const scope = query.get("scope") ?? field("scope");
     const phrase = (scope && MEMORY_SCOPE_PHRASES[scope]) || "memories";
@@ -925,7 +910,6 @@ export function humanizeIsomuxRequest(
     }
   }
 
-  // Agents
   if (segs[0] === "agents") {
     // ?killed=1 flips the roster the route answers with, so it gets its own
     // phrase rather than the live-agent one. The card mirrors the server's
@@ -1008,7 +992,6 @@ export function humanizeIsomuxRequest(
     }
   }
 
-  // Rooms
   if (segs[0] === "rooms") {
     if (segs.length === 1 && m === "POST") {
       const name = field("name");
@@ -1025,7 +1008,6 @@ export function humanizeIsomuxRequest(
     }
   }
 
-  // Cronjobs
   if (segs[0] === "cronjobs") {
     if (segs.length === 1) {
       if (m === "GET") return "List cronjobs";
@@ -1049,14 +1031,10 @@ export function humanizeIsomuxRequest(
   return null;
 }
 
-// --- body formatting ---------------------------------------------------------
-
 function displayValue(v: unknown): string {
   const s = typeof v === "string" ? v : JSON.stringify(v);
   return (s ?? "").replace(/\s+/g, " ");
 }
-
-// --- jq producer stage -------------------------------------------------------
 
 // A request body resolved from something other than an inline `-d` flag -
 // either a leading `jq ... |` producer stage or a heredoc feeding curl's
@@ -1319,8 +1297,6 @@ function parseJqInvocation(
   };
 }
 
-// --- heredoc body ------------------------------------------------------------
-
 /**
  * Resolve a heredoc attached to curl's stdin (`curl -d @- <<'EOF' ... EOF`)
  * into a displayable body. A literal body (see the Heredoc type) is parsed as
@@ -1356,8 +1332,6 @@ function resolveHeredocBody(heredoc: Heredoc): ResolvedBody {
   }
   return { kind: "note", note: "body from heredoc" };
 }
-
-// --- shell wrapper -----------------------------------------------------------
 
 /**
  * Codex (and some other tool harnesses) run every shell command wrapped as
@@ -1417,8 +1391,6 @@ function unwrapShellWrapper(command: string): string | null {
   if (script === command) return null; // no-op guard against a re-parse loop
   return script;
 }
-
-// --- main entry point --------------------------------------------------------
 
 /**
  * Does the OUTER shell of a wrapped command expand a `$VAR`/`${...}`/backtick

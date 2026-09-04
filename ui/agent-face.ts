@@ -1,4 +1,4 @@
-// Agent state -> kaomoji face for the browser tab title (task 4a8eff79).
+// Agent state -> kaomoji face for the browser tab title.
 //
 // The tab strip is the one place you see an agent while looking at something
 // else, so the face carries its state: dozing, working, done and waiting on
@@ -18,8 +18,8 @@ import type { AgentState } from "../shared/types.ts";
 
 // One face per avatar pose, mirroring visualState() in ui/office/Character.tsx:
 // the desk animation doesn't distinguish thinking from tool_executing (both
-// "working") or stopped from idle, so the tab face doesn't either (Nil's rule:
-// faces match animations one to one).
+// "working") or stopped from idle, so the tab face doesn't either. Faces match
+// animations one to one.
 const STATE_FACES: Record<AgentState, string> = {
   idle: "(-_-)zz",
   thinking: "~(o_o)~",

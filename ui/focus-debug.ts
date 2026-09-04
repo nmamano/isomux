@@ -1,6 +1,6 @@
-// Gated focus-event tracer for task edc69c2d ("editor input capture": with
+// Gated focus-event tracer for "editor input capture". With
 // the cursor in the editor panel, clicking the chat input box sometimes
-// doesn't move focus there). The bug doesn't reproduce in headless Chrome -
+// doesn't move focus there. The bug doesn't reproduce in headless Chrome -
 // the suspected trigger is real OS window activation - so this tracer
 // records exactly what happens around the failing click in the affected
 // browser. One reproduction discriminates the candidate mechanisms:

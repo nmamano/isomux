@@ -3,7 +3,7 @@
 // and any per-variant inner motion (arm wave, halo pulse, etc.).
 //
 // The visual decisions and color palette are documented in the design
-// memo on task 0eb9d326. The 8 variants and the color palette are kept
+// memo. The 8 variants and the color palette are kept
 // in shared/avatar.ts so server validation and the user-edit form
 // reference the same source.
 
@@ -152,8 +152,6 @@ function renderVariant(variant: GhostVariant, color: string) {
   }
 }
 
-// --- Body shapes ---------------------------------------------------------
-
 function BodyClassic({ color }: { color: string }) {
   return (
     <path
@@ -173,8 +171,6 @@ function BodyWispTail({ color }: { color: string }) {
     />
   );
 }
-
-// --- Face details --------------------------------------------------------
 
 function FaceBigEyes() {
   return (
@@ -283,8 +279,6 @@ function FaceTongueOut() {
     </>
   );
 }
-
-// --- Accessories / extras ------------------------------------------------
 
 function StubbyArms({ color }: { color: string }) {
   return (

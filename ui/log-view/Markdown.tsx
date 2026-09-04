@@ -56,7 +56,6 @@ const marked = new Marked(
       if (lang && hljs.getLanguage(lang)) {
         return hljs.highlight(code, { language: lang }).value;
       }
-      // Auto-detect for unlabeled code blocks
       return hljs.highlightAuto(code).value;
     },
   }),
@@ -67,7 +66,6 @@ marked.setOptions({
   gfm: true,
 });
 
-// Override link renderer to always open in new tab
 const renderer = new marked.Renderer();
 renderer.link = ({ href, title, text }) => {
   const titleAttr = title ? ` title="${title}"` : "";
@@ -218,7 +216,6 @@ export function renderMarkdown(content: string): string {
 export function Markdown({ content }: { content: string }) {
   const html = useMemo(() => renderMarkdown(content), [content]);
 
-  // Handle copy button clicks via event delegation
   const onClick = useCallback(async (e: React.MouseEvent) => {
     const btn = (e.target as HTMLElement).closest(".code-copy-btn");
     if (!btn) return;

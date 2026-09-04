@@ -3,7 +3,7 @@ import type { SubscriptionUsageWire } from "../../shared/types.ts";
 import { bandColor } from "./ContextBattery.tsx";
 import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
 
-// Subscription-allowance indicator (task df489513), rendered immediately left
+// Subscription-allowance indicator, rendered immediately left
 // of the context battery. It answers a different question than its neighbor:
 // the battery is "how full is THIS conversation", this pill is "how much of
 // the PLAN the backend account is signed in to has been burned". The number
@@ -11,7 +11,7 @@ import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
 // says so in `primaryIndex`); every window the backend reports is a popover
 // row, and the leading one is marked there so the number is never ambiguous.
 //
-// It shares the battery's LIFECYCLE (per Nil 2026-08-01): the pill always
+// It shares the battery's LIFECYCLE: the pill always
 // renders, and with no reading it shows an empty ring and "?" in a ghost color
 // rather than disappearing. An indicator that comes and goes is one the eye
 // stops trusting, and a missing pill and a zero-usage pill looked the same.
@@ -64,7 +64,7 @@ function plural(n: number, unit: string): string {
 }
 
 // One line per window: "Weekly: 34% used - resets Sat 1 Aug, 09:00 (in 2 days
-// 5 hours)". Plain spaced hyphens, never em dashes, per Nil's prose rule.
+// 5 hours)". Use plain spaced hyphens, never em dashes.
 // `nowMs` is null for the hover tooltip, which renders on every re-render and
 // so must stay a pure function of the props - only the popover, whose clock
 // is stamped when it opens, gets the countdown.
@@ -232,7 +232,7 @@ export function SubscriptionPill({
   // How old the reading is. Account data goes stale while an agent sits idle
   // (nothing refreshes it between turns), so the popover says so rather than
   // presenting a week-old number as current - but a fresh reading stays
-  // unannotated (Nil: the line should only appear when it is actually stale).
+  // unannotated because the line appears only when it is actually stale.
   const ageLine =
     reading && coords && coords.atMs - reading.sampledAtMs > STALE_READING_MS
       ? `Reading taken ${formatTimeUntil(coords.atMs - reading.sampledAtMs)} ago.`

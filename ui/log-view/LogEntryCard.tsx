@@ -552,7 +552,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       }
       // Subprocess stderr surfaced by a backend adapter (Codex prefixes it
       // "[codex stderr]"). Multiline SystemMessage renders through Markdown
-      // and reads as agent prose - stderr needs a log block (task ebe1bc1e).
+      // and reads as agent prose - stderr needs a log block.
       if (entry.content.startsWith("[codex stderr]")) {
         return <StderrBlock content={entry.content} isMobile={isMobile} />;
       }
@@ -1349,7 +1349,7 @@ function ToolResult({
   const hasMatchingToolCall = !!pairedToolCall;
   // Attachment echo: when the agent Reads an image out of its OWN attachment
   // directory, that file arrived through this very chat (attachments are
-  // path-notices since task 353e2e66) and is already rendered above as the
+  // path notices) and is already rendered above as the
   // user's upload - a full re-render just mirrors it back. Collapse to a
   // click-to-expand chip instead. Images read from anywhere else (agent
   // screenshots, repo files) keep the full render: there the boss can't
@@ -1493,7 +1493,7 @@ function ErrorBlock({
 }
 
 // Raw subprocess stderr (system entries prefixed "[codex stderr]"): a dim
-// monospace log block, never Markdown (task ebe1bc1e). Entries persisted
+// monospace log block, never Markdown. Entries persisted
 // before the server-side ANSI stripping still carry escape codes, so they
 // are stripped here too.
 function StderrBlock({

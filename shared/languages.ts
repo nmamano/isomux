@@ -1,4 +1,4 @@
-// The languages a user can pick in their per-user preferences (task e80c39c4).
+// The languages a user can pick in their per-user preferences.
 //
 // One preference drives three surfaces: the language agents write their replies
 // in (a clause in buildSystemPrompt), the locale voice-to-text listens for, and

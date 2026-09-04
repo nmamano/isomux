@@ -24,7 +24,7 @@ import {
 export type OfficeEvent =
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the pre-removal roomId so consumers can compute a room-scoped
-  // audience after the agent is gone from state (task 03382535).
+  // audience after the agent is gone from state.
   | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "room_created"; room: RoomWire }
@@ -42,7 +42,7 @@ export type OfficeEvent =
 // Which SINGLE task a tasks_changed event moved. The board is room-scoped and a
 // full board is large (hundreds of KB once done tasks accumulate), so the WS
 // layer pushes a per-recipient delta built from this instead of re-sending the
-// whole list on every mutation (task b13445e2). `tasks` stays on the event for
+// whole list on every mutation. `tasks` stays on the event for
 // the persistence sink and the demo shim, which both want the whole board.
 export type TaskChange =
   | { kind: "created"; task: TaskItem }
@@ -207,7 +207,6 @@ export class OfficeState {
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
-    // Reject duplicate names
     const nameLower = opts.name.trim().toLowerCase();
     for (const a of this.agents.values()) {
       if (a.name.toLowerCase() === nameLower) return null;
@@ -231,7 +230,7 @@ export class OfficeState {
     const taken = new Set(roomAgents.map((a) => a.desk));
 
     // An explicit desk that names no real slot is REJECTED, not quietly
-    // reassigned: it is a caller bug, and before task e87d9c7d it produced an
+    // reassigned: it is a caller bug, and it previously produced an
     // agent that existed everywhere except the office view (DeskUnit's slot
     // lookup threw and took the whole room's render down). A desk of -1 is
     // doubly invalid - it is also the "no free desk" sentinel below.
@@ -286,7 +285,6 @@ export class OfficeState {
 
     this.agents.set(id, agent);
 
-    // Track cwd
     this.addRecentCwd(opts.cwd);
 
     const events: OfficeEvent[] = [
@@ -462,7 +460,7 @@ export class OfficeState {
     if (roomAgents.length > 0) return [];
 
     this._rooms.splice(room, 1);
-    // Phase 3c slice 4: closing a room no longer shifts any wire index. Agents
+    // Closing a room no longer shifts any wire index. Agents
     // carry a stable roomId and rooms carry a stable id, so a visible close is
     // just the room's removal and a non-visible close is a client no-op - the
     // pre-cut per-agent `room--` agent_updated churn is gone. Splicing a non-zero
@@ -512,7 +510,7 @@ export class OfficeState {
       {
         type: "agent_updated",
         agentId,
-        // Phase 3c slice 4: the stable roomId IS the move on the wire. A present
+        // The stable roomId IS the move on the wire. A present
         // `roomId` in `changes` is the move discriminator the server keys on to
         // route the old∪new audience (full-access sessions get this delta
         // verbatim; restricted sessions get a full_state refresh).
@@ -655,7 +653,7 @@ export class OfficeState {
     // with an undefined value, so drop it to keep one canonical "global" and
     // match the persisted/wire shape of a task that never had a room.
     if ("roomId" in changes && !task.roomId) delete task.roomId;
-    // Same for a cleared priority (task dc642af2): `priority: undefined` in
+    // Same for a cleared priority: `priority: undefined` in
     // `changes` must leave a task shaped like one that never had a priority.
     if ("priority" in changes && !task.priority) delete task.priority;
     const events: OfficeEvent[] = [

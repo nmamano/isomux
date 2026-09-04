@@ -227,7 +227,7 @@ export function App() {
   }, [persistEnabled, restored, persistUser, drafts]);
 
   const selfUser = useSelfUser();
-  // One-shot language seed (Nil, 2026-08-01): the browser's language takes
+  // One-shot language seed: the browser's language takes
   // effect without a first Save. A record that never chose a language gets the
   // detected browser language committed once (English is never seeded - a null
   // record already behaves as English). A failed write re-arms and retries on
@@ -512,7 +512,6 @@ export function App() {
     usersOpen,
   ]);
 
-  // Sync history stack with view state
   const isDeep =
     tasksOpen ||
     cronjobsOpen ||

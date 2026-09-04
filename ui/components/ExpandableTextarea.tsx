@@ -1,4 +1,4 @@
-// A textarea with an expand affordance (task db662e55). Memory files and
+// A textarea with an expand affordance. Memory files and
 // system prompts are multi-paragraph documents being edited through a field a
 // few lines tall inside a modal; clicking the corner button reopens the SAME
 // field as a near-fullscreen editor.

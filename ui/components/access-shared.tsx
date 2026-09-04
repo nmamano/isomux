@@ -2,9 +2,7 @@
 // (ExternalAccessPane / InvitesPane / SessionsPane for owners, MyDevicesPane
 // for members): the invites + sessions tables, the minted-URL box with its
 // clipboard fallbacks, list-section rendering, relative-time formatting, and
-// the common styles. Split out of the former all-in-one AccessPane when the
-// "Access & invites" section was broken into separate sidebar entries
-// (task 07514e7f).
+// the common styles. These came from the former all-in-one AccessPane.
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
@@ -240,7 +238,7 @@ export function SessionsTable({
               <tr>
                 <td style={sessionPrimaryCell}>{s.username}</td>
                 {/* Last-known device label, stamped server-side from the
-                    session's presence stream (task 557dc8ce). " - " until the
+                    session's presence stream. " - " until the
                     device names itself in Device Settings. */}
                 <td style={sessionPrimaryCell}>{s.device ?? " - "}</td>
                 <td style={sessionPrimaryCell}>

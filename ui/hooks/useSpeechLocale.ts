@@ -1,5 +1,5 @@
-// The locale the browser speech APIs should use for the signed-in user
-// (task e80c39c4). Both APIs need an explicit tag - SpeechRecognition has no
+// The locale the browser speech APIs should use for the signed-in user.
+// Both APIs need an explicit tag - SpeechRecognition has no
 // auto-detect at all, and SpeechSynthesis picks a system default that is
 // usually the OS language rather than the one the user asked us for.
 //

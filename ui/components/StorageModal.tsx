@@ -1,9 +1,9 @@
-// Owner-only storage panel (task 796cddec) - the human surface over the two
+// Owner-only storage panel - the human surface over the two
 // storage routes that shipped headless: GET /api/storage/usage and POST
 // /api/storage/prune. Opened from Office Settings; the office owner is the only
 // caller who ever sees the entry point.
 //
-// The panel is a ONE-OFF operation, deliberately. Nil, 2026-08-01: no schedules,
+// The panel is a ONE-OFF operation, deliberately: no schedules,
 // no automation, no hint of either - Isomux has no retention scheduler and the
 // copy must not imply one. Everything here happens because someone pressed a
 // button, once.

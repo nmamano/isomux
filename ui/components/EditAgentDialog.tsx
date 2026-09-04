@@ -209,7 +209,7 @@ function makeRandomOutfit(): AgentOutfit {
 }
 
 // Every value the dialog's form holds, flattened for the unsaved-changes check
-// (task 5a20e3f0). `outfit` is pre-serialized because the form replaces the
+// `outfit` is pre-serialized because the form replaces the
 // whole object on each swatch click, so identity says nothing.
 export interface AgentFormSnapshot {
   name: string;
@@ -406,7 +406,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     backendModels !== null &&
     !openCodeModelReady;
 
-  // What "unsaved" is measured against (task 5a20e3f0). Seeded from the same
+  // What "unsaved" is measured against. Seeded from the same
   // values the form state above is seeded from, so on open the dialog is clean
   // in both spawn and edit mode. The two effects that re-seed the form
   // PROGRAMMATICALLY - the Codex model-list default pick, and the engine-switch
@@ -1892,7 +1892,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       >
                         {usesBackendModels ? (
                           <>
-                            {/* OpenCode picker order (Nil): Free, then
+                            {/* OpenCode picker order: Free, then
                                 Pay-as-you-go, then Subscription. */}
                             {pickerModels && pickerModels.free.length > 0 && (
                               <optgroup label="Free (the provider may use traffic for training)">

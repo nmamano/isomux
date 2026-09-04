@@ -1,7 +1,7 @@
-// The Preferences pane's decisions, as pure functions (task 49d4e2f6 / e80c39c4).
+// The Preferences pane's decisions, as pure functions.
 //
 // This is the ONE place that answers "which language is in effect for this
-// user". Nil's call (2026-08-01): the browser's language takes effect WITHOUT
+// user". The browser's language takes effect WITHOUT
 // a first Save - a user on a Spanish browser gets Spanish-speaking agents
 // without ever opening an (English) settings pane. `languageSeed` decides
 // when the app auto-commits the detected language to the server; English is

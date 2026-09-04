@@ -2,7 +2,6 @@ import type { AgentState } from "../../shared/types.ts";
 import type { DeskProp } from "../model-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 
-// Map our states to visual categories
 function visualState(
   state: AgentState,
 ): "working" | "waiting_for_response" | "error" | "idle" {
@@ -88,7 +87,6 @@ function wrapCwd(text: string): string[] {
       lines.push(remaining);
       break;
     }
-    // Find last slash within the line limit
     let breakAt = remaining.lastIndexOf("/", CWD_CHARS_PER_LINE);
     if (breakAt <= 0) breakAt = CWD_CHARS_PER_LINE;
     lines.push(remaining.slice(0, breakAt));

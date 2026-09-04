@@ -1,10 +1,10 @@
-// Pure grouping/ranking transform for the Sk popover (task f1769b1a). Kept
+// Pure grouping/ranking transform for the Sk popover. Kept
 // free of React so the ranking policy is unit-testable:
 //
 //   - A single cross-group "Most used" region surfaces at the very top: the
 //     TOP_N entries with the highest use counts, count desc (name breaks
-//     ties), spanning commands AND skills - "the most used are always the
-//     most accessible regardless of skill/command" (Nil).
+//     ties), spanning commands AND skills, so the most used are always the
+//     most accessible regardless of skill or command.
 //   - The region is CAPPED (MOST_USED_CAP): counts are monotonic, so an
 //     unbounded region would eventually drain every origin group into one
 //     flat list. Used entries beyond the cap stay in their origin group

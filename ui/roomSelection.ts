@@ -2,7 +2,7 @@ import type { RoomWire } from "../shared/types.ts";
 
 // Pure room-selection helpers for the client store. Kept dependency-free
 // (RoomWire type only) so they're unit-testable without importing the React
-// store module. Phase 3c slice 3: the view selection is tracked by stable
+// store module. The view selection is tracked by stable
 // room id, not a dense index.
 
 // Resolve which room id should be selected after the rooms list changes

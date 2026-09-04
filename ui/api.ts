@@ -1,5 +1,5 @@
 // Unified REST client for the /api surface - the browser counterpart to the
-// server's typed route table + executor. As Phase 3 migrates each command off
+// server's typed route table + executor. As each command moves off
 // the WebSocket command bus, its UI call site swaps a fire-and-forget
 // `ws.send()` for an `apiFetch()`: HTTP correlates the response natively, so the
 // per-command `requestId` + bespoke `*_response` machinery goes away.

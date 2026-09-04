@@ -1,4 +1,4 @@
-// Client-side user-record merge core (Phase 3b.5). PURE + React-free so it can
+// Client-side user-record merge core. PURE + React-free so it can
 // be unit-tested in isolation - the UI equivalent of the server's pure clamp /
 // migration cores (clampViewFields, planOwnerAccessMigration).
 //

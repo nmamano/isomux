@@ -71,7 +71,6 @@ export function setEmbedMode() {
   embedMode = true;
 }
 
-// Pre-populate with The Office characters
 const OFFICE_CHARACTERS: {
   name: string;
   desk: number;
@@ -442,7 +441,6 @@ function ensureSeeded() {
   ]);
 }
 
-// Sample conversation logs seeded on load
 const DEMO_LOGS: {
   agentName: string;
   entries: {
@@ -1927,7 +1925,7 @@ export async function demoApi(
     shimEmit({ type: "session_revoked", sessionPrefix: prefix });
     return undefined;
   }
-  // 3d.9b users.setAccess (PUT /api/users/:username/access) - set allowedRooms +
+  // users.setAccess (PUT /api/users/:username/access) - set allowedRooms +
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
@@ -1973,9 +1971,9 @@ export async function demoApi(
     shimEmit({ type: "users_list", users: [...users.values()] });
     return { user: updated };
   }
-  // 3d.9b users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
-  // PATCH = record fields only (Option A; view prefs ride the no-op view.*
-  // routes); mirrors the retired update_user record path (rename-collision 409,
+  // users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
+  // PATCH = record fields only; view prefs ride the no-op view.*
+  // routes; this mirrors the retired update_user record path (rename-collision 409,
   // missing 404). DELETE removes the record + broadcasts users_list.
   const userIdMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (userIdMatch && (method === "PATCH" || method === "DELETE")) {
@@ -2252,13 +2250,13 @@ export async function demoApi(
 
 export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
-    // Silent no-ops
     case "terminal_open":
     case "terminal_status_request":
     case "terminal_input":
     case "terminal_resize":
     case "terminal_close":
     case "terminal_restart":
+      // Silent no-ops
       break;
   }
 }

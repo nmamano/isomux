@@ -31,9 +31,9 @@ export function deskPixelPos(row: number, col: number) {
 
 // Pick a palette slot for a room from its POSITION in the room list. Cycling
 // by index guarantees adjacent rooms always differ and every palette appears
-// before any repeats - an explicit product decision (task 5c10494a): the
-// id-hash keying tried in 3c.3 collapsed onto few palettes on real offices
-// (5 of 12 rooms identical, 4 adjacent), and Nil prefers variety/adjacency
+// before any repeats - an explicit product decision: the
+// id-hash keying collapsed onto few palettes on real offices
+// (5 of 12 rooms identical, 4 adjacent), and variety/adjacency takes priority
 // over colour stability. Accepted tradeoff: rooms recolour when the list
 // order changes (reorder/close). Callers pass `rooms.findIndex(...)`, so a
 // not-found -1 (and any other out-of-domain input) falls back to slot 0.

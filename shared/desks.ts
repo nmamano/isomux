@@ -21,7 +21,7 @@ export const DESK_COUNT = DESK_SLOTS.length;
 // A desk index is valid iff it names one of the slots above. Fractional and
 // negative indices are rejected explicitly: -1 doubles as OfficeState's
 // "no free desk" sentinel, and any out-of-range index names a desk that has no
-// place to be drawn (task e87d9c7d).
+// place to be drawn.
 export function isValidDesk(desk: number): boolean {
   return Number.isInteger(desk) && desk >= 0 && desk < DESK_COUNT;
 }

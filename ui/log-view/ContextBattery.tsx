@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { ContextUsageWire } from "../../shared/types.ts";
 
-// Battery-style context indicator (task 27096236; design:
-// internal-docs/context-fullness-visibility.md). Rendered as inline SVG, NOT a
+// Battery-style context indicator. Design:
+// internal-docs/context-fullness-visibility.md. Rendered as inline SVG, NOT a
 // Unicode glyph - iOS Safari emoji-renders the battery/🔋 family and overrides
 // CSS color, which would defeat the color behavior.
 //
 // Phone-battery metaphor: the fill and the number are the REMAINING context
 // (100% on a fresh session, draining to 0 as it fills). The COLOR, however,
 // comes from the RAW fullness percentage so it agrees with the server-injected
-// [context check] notices (thresholds 50/75, per Nil 2026-07-18): a nearly
+// [context check] notices (thresholds 50/75): a nearly
 // drained battery goes red. bandColor: < 50 -> dim (--text-muted), 50-74 ->
 // --orange, >= 75 -> --red. Never feed the remaining value into bandColor.
 // When there is NO reading, the shell would be empty and unlabeled, so it shows
@@ -26,7 +26,7 @@ export function ContextBattery({
 }: {
   // null = explicitly cleared over the wire (post-/clear); undefined = never
   // measured (fresh conversation, pre-first-turn, post server restart). The
-  // pill ALWAYS renders (per Nil 2026-07-18): with no reading it shows the
+  // pill ALWAYS renders: with no reading it shows the
   // empty shell + "?" in a ghost color instead of disappearing, so the
   // indicator's presence is stable and "unknown" is a visible state.
   usage: ContextUsageWire | null | undefined;
@@ -88,7 +88,7 @@ export function ContextBattery({
   // "?" is plain ASCII on purpose - no iOS auto-emoji risk (unlike ？/⍰).
   const label = known ? `${remaining}%` : "?";
 
-  // Plain spaced hyphen (not an em dash) per Nil's prose rule.
+  // Use a plain spaced hyphen, not an em dash.
   let full: string;
   if (usage) {
     const tokens = usage.totalTokens.toLocaleString("en-US");

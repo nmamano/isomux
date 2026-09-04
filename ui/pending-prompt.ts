@@ -1,4 +1,4 @@
-// Display labels for AgentInfo.pendingPrompt (task 29daebe2).
+// Display labels for AgentInfo.pendingPrompt.
 //
 // A parked agent sits at state `waiting_for_response`, which has no STATE_LABELS
 // entry, so nothing rendered at all - the desk and the log-view header looked
