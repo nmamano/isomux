@@ -36,11 +36,18 @@ afterEach(async () => {
 // back a null exit code and empty output in Bun, which looks exactly like a
 // broken detector and is not.
 async function runWait(timeoutS: number) {
-  const proc = Bun.spawn(["bash", script, String(timeoutS), "1"], {
+  return collectWait(startWait(timeoutS));
+}
+
+function startWait(timeoutS: number) {
+  return Bun.spawn(["bash", script, String(timeoutS), "1"], {
     env: { ...process.env, ISOMUX_APT_LOCKS: lockFile },
     stdout: "pipe",
     stderr: "pipe",
   });
+}
+
+async function collectWait(proc: ReturnType<typeof startWait>) {
   const [stdout, code] = await Promise.all([
     new Response(proc.stdout).text(),
     proc.exited,
@@ -48,13 +55,49 @@ async function runWait(timeoutS: number) {
   return { code, stdout };
 }
 
-/** Hold a real fcntl lock, the way dpkg does, for `ms` and then release. */
-function holdPosixLock(ms: number) {
-  return Bun.spawn([
-    "python3",
-    "-c",
-    `import fcntl,os,time\nfd=os.open(${JSON.stringify(lockFile)},os.O_RDWR)\nfcntl.lockf(fd,fcntl.LOCK_EX)\ntime.sleep(${ms / 1000})\nos.close(fd)`,
-  ]);
+/** Hold a real fcntl lock, the way dpkg does, until stdin closes. */
+function holdPosixLock() {
+  return Bun.spawn(
+    [
+      "python3",
+      "-c",
+      `import fcntl,os,sys\nfd=os.open(${JSON.stringify(lockFile)},os.O_RDWR)\nfcntl.lockf(fd,fcntl.LOCK_EX)\nprint("LOCKED",flush=True)\nsys.stdin.buffer.read(1)\nos.close(fd)`,
+    ],
+    { stdin: "pipe", stdout: "pipe" },
+  );
+}
+
+async function waitForLock(holder: ReturnType<typeof holdPosixLock>) {
+  const reader = holder.stdout.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("lock holder child never took the lock")),
+          5_000,
+        );
+      }),
+    ]);
+    expect(new TextDecoder().decode(result.value)).toContain("LOCKED\n");
+  } finally {
+    if (timer) clearTimeout(timer);
+    reader.releaseLock();
+  }
+}
+
+async function waitForSleepChild(parentPid: number) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const probe = Bun.spawn(["pgrep", "-P", String(parentPid), "-x", "sleep"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    if ((await probe.exited) === 0) return;
+    await Bun.sleep(25);
+  }
+  throw new Error("waitApt never reached its busy polling sleep");
 }
 
 describe("waiting for the box's own package work", () => {
@@ -65,20 +108,25 @@ describe("waiting for the box's own package work", () => {
   });
 
   test("a held dpkg-style lock is seen as busy, and times out rather than lying", async () => {
-    const holder = holdPosixLock(30_000);
-    await Bun.sleep(400);
-    const r = await runWait(5);
+    const holder = holdPosixLock();
+    await waitForLock(holder);
+    const r = await runWait(2);
     holder.kill();
+    await holder.exited;
     expect(r.code).not.toBe(0);
     expect(r.stdout).toContain("still-busy");
     expect(r.stdout).toContain("kernel lock");
   }, 20_000);
 
   test("it becomes ready once the lock is released", async () => {
-    const holder = holdPosixLock(2500);
-    await Bun.sleep(300);
-    const r = await runWait(60);
-    holder.kill();
+    const holder = holdPosixLock();
+    await waitForLock(holder);
+    const wait = startWait(60);
+    const result = collectWait(wait);
+    await waitForSleepChild(wait.pid);
+    await holder.stdin.end();
+    await holder.exited;
+    const r = await result;
     expect(r.code).toBe(0);
     expect(r.stdout).toContain("RESULT: ready");
     // It really waited rather than passing straight through.
