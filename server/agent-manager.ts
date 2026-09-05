@@ -39,6 +39,11 @@ import {
   formatApiTokenName,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
+import {
+  CONSUMER_DRAIN_TIMEOUT_MS,
+  SessionManager,
+  type SessionManagerDeps,
+} from "./session-manager.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
@@ -348,7 +353,8 @@ export function createAgentManager(deps: ManagerDeps) {
   ): void {
     configureAgentTurn({
       beginTurn,
-      createTurnDeferred,
+      createTurnDeferred: (managed) =>
+        managed.sessionManager.createTurnDeferred(),
       contextNoticeSampleWaitMs,
     });
   }
@@ -708,6 +714,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   const agents = new Map<string, ManagedAgent>();
+  // Shared by every SessionManager instance (server/session-manager.ts): the
+  // manager-side collaborators the lifecycle operations call. Same lines as
+  // before the extraction, reached through this object.
+  const sessionManagerDeps: SessionManagerDeps<ManagedAgent> = {
+    updateAgent: (agentId, changes) => officeState.updateAgent(agentId, changes),
+    emit,
+    isStillManaged: (managed) => agents.get(managed.info.id) === managed,
+    runConsumer,
+    updateState,
+    flushQueue,
+    getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
+    logger: console,
+  };
   const logCache = new Map<string, LogEntry[]>(); // agentId → entries
   // Agents mid-way through a live fixed-cwd-backend change. The old session is
   // abandoned, but managed.sessionId stays until the fresh session's system_init
@@ -1241,10 +1260,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
         try {
-          await replaceSession(
-            agentId,
-            managed,
-            sessionId
+          await managed.sessionManager.replaceSession(managed, sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
             // Settings-driven swap: a mid-flight flush turn cancelled by this
@@ -1424,17 +1440,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return oldest;
   }
 
-  function turnIsLive(managed: ManagedAgent): boolean {
-    return (
-      managed.turnStartedAt > 0 &&
-      (managed.info.state === "thinking" ||
-        managed.info.state === "tool_executing")
-    );
-  }
-
   function inFlightTurnForLogs(agentId: string): LogInFlightTurn | null {
     const managed = agents.get(agentId);
-    if (!managed || !turnIsLive(managed)) return null;
+    if (!managed || !managed.sessionManager.turnIsLive(managed)) return null;
     const activeTool = oldestActiveTool(managed);
     return {
       startedAt: managed.turnStartedAt,
@@ -1445,7 +1453,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function inFlightTurnForManifest(
     managed: ManagedAgent,
   ): ManifestInFlightTurn | null {
-    if (!turnIsLive(managed)) return null;
+    if (!managed.sessionManager.turnIsLive(managed)) return null;
     const activeTool = oldestActiveTool(managed);
     return {
       startedAt: managed.turnStartedAt,
@@ -1789,17 +1797,41 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     } catch {
       discoveryEnv = undefined;
     }
+    const sessionManager = new SessionManager<ManagedAgent>(
+      p.id,
+      sessionManagerDeps,
+      resumeSessionId,
+    );
     const managed: ManagedAgent = {
       info,
-      session: null,
-      sessionId: resumeSessionId,
-      consumerPromise: null,
-      pendingTurn: null,
-      turnCancelToken: 0,
-      abortCancelToken: -1,
-      aborting: false,
-      lastBackendFailure: null,
-      abortPromise: null,
+      sessionManager,
+      get session() {
+        return sessionManager.session;
+      },
+      get sessionId() {
+        return sessionManager.sessionId;
+      },
+      get consumerPromise() {
+        return sessionManager.consumerPromise;
+      },
+      get pendingTurn() {
+        return sessionManager.pendingTurn;
+      },
+      get turnCancelToken() {
+        return sessionManager.turnCancelToken;
+      },
+      get abortCancelToken() {
+        return sessionManager.abortCancelToken;
+      },
+      get aborting() {
+        return sessionManager.aborting;
+      },
+      get lastBackendFailure() {
+        return sessionManager.lastBackendFailure;
+      },
+      get abortPromise() {
+        return sessionManager.abortPromise;
+      },
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
         ...discoverUserSkills(
@@ -1932,7 +1964,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const session = resumeSessionId
         ? createSession(managed, resumeSessionId)
         : createSession(managed);
-      installSession(p.id, managed, session);
+      managed.sessionManager.installSession(managed, session);
       sessionOk = true;
     } catch (err) {
       sessionError = errMessage(err);
@@ -1940,7 +1972,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         console.warn(
           `[revive] Resume of ${p.name} failed, falling back to fresh session: ${sessionError}`,
         );
-        managed.sessionId = null;
+        managed.sessionManager.sessionId = null;
         // Keep the loaded transcript in logCache so the chat view shows the
         // historical conversation (especially important for legacy revivals
         // where the SDK can never resume because cwd/project dir don't
@@ -1952,7 +1984,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         officeState.updateAgent(p.id, { state: "idle", topic: null });
         try {
           const freshSession = createSession(managed);
-          installSession(p.id, managed, freshSession);
+          managed.sessionManager.installSession(managed, freshSession);
           sessionOk = true;
           sessionError = null;
         } catch (err2) {
@@ -2389,13 +2421,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     updateState(agentId, "thinking");
   }
 
-  function clearLiveTurn(managed: ManagedAgent) {
-    managed.turnStartedAt = 0;
-    managed.lastNormalizedEventAt = 0;
-    managed.busyTurnWatchdogObserved = false;
-    managed.toolCallTimestamps.clear();
-  }
-
   // Push AgentInfo.pendingPrompt to match the four pending-* flags, emitting
   // agent_updated only on an actual change.
   //
@@ -2628,7 +2653,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Consume the stamp whatever we decide, so it can never suppress a second,
     // genuinely new failure later in the agent's life.
     const echoed = managed.lastBackendFailure === text;
-    managed.lastBackendFailure = null;
+    managed.sessionManager.lastBackendFailure = null;
     // Only a CLASSIFIED death is ever suppressed. Two unrelated consecutive
     // errors that happen to share wording both still surface.
     if (echoed && classified) return;
@@ -3416,7 +3441,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // resetContextUsage is idempotent-safe to repeat.
             resetContextUsage(managed);
           }
-          managed.sessionId = sessionId;
+          managed.sessionManager.sessionId = sessionId;
           // Record the cwd this session was born in (source of truth for
           // per-session cwd). Idempotent: a fork already stamped its cwd via
           // persistSessionFork so this no-ops there; a plain fresh session
@@ -3703,7 +3728,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // lastBackendFailure): the turn rejection below wakes the owning
             // caller, whose catch would otherwise repeat this same sentence.
             if (managed && ev.causedByAuth !== true)
-              managed.lastBackendFailure = failure.text;
+              managed.sessionManager.lastBackendFailure = failure.text;
             // Auth detection: trust the backend's `causedByAuth` flag when set
             // (Codex sets it after rewriting the error string to avoid double-
             // emission of the login card). Fall back to regex on the raw error
@@ -3738,9 +3763,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the turn_completed normalized event instead - same semantic, just at
         // the orchestrator layer.
         const turn = managed?.pendingTurn;
-        if (managed) clearLiveTurn(managed);
+        if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
-          managed.pendingTurn = null;
+          managed.sessionManager.pendingTurn = null;
           turn.resolve();
         }
         break;
@@ -3808,7 +3833,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           failure.text,
           backendFailureMeta(failure),
         );
-        if (managed) managed.lastBackendFailure = failure.text;
+        if (managed) managed.sessionManager.lastBackendFailure = failure.text;
         // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
         // projects/ path, "session .jsonl missing" wording). Don't run it for
         // non-Claude agents - the message would be wrong and misleading.
@@ -3828,9 +3853,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.pendingTurn;
-        if (managed) clearLiveTurn(managed);
+        if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
-          managed.pendingTurn = null;
+          managed.sessionManager.pendingTurn = null;
           try {
             turn.reject(new Error(ev.message));
           } catch {}
@@ -3899,54 +3924,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       }
     }
-  }
-
-  // Create the per-turn deferred that sendMessage / executeSkill await.
-  // Resolved from processNormalizedEvent's `turn_completed` case - fires
-  // when the backend signals end-of-turn (Claude: result message; Codex:
-  // turn/completed). Backends MUST emit exactly one turn_completed per
-  // send() for this contract to hold.
-  function createTurnDeferred(managed: ManagedAgent): Promise<void> {
-    // A new turn starts, so whatever the last one died of is history and the
-    // echo suppressor must not carry into it. Belt-and-braces - the caller
-    // catch consumes the stamp already - but it bounds the lifetime to a turn.
-    managed.lastBackendFailure = null;
-    // Any stale pending turn (shouldn't normally happen; agents are
-    // state-gated to one turn at a time) gets rejected so awaiting callers
-    // don't leak forever.
-    const stale = managed.pendingTurn;
-    if (stale) {
-      managed.pendingTurn = null;
-      try {
-        stale.reject(new TurnSupersededError());
-      } catch {}
-    }
-    let resolve!: () => void;
-    let reject!: (err: unknown) => void;
-    const promise = new Promise<void>((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    // Defensive: a noop catch so a reject() that fires before any awaiter
-    // attaches doesn't trip Bun's unhandled-rejection handler (which exits
-    // the process). Real awaiters still receive the rejection through their
-    // own await. Concretely: sendMessage rejects this deferred in its catch
-    // block when session.send() throws BEFORE the `await turn` line runs
-    // (e.g. codex bootstrap failure on first message of an agent whose
-    // backend CLI is missing). Without this guard the orphan rejection
-    // crashes the server. Same pattern as JsonRpcLiteClient.request() in
-    // backends/codex/client.ts.
-    promise.catch(() => {});
-    // The promise rides on the record so waiters (flushQueue's in-flight-turn
-    // handoff, tryHotAbort) can ATTACH to it instead of replacing the record
-    // with a delegating wrapper - see the pendingTurn field comment in
-    // internal-types.ts for why replacement is forbidden (lost-wakeup hole).
-    managed.pendingTurn = {
-      promise,
-      resolve,
-      reject,
-    };
-    return promise;
   }
 
   // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
@@ -4024,17 +4001,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         !managed.aborting
       ) {
         const turn = managed.pendingTurn;
-        clearLiveTurn(managed);
-        managed.pendingTurn = null;
-        managed.session = null;
-        managed.consumerPromise = null;
+        managed.sessionManager.clearLiveTurn(managed);
+        managed.sessionManager.pendingTurn = null;
+        managed.sessionManager.session = null;
+        managed.sessionManager.consumerPromise = null;
         managed.dormantReason = "stream-ended";
         // Any turn still in its PRE-SEND window (notice assembly; no
         // pendingTurn installed) must bail at its next checkpoint rather than
         // send into whatever session exists by then - same mechanism
         // closeAndDrainSession uses. Harmless when a post-send turn existed
         // (it is settled via the rejection below).
-        managed.turnCancelToken++;
+        managed.sessionManager.turnCancelToken++;
         for (const event of officeState.updateAgent(agentId, {
           dormant: true,
         }))
@@ -4061,7 +4038,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(agentId, "error", BACKEND_STOPPED_DURING_TURN, {
             backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
           });
-          managed.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
+          managed.sessionManager.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
         } else {
           console.warn(
             `Agent ${agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
@@ -4088,8 +4065,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
 
       const turn = managed.pendingTurn;
-      clearLiveTurn(managed);
-      managed.pendingTurn = null;
+      managed.sessionManager.clearLiveTurn(managed);
+      managed.sessionManager.pendingTurn = null;
       if (turn) turn.reject(err);
 
       // A fresh fixed-cwd session can error before it ever
@@ -4121,7 +4098,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ? backendFailureMeta({ text: failure.text, raw: errorText })
           : undefined,
       );
-      managed.lastBackendFailure = classified ? failure.text : errorText;
+      managed.sessionManager.lastBackendFailure = classified ? failure.text : errorText;
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
       // only call it for claude-typed agents.
@@ -4146,46 +4123,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
-  // Install a freshly-created session on managed and spawn its consumer. Caller
-  // is responsible for having closed/awaited any previous session first.
-  function installSession(
-    agentId: string,
-    managed: ManagedAgent,
-    session: BackendSession,
-  ) {
-    // A lazy first-message wake installs the session after beginTurn has
-    // already claimed the pre-send window; preserve that live turn. Every
-    // replacement closes first (and closeAndDrainSession clears), while an
-    // idle install may safely discard residue.
-    if (!turnIsLive(managed)) clearLiveTurn(managed);
-    managed.session = session;
-    managed.consumerPromise = runConsumer(agentId, managed, session);
-    // Stamp activity + clear dormant in lockstep with the session going live, so
-    // a just-woken agent isn't immediately re-demoted and `info.dormant` can
-    // never disagree with `session !== null`. Guarded so spawn / normal swaps
-    // (already non-dormant) don't emit a redundant agent_updated.
-    managed.lastActiveAt = Date.now();
-    managed.dormantReason = null;
-    if (managed.info.dormant) {
-      for (const event of officeState.updateAgent(agentId, { dormant: false }))
-        emit(event);
-    }
-  }
-
-  // Swap the agent's session: close the current one, await its consumer to
-  // drain, install the new session + consumer. Rejects any in-flight turn so
-  // callers awaiting sendMessage's deferred don't hang.
-  //
-  // IMPORTANT - drain-before-install is load-bearing. Switching to swap-then-
-  // drain (install new synchronously, drain old in background) is tempting
-  // because it would let follow-up messages typed after Ctrl+C reach the LLM
-  // without waiting ~3s for the old session to drain. Don't do it without
-  // first verifying there's no on-disk race on the shared sessionId .jsonl
-  // between the dying-old and starting-new subprocesses - both write to the
-  // same file when the new session is created with --resume. See task
-  // 154e2c14's STILL OPEN section for context. The current sendMessage
-  // papers over the user-visible delay by echoing the typed message to the
-  // log before awaiting abortPromise (see echoEarly there).
   // Toggle an agent's privileged flag. Authorization (a USER
   // with room access; NEVER an agent) is the agents.setPrivileged route's job -
   // this is the core mutation only. Persists the flag (onChange → persistAll),
@@ -4211,182 +4148,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     mintAgentToken(agentId, managed.info.userId, privileged);
     if (managed.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
-      await replaceSession(
-        agentId,
-        managed,
-        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      await managed.sessionManager.replaceSession(managed, sessionId ? createSession(managed, sessionId) : createSession(managed),
       );
     }
     return managed.info;
   }
 
-  // Upper bound on waiting for a closed session's consumer to drain. A
-  // BackendSession whose stream() never returns after close() (wedged
-  // subprocess / adapter bug) used to park closeAndDrainSession - and
-  // everything stacked behind it (abort's finally, abortPromise, a flushQueue
-  // parked on abortPromise) - FOREVER, wedging all message delivery for the
-  // agent. After this timeout we log loudly and proceed.
-  // KNOWN RISK, accepted deliberately: proceeding without a full drain means
-  // the wedged old subprocess may still hold the shared session .jsonl while
-  // a --resume replacement starts writing it (the drain-before-install
-  // rationale in the replaceSession header). A rare corrupted resume beats a
-  // permanent office-visible wedge; runConsumer's bound-session guard already
-  // discards any late in-memory events from the zombie stream. BackendSession
-  // exposes no harder termination primitive than close() today - if adapters
-  // grow a hard-kill, the timeout path below should call it before
-  // proceeding. Test-overridable via _testSetConsumerDrainTimeout.
-  const CONSUMER_DRAIN_TIMEOUT_MS = 15_000;
+  // Manager-wide drain bound. _testSetConsumerDrainTimeout writes it and every
+  // SessionManager reads it through deps.getConsumerDrainTimeoutMs; the
+  // constant and its rationale live in server/session-manager.ts.
   let consumerDrainTimeoutMs = CONSUMER_DRAIN_TIMEOUT_MS;
-
-  // Await a (possibly wedged) consumer with the bounded-drain policy above.
-  // Returns true if the consumer drained, false on timeout. Never throws.
-  async function drainConsumerBounded(
-    agentId: string,
-    consumer: Promise<void>,
-  ): Promise<boolean> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let timedOut = false;
-    try {
-      await Promise.race([
-        consumer.catch(() => {}),
-        new Promise<void>((res) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            res();
-          }, consumerDrainTimeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-    if (timedOut) {
-      console.error(
-        `Agent ${agentId}: session consumer did not drain within ${consumerDrainTimeoutMs}ms; ` +
-          `proceeding without a full drain (the old subprocess may still be alive - ` +
-          `see the .jsonl overlap note at CONSUMER_DRAIN_TIMEOUT_MS).`,
-      );
-    }
-    return !timedOut;
-  }
-
-  // Close the agent's live session and drain its consumer, leaving it dormant
-  // (session === null, no subprocess). Shared by replaceSession (installs a
-  // replacement right after) and demoteToLazy (doesn't). Bumps turnCancelToken
-  // so any concurrent pre-send turn bails, rejects the in-flight turn, sets
-  // info.dormant in lockstep with session, and awaits the old consumer (with
-  // the bounded-drain policy above) so the dying subprocess never overlaps
-  // whatever installs next. CALLERS MUST NOT
-  // mutate session-related state after this resolves without re-checking - a
-  // message arriving during the drain await may already have woken a fresh
-  // session via flushQueue.
-  async function closeAndDrainSession(
-    agentId: string,
-    managed: ManagedAgent,
-    // Stamped onto the SessionSwappedError handed to the in-flight turn, so
-    // catch sites can tell a deliberate settings-driven swap apart from other
-    // swaps without racing any external state.
-    swapReason?: "settings",
-  ) {
-    clearLiveTurn(managed);
-    managed.turnCancelToken++;
-    const oldConsumer = managed.consumerPromise;
-    const turn = managed.pendingTurn;
-    managed.pendingTurn = null;
-    if (turn) {
-      try {
-        turn.reject(new SessionSwappedError(undefined, swapReason));
-      } catch {}
-    }
-    try {
-      managed.session?.close();
-    } catch {}
-    managed.session = null;
-    managed.consumerPromise = null;
-    for (const event of officeState.updateAgent(agentId, { dormant: true }))
-      emit(event);
-    if (oldConsumer) {
-      await drainConsumerBounded(agentId, oldConsumer);
-    }
-  }
-
-  async function replaceSession(
-    agentId: string,
-    managed: ManagedAgent,
-    newSession: BackendSession,
-    // Passed through to closeAndDrainSession - see its swapReason note.
-    swapReason?: "settings",
-  ) {
-    // /clear, /resume, /model, /effort, edit-fork, abort's slow path,
-    // setPrivileged, and the queue watchdog's forced recovery all funnel
-    // through here. closeAndDrainSession bumps the
-    // cancel token (covers concurrent pre-send turns, same as before) and flips
-    // dormant=true; installSession flips it back. The transient dormant blip is
-    // invisible (v1 renders no badge) and sessionSwapping already covers the UI
-    // for the ~3s drain window.
-    let installedByUs = false;
-    for (const event of officeState.updateAgent(agentId, {
-      sessionSwapping: true,
-    }))
-      emit(event);
-    try {
-      await closeAndDrainSession(agentId, managed, swapReason);
-      // During the drain await the
-      // session slot is null, and a concurrent installer can legitimately win
-      // it - flushQueue's wake branch defers to us via its sessionSwapping
-      // guard, but sendMessage's wakeSessionForSend does not. If someone won,
-      // do NOT clobber their live session (the old behavior left their
-      // in-flight turn sending into a foreign session); close our
-      // never-installed replacement instead. Residual race for callers that
-      // need THEIR specific session installed (/resume pick, edit-fork): the
-      // concurrent wake now wins and the pick no-ops - rarer and safer than
-      // cross-thread delivery.
-      if (managed.session === null) {
-        installSession(agentId, managed, newSession);
-        installedByUs = true;
-      } else {
-        try {
-          newSession.close();
-        } catch {}
-        console.warn(
-          `Agent ${agentId}: a concurrent wake installed a session during the swap drain; keeping it and discarding the replacement.`,
-        );
-      }
-    } finally {
-      for (const event of officeState.updateAgent(agentId, {
-        sessionSwapping: false,
-      }))
-        emit(event);
-    }
-    if (agents.get(agentId) !== managed) return; // killed during the drain
-    // Post-swap dead-turn normalization: only when WE
-    // installed (atomic with the null-check above - no await between), any
-    // pre-swap turn is provably dead (closeAndDrainSession rejected or
-    // token-cancelled it) and no new turn can exist (a wake would have
-    // installed a session, contradicting ownership), so a lingering busy
-    // state is a lie. Out-of-band swaps (setPrivileged, /model, /effort)
-    // used to strand the agent visibly "thinking" forever here.
-    if (
-      installedByUs &&
-      !managed.pendingTurn &&
-      (managed.info.state === "thinking" ||
-        managed.info.state === "tool_executing")
-    ) {
-      updateState(agentId, "waiting_for_response");
-    }
-    // Post-swap flush kick: a flush cancelled pre-send by this
-    // swap left its items queued, and a wake that deferred to us (the
-    // sessionSwapping guard) never happened - neither gets retried by a state
-    // transition when the agent was already idle, so kick explicitly.
-    // flushQueue re-checks state/queue/flow/flushInProgress itself.
-    if (managed.messageQueue.length > 0) {
-      flushQueue(agentId).catch((err: unknown) => {
-        console.error(
-          `flushQueue (post-swap) failed for ${agentId}:`,
-          errMessage(err),
-        );
-      });
-    }
-  }
 
   // A live backend subprocess holds ~165MB resident even when idle. After
   // IDLE_EVICT_MS of inactivity an agent is demoted to lazy (subprocess closed,
@@ -4495,7 +4266,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return false;
     if (!canDemote(managed)) return false;
     managed.dormantReason = "idle";
-    await closeAndDrainSession(agentId, managed);
+    await managed.sessionManager.closeAndDrainSession(managed);
     demoteCount++;
     console.log(
       `[idle-evict] demoted ${managed.info.name} (${agentId}) to lazy (total ${demoteCount})`,
@@ -4612,10 +4383,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await replaceSession(
-            agentId,
-            managed,
-            sessionId
+          await managed.sessionManager.replaceSession(managed, sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
           );
@@ -4660,10 +4428,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const sessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionId && !sessionId)
           clearStaleAutoResumeState(agentId, managed);
-        await replaceSession(
-          agentId,
-          managed,
-          sessionId
+        await managed.sessionManager.replaceSession(managed, sessionId
             ? createSession(managed, sessionId)
             : createSession(managed),
         );
@@ -4788,7 +4553,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
   ): boolean {
     if (!managed.sessionId) return false;
-    managed.sessionId = null;
+    managed.sessionManager.sessionId = null;
     // Dropping the conversation id for a fresh start is a conversation
     // boundary: the old transcript's fullness measurement doesn't describe
     // the blank conversation that follows.
@@ -5020,17 +4785,40 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const { agent: info, events } = spawned;
     const id = info.id;
 
+    const sessionManager = new SessionManager<ManagedAgent>(
+      id,
+      sessionManagerDeps,
+    );
     const managed: ManagedAgent = {
       info,
-      session: null,
-      sessionId: null,
-      consumerPromise: null,
-      pendingTurn: null,
-      turnCancelToken: 0,
-      abortCancelToken: -1,
-      aborting: false,
-      lastBackendFailure: null,
-      abortPromise: null,
+      sessionManager,
+      get session() {
+        return sessionManager.session;
+      },
+      get sessionId() {
+        return sessionManager.sessionId;
+      },
+      get consumerPromise() {
+        return sessionManager.consumerPromise;
+      },
+      get pendingTurn() {
+        return sessionManager.pendingTurn;
+      },
+      get turnCancelToken() {
+        return sessionManager.turnCancelToken;
+      },
+      get abortCancelToken() {
+        return sessionManager.abortCancelToken;
+      },
+      get aborting() {
+        return sessionManager.aborting;
+      },
+      get lastBackendFailure() {
+        return sessionManager.lastBackendFailure;
+      },
+      get abortPromise() {
+        return sessionManager.abortPromise;
+      },
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
         ...discoverUserSkills(
@@ -5173,7 +4961,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     createSession,
-    replaceSession,
+    // Forwarded to the per-agent object; S4 finishes the caller migration.
+    replaceSession: (_agentId, managed, newSession) =>
+      managed.sessionManager.replaceSession(managed, newSession),
     persistAll,
     persistCurrentSessionTopic,
     wakeDormantSession: (agentId, managed, rawText, username, device) =>
@@ -5187,7 +4977,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username,
         device,
       }),
-    createTurnDeferred,
+    createTurnDeferred: (managed) =>
+      managed.sessionManager.createTurnDeferred(),
     enqueueMessage,
     resetContextUsage,
     // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
@@ -5727,10 +5518,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          installSession(
-            agentId,
-            managed,
-            sessionId
+          managed.sessionManager.installSession(managed, sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
           );
@@ -6108,10 +5896,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // death gets the alarming one.
       const wasDormant = managed.info.dormant ?? false;
       const dormantReason = managed.dormantReason;
-      installSession(
-        agentId,
-        managed,
-        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      managed.sessionManager.installSession(managed, sessionId ? createSession(managed, sessionId) : createSession(managed),
       );
       // A blank-conversation wake (lazy spawn / released by /clear) is SILENT
       // - nothing to announce, and the old eager paths logged nothing on the
@@ -6519,14 +6304,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           try {
             const newSession = createSession(managed, picked.sessionId);
-            await replaceSession(agentId, managed, newSession);
+            await managed.sessionManager.replaceSession(managed, newSession);
           } catch (err) {
             if (switched) rollbackSessionCwd(agentId, prevCwd);
             if (engine.switched && engine.prevConfig)
               rollbackSessionEngine(agentId, engine.prevConfig);
             throw err;
           }
-          managed.sessionId = picked.sessionId;
+          managed.sessionManager.sessionId = picked.sessionId;
           if (picked.sessionId !== prevResumeSessionId)
             resetContextUsage(managed);
           // Record the cwd we resumed in: backfill legacy/missing, or repair a
@@ -6619,10 +6404,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { modelFamily: picked.family },
             async () => {
-              await replaceSession(
-                agentId,
-                managed,
-                sessionId
+              await managed.sessionManager.replaceSession(managed, sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
                 "settings",
@@ -6684,10 +6466,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { effort: picked.level },
             async () => {
-              await replaceSession(
-                agentId,
-                managed,
-                sessionId
+              await managed.sessionManager.replaceSession(managed, sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
                 "settings",
@@ -6977,13 +6756,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // tells runAgentTurn to bail before session.send if it hasn't run yet.
     // For the post-send path the existing pendingTurn rejection (below) is
     // still the cancellation mechanism; the token bump is harmless there.
-    managed.turnCancelToken++;
+    managed.sessionManager.turnCancelToken++;
     // Stamp this bump as user-initiated so a flush turn it cancels stays
     // quiet (see the SessionSwappedError handler in flushQueue). Must be
     // stamped HERE, not with `aborting = true` below: in the pre-send
     // window pendingTurn is null and abort() returns early, so `aborting`
     // never covers exactly the case where the stamp matters most.
-    managed.abortCancelToken = managed.turnCancelToken;
+    managed.sessionManager.abortCancelToken = managed.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
@@ -7005,10 +6784,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const autoSessionId = pickAutoResumeSessionId(managed);
             if (managed.sessionId && !autoSessionId)
               clearStaleAutoResumeState(agentId, managed);
-            await replaceSession(
-              agentId,
-              managed,
-              autoSessionId
+            await managed.sessionManager.replaceSession(managed, autoSessionId
                 ? createSession(managed, autoSessionId)
                 : createSession(managed),
             );
@@ -7069,9 +6845,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       } catch {}
       return { ok: true };
     }
-    managed.aborting = true;
+    managed.sessionManager.aborting = true;
     let abortDone!: () => void;
-    managed.abortPromise = new Promise<void>((res) => {
+    managed.sessionManager.abortPromise = new Promise<void>((res) => {
       abortDone = res;
     });
 
@@ -7138,7 +6914,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const newSession = autoSessionId
           ? createSession(managed, autoSessionId)
           : createSession(managed);
-        await replaceSession(agentId, managed, newSession);
+        await managed.sessionManager.replaceSession(managed, newSession);
         // If we got here via a hot-abort failure, processNormalizedEvent
         // flipped state to "error" - restore waiting_for_response so the
         // agent is usable again.
@@ -7181,8 +6957,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // caller nothing was stopped, which is false.
       return { ok: true };
     } finally {
-      managed.aborting = false;
-      managed.abortPromise = null;
+      managed.sessionManager.aborting = false;
+      managed.sessionManager.abortPromise = null;
       abortDone();
     }
   }
@@ -7282,7 +7058,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Bump the cancel token so any concurrent runAgentTurn that hasn't yet
     // installed pendingTurn (pre-send notice assembly) bails on its next
     // await checkpoint instead of calling session.send on a dying session.
-    managed.turnCancelToken++;
+    managed.sessionManager.turnCancelToken++;
     // The backend's close() (below, via managed.session?.close()) resolves any
     // in-flight SDK approval with deny; clearing pendingPermission here just
     // drops the orchestrator's pointer so the next message path doesn't think
@@ -7297,7 +7073,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       clearPermissionPrompt(agentId, managed);
     }
     const turn = managed.pendingTurn;
-    managed.pendingTurn = null;
+    managed.sessionManager.pendingTurn = null;
     if (turn) {
       try {
         turn.reject(new Error("Agent killed."));
@@ -7307,7 +7083,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     try {
       managed.session?.close();
     } catch {}
-    managed.session = null;
+    managed.sessionManager.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
     dropSettledChoiceInteractions(agentId);
@@ -7325,7 +7101,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (oldConsumer) {
       // Bounded like closeAndDrainSession: a wedged stream must not park the
       // kill() caller forever (the same lost-wakeup hazard).
-      await drainConsumerBounded(agentId, oldConsumer);
+      await managed.sessionManager.drainConsumerBounded(oldConsumer);
     }
     killSidecar(managed);
     // Carry the pre-removal roomId: the agent is already gone
@@ -7577,7 +7353,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // clobber the concurrent wake (e.g. stomp its waiting_for_response back to
     // idle). This inverts the old structure, which did updateState/addLogEntry
     // AFTER the session swap.
-    managed.sessionId = null;
+    managed.sessionManager.sessionId = null;
     managed.dormantReason = "fresh";
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
@@ -7600,7 +7376,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // agent dormant (info.dormant=true). Rejects any in-flight turn with
     // SessionSwappedError; runConsumer's catch returns early on the stale
     // session so the rejected turn can't touch state after this resolves.
-    await closeAndDrainSession(agentId, managed);
+    await managed.sessionManager.closeAndDrainSession(managed);
   }
 
   // In-flight handoff guard. A handoff resets the agent then
@@ -7817,14 +7593,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       let newSession;
       try {
         newSession = createSession(managed, sessionId);
-        await replaceSession(agentId, managed, newSession);
+        await managed.sessionManager.replaceSession(managed, newSession);
       } catch (err) {
         if (switched) rollbackSessionCwd(agentId, prevCwd);
         if (engine.switched && engine.prevConfig)
           rollbackSessionEngine(agentId, engine.prevConfig);
         throw err;
       }
-      managed.sessionId = sessionId;
+      managed.sessionManager.sessionId = sessionId;
       if (sessionId !== prevResumeSessionId) resetContextUsage(managed);
       // Record the cwd we actually resumed in: backfill a legacy/missing value, or
       // repair a present-but-invalid one so it isn't sticky on future resumes.
@@ -8230,10 +8006,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const newSession = isFreshSession
         ? createSession(managed)
         : createSession(managed, newSessionId);
-      await replaceSession(agentId, managed, newSession);
+      await managed.sessionManager.replaceSession(managed, newSession);
       // For fresh sessions, sessionId is set by the system/init event (like newConversation).
       // For forks, set it now.
-      managed.sessionId = isFreshSession ? null : newSessionId;
+      managed.sessionManager.sessionId = isFreshSession ? null : newSessionId;
       managed.topicGenerating = false;
       // Build parentEntries up front so we can both seed managed.topicMessageCount
       // and replay them into logCache below from the same computation.
@@ -8328,8 +8104,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         let rollbackRestored = false;
         try {
           const rollbackSession = createSession(managed, oldSessionId);
-          await replaceSession(agentId, managed, rollbackSession);
-          managed.sessionId = oldSessionId;
+          await managed.sessionManager.replaceSession(managed, rollbackSession);
+          managed.sessionManager.sessionId = oldSessionId;
           rollbackRestored = true;
         } catch {
           // Can't restore session - the generic-error path below sets state to
@@ -8494,8 +8270,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function _testSetAbortInProgress(agentId: string, blocked: boolean) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    managed.aborting = blocked;
-    managed.abortPromise = blocked ? Promise.resolve() : null;
+    managed.sessionManager.aborting = blocked;
+    managed.sessionManager.abortPromise = blocked ? Promise.resolve() : null;
   }
 
   function _testLastForcedRecoveryAt(agentId: string): number | undefined {

@@ -206,7 +206,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // awaiting callers don't hang and concurrent abort/state logic doesn't
     // observe a phantom in-flight turn.
     if (ownPending && managed.pendingTurn === ownPending) {
-      managed.pendingTurn = null;
+      managed.sessionManager.pendingTurn = null;
       try {
         ownPending.reject(err);
       } catch {

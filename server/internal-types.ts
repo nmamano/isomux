@@ -9,6 +9,11 @@ import type {
   SubscriptionUsageWire,
 } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
+import type {
+  DormantReason,
+  PendingTurn,
+  SessionManager,
+} from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 
 // A committed context-fullness sample (design: internal-docs/
@@ -36,71 +41,20 @@ export interface ManagedAgent {
   // agent-manager, which casts to mutate before a side effect that may need
   // to revert the change.
   readonly info: Readonly<AgentInfo>;
-  session: BackendSession | null;
-  sessionId: string | null;
-  // Persistent consumer loop iterating `session.stream()` for the session's
-  // lifetime. Without this, task_notifications buffered between turns get
-  // flushed one turn late.
-  consumerPromise: Promise<void> | null;
-  // Per-turn deferred. sendMessage/executeSkill await this; the consumer
-  // resolves it when the turn's `stream()` iterator ends at `result`.
-  // `promise` is the same promise `resolve`/`reject` settle. Code that must
-  // wait for the in-flight turn to end ATTACHES to it
-  // (`pendingTurn.promise.catch(...)`) - it must NEVER replace this record
-  // with a delegating wrapper. The old wrap-and-wake pattern had a lost-wakeup
-  // hole: runAgentTurn's send-throw cleanup only fires when it
-  // still owns the installed record, so a wrapper parked around the original
-  // was orphaned forever, stranding flushInProgress and wedging all delivery
-  // for the agent. Attached waiters wake on any settle, from any settle site.
-  pendingTurn: {
-    promise: Promise<void>;
-    resolve: () => void;
-    reject: (err: unknown) => void;
-  } | null;
-  // Monotonic counter bumped by every control-plane action that cancels an
-  // in-flight turn (abort, kill, replaceSession). runAgentTurn snapshots it
-  // at entry - AFTER beginTurn flips state to thinking - and re-checks
-  // after each await during notice assembly. Any change means a Stop or
-  // session swap fired before send, so the pre-send turn
-  // bails with SessionSwappedError instead of sending the stale prompt
-  // into the (possibly swapped) session. The pre-send window between
-  // beginTurn and createTurnDeferred is the only place plain `pendingTurn`
-  // rejection can't cover, because pendingTurn isn't installed yet - this
-  // counter fills that gap.
-  turnCancelToken: number;
-  // The turnCancelToken value stamped by abort()'s bump - i.e.
-  // `abortCancelToken === turnCancelToken` holds exactly when the LATEST
-  // cancellation was user-initiated (Stop / Send-now). flushQueue's
-  // SessionSwappedError handler uses this to keep quiet on an intentional
-  // interrupt (a retry always follows) while still surfacing the
-  // "will retry" system message for unexpected swaps (idle demotion,
-  // out-of-band replaceSession), whose bumps advance turnCancelToken past
-  // this stamp. Needed because `aborting` doesn't cover the pre-send
-  // window: with no pendingTurn installed yet, abort() early-returns
-  // before ever setting aborting=true. Init -1 so a never-aborted agent
-  // can't accidentally equal token 0.
-  abortCancelToken: number;
-  aborting: boolean;
-  // The explained backend-failure sentence the STREAM CONSUMER just wrote to
-  // chat, held so the turn-owning caller's catch can recognize its own echo.
-  //
-  // One death produces two writes inside this one turn pipeline: the consumer
-  // logs the failure and then rejects pendingTurn, and that rejection is
-  // precisely what wakes sendMessage's / flushQueue's catch, which logs again.
-  // Two identical explanations in a row read worse than the two raw ones did.
-  // ONE-SHOT: the consumer sets it, the first caller catch consumes it and
-  // stays quiet, and anything after that logs normally - so an unrelated later
-  // error with the same text is never swallowed. Cleared at turn start too, so
-  // it cannot survive into a different turn.
-  lastBackendFailure: string | null;
-  // Set while abort() is mid-flight (between session.close() and installSession of the
-  // replacement). sendMessage awaits this so a follow-up message arriving in the gap
-  // doesn't see session=null and amputate context by spinning up a fresh blank session.
-  // Also serves as a partial swap-lock: serializes the most user-visible variant
-  // (sendMessage-during-abort) of the broader concurrency hole where multiple swap
-  // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
-  // orphan the loser's session. Don't remove without replacing.
-  abortPromise: Promise<void> | null;
+  // The per-agent session lifecycle object (server/session-manager.ts) owns
+  // the nine fields below; these are getter-only views for the read sites.
+  // Every write goes through `sessionManager.<field>` - an assignment to a
+  // view is a type error (and a TypeError at runtime).
+  readonly sessionManager: SessionManager<ManagedAgent>;
+  readonly session: BackendSession | null;
+  readonly sessionId: string | null;
+  readonly consumerPromise: Promise<void> | null;
+  readonly pendingTurn: PendingTurn | null;
+  readonly turnCancelToken: number;
+  readonly abortCancelToken: number;
+  readonly aborting: boolean;
+  readonly lastBackendFailure: string | null;
+  readonly abortPromise: Promise<void> | null;
   slashCommands: {
     name: string;
     description?: string;
@@ -313,7 +267,7 @@ export interface ManagedAgent {
   // backend's event stream ended on its own while the session was still bound
   // (subprocess died without a proper error event) and runConsumer released
   // the dead session pointer. Null while live. In-memory only.
-  dormantReason: "idle" | "boot" | "fresh" | "stream-ended" | null;
+  dormantReason: DormantReason;
 }
 
 export type AgentEvent =

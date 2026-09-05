@@ -266,7 +266,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "error");
         return true;
       }
-      managed.sessionId = null;
+      managed.sessionManager.sessionId = null;
       // Conversation boundary: reset context-fullness state and broadcast the
       // pill clear. Runs AFTER the swap resolves (unlike newConversation's
       // pre-await reset) - safe here because replaceSession already installed
