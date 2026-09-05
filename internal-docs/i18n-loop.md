@@ -428,6 +428,12 @@ Mechanics:
 - Validation and error messages the dialogs compose client-side move to
   the catalog; messages relayed from a server error stay as delivered
   (ruling 2 keeps API errors English).
+- Agent templates (ruled on Reviewer 2's question, 2026-09-05): the card
+  label and description are prose and move to the catalog keyed by template
+  id; the spawned agent's name is data authored at spawn time and takes the
+  label in the user's language, unless code matches on the English label
+  after spawn (verify by grep; then the name stays English and the report
+  says which code forced it); customInstructions stay English.
 - Tests: `ui/components/EditAgentDialog.test.ts`, `ui/App.dirty.dom.test.tsx`
   and every other existing dialog test stay green on a null-language user;
   one new DOM file `ui/dialogs.i18n.dom.test.tsx` mounts the agent dialog
