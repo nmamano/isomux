@@ -71,9 +71,7 @@ Today (as of bd790b7, measured 2026-09-05):
    `ca-ES`. Anything that enumerates languages by hand (tests, docs, the
    system-prompt clause) is found by grep, not assumed.
 10. Test runtime is the constraint (Nil): 5 s wall-clock per DOM test file,
-    asserted in the file. DOM tests that find elements by text look the text
-    up through the catalog, or pin the key, so a translation change never
-    silently breaks a test.
+    asserted in the file. The text oracle is ruling 14.
 11. Proper nouns stay as they are in every language: Isomux, Claude, Codex,
     OpenCode, Tailscale, GitHub, model names, slash commands, route paths,
     key names shown as code.
@@ -83,6 +81,16 @@ Today (as of bd790b7, measured 2026-09-05):
 13. Nil does the final language read on the live UI, not in chat. The
     reviewer checks every catalog entry for meaning drift and register; the
     worker writes Spanish and Catalan itself.
+14. DOM oracle (Reviewer 1, S1): a DOM test asserts literal translated
+    strings, never text read back through the translator, so a broken
+    provider cannot pass its own test. Unit tests may pin keys.
+15. Key names carry the full surface name (`preferences.*`, `settings.office.*`),
+    never an abbreviation. A string shared verbatim by more than one surface
+    lives under `common.*`; the second use moves it there.
+16. Rich text: a sentence with an inline link, code span or element is ONE
+    key with a named placeholder, rendered by a helper in `ui/i18n.tsx`.
+    Never split a sentence into before/after keys; word order differs per
+    language.
 
 ## Gates (every hand-off)
 
@@ -97,7 +105,14 @@ list.
     bunx tsc --noEmit       # once, before the final hand-off of each slice
 
 Report every DOM test file's wall-clock from the log in the hand-off, and
-the size of `ui/dist/index.js` before and after the slice.
+the size of `ui/dist/index.js` before and after the slice. Bun prints no
+per-file time: run each DOM file in its own `bun test <file>` invocation
+inside the same log (the S1 log `/tmp/i18n-lane.log` has the shape).
+
+The DOM fixture is `onLanguage(language, element, over?)` from
+`ui/test-support/language-fixture.tsx`, loaded with `await import` after
+`setUpDomTestFile()`. The App DOM tests supply state through
+`StateCtx.Provider`, not store seeding.
 
 ## Prohibitions
 
@@ -132,29 +147,33 @@ explanatory copy once it has to say the office itself is translated.
 
 ## Slice cut
 
-- S1 (lane 1): catalog and plumbing. Catalog module, lookup with
-  interpolation and plurals, `ca` in `SUPPORTED_LANGUAGES`, the language
-  context in the UI, the catalog completeness test, the DOM fixture for a
-  user on a language, and ONE tracer converted end to end with Spanish and
-  Catalan text: the preferences pane and the nav bar's action labels. DOM
-  test proving the switch.
-- S2 (lane 2): the settings page and every dialog (UserSettingsView and its
-  panes, EditAgentDialog, CronjobDialog, CronjobsPromptDialog, the prompt
-  and confirm dialogs).
-- S3 (lane 1): the log view and its cards (LogView, LogEntryCard, the
-  isomux-curl labels in `ui/log-view/isomux-curl.ts`), terminal and editor
-  panel chrome, context battery, subscription pill.
-- S4 (lane 2): office view and scene labels, task board, apps view, cronjobs
-  views, agent list, empty states, toasts, context menu; dates and relative
-  times through Intl.
-- S5 (lane 1): server-produced human-facing strings resolved per user:
+- S1 (lane 1): catalog and plumbing, Catalan, the tracer (preferences pane
+  and the office nav labels). Landed.
+- S2 (lane 2): settings page shell (sidebar, headers, back link, section
+  titles, dirty-check prompt) and the office-side panes: Office, Room,
+  Theme, My devices, Update, Usage, Storage.
+- S3 (lane 1): the access and connections panes: Invites, External access,
+  API tokens, Connections, ProviderSignInCard, access-shared,
+  ManagedEnvEditor.
+- S4 (lane 2): the dialogs: EditAgentDialog, CronjobDialog,
+  CronjobsPromptDialog, the prompt and confirm dialogs, ExpandableTextarea
+  chrome.
+- S5 (lane 1): the log view and its cards (LogView and its own nav actions,
+  LogEntryCard, the isomux-curl labels in `ui/log-view/isomux-curl.ts`),
+  terminal and editor panel chrome, context battery, subscription pill.
+- S6 (lane 2): office view and scene labels, task board, apps view,
+  cronjobs views, agent list, empty states, toasts, context menu; dates,
+  relative times and numbers through Intl (ruling 12).
+- S7 (lane 1): server-produced human-facing strings resolved per user:
   slash-command descriptions and responses, welcome and onboarding text.
   Resolution from `ctx.identity` to the stored preference; agents get
   English.
-- S6 (lane 2): sweep. Grep for prose left in English in ui/ and the S5
-  server files; the demo builds and shows a translated chrome; doc surfaces
-  per `internal-docs/documentation.md` that describe language support get
-  proposed lines for Nil (not written); loop close.
+- S8 (lane 2): sweep. Grep for prose left in English in ui/ and the S7
+  server files; the demo builds and shows a translated chrome; the two
+  parked English strings from S1 (preferences.intro, preferences.languageHint)
+  get Nil's wording; doc surfaces per `internal-docs/documentation.md` that
+  describe language support get proposed lines for Nil (not written); loop
+  close.
 
 ## PICKUP S1 - catalog and plumbing (Worker 1 / Reviewer 1)
 
@@ -205,3 +224,64 @@ language fixture; bundle delta reported.
 Decide with reviewer: paths, names, the hook API, the fixture.
 Locked: rulings 1, 4, 6, 7, 8, 9, 10; nothing beyond the tracer is converted
 in S1.
+
+- [x] S1 landed as 248cf0b (+ format 6bde1b1). Catalog under `shared/i18n/`
+  (en.ts, es.ts, ca.ts, translate.ts), `translatorFor(language)` with `t`
+  and `tn`, `LanguageProvider`/`useI18n` in `ui/i18n.tsx`, fixture in
+  `ui/test-support/language-fixture.tsx`. Bundle +3379 bytes; the new DOM
+  file 3.0 s whole-invocation (measured 2026-09-05). Two stale controls in
+  the S1 pickup corrected above (nav actions live in OfficeView and
+  AgentListView; App tests use StateCtx.Provider). Parked for Nil: the
+  English of preferences.intro ("My devices" row no longer exists) and
+  preferences.languageHint ("stays in English for now").
+
+## PICKUP S2 - settings page shell and the office-side panes (Worker 2 / Reviewer 2)
+
+Goal: a user on Catalan or Spanish reads the settings page shell and the
+Office, Room, Theme, My devices, Update, Usage and Storage panes in their
+language; everyone else sees the English bytes unchanged.
+
+Mechanics:
+
+- Files: `ui/components/UserSettingsView.tsx` (the shell and every string
+  it holds, including the browser confirm for unsaved edits), `OfficePane`,
+  `RoomPane`, `ThemePane`, `MyDevicesPane`, `UpdatePane`, `UsagePane`,
+  `StoragePane`, plus `ui/storage-prune-form.ts` and `ui/device-settings.ts`
+  where they build prose. Not in S2: the access and connections panes (S3),
+  the dialogs (S4).
+- Keys: `settings.*` for the shell, then `settings.office.*`,
+  `settings.room.*`, `settings.theme.*`, `settings.devices.*`,
+  `settings.update.*`, `settings.usage.*`, `settings.storage.*`. Words
+  shared verbatim (Save, Cancel, Delete, Close, Loading…, Saved.) move to
+  `common.*` on their second use, S1's `preferences.*` copies included; the
+  S1 DOM test pins literal text, so a key rename does not touch it.
+- Rich text: first need lands here. Settle the helper's API with the
+  reviewer at the plan gate (ruling 16); put it in `ui/i18n.tsx`.
+- Numbers, sizes and timestamps in Usage, Storage and Update keep their
+  current formatting; S6 owns Intl. Only the surrounding words move.
+- `shared/storage-labels.ts` feeds `build:demo`: identifiers stay English
+  (ruling 11); if the Storage pane reads prose from it, the prose moves to
+  the catalog and the label table keeps its identifiers. Run `build:demo`
+  when it is touched.
+- Tests: the five `ui/App.settings-*.dom.test.tsx` files stay green (null
+  language user, English). One new file `ui/settings.i18n.dom.test.tsx`
+  mounts the settings page on `ca` through `onLanguage`, asserts the
+  sidebar labels and one literal anchor per pane, rerenders to `es`, under
+  5 s in-file (ruling 10, oracle per ruling 14).
+- Acceptance grep on the touched files: JSX text, `title=`, `aria-label=`,
+  `placeholder=` and template literals show no English prose beyond proper
+  nouns and code.
+- Translation register per ruling 1; Spanish buttons in the infinitive,
+  Catalan buttons in the imperative, as S1 set.
+
+Acceptance: the listed files read the catalog; the catalog test is green
+with the new keys; the new DOM file and the five settings DOM files green;
+eslint, `build:ui`, `build:demo` when applicable, `tsc` once; bundle delta
+reported. The report names every string whose translation the reviewer
+debated and the choice made; the rest is the catalog diff, which the PM
+reads.
+
+Decide with reviewer: the rich-text helper API, `common.*` membership, the
+new DOM file's anchors.
+Locked: rulings 1, 6, 7, 10, 14, 15, 16; no access panes, no dialogs, no
+Intl work.
