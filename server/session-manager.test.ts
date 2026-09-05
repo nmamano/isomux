@@ -17,7 +17,7 @@ import {
 } from "./session-manager.ts";
 import { TurnSupersededError, type AgentEvent } from "./internal-types.ts";
 import { BACKEND_STOPPED_DURING_TURN } from "./backend-failure-text.ts";
-import type { NormalizedEvent } from "./backends/types.ts";
+import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 
 interface TestHost extends SessionHost {
@@ -58,12 +58,26 @@ function fakeDeps() {
     authChecked: [] as string[],
   };
   const waiters: { n: number; resolve: () => void }[] = [];
+  // createSession recorder: `create.onCall` observes each call at call time,
+  // `create.throwWith` makes the next call throw synchronously.
+  const created: BackendSession[] = [];
+  const create: {
+    onCall: ((resumeSessionId: string | undefined) => void) | null;
+    throwWith: Error | null;
+  } = { onCall: null, throwWith: null };
   const deps: SessionManagerDeps<TestHost> = {
     updateAgent: (agentId, changes) => [
       { type: "agent_updated", agentId, changes },
     ],
     emit: (event) => events.push(event),
     isStillManaged: () => true,
+    createSession: (_host, resumeSessionId) => {
+      create.onCall?.(resumeSessionId);
+      if (create.throwWith) throw create.throwWith;
+      const session = fakeSession();
+      created.push(session);
+      return session;
+    },
     processNormalizedEvent: (_agentId, ev) => {
       processed.push(ev);
       for (const w of waiters.splice(0)) {
@@ -105,6 +119,8 @@ function fakeDeps() {
     stateUpdates,
     diagnostics,
     whenProcessed,
+    create,
+    created,
   };
 }
 
@@ -306,5 +322,103 @@ describe("SessionManager consumer: stream end", () => {
 
     replacement.close();
     await replacementConsumer;
+  });
+});
+
+// The dormant / sessionSwapping flips in emission order, as "flag:value".
+function flagChanges(events: AgentEvent[]): string[] {
+  const out: string[] = [];
+  for (const e of events) {
+    if (e.type !== "agent_updated") continue;
+    if ("sessionSwapping" in e.changes)
+      out.push(`sessionSwapping:${String(e.changes.sessionSwapping)}`);
+    if ("dormant" in e.changes) out.push(`dormant:${String(e.changes.dormant)}`);
+  }
+  return out;
+}
+
+describe("SessionManager.replaceWith", () => {
+  it("creates the replacement before closing the old session, exactly once with the given id, then drains and installs it", async () => {
+    const { deps, events, create, created } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host();
+    const old = fakeSession();
+    sm.installSession(h, old);
+    const calls: {
+      resumeSessionId: string | undefined;
+      oldClosedAtCall: boolean;
+      oldBoundAtCall: boolean;
+    }[] = [];
+    create.onCall = (resumeSessionId) =>
+      calls.push({
+        resumeSessionId,
+        oldClosedAtCall: old.closed,
+        oldBoundAtCall: sm.session === old,
+      });
+
+    await sm.replaceWith(h, "resume-1");
+
+    // Create first: exactly one call, with the id given, while the old session
+    // is still bound and open.
+    expect(calls).toEqual([
+      { resumeSessionId: "resume-1", oldClosedAtCall: false, oldBoundAtCall: true },
+    ]);
+    // Then close, drain, install.
+    expect(old.closed).toBe(true);
+    expect(created.length).toBe(1);
+    expect(sm.session).toBe(created[0]);
+    expect(sm.consumerPromise).toBeInstanceOf(Promise);
+    expect(flagChanges(events)).toEqual([
+      "sessionSwapping:true",
+      "dormant:true",
+      "sessionSwapping:false",
+    ]);
+    created[0].close();
+  });
+
+  it("a createSession dep that throws synchronously throws synchronously and leaves the old session bound with its turn untouched", async () => {
+    const { deps, events, create, created } = fakeDeps();
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host({ info: { state: "thinking", dormant: false } });
+    const old = fakeSession();
+    sm.installSession(h, old);
+    const turn = sm.createTurnDeferred();
+    let captured: unknown = undefined;
+    turn.catch((err: unknown) => {
+      captured = err;
+    });
+    const tokenBefore = sm.turnCancelToken;
+    const eventsBefore = events.length;
+    create.throwWith = new Error("cwd is invalid");
+
+    let thrown: unknown = undefined;
+    let returned: Promise<void> | undefined;
+    try {
+      returned = sm.replaceWith(h, null);
+    } catch (err: unknown) {
+      thrown = err;
+    }
+    await Promise.resolve(); // a rejection of the turn would have landed by now
+
+    // Untouched state first: nothing was closed, unset, cancelled or emitted.
+    // (A swallowed throw that went on to drain would fail here, because
+    // closeAndDrainSession closes and unsets before its first await.)
+    expect(sm.session).toBe(old);
+    expect(old.closed).toBe(false);
+    expect(sm.pendingTurn?.promise).toBe(turn);
+    expect(captured).toBeUndefined();
+    expect(sm.turnCancelToken).toBe(tokenBefore);
+    expect(events.length).toBe(eventsBefore);
+    expect(created).toEqual([]);
+    // Then propagation: a synchronous throw, not a rejected promise, so the
+    // caller's own catch handles it in the same tick, the way the former call
+    // sites did.
+    expect(thrown).toBeInstanceOf(Error);
+    if (!(thrown instanceof Error)) {
+      throw new Error("replaceWith did not throw synchronously");
+    }
+    expect(thrown.message).toBe("cwd is invalid");
+    expect(returned).toBeUndefined();
+    old.close();
   });
 });

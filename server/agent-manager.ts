@@ -721,6 +721,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       officeState.updateAgent(agentId, changes),
     emit,
     isStillManaged: (managed) => agents.get(managed.info.id) === managed,
+    createSession,
     processNormalizedEvent,
     addLogEntry,
     reconcilePendingFixedCwdReset: (managed) => {
@@ -1279,11 +1280,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
         try {
-          await managed.sessionManager.replaceSession(
+          await managed.sessionManager.replaceWith(
             managed,
-            sessionId
-              ? createSession(managed, sessionId)
-              : createSession(managed),
+            sessionId,
             // Settings-driven swap: a mid-flight flush turn cancelled by this
             // replace gets the reason stamped on its SessionSwappedError, so
             // flushQueue's handler can word the interrupt as expected behavior
@@ -3972,10 +3971,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     mintAgentToken(agentId, managed.info.userId, privileged);
     if (managed.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
-      await managed.sessionManager.replaceSession(
-        managed,
-        sessionId ? createSession(managed, sessionId) : createSession(managed),
-      );
+      await managed.sessionManager.replaceWith(managed, sessionId);
     }
     return managed.info;
   }
@@ -4209,11 +4205,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await managed.sessionManager.replaceSession(
+          await managed.sessionManager.replaceWith(
             managed,
-            sessionId
-              ? createSession(managed, sessionId)
-              : createSession(managed),
+            sessionId,
           );
           acted++;
         } catch (err) {
@@ -4256,11 +4250,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const sessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionId && !sessionId)
           clearStaleAutoResumeState(agentId, managed);
-        await managed.sessionManager.replaceSession(
+        await managed.sessionManager.replaceWith(
           managed,
-          sessionId
-            ? createSession(managed, sessionId)
-            : createSession(managed),
+          sessionId,
         );
         acted++;
       } catch (err) {
@@ -6137,8 +6129,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             picked.sessionId,
           );
           try {
-            const newSession = createSession(managed, picked.sessionId);
-            await managed.sessionManager.replaceSession(managed, newSession);
+            await managed.sessionManager.replaceWith(managed, picked.sessionId);
           } catch (err) {
             if (switched) rollbackSessionCwd(agentId, prevCwd);
             if (engine.switched && engine.prevConfig)
@@ -6238,11 +6229,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { modelFamily: picked.family },
             async () => {
-              await managed.sessionManager.replaceSession(
+              await managed.sessionManager.replaceWith(
                 managed,
-                sessionId
-                  ? createSession(managed, sessionId)
-                  : createSession(managed),
+                sessionId,
                 "settings",
               );
             },
@@ -6302,11 +6291,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { effort: picked.level },
             async () => {
-              await managed.sessionManager.replaceSession(
+              await managed.sessionManager.replaceWith(
                 managed,
-                sessionId
-                  ? createSession(managed, sessionId)
-                  : createSession(managed),
+                sessionId,
                 "settings",
               );
             },
@@ -6622,11 +6609,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const autoSessionId = pickAutoResumeSessionId(managed);
             if (managed.sessionId && !autoSessionId)
               clearStaleAutoResumeState(agentId, managed);
-            await managed.sessionManager.replaceSession(
+            await managed.sessionManager.replaceWith(
               managed,
-              autoSessionId
-                ? createSession(managed, autoSessionId)
-                : createSession(managed),
+              autoSessionId,
             );
           } catch (err) {
             addLogEntry(
@@ -6751,10 +6736,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const autoSessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionId && !autoSessionId)
           clearStaleAutoResumeState(agentId, managed);
-        const newSession = autoSessionId
-          ? createSession(managed, autoSessionId)
-          : createSession(managed);
-        await managed.sessionManager.replaceSession(managed, newSession);
+        await managed.sessionManager.replaceWith(managed, autoSessionId);
         // If we got here via a hot-abort failure, processNormalizedEvent
         // flipped state to "error" - restore waiting_for_response so the
         // agent is usable again.
@@ -7430,10 +7412,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Engine is also a property of the session: restore it before createSession
       // so the right backend is used (and rolled back below if the resume fails).
       const engine = applySessionEngineForResume(agentId, managed, sessionId);
-      let newSession;
       try {
-        newSession = createSession(managed, sessionId);
-        await managed.sessionManager.replaceSession(managed, newSession);
+        await managed.sessionManager.replaceWith(managed, sessionId);
       } catch (err) {
         if (switched) rollbackSessionCwd(agentId, prevCwd);
         if (engine.switched && engine.prevConfig)
@@ -7843,10 +7823,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
       // 4. Create new session from fork (or fresh session for non-linked
       //    first-message edits), then close old.
-      const newSession = isFreshSession
-        ? createSession(managed)
-        : createSession(managed, newSessionId);
-      await managed.sessionManager.replaceSession(managed, newSession);
+      await managed.sessionManager.replaceWith(
+        managed,
+        isFreshSession ? null : newSessionId,
+      );
       // For fresh sessions, sessionId is set by the system/init event (like newConversation).
       // For forks, set it now.
       managed.sessionManager.sessionId = isFreshSession ? null : newSessionId;
@@ -7943,8 +7923,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // We switched to the fork - roll back to old session and restore UI
         let rollbackRestored = false;
         try {
-          const rollbackSession = createSession(managed, oldSessionId);
-          await managed.sessionManager.replaceSession(managed, rollbackSession);
+          await managed.sessionManager.replaceWith(managed, oldSessionId);
           managed.sessionManager.sessionId = oldSessionId;
           rollbackRestored = true;
         } catch {

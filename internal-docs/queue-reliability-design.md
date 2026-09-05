@@ -11,8 +11,10 @@ Location note (task 798922c1, S2, 2026-09-05): `installSession`,
 `server/session-manager.ts` (one `SessionManager` per agent, reached as
 `managed.sessionManager`); agent-manager.ts calls them. Since S3 the consumer
 loop is `SessionManager.consume` in the same module (its bound-session guard
-reads `this.session !== boundSession`). The agent-manager line references
-below predate the move.
+reads `this.session !== boundSession`); since S4 every replacement caller
+goes through `SessionManager.replaceWith(host, resumeSessionId?)`, which
+builds the backend session first. The agent-manager line references below
+predate the move.
 
 ## Background: the delivery machinery today
 

@@ -75,6 +75,12 @@ export interface SessionManagerDeps<H extends SessionHost> {
   emit: (event: AgentEvent) => void;
   // `agents.get(agentId) === managed`: the killed-during-drain guard.
   isStillManaged: (host: H) => boolean;
+  // Backend session assembly (permission bookkeeping, cwd and resume
+  // preflight, session env, system prompt, backend dispatch): manager and
+  // office state, so it stays in the manager. Synchronous on purpose - a
+  // throw here must reach the caller before anything is closed (see
+  // replaceWith).
+  createSession: (host: H, resumeSessionId?: string) => BackendSession;
   // The per-event work: state derivation, log entries, usage refresh, and the
   // turn_completed / error-event settle of pendingTurn (through this object).
   processNormalizedEvent: (agentId: string, ev: NormalizedEvent) => void;
@@ -626,5 +632,26 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         );
       });
     }
+  }
+  // Every replacement caller's entry point: build the replacement first, then
+  // run replaceSession. Deliberately NOT async - the create runs synchronously,
+  // and a throw from it (invalid cwd, failed resume preflight, broken env)
+  // reaches the caller as a synchronous throw with the old session still
+  // bound, the pending turn unsettled and nothing closed, exactly as the
+  // former `replaceSession(host, createSession(...))` call sites behaved (the
+  // edit path in agent-manager documents the contract: a synchronous create
+  // throw rolls back with the old session standing). An async wrapper would
+  // turn that throw into a rejected promise and add an event-loop yield
+  // before the caller's catch runs (ruling 9).
+  replaceWith(
+    host: H,
+    resumeSessionId?: string | null,
+    swapReason?: "settings",
+  ): Promise<void> {
+    const newSession = this.deps.createSession(
+      host,
+      resumeSessionId ?? undefined,
+    );
+    return this.replaceSession(host, newSession, swapReason);
   }
 }
