@@ -43,6 +43,21 @@ The surface (as of 101414e): `createSession` (~4842), `installSession`
    other way).
 6. No `any`, no bare casts, no non-null assertions to close a type gap; say
    which side is wrong and fix that side.
+7. R-2026-09-05-1 (kill during a swap drain; ruled on Reviewer 1's S1
+   escalation). Current code: `replaceSession` installs the replacement
+   whenever `managed.session === null` after the drain and only THEN
+   returns on `agents.get(agentId) !== managed`; `kill()` closes the
+   session, nulls it and deletes the record, so a kill that lands during
+   the drain leaves the replacement session and its consumer running on
+   the orphaned object. This is a defect, and fixing it is a behaviour
+   change: PARKED FOR NIL, tracked on the board (orphan backend session
+   after kill during a swap drain). S1 pins nothing for it (no test, no
+   todo); S2-S4 preserve the current order exactly, with a comment naming
+   the task where the guard sits.
+8. R-2026-09-05-2: behaviours that the public surface cannot reach before
+   the object exists (S1 pickup items 3 idle-residue half and 5 stale
+   deferred) are S2 direct-unit obligations: S2 adds unit tests on
+   `SessionManager` for them, and its acceptance lists them by name.
 
 ## Gates (every hand-off)
 
@@ -142,6 +157,6 @@ the hand-off; the five ruling-4 suites still green; no production change
 (`git diff --stat main -- server/*.ts` shows only test-support files).
 
 Decide with reviewer: which of 1-8 are already covered; test file name.
-Locked: no production code moves in S1.
+Locked: no production code moves in S1. Rulings 7 and 8 amend this pickup: item 7 is dropped from S1, items 3 (idle half) and 5 move to S2.
 
 - [ ] S1 landed (hash, note)
