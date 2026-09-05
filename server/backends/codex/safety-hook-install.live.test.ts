@@ -80,7 +80,7 @@ async function runTurn(
 }
 
 describe.skipIf(!enabled || !authHome)(
-  "Codex 0.144.6 safety-hook trust contract",
+  `Codex ${CODEX_HOOK_TRUST_HASH_PROVEN_VERSION} safety-hook trust contract`,
   () => {
     it("maps flat handler position to displayOrder and matches Codex currentHash", async () => {
       const home = join(STATE_ROOT, "codex-safety-trust-live");
@@ -230,7 +230,7 @@ describe.skipIf(!paidEnabled || !authHome)(
               approvalPolicy: "never",
               sandbox: "danger-full-access",
               developerInstructions:
-                "Follow the requested Bash action exactly once. Do not use another tool.",
+                "Run each requested Bash command exactly once, in the order given, even if an earlier one is blocked. Do not use another tool.",
               experimentalRawEvents: false,
               persistExtendedHistory: false,
             },
@@ -242,9 +242,21 @@ describe.skipIf(!paidEnabled || !authHome)(
             allEvents,
             eventLog,
           );
-          const authFailure = JSON.stringify(allEvents).match(
-            /unauthorized|authentication|login|401|403/i,
-          );
+          // Only error-shaped fields: the whole event stream carries epoch
+          // timestamps and ids, and "401" inside one of those is not an auth
+          // failure (seen 2026-09-05: startedAtMs ...519401 matched).
+          const authFailure = allEvents.some((event) => {
+            const params = event.params as Json | undefined;
+            const text = [
+              params?.turn?.error?.message,
+              params?.error?.message,
+              params?.error,
+              params?.message,
+            ]
+              .filter((value) => typeof value === "string")
+              .join("\n");
+            return /unauthorized|authentication|login|401|403/i.test(text);
+          });
           if (authFailure) {
             throw new Error(
               "first paid cell failed with an auth-shaped error; no second cell was run",

@@ -29,7 +29,8 @@ export interface ModelStyle {
 // LogView.tsx) so known models keep their exact tints.
 //
 // Desk props encode capability TIER, not identity: frontier
-// models get the book (opus, fable, gpt-5.6-sol), small/fast models get the
+// models get the book (opus, fable, gpt-6-astra, gpt-5.6-sol), small/fast
+// models get the
 // crayons (haiku, gpt-5.4-mini, gpt-5.6-luna), mid models get a bare desk.
 // At-a-glance encoding: color hue ~ provider/family, desk prop ~ tier.
 export const MODEL_STYLES: Record<string, ModelStyle> = {
@@ -59,6 +60,11 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
   "gpt-5.6-sol": {
     border: "rgba(80,220,150,0.95)",
     bg: "rgba(80,220,150,0.40)",
+    deskProp: "book",
+  },
+  "gpt-6-astra": {
+    border: "rgba(60,230,190,0.95)",
+    bg: "rgba(60,230,190,0.40)",
     deskProp: "book",
   },
   "gpt-5.6-terra": {

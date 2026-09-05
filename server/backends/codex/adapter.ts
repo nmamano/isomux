@@ -173,10 +173,11 @@ const CAPABILITIES: BackendCapabilities = {
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
 // getModelOptions() and modelDisplayLabel() when the RPC isn't available.
-// Slugs verified against `codex debug models` on codex-cli 0.144.1,
-// 2026-07-11; mirror of CODEX_MODELS in shared/types.ts.
+// Slugs verified against `codex debug models` on codex-cli 0.153.4,
+// 2026-09-05; mirror of CODEX_MODELS in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { value: "gpt-6-astra", label: "GPT-6 Astra" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.5", label: "GPT-5.5" },
@@ -424,6 +425,13 @@ export function mergeRateLimitSnapshots(
     secondary: mergeRateLimitWindow(older.secondary, newer.secondary),
     credits: newer.credits ?? older.credits,
     individualLimit: newer.individualLimit ?? older.individualLimit,
+    // THE ONE FIELD THAT DOES NOT FALL BACK. Every other nullable field here
+    // treats null as "not in this update" and keeps the older value. The
+    // generated schema says the opposite for this one: "`None` is unavailable,
+    // not a sparse-update recovery". So a newer null means the backend is no
+    // longer telling us, and carrying the old answer forward would invent a
+    // spend-control state nobody reported. Newer wins exactly, null included.
+    spendControlReached: newer.spendControlReached,
     planType: newer.planType ?? older.planType,
     rateLimitReachedType:
       newer.rateLimitReachedType ?? older.rateLimitReachedType,

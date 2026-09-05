@@ -21,7 +21,7 @@ describe("Codex hook live coverage (opt-in)", () => {
       if (outputPath) {
         await Bun.write(outputPath, `${JSON.stringify(result, null, 2)}\n`);
       }
-      expect(result.codexVersion).toBe("0.144.6");
+      expect(result.codexVersion).toBe("0.153.4");
       expect(result.validationErrors).toEqual([]);
     },
     30 * 60 * 1000,

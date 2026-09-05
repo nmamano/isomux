@@ -145,7 +145,8 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
 
 // Reasoning effort levels. Most are shared across Claude (--effort flag) and
 // Codex (ReasoningEffort enum); `minimal` and `ultra` are Codex-only, and
-// `max` is Claude top-tier families plus the Codex gpt-5.6 models. UI
+// `max` is Claude top-tier families plus the Codex gpt-5.6 and gpt-6
+// models. UI
 // filters per-backend.
 export type EffortLevel =
   | "minimal"
@@ -179,12 +180,14 @@ export function effortDisplayLabel(level: EffortLevel): string {
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
 // the UI's display helpers and the server can reference the canonical set.
-// Verified against `codex debug models` on codex-cli 0.144.1 (2026-07-11).
+// Verified against `codex debug models` on codex-cli 0.153.4 (2026-09-05).
 // Default first (CODEX_MODELS[0]): gpt-5.6-sol, the frontier agentic coding
-// model. New-agent defaults, the welcome agent, and the dialogs'
+// model; gpt-6-astra is the newer flagship (Codex 0.153 lists it first) and
+// is not the default here until Nil rules on it. New-agent defaults, the welcome agent, and the dialogs'
 // auth-error preferred-default branch all key off CODEX_MODELS[0].
 export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { value: "gpt-6-astra", label: "GPT-6 Astra" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.5", label: "GPT-5.5" },
@@ -437,7 +440,7 @@ export interface AgentInfo {
   permissionMode: AgentPermissionMode;
   // Backend-specific model identifier. For Claude this is a ModelFamily
   // ("opus"/"sonnet"/"haiku"); for Codex this is the GPT-5 family value
-  // ("gpt-5.5"/"gpt-5.6-sol"/"gpt-5.6-terra"/"gpt-5.6-luna"/...); OpenCode
+  // ("gpt-5.5"/"gpt-5.6-sol"/"gpt-6-astra"/"gpt-5.6-terra"/...); OpenCode
   // uses a composite provider/model id. Display logic narrows on agentType.
   modelFamily: string;
   effort: EffortLevel;

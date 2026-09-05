@@ -32,6 +32,7 @@ import {
   codexResetsAtMs,
   codexWindowLabel,
   CodexSession,
+  mergeRateLimitSnapshots,
   commandTokensForPrefixMatch,
   normalizeCodexSubscriptionUsage,
   offerablePrefix,
@@ -2280,11 +2281,63 @@ describe("codex subscription usage", () => {
       secondary: null,
       credits: null,
       individualLimit: null,
+      spendControlReached: null,
       planType: "plus",
       rateLimitReachedType: null,
       ...over,
     };
   }
+
+  // The merge rule for `spendControlReached`, which is the ONE field in a
+  // snapshot merge that does not fall back to the older value. Codex 0.153.4
+  // added it as required and documented `None` as "unavailable, not a
+  // sparse-update recovery", so all three newer values - including null - must
+  // beat whatever the cache held. Each case is written out rather than looped:
+  // a table would let a wrong shared expectation pass all three.
+  describe("spendControlReached takes the newer value exactly", () => {
+    it("a newer true beats an older false", () => {
+      const merged = mergeRateLimitSnapshots(
+        snapshot({ spendControlReached: false }),
+        snapshot({ spendControlReached: true }),
+      );
+      expect(merged.spendControlReached).toBe(true);
+    });
+
+    it("a newer false beats an older true", () => {
+      const merged = mergeRateLimitSnapshots(
+        snapshot({ spendControlReached: true }),
+        snapshot({ spendControlReached: false }),
+      );
+      expect(merged.spendControlReached).toBe(false);
+    });
+
+    it("A NEWER NULL BEATS AN OLDER VALUE, rather than falling back", () => {
+      // The regression this guards: writing `newer ?? older` here, the way
+      // every neighbouring field is written, would keep reporting a spend
+      // control the backend has stopped reporting.
+      for (const older of [true, false]) {
+        const merged = mergeRateLimitSnapshots(
+          snapshot({ spendControlReached: older }),
+          snapshot({ spendControlReached: null }),
+        );
+        expect({ older, merged: merged.spendControlReached }).toEqual({
+          older,
+          merged: null,
+        });
+      }
+    });
+
+    it("the neighbouring fields still fall back, so this is not a blanket rule", () => {
+      const merged = mergeRateLimitSnapshots(
+        snapshot({ limitName: "older", spendControlReached: true }),
+        snapshot({ limitName: null, spendControlReached: null }),
+      );
+      expect({
+        limitName: merged.limitName,
+        spendControlReached: merged.spendControlReached,
+      }).toEqual({ limitName: "older", spendControlReached: null });
+    });
+  });
 
   async function usageOf(session: CodexSession) {
     const r = await session.getSubscriptionUsage();

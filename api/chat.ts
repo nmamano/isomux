@@ -110,7 +110,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Click the **moon** through the window to toggle dark mode
 - Click the **neon sign** to visit isomux.com
 - Click **doors** to switch between rooms
-- Frontier-tier agents (Opus, Fable, GPT-5.6 Sol) have a book on their desk; small fast models (Haiku, GPT minis) have crayons
+- Frontier-tier agents (Opus, Fable, GPT-6 Astra, GPT-5.6 Sol) have a book on their desk; small fast models (Haiku, GPT minis) have crayons
 - The entire SVG scene (~1,600 lines of raw coordinates and bezier curves) was drawn by Claude Opus - no libraries, assets, or tools
 
 ### Agent Backends

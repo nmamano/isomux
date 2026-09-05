@@ -108,7 +108,7 @@ process.stdout.write("{}\\n");
     const representativeCommand = `${process.execPath} run ${representative}`;
     return {
       measuredAt: new Date().toISOString(),
-      codexVersion: "0.144.6",
+      codexVersion: "0.153.4",
       conditions: {
         otherAgentsInFlight: Number(
           process.env.ISOMUX_TEST_CODEX_HOOK_OTHER_AGENTS ?? "0",
