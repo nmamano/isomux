@@ -132,4 +132,60 @@ unaffected; `internal-docs/testing-guide.md` has the DOM-test section.
 Decide with reviewer: file names, cleanup strategy, the App seam.
 Locked: rulings 1, 2; no routing code in S1.
 
-- [ ] S1 landed (hash, note)
+- [x] S1 landed as e8f74b5 (harness: happy-dom 20.14.0, its global registrator, @testing-library/react 16.3.3; App mounts bare with the store's default contexts, so S2 drives the real App with no fake; a warm App render is ~275 ms, measured 2026-09-05).
+
+## PICKUP S2 - real paths for the four pages (Worker 2 / Reviewer 2)
+
+Goal: `/tasks`, `/cronjobs`, `/apps`, `/settings` open their page on load,
+show in the address bar when opened from the office, and back/forward
+step between them and the office the way they do on any site. `/users`
+opens settings at `/settings`.
+
+Mechanics:
+- `ui/routes.ts`, pure: `pageForPath(pathname)` returning one of the four
+  page names or null (office), with `/users` mapping to settings and
+  trailing slashes tolerated; `pathForPage(page | null)` returning the
+  path (`/` for null). Plain unit tests in `ui/routes.test.ts`, no DOM.
+- App wiring (`ui/App.tsx`): keep ruling 5's one-entry-per-page-change
+  model. Where App pushes or replaces the `{ isomux: true }` entry today
+  (~line 529), carry the page in the entry state and the real path as
+  the third argument: `pushState({ isomux: true, page }, "", path)`.
+  On popstate, restore the page from the entry (state.page, falling back
+  to `pageForPath(location.pathname)`) instead of clearing every page
+  flag; an entry with no page is the office, or the chat when focus is
+  set, exactly as the tasks-over-chat branch works today. Agent chats are
+  not routes: a chat entry keeps path `/`.
+- Boot: after the saved-spot restore has supplied room and agent, read
+  `pageForPath(location.pathname)`; a page wins over the saved panel
+  (ruling 4) and is opened with `replaceState` so the first entry carries
+  its state; `/users` is rewritten to `/settings` with replaceState. On
+  `/`, a saved panel opens as today and the URL is replaced to its path
+  so the address bar and the view agree.
+- Every "return to office" path still goes through `goHome()` and
+  `history.back()`, as today.
+- Trap, check it from the artifact: a reload on `/tasks` is served
+  `index.html` by the office server (`server/isomux-office.ts` ~5364, the
+  unknown-path fallback), so the bundle must be referenced by an
+  ABSOLUTE path. Open `ui/dist/index.html` after `bun run build:ui` and
+  paste the script and stylesheet tags in the hand-off; a relative
+  `src` is a bug S2 must fix in `ui/index.html` or the build script.
+  The demo server's fallback is S3, not this slice.
+- DOM tests (extend `ui/App.dom.test.tsx` or add a second file, both
+  under the 5 s cap): open each page from the office and assert
+  `location.pathname` and the entry state; back returns to `/`; forward
+  reopens the page; mounting App at `/tasks` opens tasks; mounting at
+  `/users` ends at `/settings`; tasks opened over a chat, then back,
+  lands on the chat with path `/`.
+- View persistence is untouched except for the boot precedence above.
+
+Acceptance: routes unit tests plus the DOM cases above, per-file runtimes
+in the hand-off; `bun run build:ui` green and the index.html tag check
+pasted; the existing ui suites green; `bunx tsc --noEmit` before the
+final hand-off; no change under `server/` or to `ui/demo-server.ts`.
+
+Decide with reviewer: the exact entry-state shape; whether the boot page
+opens before or after the first full_state arrives (it must not fight
+the saved-spot restore).
+Locked: rulings 3, 4, 5; no new routes; no visible copy.
+
+- [ ] S2 landed (hash, note)
