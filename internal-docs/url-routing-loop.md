@@ -259,5 +259,35 @@ in happy-dom.
 Locked: rulings 1-8; no interception of Back; no new routes; no visible
 copy written (proposed only).
 
+### S3 notes (worker, 2026-09-05)
+
+Back with unsaved edits, as it behaves TODAY - measured on the task board's
+create panel, opened dirty from the quick-add row. `history.back()` closes the
+page, returns the URL to `/`, and drops the edits with no prompt. Nothing in
+`ui/` listens to popstate except `App`, so the panel simply unmounts. Pinned in
+`ui/App.dirty.dom.test.tsx` and deliberately unchanged.
+
+What reload does is NOT the same for the two forms, which is what decides the
+question for Nil. `UserSettingsView` installs a `beforeunload` guard around the
+same `isDirty()` the tested pane uses (`ui/components/UserSettingsView.tsx:1139`),
+as do `EditAgentDialog`, `CronjobDialog` and `ExternalAccessPane`. `TaskView`
+does not. So today: settings warns on reload and goes silently on Back, and the
+task panel goes silently on both. Settings is the inconsistent one, and that is
+an argument for a guard rather than against it.
+
+A future unified guard needs BOTH mechanisms, not one. `beforeunload` does not
+fire on same-document history traversal between pushState entries, so it cannot
+cover Back; and intercepting Back cannot cover a reload or a closed tab. The
+shape would be a `beforeunload` on `TaskView` plus a cancelled-dirty-Back path
+for both forms. None of it is implemented in this loop; it wants its own ruling.
+
+Demo: routing is off in `ui/demo-entry.tsx`, so the demo never writes a page
+path and `ui/demo-server.ts` needs no unknown-path fallback. Left untouched.
+
+PWA: `ui/manifest.json` has `start_url: "/"` and `scope: "/"`. The scope covers
+the four new paths, and `start_url` opening the office is what an installed app
+should do. `ui/sw.js` is a two-line no-op with no caching and no path
+references. Nothing changed.
+
 - [ ] S3 landed (hash, note)
 

@@ -1,14 +1,12 @@
-// One test per page: opening it from the office shows it, puts its own path in
-// the address bar, and pushes exactly one entry carrying that page. This file
-// holds the task board and apps; cron jobs and settings are in
-// ui/App.pages.cronjobs-settings.dom.test.tsx.
+// The cron jobs and settings halves of ui/App.pages.dom.test.tsx: opening each
+// from the office shows it, puts its own path in the address bar, and pushes
+// exactly one entry carrying that page.
 //
 // Four cases of one subject do not divide by meaning, so they divide by cost:
 // each renders the office AND a full page, and all four together ran 2.3-3.2 s
 // of a 5 s budget (measured 2026-09-05), which is past the half a file is
-// allowed before it counts as a latent flake. The rest of App's history wiring
-// is in ui/App.history.dom.test.tsx, and the cold-load half in
-// ui/App.boot.dom.test.tsx.
+// allowed before it counts as a latent flake. These two are the heavier
+// renders.
 
 import {
   afterAll,
@@ -58,14 +56,14 @@ const PAGES: Array<{
   showing: (v: View) => boolean;
 }> = [
   {
-    page: "tasks",
-    button: "Tasks",
-    showing: (v) => v.queryByPlaceholderText(/Quick add a task/) !== null,
+    page: "cronjobs",
+    button: "Cron jobs",
+    showing: (v) => v.queryByText(/cron jobs/) !== null,
   },
   {
-    page: "apps",
-    button: "Apps",
-    showing: (v) => v.queryByTitle("Hide app previews") !== null,
+    page: "settings",
+    button: "Settings",
+    showing: (v) => v.queryByText(/Select a setting from the list/) !== null,
   },
 ];
 

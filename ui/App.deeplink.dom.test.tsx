@@ -21,9 +21,13 @@ const { createElement } = await import("react");
 
 type View = ReturnType<typeof render>;
 
-// The settings and cronjobs pages fetch when they mount; without the shim
-// happy-dom opens real sockets to localhost.
-setApiShim(async () => ({}));
+// The settings and cronjobs pages fetch when they mount, and the settings
+// detail pane reads `text` off /api/memory - a shim answering {} makes it throw.
+setApiShim(async (_method, path) =>
+  path.startsWith("/api/memory")
+    ? { text: "", version: "0", size: 0, cap: 4000 }
+    : {},
+);
 afterAll(() => setApiShim(null));
 
 beforeEach(() => {
@@ -133,3 +137,4 @@ describe("an entry this app did not push", () => {
     expect(window.location.pathname).toBe("/tasks");
   });
 });
+
