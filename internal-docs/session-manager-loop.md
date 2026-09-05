@@ -70,6 +70,12 @@ The surface (as of 101414e): `createSession` (~4842), `installSession`
    acceptance grep accepts the one locked forwarding lambda in
    command-handlers.ts and its call; the requirement is that no migrated
    agent-manager replacement caller constructs a BackendSession.
+10. R-2026-09-05-5 (S5 comment exception): the prohibition on edits under
+   `server/backends/*` is lifted for exactly two comment lines in
+   `server/backends/types.ts` (the header line naming agent-manager.ts as
+   the holder of runConsumer, and the system_init note naming
+   `ManagedAgent.sessionId`), comment text only, no interface or logic
+   change; the hand-off shows the diff of that file is comments only.
 8. R-2026-09-05-2: behaviours that the public surface cannot reach before
    the object exists (S1 pickup items 3 idle-residue half and 5 stale
    deferred) are S2 direct-unit obligations: S2 adds unit tests on
