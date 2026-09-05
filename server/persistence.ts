@@ -778,7 +778,7 @@ export function loadAgents(): Room[] {
     if (typeof room.prompt !== "string") room.prompt = null;
     if (typeof room.envFile === "string" && room.envFile) {
       console.log(
-        `[migration] room "${room.name}" had envFile=${room.envFile} (now removed; add its variables in User Settings → Connections if you still want them applied)`,
+        `[migration] room "${room.name}" had envFile=${room.envFile} (now removed; add its variables in Settings → You → Individual connections if you still want them applied)`,
       );
       strippedRoomEnv++;
     }

@@ -116,7 +116,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Agent Backends
 - **Claude** (Anthropic): best general-purpose coding agent. Uses your existing Claude Code login.
 - **Codex** (OpenAI): GPT-5 family. Ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
-- **OpenCode**: ships as a pinned bundled server and exposes models from its connected providers. To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under User Settings → Connections.
+- **OpenCode**: ships as a pinned bundled server and exposes models from its connected providers. To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under Settings → You → Individual connections.
 - The engine is chosen at spawn time and can be switched later from the agent's edit dialog. Model family and effort/reasoning can also be changed at any time.
 - All three engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
 
@@ -236,7 +236,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
 - Per-user profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
-- Managed variables for secrets and config: owners edit office-wide variables and each user edits personal variables in User Settings → Connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
+- Managed variables for secrets and config: owners edit office-wide variables under Settings → Office → Office-wide connections and each user edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
 - Personal API tokens: drive the office from an external tool and drain durable replies from agents while the web UI shows the work and messages live. The raw token is shown once; you can review its approximate last authenticated request and revoke it at any time.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Daily local backups: Isomux keeps seven daily office backups
@@ -247,7 +247,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as a PWA with no app store. On iPhone: open the office in Safari, tap Share, then tap Add to Home Screen. On Android: open the office in Chrome, tap Install app when prompted, or open the menu and tap Install app.
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above - don't speculate.
-- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to User Settings → Connections; agents spawned after that get it in their environment.`;
+- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to Settings → You → Individual connections; agents spawned after that get it in their environment.`;
 
 export function buildSystemPrompt(
   page: unknown,

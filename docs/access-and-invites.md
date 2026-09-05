@@ -129,14 +129,14 @@ explicitly) rather than relying on session expiry.
 
 ## Use your own provider account
 
-In Settings → Office → Connections (for every agent) or Settings → You → Connections (for your own), choose whether the account is for every agent
+In Settings → Office → Office-wide connections (for every agent) or Settings → You → Individual connections (for your own), choose whether the account is for every agent
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 
-Add provider API keys under Settings → You → Connections:
+Add provider API keys under Settings → You → Individual connections:
 
 ```text
 ANTHROPIC_API_KEY=sk-ant-...

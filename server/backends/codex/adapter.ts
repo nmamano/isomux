@@ -123,7 +123,7 @@ const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on the
 
 Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
 
-Alternative: add \`OPENAI_API_KEY\` under User Settings → Connections, then \`/clear\`.`;
+Alternative: add \`OPENAI_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
 
 // Surfaced when an auth-error fires but the office already has a valid
 // codex auth (auth.json present, or OPENAI_API_KEY in env). The user's

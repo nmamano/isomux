@@ -126,7 +126,7 @@ const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
 
 Once complete, it takes effect immediately for all Isomux agents.
 
-Alternative: add \`ANTHROPIC_API_KEY\` under User Settings → Connections, then \`/clear\`.`;
+Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
 
 // Surfaced when an auth-error fires (or the user types /login) but the
 // office already has a valid Claude auth (credentials.json present, or
@@ -148,7 +148,7 @@ macOS users with Homebrew can alternatively run \`brew install --cask claude-cod
 
 After install, open a new shell and run \`claude\` to sign in. If \`claude\` is not found, make sure \`~/.local/bin\` is on your PATH (\`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc\`).
 
-Alternative: add \`ANTHROPIC_API_KEY\` under User Settings → Connections, then \`/clear\`.`;
+Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
 
 const INSTALL_COMMAND = `curl -fsSL https://claude.ai/install.sh | bash`;
 

@@ -48,7 +48,11 @@ describe("the settings shortcut, modified", () => {
 
       await act(async () => {
         window.dispatchEvent(
-          new KeyboardEvent("keydown", { key: "s", bubbles: true, ...modifier }),
+          new KeyboardEvent("keydown", {
+            key: "s",
+            bubbles: true,
+            ...modifier,
+          }),
         );
       });
 

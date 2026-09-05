@@ -49,7 +49,7 @@ import {
 } from "../../attachment-prompt.ts";
 
 const AUTH_GUIDANCE =
-  "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+  "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,

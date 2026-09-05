@@ -111,7 +111,9 @@ describe("ProviderSignInCard", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
-    expect(html).toContain("Office-wide: sign in for every agent in this office");
+    expect(html).toContain(
+      "Office-wide: sign in for every agent in this office",
+    );
     expect(html).toContain("Individual: sign in for agents I spawn");
     expect(html).toContain(
       "This subscription is used for every agent in the office except for agents spawned by an office member who has set up",

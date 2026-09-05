@@ -129,7 +129,7 @@ describe("OpenCode deterministic tracer", () => {
     expect(backend.getLoginInstructions()).toEqual({
       kind: "login",
       cardEligible: false,
-      text: "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.",
+      text: "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.",
     });
     const modelFailure = openCodeModelUnavailableFailure(
       "opencode-go/deepseek-v4-pro",

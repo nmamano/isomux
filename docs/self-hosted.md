@@ -300,7 +300,7 @@ For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, t
 ### Provider API keys
 
 Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
-`OPENCODE_API_KEY` under Settings → You → Connections. Other per-user variables
+`OPENCODE_API_KEY` under Settings → You → Individual connections. Other per-user variables
 work the same way, for example, each member can set `GH_TOKEN` so their agents
 use their own GitHub credentials.
 

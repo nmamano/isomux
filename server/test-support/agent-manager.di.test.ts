@@ -544,7 +544,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       text: "hello",
     });
     const guidance =
-      "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+      "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
     const deadline = Date.now() + 2000;
     while (
       !mgr.getAgentLogs(info!.id).some((entry) => entry.content === guidance) &&
@@ -1036,7 +1036,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         text: "fail before login",
       });
       const guidance =
-        "Add `OPENCODE_API_KEY` under User Settings → Connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+        "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
       const authDeadline = Date.now() + 30_000;
       while (
         !mgr

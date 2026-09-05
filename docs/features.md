@@ -100,6 +100,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ### Navigation and shortcuts
 
+- **t** opens the task board and **s** opens Settings, from anywhere.
 - **Number keys 1–8** jump to agents from office view.
 - **Tab / Shift+Tab** cycle between agents in chat view.
 - **Escape** returns to office.
@@ -139,7 +140,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Kill** removes agent and frees desk.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, killing processes created by others, reading secret-bearing files like `.env`, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
-- **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide variables in Settings → Office → Connections and personal ones in Settings → You → Connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
+- **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide variables in Settings → Office → Office-wide connections and personal ones in Settings → You → Individual connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
 - **Personal API tokens** - drive the office from an external tool and drain durable replies from agents while the web UI shows the work and messages live. The raw token is shown once; you can review its approximate last authenticated request and revoke it at any time.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](self-hosted.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
 - **Daily local backups:** Isomux keeps seven daily office backups.
