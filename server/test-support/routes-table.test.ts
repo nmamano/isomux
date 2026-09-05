@@ -383,8 +383,13 @@ describe("route table: managed env values are self-only", () => {
     // An owner reads ANOTHER user's names - the whole point of the route.
     for (const who of [ownerCookie, ownerApi]) {
       expect(
-        runAuthorize(route.auth, who, { username: "other" }, undefined, ownerDeps)
-          .ok,
+        runAuthorize(
+          route.auth,
+          who,
+          { username: "other" },
+          undefined,
+          ownerDeps,
+        ).ok,
       ).toBe(true);
     }
     // A member is refused even for their OWN names: they read values through
@@ -405,8 +410,13 @@ describe("route table: managed env values are self-only", () => {
     // officeEnvOwner gates on scope, not on whose userId the token carries.
     for (const who of [identities.agent, identities.privilegedAgent]) {
       expect(
-        runAuthorize(route.auth, who, { username: "other" }, undefined, ownerDeps)
-          .ok,
+        runAuthorize(
+          route.auth,
+          who,
+          { username: "other" },
+          undefined,
+          ownerDeps,
+        ).ok,
       ).toBe(false);
     }
   });

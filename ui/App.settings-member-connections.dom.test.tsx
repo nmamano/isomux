@@ -89,10 +89,7 @@ async function openProfile(state: typeof initialState, name: string) {
 
 describe("individual connections on a member's profile", () => {
   it("shows an owner the member's variable names and no values", async () => {
-    const view = await openProfile(
-      signedInAs("Ricky", "u1", "owner"),
-      "Beth",
-    );
+    const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Beth");
 
     expect(
       view.queryByRole("heading", { name: "Individual Connections", level: 5 }),
@@ -104,10 +101,7 @@ describe("individual connections on a member's profile", () => {
   });
 
   it("shows a member nothing on their own profile, and asks for nothing", async () => {
-    const view = await openProfile(
-      signedInAs("Beth", "u2", "member"),
-      "Beth",
-    );
+    const view = await openProfile(signedInAs("Beth", "u2", "member"), "Beth");
 
     // The profile pane really did mount - otherwise the absence below proves
     // nothing about the section.
