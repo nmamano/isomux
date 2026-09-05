@@ -58,6 +58,12 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The root `bun test` runs the control-plane web app's tests too, and one
+      # of them renders a component that imports Next. Without the web app's
+      # own install that test fails on a missing module (seen on f71f21e).
+      - name: Install the web app's dependencies
+        run: bun install --cwd control-plane/web --frozen-lockfile
+
       - name: Check formatting
         run: bun run format:check
 
