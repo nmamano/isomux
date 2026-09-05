@@ -99,4 +99,3 @@ describe("dirty settings", () => {
     expect(window.location.pathname).toBe("/settings");
   });
 });
-

@@ -70,4 +70,3 @@ describe("deployed without routing", () => {
     pushState.mockRestore();
   });
 });
-

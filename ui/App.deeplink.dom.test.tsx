@@ -137,4 +137,3 @@ describe("an entry this app did not push", () => {
     expect(window.location.pathname).toBe("/tasks");
   });
 });
-

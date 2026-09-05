@@ -50,5 +50,4 @@ describe("restoring the settings page", () => {
     expect(window.location.pathname).toBe("/settings");
     expect(view.queryByText(/Select a setting from the list/)).not.toBeNull();
   });
-
 });

@@ -6,7 +6,15 @@
 // so a chat is "/" like the office. Backing out of tasks-over-a-chat lands on
 // the chat - the one case where a page closes without the office coming back.
 
-import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  spyOn,
+} from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();

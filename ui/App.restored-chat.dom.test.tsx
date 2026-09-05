@@ -95,7 +95,12 @@ describe("a cold link over a restored chat", () => {
       hat: "none",
     },
   };
-  const ROOM = { id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true };
+  const ROOM = {
+    id: "r1",
+    name: "Room",
+    prompt: null,
+    canCloseWhenEmpty: true,
+  };
 
   function bootWithSavedAgent(): View {
     saveView("ricky", { roomId: "r1", agentId: "a1", panel: "apps" });
