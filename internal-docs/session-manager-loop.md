@@ -277,6 +277,56 @@ Decide with reviewer: the callback split; whether `runConsumer` is a
 method or a module-private function.
 Locked: rulings 1-8; `createSession` does not move in S3.
 
-- [ ] S3 landed (hash, note)
+- [x] S3 landed as 913228a (SessionManager.consume owns the loop; five concern-named callbacks; runConsumer gone from agent-manager.ts; two more direct unit tests). Note: agent-manager.di's credential-isolation case (Bun.serve, 30 s cap) times out under concurrent runs and passes alone.
+## PICKUP S4 - createSession behind the object, and the twelve call sites (Worker 1 / Reviewer 1)
+
+Goal: every place that swaps or wakes a session calls one entry point on
+`SessionManager` and passes what the manager knows; the
+`X ? createSession(managed, X) : createSession(managed)` pattern at the
+twelve `replaceSession` call sites is gone. Behaviour identical.
+
+Mechanics (from S3's report):
+- `createSession` (agent-manager ~4780-4900) is mostly prompt assembly on
+  manager and office state (permission bookkeeping, cwd validation,
+  session env, backend lookup and resumability check, room and user and
+  office prompt, memory refs and notice, system prompt, usage roll on
+  resume, environment revision). That knowledge stays in the manager.
+  Plan-gate the cut: the object gains `replaceWith(host, resumeSessionId?)`
+  (name with the reviewer) that calls a `createSession(host,
+  resumeSessionId?)` dep and then does what `replaceSession` does today;
+  the manager's `createSession` shrinks to the assembly and returns the
+  `BackendSession`. If a cleaner split exists (for example the backend
+  dispatch and resumability check moving to the object while the prompt
+  assembly stays a dep), argue it in the plan gate with the line counts.
+- The twelve call sites migrate to the entry point one by one; the
+  hand-off lists each site by line and the exact before/after
+  expression. The synchronous-throw rollback documented at the edit path
+  (~1229, "a SYNCHRONOUS createSession/replaceSession throw rolls back")
+  must keep its ordering: name the test that pins it, or add one.
+- Do NOT remove the nine getter views or the two forwarding lambdas in
+  this slice; that is S5 with the docs and the loop close.
+- Unit test on the object (extend `server/session-manager.test.ts`):
+  (e) `replaceWith` closes and drains, then calls the createSession dep
+  exactly once with the resume id it was given, then installs, mutant:
+  call the dep before the drain; (f) a dep that throws synchronously
+  leaves the object with no session and rejects the pending turn with
+  `SessionSwappedError`, mutant: swallow the throw.
+- Load note for the gates: the credential-isolation DI case in
+  agent-manager.di.test.ts (Bun.serve, 30 s cap) times out under
+  concurrent lane and ci runs and passes alone; if it fails in your gate,
+  rerun that file alone and paste both lines, do not raise the cap.
+
+Acceptance: no caller constructs a session and hands it to
+`replaceSession` any more (grep `replaceSession(` shows only the object
+and its test); the ten-file gate green; the two new unit tests with their
+mutants named red; eslint on touched files; build:ui; `bunx tsc
+--noEmit` before the final hand-off; no change under `server/backends/`.
+
+Decide with reviewer: the entry point's name and signature; the exact
+cut of `createSession`.
+Locked: rulings 1-8; views and forwarding lambdas stay until S5.
+
+- [ ] S4 landed (hash, note)
+
 
 
