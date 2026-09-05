@@ -86,7 +86,9 @@ Today (as of bd790b7, measured 2026-09-05):
     provider cannot pass its own test. Unit tests may pin keys.
 15. Key names carry the full surface name (`preferences.*`, `settings.office.*`),
     never an abbreviation. A string shared verbatim by more than one surface
-    lives under `common.*`; the second use moves it there.
+    lives under `common.*`; the second use moves it there. Key segments are
+    camelCase (the catalog test enforces it), so an id with a hyphen or
+    underscore is converted, never used verbatim (`templates.moneyPlanner`).
 16. Rich text: a sentence with an inline link, code span or element is ONE
     key with a named placeholder, rendered by a helper in `ui/i18n.tsx`.
     Never split a sentence into before/after keys; word order differs per
@@ -453,3 +455,67 @@ Decide with reviewer: the option-label key layout, the new DOM file's
 anchors, whether ExpandableTextarea has any prose at all.
 Locked: rulings 1, 6, 7, 10, 11, 14-19; no log view, no office scene, no
 Intl beyond ruling 17, no server change.
+
+- [x] S4 landed as d8152e6 (+ format a046505). Dialogs, effort labels
+  (`ui/effort-label.ts`), templates by id with the spawned name seeded from
+  the localized label, ruling 17 applied. About 165 keys (553 English keys
+  total). Bundle +33485 bytes; new DOM file 1.5 s (measured 2026-09-05).
+  Left for S7 by report: every server-delivered label (live model lists,
+  OpenCode "<provider> - <model>", relayed ApiError messages, the whole
+  AgentChoiceInteraction built in `server/agent-manager.ts` and
+  `server/command-handlers.ts`; `EFFORT_LEVELS` still carries an English
+  label because `/effort` renders from it server-side, pinned to
+  `common.effort.*` by the catalog test). Kept English by the worker's
+  call: the persisted fallbacks "Untitled schedule" and "Agent {n}".
+
+## PICKUP S5 - the log view and its panels (Worker 1 / Reviewer 1)
+
+Goal: a user on Catalan or Spanish reads the agent log view (its chrome,
+its cards, its empty states and toasts, the slash-command menu chrome, the
+API-call card labels), the terminal and editor panels' chrome, the context
+battery and the subscription pill in their language. Log CONTENT (what
+agents and users wrote, tool output) stays as written.
+
+Mechanics:
+
+- Files: `ui/log-view/LogView.tsx`, `ui/log-view/LogEntryCard.tsx`,
+  `ui/log-view/isomux-curl.ts` (ROUTE_LABELS is prose keyed by operation:
+  the label text moves to the catalog keyed by opId, the route table keeps
+  its ids and field lists), `ui/log-view/TerminalPanel.tsx`,
+  `ui/log-view/PanelResizer.tsx`, the editor panel, `ContextBattery.tsx`,
+  `SubscriptionPill.tsx`, and every helper module beside them under
+  `ui/log-view/` and `ui/` that holds prose the log view renders
+  (`ui/pending-prompt.ts`, `ui/cwd-display.ts`, `ui/voice-input-error.ts`
+  are candidates; grep and name each in the plan gate; S4 found three
+  such modules beside the dialogs).
+- Keys: `logView.*`, `cards.*` (by card kind), `apiCall.<opId>.*`,
+  `panels.terminal.*`, `panels.editor.*`, `contextBattery.*`,
+  `subscription.*`; `common.*` second-use rule.
+- Server-delivered text stays as delivered and is listed for S7: slash
+  command names and descriptions from `server/commands.ts`, choice
+  interactions, permission prompt text from the backends, system
+  notices the server writes into the log. The chrome around them (menu
+  headings, buttons, hints) is S5.
+- Dates and relative times in the log view go through
+  `shared/i18n/time.ts` (ruling 12, 17); numbers keep their formatting
+  (S6).
+- Tests: existing `ui/log-view/*.test.*` and the App DOM files that open
+  a chat (`App.over-chat`, `App.restored-chat`) stay green on a
+  null-language user; one new DOM file `ui/logview.i18n.dom.test.tsx`
+  mounts the log view on `ca` through `onLanguage` with a small seeded
+  log (one user message, one tool call, one API-call card, one empty
+  state), asserts one literal anchor per surface, rerenders to `es`, under
+  5 s in-file. `TerminalPanel.replay.dom.test.tsx` carries a real xterm;
+  keep it green and do not widen it.
+- Acceptance grep on the touched files as in S2.
+
+Acceptance: the listed files read the catalog; catalog test green; the new
+DOM file and the existing log-view tests green; eslint, `build:ui`,
+`build:demo` if `ui/demo-server.ts` is touched, `tsc` once; bundle delta
+reported. The report names the strings the reviewer debated and the
+choice made, and lists the server-delivered text left for S7.
+
+Decide with reviewer: the card key layout, the new DOM file's seed and
+anchors, how the pure helpers receive the translator (ruling 18).
+Locked: rulings 1, 6, 7, 10, 11, 14-19; no office scene, no server change,
+no Intl beyond time.ts reuse.
