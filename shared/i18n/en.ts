@@ -35,6 +35,18 @@ export const en = {
   "common.theme": "Theme",
   "common.preferences": "Preferences",
   "common.checking": "Checking…",
+  "common.copied": "Copied",
+  "common.copy": "Copy",
+  "common.device": "Device",
+  "common.discard": "Discard",
+  "common.name": "Name",
+  "common.noRooms": "No rooms yet.",
+  "common.prefix": "Prefix",
+  "common.revoke": "Revoke",
+  "common.role": "Role",
+  "common.rooms": "Rooms",
+  "common.signOut": "Sign out",
+  "common.user": "User",
 
   "nav.tasks": "Tasks",
   "nav.schedules": "Schedules",
@@ -56,7 +68,6 @@ export const en = {
   "settings.selectHint": "Select a setting from the list",
   "settings.profilesNote":
     "User profiles are stored on the server. Your notifications and credentials follow you across devices.",
-  "settings.signOut": "Sign out",
   "settings.signOutHint": "End this device's session",
   "settings.you": "(you)",
   "settings.sidebar.office": "Office",
@@ -72,9 +83,7 @@ export const en = {
   "settings.sidebar.connectionsPersonal": "Individual connections",
   "settings.sidebar.apiTokens": "API tokens",
   "settings.sidebar.signInLinks": "Sign-in links",
-  "settings.sidebar.device": "Device",
   "settings.sidebar.deviceLabel": "Device label",
-  "settings.sidebar.rooms": "Rooms",
   "settings.sidebar.members": "Members",
   "settings.members.editHint":
     "Only the user themselves and owners can edit a user",
@@ -93,7 +102,6 @@ export const en = {
   // The user editor (the Profile row and the roster rows).
   "settings.profile.identity": "Identity",
   "settings.profile.displayName": "Display Name",
-  "settings.profile.rooms": "Rooms",
   "settings.profile.accessHint":
     "Access: rooms this user can see and act in (owner-managed).",
   "settings.profile.viewHint":
@@ -102,7 +110,6 @@ export const en = {
   "settings.profile.accessColumn": "Access",
   "settings.profile.displayedColumn": "Displayed",
   "settings.profile.notificationsColumn": "Notifications",
-  "settings.profile.noRooms": "No rooms yet.",
   "settings.profile.accessTo": "Access to {room}",
   "settings.profile.display": "Display {room}",
   "settings.profile.notificationsFor": "Notifications for {room}",
@@ -124,7 +131,6 @@ export const en = {
   "settings.profile.avatarHint":
     "(your ghost in the office scene; other users see it next to the agent you're viewing)",
   "settings.profile.discardPrompt": "Discard unsaved changes?",
-  "settings.profile.discard": "Discard",
   "settings.profile.delete": "Delete",
   "settings.profile.deleteHint": "Delete this user",
   "settings.profile.confirmDelete": "Confirm?",
@@ -162,7 +168,6 @@ export const en = {
 
   "settings.room.title": "{room} · Settings",
   "settings.room.intro": "Double-click a room tab to come straight here.",
-  "settings.room.name": "Name",
   "settings.room.namePlaceholder": "Room name",
   "settings.room.prompt": "Room Prompt",
   "settings.room.promptHint": "(optional, appended after office prompt)",
@@ -342,6 +347,189 @@ export const en = {
   "settings.storage.deletedResult": "Deleted {count} files, freeing {size}.",
   "settings.storage.refused":
     "{count} could not be removed and were left alone.",
+
+  // Shared building blocks of the access panes (access-shared.tsx): the list
+  // sections, the minted-invite box, the blocked-revoke banner. The time values
+  // beside them come from shared/i18n/time.ts, not from here.
+  "settings.access.none": "None.",
+  "settings.access.expired": "expired",
+  "settings.access.localTime": "{time} local",
+  "settings.access.inviteUrl": "Invite URL",
+  "settings.access.copyUrl": "Copy URL",
+  "settings.access.urlCopied": "Copied!",
+  "settings.access.clipboardBlocked":
+    "Clipboard blocked. The URL above is selected - copy it manually.",
+  "settings.access.sendUrl":
+    "Send this URL to the invitee. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
+  "settings.access.dismiss": "Dismiss",
+
+  "settings.invites.intro":
+    "Add a new member or owner: issue an invite URL and send it to them out-of-band. Opening it creates their account and signs that device in. For extra devices on an existing account, each user generates their own device link from <i>My devices</i>.",
+  "settings.invites.issueFor": "Issue invite for…",
+  "settings.invites.namePlaceholder": "New username (e.g. Marc)",
+  "settings.invites.existing":
+    "<b>{name}</b> already exists, so no invite is needed: to sign in another device, {name} can generate a device link from <i>My devices</i> in their own settings - or you can mint them a recovery link below.",
+  "settings.invites.grantRoom": "Grant access to {room}",
+  "settings.invites.roomsHint":
+    "The invitee lands with access to the checked rooms. Leave all unchecked to grant access later from their user settings.",
+  "settings.invites.expiryHint":
+    "Invite link expires 24h after issuing if unused. Accepted sessions last up to 1 year (revocable from the Sessions section any time).",
+  "settings.invites.minting": "Minting…",
+  "settings.invites.issue": "Issue invite",
+  "settings.invites.mintFailed": "Failed to mint invite",
+  "settings.invites.recovery": "Recovery",
+  "settings.invites.recoveryHint":
+    "Help an existing user get back in. Device links are self-service, but someone signed out of every device can't mint their own - pick them here and send the link out-of-band. It expires in 24h; minting a new one replaces their previous link.",
+  "settings.invites.selectUser": "Select a user…",
+  "settings.invites.mintRecovery": "Mint recovery link",
+  "settings.invites.recoveryFailed": "Failed to mint recovery link",
+  "settings.invites.outstanding": "Outstanding invites",
+  "settings.invites.columnFor": "For",
+  "settings.invites.columnExpires": "Expires",
+  "settings.invites.bootstrap": "(bootstrap)",
+
+  "settings.sessions.intro":
+    "Devices signed into this office, across all users. Revoking a session signs that device out. New people get an invite from the Invites section; existing users add devices themselves from <i>My devices</i>.",
+  "settings.sessions.columnLastSeen": "Last seen",
+  "settings.sessions.columnCreated": "Created",
+  "settings.sessions.currentSession": "Current session",
+  "settings.sessions.currentSessionHint":
+    "Use Sign out at the bottom of the sidebar to end your current session.",
+  "settings.sessions.expiryInactivity": "Expires after inactivity",
+  "settings.sessions.expiryLatest": "Expires at the latest",
+
+  "settings.externalAccess.intro":
+    "Control whether this office is reachable from outside the host machine. Invite links and signed-in devices live in the Invites and Sessions sections.",
+  "settings.externalAccess.title": "External access",
+  "settings.externalAccess.loopback":
+    "Currently loopback-only. The office is reachable from this machine, or from other machines via an SSH tunnel.",
+  "settings.externalAccess.external":
+    "Currently listening externally. The office is reachable from anywhere the public URL resolves.",
+  "settings.externalAccess.enable": "Enable external access",
+  "settings.externalAccess.publicUrl": "Public URL",
+  "settings.externalAccess.urlHint":
+    "Pattern: {pattern} (the address you'll open from your laptop / phone). Saving doesn't change the running server's bind on its own - restart isomux to apply.",
+  "settings.externalAccess.envInvalid":
+    "Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment but not a valid public origin, so the server ignores it. Remove it from your env file or set it to <code>{pattern}</code> or <code>{localhost}</code>.",
+  "settings.externalAccess.envMatches":
+    "Note: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> is set in the environment and matches this Public URL. The env var is deprecated - remove it from your env file once this office-config value is saved.",
+  "settings.externalAccess.envConflict":
+    "Note: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> is set in the environment. After restart it would override any different value saved here, so the save will be refused until you either match this URL to the env value or remove the env var from your service environment.",
+  "settings.externalAccess.discardPrompt":
+    "Discard unsaved external-access changes?",
+  "settings.externalAccess.updateFailed": "Failed to update settings",
+  "settings.externalAccess.restartNote":
+    "Saved. Restart isomux for the new bind to take effect. User service: <code>systemctl --user restart isomux</code>. System service: <code>sudo systemctl restart isomux</code>.",
+  "settings.externalAccess.signInAfterRestart":
+    "After the restart, open this URL on whichever device you want to use from the public address. (It expires 1 hour after minting.)",
+
+  "settings.apiTokens.intro":
+    "Drive your office from scripts and automations, and read the replies your agents send back. A token has your own capabilities, except changing who can get into the office. See the <link>Developer API guide</link> for everything a token can do.",
+  "settings.apiTokens.howToUse": "How to use",
+  "settings.apiTokens.namePlaceholder": "Laptop script",
+  "settings.apiTokens.expiresAfter": "Expires after",
+  "settings.apiTokens.unlimited": "Unlimited",
+  "settings.apiTokens.days": "{count} days",
+  "settings.apiTokens.creating": "Creating…",
+  "settings.apiTokens.create": "Create token",
+  "settings.apiTokens.copyNow": "Copy this token now",
+  "settings.apiTokens.shownOnce": "It will not be shown again.",
+  "settings.apiTokens.empty": "No API tokens.",
+  "settings.apiTokens.neverExpires": "never expires",
+  "settings.apiTokens.expiresOn": "expires {date}",
+  "settings.apiTokens.lastRequest": "Last authenticated request: {when}",
+  "settings.apiTokens.about": "about {date}",
+  "settings.apiTokens.never": "never",
+  "settings.apiTokens.loadFailed": "Failed to load API tokens",
+  "settings.apiTokens.createFailed": "Failed to create API token",
+  "settings.apiTokens.revokeFailed": "Failed to revoke API token",
+
+  "settings.connections.officeIntro":
+    "The accounts and variables that every agent in this office uses. The provider stores the credentials, not us.",
+  "settings.connections.personalIntro":
+    "The accounts and variables that the agents you spawn use. They override the office ones. The provider stores the credentials, not us.",
+  "settings.connections.refresh": "Refresh",
+  "settings.connections.refreshing": "Refreshing…",
+  "settings.connections.checkFailed": "Could not check provider accounts.",
+  "settings.connections.envTitle": "Environment variables",
+  "settings.connections.officeVars": "Variables for every agent in this office",
+  "settings.connections.officeVarsHint":
+    "These variables load for every agent unless a user variable overrides them.",
+  "settings.connections.ownerManaged":
+    "Office-wide variables are managed by an office owner.",
+  "settings.connections.personalVars": "Variables for agents I spawn",
+  "settings.connections.personalVarsHint":
+    "These variables load for agents you spawn and override office-wide variables.",
+  "settings.connections.providerKeyNote":
+    "Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or <code>OPENCODE_API_KEY</code> to use provider API keys. Other per-user variables work the same way, for example, each member can set <code>GH_TOKEN</code> so their agents use their own GitHub credentials. Then <code>/clear</code> agents to apply changes.",
+  "settings.connections.crossLinkFromOffice":
+    "Your own sign-ins and variables, which override these, are under <link>You → Individual connections</link>.",
+  "settings.connections.crossLinkFromPersonal":
+    "The office-wide sign-ins and variables these override are under <link>Office → Office-wide connections</link>.",
+
+  "settings.signIn.apiKeyNote":
+    "Do you want to use an API token? See Settings → You → Individual connections.",
+  "settings.signIn.scopeOffice":
+    "Office-wide: sign in for every agent in this office",
+  "settings.signIn.scopePersonal": "Individual: sign in for agents I spawn",
+  "settings.signIn.officeHint":
+    "This subscription is used for every agent in the office except for agents spawned by an office member who has set up <link>Individual connections</link>.",
+  "settings.signIn.personalHint": "Use a separate account for your agents.",
+  "settings.signIn.status": "Status:",
+  "settings.signIn.checking": "Checking connection…",
+  "settings.signIn.waiting": "Waiting for provider…",
+  "settings.signIn.connectedAs": "Connected as {account}",
+  "settings.signIn.connected": "Connected",
+  "settings.signIn.unavailable": "Connection unavailable",
+  "settings.signIn.notConnected": "Not connected",
+  "settings.signIn.startFailed": "Could not start {provider} sign-in.",
+  "settings.signIn.submitFailed": "Could not submit the Claude code.",
+  "settings.signIn.cancelFailed": "Could not cancel sign-in.",
+  "settings.signIn.signOutFailed": "Could not sign out {provider}.",
+  "settings.signIn.externalWarning":
+    "This signs out {provider} in this machine, even outside the office.",
+  "settings.signIn.directoryWarning":
+    "This removes the sign-in from the account directory you chose.",
+  "settings.signIn.pasteCode": "Paste the code from Claude:",
+  "settings.signIn.submitCode": "Submit code",
+  "settings.signIn.cancelSignIn": "Cancel sign-in",
+  "settings.signIn.signingIn": "Signing in…",
+  "settings.signIn.signIn": "Sign in",
+  "settings.signIn.codexHint":
+    "Signing in gives you a one-time code to enter on OpenAI's page. The page opens in a new tab; you can also open it on any other device.",
+  "settings.signIn.claudeHint":
+    "Claude opens in your browser. After you sign in, paste the code here.",
+  "settings.signIn.linkNotOpen": "Link didn't open?",
+  "settings.signIn.linkCopied": "Link copied",
+  "settings.signIn.copyLink": "Copy sign-in link",
+  "settings.signIn.enterCode": "Enter this one-time code on the OpenAI page:",
+  "settings.signIn.signOutDialog": "Sign out {provider}",
+  "settings.signIn.signingOut": "Signing out…",
+  "settings.signIn.confirmSignOut": "Confirm sign out",
+  "settings.signIn.connectedStart":
+    "Connected. Start a new conversation to use this account.",
+  "settings.signIn.startConversation": "Start a new conversation",
+
+  "settings.env.loadFailed": "Could not load variables",
+  "settings.env.saveFailed": "Could not save variables",
+  "settings.env.loadingVariables": "Loading variables…",
+  "settings.env.variableName": "Variable name",
+  "settings.env.valueLabel": "{name} value",
+  "settings.env.variable": "Variable",
+  "settings.env.valuePlaceholder": "Value",
+  "settings.env.remove": "Remove",
+  "settings.env.add": "Add variable",
+  "settings.env.hideValues": "Hide values",
+  "settings.env.showValues": "Show values",
+  "settings.env.save": "Save variables",
+  "settings.env.saved": "Variables saved",
+  "settings.env.duplicate": "Variable names must be unique.",
+
+  "settings.memberConnections.title": "Individual Connections",
+  "settings.memberConnections.hint":
+    "Variables this user set for their own agents. Names only - values stay private.",
+  "settings.memberConnections.loadFailed": "Could not load variables.",
+  "settings.memberConnections.empty": "No variables.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

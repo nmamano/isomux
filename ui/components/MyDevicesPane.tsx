@@ -37,7 +37,8 @@ export function MyDevicesPane() {
     activeSessionsLoaded,
     sessionContext,
   } = useAppState();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
 
   // Self filters. Sessions key on the stable userId; invites are name-bound
   // (userId isn't stored on invites), so match by the same lowercase key the
@@ -74,12 +75,12 @@ export function MyDevicesPane() {
       <GenerateDeviceLinkForm />
 
       <h5 style={subsectionHeader}>{t("settings.devices.outstandingLinks")}</h5>
-      {renderListSection(myInvites, invitesLoaded, (rows) => (
+      {renderListSection(i18n, myInvites, invitesLoaded, (rows) => (
         <InvitesTable invites={rows} />
       ))}
 
       <h5 style={subsectionHeader}>{t("settings.devices.activeSessions")}</h5>
-      {renderListSection(mySessions, activeSessionsLoaded, (rows) => (
+      {renderListSection(i18n, mySessions, activeSessionsLoaded, (rows) => (
         <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
     </div>

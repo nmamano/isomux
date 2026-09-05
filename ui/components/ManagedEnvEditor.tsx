@@ -8,6 +8,7 @@ import {
   dialogInput,
   dialogSaveBtn,
 } from "./dialog-styles.ts";
+import { useI18n } from "../i18n.tsx";
 
 interface Entry {
   id: number;
@@ -24,6 +25,7 @@ function entriesOf(values: Record<string, string>): Entry[] {
 }
 
 export function ManagedEnvEditor({ path }: { path: string }) {
+  const { t } = useI18n();
   const [mode, setMode] = useState<UserEnvRes | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [saved, setSaved] = useState<Record<string, string>>({});
@@ -45,7 +47,9 @@ export function ManagedEnvEditor({ path }: { path: string }) {
       })
       .catch((err) =>
         setError(
-          err instanceof ApiError ? err.message : "Could not load variables",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.env.loadFailed"),
         ),
       );
 
@@ -75,7 +79,9 @@ export function ManagedEnvEditor({ path }: { path: string }) {
       setSaved(current);
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Could not save variables",
+        err instanceof ApiError
+          ? err.message
+          : t("settings.env.saveFailed"),
       );
     } finally {
       setSaving(false);
@@ -85,7 +91,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
   if (!mode) {
     return (
       <div data-managed-env-path={path} style={dialogHint}>
-        {error ?? "Loading variables…"}
+        {error ?? t("settings.env.loadingVariables")}
       </div>
     );
   }
@@ -103,7 +109,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
           }}
         >
           <input
-            aria-label="Variable name"
+            aria-label={t("settings.env.variableName")}
             value={entry.key}
             placeholder="VARIABLE_NAME"
             style={dialogInput}
@@ -118,11 +124,13 @@ export function ManagedEnvEditor({ path }: { path: string }) {
             }
           />
           <input
-            aria-label={`${entry.key || "Variable"} value`}
+            aria-label={t("settings.env.valueLabel", {
+              name: entry.key || t("settings.env.variable"),
+            })}
             type={showValues ? "text" : "password"}
             autoComplete="off"
             value={entry.value}
-            placeholder="Value"
+            placeholder={t("settings.env.valuePlaceholder")}
             style={dialogInput}
             onChange={(event) =>
               setEntries((all) =>
@@ -141,7 +149,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
               setEntries((all) => all.filter((item) => item.id !== entry.id))
             }
           >
-            Remove
+            {t("settings.env.remove")}
           </button>
         </div>
       ))}
@@ -156,14 +164,16 @@ export function ManagedEnvEditor({ path }: { path: string }) {
             ])
           }
         >
-          Add variable
+          {t("settings.env.add")}
         </button>
         <button
           type="button"
           style={dialogCancelBtn}
           onClick={() => setShowValues((shown) => !shown)}
         >
-          {showValues ? "Hide values" : "Show values"}
+          {showValues
+            ? t("settings.env.hideValues")
+            : t("settings.env.showValues")}
         </button>
         <button
           type="button"
@@ -173,12 +183,16 @@ export function ManagedEnvEditor({ path }: { path: string }) {
           }
           onClick={() => void save()}
         >
-          {saving ? "Saving…" : dirty ? "Save variables" : "Variables saved"}
+          {saving
+            ? t("common.saving")
+            : dirty
+              ? t("settings.env.save")
+              : t("settings.env.saved")}
         </button>
       </div>
       {duplicate && (
         <div style={{ color: "var(--red)", marginTop: 6 }}>
-          Variable names must be unique.
+          {t("settings.env.duplicate")}
         </div>
       )}
       {error && (

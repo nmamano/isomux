@@ -20,6 +20,18 @@ export const ca: Catalog = {
   "common.theme": "Tema",
   "common.preferences": "Preferències",
   "common.checking": "Comprovant…",
+  "common.copied": "Copiat",
+  "common.copy": "Copia",
+  "common.device": "Dispositiu",
+  "common.discard": "Descarta",
+  "common.name": "Nom",
+  "common.noRooms": "Encara no hi ha sales.",
+  "common.prefix": "Prefix",
+  "common.revoke": "Revoca",
+  "common.role": "Rol",
+  "common.rooms": "Sales",
+  "common.signOut": "Tanca la sessió",
+  "common.user": "Usuari",
 
   "nav.tasks": "Tasques",
   "nav.schedules": "Programacions",
@@ -40,7 +52,6 @@ export const ca: Catalog = {
   "settings.selectHint": "Tria una opció de la llista",
   "settings.profilesNote":
     "Els perfils d'usuari es desen al servidor. Les teves notificacions i credencials et segueixen entre dispositius.",
-  "settings.signOut": "Tanca la sessió",
   "settings.signOutHint": "Tanca la sessió d'aquest dispositiu",
   "settings.you": "(tu)",
   "settings.sidebar.office": "Oficina",
@@ -56,9 +67,7 @@ export const ca: Catalog = {
   "settings.sidebar.connectionsPersonal": "Connexions individuals",
   "settings.sidebar.apiTokens": "Tokens d'API",
   "settings.sidebar.signInLinks": "Enllaços d'inici de sessió",
-  "settings.sidebar.device": "Dispositiu",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositiu",
-  "settings.sidebar.rooms": "Sales",
   "settings.sidebar.members": "Membres",
   "settings.members.editHint":
     "Només el mateix usuari i els propietaris poden editar un usuari",
@@ -76,7 +85,6 @@ export const ca: Catalog = {
 
   "settings.profile.identity": "Identitat",
   "settings.profile.displayName": "Nom visible",
-  "settings.profile.rooms": "Sales",
   "settings.profile.accessHint":
     "Accés: sales que aquest usuari pot veure i on pot actuar (ho gestiona el propietari).",
   "settings.profile.viewHint":
@@ -85,7 +93,6 @@ export const ca: Catalog = {
   "settings.profile.accessColumn": "Accés",
   "settings.profile.displayedColumn": "Mostrada",
   "settings.profile.notificationsColumn": "Notificacions",
-  "settings.profile.noRooms": "Encara no hi ha sales.",
   "settings.profile.accessTo": "Accés a {room}",
   "settings.profile.display": "Mostra {room}",
   "settings.profile.notificationsFor": "Notificacions de {room}",
@@ -108,7 +115,6 @@ export const ca: Catalog = {
   "settings.profile.avatarHint":
     "(el teu fantasma a l'escena de l'oficina; els altres usuaris el veuen al costat de l'agent que estàs mirant)",
   "settings.profile.discardPrompt": "Vols descartar els canvis sense desar?",
-  "settings.profile.discard": "Descarta",
   "settings.profile.delete": "Elimina",
   "settings.profile.deleteHint": "Elimina aquest usuari",
   "settings.profile.confirmDelete": "Ho confirmes?",
@@ -149,7 +155,6 @@ export const ca: Catalog = {
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
     "Fes doble clic en una pestanya de sala per venir directament aquí.",
-  "settings.room.name": "Nom",
   "settings.room.namePlaceholder": "Nom de la sala",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":
@@ -343,4 +348,195 @@ export const ca: Catalog = {
     "S'han esborrat {count} fitxers, alliberant {size}.",
   "settings.storage.refused":
     "{count} no s'han pogut eliminar i s'han deixat com estaven.",
+
+  "settings.access.none": "Cap.",
+  "settings.access.expired": "caducada",
+  "settings.access.localTime": "{time} local",
+  "settings.access.inviteUrl": "URL d'invitació",
+  "settings.access.copyUrl": "Copia la URL",
+  "settings.access.urlCopied": "Copiada!",
+  "settings.access.clipboardBlocked":
+    "Porta-retalls bloquejat. La URL de dalt està seleccionada - copia-la a mà.",
+  "settings.access.sendUrl":
+    "Envia aquesta URL a la persona convidada. És d'un sol ús: en obrir-la al seu dispositiu, hi entra. La URL es mostra un cop - copia-la ara.",
+  "settings.access.dismiss": "Tanca",
+
+  "settings.invites.intro":
+    "Afegeix un membre o un propietari: emet una URL d'invitació i envia-l'hi per un altre canal. En obrir-la es crea el seu compte i aquell dispositiu hi entra. Per a més dispositius en un compte que ja existeix, cadascú genera el seu propi enllaç des de <i>Els meus dispositius</i>.",
+  "settings.invites.issueFor": "Emet una invitació per a…",
+  "settings.invites.namePlaceholder": "Nom nou (p. ex. Marc)",
+  "settings.invites.existing":
+    "<b>{name}</b> ja existeix, així que no cal cap invitació: per entrar amb un altre dispositiu, {name} pot generar un enllaç des d'<i>Els meus dispositius</i> a la seva configuració - o li pots emetre un enllaç de recuperació aquí sota.",
+  "settings.invites.grantRoom": "Dona accés a {room}",
+  "settings.invites.roomsHint":
+    "La persona convidada hi entra amb accés a les sales marcades. Deixa-les totes sense marcar per donar-li accés més tard des de la seva configuració.",
+  "settings.invites.expiryHint":
+    "L'enllaç d'invitació caduca 24 h després d'emetre'l si no s'usa. Les sessions acceptades duren fins a 1 any (revocables des de la secció Sessions en qualsevol moment).",
+  "settings.invites.minting": "Emetent…",
+  "settings.invites.issue": "Emet la invitació",
+  "settings.invites.mintFailed": "No s'ha pogut emetre la invitació",
+  "settings.invites.recovery": "Recuperació",
+  "settings.invites.recoveryHint":
+    "Ajuda algú que ja té compte a tornar a entrar. Els enllaços de dispositiu són autoservei, però qui ha sortit de tots els seus dispositius no se'n pot generar cap - tria'l aquí i envia-li l'enllaç per un altre canal. Caduca en 24 h; en emetre'n un de nou se substitueix l'anterior.",
+  "settings.invites.selectUser": "Tria algú…",
+  "settings.invites.mintRecovery": "Emet un enllaç de recuperació",
+  "settings.invites.recoveryFailed":
+    "No s'ha pogut emetre l'enllaç de recuperació",
+  "settings.invites.outstanding": "Invitacions pendents",
+  "settings.invites.columnFor": "Per a",
+  "settings.invites.columnExpires": "Caduca",
+  "settings.invites.bootstrap": "(inicial)",
+
+  "settings.sessions.intro":
+    "Dispositius que han entrat en aquesta oficina, de tothom. Revocar una sessió en treu aquell dispositiu. Qui és nou rep una invitació des de la secció Invitacions; qui ja té compte afegeix dispositius des d'<i>Els meus dispositius</i>.",
+  "settings.sessions.columnLastSeen": "Vist per última vegada",
+  "settings.sessions.columnCreated": "Creada",
+  "settings.sessions.currentSession": "Sessió actual",
+  "settings.sessions.currentSessionHint":
+    "Fes servir Tanca la sessió al final de la barra lateral per acabar la teva sessió actual.",
+  "settings.sessions.expiryInactivity": "Caduca per inactivitat",
+  "settings.sessions.expiryLatest": "Caduca com a molt tard",
+
+  "settings.externalAccess.intro":
+    "Controla si es pot arribar a aquesta oficina des de fora d'aquesta màquina. Els enllaços d'invitació i els dispositius que hi han entrat són a les seccions Invitacions i Sessions.",
+  "settings.externalAccess.title": "Accés extern",
+  "settings.externalAccess.loopback":
+    "Ara mateix només per loopback. S'arriba a l'oficina des d'aquesta màquina, o des d'altres a través d'un túnel SSH.",
+  "settings.externalAccess.external":
+    "Ara mateix accepta connexions externes. S'arriba a l'oficina des de qualsevol lloc on resolgui la URL pública.",
+  "settings.externalAccess.enable": "Activa l'accés extern",
+  "settings.externalAccess.publicUrl": "URL pública",
+  "settings.externalAccess.urlHint":
+    "Patró: {pattern} (l'adreça que obriràs des del portàtil o el mòbil). Desar no canvia per si sol la interfície on escolta el servidor - reinicia isomux per aplicar-ho.",
+  "settings.externalAccess.envInvalid":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN</code> està definida a l'entorn però no és un origen públic vàlid, així que el servidor la ignora. Treu-la del teu fitxer d'entorn o posa-li <code>{pattern}</code> o <code>{localhost}</code>.",
+  "settings.externalAccess.envMatches":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> està definida a l'entorn i coincideix amb aquesta URL pública. La variable d'entorn està obsoleta - treu-la del teu fitxer d'entorn quan hagis desat aquest valor a la configuració de l'oficina.",
+  "settings.externalAccess.envConflict":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> està definida a l'entorn. En reiniciar tindria prioritat sobre qualsevol valor diferent desat aquí, així que es rebutjarà el desament fins que igualis aquesta URL al valor de l'entorn o treguis la variable de l'entorn del servei.",
+  "settings.externalAccess.discardPrompt":
+    "Vols descartar els canvis d'accés extern sense desar?",
+  "settings.externalAccess.updateFailed":
+    "No s'ha pogut actualitzar la configuració",
+  "settings.externalAccess.restartNote":
+    "Desat. Reinicia isomux perquè la nova interfície d'escolta tingui efecte. Servei d'usuari: <code>systemctl --user restart isomux</code>. Servei del sistema: <code>sudo systemctl restart isomux</code>.",
+  "settings.externalAccess.signInAfterRestart":
+    "Després del reinici, obre aquesta URL al dispositiu que vulguis fer servir des de l'adreça pública. (Caduca 1 hora després d'emetre-la.)",
+
+  "settings.apiTokens.intro":
+    "Fes anar la teva oficina des de scripts i automatitzacions, i llegeix el que responen els teus agents. Un token té les teves mateixes capacitats, tret de canviar qui pot entrar a l'oficina. Mira la <link>guia de l'API per a desenvolupament</link> per a tot el que pot fer un token.",
+  "settings.apiTokens.howToUse": "Com es fa servir",
+  "settings.apiTokens.namePlaceholder": "Script del portàtil",
+  "settings.apiTokens.expiresAfter": "Caduca al cap de",
+  "settings.apiTokens.unlimited": "Sense límit",
+  "settings.apiTokens.days": "{count} dies",
+  "settings.apiTokens.creating": "Creant…",
+  "settings.apiTokens.create": "Crea el token",
+  "settings.apiTokens.copyNow": "Copia aquest token ara",
+  "settings.apiTokens.shownOnce": "No es tornarà a mostrar.",
+  "settings.apiTokens.empty": "No hi ha tokens d'API.",
+  "settings.apiTokens.neverExpires": "no caduca mai",
+  "settings.apiTokens.expiresOn": "caduca el {date}",
+  "settings.apiTokens.lastRequest": "Última petició autenticada: {when}",
+  "settings.apiTokens.about": "cap al {date}",
+  "settings.apiTokens.never": "mai",
+  "settings.apiTokens.loadFailed": "No s'han pogut carregar els tokens d'API",
+  "settings.apiTokens.createFailed": "No s'ha pogut crear el token d'API",
+  "settings.apiTokens.revokeFailed": "No s'ha pogut revocar el token d'API",
+
+  "settings.connections.officeIntro":
+    "Els comptes i les variables que fa servir cada agent d'aquesta oficina. Les credencials les guarda el proveïdor, no pas nosaltres.",
+  "settings.connections.personalIntro":
+    "Els comptes i les variables que fan servir els agents que crees tu. Tenen prioritat sobre els de l'oficina. Les credencials les guarda el proveïdor, no pas nosaltres.",
+  "settings.connections.refresh": "Actualitza",
+  "settings.connections.refreshing": "Actualitzant…",
+  "settings.connections.checkFailed":
+    "No s'han pogut comprovar els comptes de proveïdor.",
+  "settings.connections.envTitle": "Variables d'entorn",
+  "settings.connections.officeVars":
+    "Variables per a cada agent d'aquesta oficina",
+  "settings.connections.officeVarsHint":
+    "Aquestes variables es carreguen per a cada agent tret que una variable d'usuari tingui prioritat.",
+  "settings.connections.ownerManaged":
+    "Les variables de tota l'oficina les gestiona una persona propietària.",
+  "settings.connections.personalVars": "Variables per als agents que creo",
+  "settings.connections.personalVarsHint":
+    "Aquestes variables es carreguen per als agents que crees i tenen prioritat sobre les de tota l'oficina.",
+  "settings.connections.providerKeyNote":
+    "Afegeix <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> o <code>OPENCODE_API_KEY</code> per fer servir claus d'API del proveïdor. La resta de variables per usuari funcionen igual; per exemple, cada membre pot posar <code>GH_TOKEN</code> perquè els seus agents facin servir les seves pròpies credencials de GitHub. Després fes <code>/clear</code> als agents per aplicar els canvis.",
+  "settings.connections.crossLinkFromOffice":
+    "Les teves pròpies sessions i variables, que tenen prioritat sobre aquestes, són a <link>Tu → Connexions individuals</link>.",
+  "settings.connections.crossLinkFromPersonal":
+    "Les sessions i variables de tota l'oficina sobre les quals aquestes tenen prioritat són a <link>Oficina → Connexions de tota l'oficina</link>.",
+
+  "settings.signIn.apiKeyNote":
+    "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",
+  "settings.signIn.scopeOffice":
+    "Tota l'oficina: inicia la sessió per a cada agent d'aquesta oficina",
+  "settings.signIn.scopePersonal":
+    "Individual: inicia la sessió per als agents que creo",
+  "settings.signIn.officeHint":
+    "Aquesta subscripció es fa servir per a cada agent de l'oficina tret dels que crea un membre que hagi configurat les seves <link>Connexions individuals</link>.",
+  "settings.signIn.personalHint":
+    "Fes servir un compte a part per als teus agents.",
+  "settings.signIn.status": "Estat:",
+  "settings.signIn.checking": "Comprovant la connexió…",
+  "settings.signIn.waiting": "Esperant el proveïdor…",
+  "settings.signIn.connectedAs": "Connectat com a {account}",
+  "settings.signIn.connected": "Connectat",
+  "settings.signIn.unavailable": "Connexió no disponible",
+  "settings.signIn.notConnected": "Sense connectar",
+  "settings.signIn.startFailed":
+    "No s'ha pogut iniciar la sessió a {provider}.",
+  "settings.signIn.submitFailed": "No s'ha pogut enviar el codi de Claude.",
+  "settings.signIn.cancelFailed":
+    "No s'ha pogut cancel·lar l'inici de sessió.",
+  "settings.signIn.signOutFailed": "No s'ha pogut tancar la sessió de {provider}.",
+  "settings.signIn.externalWarning":
+    "Això tanca la sessió de {provider} en aquesta màquina, fins i tot fora de l'oficina.",
+  "settings.signIn.directoryWarning":
+    "Això treu la sessió del directori de comptes que vas triar.",
+  "settings.signIn.pasteCode": "Enganxa el codi de Claude:",
+  "settings.signIn.submitCode": "Envia el codi",
+  "settings.signIn.cancelSignIn": "Cancel·la l'inici de sessió",
+  "settings.signIn.signingIn": "Iniciant la sessió…",
+  "settings.signIn.signIn": "Inicia la sessió",
+  "settings.signIn.codexHint":
+    "En iniciar la sessió et donem un codi d'un sol ús per escriure'l a la pàgina d'OpenAI. La pàgina s'obre en una pestanya nova; també la pots obrir en qualsevol altre dispositiu.",
+  "settings.signIn.claudeHint":
+    "Claude s'obre al teu navegador. Quan hi hagis iniciat la sessió, enganxa el codi aquí.",
+  "settings.signIn.linkNotOpen": "No s'ha obert l'enllaç?",
+  "settings.signIn.linkCopied": "Enllaç copiat",
+  "settings.signIn.copyLink": "Copia l'enllaç d'inici de sessió",
+  "settings.signIn.enterCode":
+    "Escriu aquest codi d'un sol ús a la pàgina d'OpenAI:",
+  "settings.signIn.signOutDialog": "Tanca la sessió de {provider}",
+  "settings.signIn.signingOut": "Tancant la sessió…",
+  "settings.signIn.confirmSignOut": "Confirma el tancament de sessió",
+  "settings.signIn.connectedStart":
+    "Connectat. Comença una conversa nova per fer servir aquest compte.",
+  "settings.signIn.startConversation": "Comença una conversa nova",
+
+  "settings.env.loadFailed": "No s'han pogut carregar les variables",
+  "settings.env.saveFailed": "No s'han pogut desar les variables",
+  "settings.env.loadingVariables": "Carregant les variables…",
+  "settings.env.variableName": "Nom de la variable",
+  "settings.env.valueLabel": "Valor de {name}",
+  "settings.env.variable": "Variable",
+  "settings.env.valuePlaceholder": "Valor",
+  "settings.env.remove": "Treu",
+  "settings.env.add": "Afegeix una variable",
+  "settings.env.hideValues": "Amaga els valors",
+  "settings.env.showValues": "Mostra els valors",
+  "settings.env.save": "Desa les variables",
+  "settings.env.saved": "Variables desades",
+  "settings.env.duplicate":
+    "Els noms de les variables no es poden repetir.",
+
+  "settings.memberConnections.title": "Connexions individuals",
+  "settings.memberConnections.hint":
+    "Variables que aquesta persona ha posat per als seus propis agents. Només els noms - els valors queden privats.",
+  "settings.memberConnections.loadFailed":
+    "No s'han pogut carregar les variables.",
+  "settings.memberConnections.empty": "No hi ha variables.",
 };

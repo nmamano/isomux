@@ -21,6 +21,18 @@ export const es: Catalog = {
   "common.theme": "Tema",
   "common.preferences": "Preferencias",
   "common.checking": "Comprobando…",
+  "common.copied": "Copiado",
+  "common.copy": "Copiar",
+  "common.device": "Dispositivo",
+  "common.discard": "Descartar",
+  "common.name": "Nombre",
+  "common.noRooms": "Aún no hay salas.",
+  "common.prefix": "Prefijo",
+  "common.revoke": "Revocar",
+  "common.role": "Rol",
+  "common.rooms": "Salas",
+  "common.signOut": "Cerrar sesión",
+  "common.user": "Usuario",
 
   "nav.tasks": "Tareas",
   "nav.schedules": "Programaciones",
@@ -41,7 +53,6 @@ export const es: Catalog = {
   "settings.selectHint": "Elige un ajuste de la lista",
   "settings.profilesNote":
     "Los perfiles de usuario se guardan en el servidor. Tus notificaciones y credenciales te siguen entre dispositivos.",
-  "settings.signOut": "Cerrar sesión",
   "settings.signOutHint": "Cierra la sesión de este dispositivo",
   "settings.you": "(tú)",
   "settings.sidebar.office": "Oficina",
@@ -57,9 +68,7 @@ export const es: Catalog = {
   "settings.sidebar.connectionsPersonal": "Conexiones individuales",
   "settings.sidebar.apiTokens": "Tokens de API",
   "settings.sidebar.signInLinks": "Enlaces de inicio de sesión",
-  "settings.sidebar.device": "Dispositivo",
   "settings.sidebar.deviceLabel": "Etiqueta del dispositivo",
-  "settings.sidebar.rooms": "Salas",
   "settings.sidebar.members": "Miembros",
   "settings.members.editHint":
     "Solo el propio usuario y los propietarios pueden editar un usuario",
@@ -77,7 +86,6 @@ export const es: Catalog = {
 
   "settings.profile.identity": "Identidad",
   "settings.profile.displayName": "Nombre visible",
-  "settings.profile.rooms": "Salas",
   "settings.profile.accessHint":
     "Acceso: salas que este usuario puede ver y en las que puede actuar (lo gestiona el propietario).",
   "settings.profile.viewHint":
@@ -86,7 +94,6 @@ export const es: Catalog = {
   "settings.profile.accessColumn": "Acceso",
   "settings.profile.displayedColumn": "Mostrada",
   "settings.profile.notificationsColumn": "Notificaciones",
-  "settings.profile.noRooms": "Aún no hay salas.",
   "settings.profile.accessTo": "Acceso a {room}",
   "settings.profile.display": "Mostrar {room}",
   "settings.profile.notificationsFor": "Notificaciones de {room}",
@@ -109,7 +116,6 @@ export const es: Catalog = {
   "settings.profile.avatarHint":
     "(tu fantasma en la escena de la oficina; los demás usuarios lo ven junto al agente que estás viendo)",
   "settings.profile.discardPrompt": "¿Descartar los cambios sin guardar?",
-  "settings.profile.discard": "Descartar",
   "settings.profile.delete": "Eliminar",
   "settings.profile.deleteHint": "Eliminar este usuario",
   "settings.profile.confirmDelete": "¿Confirmar?",
@@ -150,7 +156,6 @@ export const es: Catalog = {
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
     "Haz doble clic en la pestaña de una sala para venir directamente aquí.",
-  "settings.room.name": "Nombre",
   "settings.room.namePlaceholder": "Nombre de la sala",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":
@@ -347,4 +352,194 @@ export const es: Catalog = {
     "Se borraron {count} archivos, liberando {size}.",
   "settings.storage.refused":
     "{count} no se pudieron eliminar y se dejaron como estaban.",
+
+  "settings.access.none": "Ninguna.",
+  "settings.access.expired": "caducada",
+  "settings.access.localTime": "{time} local",
+  "settings.access.inviteUrl": "URL de invitación",
+  "settings.access.copyUrl": "Copiar la URL",
+  "settings.access.urlCopied": "¡Copiada!",
+  "settings.access.clipboardBlocked":
+    "Portapapeles bloqueado. La URL de arriba está seleccionada - cópiala a mano.",
+  "settings.access.sendUrl":
+    "Envía esta URL a la persona invitada. Es de un solo uso: al abrirla en su dispositivo, entra. La URL se muestra una vez - cópiala ahora.",
+  "settings.access.dismiss": "Cerrar",
+
+  "settings.invites.intro":
+    "Añade un miembro o un propietario: emite una URL de invitación y envíasela por otro canal. Al abrirla se crea su cuenta y ese dispositivo entra. Para más dispositivos en una cuenta que ya existe, cada persona genera su propio enlace desde <i>Mis dispositivos</i>.",
+  "settings.invites.issueFor": "Emitir invitación para…",
+  "settings.invites.namePlaceholder": "Nombre nuevo (p. ej. Marc)",
+  "settings.invites.existing":
+    "<b>{name}</b> ya existe, así que no hace falta ninguna invitación: para entrar con otro dispositivo, {name} puede generar un enlace desde <i>Mis dispositivos</i> en sus propios ajustes - o le puedes emitir un enlace de recuperación aquí abajo.",
+  "settings.invites.grantRoom": "Dar acceso a {room}",
+  "settings.invites.roomsHint":
+    "La persona invitada entra con acceso a las salas marcadas. Déjalas todas sin marcar para dar acceso más tarde desde sus ajustes.",
+  "settings.invites.expiryHint":
+    "El enlace de invitación caduca 24 h después de emitirlo si no se usa. Las sesiones aceptadas duran hasta 1 año (revocables desde la sección Sesiones en cualquier momento).",
+  "settings.invites.minting": "Emitiendo…",
+  "settings.invites.issue": "Emitir invitación",
+  "settings.invites.mintFailed": "No se ha podido emitir la invitación",
+  "settings.invites.recovery": "Recuperación",
+  "settings.invites.recoveryHint":
+    "Ayuda a alguien que ya tiene cuenta a volver a entrar. Los enlaces de dispositivo son autoservicio, pero quien ha salido de todos sus dispositivos no puede generarse uno - elige a esa persona aquí y envíale el enlace por otro canal. Caduca en 24 h; al emitir uno nuevo se sustituye el anterior.",
+  "settings.invites.selectUser": "Elige a alguien…",
+  "settings.invites.mintRecovery": "Emitir enlace de recuperación",
+  "settings.invites.recoveryFailed":
+    "No se ha podido emitir el enlace de recuperación",
+  "settings.invites.outstanding": "Invitaciones pendientes",
+  "settings.invites.columnFor": "Para",
+  "settings.invites.columnExpires": "Caduca",
+  "settings.invites.bootstrap": "(inicial)",
+
+  "settings.sessions.intro":
+    "Dispositivos que han entrado en esta oficina, de todas las personas. Revocar una sesión saca a ese dispositivo. Quien es nuevo recibe una invitación desde la sección Invitaciones; quien ya tiene cuenta añade dispositivos desde <i>Mis dispositivos</i>.",
+  "settings.sessions.columnLastSeen": "Visto por última vez",
+  "settings.sessions.columnCreated": "Creada",
+  "settings.sessions.currentSession": "Sesión actual",
+  "settings.sessions.currentSessionHint":
+    "Usa Cerrar sesión al final de la barra lateral para terminar tu sesión actual.",
+  "settings.sessions.expiryInactivity": "Caduca por inactividad",
+  "settings.sessions.expiryLatest": "Caduca como muy tarde",
+
+  "settings.externalAccess.intro":
+    "Controla si se puede llegar a esta oficina desde fuera de esta máquina. Los enlaces de invitación y los dispositivos que han entrado están en las secciones Invitaciones y Sesiones.",
+  "settings.externalAccess.title": "Acceso externo",
+  "settings.externalAccess.loopback":
+    "Ahora mismo solo por loopback. Se llega a la oficina desde esta máquina, o desde otras a través de un túnel SSH.",
+  "settings.externalAccess.external":
+    "Ahora mismo acepta conexiones externas. Se llega a la oficina desde cualquier sitio donde resuelva la URL pública.",
+  "settings.externalAccess.enable": "Activar el acceso externo",
+  "settings.externalAccess.publicUrl": "URL pública",
+  "settings.externalAccess.urlHint":
+    "Patrón: {pattern} (la dirección que abrirás desde el portátil o el móvil). Guardar no cambia por sí solo la interfaz donde escucha el servidor - reinicia isomux para aplicarlo.",
+  "settings.externalAccess.envInvalid":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN</code> está definida en el entorno pero no es un origen público válido, así que el servidor la ignora. Quítala de tu archivo de entorno o ponle <code>{pattern}</code> o <code>{localhost}</code>.",
+  "settings.externalAccess.envMatches":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> está definida en el entorno y coincide con esta URL pública. La variable de entorno está obsoleta - quítala de tu archivo de entorno cuando hayas guardado este valor en la configuración de la oficina.",
+  "settings.externalAccess.envConflict":
+    "Nota: <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> está definida en el entorno. Al reiniciar tendría prioridad sobre cualquier valor distinto guardado aquí, así que se rechazará el guardado hasta que iguales esta URL al valor del entorno o quites la variable del entorno del servicio.",
+  "settings.externalAccess.discardPrompt":
+    "¿Descartar los cambios de acceso externo sin guardar?",
+  "settings.externalAccess.updateFailed":
+    "No se han podido actualizar los ajustes",
+  "settings.externalAccess.restartNote":
+    "Guardado. Reinicia isomux para que la nueva interfaz de escucha tenga efecto. Servicio de usuario: <code>systemctl --user restart isomux</code>. Servicio del sistema: <code>sudo systemctl restart isomux</code>.",
+  "settings.externalAccess.signInAfterRestart":
+    "Después del reinicio, abre esta URL en el dispositivo que quieras usar desde la dirección pública. (Caduca 1 hora después de emitirla.)",
+
+  "settings.apiTokens.intro":
+    "Maneja tu oficina desde scripts y automatizaciones, y lee lo que responden tus agentes. Un token tiene tus mismas capacidades, salvo cambiar quién puede entrar en la oficina. Mira la <link>guía de la API para desarrollo</link> para todo lo que puede hacer un token.",
+  "settings.apiTokens.howToUse": "Cómo se usa",
+  "settings.apiTokens.namePlaceholder": "Script del portátil",
+  "settings.apiTokens.expiresAfter": "Caduca al cabo de",
+  "settings.apiTokens.unlimited": "Sin límite",
+  "settings.apiTokens.days": "{count} días",
+  "settings.apiTokens.creating": "Creando…",
+  "settings.apiTokens.create": "Crear el token",
+  "settings.apiTokens.copyNow": "Copia este token ahora",
+  "settings.apiTokens.shownOnce": "No se volverá a mostrar.",
+  "settings.apiTokens.empty": "No hay tokens de API.",
+  "settings.apiTokens.neverExpires": "no caduca nunca",
+  "settings.apiTokens.expiresOn": "caduca el {date}",
+  "settings.apiTokens.lastRequest": "Última petición autenticada: {when}",
+  "settings.apiTokens.about": "sobre el {date}",
+  "settings.apiTokens.never": "nunca",
+  "settings.apiTokens.loadFailed": "No se han podido cargar los tokens de API",
+  "settings.apiTokens.createFailed": "No se ha podido crear el token de API",
+  "settings.apiTokens.revokeFailed": "No se ha podido revocar el token de API",
+
+  "settings.connections.officeIntro":
+    "Las cuentas y variables que usa cada agente de esta oficina. Las credenciales las guarda el proveedor, no nosotros.",
+  "settings.connections.personalIntro":
+    "Las cuentas y variables que usan los agentes que creas tú. Tienen prioridad sobre las de la oficina. Las credenciales las guarda el proveedor, no nosotros.",
+  "settings.connections.refresh": "Actualizar",
+  "settings.connections.refreshing": "Actualizando…",
+  "settings.connections.checkFailed":
+    "No se han podido comprobar las cuentas de proveedor.",
+  "settings.connections.envTitle": "Variables de entorno",
+  "settings.connections.officeVars":
+    "Variables para cada agente de esta oficina",
+  "settings.connections.officeVarsHint":
+    "Estas variables se cargan para cada agente salvo que una variable de usuario tenga prioridad.",
+  "settings.connections.ownerManaged":
+    "Las variables de toda la oficina las gestiona una persona propietaria.",
+  "settings.connections.personalVars": "Variables para los agentes que creo",
+  "settings.connections.personalVarsHint":
+    "Estas variables se cargan para los agentes que creas y tienen prioridad sobre las de toda la oficina.",
+  "settings.connections.providerKeyNote":
+    "Añade <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code> u <code>OPENCODE_API_KEY</code> para usar claves de API del proveedor. Las demás variables por usuario funcionan igual; por ejemplo, cada miembro puede poner <code>GH_TOKEN</code> para que sus agentes usen sus propias credenciales de GitHub. Después haz <code>/clear</code> a los agentes para aplicar los cambios.",
+  "settings.connections.crossLinkFromOffice":
+    "Tus propias sesiones y variables, que tienen prioridad sobre estas, están en <link>Tú → Conexiones individuales</link>.",
+  "settings.connections.crossLinkFromPersonal":
+    "Las sesiones y variables de toda la oficina sobre las que estas tienen prioridad están en <link>Oficina → Conexiones de toda la oficina</link>.",
+
+  "settings.signIn.apiKeyNote":
+    "¿Quieres usar un token de API? Mira Ajustes → Tú → Conexiones individuales.",
+  "settings.signIn.scopeOffice":
+    "Toda la oficina: inicia sesión para cada agente de esta oficina",
+  "settings.signIn.scopePersonal":
+    "Individual: inicia sesión para los agentes que creo",
+  "settings.signIn.officeHint":
+    "Esta suscripción se usa para cada agente de la oficina salvo los que crea un miembro que haya configurado sus <link>Conexiones individuales</link>.",
+  "settings.signIn.personalHint": "Usa una cuenta aparte para tus agentes.",
+  "settings.signIn.status": "Estado:",
+  "settings.signIn.checking": "Comprobando la conexión…",
+  "settings.signIn.waiting": "Esperando al proveedor…",
+  "settings.signIn.connectedAs": "Conectado como {account}",
+  "settings.signIn.connected": "Conectado",
+  "settings.signIn.unavailable": "Conexión no disponible",
+  "settings.signIn.notConnected": "Sin conectar",
+  "settings.signIn.startFailed":
+    "No se ha podido iniciar sesión en {provider}.",
+  "settings.signIn.submitFailed": "No se ha podido enviar el código de Claude.",
+  "settings.signIn.cancelFailed":
+    "No se ha podido cancelar el inicio de sesión.",
+  "settings.signIn.signOutFailed": "No se ha podido cerrar la sesión de {provider}.",
+  "settings.signIn.externalWarning":
+    "Esto cierra la sesión de {provider} en esta máquina, incluso fuera de la oficina.",
+  "settings.signIn.directoryWarning":
+    "Esto quita la sesión del directorio de cuentas que elegiste.",
+  "settings.signIn.pasteCode": "Pega el código de Claude:",
+  "settings.signIn.submitCode": "Enviar el código",
+  "settings.signIn.cancelSignIn": "Cancelar el inicio de sesión",
+  "settings.signIn.signingIn": "Iniciando sesión…",
+  "settings.signIn.signIn": "Iniciar sesión",
+  "settings.signIn.codexHint":
+    "Al iniciar sesión te damos un código de un solo uso para escribirlo en la página de OpenAI. La página se abre en una pestaña nueva; también la puedes abrir en cualquier otro dispositivo.",
+  "settings.signIn.claudeHint":
+    "Claude se abre en tu navegador. Cuando hayas iniciado sesión, pega el código aquí.",
+  "settings.signIn.linkNotOpen": "¿No se ha abierto el enlace?",
+  "settings.signIn.linkCopied": "Enlace copiado",
+  "settings.signIn.copyLink": "Copiar el enlace de inicio de sesión",
+  "settings.signIn.enterCode":
+    "Escribe este código de un solo uso en la página de OpenAI:",
+  "settings.signIn.signOutDialog": "Cerrar la sesión de {provider}",
+  "settings.signIn.signingOut": "Cerrando la sesión…",
+  "settings.signIn.confirmSignOut": "Confirmar el cierre de sesión",
+  "settings.signIn.connectedStart":
+    "Conectado. Empieza una conversación nueva para usar esta cuenta.",
+  "settings.signIn.startConversation": "Empezar una conversación nueva",
+
+  "settings.env.loadFailed": "No se han podido cargar las variables",
+  "settings.env.saveFailed": "No se han podido guardar las variables",
+  "settings.env.loadingVariables": "Cargando las variables…",
+  "settings.env.variableName": "Nombre de la variable",
+  "settings.env.valueLabel": "Valor de {name}",
+  "settings.env.variable": "Variable",
+  "settings.env.valuePlaceholder": "Valor",
+  "settings.env.remove": "Quitar",
+  "settings.env.add": "Añadir una variable",
+  "settings.env.hideValues": "Ocultar los valores",
+  "settings.env.showValues": "Mostrar los valores",
+  "settings.env.save": "Guardar las variables",
+  "settings.env.saved": "Variables guardadas",
+  "settings.env.duplicate":
+    "Los nombres de las variables no se pueden repetir.",
+
+  "settings.memberConnections.title": "Conexiones individuales",
+  "settings.memberConnections.hint":
+    "Variables que esta persona ha puesto para sus propios agentes. Solo los nombres - los valores quedan privados.",
+  "settings.memberConnections.loadFailed":
+    "No se han podido cargar las variables.",
+  "settings.memberConnections.empty": "No hay variables.",
 };

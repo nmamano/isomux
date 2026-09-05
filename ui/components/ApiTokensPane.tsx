@@ -7,11 +7,15 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { dialogInput, dialogLabel, dialogSaveBtn } from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
+import { useI18n } from "../i18n.tsx";
+
+const DEVELOPER_API_GUIDE = "https://isomux.com/docs/developer-api";
 
 const EXPIRY_OPTIONS = [30, 365, null] as const;
 type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 export function ApiTokensPane() {
+  const { t, rich } = useI18n();
   const [tokens, setTokens] = useState<ApiTokenWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
@@ -26,12 +30,17 @@ export function ApiTokensPane() {
       .then((res) => setTokens(res.apiTokens))
       .catch((err) =>
         setError(
-          err instanceof ApiError ? err.message : "Failed to load API tokens",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.apiTokens.loadFailed"),
         ),
       )
       .finally(() => setLoaded(true));
   }
 
+  // Once, on mount. `load` reads the catalog for its error fallback, but a
+  // language change is no reason to refetch the token list.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(load, []);
 
   function create() {
@@ -51,7 +60,9 @@ export function ApiTokensPane() {
       })
       .catch((err) =>
         setError(
-          err instanceof ApiError ? err.message : "Failed to create API token",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.apiTokens.createFailed"),
         ),
       )
       .finally(() => setPending(false));
@@ -65,29 +76,33 @@ export function ApiTokensPane() {
       )
       .catch((err) =>
         setError(
-          err instanceof ApiError ? err.message : "Failed to revoke API token",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.apiTokens.revokeFailed"),
         ),
       );
   }
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>API tokens</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.apiTokens")}</h4>
       <p style={hint}>
-        Drive your office from scripts and automations, and read the replies
-        your agents send back. A token has your own capabilities, except
-        changing who can get into the office. See the{" "}
-        <a
-          href="https://isomux.com/docs/developer-api"
-          target="_blank"
-          rel="noreferrer"
-          style={{ color: "var(--accent)" }}
-        >
-          Developer API guide
-        </a>{" "}
-        for everything a token can do.
+        {rich("settings.apiTokens.intro", {
+          link: (chunk) => (
+            <a
+              href={DEVELOPER_API_GUIDE}
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: "var(--accent)" }}
+            >
+              {chunk}
+            </a>
+          ),
+        })}
       </p>
-      <label style={{ ...dialogLabel, marginTop: 14 }}>How to use</label>
+      <label style={{ ...dialogLabel, marginTop: 14 }}>
+        {t("settings.apiTokens.howToUse")}
+      </label>
       <pre
         style={{
           margin: "0 0 12px",
@@ -115,11 +130,11 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
 
       <div style={cardStyle}>
         <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
-          Name
+          {t("common.name")}
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder="Laptop script"
+            placeholder={t("settings.apiTokens.namePlaceholder")}
             maxLength={64}
             style={{
               ...dialogInput,
@@ -130,7 +145,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
           />
         </label>
         <label style={{ display: "block", fontSize: 12 }}>
-          Expires after
+          {t("settings.apiTokens.expiresAfter")}
           <select
             value={expiresInDays === null ? "never" : expiresInDays}
             onChange={(event) =>
@@ -152,7 +167,9 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                 key={days === null ? "never" : days}
                 value={days === null ? "never" : days}
               >
-                {days === null ? "Unlimited" : `${days} days`}
+                {days === null
+                  ? t("settings.apiTokens.unlimited")
+                  : t("settings.apiTokens.days", { count: days })}
               </option>
             ))}
           </select>
@@ -166,14 +183,18 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
             opacity: pending ? 0.5 : 1,
           }}
         >
-          {pending ? "Creating…" : "Create token"}
+          {pending
+            ? t("settings.apiTokens.creating")
+            : t("settings.apiTokens.create")}
         </button>
       </div>
 
       {rawToken && (
         <div style={{ ...cardStyle, marginTop: 12 }}>
-          <strong style={{ fontSize: 12 }}>Copy this token now</strong>
-          <p style={hint}>It will not be shown again.</p>
+          <strong style={{ fontSize: 12 }}>
+            {t("settings.apiTokens.copyNow")}
+          </strong>
+          <p style={hint}>{t("settings.apiTokens.shownOnce")}</p>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <code
               style={{
@@ -197,7 +218,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
               }}
               style={{ ...dialogSaveBtn, flexShrink: 0 }}
             >
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("common.copied") : t("common.copy")}
             </button>
           </div>
         </div>
@@ -207,9 +228,9 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
 
       <div style={{ marginTop: 18 }}>
         {!loaded ? (
-          <p style={hint}>Loading…</p>
+          <p style={hint}>{t("common.loading")}</p>
         ) : tokens.length === 0 ? (
-          <p style={hint}>No API tokens.</p>
+          <p style={hint}>{t("settings.apiTokens.empty")}</p>
         ) : (
           tokens.map((token) => (
             <div key={token.id} style={{ ...cardStyle, marginBottom: 8 }}>
@@ -225,21 +246,28 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                   <div style={hint}>
                     {token.tokenPrefix}… ·{" "}
                     {token.expiresAt === null
-                      ? "never expires"
-                      : `expires ${new Date(token.expiresAt).toLocaleDateString()}`}
+                      ? t("settings.apiTokens.neverExpires")
+                      : t("settings.apiTokens.expiresOn", {
+                          date: new Date(
+                            token.expiresAt,
+                          ).toLocaleDateString(),
+                        })}
                   </div>
                   <div style={hint}>
-                    Last authenticated request:{" "}
-                    {token.lastUsedAt
-                      ? `about ${new Date(token.lastUsedAt).toLocaleString()}`
-                      : "never"}
+                    {t("settings.apiTokens.lastRequest", {
+                      when: token.lastUsedAt
+                        ? t("settings.apiTokens.about", {
+                            date: new Date(token.lastUsedAt).toLocaleString(),
+                          })
+                        : t("settings.apiTokens.never"),
+                    })}
                   </div>
                 </div>
                 <button
                   onClick={() => revoke(token.id)}
                   style={{ ...dialogSaveBtn, alignSelf: "start" }}
                 >
-                  Revoke
+                  {t("common.revoke")}
                 </button>
               </div>
             </div>

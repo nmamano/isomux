@@ -227,7 +227,7 @@ export function RoomPane({
             marginBottom: 5,
           }}
         >
-          {t("settings.room.name")}
+          {t("common.name")}
         </label>
         <input
           value={name}

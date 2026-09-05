@@ -3,11 +3,21 @@
 // for members): the invites + sessions tables, the minted-URL box with its
 // clipboard fallbacks, list-section rendering, relative-time formatting, and
 // the common styles. These came from the former all-in-one AccessPane.
+//
+// Everything here reads the catalog (internal-docs/i18n-loop.md): the
+// components take the translator from the context themselves, and the pure
+// helpers - which are called during a render but are not components, so a hook
+// inside them would be a rules-of-hooks violation - take it as their first
+// argument. Times are formatted by shared/i18n/time.ts; the only word around
+// them that is not Intl's comes from the catalog.
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire, SessionWire } from "../../shared/types.ts";
+import type { Translator } from "../../shared/i18n/translate.ts";
+import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
+import { useI18n } from "../i18n.tsx";
 import { dialogLabel, dialogHint } from "./dialog-styles.ts";
 
 // Lazily seed the invites + active-sessions lists via GET. The
@@ -42,13 +52,14 @@ export function useAccessListsSeed(): void {
 // in flight - avoids a flicker to "Loading…" on every reconnect. Empty+not-
 // loaded shows "Loading…" (first load only); empty+loaded shows "None.".
 export function renderListSection<T>(
+  i18n: Translator,
   rows: T[],
   loaded: boolean,
   renderTable: (rows: T[]) => React.ReactNode,
 ): React.ReactNode {
   if (rows.length > 0) return renderTable(rows);
-  if (!loaded) return <p style={hint}>Loading…</p>;
-  return <p style={hint}>None.</p>;
+  if (!loaded) return <p style={hint}>{i18n.t("common.loading")}</p>;
+  return <p style={hint}>{i18n.t("settings.access.none")}</p>;
 }
 
 // Surfaces a freshly-minted invite URL with a working copy button and
@@ -56,6 +67,7 @@ export function renderListSection<T>(
 // when navigator.clipboard rejects (mobile, focus quirks, permissions);
 // final fallback selects the URL so the user can copy manually.
 export function MintedUrlBox({ url }: { url: string }) {
+  const { t } = useI18n();
   const codeRef = useRef<HTMLElement | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<
@@ -125,7 +137,9 @@ export function MintedUrlBox({ url }: { url: string }) {
 
   return (
     <div style={mintedBox}>
-      <div style={{ ...subLabel, marginTop: 0 }}>Invite URL</div>
+      <div style={{ ...subLabel, marginTop: 0 }}>
+        {t("settings.access.inviteUrl")}
+      </div>
       <code ref={codeRef} style={codeStyle}>
         {url}
       </code>
@@ -134,25 +148,26 @@ export function MintedUrlBox({ url }: { url: string }) {
           void handleCopy();
         }}
         style={smallBtn}
-        title="Copy URL"
+        title={t("settings.access.copyUrl")}
       >
-        {copyState === "ok" || copyState === "fallback" ? "Copied!" : "Copy"}
+        {copyState === "ok" || copyState === "fallback"
+          ? t("settings.access.urlCopied")
+          : t("common.copy")}
       </button>
       {copyState === "fail" && (
         <p style={{ ...hint, color: "#ff6b6b", marginTop: 4 }}>
-          Clipboard blocked. The URL above is selected - copy it manually.
+          {t("settings.access.clipboardBlocked")}
         </p>
       )}
-      <p style={hint}>
-        Send this URL to the invitee. It's one-time: opening it on their device
-        signs them in. The URL is shown once - copy it now.
-      </p>
+      <p style={hint}>{t("settings.access.sendUrl")}</p>
     </div>
   );
 }
 
 export function InvitesTable({ invites }: { invites: InviteWire[] }) {
   const { rooms, allRooms } = useAppState();
+  const i18n = useI18n();
+  const { t } = i18n;
   // Resolve granted room ids to names for display. Owners have allRooms;
   // members (My devices pane) fall back to their projected rooms - their
   // self-invites never carry grants, so the fallback rarely matters. A
@@ -164,11 +179,11 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
     <table style={tableStyle}>
       <thead>
         <tr>
-          <th style={th}>For</th>
-          <th style={th}>Role</th>
-          <th style={th}>Rooms</th>
-          <th style={th}>Expires</th>
-          <th style={th}>Prefix</th>
+          <th style={th}>{t("settings.invites.columnFor")}</th>
+          <th style={th}>{t("common.role")}</th>
+          <th style={th}>{t("common.rooms")}</th>
+          <th style={th}>{t("settings.invites.columnExpires")}</th>
+          <th style={th}>{t("common.prefix")}</th>
           <th style={th}></th>
         </tr>
       </thead>
@@ -176,7 +191,9 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
         {invites.map((i) => (
           <tr key={i.tokenPrefix}>
             <td style={td}>
-              {i.username ?? <i>{i.bootstrap ? "(bootstrap)" : " - "}</i>}
+              {i.username ?? (
+                <i>{i.bootstrap ? t("settings.invites.bootstrap") : " - "}</i>
+              )}
             </td>
             <td style={td}>{i.role}</td>
             <td style={td}>
@@ -186,7 +203,7 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
                 <i> - </i>
               )}
             </td>
-            <td style={td}>{formatExpiry(i.expiresAt)}</td>
+            <td style={td}>{formatExpiry(i18n, i.expiresAt)}</td>
             <td style={mono}>{i.tokenPrefix}…</td>
             <td style={td}>
               <button
@@ -198,7 +215,7 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
                 }}
                 style={smallBtn}
               >
-                Revoke
+                {t("common.revoke")}
               </button>
             </td>
           </tr>
@@ -216,17 +233,20 @@ export function SessionsTable({
   onBlocked?: (reason: string) => void;
 }) {
   const { sessionContext } = useAppState();
+  const i18n = useI18n();
+  const { t } = i18n;
   const currentPrefix = sessionContext?.currentSessionPrefix ?? null;
   return (
     <table style={tableStyle}>
       <thead>
         <tr>
-          <th style={th}>User</th>
-          <th style={th}>Device</th>
-          <th style={th}>Last seen</th>
-          <th style={th}>Created</th>
+          <th style={th}>{t("common.user")}</th>
+          <th style={th}>{t("common.device")}</th>
+          <th style={th}>{t("settings.sessions.columnLastSeen")}</th>
+          <th style={th}>{t("settings.sessions.columnCreated")}</th>
+          {/* The HTTP header's own name, not prose (ruling 11). */}
           <th style={th}>User-Agent</th>
-          <th style={th}>Prefix</th>
+          <th style={th}>{t("common.prefix")}</th>
           <th style={th}></th>
         </tr>
       </thead>
@@ -242,10 +262,10 @@ export function SessionsTable({
                     device names itself in Device Settings. */}
                 <td style={sessionPrimaryCell}>{s.device ?? " - "}</td>
                 <td style={sessionPrimaryCell}>
-                  {formatRelative(s.lastSeenAt)}
+                  {timeSince(i18n.language, s.lastSeenAt)}
                 </td>
                 <td style={sessionPrimaryCell}>
-                  {formatRelative(s.createdAt)}
+                  {timeSince(i18n.language, s.createdAt)}
                 </td>
                 <td style={sessionPrimaryEllipsis}>{s.userAgent ?? " - "}</td>
                 <td style={sessionPrimaryMono}>{s.sessionPrefix}…</td>
@@ -262,9 +282,9 @@ export function SessionsTable({
                         color: "var(--text-ghost)",
                         fontStyle: "italic",
                       }}
-                      title="Use Sign out at the bottom of the sidebar to end your current session."
+                      title={t("settings.sessions.currentSessionHint")}
                     >
-                      Current session
+                      {t("settings.sessions.currentSession")}
                     </span>
                   ) : (
                     <button
@@ -280,7 +300,7 @@ export function SessionsTable({
                       }}
                       style={smallBtn}
                     >
-                      Revoke
+                      {t("common.revoke")}
                     </button>
                   )}
                 </td>
@@ -288,7 +308,7 @@ export function SessionsTable({
               <tr>
                 <td colSpan={7} style={sessionExpiryCell}>
                   <div style={sessionExpiryStyle}>
-                    {sessionExpiryLines(s).map((line) => (
+                    {sessionExpiryLines(i18n, s).map((line) => (
                       <span key={line.label}>
                         {line.label}: {line.value}
                       </span>
@@ -314,6 +334,7 @@ export function BlockedNoteBanner({
   note: string;
   onDismiss: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -340,7 +361,7 @@ export function BlockedNoteBanner({
           fontSize: 14,
           padding: 0,
         }}
-        title="Dismiss"
+        title={t("settings.access.dismiss")}
       >
         ×
       </button>
@@ -365,51 +386,36 @@ export function useAutoClearBlockedNote(
   }, [activeSessions.length, setBlockedNote]);
 }
 
-// Coarse relative timestamp ("just now", "5m ago", "3h ago", "4d ago").
-// Also used by the Users-page sidebar for the per-user last-seen line.
-export function formatRelative(ts: number): string {
-  const diffMs = Date.now() - ts;
-  const m = Math.round(diffMs / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
-  const d = Math.round(h / 24);
-  return `${d}d ago`;
+// A deadline as the Expires column shows it. Intl has no form for a deadline
+// already past, so timeUntil reports that case and the word comes from the
+// catalog like every other word.
+function formatExpiry(i18n: Translator, ts: number): string {
+  const left = timeUntil(i18n.language, ts);
+  return left.kind === "expired"
+    ? i18n.t("settings.access.expired")
+    : left.text;
 }
 
-function formatExpiry(ts: number): string {
-  const now = Date.now();
-  const diffMs = ts - now;
-  if (diffMs <= 0) return "expired";
-  const h = Math.round(diffMs / 3600_000);
-  if (h < 48) return `${h}h`;
-  const d = Math.round(h / 24);
-  return `${d}d`;
-}
-
-export const SESSION_EXPIRY_LABELS = {
-  inactivity: "Expires after inactivity",
-  latest: "Expires at the latest",
-} as const;
-
-export function formatAbsoluteLocal(ts: number): string {
-  const date = new Date(ts);
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())} local`;
+// The machine's own zone is the one thing Intl cannot say for us, so the
+// catalog sentence carries that word around the formatted stamp.
+function formatAbsoluteLocal(i18n: Translator, ts: number): string {
+  return i18n.t("settings.access.localTime", {
+    time: absoluteTime(i18n.language, ts),
+  });
 }
 
 export function sessionExpiryLines(
+  i18n: Translator,
   session: Pick<SessionWire, "expiresAt" | "absoluteExpiresAt">,
 ): { label: string; value: string }[] {
   return [
     {
-      label: SESSION_EXPIRY_LABELS.inactivity,
-      value: formatAbsoluteLocal(session.expiresAt),
+      label: i18n.t("settings.sessions.expiryInactivity"),
+      value: formatAbsoluteLocal(i18n, session.expiresAt),
     },
     {
-      label: SESSION_EXPIRY_LABELS.latest,
-      value: formatAbsoluteLocal(session.absoluteExpiresAt),
+      label: i18n.t("settings.sessions.expiryLatest"),
+      value: formatAbsoluteLocal(i18n, session.absoluteExpiresAt),
     },
   ];
 }
@@ -438,7 +444,9 @@ export function SettingsLink({
   label,
   onGo,
 }: {
-  label: string;
+  // A node, not a string: rich() hands this the chunk between a <link> pair,
+  // so the whole sentence stays one catalog entry (ruling 16).
+  label: ReactNode;
   onGo?: () => void;
 }) {
   if (!onGo) return <strong>{label}</strong>;

@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 import {
   SessionsTable,
   BlockedNoteBanner,
@@ -16,6 +17,8 @@ import {
 
 export function SessionsPane() {
   const { activeSessions, activeSessionsLoaded } = useAppState();
+  const i18n = useI18n();
+  const { t, rich } = i18n;
   // Holds the most recent server-side lockout-prevention rejection (a 409
   // from sessions.revoke, surfaced by SessionsTable) so the banner stays
   // visible until the user dismisses or retries. Auto-cleared on any
@@ -25,14 +28,14 @@ export function SessionsPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>Sessions</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.sessions")}</h4>
       {/* Owners looking to ADD a device tend to land here
           (it's where devices are listed) - point them at the two flows that
           actually mint links. */}
       <p style={hint}>
-        Devices signed into this office, across all users. Revoking a session
-        signs that device out. New people get an invite from the Invites
-        section; existing users add devices themselves from <i>My devices</i>.
+        {rich("settings.sessions.intro", {
+          i: (chunk) => <i>{chunk}</i>,
+        })}
       </p>
 
       {blockedNote && (
@@ -42,7 +45,7 @@ export function SessionsPane() {
         />
       )}
 
-      {renderListSection(activeSessions, activeSessionsLoaded, (rows) => (
+      {renderListSection(i18n, activeSessions, activeSessionsLoaded, (rows) => (
         <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
     </div>

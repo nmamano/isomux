@@ -9,9 +9,18 @@ import type {
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 
-export function signOutButtonLabel(pending: boolean): string {
-  return pending ? "Signing out…" : "Confirm sign out";
+// Not a component (it labels a button inside one), so it takes the translator
+// rather than reaching for the hook.
+export function signOutButtonLabel(
+  i18n: Translator,
+  pending: boolean,
+): string {
+  return pending
+    ? i18n.t("settings.signIn.signingOut")
+    : i18n.t("settings.signIn.confirmSignOut");
 }
 
 // `scopes` picks which of the two sign-in scopes this card shows. The
@@ -40,6 +49,7 @@ export function ProviderSignInCard({
   // pointer stays plain text.
   onGoToOtherHalf?: () => void;
 }) {
+  const { t } = useI18n();
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
     <section style={{ ...cardStyle, marginTop: 14 }}>
@@ -68,8 +78,7 @@ export function ProviderSignInCard({
             paddingTop: 14,
           }}
         >
-          Do you want to use an API token? See Settings → You → Individual
-          connections.
+          {t("settings.signIn.apiKeyNote")}
         </p>
       )}
     </section>
@@ -93,6 +102,8 @@ function ProviderScopeConnection({
   onGoToOtherHalf?: () => void;
   hideTopBorder?: boolean;
 }) {
+  const i18n = useI18n();
+  const { t, rich } = i18n;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
@@ -122,20 +133,19 @@ function ProviderScopeConnection({
   const title = provider === "codex" ? "Codex" : "Claude";
   const scopeTitle =
     scope === "office"
-      ? "Office-wide: sign in for every agent in this office"
-      : "Individual: sign in for agents I spawn";
+      ? t("settings.signIn.scopeOffice")
+      : t("settings.signIn.scopePersonal");
   // The office scope's sentence names the other section, so it carries the
-  // cross-link rather than plain words.
+  // cross-link rather than plain words - one key, the pointer inside it
+  // (ruling 16).
   const scopeHint =
-    scope === "office" ? (
-      <>
-        This subscription is used for every agent in the office except for
-        agents spawned by an office member who has set up{" "}
-        <SettingsLink label="Individual connections" onGo={onGoToOtherHalf} />.
-      </>
-    ) : (
-      "Use a separate account for your agents."
-    );
+    scope === "office"
+      ? rich("settings.signIn.officeHint", {
+          link: (chunk) => (
+            <SettingsLink label={chunk} onGo={onGoToOtherHalf} />
+          ),
+        })
+      : t("settings.signIn.personalHint");
 
   async function refresh(): Promise<void> {
     const result = await apiFetch<ProviderAccountsWire>(
@@ -174,7 +184,7 @@ function ProviderScopeConnection({
       setError(
         caught instanceof ApiError
           ? caught.message
-          : `Could not start ${title} sign-in.`,
+          : t("settings.signIn.startFailed", { provider: title }),
       );
     } finally {
       setPending(false);
@@ -196,7 +206,7 @@ function ProviderScopeConnection({
       setError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not submit the Claude code.",
+          : t("settings.signIn.submitFailed"),
       );
     } finally {
       setPending(false);
@@ -218,7 +228,7 @@ function ProviderScopeConnection({
       setError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not cancel sign-in.",
+          : t("settings.signIn.cancelFailed"),
       );
     } finally {
       setPending(false);
@@ -240,7 +250,7 @@ function ProviderScopeConnection({
       setError(
         caught instanceof ApiError
           ? caught.message
-          : `Could not sign out ${title}.`,
+          : t("settings.signIn.signOutFailed", { provider: title }),
       );
     } finally {
       setPending(false);
@@ -248,20 +258,20 @@ function ProviderScopeConnection({
   }
 
   const status = !account
-    ? "Checking connection…"
+    ? t("settings.signIn.checking")
     : account.loginStatus === "waiting_external"
-      ? "Waiting for provider…"
+      ? t("settings.signIn.waiting")
       : account.accountStatus === "connected"
         ? account.accountLabel
-          ? `Connected as ${account.accountLabel}`
-          : "Connected"
+          ? t("settings.signIn.connectedAs", { account: account.accountLabel })
+          : t("settings.signIn.connected")
         : account.accountStatus === "unavailable"
-          ? "Connection unavailable"
-          : "Not connected";
+          ? t("settings.signIn.unavailable")
+          : t("settings.signIn.notConnected");
   const externalWarning = account?.externalCli
-    ? `This signs out ${title} in this machine, even outside the office.`
+    ? t("settings.signIn.externalWarning", { provider: title })
     : account?.explicitDirectory
-      ? "This removes the sign-in from the account directory you chose."
+      ? t("settings.signIn.directoryWarning")
       : null;
 
   return (
@@ -279,7 +289,7 @@ function ProviderScopeConnection({
       <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
       <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
       <p style={{ ...hint, margin: "8px 0 0" }}>
-        <strong>Status:</strong> {status}
+        <strong>{t("settings.signIn.status")}</strong> {status}
       </p>
       {account?.error && (
         <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
@@ -297,7 +307,7 @@ function ProviderScopeConnection({
         <div style={{ margin: "12px 0" }}>
           {provider === "claude" && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
-              Paste the code from Claude:
+              {t("settings.signIn.pasteCode")}
               <input
                 value={claudeCode}
                 onChange={(event) => setClaudeCode(event.target.value)}
@@ -311,7 +321,7 @@ function ProviderScopeConnection({
               onClick={() => void submitClaudeCode()}
               disabled={pending || !claudeCode.trim()}
             >
-              Submit code
+              {t("settings.signIn.submitCode")}
             </button>
           )}
           <button
@@ -319,7 +329,7 @@ function ProviderScopeConnection({
             onClick={() => void cancel()}
             disabled={pending}
           >
-            Cancel sign-in
+            {t("settings.signIn.cancelSignIn")}
           </button>
         </div>
       ) : (
@@ -341,19 +351,21 @@ function ProviderScopeConnection({
               }
               disabled={pending}
             >
-              {pending ? "Signing in…" : "Sign in"}
+              {pending
+                ? t("settings.signIn.signingIn")
+                : t("settings.signIn.signIn")}
             </button>
             <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
               {provider === "codex"
-                ? "Signing in gives you a one-time code to enter on OpenAI's page. The page opens in a new tab; you can also open it on any other device."
-                : "Claude opens in your browser. After you sign in, paste the code here."}
+                ? t("settings.signIn.codexHint")
+                : t("settings.signIn.claudeHint")}
             </p>
           </div>
         )
       )}
       {authUrl && !connected && (
         <p style={{ ...hint, margin: "12px 0 0" }}>
-          Link didn&apos;t open?{" "}
+          {t("settings.signIn.linkNotOpen")}{" "}
           <button
             style={{ ...dialogCancelBtn, padding: "3px 10px" }}
             onClick={() =>
@@ -362,14 +374,16 @@ function ProviderScopeConnection({
                 .then(() => setLinkCopied(true))
             }
           >
-            {linkCopied ? "Link copied" : "Copy sign-in link"}
+            {linkCopied
+              ? t("settings.signIn.linkCopied")
+              : t("settings.signIn.copyLink")}
           </button>
         </p>
       )}
       {deviceCode && !connected && (
         <div style={{ margin: "12px 0" }}>
           <p style={{ ...hint, margin: "0 0 6px" }}>
-            Enter this one-time code on the OpenAI page:
+            {t("settings.signIn.enterCode")}
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span
@@ -395,7 +409,7 @@ function ProviderScopeConnection({
                   .then(() => setCodeCopied(true))
               }
             >
-              {codeCopied ? "Copied" : "Copy"}
+              {codeCopied ? t("common.copied") : t("common.copy")}
             </button>
           </div>
         </div>
@@ -416,12 +430,14 @@ function ProviderScopeConnection({
               onClick={() => setConfirmingSignOut(true)}
               disabled={pending}
             >
-              Sign out
+              {t("common.signOut")}
             </button>
           ) : (
             <div
               role="dialog"
-              aria-label={`Sign out ${title}`}
+              aria-label={t("settings.signIn.signOutDialog", {
+                provider: title,
+              })}
               style={{ display: "flex", gap: 8, flexShrink: 0 }}
             >
               <button
@@ -430,14 +446,14 @@ function ProviderScopeConnection({
                 onClick={() => setConfirmingSignOut(false)}
                 disabled={pending}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 style={{ ...dialogCancelBtn, color: "var(--red)" }}
                 onClick={() => void disconnect()}
                 disabled={pending}
               >
-                {signOutButtonLabel(pending)}
+                {signOutButtonLabel(i18n, pending)}
               </button>
             </div>
           )}
@@ -458,14 +474,12 @@ function ProviderScopeConnection({
       )}
       {account?.loginStatus === "succeeded" && onStartNewConversation && (
         <div style={{ margin: "12px 0" }}>
-          <p style={hint}>
-            Connected. Start a new conversation to use this account.
-          </p>
+          <p style={hint}>{t("settings.signIn.connectedStart")}</p>
           <button
             style={dialogCancelBtn}
             onClick={() => void onStartNewConversation()}
           >
-            Start a new conversation
+            {t("settings.signIn.startConversation")}
           </button>
         </div>
       )}

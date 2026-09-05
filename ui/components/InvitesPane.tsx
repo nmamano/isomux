@@ -13,6 +13,7 @@ import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire, UserRole } from "../../shared/types.ts";
 import { type UserView } from "../user-merge.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
+import { useI18n } from "../i18n.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import {
   InvitesTable,
@@ -27,6 +28,8 @@ import {
 
 export function InvitesPane() {
   const { invitesList, invitesLoaded } = useAppState();
+  const i18n = useI18n();
+  const { t, rich } = i18n;
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -35,12 +38,9 @@ export function InvitesPane() {
           My devices section - owners deliberately can't mint them for
           others. An existing typed name gets an inline hint (below) instead
           of a mode flip. */}
-      <h4 style={sectionHeader}>Invites</h4>
+      <h4 style={sectionHeader}>{t("settings.sidebar.invites")}</h4>
       <p style={hint}>
-        Add a new member or owner: issue an invite URL and send it to them
-        out-of-band. Opening it creates their account and signs that device in.
-        For extra devices on an existing account, each user generates their own
-        device link from <i>My devices</i>.
+        {rich("settings.invites.intro", { i: (chunk) => <i>{chunk}</i> })}
       </p>
 
       <IssueInviteForm />
@@ -50,11 +50,11 @@ export function InvitesPane() {
           this is the owner's escape hatch. A card here (not its own sidebar
           entry) keeps the account list un-crowded; it lives next to invites
           because both mint sign-in URLs the owner hands out. */}
-      <h5 style={subsectionHeader}>Recovery</h5>
+      <h5 style={subsectionHeader}>{t("settings.invites.recovery")}</h5>
       <RecoveryLinkForm />
 
-      <h5 style={subsectionHeader}>Outstanding invites</h5>
-      {renderListSection(invitesList, invitesLoaded, (rows) => (
+      <h5 style={subsectionHeader}>{t("settings.invites.outstanding")}</h5>
+      {renderListSection(i18n, invitesList, invitesLoaded, (rows) => (
         <InvitesTable invites={rows} />
       ))}
     </div>
@@ -63,6 +63,7 @@ export function InvitesPane() {
 
 function IssueInviteForm() {
   const { users, rooms, allRooms } = useAppState();
+  const { t, rich } = useI18n();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
   // Rooms pre-assigned to the invite: the invitee lands with access to these
@@ -119,7 +120,9 @@ function IssueInviteForm() {
       })
       .catch((err) => {
         setError(
-          err instanceof ApiError ? err.message : "Failed to mint invite",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.invites.mintFailed"),
         );
       })
       .finally(() => setPending(false));
@@ -127,14 +130,14 @@ function IssueInviteForm() {
 
   return (
     <div style={cardStyle}>
-      <label style={subLabel}>Issue invite for…</label>
+      <label style={subLabel}>{t("settings.invites.issueFor")}</label>
       <input
         value={name}
         onChange={(e) => {
           setName(e.target.value);
           setError(null);
         }}
-        placeholder="New username (e.g. Marc)"
+        placeholder={t("settings.invites.namePlaceholder")}
         maxLength={64}
         style={dialogInput}
       />
@@ -143,15 +146,16 @@ function IssueInviteForm() {
           at the self-service device-link flow instead. */}
       {existing && (
         <p style={{ ...hint, marginTop: 4, color: "var(--text-primary)" }}>
-          <b>{existingUser.name}</b> already exists, so no invite is needed: to
-          sign in another device, {existingUser.name} can generate a device link
-          from <i>My devices</i> in their own settings - or you can mint them a
-          recovery link below.
+          {rich("settings.invites.existing", {
+            name: existingUser.name,
+            b: (chunk) => <b>{chunk}</b>,
+            i: (chunk) => <i>{chunk}</i>,
+          })}
         </p>
       )}
       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
         <label style={{ flex: 1 }}>
-          <div style={subLabel}>Role</div>
+          <div style={subLabel}>{t("common.role")}</div>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as UserRole)}
@@ -164,7 +168,7 @@ function IssueInviteForm() {
       </div>
       {showRoomPicker && (
         <div style={{ marginTop: 8 }}>
-          <div style={subLabel}>Rooms</div>
+          <div style={subLabel}>{t("common.rooms")}</div>
           <div
             style={{
               border: "1px solid var(--border)",
@@ -183,7 +187,7 @@ function IssueInviteForm() {
                   color: "var(--text-ghost)",
                 }}
               >
-                No rooms yet.
+                {t("common.noRooms")}
               </div>
             ) : (
               editorRooms.map((r) => (
@@ -202,7 +206,9 @@ function IssueInviteForm() {
                     type="checkbox"
                     checked={grantRooms.includes(r.id)}
                     onChange={() => toggleGrantRoom(r.id)}
-                    aria-label={`Grant access to ${r.name}`}
+                    aria-label={t("settings.invites.grantRoom", {
+                      room: r.name,
+                    })}
                     style={{ accentColor: "var(--accent)", cursor: "pointer" }}
                   />
                   <span
@@ -219,14 +225,12 @@ function IssueInviteForm() {
             )}
           </div>
           <p style={{ ...hint, marginTop: 4 }}>
-            The invitee lands with access to the checked rooms. Leave all
-            unchecked to grant access later from their user settings.
+            {t("settings.invites.roomsHint")}
           </p>
         </div>
       )}
       <p style={{ ...hint, marginTop: 6 }}>
-        Invite link expires 24h after issuing if unused. Accepted sessions last
-        up to 1 year (revocable from the Sessions section any time).
+        {t("settings.invites.expiryHint")}
       </p>
 
       {error && (
@@ -243,7 +247,9 @@ function IssueInviteForm() {
             opacity: pending || !name.trim() || existing ? 0.5 : 1,
           }}
         >
-          {pending ? "Minting…" : "Issue invite"}
+          {pending
+            ? t("settings.invites.minting")
+            : t("settings.invites.issue")}
         </button>
       </div>
       {mintedUrl && <MintedUrlBox url={mintedUrl} />}
@@ -258,6 +264,7 @@ function IssueInviteForm() {
 // may pre-empt a lockout.
 function RecoveryLinkForm() {
   const { users } = useAppState();
+  const { t } = useI18n();
   const [userId, setUserId] = useState("");
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -285,7 +292,7 @@ function RecoveryLinkForm() {
         setError(
           err instanceof ApiError
             ? err.message
-            : "Failed to mint recovery link",
+            : t("settings.invites.recoveryFailed"),
         );
       })
       .finally(() => setPending(false));
@@ -294,12 +301,9 @@ function RecoveryLinkForm() {
   return (
     <div style={cardStyle}>
       <p style={{ ...hint, marginTop: 0 }}>
-        Help an existing user get back in. Device links are self-service, but
-        someone signed out of every device can&apos;t mint their own - pick them
-        here and send the link out-of-band. It expires in 24h; minting a new one
-        replaces their previous link.
+        {t("settings.invites.recoveryHint")}
       </p>
-      <label style={subLabel}>User</label>
+      <label style={subLabel}>{t("common.user")}</label>
       <select
         value={userId}
         onChange={(e) => {
@@ -308,7 +312,7 @@ function RecoveryLinkForm() {
         }}
         style={dialogInput}
       >
-        <option value="">Select a user…</option>
+        <option value="">{t("settings.invites.selectUser")}</option>
         {userList.map((u) => (
           <option key={u.id} value={u.id}>
             {u.name}
@@ -329,7 +333,9 @@ function RecoveryLinkForm() {
             opacity: pending || !userId ? 0.5 : 1,
           }}
         >
-          {pending ? "Minting…" : "Mint recovery link"}
+          {pending
+            ? t("settings.invites.minting")
+            : t("settings.invites.mintRecovery")}
         </button>
       </div>
       {mintedUrl && <MintedUrlBox url={mintedUrl} />}

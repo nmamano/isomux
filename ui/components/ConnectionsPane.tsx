@@ -14,6 +14,7 @@ import { dialogCancelBtn } from "./dialog-styles.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // One pane per owner, not one pane for both. The office half holds the
 // sign-ins and variables that every agent in the office uses; the personal
@@ -35,6 +36,7 @@ export function ConnectionsPane({
   onGoToOtherHalf?: () => void;
 }) {
   const { providerAccounts: liveAccounts } = useAppState();
+  const { t } = useI18n();
   const dispatch = useDispatch();
   const accounts = liveAccounts;
   const [refreshing, setRefreshing] = useState(false);
@@ -58,7 +60,7 @@ export function ConnectionsPane({
       setError(
         caught instanceof ApiError
           ? caught.message
-          : "Could not check provider accounts.",
+          : t("settings.connections.checkFailed"),
       );
     } finally {
       setRefreshing(false);
@@ -79,9 +81,12 @@ export function ConnectionsPane({
         setError(
           caught instanceof ApiError
             ? caught.message
-            : "Could not check provider accounts.",
+            : t("settings.connections.checkFailed"),
         ),
       );
+    // The catalog lookup is stable for the life of a language, and re-running
+    // this on a language change would refetch for nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch]);
 
   const updateAccounts = (next: ProviderAccountWire[]) =>
@@ -100,20 +105,24 @@ export function ConnectionsPane({
         }}
       >
         <h4 style={sectionHeader}>
-          {isOffice ? "Office-wide connections" : "Individual connections"}
+          {isOffice
+            ? t("settings.sidebar.connectionsOffice")
+            : t("settings.sidebar.connectionsPersonal")}
         </h4>
         <button
           style={dialogCancelBtn}
           onClick={() => void load(true)}
           disabled={refreshing}
         >
-          {refreshing ? "Refreshing…" : "Refresh"}
+          {refreshing
+            ? t("settings.connections.refreshing")
+            : t("settings.connections.refresh")}
         </button>
       </div>
       <p style={hint}>
         {isOffice
-          ? "The accounts and variables that every agent in this office uses. The provider stores the credentials, not us."
-          : "The accounts and variables that the agents you spawn use. They override the office ones. The provider stores the credentials, not us."}
+          ? t("settings.connections.officeIntro")
+          : t("settings.connections.personalIntro")}
       </p>
       {error && <p style={{ color: "var(--red)", fontSize: 12 }}>{error}</p>}
       <ProviderSignInCard
@@ -131,21 +140,22 @@ export function ConnectionsPane({
         onGoToOtherHalf={onGoToOtherHalf}
       />
       <section style={{ ...cardStyle, marginTop: 14 }}>
-        <h5 style={{ margin: "0 0 12px" }}>Environment variables</h5>
+        <h5 style={{ margin: "0 0 12px" }}>
+          {t("settings.connections.envTitle")}
+        </h5>
         {isOffice ? (
           <div>
             <div style={{ fontSize: 12, fontWeight: 650 }}>
-              Variables for every agent in this office
+              {t("settings.connections.officeVars")}
             </div>
             <p style={{ ...hint, margin: "8px 0" }}>
-              These variables load for every agent unless a user variable
-              overrides them.
+              {t("settings.connections.officeVarsHint")}
             </p>
             {role === "owner" ? (
               <ManagedEnvEditor path="/api/office/env" />
             ) : (
               <p style={{ ...hint, margin: 0 }}>
-                Office-wide variables are managed by an office owner.
+                {t("settings.connections.ownerManaged")}
               </p>
             )}
             <ProviderKeyNote />
@@ -153,11 +163,10 @@ export function ConnectionsPane({
         ) : (
           <div>
             <div style={{ fontSize: 12, fontWeight: 650 }}>
-              Variables for agents I spawn
+              {t("settings.connections.personalVars")}
             </div>
             <p style={{ ...hint, margin: "8px 0" }}>
-              These variables load for agents you spawn and override office-wide
-              variables.
+              {t("settings.connections.personalVarsHint")}
             </p>
             <ManagedEnvEditor
               path={`/api/users/${encodeURIComponent(username)}/env`}
@@ -176,13 +185,12 @@ export function ConnectionsPane({
 // closes both halves for both roles: a member who cannot edit the office
 // variables can still act on the per-user half of what it says.
 function ProviderKeyNote() {
+  const { rich } = useI18n();
   return (
     <p style={{ ...hint, margin: "10px 0 0" }}>
-      Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
-      <code>OPENCODE_API_KEY</code> to use provider API keys. Other per-user
-      variables work the same way, for example, each member can set{" "}
-      <code>GH_TOKEN</code> so their agents use their own GitHub credentials.
-      Then <code>/clear</code> agents to apply changes.
+      {rich("settings.connections.providerKeyNote", {
+        code: (chunk) => <code>{chunk}</code>,
+      })}
     </p>
   );
 }
@@ -195,18 +203,22 @@ function CrossLink({
   half: ConnectionsHalf;
   onGoToOtherHalf?: () => void;
 }) {
-  const target =
-    half === "office"
-      ? "You → Individual connections"
-      : "Office → Office-wide connections";
-  const lead =
-    half === "office"
-      ? "Your own sign-ins and variables, which override these, are under "
-      : "The office-wide sign-ins and variables these override are under ";
+  const { rich } = useI18n();
+  // One key per sentence, the pointer inside it (ruling 16): the name of the
+  // other section sits in the middle of the sentence in English and at the end
+  // in Catalan, so it cannot be a separate string.
   return (
     <p style={{ ...hint, marginTop: 14 }}>
-      {lead}
-      <SettingsLink label={target} onGo={onGoToOtherHalf} />.
+      {rich(
+        half === "office"
+          ? "settings.connections.crossLinkFromOffice"
+          : "settings.connections.crossLinkFromPersonal",
+        {
+          link: (chunk) => (
+            <SettingsLink label={chunk} onGo={onGoToOtherHalf} />
+          ),
+        },
+      )}
     </p>
   );
 }

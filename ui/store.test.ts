@@ -17,6 +17,7 @@ import {
   ProviderSignInCard,
   signOutButtonLabel,
 } from "./components/ProviderSignInCard.tsx";
+import { translatorFor } from "../shared/i18n/translate.ts";
 import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
 import { UpdatePane } from "./components/UpdatePane.tsx";
 import { UserSettingsView } from "./components/UserSettingsView.tsx";
@@ -264,8 +265,9 @@ describe("ProviderSignInCard", () => {
   });
 
   it("labels the slow confirm action while sign-out is pending", () => {
-    expect(signOutButtonLabel(false)).toBe("Confirm sign out");
-    expect(signOutButtonLabel(true)).toBe("Signing out…");
+    const en = translatorFor("en");
+    expect(signOutButtonLabel(en, false)).toBe("Confirm sign out");
+    expect(signOutButtonLabel(en, true)).toBe("Signing out…");
   });
 
   it("replaces a failed in-chat account wire with the successful push", () => {

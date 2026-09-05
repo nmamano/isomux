@@ -62,7 +62,8 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
-import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
+import { useAccessListsSeed } from "./access-shared.tsx";
+import { timeSince } from "../../shared/i18n/time.ts";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
@@ -407,7 +408,7 @@ export function UserSettingsView({
         },
         {
           id: "device",
-          label: t("settings.sidebar.device"),
+          label: t("common.device"),
           icon: DeviceIcon,
           rows: [
             sectionRow("deviceLabel", t("settings.sidebar.deviceLabel")),
@@ -416,7 +417,7 @@ export function UserSettingsView({
         },
         {
           id: "rooms",
-          label: t("settings.sidebar.rooms"),
+          label: t("common.rooms"),
           // Dynamic: one row per room the viewer can see, so the rows carry a
           // glyph and read as a list of live things - like the roster below,
           // and unlike the fixed rows above.
@@ -720,7 +721,7 @@ export function UserSettingsView({
                   }}
                   title={t("settings.signOutHint")}
                 >
-                  {t("settings.signOut")}
+                  {t("common.signOut")}
                 </button>
                 {logoutBlockedReason && (
                   <p
@@ -923,15 +924,16 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 function summarizeRoster(
   online: boolean,
   stats: { count: number; lastSeenAt: number } | null,
-  { t, tn }: UiTranslator,
+  i18n: UiTranslator,
 ): string {
+  const { t, tn } = i18n;
   if (online) {
     if (!stats) return t("settings.members.online");
     return tn("settings.members.onlineSessions", stats.count);
   }
   if (!stats) return "";
   return t("settings.members.lastSeen", {
-    when: formatRelative(stats.lastSeenAt),
+    when: timeSince(i18n.language, stats.lastSeenAt),
   });
 }
 
@@ -942,6 +944,7 @@ function summarizeRoster(
 // caller who is not an office owner. Mounted only for owner viewers, so a
 // member never sees a section they would be refused.
 function MemberVariableNames({ username }: { username: string }) {
+  const { t } = useI18n();
   const [names, setNames] = useState<string[] | null>(null);
   const [failed, setFailed] = useState(false);
   // Keyed on the username at the call site, so a different profile remounts
@@ -971,17 +974,18 @@ function MemberVariableNames({ username }: { username: string }) {
 
   return (
     <>
-      <h5 style={sectionTitleStyle}>Individual Connections</h5>
-      <p style={sectionHintStyle}>
-        Variables this user set for their own agents. Names only - values stay
-        private.
-      </p>
+      <h5 style={sectionTitleStyle}>
+        {t("settings.memberConnections.title")}
+      </h5>
+      <p style={sectionHintStyle}>{t("settings.memberConnections.hint")}</p>
       {failed ? (
-        <p style={sectionHintStyle}>Could not load variables.</p>
+        <p style={sectionHintStyle}>
+          {t("settings.memberConnections.loadFailed")}
+        </p>
       ) : names === null ? (
-        <p style={sectionHintStyle}>Loading…</p>
+        <p style={sectionHintStyle}>{t("common.loading")}</p>
       ) : names.length === 0 ? (
-        <p style={sectionHintStyle}>No variables.</p>
+        <p style={sectionHintStyle}>{t("settings.memberConnections.empty")}</p>
       ) : (
         <div
           style={{
@@ -1456,7 +1460,7 @@ function UserEditPanel({
             mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
         {(isOwner && (!targetIsOwner || isMe)) || (!isOwner && isMe) ? (
           <>
-            <h5 style={sectionTitleStyle}>{t("settings.profile.rooms")}</h5>
+            <h5 style={sectionTitleStyle}>{t("common.rooms")}</h5>
             <p style={sectionHintStyle}>
               {isOwner && !targetIsOwner && t("settings.profile.accessHint")}
               {isOwner && !targetIsOwner && isMe && " "}
@@ -1509,7 +1513,7 @@ function UserEditPanel({
                     color: "var(--text-muted)",
                   }}
                 >
-                  {t("settings.profile.noRooms")}
+                  {t("common.noRooms")}
                 </div>
               ) : (
                 rowsForPrefs.map((r) => {
@@ -1775,7 +1779,7 @@ function UserEditPanel({
                   cursor: "pointer",
                 }}
               >
-                {t("settings.profile.discard")}
+                {t("common.discard")}
               </button>
               <button
                 onClick={cancelDiscard}

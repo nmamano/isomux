@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { normalizePublicOrigin } from "../../shared/public-origin.ts";
+import { useI18n } from "../i18n.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import {
   MintedUrlBox,
@@ -26,6 +27,9 @@ import {
   hint,
   cardStyle,
 } from "./access-shared.tsx";
+
+const ORIGIN_PATTERN = "https://<host>";
+const LOCALHOST_ORIGIN = "http://localhost";
 
 export function ExternalAccessPane({
   closeRef,
@@ -37,14 +41,11 @@ export function ExternalAccessPane({
   // UserSettingsView's UserEditPanel.
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
+  const { t } = useI18n();
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>Access</h4>
-      <p style={hint}>
-        Control whether this office is reachable from outside the host machine.
-        Invite links and signed-in devices live in the Invites and Sessions
-        sections.
-      </p>
+      <h4 style={sectionHeader}>{t("settings.sidebar.access")}</h4>
+      <p style={hint}>{t("settings.externalAccess.intro")}</p>
       <ExternalAccessSection closeRef={closeRef} />
     </div>
   );
@@ -55,6 +56,7 @@ function ExternalAccessSection({
 }: {
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
+  const { t, rich } = useI18n();
   const [loaded, setLoaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [urlInput, setUrlInput] = useState("");
@@ -124,7 +126,9 @@ function ExternalAccessSection({
       })
       .catch((err) => {
         setError(
-          err instanceof ApiError ? err.message : "Failed to update settings",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.externalAccess.updateFailed"),
         );
       })
       .finally(() => setPending(false));
@@ -204,9 +208,9 @@ function ExternalAccessSection({
     return (
       <div style={cardStyle}>
         <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
-          External access
+          {t("settings.externalAccess.title")}
         </h5>
-        <p style={hint}>Loading…</p>
+        <p style={hint}>{t("common.loading")}</p>
       </div>
     );
   }
@@ -214,13 +218,12 @@ function ExternalAccessSection({
   return (
     <div style={cardStyle}>
       <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
-        External access
+        {t("settings.externalAccess.title")}
       </h5>
       <p style={hint}>
-        Currently {boundLoopback ? "loopback-only" : "listening externally"}.
         {boundLoopback
-          ? " The office is reachable from this machine, or from other machines via an SSH tunnel."
-          : " The office is reachable from anywhere the public URL resolves."}
+          ? t("settings.externalAccess.loopback")
+          : t("settings.externalAccess.external")}
       </p>
       <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
         <input
@@ -228,11 +231,11 @@ function ExternalAccessSection({
           checked={enabled}
           onChange={(e) => setEnabled(e.target.checked)}
         />
-        <span>Enable external access</span>
+        <span>{t("settings.externalAccess.enable")}</span>
       </label>
       {enabled && (
         <>
-          <div style={subLabel}>Public URL</div>
+          <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
           <input
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
@@ -240,25 +243,25 @@ function ExternalAccessSection({
             style={dialogInput}
           />
           <p style={hint}>
-            Pattern: https://&lt;host&gt; (the address you'll open from your
-            laptop / phone). Saving doesn't change the running server's bind on
-            its own - restart isomux to apply.
+            {t("settings.externalAccess.urlHint", { pattern: ORIGIN_PATTERN })}
           </p>
         </>
       )}
       {envOriginSet && !envOrigin && (
         <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-          Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment but
-          not a valid public origin, so the server ignores it. Remove it from
-          your env file or set it to <code>https://&lt;host&gt;</code>
-          or <code>http://localhost</code>.
+          {rich("settings.externalAccess.envInvalid", {
+            pattern: ORIGIN_PATTERN,
+            localhost: LOCALHOST_ORIGIN,
+            code: (chunk) => <code>{chunk}</code>,
+          })}
         </p>
       )}
       {envOrigin && enabled && normalizedInput === envOrigin && (
         <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-          Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
-          environment and matches this Public URL. The env var is deprecated -
-          remove it from your env file once this office-config value is saved.
+          {rich("settings.externalAccess.envMatches", {
+            origin: envOrigin,
+            code: (chunk) => <code>{chunk}</code>,
+          })}
         </p>
       )}
       {envOrigin &&
@@ -266,11 +269,10 @@ function ExternalAccessSection({
         normalizedInput &&
         normalizedInput !== envOrigin && (
           <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-            Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
-            environment. After restart it would override any different value
-            saved here, so the save will be refused until you either match this
-            URL to the env value or remove the env var from your service
-            environment.
+            {rich("settings.externalAccess.envConflict", {
+              origin: envOrigin,
+              code: (chunk) => <code>{chunk}</code>,
+            })}
           </p>
         )}
       {error && (
@@ -293,7 +295,7 @@ function ExternalAccessSection({
           }}
         >
           <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-            Discard unsaved external-access changes?
+            {t("settings.externalAccess.discardPrompt")}
           </span>
           <button
             onClick={commitDiscard}
@@ -308,7 +310,7 @@ function ExternalAccessSection({
               cursor: "pointer",
             }}
           >
-            Discard
+            {t("common.discard")}
           </button>
           <button
             onClick={cancelDiscard}
@@ -323,7 +325,7 @@ function ExternalAccessSection({
               cursor: "pointer",
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
         </div>
       )}
@@ -336,22 +338,25 @@ function ExternalAccessSection({
             opacity: pending || !dirty ? 0.5 : 1,
           }}
         >
-          {pending ? "Saving…" : dirty ? "Save" : "Saved"}
+          {pending
+            ? t("common.saving")
+            : dirty
+              ? t("common.save")
+              : t("common.saved")}
         </button>
       </div>
       {restartRequired && (
         <div style={restartBoxStyle}>
           <p style={{ ...hint, marginTop: 0 }}>
-            Saved. Restart isomux for the new bind to take effect. User service:{" "}
-            <code>systemctl --user restart isomux</code>. System service:{" "}
-            <code>sudo systemctl restart isomux</code>.
+            {rich("settings.externalAccess.restartNote", {
+              code: (chunk) => <code>{chunk}</code>,
+            })}
           </p>
           <code style={codeBlockStyle}>systemctl --user restart isomux</code>
           {signInUrl && (
             <>
               <p style={{ ...hint, marginTop: 10 }}>
-                After the restart, open this URL on whichever device you want to
-                use from the public address. (It expires 1 hour after minting.)
+                {t("settings.externalAccess.signInAfterRestart")}
               </p>
               <MintedUrlBox url={signInUrl} />
             </>
