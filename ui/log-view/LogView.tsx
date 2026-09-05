@@ -34,7 +34,7 @@ import {
 import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
-import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import {
   LogEntryCard,
   RawToolCallGroupCard,
@@ -47,8 +47,6 @@ import {
   liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
-import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
-import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
 import { SubscriptionPill } from "./SubscriptionPill.tsx";
@@ -687,8 +685,6 @@ export function LogView({
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
-  const { mode } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -1301,13 +1297,6 @@ export function LogView({
       onClick: toggleAvatar,
       active: showAvatar,
       title: "View avatar",
-    },
-    {
-      id: "theme",
-      icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: "Theme",
-      onClick: () => setThemePickerOpen(true),
-      title: "Change theme",
     },
   ];
 
@@ -3285,10 +3274,6 @@ export function LogView({
           />
         </div>
       )}
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
       {cite && scrollRef.current && (
         <CiteSelectionButton
           cite={cite}
