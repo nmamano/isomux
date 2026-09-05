@@ -1471,7 +1471,9 @@ function ToolResult({
             cursor: "pointer",
           }}
         >
-          {open ? t("cards.toolResult.showLess") : t("cards.toolResult.showMore")}
+          {open
+            ? t("cards.toolResult.showLess")
+            : t("cards.toolResult.showMore")}
         </button>
       )}
       {entry.attachments &&

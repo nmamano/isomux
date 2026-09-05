@@ -770,14 +770,18 @@ export const es: Catalog = {
   "apiCall.tasks.update": "Actualizar tarea",
   "apiCall.tasks.delete": "Eliminar tarea",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
-  "apiCall.tasks.listOpenGlobal": "Listar tareas abiertas (solo las globales de la oficina)",
+  "apiCall.tasks.listOpenGlobal":
+    "Listar tareas abiertas (solo las globales de la oficina)",
   "apiCall.tasks.listOpenInRoom": "Listar tareas abiertas de una sala",
   "apiCall.tasks.listAll": "Listar todas las tareas",
-  "apiCall.tasks.listAllGlobal": "Listar todas las tareas (solo las globales de la oficina)",
+  "apiCall.tasks.listAllGlobal":
+    "Listar todas las tareas (solo las globales de la oficina)",
   "apiCall.tasks.listAllInRoom": "Listar todas las tareas de una sala",
   "apiCall.tasks.listStatus": "Listar tareas con estado {status}",
-  "apiCall.tasks.listStatusGlobal": "Listar tareas con estado {status} (solo las globales de la oficina)",
-  "apiCall.tasks.listStatusInRoom": "Listar tareas con estado {status} de una sala",
+  "apiCall.tasks.listStatusGlobal":
+    "Listar tareas con estado {status} (solo las globales de la oficina)",
+  "apiCall.tasks.listStatusInRoom":
+    "Listar tareas con estado {status} de una sala",
   "apiCall.tasks.createTitled": "Crear tarea: {title}",
   "apiCall.tasks.createPlain": "Crear una tarea",
   "apiCall.tasks.updateOne": "Actualizar la tarea {task}",
@@ -788,7 +792,8 @@ export const es: Catalog = {
   "apiCall.tasks.markDone": "Marcar la tarea {task} como hecha",
   "apiCall.agents.list": "Listar los agentes de la oficina",
   "apiCall.agents.listKilled": "Listar los agentes eliminados",
-  "apiCall.agents.listInvalidFilter": "Listar agentes (filtro de eliminados no válido)",
+  "apiCall.agents.listInvalidFilter":
+    "Listar agentes (filtro de eliminados no válido)",
   "apiCall.agents.sendMessage": "Enviar un mensaje a un agente",
   "apiCall.agents.sendMessageTo": "Enviar un mensaje a {who}",
   "apiCall.agents.steerMessage": "Interrumpir a {who} con un mensaje",
@@ -800,9 +805,11 @@ export const es: Catalog = {
   "apiCall.agents.handoff": "Traspasar a una sesión nueva",
   "apiCall.agents.handoffFor": "Traspasar a {who} a una sesión nueva",
   "apiCall.agents.scheduledList": "Listar los mensajes programados",
-  "apiCall.agents.scheduledListFor": "Listar los mensajes programados que {who} tiene por enviar",
+  "apiCall.agents.scheduledListFor":
+    "Listar los mensajes programados que {who} tiene por enviar",
   "apiCall.agents.scheduledCancel": "Cancelar un mensaje programado",
-  "apiCall.agents.scheduledCancelFor": "Cancelar uno de los mensajes programados de {who}",
+  "apiCall.agents.scheduledCancelFor":
+    "Cancelar uno de los mensajes programados de {who}",
   "apiCall.agents.shareFile": "Compartir un archivo en el chat",
   "apiCall.agents.shareFileDetail": "Compartir un archivo en el chat",
   "apiCall.agents.previewUrl": "Capturar una página en el chat",
@@ -815,8 +822,9 @@ export const es: Catalog = {
   "apiCall.agents.suggestCommandDetail": "Sugerir un comando de terminal",
   "apiCall.agents.context": "Consultar el uso del contexto",
   "apiCall.agents.logsSearch": "Buscar en los registros de conversación",
-  "apiCall.agents.logsSearchFor": "Buscar \"{query}\" en los registros de {who}",
-  "apiCall.agents.logsAround": "Leer alrededor de una entrada en los registros de {who}",
+  "apiCall.agents.logsSearchFor": 'Buscar "{query}" en los registros de {who}',
+  "apiCall.agents.logsAround":
+    "Leer alrededor de una entrada en los registros de {who}",
   "apiCall.agents.logsSession": "Leer una sesión de los registros de {who}",
   "apiCall.agents.logsList": "Listar las sesiones de los registros de {who}",
   "apiCall.agents.instructions": "Leer las instrucciones del agente",
@@ -833,11 +841,15 @@ export const es: Catalog = {
   "apiCall.apiTokens.create": "Crear un token de API",
   "apiCall.apiTokens.revoke": "Revocar un token de API",
   "apiCall.providerAccounts.check": "Consultar las cuentas de proveedor",
-  "apiCall.providerAccounts.signInStart": "Empezar el inicio de sesión con el proveedor",
-  "apiCall.providerAccounts.signInCancel": "Cancelar el inicio de sesión con el proveedor",
-  "apiCall.providerAccounts.signOut": "Cerrar la sesión de la cuenta de proveedor",
+  "apiCall.providerAccounts.signInStart":
+    "Empezar el inicio de sesión con el proveedor",
+  "apiCall.providerAccounts.signInCancel":
+    "Cancelar el inicio de sesión con el proveedor",
+  "apiCall.providerAccounts.signOut":
+    "Cerrar la sesión de la cuenta de proveedor",
   "apiCall.providerAccounts.refresh": "Actualizar las cuentas de proveedor",
-  "apiCall.providerAccounts.signInCode": "Enviar el código de inicio de sesión del proveedor",
+  "apiCall.providerAccounts.signInCode":
+    "Enviar el código de inicio de sesión del proveedor",
   "apiCall.env.readUser": "Leer el entorno gestionado",
   "apiCall.env.saveUser": "Guardar el entorno gestionado",
   "apiCall.env.readOffice": "Leer el entorno de la oficina",
@@ -912,11 +924,11 @@ export const es: Catalog = {
   "common.days.other": "{count} días",
   "common.days.one": "{count} día",
   "common.sender.agent": "{name} · agente",
-  "common.sender.agentInRoom": "{name} · agente · Sala \"{room}\"",
+  "common.sender.agentInRoom": '{name} · agente · Sala "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programación",
   "cards.userMessage.toRemoteBoss": "Al jefe remoto",
-  "cards.userMessage.toRemoteBossNamed": "Al jefe remoto \"{name}\"",
+  "cards.userMessage.toRemoteBossNamed": 'Al jefe remoto "{name}"',
   "cards.userMessage.editAndBranch": "Editar y ramificar",
   "cards.thinking.label": "Pensando...",
   "cards.toolCall.input": "Entrada",
@@ -926,11 +938,13 @@ export const es: Catalog = {
   "cards.toolResult.showMore": "Ver más",
   "cards.toolResult.showLess": "Ver menos",
   "cards.fileView.fullSize": "Tamaño completo",
-  "cards.fileView.earlierAttachment": "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",
+  "cards.fileView.earlierAttachment":
+    "El agente ha visto un archivo adjuntado antes en este chat. Haz clic para mostrarlo.",
   "cards.editRequest.open": "Abrir en el editor",
   "cards.editRequest.openHint": "Abrir {path} en el panel lateral del editor",
   "cards.terminalCommand.copy": "Copiar en la terminal",
-  "cards.terminalCommand.copyHint": "Abre el panel de la terminal y escribe este comando en el prompt (no se ejecuta solo)",
+  "cards.terminalCommand.copyHint":
+    "Abre el panel de la terminal y escribe este comando en el prompt (no se ejecuta solo)",
   "cards.markdown.mermaidError": "Error de Mermaid",
   "cards.markdown.mermaidLoadFailed": "No se ha podido cargar mermaid",
   "cards.diff.status.added": "añadido",
@@ -939,9 +953,12 @@ export const es: Catalog = {
   "cards.diff.status.copied": "copiado",
   "cards.diff.status.untracked": "sin seguimiento",
   "cards.diff.status.binary": "binario",
-  "cards.diff.reasonTruncated": "El parche total pasaba de 2 MB, así que el contenido del diff no se ha enviado al navegador. Vuelve a ejecutar /isomux-diff con menos archivos en el árbol de trabajo, o abre este archivo en tu editor.",
-  "cards.diff.reasonBinary": "Archivo binario - no hay diff de texto que mostrar.",
-  "cards.diff.reasonUntracked": "Archivo sin seguimiento demasiado grande para sintetizar un parche (>1 MB). Ábrelo en tu editor, o haz `git add` y vuelve a ejecutarlo.",
+  "cards.diff.reasonTruncated":
+    "El parche total pasaba de 2 MB, así que el contenido del diff no se ha enviado al navegador. Vuelve a ejecutar /isomux-diff con menos archivos en el árbol de trabajo, o abre este archivo en tu editor.",
+  "cards.diff.reasonBinary":
+    "Archivo binario - no hay diff de texto que mostrar.",
+  "cards.diff.reasonUntracked":
+    "Archivo sin seguimiento demasiado grande para sintetizar un parche (>1 MB). Ábrelo en tu editor, o haz `git add` y vuelve a ejecutarlo.",
   "cards.diff.reasonNoPatch": "No hay contenido de parche para este archivo.",
   "cards.diff.closeHint": "Cerrar (Esc)",
   "cards.diff.openTruncated": "Abrir (parche no enviado)",
@@ -953,11 +970,16 @@ export const es: Catalog = {
   "cards.diff.collapseAll": "Plegar todo",
   "cards.diff.expandAll": "Desplegar todo",
   "cards.diff.summaryOnly": "· parche > 2 MB · solo el resumen",
-  "contextBattery.detail": "Contexto: {tokens} / {maxTokens} tokens usados (queda un {remaining}%).",
-  "contextBattery.nudge": "Puedes pedirle al agente que cierre el trabajo, o usar /clear para empezar una sesión nueva.",
-  "contextBattery.unknown": "El uso del contexto todavía no se ha medido. Se actualiza cuando el agente termina un turno.",
-  "contextBattery.ariaKnown": "Batería de contexto: queda un {remaining}%. Toca para ver los detalles.",
-  "contextBattery.ariaUnknown": "El uso del contexto todavía no se ha medido. Toca para ver los detalles.",
+  "contextBattery.detail":
+    "Contexto: {tokens} / {maxTokens} tokens usados (queda un {remaining}%).",
+  "contextBattery.nudge":
+    "Puedes pedirle al agente que cierre el trabajo, o usar /clear para empezar una sesión nueva.",
+  "contextBattery.unknown":
+    "El uso del contexto todavía no se ha medido. Se actualiza cuando el agente termina un turno.",
+  "contextBattery.ariaKnown":
+    "Batería de contexto: queda un {remaining}%. Toca para ver los detalles.",
+  "contextBattery.ariaUnknown":
+    "El uso del contexto todavía no se ha medido. Toca para ver los detalles.",
   "logView.state.thinking": "Pensando",
   "logView.state.toolExecuting": "Ejecutando una herramienta",
   "logView.pendingPrompt.permission": "Esperando un permiso",
@@ -967,7 +989,8 @@ export const es: Catalog = {
   "logView.abort": "Abortar",
   "logView.restartingSession": "Reiniciando la sesión...",
   "logView.queue.flushNow": "Enviar ahora",
-  "logView.queue.flushHint": "Enviar ahora los mensajes en cola (interrumpe el turno actual)",
+  "logView.queue.flushHint":
+    "Enviar ahora los mensajes en cola (interrumpe el turno actual)",
   "logView.queue.cancel": "Cancelar este mensaje en cola",
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No se ha podido aplicar esa opción.",
@@ -979,11 +1002,13 @@ export const es: Catalog = {
   "logView.backToOffice": "← Volver a la oficina",
   "logView.editTopic": "Haz clic para editar el tema",
   "logView.regenerateTopic": "Regenerar el tema a partir de la conversación",
-  "logView.noHistoryToSummarize": "No hay historial de conversación que resumir",
+  "logView.noHistoryToSummarize":
+    "No hay historial de conversación que resumir",
   "logView.lastMessagePrefix": "↑ tú:",
   "logView.empty": "Envía un mensaje para empezar una conversación.",
   "logView.loading": "Cargando...",
-  "logView.sendFailedBanner": "No se ha podido enviar - reconectando. Tu mensaje sigue en la caja; vuelve a intentarlo cuando desaparezca este aviso.",
+  "logView.sendFailedBanner":
+    "No se ha podido enviar - reconectando. Tu mensaje sigue en la caja; vuelve a intentarlo cuando desaparezca este aviso.",
   "logView.attachTooLarge": "Archivo demasiado grande (máximo 200MB)",
   "logView.attachUploading": "subiendo…",
   "logView.attachFiles": "Adjuntar archivos",
@@ -991,7 +1016,8 @@ export const es: Catalog = {
   "logView.composer.type": "Escribe un mensaje o / para los comandos...",
   "logView.composer.typeShort": "Escribe un mensaje...",
   "logView.composer.queueShort": "Escribe para poner en cola...",
-  "logView.composer.queueLong": "Escribe para poner en cola - se envía cuando acabe el turno actual · {modifier}Enter para enviarlo ahora",
+  "logView.composer.queueLong":
+    "Escribe para poner en cola - se envía cuando acabe el turno actual · {modifier}Enter para enviarlo ahora",
   "logView.composer.editing": "Editando el mensaje de arriba...",
   "logView.composer.queue": "Poner el mensaje en cola",
   "logView.cite.label": "Citar",
@@ -1011,19 +1037,24 @@ export const es: Catalog = {
   "logView.skills.origin.claude": "habilidad de claude",
   "logView.skills.origin.unknown": "habilidad",
   "logView.voice.talkHint": "Haz clic para hablar (Ctrl+Espacio para mantener)",
-  "logView.voice.blocked": "La entrada de voz está bloqueada. Revisa el permiso del micrófono para este sitio en tu navegador.",
+  "logView.voice.blocked":
+    "La entrada de voz está bloqueada. Revisa el permiso del micrófono para este sitio en tu navegador.",
   "logView.voice.noMicrophone": "No se ha encontrado ningún micrófono.",
-  "logView.voice.network": "La entrada de voz no ha podido conectar con el servicio de voz.",
+  "logView.voice.network":
+    "La entrada de voz no ha podido conectar con el servicio de voz.",
   "logView.voice.failed": "La entrada de voz ha fallado.",
   "logView.voice.speak": "Leer en voz alta",
   "logView.voice.stop": "Parar",
-  "logView.voice.noVoice": "No hay ninguna voz en {language} instalada en este dispositivo",
+  "logView.voice.noVoice":
+    "No hay ninguna voz en {language} instalada en este dispositivo",
   "logView.voice.language.en": "inglés",
   "logView.voice.language.es": "español",
   "logView.voice.language.ca": "catalán",
   "logView.voice.httpsTitle": "La entrada de voz necesita HTTPS",
-  "logView.voice.httpsStep1": "Activa HTTPS en tu <console>consola de administración de Tailscale</console> (página DNS), y luego ejecuta esto en el host (usa la terminal integrada):",
-  "logView.voice.httpsStep2": "Visita la URL HTTPS que imprime Tailscale (p. ej. <url>{example}</url>).",
+  "logView.voice.httpsStep1":
+    "Activa HTTPS en tu <console>consola de administración de Tailscale</console> (página DNS), y luego ejecuta esto en el host (usa la terminal integrada):",
+  "logView.voice.httpsStep2":
+    "Visita la URL HTTPS que imprime Tailscale (p. ej. <url>{example}</url>).",
   "panels.resizer.label": "Cambiar el ancho del panel lateral",
   "panels.terminal.ready": "Lista",
   "panels.terminal.busy": "Ocupada: {process}",
@@ -1033,10 +1064,12 @@ export const es: Catalog = {
   "panels.terminal.restartHint": "Reiniciar la terminal",
   "panels.terminal.close": "Cerrar la terminal",
   "panels.terminal.sendToChat": "Enviar al chat",
-  "panels.terminal.sendToChatHint": "Insertar el texto seleccionado en el chat como bloque de código",
+  "panels.terminal.sendToChatHint":
+    "Insertar el texto seleccionado en el chat como bloque de código",
   "panels.terminal.shellExited": "La shell ha terminado ({code})",
   "panels.terminal.unavailable": "Terminal no disponible",
-  "panels.terminal.busyIssue": "No se ha enviado: {process} está usando la terminal",
+  "panels.terminal.busyIssue":
+    "No se ha enviado: {process} está usando la terminal",
   "panels.terminal.paste": "Pegar",
   "panels.editor.close": "Cerrar el editor",
   "panels.editor.closeTab": "Cerrar la pestaña",
@@ -1044,9 +1077,12 @@ export const es: Catalog = {
   "panels.editor.saveHint": "Ctrl+S para guardar",
   "panels.editor.saved": "guardado",
   "panels.editor.recentlyOpened": "Abiertos recientemente",
-  "panels.editor.staleBanner": "El archivo ha cambiado en el disco desde que lo abriste. Si lo recargas, perderás tus cambios.",
-  "panels.editor.externalBanner": "El archivo ha cambiado por fuera - perderás tus cambios si lo recargas.",
-  "panels.editor.deletedBanner": "El archivo se ha eliminado del disco. Si lo guardas, se recreará a partir de este búfer.",
+  "panels.editor.staleBanner":
+    "El archivo ha cambiado en el disco desde que lo abriste. Si lo recargas, perderás tus cambios.",
+  "panels.editor.externalBanner":
+    "El archivo ha cambiado por fuera - perderás tus cambios si lo recargas.",
+  "panels.editor.deletedBanner":
+    "El archivo se ha eliminado del disco. Si lo guardas, se recreará a partir de este búfer.",
   "panels.editor.overwrite": "Sobrescribir",
   "panels.editor.reload": "Recargar",
   "panels.editor.saveToRecreate": "Guardar para recrearlo",
@@ -1058,14 +1094,20 @@ export const es: Catalog = {
   "subscription.caveat": "Esto es de toda la cuenta, no de cada agente.",
   "subscription.chooserHint": "Qué límite sigue el número:",
   "subscription.autoChoice": "Automático (el más ajustado)",
-  "subscription.unknown": "El uso del plan todavía no se ha informado. Se actualiza cuando el agente termina un turno - las sesiones sin límites de plan (clave de API, Bedrock, Vertex) no informan de ninguno.",
+  "subscription.unknown":
+    "El uso del plan todavía no se ha informado. Se actualiza cuando el agente termina un turno - las sesiones sin límites de plan (clave de API, Bedrock, Vertex) no informan de ninguno.",
   "subscription.readingAge": "Lectura tomada hace {age}.",
-  "subscription.ariaTracked": "Cupo del plan {label}: usado un {used}%. Toca para ver los detalles.",
-  "subscription.ariaTrackedPinned": "Cupo del plan {label}: usado un {used}%, fijado. Toca para ver los detalles.",
-  "subscription.ariaUnknown": "El uso del plan todavía no se ha informado. Toca para ver los detalles.",
+  "subscription.ariaTracked":
+    "Cupo del plan {label}: usado un {used}%. Toca para ver los detalles.",
+  "subscription.ariaTrackedPinned":
+    "Cupo del plan {label}: usado un {used}%, fijado. Toca para ver los detalles.",
+  "subscription.ariaUnknown":
+    "El uso del plan todavía no se ha informado. Toca para ver los detalles.",
   "subscription.window.used": "{label}: usado un {percent}%",
-  "subscription.window.usedResets": "{label}: usado un {percent}% - se reinicia el {at}",
-  "subscription.window.usedResetsIn": "{label}: usado un {percent}% - se reinicia el {at} (dentro de {duration})",
+  "subscription.window.usedResets":
+    "{label}: usado un {percent}% - se reinicia el {at}",
+  "subscription.window.usedResetsIn":
+    "{label}: usado un {percent}% - se reinicia el {at} (dentro de {duration})",
   "subscription.duration.hours.one": "{count} hora",
   "subscription.duration.hours.other": "{count} horas",
   "subscription.duration.minutes": "{count} min",
@@ -1073,7 +1115,8 @@ export const es: Catalog = {
   "subscription.duration.hoursMinutes": "{hours} y {minutes}",
   "logView.editAgent": "Editar el agente",
   "panels.editor.noFileOpen": "Ningún archivo abierto",
-  "panels.editor.emptyHint": "Ningún archivo abierto. Usa <code>{command}</code> o pide al agente que te envíe uno.",
+  "panels.editor.emptyHint":
+    "Ningún archivo abierto. Usa <code>{command}</code> o pide al agente que te envíe uno.",
   "logView.queue.count": "{count} en cola",
   "logView.queue.chip": "en cola · {label}",
   "logView.queue.attachments.one": "{count} adjunto",
@@ -1087,5 +1130,6 @@ export const es: Catalog = {
   "cards.subagent.titleDescribed": "Subagente: {description}",
   "cards.subagent.titleTypedDescribed": "Subagente ({type}): {description}",
   "cards.fileView.viewedFile": "Ha visto {file} (haz clic para mostrarlo)",
-  "cards.fileView.viewedImages": "Ha visto {count} imágenes adjuntas (haz clic para mostrarlas)",
+  "cards.fileView.viewedImages":
+    "Ha visto {count} imágenes adjuntas (haz clic para mostrarlas)",
 };

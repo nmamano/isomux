@@ -731,7 +731,9 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
       `jq -n --arg text "hello" '{text: $text}' | ${CURL_TAIL}`,
     );
     expect(
-      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) =>
+        id === "agent-1" ? "Bob" : null,
+      ),
     ).toBe("Send a message to Bob");
   });
 });
@@ -834,9 +836,13 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
 
   test("input-shaping flags without a modeled input source", () => {
     // -Rs reading (empty) stdin: accepted, unresolved - note only.
-    expect(parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toEqual({ kind: "jq", readFiles: [] });
+    expect(
+      parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote,
+    ).toEqual({ kind: "jq", readFiles: [] });
     // `.` under -n has no input to show - never resolves to a field.
-    expect(parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toEqual({ kind: "jq", readFiles: [] });
+    expect(
+      parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote,
+    ).toEqual({ kind: "jq", readFiles: [] });
   });
 
   test("rejects input shapes beyond the -Rs slurp grammar", () => {
@@ -898,7 +904,9 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
       `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nhello\nEOF`,
     );
     expect(
-      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) =>
+        id === "agent-1" ? "Bob" : null,
+      ),
     ).toBe("Send a message to Bob");
   });
 });
@@ -987,8 +995,12 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
   });
 
   test("non-object JSON (array/scalar) and empty body note only", () => {
-    expect(parseIsomuxCurl(POST("'EOF'", `[1,2,3]`))!.bodyNote).toEqual({ kind: "heredoc" });
-    expect(parseIsomuxCurl(POST("'EOF'", `"hi"`))!.bodyNote).toEqual({ kind: "heredoc" });
+    expect(parseIsomuxCurl(POST("'EOF'", `[1,2,3]`))!.bodyNote).toEqual({
+      kind: "heredoc",
+    });
+    expect(parseIsomuxCurl(POST("'EOF'", `"hi"`))!.bodyNote).toEqual({
+      kind: "heredoc",
+    });
     // Empty heredoc body: JSON.parse("") throws -> note.
     const empty = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/agents/agent-1/messages -d @- <<'EOF'\nEOF`,
@@ -1030,7 +1042,9 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
       POST("'JSON'", `{"text":"hi","deliverAt":"x"}`),
     );
     expect(
-      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) =>
+        id === "agent-1" ? "Bob" : null,
+      ),
     ).toBe("Schedule a message to Bob");
   });
 
@@ -1103,7 +1117,9 @@ describe("describeIsomuxRoute", () => {
     expect(describeIsomuxRoute("GET", "/api/tasks?status=all")).toBe(
       "apiCall.tasks.list",
     );
-    expect(describeIsomuxRoute("GET", "/api/tasks/")).toBe("apiCall.tasks.list");
+    expect(describeIsomuxRoute("GET", "/api/tasks/")).toBe(
+      "apiCall.tasks.list",
+    );
     expect(describeIsomuxRoute("GET", "/api/tasks")).toBe("apiCall.tasks.list");
   });
 
@@ -1148,7 +1164,9 @@ describe("describeIsomuxRoute", () => {
       "/api/agents/agent-123/logs?q=marmalade",
       "/api/agents/agent-123/logs?session=s1&around=e4",
     ]) {
-      expect(describeIsomuxRoute("GET", path)).toBe("apiCall.agents.logsSearch");
+      expect(describeIsomuxRoute("GET", path)).toBe(
+        "apiCall.agents.logsSearch",
+      );
     }
   });
 });
@@ -1348,7 +1366,10 @@ describe("agent discovery route label", () => {
     }
     // Absent is untouched: the live roster, as before.
     expect(
-      humanizeIsomuxRequest(EN, parseIsomuxCurl("curl -s localhost:4000/agents")!),
+      humanizeIsomuxRequest(
+        EN,
+        parseIsomuxCurl("curl -s localhost:4000/agents")!,
+      ),
     ).toBe("List office agents");
   });
 });

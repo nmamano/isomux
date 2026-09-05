@@ -37,12 +37,12 @@ describe("serializeEntries", () => {
 
 describe("describeMessageSender", () => {
   it("a boss is a human, labelled by name and device", () => {
-    expect(describeMessageSender(EN, { username: "Nil", device: "Phone" })).toEqual(
-      {
-        label: "Nil (Phone)",
-        fromHuman: true,
-      },
-    );
+    expect(
+      describeMessageSender(EN, { username: "Nil", device: "Phone" }),
+    ).toEqual({
+      label: "Nil (Phone)",
+      fromHuman: true,
+    });
   });
 
   it("no metadata at all is still the human path (the card falls back to 'You')", () => {

@@ -37,8 +37,10 @@ export function IsomuxCurlHeader({
   const { agents } = useAppState();
   const i18n = useI18n();
   const label =
-    humanizeIsomuxRequest(i18n, req, (id) =>
-      agents.find((a) => a.id === id)?.name ?? null,
+    humanizeIsomuxRequest(
+      i18n,
+      req,
+      (id) => agents.find((a) => a.id === id)?.name ?? null,
     ) ?? (req.actionKey ? i18n.t(req.actionKey) : null);
   return (
     <>
@@ -163,7 +165,9 @@ export function IsomuxCurlFields({
     chips.push({
       key: null,
       value: t(
-        req.outputAppend ? "apiCall.body.outputAppended" : "apiCall.body.output",
+        req.outputAppend
+          ? "apiCall.body.outputAppended"
+          : "apiCall.body.output",
         { file: truncate(req.outputFile, MAX_VALUE_CHARS) },
       ),
       note: true,

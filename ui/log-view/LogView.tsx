@@ -2389,8 +2389,7 @@ export function LogView({
                 !editingLogEntryId &&
                 agent.capabilities.edit;
               const isUserMsg =
-                entry.kind === "user_message" &&
-                senderIsHuman(entry.metadata);
+                entry.kind === "user_message" && senderIsHuman(entry.metadata);
               return (
                 <div
                   key={entry.id}
@@ -3201,9 +3200,7 @@ export function LogView({
                       transition: "background 0.15s, color 0.15s",
                     }}
                     title={i18n.t(
-                      isBusy
-                        ? "logView.composer.queue"
-                        : "common.send",
+                      isBusy ? "logView.composer.queue" : "common.send",
                     )}
                   >
                     ▲

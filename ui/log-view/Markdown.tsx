@@ -333,7 +333,12 @@ export function Markdown({ content }: { content: string }) {
             node.setAttribute("data-processed", "true");
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            markError(node, i18n.t("cards.markdown.mermaidError"), msg, sources[i]);
+            markError(
+              node,
+              i18n.t("cards.markdown.mermaidError"),
+              msg,
+              sources[i],
+            );
           }
         }
       })
@@ -341,7 +346,12 @@ export function Markdown({ content }: { content: string }) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
         nodes.forEach((node, i) => {
-          markError(node, i18n.t("cards.markdown.mermaidLoadFailed"), msg, sources[i]);
+          markError(
+            node,
+            i18n.t("cards.markdown.mermaidLoadFailed"),
+            msg,
+            sources[i],
+          );
         });
       });
     return () => {

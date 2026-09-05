@@ -775,14 +775,26 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["PUT", "/api/users/*/env", "apiCall.env.saveUser"],
   ["GET", "/api/office/env", "apiCall.env.readOffice"],
   ["PUT", "/api/office/env", "apiCall.env.saveOffice"],
-  ["POST", "/api/me/provider-accounts/*/login", "apiCall.providerAccounts.signInStart"],
-  ["POST", "/api/me/provider-accounts/*/cancel", "apiCall.providerAccounts.signInCancel"],
+  [
+    "POST",
+    "/api/me/provider-accounts/*/login",
+    "apiCall.providerAccounts.signInStart",
+  ],
+  [
+    "POST",
+    "/api/me/provider-accounts/*/cancel",
+    "apiCall.providerAccounts.signInCancel",
+  ],
   [
     "POST",
     "/api/me/provider-accounts/*/disconnect",
     "apiCall.providerAccounts.signOut",
   ],
-  ["POST", "/api/me/provider-accounts/refresh", "apiCall.providerAccounts.refresh"],
+  [
+    "POST",
+    "/api/me/provider-accounts/refresh",
+    "apiCall.providerAccounts.refresh",
+  ],
   [
     "POST",
     "/api/me/provider-accounts/:provider/callback",
@@ -792,7 +804,11 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/me/api-token-inbox/drain", "apiCall.inbox.drain"],
   ["POST", "/api/agents/*/handoff", "apiCall.agents.handoff"],
   ["GET", "/api/agents/*/scheduled-messages", "apiCall.agents.scheduledList"],
-  ["DELETE", "/api/agents/*/scheduled-messages/*", "apiCall.agents.scheduledCancel"],
+  [
+    "DELETE",
+    "/api/agents/*/scheduled-messages/*",
+    "apiCall.agents.scheduledCancel",
+  ],
   ["POST", "/api/agents/*/read-file", "apiCall.agents.shareFile"],
   ["POST", "/api/agents/*/preview-url", "apiCall.agents.previewUrl"],
   ["POST", "/api/agents/*/diff", "apiCall.agents.showDiff"],
@@ -908,7 +924,9 @@ export function humanizeIsomuxRequest(
     if (m === "POST")
       return t(known ? MEMORY_SAVE_KEYS[scope] : "apiCall.memory.save");
     if (m === "PUT")
-      return t(known ? MEMORY_REWRITE_KEYS[scope] : "apiCall.memory.rewriteAny");
+      return t(
+        known ? MEMORY_REWRITE_KEYS[scope] : "apiCall.memory.rewriteAny",
+      );
   }
 
   // Task board (/api/tasks; the leading `api` segment was shifted off above)
@@ -958,7 +976,8 @@ export function humanizeIsomuxRequest(
     }
     if (segs.length === 2) {
       if (m === "PATCH") return t("apiCall.tasks.updateOne", { task: segs[1] });
-      if (m === "DELETE") return t("apiCall.tasks.deleteOne", { task: segs[1] });
+      if (m === "DELETE")
+        return t("apiCall.tasks.deleteOne", { task: segs[1] });
       if (m === "GET") return t("apiCall.tasks.readOne", { task: segs[1] });
     }
     if (segs.length === 3 && m === "POST") {

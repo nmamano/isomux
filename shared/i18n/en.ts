@@ -797,7 +797,8 @@ export const en = {
   "apiCall.agents.scheduledList": "List scheduled messages",
   "apiCall.agents.scheduledListFor": "List {who}'s outgoing scheduled messages",
   "apiCall.agents.scheduledCancel": "Cancel scheduled message",
-  "apiCall.agents.scheduledCancelFor": "Cancel one of {who}'s outgoing scheduled messages",
+  "apiCall.agents.scheduledCancelFor":
+    "Cancel one of {who}'s outgoing scheduled messages",
   "apiCall.agents.shareFile": "Share file to chat",
   "apiCall.agents.shareFileDetail": "Share a file to chat",
   "apiCall.agents.previewUrl": "Screenshot page to chat",
@@ -810,7 +811,7 @@ export const en = {
   "apiCall.agents.suggestCommandDetail": "Suggest a terminal command",
   "apiCall.agents.context": "Check context usage",
   "apiCall.agents.logsSearch": "Search conversation logs",
-  "apiCall.agents.logsSearchFor": "Search {who}'s logs for \"{query}\"",
+  "apiCall.agents.logsSearchFor": 'Search {who}\'s logs for "{query}"',
   "apiCall.agents.logsAround": "Read around an entry in {who}'s logs",
   "apiCall.agents.logsSession": "Read a session from {who}'s logs",
   "apiCall.agents.logsList": "List {who}'s log sessions",
@@ -907,11 +908,11 @@ export const en = {
   "common.days.other": "{count} days",
   "common.days.one": "{count} day",
   "common.sender.agent": "{name} · agent",
-  "common.sender.agentInRoom": "{name} · agent · Room \"{room}\"",
+  "common.sender.agentInRoom": '{name} · agent · Room "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · schedule",
   "cards.userMessage.toRemoteBoss": "To remote boss",
-  "cards.userMessage.toRemoteBossNamed": "To remote boss \"{name}\"",
+  "cards.userMessage.toRemoteBossNamed": 'To remote boss "{name}"',
   "cards.userMessage.editAndBranch": "Edit & branch",
   "cards.thinking.label": "Thinking...",
   "cards.toolCall.input": "Input",
@@ -921,11 +922,13 @@ export const en = {
   "cards.toolResult.showMore": "Show more",
   "cards.toolResult.showLess": "Show less",
   "cards.fileView.fullSize": "Full size",
-  "cards.fileView.earlierAttachment": "The agent viewed a file attached earlier in this chat. Click to show it.",
+  "cards.fileView.earlierAttachment":
+    "The agent viewed a file attached earlier in this chat. Click to show it.",
   "cards.editRequest.open": "Open in editor",
   "cards.editRequest.openHint": "Open {path} in the editor side panel",
   "cards.terminalCommand.copy": "Copy to terminal",
-  "cards.terminalCommand.copyHint": "Open the terminal panel and type this command at the prompt (not auto-executed)",
+  "cards.terminalCommand.copyHint":
+    "Open the terminal panel and type this command at the prompt (not auto-executed)",
   "cards.markdown.mermaidError": "Mermaid error",
   "cards.markdown.mermaidLoadFailed": "Failed to load mermaid",
   "cards.diff.status.added": "added",
@@ -934,9 +937,11 @@ export const en = {
   "cards.diff.status.copied": "copied",
   "cards.diff.status.untracked": "untracked",
   "cards.diff.status.binary": "binary",
-  "cards.diff.reasonTruncated": "The total patch was over 2 MB so the diff content was not shipped to the browser. Re-run /isomux-diff after narrowing the working tree, or open this file in your editor.",
+  "cards.diff.reasonTruncated":
+    "The total patch was over 2 MB so the diff content was not shipped to the browser. Re-run /isomux-diff after narrowing the working tree, or open this file in your editor.",
   "cards.diff.reasonBinary": "Binary file - no textual diff to render.",
-  "cards.diff.reasonUntracked": "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run.",
+  "cards.diff.reasonUntracked":
+    "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run.",
   "cards.diff.reasonNoPatch": "No patch content for this file.",
   "cards.diff.closeHint": "Close (Esc)",
   "cards.diff.openTruncated": "Open (patch not shipped)",
@@ -948,11 +953,16 @@ export const en = {
   "cards.diff.collapseAll": "Collapse all",
   "cards.diff.expandAll": "Expand all",
   "cards.diff.summaryOnly": "· patch > 2 MB · summary only",
-  "contextBattery.detail": "Context: {tokens} / {maxTokens} tokens used ({remaining}% left).",
-  "contextBattery.nudge": "Consider asking the agent to wrap up, or /clear for a fresh session.",
-  "contextBattery.unknown": "Context usage not measured yet. It updates when the agent finishes a turn.",
-  "contextBattery.ariaKnown": "Context battery {remaining}% remaining. Tap for details.",
-  "contextBattery.ariaUnknown": "Context usage not measured yet. Tap for details.",
+  "contextBattery.detail":
+    "Context: {tokens} / {maxTokens} tokens used ({remaining}% left).",
+  "contextBattery.nudge":
+    "Consider asking the agent to wrap up, or /clear for a fresh session.",
+  "contextBattery.unknown":
+    "Context usage not measured yet. It updates when the agent finishes a turn.",
+  "contextBattery.ariaKnown":
+    "Context battery {remaining}% remaining. Tap for details.",
+  "contextBattery.ariaUnknown":
+    "Context usage not measured yet. Tap for details.",
   "logView.state.thinking": "Thinking",
   "logView.state.toolExecuting": "Running tool",
   "logView.pendingPrompt.permission": "Waiting for permission",
@@ -962,7 +972,8 @@ export const en = {
   "logView.abort": "Abort",
   "logView.restartingSession": "Restarting session...",
   "logView.queue.flushNow": "Send now",
-  "logView.queue.flushHint": "Flush queued messages now (interrupts the current turn)",
+  "logView.queue.flushHint":
+    "Flush queued messages now (interrupts the current turn)",
   "logView.queue.cancel": "Cancel this queued message",
   "logView.interaction.current": "Current",
   "logView.interaction.failed": "Could not apply that choice.",
@@ -978,7 +989,8 @@ export const en = {
   "logView.lastMessagePrefix": "↑ you:",
   "logView.empty": "Send a message to start a conversation.",
   "logView.loading": "Loading...",
-  "logView.sendFailedBanner": "Couldn't send - reconnecting. Your message is still in the box; try again once the banner clears.",
+  "logView.sendFailedBanner":
+    "Couldn't send - reconnecting. Your message is still in the box; try again once the banner clears.",
   "logView.attachTooLarge": "File too large (max 200MB)",
   "logView.attachUploading": "uploading…",
   "logView.attachFiles": "Attach files",
@@ -986,7 +998,8 @@ export const en = {
   "logView.composer.type": "Type a message or / for commands...",
   "logView.composer.typeShort": "Type a message...",
   "logView.composer.queueShort": "Type to queue...",
-  "logView.composer.queueLong": "Type to queue - sends when current turn ends · {modifier}Enter to send now",
+  "logView.composer.queueLong":
+    "Type to queue - sends when current turn ends · {modifier}Enter to send now",
   "logView.composer.editing": "Editing message above...",
   "logView.composer.queue": "Queue message",
   "logView.cite.label": "Cite",
@@ -1006,7 +1019,8 @@ export const en = {
   "logView.skills.origin.claude": "claude skill",
   "logView.skills.origin.unknown": "skill",
   "logView.voice.talkHint": "Click to talk (Ctrl+Space to hold)",
-  "logView.voice.blocked": "Voice input is blocked. Check this site's microphone permission in your browser.",
+  "logView.voice.blocked":
+    "Voice input is blocked. Check this site's microphone permission in your browser.",
   "logView.voice.noMicrophone": "No microphone was found.",
   "logView.voice.network": "Voice input could not reach the speech service.",
   "logView.voice.failed": "Voice input failed.",
@@ -1017,8 +1031,10 @@ export const en = {
   "logView.voice.language.es": "Spanish",
   "logView.voice.language.ca": "Catalan",
   "logView.voice.httpsTitle": "Voice input requires HTTPS",
-  "logView.voice.httpsStep1": "Enable HTTPS in your <console>Tailscale admin console</console> (DNS page), then run these on the host (use the built-in terminal):",
-  "logView.voice.httpsStep2": "Visit the HTTPS URL Tailscale prints (e.g. <url>{example}</url>).",
+  "logView.voice.httpsStep1":
+    "Enable HTTPS in your <console>Tailscale admin console</console> (DNS page), then run these on the host (use the built-in terminal):",
+  "logView.voice.httpsStep2":
+    "Visit the HTTPS URL Tailscale prints (e.g. <url>{example}</url>).",
   "panels.resizer.label": "Resize side panel",
   "panels.terminal.ready": "Ready",
   "panels.terminal.busy": "Busy: {process}",
@@ -1028,7 +1044,8 @@ export const en = {
   "panels.terminal.restartHint": "Restart the terminal",
   "panels.terminal.close": "Close terminal",
   "panels.terminal.sendToChat": "Send to chat",
-  "panels.terminal.sendToChatHint": "Insert the selected text into the chat input as a code block",
+  "panels.terminal.sendToChatHint":
+    "Insert the selected text into the chat input as a code block",
   "panels.terminal.shellExited": "Shell exited ({code})",
   "panels.terminal.unavailable": "Terminal unavailable",
   "panels.terminal.busyIssue": "Not sent: {process} is using the terminal",
@@ -1039,9 +1056,12 @@ export const en = {
   "panels.editor.saveHint": "Ctrl+S to save",
   "panels.editor.saved": "saved",
   "panels.editor.recentlyOpened": "Recently opened",
-  "panels.editor.staleBanner": "File changed on disk since you opened it. Reloading will discard your edits.",
-  "panels.editor.externalBanner": "File changed externally - your edits will be lost if you reload.",
-  "panels.editor.deletedBanner": "File was deleted on disk. Saving will recreate it from this buffer.",
+  "panels.editor.staleBanner":
+    "File changed on disk since you opened it. Reloading will discard your edits.",
+  "panels.editor.externalBanner":
+    "File changed externally - your edits will be lost if you reload.",
+  "panels.editor.deletedBanner":
+    "File was deleted on disk. Saving will recreate it from this buffer.",
   "panels.editor.overwrite": "Overwrite",
   "panels.editor.reload": "Reload",
   "panels.editor.saveToRecreate": "Save to recreate",
@@ -1053,14 +1073,18 @@ export const en = {
   "subscription.caveat": "This is account-wide, not per agent.",
   "subscription.chooserHint": "Which limit the number tracks:",
   "subscription.autoChoice": "Auto (most constrained)",
-  "subscription.unknown": "Plan usage not reported yet. It updates when the agent finishes a turn - sessions without plan limits (API key, Bedrock, Vertex) never report one.",
+  "subscription.unknown":
+    "Plan usage not reported yet. It updates when the agent finishes a turn - sessions without plan limits (API key, Bedrock, Vertex) never report one.",
   "subscription.readingAge": "Reading taken {age} ago.",
-  "subscription.ariaTracked": "{label} plan allowance {used}% used. Tap for details.",
-  "subscription.ariaTrackedPinned": "{label} plan allowance {used}% used, pinned. Tap for details.",
+  "subscription.ariaTracked":
+    "{label} plan allowance {used}% used. Tap for details.",
+  "subscription.ariaTrackedPinned":
+    "{label} plan allowance {used}% used, pinned. Tap for details.",
   "subscription.ariaUnknown": "Plan usage not reported yet. Tap for details.",
   "subscription.window.used": "{label}: {percent}% used",
   "subscription.window.usedResets": "{label}: {percent}% used - resets {at}",
-  "subscription.window.usedResetsIn": "{label}: {percent}% used - resets {at} (in {duration})",
+  "subscription.window.usedResetsIn":
+    "{label}: {percent}% used - resets {at} (in {duration})",
   "subscription.duration.hours.one": "{count} hour",
   "subscription.duration.hours.other": "{count} hours",
   "subscription.duration.minutes": "{count} min",
@@ -1068,7 +1092,8 @@ export const en = {
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "Edit agent",
   "panels.editor.noFileOpen": "No file open",
-  "panels.editor.emptyHint": "No file open. Use <code>{command}</code> or have the agent send one.",
+  "panels.editor.emptyHint":
+    "No file open. Use <code>{command}</code> or have the agent send one.",
   "logView.queue.count": "{count} queued",
   "logView.queue.chip": "queued · {label}",
   "logView.queue.attachments.one": "{count} attachment",
@@ -1082,7 +1107,8 @@ export const en = {
   "cards.subagent.titleDescribed": "Subagent: {description}",
   "cards.subagent.titleTypedDescribed": "Subagent ({type}): {description}",
   "cards.fileView.viewedFile": "Viewed {file} (click to show)",
-  "cards.fileView.viewedImages": "Viewed {count} attached images (click to show)",
+  "cards.fileView.viewedImages":
+    "Viewed {count} attached images (click to show)",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

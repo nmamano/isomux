@@ -71,8 +71,6 @@ export function formatTimeUntil(i18n: Translator, ms: number): string {
   return minuteText;
 }
 
-
-
 // One line per window: "Weekly: 34% used - resets Sat 1 Aug, 09:00 (in 2 days
 // 5 hours)". Use plain spaced hyphens, never em dashes.
 // `nowMs` is null for the hover tooltip, which renders on every re-render and

@@ -766,14 +766,18 @@ export const ca: Catalog = {
   "apiCall.tasks.update": "Actualitzar tasca",
   "apiCall.tasks.delete": "Eliminar tasca",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
-  "apiCall.tasks.listOpenGlobal": "Llistar tasques obertes (només les globals de l'oficina)",
+  "apiCall.tasks.listOpenGlobal":
+    "Llistar tasques obertes (només les globals de l'oficina)",
   "apiCall.tasks.listOpenInRoom": "Llistar tasques obertes d'una sala",
   "apiCall.tasks.listAll": "Llistar totes les tasques",
-  "apiCall.tasks.listAllGlobal": "Llistar totes les tasques (només les globals de l'oficina)",
+  "apiCall.tasks.listAllGlobal":
+    "Llistar totes les tasques (només les globals de l'oficina)",
   "apiCall.tasks.listAllInRoom": "Llistar totes les tasques d'una sala",
   "apiCall.tasks.listStatus": "Llistar tasques amb estat {status}",
-  "apiCall.tasks.listStatusGlobal": "Llistar tasques amb estat {status} (només les globals de l'oficina)",
-  "apiCall.tasks.listStatusInRoom": "Llistar tasques amb estat {status} d'una sala",
+  "apiCall.tasks.listStatusGlobal":
+    "Llistar tasques amb estat {status} (només les globals de l'oficina)",
+  "apiCall.tasks.listStatusInRoom":
+    "Llistar tasques amb estat {status} d'una sala",
   "apiCall.tasks.createTitled": "Crear tasca: {title}",
   "apiCall.tasks.createPlain": "Crear una tasca",
   "apiCall.tasks.updateOne": "Actualitzar la tasca {task}",
@@ -784,7 +788,8 @@ export const ca: Catalog = {
   "apiCall.tasks.markDone": "Marcar la tasca {task} com a feta",
   "apiCall.agents.list": "Llistar els agents de l'oficina",
   "apiCall.agents.listKilled": "Llistar els agents eliminats",
-  "apiCall.agents.listInvalidFilter": "Llistar agents (filtre d'eliminats no vàlid)",
+  "apiCall.agents.listInvalidFilter":
+    "Llistar agents (filtre d'eliminats no vàlid)",
   "apiCall.agents.sendMessage": "Enviar un missatge a un agent",
   "apiCall.agents.sendMessageTo": "Enviar un missatge a {who}",
   "apiCall.agents.steerMessage": "Interrompre {who} amb un missatge",
@@ -796,9 +801,11 @@ export const ca: Catalog = {
   "apiCall.agents.handoff": "Traspassar a una sessió nova",
   "apiCall.agents.handoffFor": "Traspassar {who} a una sessió nova",
   "apiCall.agents.scheduledList": "Llistar els missatges programats",
-  "apiCall.agents.scheduledListFor": "Llistar els missatges programats que {who} té per enviar",
+  "apiCall.agents.scheduledListFor":
+    "Llistar els missatges programats que {who} té per enviar",
   "apiCall.agents.scheduledCancel": "Cancel·lar un missatge programat",
-  "apiCall.agents.scheduledCancelFor": "Cancel·lar un dels missatges programats de {who}",
+  "apiCall.agents.scheduledCancelFor":
+    "Cancel·lar un dels missatges programats de {who}",
   "apiCall.agents.shareFile": "Compartir un fitxer al xat",
   "apiCall.agents.shareFileDetail": "Compartir un fitxer al xat",
   "apiCall.agents.previewUrl": "Capturar una pàgina al xat",
@@ -811,8 +818,9 @@ export const ca: Catalog = {
   "apiCall.agents.suggestCommandDetail": "Suggerir una ordre de terminal",
   "apiCall.agents.context": "Consultar l'ús del context",
   "apiCall.agents.logsSearch": "Cercar als registres de conversa",
-  "apiCall.agents.logsSearchFor": "Cercar \"{query}\" als registres de {who}",
-  "apiCall.agents.logsAround": "Llegir al voltant d'una entrada als registres de {who}",
+  "apiCall.agents.logsSearchFor": 'Cercar "{query}" als registres de {who}',
+  "apiCall.agents.logsAround":
+    "Llegir al voltant d'una entrada als registres de {who}",
   "apiCall.agents.logsSession": "Llegir una sessió dels registres de {who}",
   "apiCall.agents.logsList": "Llistar les sessions dels registres de {who}",
   "apiCall.agents.instructions": "Llegir les instruccions de l'agent",
@@ -829,11 +837,15 @@ export const ca: Catalog = {
   "apiCall.apiTokens.create": "Crear un token d'API",
   "apiCall.apiTokens.revoke": "Revocar un token d'API",
   "apiCall.providerAccounts.check": "Consultar els comptes de proveïdor",
-  "apiCall.providerAccounts.signInStart": "Començar l'inici de sessió amb el proveïdor",
-  "apiCall.providerAccounts.signInCancel": "Cancel·lar l'inici de sessió amb el proveïdor",
-  "apiCall.providerAccounts.signOut": "Tancar la sessió del compte de proveïdor",
+  "apiCall.providerAccounts.signInStart":
+    "Començar l'inici de sessió amb el proveïdor",
+  "apiCall.providerAccounts.signInCancel":
+    "Cancel·lar l'inici de sessió amb el proveïdor",
+  "apiCall.providerAccounts.signOut":
+    "Tancar la sessió del compte de proveïdor",
   "apiCall.providerAccounts.refresh": "Actualitzar els comptes de proveïdor",
-  "apiCall.providerAccounts.signInCode": "Enviar el codi d'inici de sessió del proveïdor",
+  "apiCall.providerAccounts.signInCode":
+    "Enviar el codi d'inici de sessió del proveïdor",
   "apiCall.env.readUser": "Llegir l'entorn gestionat",
   "apiCall.env.saveUser": "Desar l'entorn gestionat",
   "apiCall.env.readOffice": "Llegir l'entorn de l'oficina",
@@ -908,11 +920,11 @@ export const ca: Catalog = {
   "common.days.other": "{count} dies",
   "common.days.one": "{count} dia",
   "common.sender.agent": "{name} · agent",
-  "common.sender.agentInRoom": "{name} · agent · Sala \"{room}\"",
+  "common.sender.agentInRoom": '{name} · agent · Sala "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programació",
   "cards.userMessage.toRemoteBoss": "Al cap remot",
-  "cards.userMessage.toRemoteBossNamed": "Al cap remot \"{name}\"",
+  "cards.userMessage.toRemoteBossNamed": 'Al cap remot "{name}"',
   "cards.userMessage.editAndBranch": "Edita i ramifica",
   "cards.thinking.label": "Pensant...",
   "cards.toolCall.input": "Entrada",
@@ -922,11 +934,13 @@ export const ca: Catalog = {
   "cards.toolResult.showMore": "Mostra'n més",
   "cards.toolResult.showLess": "Mostra'n menys",
   "cards.fileView.fullSize": "Mida completa",
-  "cards.fileView.earlierAttachment": "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",
+  "cards.fileView.earlierAttachment":
+    "L'agent ha vist un fitxer adjuntat abans en aquest xat. Fes clic per mostrar-lo.",
   "cards.editRequest.open": "Obre a l'editor",
   "cards.editRequest.openHint": "Obre {path} al plafó lateral de l'editor",
   "cards.terminalCommand.copy": "Copia a la terminal",
-  "cards.terminalCommand.copyHint": "Obre el plafó de la terminal i escriu aquesta ordre al prompt (no s'executa sola)",
+  "cards.terminalCommand.copyHint":
+    "Obre el plafó de la terminal i escriu aquesta ordre al prompt (no s'executa sola)",
   "cards.markdown.mermaidError": "Error de Mermaid",
   "cards.markdown.mermaidLoadFailed": "No s'ha pogut carregar mermaid",
   "cards.diff.status.added": "afegit",
@@ -935,10 +949,14 @@ export const ca: Catalog = {
   "cards.diff.status.copied": "copiat",
   "cards.diff.status.untracked": "sense seguiment",
   "cards.diff.status.binary": "binari",
-  "cards.diff.reasonTruncated": "El pedaç total passava de 2 MB, així que el contingut del diff no s'ha enviat al navegador. Torna a executar /isomux-diff amb menys fitxers a l'arbre de treball, o obre aquest fitxer al teu editor.",
-  "cards.diff.reasonBinary": "Fitxer binari - no hi ha cap diff de text per mostrar.",
-  "cards.diff.reasonUntracked": "Fitxer sense seguiment massa gran per sintetitzar un pedaç (>1 MB). Obre'l al teu editor, o fes-hi `git add` i torna-ho a executar.",
-  "cards.diff.reasonNoPatch": "No hi ha contingut de pedaç per a aquest fitxer.",
+  "cards.diff.reasonTruncated":
+    "El pedaç total passava de 2 MB, així que el contingut del diff no s'ha enviat al navegador. Torna a executar /isomux-diff amb menys fitxers a l'arbre de treball, o obre aquest fitxer al teu editor.",
+  "cards.diff.reasonBinary":
+    "Fitxer binari - no hi ha cap diff de text per mostrar.",
+  "cards.diff.reasonUntracked":
+    "Fitxer sense seguiment massa gran per sintetitzar un pedaç (>1 MB). Obre'l al teu editor, o fes-hi `git add` i torna-ho a executar.",
+  "cards.diff.reasonNoPatch":
+    "No hi ha contingut de pedaç per a aquest fitxer.",
   "cards.diff.closeHint": "Tanca (Esc)",
   "cards.diff.openTruncated": "Obre (pedaç no enviat)",
   "cards.diff.openBinary": "Obre (binari)",
@@ -949,11 +967,16 @@ export const ca: Catalog = {
   "cards.diff.collapseAll": "Plega-ho tot",
   "cards.diff.expandAll": "Desplega-ho tot",
   "cards.diff.summaryOnly": "· pedaç > 2 MB · només el resum",
-  "contextBattery.detail": "Context: {tokens} / {maxTokens} tokens utilitzats (en queda un {remaining}%).",
-  "contextBattery.nudge": "Pots demanar a l'agent que tanqui la feina, o fer servir /clear per començar una sessió nova.",
-  "contextBattery.unknown": "L'ús del context encara no s'ha mesurat. S'actualitza quan l'agent acaba un torn.",
-  "contextBattery.ariaKnown": "Bateria de context: en queda un {remaining}%. Toca per veure'n els detalls.",
-  "contextBattery.ariaUnknown": "L'ús del context encara no s'ha mesurat. Toca per veure'n els detalls.",
+  "contextBattery.detail":
+    "Context: {tokens} / {maxTokens} tokens utilitzats (en queda un {remaining}%).",
+  "contextBattery.nudge":
+    "Pots demanar a l'agent que tanqui la feina, o fer servir /clear per començar una sessió nova.",
+  "contextBattery.unknown":
+    "L'ús del context encara no s'ha mesurat. S'actualitza quan l'agent acaba un torn.",
+  "contextBattery.ariaKnown":
+    "Bateria de context: en queda un {remaining}%. Toca per veure'n els detalls.",
+  "contextBattery.ariaUnknown":
+    "L'ús del context encara no s'ha mesurat. Toca per veure'n els detalls.",
   "logView.state.thinking": "Pensant",
   "logView.state.toolExecuting": "Executant una eina",
   "logView.pendingPrompt.permission": "Esperant un permís",
@@ -963,7 +986,8 @@ export const ca: Catalog = {
   "logView.abort": "Avorta",
   "logView.restartingSession": "Reiniciant la sessió...",
   "logView.queue.flushNow": "Envia ara",
-  "logView.queue.flushHint": "Envia ara els missatges en cua (interromp el torn actual)",
+  "logView.queue.flushHint":
+    "Envia ara els missatges en cua (interromp el torn actual)",
   "logView.queue.cancel": "Cancel·la aquest missatge en cua",
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No s'ha pogut aplicar aquesta opció.",
@@ -979,7 +1003,8 @@ export const ca: Catalog = {
   "logView.lastMessagePrefix": "↑ tu:",
   "logView.empty": "Envia un missatge per començar una conversa.",
   "logView.loading": "Carregant...",
-  "logView.sendFailedBanner": "No s'ha pogut enviar - reconnectant. El teu missatge continua a la caixa; torna-ho a provar quan desaparegui aquest avís.",
+  "logView.sendFailedBanner":
+    "No s'ha pogut enviar - reconnectant. El teu missatge continua a la caixa; torna-ho a provar quan desaparegui aquest avís.",
   "logView.attachTooLarge": "Fitxer massa gran (màxim 200MB)",
   "logView.attachUploading": "pujant…",
   "logView.attachFiles": "Adjunta fitxers",
@@ -987,7 +1012,8 @@ export const ca: Catalog = {
   "logView.composer.type": "Escriu un missatge o / per a les ordres...",
   "logView.composer.typeShort": "Escriu un missatge...",
   "logView.composer.queueShort": "Escriu per posar en cua...",
-  "logView.composer.queueLong": "Escriu per posar en cua - s'envia quan acabi el torn actual · {modifier}Enter per enviar-lo ara",
+  "logView.composer.queueLong":
+    "Escriu per posar en cua - s'envia quan acabi el torn actual · {modifier}Enter per enviar-lo ara",
   "logView.composer.editing": "Editant el missatge de dalt...",
   "logView.composer.queue": "Posa el missatge en cua",
   "logView.cite.label": "Cita",
@@ -1007,19 +1033,24 @@ export const ca: Catalog = {
   "logView.skills.origin.claude": "habilitat de claude",
   "logView.skills.origin.unknown": "habilitat",
   "logView.voice.talkHint": "Fes clic per parlar (Ctrl+Espai per mantenir)",
-  "logView.voice.blocked": "L'entrada de veu està bloquejada. Revisa el permís del micròfon per a aquest lloc al teu navegador.",
+  "logView.voice.blocked":
+    "L'entrada de veu està bloquejada. Revisa el permís del micròfon per a aquest lloc al teu navegador.",
   "logView.voice.noMicrophone": "No s'ha trobat cap micròfon.",
-  "logView.voice.network": "L'entrada de veu no ha pogut connectar amb el servei de veu.",
+  "logView.voice.network":
+    "L'entrada de veu no ha pogut connectar amb el servei de veu.",
   "logView.voice.failed": "L'entrada de veu ha fallat.",
   "logView.voice.speak": "Llegeix en veu alta",
   "logView.voice.stop": "Atura",
-  "logView.voice.noVoice": "No hi ha cap veu en {language} instal·lada en aquest dispositiu",
+  "logView.voice.noVoice":
+    "No hi ha cap veu en {language} instal·lada en aquest dispositiu",
   "logView.voice.language.en": "anglès",
   "logView.voice.language.es": "espanyol",
   "logView.voice.language.ca": "català",
   "logView.voice.httpsTitle": "L'entrada de veu necessita HTTPS",
-  "logView.voice.httpsStep1": "Activa HTTPS a la teva <console>consola d'administració de Tailscale</console> (pàgina DNS), i després executa això a l'amfitrió (fes servir la terminal integrada):",
-  "logView.voice.httpsStep2": "Visita l'URL HTTPS que imprimeix Tailscale (p. ex. <url>{example}</url>).",
+  "logView.voice.httpsStep1":
+    "Activa HTTPS a la teva <console>consola d'administració de Tailscale</console> (pàgina DNS), i després executa això a l'amfitrió (fes servir la terminal integrada):",
+  "logView.voice.httpsStep2":
+    "Visita l'URL HTTPS que imprimeix Tailscale (p. ex. <url>{example}</url>).",
   "panels.resizer.label": "Canvia l'amplada del plafó lateral",
   "panels.terminal.ready": "Llesta",
   "panels.terminal.busy": "Ocupada: {process}",
@@ -1029,10 +1060,12 @@ export const ca: Catalog = {
   "panels.terminal.restartHint": "Reinicia la terminal",
   "panels.terminal.close": "Tanca la terminal",
   "panels.terminal.sendToChat": "Envia al xat",
-  "panels.terminal.sendToChatHint": "Insereix el text seleccionat al xat com a bloc de codi",
+  "panels.terminal.sendToChatHint":
+    "Insereix el text seleccionat al xat com a bloc de codi",
   "panels.terminal.shellExited": "La shell ha acabat ({code})",
   "panels.terminal.unavailable": "Terminal no disponible",
-  "panels.terminal.busyIssue": "No s'ha enviat: {process} està usant la terminal",
+  "panels.terminal.busyIssue":
+    "No s'ha enviat: {process} està usant la terminal",
   "panels.terminal.paste": "Enganxa",
   "panels.editor.close": "Tanca l'editor",
   "panels.editor.closeTab": "Tanca la pestanya",
@@ -1040,9 +1073,12 @@ export const ca: Catalog = {
   "panels.editor.saveHint": "Ctrl+S per desar",
   "panels.editor.saved": "desat",
   "panels.editor.recentlyOpened": "Oberts recentment",
-  "panels.editor.staleBanner": "El fitxer ha canviat al disc des que el vas obrir. Si el tornes a carregar, perdràs els teus canvis.",
-  "panels.editor.externalBanner": "El fitxer ha canviat per fora - perdràs els teus canvis si el tornes a carregar.",
-  "panels.editor.deletedBanner": "El fitxer s'ha eliminat del disc. Si el deses, es tornarà a crear a partir d'aquest búfer.",
+  "panels.editor.staleBanner":
+    "El fitxer ha canviat al disc des que el vas obrir. Si el tornes a carregar, perdràs els teus canvis.",
+  "panels.editor.externalBanner":
+    "El fitxer ha canviat per fora - perdràs els teus canvis si el tornes a carregar.",
+  "panels.editor.deletedBanner":
+    "El fitxer s'ha eliminat del disc. Si el deses, es tornarà a crear a partir d'aquest búfer.",
   "panels.editor.overwrite": "Sobreescriu",
   "panels.editor.reload": "Torna a carregar",
   "panels.editor.saveToRecreate": "Desa per tornar-lo a crear",
@@ -1054,14 +1090,20 @@ export const ca: Catalog = {
   "subscription.caveat": "Això és de tot el compte, no de cada agent.",
   "subscription.chooserHint": "Quin límit segueix el número:",
   "subscription.autoChoice": "Automàtic (el més ajustat)",
-  "subscription.unknown": "L'ús del pla encara no s'ha informat. S'actualitza quan l'agent acaba un torn - les sessions sense límits de pla (clau d'API, Bedrock, Vertex) no n'informen de cap.",
+  "subscription.unknown":
+    "L'ús del pla encara no s'ha informat. S'actualitza quan l'agent acaba un torn - les sessions sense límits de pla (clau d'API, Bedrock, Vertex) no n'informen de cap.",
   "subscription.readingAge": "Lectura presa fa {age}.",
-  "subscription.ariaTracked": "Quota del pla {label}: usat un {used}%. Toca per veure'n els detalls.",
-  "subscription.ariaTrackedPinned": "Quota del pla {label}: usat un {used}%, fixat. Toca per veure'n els detalls.",
-  "subscription.ariaUnknown": "L'ús del pla encara no s'ha informat. Toca per veure'n els detalls.",
+  "subscription.ariaTracked":
+    "Quota del pla {label}: usat un {used}%. Toca per veure'n els detalls.",
+  "subscription.ariaTrackedPinned":
+    "Quota del pla {label}: usat un {used}%, fixat. Toca per veure'n els detalls.",
+  "subscription.ariaUnknown":
+    "L'ús del pla encara no s'ha informat. Toca per veure'n els detalls.",
   "subscription.window.used": "{label}: usat un {percent}%",
-  "subscription.window.usedResets": "{label}: usat un {percent}% - es reinicia el {at}",
-  "subscription.window.usedResetsIn": "{label}: usat un {percent}% - es reinicia el {at} (d'aquí a {duration})",
+  "subscription.window.usedResets":
+    "{label}: usat un {percent}% - es reinicia el {at}",
+  "subscription.window.usedResetsIn":
+    "{label}: usat un {percent}% - es reinicia el {at} (d'aquí a {duration})",
   "subscription.duration.hours.one": "{count} hora",
   "subscription.duration.hours.other": "{count} hores",
   "subscription.duration.minutes": "{count} min",
@@ -1069,7 +1111,8 @@ export const ca: Catalog = {
   "subscription.duration.hoursMinutes": "{hours} i {minutes}",
   "logView.editAgent": "Edita l'agent",
   "panels.editor.noFileOpen": "Cap fitxer obert",
-  "panels.editor.emptyHint": "Cap fitxer obert. Fes servir <code>{command}</code> o demana a l'agent que te'n enviï un.",
+  "panels.editor.emptyHint":
+    "Cap fitxer obert. Fes servir <code>{command}</code> o demana a l'agent que te'n enviï un.",
   "logView.queue.count": "{count} en cua",
   "logView.queue.chip": "en cua · {label}",
   "logView.queue.attachments.one": "{count} adjunt",
@@ -1083,5 +1126,6 @@ export const ca: Catalog = {
   "cards.subagent.titleDescribed": "Subagent: {description}",
   "cards.subagent.titleTypedDescribed": "Subagent ({type}): {description}",
   "cards.fileView.viewedFile": "Ha vist {file} (fes clic per mostrar-lo)",
-  "cards.fileView.viewedImages": "Ha vist {count} imatges adjuntes (fes clic per mostrar-les)",
+  "cards.fileView.viewedImages":
+    "Ha vist {count} imatges adjuntes (fes clic per mostrar-les)",
 };

@@ -1208,7 +1208,10 @@ export function EditorPanel({
                   command: "/isomux-edit <path>",
                   code: (chunk) => (
                     <code
-                      style={{ margin: "0 4px", color: "var(--text-secondary)" }}
+                      style={{
+                        margin: "0 4px",
+                        color: "var(--text-secondary)",
+                      }}
                     >
                       {chunk}
                     </code>
@@ -1317,7 +1320,9 @@ export function EditorPanel({
         >
           {activeTab.banner.kind === "stale" && (
             <>
-              <span style={{ flex: 1 }}>{i18n.t("panels.editor.staleBanner")}</span>
+              <span style={{ flex: 1 }}>
+                {i18n.t("panels.editor.staleBanner")}
+              </span>
               <button onClick={overwrite} style={bannerBtn("var(--orange)")}>
                 {i18n.t("panels.editor.overwrite")}
               </button>

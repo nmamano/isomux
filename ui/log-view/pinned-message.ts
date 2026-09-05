@@ -13,10 +13,7 @@ export function pinnedHumanMessageId(
 ): string | null {
   for (let i = logs.length - 1; i >= 0; i--) {
     const entry = logs[i];
-    if (
-      entry.kind !== "user_message" ||
-      !senderIsHuman(entry.metadata)
-    )
+    if (entry.kind !== "user_message" || !senderIsHuman(entry.metadata))
       continue;
     const rect = rectForId(entry.id);
     if (!rect) continue;

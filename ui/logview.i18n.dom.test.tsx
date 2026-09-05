@@ -113,7 +113,11 @@ const SEEDED: LogEntry[] = [
     content: "",
     terminal: { command: "bun test" },
   }),
-  entry({ id: "m1", kind: "text", content: "```mermaid\ngraph TD;A-->B;\n```" }),
+  entry({
+    id: "m1",
+    kind: "text",
+    content: "```mermaid\ngraph TD;A-->B;\n```",
+  }),
 ];
 
 const logView = (language: Language, logs: LogEntry[]) =>
@@ -127,7 +131,9 @@ const logView = (language: Language, logs: LogEntry[]) =>
     }),
     {
       agents: [AGENT],
-      rooms: [{ id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true }],
+      rooms: [
+        { id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true },
+      ],
       hasReceivedInitialState: true,
       // The empty state says "send a message" only when the socket is up;
       // offline it says the view is still loading.
@@ -254,8 +260,10 @@ const containsText = (view: View, text: string) =>
 const loadingLabel = (view: View) =>
   view.container.querySelector<HTMLElement>(".mermaid")?.dataset.loading;
 const titled = (view: View, text: string) =>
-  expect(view.container.querySelectorAll(`[title="${text}"]`).length, text)
-    .toBeGreaterThan(0);
+  expect(
+    view.container.querySelectorAll(`[title="${text}"]`).length,
+    text,
+  ).toBeGreaterThan(0);
 
 describe("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
@@ -366,8 +374,18 @@ const ECHO_RESULT = entry({
   content: "read 2 images",
   metadata: { toolUseId: "echo-1" },
   attachments: [
-    { filename: "a1.png", originalName: "a.png", mediaType: "image/png", size: 1 },
-    { filename: "b1.png", originalName: "b.png", mediaType: "image/png", size: 2 },
+    {
+      filename: "a1.png",
+      originalName: "a.png",
+      mediaType: "image/png",
+      size: 1,
+    },
+    {
+      filename: "b1.png",
+      originalName: "b.png",
+      mediaType: "image/png",
+      size: 2,
+    },
   ],
 });
 
@@ -407,7 +425,9 @@ describe("a raw tool-call group", () => {
         ).toBeGreaterThan(0);
 
       // Expanding replaces the header, so this asserts the OTHER branch.
-      const toggle = view.container.querySelector("button") as HTMLButtonElement;
+      const toggle = view.container.querySelector(
+        "button",
+      ) as HTMLButtonElement;
       act(() => toggle.click());
       containsText(view, count);
       expect(view.container.querySelectorAll("button").length).toBeGreaterThan(
