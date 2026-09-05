@@ -225,5 +225,58 @@ Decide with reviewer: class vs factory; forwarding getters vs full
 rewrite; the deps object's exact shape.
 Locked: rulings 1-8; `runConsumer` and `createSession` do not move in S2.
 
-- [ ] S2 landed (hash, note)
+- [x] S2 landed as 3f9ec5a (class SessionManager<H extends SessionHost>; nine fields as getter-only views on ManagedAgent; 31 write sites and 25 call sites rerouted; agent-manager.ts 8705 -> 8481 lines; two direct unit tests; ruling-7 comment at the guard).
+## PICKUP S3 - the consumer loop moves behind the object (Worker 1 / Reviewer 1)
+
+Goal: `runConsumer` lives in `server/session-manager.ts` as a method (or a
+private function the object calls), `installSession` no longer takes it
+through deps, and the per-event work the loop does on manager state
+reaches the manager through callbacks on the deps object. Behaviour
+identical: same events, same state transitions, same log lines.
+
+Mechanics and traps (from S2's report):
+- The loop reaches into manager state the object must not own:
+  `processNormalizedEvent`, `addLogEntry`, `updateState`,
+  `officeState.updateAgent` + `emit`, the console, the failure text helpers
+  (`humanizeBackendFailure`, `backendFailureMeta`), `diagnoseProcessExit` +
+  `envForHints` (Claude only), `detectAgentAuthError` +
+  `emitDetectedAuthInstructions`, `pendingFixedCwdReset` +
+  `clearStaleAutoResumeState`, `BACKEND_STOPPED_DURING_TURN`, and the
+  `host.dormantReason = "stream-ended"` write. Plan-gate the split: which
+  become deps callbacks (one per concern, named for what they do, not
+  "onEvent") and which stay as a single `onStreamEnded` / `onStreamError`
+  callback carrying the loop's local facts. The stream-end and error
+  branches are the two places to be careful; move them line for line.
+- The bound-session guard `managed.session !== boundSession` becomes
+  `this.session !== boundSession`; `consumerPromise` assignment in
+  `installSession` stays identical.
+- Pins that go red if the loop drifts: session-lifecycle T4 (pre-send
+  stream end) and T6b (aborting event filter); queue-reliability L1
+  (owned-turn stream end); agent-idle-eviction "backend-death wake";
+  agent-death-recovery for the error-path wording. Run all ten files
+  from S2's gate.
+- Unit tests on the object (extend `server/session-manager.test.ts`):
+  (c) a clean stream end while bound settles the turn and nulls
+  `consumerPromise`, mutant: skip the null; (d) a stream end after a
+  swap (session no longer bound) touches nothing, mutant: drop the
+  bound-session guard. Both through a fake session whose iterator the
+  test controls.
+- Worktree hygiene: after `git rebase main`, run
+  `bun install --frozen-lockfile` when the rebase touched bun.lock (S2
+  lost time to missing dev deps).
+- The `deps.createTurnDeferred` declared but never called in
+  command-handlers.ts and the two forwarding lambdas stay for S4.
+
+Acceptance: `runConsumer` gone from agent-manager.ts; the ten-file gate
+green; the two new unit tests with their mutants named red; eslint on
+touched files; build:ui; `bunx tsc --noEmit` before the final hand-off;
+no change under `server/backends/`; `internal-docs/queue-reliability-design.md`
+location note updated if it names the loop.
+
+Decide with reviewer: the callback split; whether `runConsumer` is a
+method or a module-private function.
+Locked: rulings 1-8; `createSession` does not move in S3.
+
+- [ ] S3 landed (hash, note)
+
 
