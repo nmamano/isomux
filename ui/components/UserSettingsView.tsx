@@ -1819,9 +1819,7 @@ function UserEditPanel({
               }}
               title={t("settings.profile.deleteHint")}
             >
-              {confirmDelete
-                ? t("common.confirmQuestion")
-                : t("common.delete")}
+              {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
             </button>
             <div style={{ display: "flex", gap: 8 }}>
               <button

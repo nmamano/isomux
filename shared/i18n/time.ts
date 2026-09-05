@@ -67,9 +67,7 @@ function absoluteFormatter(
  * ("0m ago"), so it comes back as its own kind and the caller supplies the
  * word from the catalog.
  */
-export type TimeSince =
-  | { kind: "now" }
-  | { kind: "formatted"; text: string };
+export type TimeSince = { kind: "now" } | { kind: "formatted"; text: string };
 
 /**
  * A deadline that has passed has no Intl rendering, and one under an hour off

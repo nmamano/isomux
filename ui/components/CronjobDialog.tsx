@@ -314,7 +314,8 @@ export function CronjobDialog({
         if (cancelled) return;
         setModelsLoading(false);
         setModelsError({
-          message: e instanceof ApiError ? e.message : t("common.model.loadFailed"),
+          message:
+            e instanceof ApiError ? e.message : t("common.model.loadFailed"),
           authError: false,
         });
       });
@@ -1092,7 +1093,9 @@ export function CronjobDialog({
                 }}
                 disabled={saving}
               >
-                {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
+                {confirmDelete
+                  ? t("common.confirmQuestion")
+                  : t("common.delete")}
               </button>
             )}
             <div style={{ display: "flex", gap: 8 }}>

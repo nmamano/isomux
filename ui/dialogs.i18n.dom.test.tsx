@@ -19,9 +19,8 @@ setUpDomTestFile();
 const { act, render } = await import("@testing-library/react");
 const { EditAgentDialog } = await import("./components/EditAgentDialog.tsx");
 const { CronjobDialog } = await import("./components/CronjobDialog.tsx");
-const { CronjobsPromptDialog } = await import(
-  "./components/CronjobsPromptDialog.tsx"
-);
+const { CronjobsPromptDialog } =
+  await import("./components/CronjobsPromptDialog.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -60,11 +59,10 @@ const agentDialog = (language: Language) =>
   );
 
 const scheduleDialog = (language: Language) =>
-  onLanguage(
-    language,
-    createElement(CronjobDialog, { onClose: () => {} }),
-    { rooms: [ROOM], hasReceivedInitialState: true },
-  );
+  onLanguage(language, createElement(CronjobDialog, { onClose: () => {} }), {
+    rooms: [ROOM],
+    hasReceivedInitialState: true,
+  });
 
 const schedulePromptDialog = (language: Language) =>
   onLanguage(
@@ -181,9 +179,7 @@ describe("the agent dialog", () => {
     shows(view, ANCHOR.permissionDefault.ca);
     shows(view, ANCHOR.permissionBypass.ca);
     shows(view, ANCHOR.effortXhigh.ca);
-    expect(
-      view.queryByLabelText(ANCHOR.expandInstructions.ca),
-    ).not.toBeNull();
+    expect(view.queryByLabelText(ANCHOR.expandInstructions.ca)).not.toBeNull();
     expect(view.queryByText(ANCHOR.spawnTitle.en)).toBeNull();
 
     view.rerender(agentDialog("es"));

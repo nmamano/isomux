@@ -717,7 +717,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         if (cancelled) return;
         setModelsLoading(false);
         setModelsError({
-          message: e instanceof ApiError ? e.message : t("common.model.loadFailed"),
+          message:
+            e instanceof ApiError ? e.message : t("common.model.loadFailed"),
           authError: false,
         });
       });
@@ -1093,7 +1094,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 color: "var(--text-primary)",
               }}
             >
-              {isSpawn ? t("dialogs.agent.titleSpawn") : t("dialogs.agent.titleEdit")}
+              {isSpawn
+                ? t("dialogs.agent.titleSpawn")
+                : t("dialogs.agent.titleEdit")}
             </h3>
             {isSpawn && (
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
@@ -1215,7 +1218,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
               {isSpawn && (
                 <section className="spawn-template-section">
-                  <label style={labelStyle}>{t("dialogs.agent.template")}</label>
+                  <label style={labelStyle}>
+                    {t("dialogs.agent.template")}
+                  </label>
                   <p
                     style={{
                       fontSize: 10,

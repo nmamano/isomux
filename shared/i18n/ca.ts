@@ -619,7 +619,7 @@ export const ca: Catalog = {
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programació",
   "dialogs.schedule.promptPlaceholder":
-    "p. ex. \"Resumeix què va aconseguir ahir cada agent.\"",
+    'p. ex. "Resumeix què va aconseguir ahir cada agent."',
   "dialogs.schedule.promptEmpty": "El prompt no pot estar buit.",
   "dialogs.schedule.permissionUnattended":
     "Permetre les eines del projecte (sense supervisió)",
@@ -636,8 +636,7 @@ export const ca: Catalog = {
   "dialogs.agent.desk": "Escriptori #{desk}",
   "dialogs.agent.engineBlurb.claude":
     "Funciona amb el teu compte de Claude Code.",
-  "dialogs.agent.engineBlurb.codex":
-    "Funciona amb el teu compte de ChatGPT.",
+  "dialogs.agent.engineBlurb.codex": "Funciona amb el teu compte de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
     "Funciona amb els models configurats a través d'OpenCode.",
   "dialogs.agent.template": "Començar amb una plantilla",
@@ -715,7 +714,7 @@ export const ca: Catalog = {
   "dialogs.agent.customInstructionsHint":
     "Prompt de sistema personal per a aquest agent. Executa /isomux-system-prompt en un xat per veure el prompt de sistema complet de l'agent.",
   "dialogs.agent.customInstructionsPlaceholder":
-    "p. ex. \"Ets un especialista en backend. Escriu sempre tests.\"",
+    'p. ex. "Ets un especialista en backend. Escriu sempre tests."',
   "dialogs.agent.systemPromptHint":
     "Executa <code>/isomux-system-prompt</code> en un xat per veure el prompt de sistema complet de l'agent.",
   "dialogs.agent.revive": "Reactiva un agent aturat",

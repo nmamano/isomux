@@ -621,10 +621,9 @@ export const en = {
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Schedule Prompt",
   "dialogs.schedule.promptPlaceholder":
-    "e.g. \"Summarize what every agent accomplished yesterday.\"",
+    'e.g. "Summarize what every agent accomplished yesterday."',
   "dialogs.schedule.promptEmpty": "Prompt cannot be empty.",
-  "dialogs.schedule.permissionUnattended":
-    "Allow project tools (unattended)",
+  "dialogs.schedule.permissionUnattended": "Allow project tools (unattended)",
   "dialogs.schedule.permissionHintOpenCode":
     "Shell and edit tools are allowed. Delegation and questions are denied.",
   "dialogs.schedule.permissionHint":
@@ -635,10 +634,8 @@ export const en = {
   "dialogs.agent.titleSpawn": "Spawn New Agent",
   "dialogs.agent.titleEdit": "Edit Agent",
   "dialogs.agent.desk": "Desk #{desk}",
-  "dialogs.agent.engineBlurb.claude":
-    "Works with your Claude Code login.",
-  "dialogs.agent.engineBlurb.codex":
-    "Works with your ChatGPT login.",
+  "dialogs.agent.engineBlurb.claude": "Works with your Claude Code login.",
+  "dialogs.agent.engineBlurb.codex": "Works with your ChatGPT login.",
   "dialogs.agent.engineBlurb.opencode":
     "Works with models configured through OpenCode.",
   "dialogs.agent.template": "Start with a template",
@@ -713,7 +710,7 @@ export const en = {
   "dialogs.agent.customInstructionsHint":
     "Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt.",
   "dialogs.agent.customInstructionsPlaceholder":
-    "e.g. \"You are a backend specialist. Always write tests.\"",
+    'e.g. "You are a backend specialist. Always write tests."',
   "dialogs.agent.systemPromptHint":
     "Run <code>/isomux-system-prompt</code> in a chat to see the agent's full system prompt.",
   "dialogs.agent.revive": "Revive a killed agent",

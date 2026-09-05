@@ -624,7 +624,7 @@ export const es: Catalog = {
   "dialogs.schedule.prompt": "Prompt",
   "dialogs.schedule.promptTitle": "Prompt de la programación",
   "dialogs.schedule.promptPlaceholder":
-    "p. ej. \"Resume lo que consiguió ayer cada agente.\"",
+    'p. ej. "Resume lo que consiguió ayer cada agente."',
   "dialogs.schedule.promptEmpty": "El prompt no puede estar vacío.",
   "dialogs.schedule.permissionUnattended":
     "Permitir las herramientas del proyecto (sin supervisión)",
@@ -639,10 +639,8 @@ export const es: Catalog = {
   "dialogs.agent.titleSpawn": "Crear un agente nuevo",
   "dialogs.agent.titleEdit": "Editar el agente",
   "dialogs.agent.desk": "Escritorio #{desk}",
-  "dialogs.agent.engineBlurb.claude":
-    "Funciona con tu cuenta de Claude Code.",
-  "dialogs.agent.engineBlurb.codex":
-    "Funciona con tu cuenta de ChatGPT.",
+  "dialogs.agent.engineBlurb.claude": "Funciona con tu cuenta de Claude Code.",
+  "dialogs.agent.engineBlurb.codex": "Funciona con tu cuenta de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
     "Funciona con los modelos configurados a través de OpenCode.",
   "dialogs.agent.template": "Empezar con una plantilla",
@@ -720,7 +718,7 @@ export const es: Catalog = {
   "dialogs.agent.customInstructionsHint":
     "Prompt de sistema personal para este agente. Ejecuta /isomux-system-prompt en un chat para ver el prompt de sistema completo del agente.",
   "dialogs.agent.customInstructionsPlaceholder":
-    "p. ej. \"Eres un especialista en backend. Escribe siempre tests.\"",
+    'p. ej. "Eres un especialista en backend. Escribe siempre tests."',
   "dialogs.agent.systemPromptHint":
     "Ejecuta <code>/isomux-system-prompt</code> en un chat para ver el prompt de sistema completo del agente.",
   "dialogs.agent.revive": "Reactivar un agente detenido",

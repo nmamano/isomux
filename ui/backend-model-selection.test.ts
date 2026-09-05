@@ -133,7 +133,10 @@ describe("modelListErrorMessage", () => {
 
   it("drops the parentheses when the backend said nothing", () => {
     expect(
-      modelListErrorMessage(english, false, { message: "  ", authError: false }),
+      modelListErrorMessage(english, false, {
+        message: "  ",
+        authError: false,
+      }),
     ).toBe(
       "Could not load model list. Showing fallback list - some options may not work on your account.",
     );

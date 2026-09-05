@@ -13,10 +13,7 @@ import {
   effortLevelsFor,
 } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
-import type {
-  MessageKey,
-  Translator,
-} from "../shared/i18n/translate.ts";
+import type { MessageKey, Translator } from "../shared/i18n/translate.ts";
 
 export const FIRST_TURN_CLAUSE =
   "To start, learn what the user wants and propose a direction.";
