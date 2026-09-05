@@ -1,73 +1,25 @@
-import Link from "next/link";
-import { auth, signOut } from "../auth";
-import { officesForAccount } from "../lib/services.server";
+import { HomeView } from "./home-view";
 
-export const dynamic = "force-dynamic";
+/**
+ * The landing page, prerendered.
+ *
+ * It used to be `force-dynamic` and ask `auth()` while it rendered, which made
+ * every visitor - including the ones who were never signed in - pay a round trip
+ * to the origin region for a page whose signed-out body is the same for all of
+ * them. Measured 2026-08-23 in task f4a8fca7: TTFB was very nearly the whole
+ * response time, 0.256s to 2.227s from an EU edge to iad1.
+ *
+ * A page that reads the session cookie can never be held by a shared cache, so
+ * the fix is not a flag: the session question moves off the render and into
+ * `/api/session`, and `HomeView` asks it after this shell has painted.
+ *
+ * `dynamic = "error"` rather than "force-static": "force-static" would make a
+ * future `cookies()` or `auth()` return empty and quietly serve a stale shell,
+ * where "error" fails the build. The invariant this page now carries is worth a
+ * build failure, not a silent repair.
+ */
+export const dynamic = "error";
 
-export default async function Home() {
-  const session = await auth();
-  const accountId = session?.accountId;
-  const email = session?.user?.email;
-  if (!accountId) {
-    return (
-      <main>
-        <h1>Hosted Isomux</h1>
-        <p className="lead">
-          <Link href="/signin">Sign in</Link> to set up an office.
-        </p>
-      </main>
-    );
-  }
-
-  const offices = await officesForAccount(accountId);
-  return (
-    <main>
-      <div className="account-line">
-        <p className="note" data-testid="signed-in-as">
-          Signed in as {email}
-        </p>
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/" });
-          }}
-        >
-          <button type="submit" data-testid="sign-out">
-            Sign out
-          </button>
-        </form>
-      </div>
-      <h1>{offices.length > 1 ? "Your offices" : "Your office"}</h1>
-      {offices.length > 0 ? (
-        <>
-          {offices.map((office) => (
-            <Link
-              className="card office-card-link"
-              href={`/office/${office.officeName}`}
-              key={office.instanceId}
-            >
-              <p className="lead">
-                <span className="address">{office.hostname}</span> -{" "}
-                {/* The same chip the provisioning ladder uses, so "ready" reads
-                    the same here as it does inside the office. */}
-                <span data-state={office.ready ? "done" : "active"}>
-                  {office.ready ? "ready" : "not ready yet"}
-                </span>
-              </p>
-              <span className="office-card-action">View office &rarr;</span>
-            </Link>
-          ))}
-          <p>
-            <Link href="/signup?another=1">Set up another office</Link>.
-          </p>
-        </>
-      ) : (
-        <div className="card">
-          <p>
-            You have no office yet. <Link href="/signup">Set one up</Link>.
-          </p>
-        </div>
-      )}
-    </main>
-  );
+export default function Home() {
+  return <HomeView />;
 }

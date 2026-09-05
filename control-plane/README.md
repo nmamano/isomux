@@ -1110,9 +1110,36 @@ Both halves of the fix shipped the same evening (commit `439ef15`, redeployed
 beside it, and `/signin` became a server component that asks `auth()` and sends
 an already-authenticated visitor to `/`. Either alone ends the loop; together
 they also cover a visitor who reaches `/signin` by some other route while
-holding a session. The build output is the proof that the second half is real -
+holding a session. The build output was the proof that the second half was real -
 `/signin` moved from `○` (static, prerendered) to `ƒ` (dynamic), because a
 prerendered page cannot know whether anyone is signed in.
+
+**That second half moved on 2026-09-05 (task `1cccebcf`), and the property did
+not.** Asking `auth()` while the page renders is exactly what a shared cache can
+never reuse, so `/` and `/signin` were paying every visitor an origin round trip
+to be told what nearly all of them already knew: they are signed out. Both pages
+are now prerendered shells again - `○` in the build output - and the session
+question lives in `/api/session`, a `force-dynamic` route that answers
+`Cache-Control: no-store`, with a client guard on `/signin` that moves a
+signed-in visitor to `/` with `router.replace`. The 2026-08-11 page was a loop
+because it had NO WAY OUT: it could not know a session existed, so the visitor
+stayed until they navigated away by hand. The way out is now automatic, and the
+`callbackUrl: "/"` half is untouched. The cost is a flash: a signed-in visitor
+reads the signed-out shell for the length of one same-origin fetch, which is the
+price of the page being cacheable at all. `signin-return.test.ts` asserts the
+chain from the guard to the route link by link, and
+`web/e2e/production-server.e2e.ts` drives `/signin` to `/` with a real session
+cookie.
+
+Measured 2026-09-05 under `next start`: `/` and `/signin` moved from
+`Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate` to
+`s-maxage=31536000` with `x-nextjs-prerender: 1`. **The landing benefit is
+conditional on task `113ed58a`:** the repository-root `middleware.ts` belongs to
+the marketing site but its matcher covers `/`, and the control-plane build
+compiles it in, so every hit on `/` still crosses that proxy. Until that task
+lands, `/` is statically rendered but not a clean edge hit, and `/` answers 406
+to a client that asks for neither HTML nor markdown. `/signin` is not covered by
+the matcher and has no such caveat.
 
 **The redeploy proved less than the first deployment did, on purpose.** It read
 no credential and wrote no environment variable, so it could not mint a session
@@ -3355,8 +3382,10 @@ Two mechanics are load-bearing and were both earned rather than designed:
   product, not a shortcut.** Measured 2026-08-10: `/api/auth/providers` under
   `next start` returns `{}`. The dev credentials provider is gated on
   `CONTROL_PLANE_DEV_AUTH=1` AND a non-production build, a production build
-  settles the second half at build time, and `/signin` is prerendered - so no
-  runtime setting brings it back, which is exactly what that gate is for. Google
+  settles the second half at build time, and the form is a client component whose
+  public flag is inlined at build - so no runtime setting brings it back, which
+  is exactly what that gate is for. (The `/signin` page around that form is
+  prerendered again since 2026-09-05; that does not change the gate.) Google
   is the production ceremony and no OAuth client exists yet. The transcript
   therefore mints a REAL Auth.js session cookie with the deployment's own secret
   and proves what was actually in doubt: that an AUTHENTICATED request reaches

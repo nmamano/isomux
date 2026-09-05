@@ -890,43 +890,127 @@ async function main(): Promise<void> {
 
     // This is a sign-out regression, not a test of Office's existing auth
     // redirect by itself: the store-backed page must become unreachable only
-    // after the server action clears the session that reached it above. It is
-    // last because this transcript's developer identity is intentionally not
-    // a reusable production sign-in provider.
+    // after sign-out clears the session that reached it above. It is last
+    // because this transcript's developer identity is intentionally not a
+    // reusable production sign-in provider.
     await page.goto(BASE);
     const sessionCookiesBefore = (await context.cookies()).filter((cookie) =>
       cookie.name.includes("session-token"),
     );
-    const signOutResponse = page.waitForResponse(
-      (response) =>
-        response.request().method() === "POST" && response.url() === `${BASE}/`,
-    );
-    await page.click('[data-testid="sign-out"]');
-    const signedOut = await signOutResponse;
-    await page.waitForURL(`${BASE}/`, { timeout: 20_000 });
-    const actionRedirect = signedOut.headers()["x-action-redirect"] ?? "";
-    // This is a Next server-action transport header, not an Auth.js contract.
-    // A Next upgrade that changes it should fail here with the observed value.
+    // The sign-out POST moved when the landing page became a prerendered shell
+    // (task 1cccebcf): a server action cannot live in a client component, so the
+    // click now calls Auth.js from the browser and posts to its own route rather
+    // than back to `/`. The PROPERTIES asserted below did not move - the response
+    // still clears the session cookie and still names `/` as the destination.
+    //
+    // THE RESPONSE SHAPE IS MEASURED OVER A PLAIN FETCH, not on the clicked
+    // request. Auth.js reads the signout response body itself and moves the
+    // document immediately, so a `waitForResponse` handle read afterwards throws
+    // "Response body is not available for a response that was navigated away
+    // from" and reading it sooner only narrows that window. Intercepting with a
+    // `page.route` that calls `route.fetch()` does not help either: measured
+    // 2026-09-05 on playwright-core 1.x, every Playwright request against an
+    // Auth.js route dies inside Playwright's own Set-Cookie parser with
+    // `TypeError: "/api/auth/signout" cannot be parsed as a URL`, and the
+    // handler then never fulfils, hanging the click. So the bytes come over a
+    // plain fetch carrying this browser's own session cookie - sessions are JWTs
+    // with no server-side store, so signing that copy out leaves the browser's
+    // session usable for the click below, which is what proves the handler.
+    const sessionCookie = sessionCookiesBefore[0];
+    const cookieHeader = `${sessionCookie?.name}=${sessionCookie?.value}`;
+    const csrfAnswer = await fetch(`${BASE}/api/auth/csrf`, {
+      headers: { cookie: cookieHeader },
+    });
+    const csrfToken = ((await csrfAnswer.json()) as { csrfToken?: string })
+      .csrfToken;
+    // Auth.js checks the posted token against the cookie it just set, so the
+    // POST has to carry both.
+    const csrfCookie = csrfAnswer.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const signOutAnswer = await fetch(`${BASE}/api/auth/signout`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie: `${cookieHeader}; ${csrfCookie}`,
+        "content-type": "application/x-www-form-urlencoded",
+        "x-auth-return-redirect": "1",
+        origin: BASE,
+      },
+      body: new URLSearchParams({
+        csrfToken: csrfToken ?? "",
+        callbackUrl: "/",
+      }).toString(),
+    });
+    const signOutBody = await signOutAnswer.text();
+    const signOutSetCookie = signOutAnswer.headers.getSetCookie().join("\n");
+    let signOutDestination: string;
+    try {
+      signOutDestination =
+        (JSON.parse(signOutBody) as { url?: string }).url ?? "";
+    } catch {
+      signOutDestination = "";
+    }
+    // This is the Auth.js signout transport, not a Next server-action header. An
+    // Auth.js upgrade that changes it should fail here with the observed value.
     check(
-      "sign-out server action returns its redirect response",
-      signedOut.status() === 200 && actionRedirect === `${BASE}/;push`,
-      `status=${signedOut.status()} redirect=${actionRedirect}`,
-    );
-    const signOutSetCookie = (await signedOut.headerValues("set-cookie")).join(
-      "\n",
+      "sign-out response names / as the destination",
+      signOutAnswer.status === 200 && signOutDestination === `${BASE}/`,
+      `status=${signOutAnswer.status} url=${signOutDestination}`,
     );
     check(
       "sign-out response clears the session cookie",
-      signOutSetCookie.includes("session-token=") &&
+      /session-token=;/.test(signOutSetCookie) &&
         /(?:Max-Age=0|Expires=Thu, 01 Jan 1970)/i.test(signOutSetCookie),
+      /session-token=;/.test(signOutSetCookie)
+        ? "session-token cleared"
+        : "no clearing Set-Cookie seen",
     );
-    const sessionCookiesAfter = (await context.cookies()).filter((cookie) =>
-      cookie.name.includes("session-token"),
+
+    // Driven as a real pointer press on the button's own box rather than through
+    // the selector, because the handler itself moved: this proves the click a
+    // customer makes reaches it, not merely that an element with that testid
+    // dispatches something.
+    const signOutButton = page.locator('[data-testid="sign-out"]');
+    await signOutButton.waitFor({ state: "visible" });
+    const signOutBox = await signOutButton.boundingBox();
+    if (!signOutBox) throw new Error("the sign-out button has no bounding box");
+    await page.mouse.click(
+      signOutBox.x + signOutBox.width / 2,
+      signOutBox.y + signOutBox.height / 2,
     );
+    // The reload Auth.js performs is what removes this element: the shell it
+    // lands on has no signed-in row until a probe says so, and there is no
+    // session left to say it. Waiting on it makes the screenshot below a picture
+    // of the signed-out page rather than of whichever frame happened to be up.
+    await page.waitForSelector('[data-testid="signed-in-as"]', {
+      state: "detached",
+      timeout: 20_000,
+    });
+    // The browser's own cookie jar is the ground truth, and polling it is not a
+    // race against whatever navigation Auth.js chose to do.
+    let sessionCookiesAfter = sessionCookiesBefore;
+    for (let i = 0; i < 80; i++) {
+      sessionCookiesAfter = (await context.cookies()).filter((cookie) =>
+        cookie.name.includes("session-token"),
+      );
+      if (sessionCookiesAfter.length === 0) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await page.screenshot({
+      path: "/tmp/sign-out-after-click.png",
+      fullPage: true,
+    });
     check(
       "sign-out removes the browser session cookie",
       sessionCookiesBefore.length > 0 && sessionCookiesAfter.length === 0,
       `before=${sessionCookiesBefore.length} after=${sessionCookiesAfter.length}`,
+    );
+    check(
+      "the visitor ends on /",
+      new URL(page.url()).pathname === "/",
+      page.url(),
     );
     const signedOutOffice = await page.request.get(
       `${BASE}/office/${renderedOfficeName ?? continuationOfficeName}`,

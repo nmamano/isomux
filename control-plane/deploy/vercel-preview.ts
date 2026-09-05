@@ -6,10 +6,10 @@
 // Approved by Reviewer2 as exactly four steps and one preview. NOTHING here
 // writes an environment variable, attaches a domain, deploys to production or
 // touches git integration - and the first deploy carries no secrets at all,
-// which is the point: the pages are `force-dynamic` and `/signin` reads no
-// store data, so the monorepo posture can be measured with nothing sensitive
-// on the platform. If the posture turns out wrong, there is nothing there to
-// have leaked.
+// which is the point: `/` and `/signin` are prerendered shells that read no
+// store data at all, so the monorepo posture can be measured with nothing
+// sensitive on the platform. If the posture turns out wrong, there is nothing
+// there to have leaked.
 //
 // THE LANDING PAGE IS THE HAZARD. The repository root is linked to `isomux`,
 // so every step here proves identity before it acts: scope equality against

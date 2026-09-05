@@ -438,9 +438,11 @@ describe("the probe verdict", () => {
     "office_signed_out_status: 302",
     "office_signed_out_redirects_to_signin: true",
     "office_signed_out_to_vercel: false",
+    "session_status: 200",
+    "session_shows_identity: true",
+    "session_shows_no_office: true",
     "home_status: 200",
-    "home_shows_identity: true",
-    "home_shows_no_office: true",
+    "home_is_shell: true",
     "office_fake_account_status: 404",
     "ops_fake_account_status: 404",
     "reveal_status: 200",
@@ -524,24 +526,26 @@ describe("the probe verdict", () => {
   });
 
   test("the store-connectivity proof failing fails the run", () => {
-    // A 500 here means the deployment could not open production Neon.
+    // A 500 here means the deployment could not open production Neon. The proof
+    // is the SESSION route since task 1cccebcf: the home page went static and
+    // reads nothing, so a green home page no longer says anything about Neon.
     const verdict = judgeProbe(
-      green.replace("home_status: 200", "home_status: 500"),
+      green.replace("session_status: 200", "session_status: 500"),
       0,
     );
     expect(verdict.ok).toBe(false);
-    expect(verdict.mismatched).toContain("home_status");
+    expect(verdict.mismatched).toContain("session_status");
   });
 
   test("A MISSING LINE IS NOT A PASS", () => {
     const verdict = judgeProbe(
       green
         .split("\n")
-        .filter((l) => !l.startsWith("home_shows_no_office"))
+        .filter((l) => !l.startsWith("session_shows_no_office"))
         .join("\n"),
       0,
     );
-    expect(verdict.missing).toEqual(["home_shows_no_office"]);
+    expect(verdict.missing).toEqual(["session_shows_no_office"]);
     expect(verdict.ok).toBe(false);
   });
 
@@ -708,9 +712,11 @@ describe("the probe transcript is CLOSED", () => {
     "office_signed_out_status: 302",
     "office_signed_out_redirects_to_signin: true",
     "office_signed_out_to_vercel: false",
+    "session_status: 200",
+    "session_shows_identity: true",
+    "session_shows_no_office: true",
     "home_status: 200",
-    "home_shows_identity: true",
-    "home_shows_no_office: true",
+    "home_is_shell: true",
     "office_fake_account_status: 404",
     "ops_fake_account_status: 404",
     "reveal_status: 200",
@@ -1464,9 +1470,11 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     // Every authenticated claim is ABSENT rather than asserted false: without a
     // readable AUTH_SECRET there is no cookie to mint and nothing to check.
     for (const gone of [
+      "session_status",
+      "session_shows_identity",
+      "session_shows_no_office",
       "home_status",
-      "home_shows_identity",
-      "home_shows_no_office",
+      "home_is_shell",
       "office_fake_account_status",
       "ops_fake_account_status",
       "reveal_status",
@@ -1516,11 +1524,11 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
       .join("\n");
     expect(judgeProbe(green, 0, UNAUTH_PROBE_EXPECTATIONS).ok).toBe(true);
     const extra = judgeProbe(
-      `${green}\nhome_shows_identity: true`,
+      `${green}\nsession_shows_identity: true`,
       0,
       UNAUTH_PROBE_EXPECTATIONS,
     );
-    expect(extra.unexpected).toEqual(["home_shows_identity"]);
+    expect(extra.unexpected).toEqual(["session_shows_identity"]);
     expect(extra.ok).toBe(false);
   });
 

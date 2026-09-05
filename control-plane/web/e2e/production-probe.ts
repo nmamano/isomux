@@ -193,16 +193,38 @@ async function main(): Promise<void> {
     return;
   }
 
-  // 4. THE STORE-CONNECTIVITY PROOF. The home page opens production Neon,
-  //    looks for a reservation this account does not have, and says so.
+  // 4. THE STORE-CONNECTIVITY PROOF. Something opens production Neon with this
+  //    cookie, looks for a reservation this account does not have, and says so.
+  //    It used to be the home page. Since task 1cccebcf the home page is a
+  //    prerendered shell that reads nothing, and the session route is what does
+  //    the reading - the same account check and the same query, moved. The
+  //    fetch below carries no JavaScript, which is exactly why the proof had to
+  //    move with it rather than be dropped.
+  const session = await get("/api/session?offices=1", true);
+  const sessionBody = await session.text();
+  seen.push(sessionBody, headerText(session));
+  // Declared without an initialiser, like `providerKeys` above: both paths
+  // below assign it, and a value here would be one nothing ever reads.
+  let sessionView: { signedIn?: boolean; offices?: unknown[] };
+  try {
+    sessionView = JSON.parse(sessionBody);
+  } catch {
+    sessionView = {};
+  }
+  console.log(`session_status: ${session.status}`);
+  console.log(`session_shows_identity: ${sessionBody.includes(input.email)}`);
+  console.log(
+    `session_shows_no_office: ${sessionView.signedIn === true && Array.isArray(sessionView.offices) && sessionView.offices.length === 0}`,
+  );
+
+  //    And the home page itself, with the SAME cookie, must now be the shell:
+  //    identical for everyone is what makes it cacheable, so a signed-in fetch
+  //    that still carried the identity would mean the page never went static.
   const home = await get("/", true);
   const homeBody = await home.text();
   seen.push(homeBody, headerText(home));
   console.log(`home_status: ${home.status}`);
-  console.log(`home_shows_identity: ${homeBody.includes(input.email)}`);
-  console.log(
-    `home_shows_no_office: ${/You have no office yet/i.test(homeBody)}`,
-  );
+  console.log(`home_is_shell: ${!homeBody.includes(input.email)}`);
 
   // 5. An office that does not exist, and an operator page this account is not
   //    entitled to. Both 404: "no such instance" and "not yours" are the same

@@ -35,8 +35,10 @@
 // 2026-08-10, `/api/auth/providers` under `next start` returns `{}` - the dev
 // credentials provider is gated on `CONTROL_PLANE_DEV_AUTH=1` AND
 // `NODE_ENV !== "production"`, a production build settles the second half at
-// build time, and `/signin` is prerendered, so no runtime setting brings it
-// back. Google is the production ceremony and no OAuth client exists yet. So
+// build time, and the form is a client component whose public flag is inlined
+// at build, so no runtime setting brings it back. Since 2026-09-05 the `/signin`
+// page around it is prerendered as well (task 1cccebcf), which does not change
+// that gate. Google is the production ceremony and no OAuth client exists yet. So
 // this file mints a REAL Auth.js session cookie - the deployment's own secret,
 // the same encryption Auth.js does, no product code relaxed - and proves the
 // thing that was actually in doubt: that an authenticated request reaches
@@ -411,7 +413,32 @@ async function main(): Promise<void> {
     // The owner's own office, rendered from the rows seeded above.
     const ownerContext = await contextFor(ownerCookie);
     const page = await ownerContext.newPage();
+
+    // THE SIGNED-IN REDIRECT, driven rather than read out of the source. Since
+    // task 1cccebcf `/signin` is a prerendered shell and the guard that moves a
+    // signed-in visitor to `/` runs in the browser, so this is the transcript
+    // that proves the 2026-08-11 fix still holds where it now lives: a real
+    // session cookie, a real navigation to `/signin`, and the visitor ends up
+    // on `/` with the dashboard rendered.
+    await page.goto(`${BASE}/signin`, { waitUntil: "domcontentloaded" });
+    await page.waitForURL((url) => url.pathname === "/", { timeout: 20_000 });
+    await page.waitForSelector('[data-testid="signed-in-as"]', {
+      timeout: 20_000,
+    });
+    check(
+      "a signed-in visitor on /signin is moved to the dashboard",
+      new URL(page.url()).pathname === "/" &&
+        ((await page.textContent("body")) ?? "").includes("Signed in as"),
+      page.url(),
+    );
+
     await page.goto(BASE, { waitUntil: "domcontentloaded" });
+    // The shell paints before the session probe answers, so the signed-in body
+    // is what this waits for - reading straight after `domcontentloaded` would
+    // read the marketing shell.
+    await page.waitForSelector('[data-testid="signed-in-as"]', {
+      timeout: 20_000,
+    });
     const dashboardText = (await page.textContent("body")) ?? "";
     const dashboardLinks = await page.$$eval("a", (links) =>
       links.map((link) => link.getAttribute("href")),
@@ -426,7 +453,7 @@ async function main(): Promise<void> {
     check(
       "the multi-office dashboard offers another signup",
       dashboardText.includes("Set up another office") &&
-        dashboardLinks.includes("/signup"),
+        dashboardLinks.includes("/signup?another=1"),
     );
     const response = await page.goto(`${BASE}/office/${officeName}`, {
       waitUntil: "domcontentloaded",
@@ -546,6 +573,155 @@ async function main(): Promise<void> {
     check(
       "the floor rendered its own empty state",
       (await page.$("[data-testid=ops-attention-empty]")) !== null,
+    );
+
+    // SIGN-OUT, LAST, because it destroys the session every check above used.
+    //
+    // It is here rather than only in `signup-flow.e2e.ts` because the handler
+    // MOVED in task 1cccebcf - sign-out used to be a server action on a
+    // server-rendered page and is now an Auth.js call from a client component -
+    // and this file is the one transcript that builds, starts and tears down its
+    // own production server, so the moved handler gets a proof that runs end to
+    // end on its own.
+    //
+    // THE RESPONSE SHAPE IS MEASURED ON A TWIN SESSION, NOT ON THE CLICKED
+    // REQUEST, and the reason is worth writing down. Auth.js reads the signout
+    // response body itself and moves the document immediately, so a
+    // `waitForResponse` handle read afterwards throws "Response body is not
+    // available for a response that was navigated away from" and reading it
+    // sooner only narrows that window. The obvious repair - a `page.route` that
+    // calls `route.fetch()`, keeps the bytes and fulfils unchanged - does not
+    // work here either: measured 2026-09-05 on playwright-core 1.x,
+    // `route.fetch()` dies inside Playwright's own Set-Cookie parser with
+    // `TypeError: "/api/auth/signout" cannot be parsed as a URL` because the
+    // 200 answer carries a `location` header, and the handler then never
+    // fulfils, so the click hangs.
+    //
+    // So the two halves are proved separately and neither is a race. The bytes
+    // are taken from a SECOND context holding the same minted cookie, over an
+    // API request that no document navigation can invalidate; sessions here are
+    // JWTs with no server-side store, so signing that twin out does not disturb
+    // the session the click below uses. The click is then proved by what it does
+    // to the real browser: the cookie jar, the page, and the office.
+    // The bytes are taken over a PLAIN fetch carrying the same minted cookie,
+    // not through Playwright. Measured 2026-09-05 on playwright-core 1.x, every
+    // `APIRequestContext` call against an Auth.js route dies inside Playwright's
+    // own Set-Cookie parser with `TypeError: "/api/auth/csrf" cannot be parsed
+    // as a URL`, and `route.fetch()` inside a `page.route` handler dies the same
+    // way and then never fulfils, hanging the click. A plain fetch is what
+    // `production-probe.ts` already uses against these routes for the same
+    // reason. Sessions here are JWTs with no server-side store, so signing this
+    // twin out does not disturb the session the click below uses.
+    const cookieHeader = `${COOKIE}=${ownerCookie}`;
+    const csrfAnswer = await fetch(`${BASE}/api/auth/csrf`, {
+      headers: { cookie: cookieHeader },
+    });
+    const csrfToken = ((await csrfAnswer.json()) as { csrfToken?: string })
+      .csrfToken;
+    // Auth.js checks the posted token against the cookie it just set, so the
+    // POST has to carry both.
+    const csrfCookie = csrfAnswer.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    check(
+      "the signout ceremony issues a csrf token",
+      csrfAnswer.status === 200 && typeof csrfToken === "string",
+      String(csrfAnswer.status),
+    );
+    const signOutAnswer = await fetch(`${BASE}/api/auth/signout`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        cookie: `${cookieHeader}; ${csrfCookie}`,
+        "content-type": "application/x-www-form-urlencoded",
+        "x-auth-return-redirect": "1",
+        origin: BASE,
+      },
+      body: new URLSearchParams({
+        csrfToken: csrfToken ?? "",
+        callbackUrl: "/",
+      }).toString(),
+    });
+    const signOutBody = await signOutAnswer.text();
+    const signOutSetCookie = signOutAnswer.headers.getSetCookie().join("\n");
+    let signOutDestination: string;
+    try {
+      signOutDestination =
+        (JSON.parse(signOutBody) as { url?: string }).url ?? "";
+    } catch {
+      signOutDestination = "";
+    }
+    check(
+      "the sign-out response names / as the destination",
+      signOutAnswer.status === 200 && signOutDestination === `${BASE}/`,
+      `status=${signOutAnswer.status} url=${signOutDestination}`,
+    );
+    check(
+      "the sign-out response clears the session cookie",
+      /session-token=;/.test(signOutSetCookie) &&
+        /(?:Max-Age=0|Expires=Thu, 01 Jan 1970)/i.test(signOutSetCookie),
+      /session-token=;/.test(signOutSetCookie)
+        ? "session-token cleared"
+        : "no clearing Set-Cookie seen",
+    );
+
+    // Now the click itself, as a real pointer press on the button's own box
+    // rather than a selector dispatch: the point is that the click a customer
+    // makes reaches the handler that moved.
+    await page.goto(BASE, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[data-testid="sign-out"]', { timeout: 20_000 });
+    const cookiesBefore = (await ownerContext.cookies()).filter((cookie) =>
+      cookie.name.includes("session-token"),
+    );
+    const signOutBox = await page
+      .locator('[data-testid="sign-out"]')
+      .boundingBox();
+    if (!signOutBox) throw new Error("the sign-out button has no bounding box");
+    await page.mouse.click(
+      signOutBox.x + signOutBox.width / 2,
+      signOutBox.y + signOutBox.height / 2,
+    );
+
+    // The reload Auth.js performs is what removes this element: the shell it
+    // lands on has no signed-in row until a probe says so, and there is no
+    // session left to say it. Waiting on it makes the screenshot below a picture
+    // of the signed-out page rather than of whichever frame happened to be up.
+    await page.waitForSelector('[data-testid="signed-in-as"]', {
+      state: "detached",
+      timeout: 20_000,
+    });
+    // The browser's own cookie jar is the ground truth, and polling it is not a
+    // race against whatever navigation Auth.js chose to do.
+    let cookiesAfter = cookiesBefore;
+    for (let i = 0; i < 80; i++) {
+      cookiesAfter = (await ownerContext.cookies()).filter((cookie) =>
+        cookie.name.includes("session-token"),
+      );
+      if (cookiesAfter.length === 0) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    const signOutShot = "/tmp/production-server-sign-out.png";
+    await page.screenshot({ path: signOutShot, fullPage: true });
+    console.log(`sign_out_screenshot: ${signOutShot}`);
+    check(
+      "the click removes the browser session cookie",
+      cookiesBefore.length > 0 && cookiesAfter.length === 0,
+      `before=${cookiesBefore.length} after=${cookiesAfter.length}`,
+    );
+    check(
+      "the visitor ends on /",
+      new URL(page.url()).pathname === "/",
+      page.url(),
+    );
+    // And the session is gone for real, not merely forgotten by the browser.
+    const afterSignOut = await page.goto(`${BASE}/office/${officeName}`, {
+      waitUntil: "domcontentloaded",
+    });
+    check(
+      "signed out, the office is unreachable again",
+      new URL(page.url()).pathname === "/signin",
+      `${afterSignOut?.status()} ${page.url()}`,
     );
 
     await strangerContext.close();
