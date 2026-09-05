@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { RoomProps } from "./RoomProps.tsx";
+import { GroundShadows } from "./GroundShadows.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
@@ -544,6 +545,7 @@ export function OfficeView({
               }
             />
             <Floor />
+            <GroundShadows />
             <WallDoors
               leftDoor={
                 currentRoomIndex > 0

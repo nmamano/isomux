@@ -731,6 +731,19 @@ export function Walls({
         />
         {/* Cork surface */}
         <rect x="-46" y="-36" width="87" height="62" rx="1" fill="#c49a6c" />
+        {/* Frame bevel - the window lights the top and left edges */}
+        <path
+          d="M-49 29 L-49 -39 L44 -39"
+          fill="none"
+          stroke="#7a5f42"
+          strokeWidth="1.5"
+        />
+        <path
+          d="M-49 29 L44 29 L44 -39"
+          fill="none"
+          stroke="#3a2a18"
+          strokeWidth="1.5"
+        />
         {/* Cork texture - subtle speckles */}
         <circle cx="-30" cy="-20" r="0.8" fill="#b88a58" opacity="0.5" />
         <circle cx="-10" cy="-10" r="0.6" fill="#b88a58" opacity="0.4" />
@@ -919,6 +932,19 @@ export function Walls({
           fill="none"
           stroke="#8a7a60"
           strokeWidth="0.5"
+        />
+        {/* Frame bevel - lit top and left, shaded bottom and right */}
+        <path
+          d="M-29 25 L-29 -31 L29 -31"
+          fill="none"
+          stroke="#6a5a48"
+          strokeWidth="1.2"
+        />
+        <path
+          d="M-29 25 L29 25 L29 -31"
+          fill="none"
+          stroke="#1a120c"
+          strokeWidth="1.2"
         />
         {/* Cream background */}
         <rect
@@ -1249,6 +1275,19 @@ export function Walls({
 
       {/* Vent - upper-east area of right wall */}
       <g transform="translate(500, 60) skewY(27)">
+        {/* Drop shadow, falling right and down like every other shadow in
+            the scene. The corkboard and the framed sign carry a bevel and no
+            shadow; only the vent takes both. That is deliberate, judged on
+            the frames one prop at a time (Nil, 2026-09-05). */}
+        <rect
+          x="-22.5"
+          y="-12.5"
+          width="50"
+          height="30"
+          rx="2"
+          fill="#000"
+          opacity="0.16"
+        />
         <rect
           x="-25"
           y="-15"
@@ -1290,6 +1329,22 @@ export function Walls({
           y2="10"
           stroke="var(--wall-decor-stroke)"
           strokeWidth="1.5"
+        />
+        {/* Plate bevel. The vent takes its colour from the theme, so the
+            bevel is a white and a black overlay, which read in both. */}
+        <path
+          d="M-24 14 L-24 -14 L24 -14"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1"
+          opacity="0.18"
+        />
+        <path
+          d="M-24 14 L24 14 L24 -14"
+          fill="none"
+          stroke="#000"
+          strokeWidth="1"
+          opacity="0.25"
         />
       </g>
 
