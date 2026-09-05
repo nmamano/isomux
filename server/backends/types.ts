@@ -333,7 +333,7 @@ export type SubscriptionUsageResult =
   | { kind: "unknown" };
 
 export interface BackendSession {
-  // Stream of normalized events. The persistent consumer in agent-manager
+  // Stream of normalized events. The persistent consumer (SessionManager.consume)
   // iterates this for the session's lifetime; `close()` ends the iteration.
   stream(): AsyncIterable<NormalizedEvent>;
 
