@@ -246,9 +246,11 @@ Mechanics:
 - Files: `ui/components/UserSettingsView.tsx` (the shell and every string
   it holds, including the browser confirm for unsaved edits), `OfficePane`,
   `RoomPane`, `ThemePane`, `MyDevicesPane`, `UpdatePane`, `UsagePane`,
-  `StoragePane`, plus `ui/storage-prune-form.ts` and `ui/device-settings.ts`
-  where they build prose. Not in S2: the access and connections panes (S3),
-  the dialogs (S4).
+  `StoragePane`, `DevicePane` (added by PM ruling on Reviewer 2's plan-gate
+  escalation, 2026-09-05: it sits in the Device group beside Theme; keys
+  `settings.device.*`), plus `ui/storage-prune-form.ts` and
+  `ui/device-settings.ts` where they build prose. Not in S2: the access and
+  connections panes (S3), the dialogs (S4).
 - Keys: `settings.*` for the shell, then `settings.office.*`,
   `settings.room.*`, `settings.theme.*`, `settings.devices.*`,
   `settings.update.*`, `settings.usage.*`, `settings.storage.*`. Words
