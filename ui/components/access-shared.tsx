@@ -429,6 +429,36 @@ export const subsectionHeader: React.CSSProperties = {
 };
 export const subLabel: React.CSSProperties = { ...dialogLabel, marginTop: 8 };
 export const hint: React.CSSProperties = dialogHint;
+
+// A pointer from one settings section to another, inline in a sentence. It is
+// a button (the page moves the detail pane itself, it is not a route), and
+// plain bold text when the caller has no handler to give - so the sentence
+// still reads wherever the pane is mounted without one.
+export function SettingsLink({
+  label,
+  onGo,
+}: {
+  label: string;
+  onGo?: () => void;
+}) {
+  if (!onGo) return <strong>{label}</strong>;
+  return (
+    <button
+      onClick={onGo}
+      style={{
+        font: "inherit",
+        background: "none",
+        border: "none",
+        padding: 0,
+        color: "var(--accent)",
+        cursor: "pointer",
+        textDecoration: "underline",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 export const cardStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: 8,

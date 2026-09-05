@@ -100,11 +100,15 @@ type SidebarRow = {
 
 // A labelled group of sidebar entries. The Members group carries no rows: it
 // renders the live roster instead, which needs per-user avatars and status.
+// `dynamic` marks a group whose rows come from live data rather than from a
+// fixed list, and gives those rows the roster's shape (a glyph and a name) so
+// the two kinds of row never look alike.
 type SidebarGroup = {
   id: string;
   label: string;
   rows: SidebarRow[];
   roster?: boolean;
+  dynamic?: boolean;
 };
 
 // What the detail pane shows: a user's editor, or one settings section.
@@ -349,7 +353,7 @@ export function UserSettingsView({
                   sectionRow("sessions", "Sessions"),
                 ]
               : []),
-            sectionRow("connectionsOffice", "Connections"),
+            sectionRow("connectionsOffice", "Office-wide connections"),
             sectionRow("usage", "Usage"),
             // Storage is owner-only, matching the server: prune is gated on
             // officeOwner and the usage read strips paths for anyone else.
@@ -358,24 +362,12 @@ export function UserSettingsView({
           ],
         },
         {
-          id: "rooms",
-          label: "Rooms",
-          rows: rooms.map((room) => ({
-            key: `room:${room.id}`,
-            label: room.name,
-            selected:
-              selection?.kind === "room" && selection.roomId === room.id,
-            target: { kind: "room" as const, roomId: room.id },
-          })),
-        },
-        { id: "members", label: "Members", rows: [], roster: true },
-        {
           id: "you",
           label: "You",
           rows: [
             // Your own profile used to be reachable only by finding yourself
-            // in the roster below. It is the same editor; this row just gives
-            // it the door it should always have had.
+            // in the roster. It is the same editor; this row just gives it the
+            // door it should always have had.
             ...(selfUserId
               ? [
                   {
@@ -388,7 +380,7 @@ export function UserSettingsView({
                 ]
               : []),
             sectionRow("prefs", "Preferences"),
-            sectionRow("connectionsPersonal", "Connections"),
+            sectionRow("connectionsPersonal", "Individual connections"),
             sectionRow("apiTokens", "API tokens"),
             sectionRow("signInLinks", "Sign-in links"),
           ],
@@ -401,6 +393,22 @@ export function UserSettingsView({
             sectionRow("theme", "Theme"),
           ],
         },
+        {
+          id: "rooms",
+          label: "Rooms",
+          // Dynamic: one row per room the viewer can see, so the rows carry a
+          // glyph and read as a list of live things - like the roster below,
+          // and unlike the fixed rows above.
+          dynamic: true,
+          rows: rooms.map((room) => ({
+            key: `room:${room.id}`,
+            label: room.name,
+            selected:
+              selection?.kind === "room" && selection.roomId === room.id,
+            target: { kind: "room" as const, roomId: room.id },
+          })),
+        },
+        { id: "members", label: "Members", rows: [], roster: true },
       ]
     : [];
 
@@ -1862,6 +1870,9 @@ const onlineDotStyle: React.CSSProperties = {
 
 // One labelled group of sidebar rows. A row that only opens a dialog never
 // paints as selected, because nothing of it is showing in the detail pane.
+// A dynamic group (Rooms) borrows the roster's row shape - glyph on the left,
+// name beside it, no extra indent - so a row that stands for a live thing
+// never reads as one of the fixed rows above it.
 function SidebarGroupRows({
   group,
   first,
@@ -1872,6 +1883,7 @@ function SidebarGroupRows({
   onSelect: (target: Selection) => void;
 }) {
   if (group.rows.length === 0) return null;
+  const dynamic = !!group.dynamic;
   return (
     <>
       <div style={{ ...sidebarSectionLabel, marginTop: first ? 0 : 18 }}>
@@ -1883,10 +1895,13 @@ function SidebarGroupRows({
           onClick={() => (row.target ? onSelect(row.target) : row.open?.())}
           aria-current={row.selected ? "true" : undefined}
           style={{
+            display: dynamic ? "flex" : undefined,
+            alignItems: dynamic ? "center" : undefined,
+            gap: dynamic ? 10 : undefined,
             width: "100%",
             textAlign: "left",
             font: "inherit",
-            padding: "8px 14px 8px 22px",
+            padding: dynamic ? "8px 14px" : "8px 14px 8px 22px",
             fontSize: 13,
             fontWeight: 600,
             color: "var(--text-primary)",
@@ -1898,10 +1913,53 @@ function SidebarGroupRows({
               : "2px solid transparent",
           }}
         >
-          {row.label}
+          {dynamic && <RoomGlyph />}
+          {dynamic ? (
+            <span
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {row.label}
+            </span>
+          ) : (
+            row.label
+          )}
         </button>
       ))}
     </>
+  );
+}
+
+// The Rooms rows' counterpart to the roster's ghost: a door, drawn at the
+// ghost's size so both lists line up. Presentation attributes only - the app
+// renders no external stylesheet for SVG.
+function RoomGlyph() {
+  return (
+    <svg
+      width={22}
+      height={22}
+      viewBox="0 0 22 22"
+      fill="none"
+      style={{ flexShrink: 0 }}
+      aria-hidden="true"
+    >
+      <rect
+        x={5.5}
+        y={3.5}
+        width={11}
+        height={15}
+        rx={1.5}
+        fill="var(--bg-hover)"
+        stroke="var(--text-dim)"
+        strokeWidth={1.5}
+      />
+      <circle cx={13.5} cy={11} r={1.1} fill="var(--text-dim)" />
+    </svg>
   );
 }
 

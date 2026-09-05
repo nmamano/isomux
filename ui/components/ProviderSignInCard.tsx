@@ -7,7 +7,7 @@ import type {
   ProviderAccountsWire,
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
-import { cardStyle, hint } from "./access-shared.tsx";
+import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 
 export function signOutButtonLabel(pending: boolean): string {
@@ -26,6 +26,7 @@ export function ProviderSignInCard({
   showTitle = true,
   apiKeyNote = false,
   scopes = ["office", "personal"],
+  onGoToOtherHalf,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -34,6 +35,10 @@ export function ProviderSignInCard({
   showTitle?: boolean;
   apiKeyNote?: boolean;
   scopes?: readonly ProviderAccountScope[];
+  // Moves the settings page to the other Connections section. Absent
+  // wherever the card is mounted outside that page (the log view), where the
+  // pointer stays plain text.
+  onGoToOtherHalf?: () => void;
 }) {
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
@@ -51,6 +56,7 @@ export function ProviderSignInCard({
           )}
           onAccounts={onAccounts}
           onStartNewConversation={onStartNewConversation}
+          onGoToOtherHalf={onGoToOtherHalf}
         />
       ))}
       {apiKeyNote && (
@@ -62,7 +68,8 @@ export function ProviderSignInCard({
             paddingTop: 14,
           }}
         >
-          Do you want to use an API token? See Settings → You → Connections.
+          Do you want to use an API token? See Settings → You → Individual
+          connections.
         </p>
       )}
     </section>
@@ -75,6 +82,7 @@ function ProviderScopeConnection({
   account,
   onAccounts,
   onStartNewConversation,
+  onGoToOtherHalf,
   hideTopBorder = false,
 }: {
   provider: ProviderAccountProvider;
@@ -82,6 +90,7 @@ function ProviderScopeConnection({
   account?: ProviderAccountWire;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
+  onGoToOtherHalf?: () => void;
   hideTopBorder?: boolean;
 }) {
   const [pending, setPending] = useState(false);
@@ -113,12 +122,20 @@ function ProviderScopeConnection({
   const title = provider === "codex" ? "Codex" : "Claude";
   const scopeTitle =
     scope === "office"
-      ? "Option 1: Sign in for every agent in this office"
-      : "Option 2: Sign in for agents I spawn";
+      ? "Office-wide: sign in for every agent in this office"
+      : "Individual: sign in for agents I spawn";
+  // The office scope's sentence names the other section, so it carries the
+  // cross-link rather than plain words.
   const scopeHint =
-    scope === "office"
-      ? "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own (via Option 2)."
-      : "Use a separate account for your agents.";
+    scope === "office" ? (
+      <>
+        This subscription is used for every agent in the office except for
+        agents spawned by an office member who has set up{" "}
+        <SettingsLink label="Individual connections" onGo={onGoToOtherHalf} />.
+      </>
+    ) : (
+      "Use a separate account for your agents."
+    );
 
   async function refresh(): Promise<void> {
     const result = await apiFetch<ProviderAccountsWire>(

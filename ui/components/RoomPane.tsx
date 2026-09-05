@@ -272,7 +272,7 @@ export function RoomPane({
           }}
         >
           Changes take effect on next conversation. Set environment variables
-          under Connections.
+          under Office-wide or Individual connections.
         </p>
 
         <label

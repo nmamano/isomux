@@ -4,7 +4,12 @@ import type {
   ProviderAccountWire,
   ProviderAccountsWire,
 } from "../../shared/types.ts";
-import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
+import {
+  cardStyle,
+  hint,
+  sectionHeader,
+  SettingsLink,
+} from "./access-shared.tsx";
 import { dialogCancelBtn } from "./dialog-styles.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
@@ -94,7 +99,9 @@ export function ConnectionsPane({
           justifyContent: "space-between",
         }}
       >
-        <h4 style={sectionHeader}>Connections</h4>
+        <h4 style={sectionHeader}>
+          {isOffice ? "Office-wide connections" : "Individual connections"}
+        </h4>
         <button
           style={dialogCancelBtn}
           onClick={() => void load(true)}
@@ -114,12 +121,14 @@ export function ConnectionsPane({
         accounts={accounts}
         onAccounts={updateAccounts}
         scopes={scopes}
+        onGoToOtherHalf={onGoToOtherHalf}
       />
       <ProviderSignInCard
         provider="claude"
         accounts={accounts}
         onAccounts={updateAccounts}
         scopes={scopes}
+        onGoToOtherHalf={onGoToOtherHalf}
       />
       <section style={{ ...cardStyle, marginTop: 14 }}>
         <h5 style={{ margin: "0 0 12px" }}>Environment variables</h5>
@@ -139,6 +148,7 @@ export function ConnectionsPane({
                 Office-wide variables are managed by an office owner.
               </p>
             )}
+            <ProviderKeyNote />
           </div>
         ) : (
           <div>
@@ -152,13 +162,7 @@ export function ConnectionsPane({
             <ManagedEnvEditor
               path={`/api/users/${encodeURIComponent(username)}/env`}
             />
-            <p style={{ ...hint, margin: "10px 0 0" }}>
-              Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>,
-              or <code>OPENCODE_API_KEY</code> to use provider API keys. Other
-              per-user variables work the same way, for example, each member can
-              set <code>GH_TOKEN</code> so their agents use their own GitHub
-              credentials. Then <code>/clear</code> agents to apply changes.
-            </p>
+            <ProviderKeyNote />
           </div>
         )}
       </section>
@@ -167,9 +171,23 @@ export function ConnectionsPane({
   );
 }
 
-// The pointer to the other half. It is a button when the page can navigate
-// for you, and plain text otherwise, so the sentence still reads if a caller
-// mounts the pane without a handler.
+// What the variables are FOR. The rule is the same on both halves, so the
+// paragraph is one component rather than two copies that can drift, and it
+// closes both halves for both roles: a member who cannot edit the office
+// variables can still act on the per-user half of what it says.
+function ProviderKeyNote() {
+  return (
+    <p style={{ ...hint, margin: "10px 0 0" }}>
+      Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
+      <code>OPENCODE_API_KEY</code> to use provider API keys. Other per-user
+      variables work the same way, for example, each member can set{" "}
+      <code>GH_TOKEN</code> so their agents use their own GitHub credentials.
+      Then <code>/clear</code> agents to apply changes.
+    </p>
+  );
+}
+
+// The pointer to the other half.
 function CrossLink({
   half,
   onGoToOtherHalf,
@@ -178,7 +196,9 @@ function CrossLink({
   onGoToOtherHalf?: () => void;
 }) {
   const target =
-    half === "office" ? "You → Connections" : "Office → Connections";
+    half === "office"
+      ? "You → Individual connections"
+      : "Office → Office-wide connections";
   const lead =
     half === "office"
       ? "Your own sign-ins and variables, which override these, are under "
@@ -186,25 +206,7 @@ function CrossLink({
   return (
     <p style={{ ...hint, marginTop: 14 }}>
       {lead}
-      {onGoToOtherHalf ? (
-        <button
-          onClick={onGoToOtherHalf}
-          style={{
-            font: "inherit",
-            background: "none",
-            border: "none",
-            padding: 0,
-            color: "var(--accent)",
-            cursor: "pointer",
-            textDecoration: "underline",
-          }}
-        >
-          {target}
-        </button>
-      ) : (
-        <strong>{target}</strong>
-      )}
-      .
+      <SettingsLink label={target} onGo={onGoToOtherHalf} />.
     </p>
   );
 }

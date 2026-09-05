@@ -111,11 +111,15 @@ describe("ProviderSignInCard", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
-    expect(html).toContain("Option 1: Sign in for every agent in this office");
-    expect(html).toContain("Option 2: Sign in for agents I spawn");
+    expect(html).toContain("Office-wide: sign in for every agent in this office");
+    expect(html).toContain("Individual: sign in for agents I spawn");
     expect(html).toContain(
-      "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own (via Option 2).",
+      "This subscription is used for every agent in the office except for agents spawned by an office member who has set up",
     );
+    // The scope names carry no numbering any more, and the office scope points
+    // at the other section by name instead of at "Option 2".
+    expect(html).not.toContain("Option 1");
+    expect(html).not.toContain("Option 2");
     expect(html).toContain("Use a separate account for your agents.");
     expect(html).toContain("Sign in");
     expect(html).not.toContain("Who should use this account?");
@@ -137,7 +141,11 @@ describe("ProviderSignInCard", () => {
     );
     expect(html).toContain('data-managed-env-path="/api/office/env"');
     expect(html).not.toContain('data-managed-env-path="/api/users/Boss/env"');
-    expect(html).toContain("You → Connections");
+    expect(html).toContain("You → Individual connections");
+    // The provider-key paragraph belongs under whichever editor the viewer
+    // just saw, so an owner gets it on this half too.
+    expect(html).toContain("ANTHROPIC_API_KEY");
+    expect(html).toContain("GH_TOKEN");
   });
 
   it("office half: shows a member the placeholder and mounts no editor", () => {
@@ -154,6 +162,11 @@ describe("ProviderSignInCard", () => {
     expect(html).not.toContain('data-managed-env-path="/api/office/env"');
     expect(html).not.toContain('data-managed-env-path="/api/users/Member/env"');
     expect(html).not.toContain("owner-secret-value");
+    // The paragraph closes the half for both roles: a member cannot edit the
+    // office variables, but the per-user half of what it says is theirs to
+    // act on.
+    expect(html).toContain("ANTHROPIC_API_KEY");
+    expect(html).toContain("GH_TOKEN");
   });
 
   it("personal half: mounts only the caller's editor, for either role", () => {
@@ -171,7 +184,7 @@ describe("ProviderSignInCard", () => {
       expect(html).toContain("GH_TOKEN");
       expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
       expect(html).not.toContain('data-managed-env-path="/api/office/env"');
-      expect(html).toContain("Office → Connections");
+      expect(html).toContain("Office → Office-wide connections");
     }
   });
 

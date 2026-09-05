@@ -491,6 +491,21 @@ export function App({ routing = true }: { routing?: boolean }) {
         e.preventDefault();
         setTasksOpen((v) => !v);
       }
+      // "s": open the Settings page from anywhere, the same way "t" reaches
+      // the task board. It only OPENS - pressing it again does not close the
+      // page, because leaving that way would skip its unsaved-edits check.
+      // Escape (handled by the page itself) is the way back out.
+      if (
+        !isInput &&
+        e.key === "s" &&
+        !usersOpen &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        openSettings(null);
+      }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
       // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) - don't swallow the key in those cases.
@@ -582,6 +597,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     currentRoomId,
     roomCount,
     usersOpen,
+    openSettings,
   ]);
 
   // Which page is showing, in the same precedence as the view switch below. A

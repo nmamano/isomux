@@ -1671,7 +1671,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   }}
                 >
                   Locked to the spawning user. Controls which personal variables
-                  load on each session (see Settings → You → Connections).
+                  load on each session (see Settings → You → Individual
+                  connections).
                 </p>
 
                 {/* Privileged operator access. Grants this agent its spawning user's
