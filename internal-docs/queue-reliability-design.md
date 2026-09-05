@@ -9,8 +9,10 @@ Location note (task 798922c1, S2, 2026-09-05): `installSession`,
 `closeAndDrainSession`, `replaceSession`, `drainConsumerBounded`,
 `createTurnDeferred`, `clearLiveTurn` and `turnIsLive` live in
 `server/session-manager.ts` (one `SessionManager` per agent, reached as
-`managed.sessionManager`); agent-manager.ts calls them. The agent-manager
-line references below predate the move.
+`managed.sessionManager`); agent-manager.ts calls them. Since S3 the consumer
+loop is `SessionManager.consume` in the same module (its bound-session guard
+reads `this.session !== boundSession`). The agent-manager line references
+below predate the move.
 
 ## Background: the delivery machinery today
 

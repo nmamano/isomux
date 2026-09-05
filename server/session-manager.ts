@@ -5,15 +5,21 @@
 // agent-manager.ts calls the operations and reads the fields through
 // getter-only views, so every write goes through this object.
 //
-// S2 of the SessionManager extraction (task 798922c1): the nine fields and
-// these seven operations moved here verbatim from agent-manager.ts. The
-// consumer loop (`runConsumer`) and backend dispatch (`createSession`) still
-// live there and arrive through `SessionManagerDeps`. Behaviour-preserving:
-// same events, same state transitions, same log lines, same timing.
+// S2 of the SessionManager extraction (task 798922c1) moved the nine fields
+// and the seven swap operations here verbatim from agent-manager.ts; S3 moved
+// the consumer loop (`consume`). Backend dispatch (`createSession`) still
+// lives there; the per-event work and the manager-only diagnostics the loop
+// needs arrive through `SessionManagerDeps`. Behaviour-preserving: same
+// events, same state transitions, same log lines, same timing.
 
-import type { AgentInfo, AgentState } from "../shared/types.ts";
+import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
-import type { BackendSession } from "./backends/types.ts";
+import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
+import {
+  BACKEND_STOPPED_DURING_TURN,
+  backendFailureMeta,
+  humanizeBackendFailure,
+} from "./backend-failure-text.ts";
 import {
   SessionSwappedError,
   TurnSupersededError,
@@ -27,7 +33,7 @@ import { errMessage } from "../shared/errors.ts";
 // backed by a subprocess (lazy spawn, or released by /clear) - its wake is
 // silent because there is nothing to announce resuming; "stream-ended" = the
 // backend's event stream ended on its own while the session was still bound
-// (subprocess died without a proper error event) and runConsumer released
+// (subprocess died without a proper error event) and the consumer released
 // the dead session pointer. Null while live. In-memory only.
 export type DormantReason = "idle" | "boot" | "fresh" | "stream-ended" | null;
 
@@ -69,12 +75,24 @@ export interface SessionManagerDeps<H extends SessionHost> {
   emit: (event: AgentEvent) => void;
   // `agents.get(agentId) === managed`: the killed-during-drain guard.
   isStillManaged: (host: H) => boolean;
-  // The persistent consumer loop (still in agent-manager for S2).
-  runConsumer: (
+  // The per-event work: state derivation, log entries, usage refresh, and the
+  // turn_completed / error-event settle of pendingTurn (through this object).
+  processNormalizedEvent: (agentId: string, ev: NormalizedEvent) => void;
+  // The chat entries the consumer writes when a backend dies.
+  addLogEntry: (
     agentId: string,
-    host: H,
-    session: BackendSession,
-  ) => Promise<void>;
+    kind: LogEntry["kind"],
+    content: string,
+    metadata?: Record<string, unknown>,
+  ) => void;
+  // Stream-error diagnostics over manager-only state, called by the error
+  // branch in this order: the pending fixed-cwd reset marker (has / delete /
+  // clear the stale auto-resume state), the Claude-only process-exit hints
+  // (null for other engines), and auth detection (emits the login
+  // instructions when true and returns the classification for updateState).
+  reconcilePendingFixedCwdReset: (host: H) => void;
+  diagnoseProcessExitHints: (host: H, sessionId: string | null) => string | null;
+  handleDetectedAuthError: (host: H, errorText: string) => boolean;
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;
   // Post-swap flush kick.
@@ -95,7 +113,7 @@ export interface SessionManagerDeps<H extends SessionHost> {
 // the wedged old subprocess may still hold the shared session .jsonl while
 // a --resume replacement starts writing it (the drain-before-install
 // rationale in the replaceSession header). A rare corrupted resume beats a
-// permanent office-visible wedge; runConsumer's bound-session guard already
+// permanent office-visible wedge; consume's bound-session guard already
 // discards any late in-memory events from the zombie stream. BackendSession
 // exposes no harder termination primitive than close() today - if adapters
 // grow a hard-kill, the timeout path below should call it before
@@ -237,7 +255,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
     // idle install may safely discard residue.
     if (!this.turnIsLive(host)) this.clearLiveTurn(host);
     this.session = session;
-    this.consumerPromise = this.deps.runConsumer(this.agentId, host, session);
+    this.consumerPromise = this.consume(host, session);
     // Stamp activity + clear dormant in lockstep with the session going live, so
     // a just-woken agent isn't immediately re-demoted and `info.dormant` can
     // never disagree with `session !== null`. Guarded so spawn / normal swaps
@@ -249,6 +267,198 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         dormant: false,
       }))
         this.deps.emit(event);
+    }
+  }
+
+  // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
+  // once - the BackendSession contract is that stream() yields events for the
+  // whole session and only returns when the session is closed/exhausted.
+  // Per-turn boundaries are signalled via `turn_completed` NormalizedEvents,
+  // which processNormalizedEvent uses to resolve `pendingTurn`.
+  //
+  // Bound to a specific session instance: returns when `this.session` is
+  // swapped out (abort / resume / fork / etc.) - `session.close()` unblocks the
+  // parked `stream()` generator.
+  private async consume(host: H, boundSession: BackendSession): Promise<void> {
+    try {
+      for await (const ev of boundSession.stream()) {
+        // After an abort/resume/fork the dying session may keep yielding
+        // events for several seconds before its stream() generator finally
+        // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
+        // draining so the inner generator terminates, but we drop the events
+        // - otherwise the user sees model output continuing after Ctrl+C.
+        if (this.session !== boundSession) continue;
+        // Hot-abort window (session not swapped, just interrupted in place):
+        // the cancelled turn may keep streaming thinking / assistant_text /
+        // tool_* events for a moment before turn_completed arrives. Drop
+        // those so the user doesn't see the cancelled turn continue past the
+        // "Agent interrupted." log entry. Let turn_completed through (it
+        // settles pendingTurn and exits the abort wait) and error events
+        // through (real subprocess failures need to surface and recover).
+        //
+        // Known acceptable trade-offs in this window:
+        //   - usage_update events are dropped, so cumulative-usage accounting
+        //     permanently undercounts the interrupted turn's tokens. The
+        //     codex adapter's lastCumulativeUsage still advances, so later
+        //     turns don't double-count - we just lose the aborted turn from
+        //     the running total. Acceptable for cost reporting.
+        //   - system_text breadcrumbs from the adapter (e.g. "Codex interrupt
+        //     failed: …") are dropped here, so the user only sees the
+        //     orchestrator-level fallback message if the timeout path fires.
+        //     Acceptable for debug UX.
+        //   - tool_call events dropped here can make the matching tool_result
+        //     miss its timestamp. Active-tool state is per turn and cleared at
+        //     every terminal boundary, so the miss cannot leak into later
+        //     observability or watchdog decisions.
+        if (
+          this.aborting &&
+          ev.kind !== "turn_completed" &&
+          ev.kind !== "error"
+        )
+          continue;
+        this.deps.processNormalizedEvent(this.agentId, ev);
+      }
+      // CLEAN stream end while still bound (no throw, no swap, not aborting):
+      // the backend's stream ended on its own - subprocess death the adapter
+      // didn't surface as an error event. Two hazards if we just return:
+      //   1. a still-owned pendingTurn never settles, permanently stranding
+      //      every `await turn` waiter (sendMessage, a parked flushQueue);
+      //   2. this.session keeps pointing at a corpse, so the next message
+      //      sends into a dead session instead of waking a fresh one.
+      // Settle any owned turn, release the pointer (dormant flip mirrors
+      // closeAndDrainSession), and - ONLY in the no-owner/pre-send branch -
+      // normalize the busy state back to waiting_for_response
+      // (enqueueMessage treats thinking/tool_executing as busy and flushQueue
+      // rejects non-idle states, so a stuck busy state with no owning caller
+      // would strand queued messages forever). The mid-turn branch performs
+      // NO state transition; see its comment. All guarded on still-bound +
+      // still-alive so a replacement consumer or a killed agent is untouched.
+      // No-op when adapters behave (they emit an error or a synthetic
+      // turn_completed before ending the stream).
+      if (
+        this.deps.isStillManaged(host) &&
+        this.session === boundSession &&
+        !this.aborting
+      ) {
+        const turn = this.pendingTurn;
+        this.clearLiveTurn(host);
+        this.pendingTurn = null;
+        this.session = null;
+        this.consumerPromise = null;
+        host.dormantReason = "stream-ended";
+        // Any turn still in its PRE-SEND window (notice assembly; no
+        // pendingTurn installed) must bail at its next checkpoint rather than
+        // send into whatever session exists by then - same mechanism
+        // closeAndDrainSession uses. Harmless when a post-send turn existed
+        // (it is settled via the rejection below).
+        this.turnCancelToken++;
+        for (const event of this.deps.updateAgent(this.agentId, {
+          dormant: true,
+        }))
+          this.deps.emit(event);
+        if (turn) {
+          // Mid-turn death: settle the turn and let its OWNING caller's catch
+          // (sendMessage / flushQueue) produce the normal loud error state.
+          // Deliberately NO state transition here (review-pinned): a
+          // synchronous flip to waiting_for_response would fire the queue
+          // trigger and could start a replacement turn BEFORE the rejected
+          // caller's continuation runs - which would then stamp state=error
+          // over a live turn and interfere with its lifecycle. Queued items
+          // stay durable and deliver after human recovery.
+          try {
+            turn.reject(
+              new Error("Backend stream ended unexpectedly mid-turn."),
+            );
+          } catch {}
+          // The rejection text above stays raw - it is an internal Error that
+          // callers log to the console. What the USER reads uses the shared
+          // death wording, so this doesn't become a fourth
+          // inconsistent death surface. There is no exit code or subtype on
+          // this path (the stream simply ended), so it gets the generic line.
+          this.deps.addLogEntry(
+            this.agentId,
+            "error",
+            BACKEND_STOPPED_DURING_TURN,
+            {
+              backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
+            },
+          );
+          this.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
+        } else {
+          this.deps.logger.warn(
+            `Agent ${this.agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
+          );
+          if (
+            host.info.state === "thinking" ||
+            host.info.state === "tool_executing"
+          ) {
+            // No-owner window only (pre-send: busy state claimed, pendingTurn
+            // not yet installed - no caller catch will ever reset the state):
+            // normalize so the agent is reachable again. Fires the queue-flush
+            // trigger when items are waiting, which wakes a fresh session via
+            // the !session branch; the token bump above guarantees the dead
+            // pre-send turn can't also send.
+            this.deps.updateState(this.agentId, "waiting_for_response");
+          }
+        }
+      }
+    } catch (err) {
+      if (this.aborting || this.session !== boundSession) {
+        // Expected: abort() or a session swap closed us. The swap path
+        // already nulled + rejected pendingTurn with SessionSwappedError.
+        return;
+      }
+
+      const turn = this.pendingTurn;
+      this.clearLiveTurn(host);
+      this.pendingTurn = null;
+      if (turn) turn.reject(err);
+
+      // A fresh fixed-cwd session can error before it ever
+      // emits system_init (an out-of-band stream failure; the adapter normally
+      // routes bootstrap failures through an empty-sessionId system_init, which the
+      // handler reconciles). In that case neither system_init reconciliation path
+      // runs, so honor the pending-reset marker here too: abandon the old thread's
+      // id + logCache so the committed new cwd isn't left paired with the dead old
+      // thread. No-op for the common error path (marker absent).
+      this.deps.reconcilePendingFixedCwdReset(host);
+
+      this.deps.logger.error(
+        `Agent ${this.agentId} stream error:`,
+        errMessage(err),
+      );
+      const errorText = `Stream error: ${errMessage(err)}`;
+      // Classified against the RAW backend message, not the
+      // "Stream error: " wrapper - the wrapper is isomux's own framing and
+      // would otherwise be pasted in front of the explanation. An UNRECOGNIZED
+      // failure keeps the wrapper it has always had; only a classified one
+      // replaces the whole line.
+      const failure = humanizeBackendFailure(errMessage(err));
+      const classified = failure.raw !== undefined;
+      this.deps.addLogEntry(
+        this.agentId,
+        "error",
+        classified ? failure.text : errorText,
+        classified
+          ? backendFailureMeta({ text: failure.text, raw: errorText })
+          : undefined,
+      );
+      this.lastBackendFailure = classified ? failure.text : errorText;
+      // The SDK's "process exited with code 1" is opaque; diagnose common causes.
+      // The manager answers null for non-Claude agents (the diagnosis reads
+      // CLAUDE_CONFIG_DIR/projects).
+      const hints = this.deps.diagnoseProcessExitHints(host, this.sessionId);
+      if (hints) this.deps.addLogEntry(this.agentId, "system", hints);
+      // Same rationale as the "error"-event path in processNormalizedEvent:
+      // auth errors aren't agent failures, surface them as
+      // waiting_for_response to match the (rare)
+      // bundled-codex-binary-doesn't-resolve case in
+      // surfaceBackendNotConfigured, and avoid an erroneous red-desk signal.
+      const isAuthError = this.deps.handleDetectedAuthError(host, errorText);
+      this.deps.updateState(
+        this.agentId,
+        isAuthError ? "waiting_for_response" : "error",
+      );
     }
   }
 

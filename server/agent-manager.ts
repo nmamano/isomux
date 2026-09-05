@@ -97,7 +97,6 @@ import {
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import {
-  BACKEND_STOPPED_DURING_TURN,
   backendFailureMeta,
   humanizeBackendFailure,
 } from "./backend-failure-text.ts";
@@ -722,7 +721,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       officeState.updateAgent(agentId, changes),
     emit,
     isStillManaged: (managed) => agents.get(managed.info.id) === managed,
-    runConsumer,
+    processNormalizedEvent,
+    addLogEntry,
+    reconcilePendingFixedCwdReset: (managed) => {
+      if (pendingFixedCwdReset.has(managed.info.id)) {
+        pendingFixedCwdReset.delete(managed.info.id);
+        clearStaleAutoResumeState(managed.info.id, managed);
+      }
+    },
+    // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
+    // only call it for claude-typed agents. Best-effort env build - see the
+    // envForHints note.
+    diagnoseProcessExitHints: (managed, sessionId) =>
+      managed.info.agentType === "claude"
+        ? diagnoseProcessExit(managed.info.cwd, sessionId, envForHints(managed))
+        : null,
+    handleDetectedAuthError: (managed, errorText) => {
+      const isAuthError = detectAgentAuthError(managed, errorText);
+      if (isAuthError) emitDetectedAuthInstructions(managed.info.id, managed);
+      return isAuthError;
+    },
     updateState,
     flushQueue,
     getConsumerDrainTimeoutMs: () => consumerDrainTimeoutMs,
@@ -3760,7 +3778,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             );
           }
         }
-        // Resolve the per-turn deferred. Pre-refactor this lived in runConsumer
+        // Resolve the per-turn deferred. Pre-refactor this lived in the consumer
         // and fired when the SDK's stream() returned at the result message.
         // Post-refactor stream() is persistent across turns, so we resolve at
         // the turn_completed normalized event instead - same semantic, just at
@@ -3926,206 +3944,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         updateState(agentId, "error");
         break;
       }
-    }
-  }
-
-  // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
-  // once - the BackendSession contract is that stream() yields events for the
-  // whole session and only returns when the session is closed/exhausted.
-  // Per-turn boundaries are signalled via `turn_completed` NormalizedEvents,
-  // which processNormalizedEvent uses to resolve `pendingTurn`.
-  //
-  // Bound to a specific session instance: returns when `managed.session` is
-  // swapped out (abort / resume / fork / etc.) - `session.close()` unblocks the
-  // parked `stream()` generator.
-  async function runConsumer(
-    agentId: string,
-    managed: ManagedAgent,
-    boundSession: BackendSession,
-  ) {
-    try {
-      for await (const ev of boundSession.stream()) {
-        // After an abort/resume/fork the dying session may keep yielding
-        // events for several seconds before its stream() generator finally
-        // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
-        // draining so the inner generator terminates, but we drop the events
-        // - otherwise the user sees model output continuing after Ctrl+C.
-        if (managed.session !== boundSession) continue;
-        // Hot-abort window (session not swapped, just interrupted in place):
-        // the cancelled turn may keep streaming thinking / assistant_text /
-        // tool_* events for a moment before turn_completed arrives. Drop
-        // those so the user doesn't see the cancelled turn continue past the
-        // "Agent interrupted." log entry. Let turn_completed through (it
-        // settles pendingTurn and exits the abort wait) and error events
-        // through (real subprocess failures need to surface and recover).
-        //
-        // Known acceptable trade-offs in this window:
-        //   - usage_update events are dropped, so cumulative-usage accounting
-        //     permanently undercounts the interrupted turn's tokens. The
-        //     codex adapter's lastCumulativeUsage still advances, so later
-        //     turns don't double-count - we just lose the aborted turn from
-        //     the running total. Acceptable for cost reporting.
-        //   - system_text breadcrumbs from the adapter (e.g. "Codex interrupt
-        //     failed: …") are dropped here, so the user only sees the
-        //     orchestrator-level fallback message if the timeout path fires.
-        //     Acceptable for debug UX.
-        //   - tool_call events dropped here can make the matching tool_result
-        //     miss its timestamp. Active-tool state is per turn and cleared at
-        //     every terminal boundary, so the miss cannot leak into later
-        //     observability or watchdog decisions.
-        if (
-          managed.aborting &&
-          ev.kind !== "turn_completed" &&
-          ev.kind !== "error"
-        )
-          continue;
-        processNormalizedEvent(agentId, ev);
-      }
-      // CLEAN stream end while still bound (no throw, no swap, not aborting):
-      // the backend's stream ended on its own - subprocess death the adapter
-      // didn't surface as an error event. Two hazards if we just return:
-      //   1. a still-owned pendingTurn never settles, permanently stranding
-      //      every `await turn` waiter (sendMessage, a parked flushQueue);
-      //   2. managed.session keeps pointing at a corpse, so the next message
-      //      sends into a dead session instead of waking a fresh one.
-      // Settle any owned turn, release the pointer (dormant flip mirrors
-      // closeAndDrainSession), and - ONLY in the no-owner/pre-send branch -
-      // normalize the busy state back to waiting_for_response
-      // (enqueueMessage treats thinking/tool_executing as busy and flushQueue
-      // rejects non-idle states, so a stuck busy state with no owning caller
-      // would strand queued messages forever). The mid-turn branch performs
-      // NO state transition; see its comment. All guarded on still-bound +
-      // still-alive so a replacement consumer or a killed agent is untouched.
-      // No-op when adapters behave (they emit an error or a synthetic
-      // turn_completed before ending the stream).
-      if (
-        agents.get(agentId) === managed &&
-        managed.session === boundSession &&
-        !managed.aborting
-      ) {
-        const turn = managed.pendingTurn;
-        managed.sessionManager.clearLiveTurn(managed);
-        managed.sessionManager.pendingTurn = null;
-        managed.sessionManager.session = null;
-        managed.sessionManager.consumerPromise = null;
-        managed.dormantReason = "stream-ended";
-        // Any turn still in its PRE-SEND window (notice assembly; no
-        // pendingTurn installed) must bail at its next checkpoint rather than
-        // send into whatever session exists by then - same mechanism
-        // closeAndDrainSession uses. Harmless when a post-send turn existed
-        // (it is settled via the rejection below).
-        managed.sessionManager.turnCancelToken++;
-        for (const event of officeState.updateAgent(agentId, {
-          dormant: true,
-        }))
-          emit(event);
-        if (turn) {
-          // Mid-turn death: settle the turn and let its OWNING caller's catch
-          // (sendMessage / flushQueue) produce the normal loud error state.
-          // Deliberately NO state transition here (review-pinned): a
-          // synchronous flip to waiting_for_response would fire the queue
-          // trigger and could start a replacement turn BEFORE the rejected
-          // caller's continuation runs - which would then stamp state=error
-          // over a live turn and interfere with its lifecycle. Queued items
-          // stay durable and deliver after human recovery.
-          try {
-            turn.reject(
-              new Error("Backend stream ended unexpectedly mid-turn."),
-            );
-          } catch {}
-          // The rejection text above stays raw - it is an internal Error that
-          // callers log to the console. What the USER reads uses the shared
-          // death wording, so this doesn't become a fourth
-          // inconsistent death surface. There is no exit code or subtype on
-          // this path (the stream simply ended), so it gets the generic line.
-          addLogEntry(agentId, "error", BACKEND_STOPPED_DURING_TURN, {
-            backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
-          });
-          managed.sessionManager.lastBackendFailure =
-            BACKEND_STOPPED_DURING_TURN;
-        } else {
-          console.warn(
-            `Agent ${agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
-          );
-          if (
-            managed.info.state === "thinking" ||
-            managed.info.state === "tool_executing"
-          ) {
-            // No-owner window only (pre-send: busy state claimed, pendingTurn
-            // not yet installed - no caller catch will ever reset the state):
-            // normalize so the agent is reachable again. Fires the queue-flush
-            // trigger when items are waiting, which wakes a fresh session via
-            // the !session branch; the token bump above guarantees the dead
-            // pre-send turn can't also send.
-            updateState(agentId, "waiting_for_response");
-          }
-        }
-      }
-    } catch (err) {
-      if (managed.aborting || managed.session !== boundSession) {
-        // Expected: abort() or a session swap closed us. The swap path
-        // already nulled + rejected pendingTurn with SessionSwappedError.
-        return;
-      }
-
-      const turn = managed.pendingTurn;
-      managed.sessionManager.clearLiveTurn(managed);
-      managed.sessionManager.pendingTurn = null;
-      if (turn) turn.reject(err);
-
-      // A fresh fixed-cwd session can error before it ever
-      // emits system_init (an out-of-band stream failure; the adapter normally
-      // routes bootstrap failures through an empty-sessionId system_init, which the
-      // handler reconciles). In that case neither system_init reconciliation path
-      // runs, so honor the pending-reset marker here too: abandon the old thread's
-      // id + logCache so the committed new cwd isn't left paired with the dead old
-      // thread. No-op for the common error path (marker absent).
-      if (pendingFixedCwdReset.has(agentId)) {
-        pendingFixedCwdReset.delete(agentId);
-        clearStaleAutoResumeState(agentId, managed);
-      }
-
-      console.error(`Agent ${agentId} stream error:`, errMessage(err));
-      const errorText = `Stream error: ${errMessage(err)}`;
-      // Classified against the RAW backend message, not the
-      // "Stream error: " wrapper - the wrapper is isomux's own framing and
-      // would otherwise be pasted in front of the explanation. An UNRECOGNIZED
-      // failure keeps the wrapper it has always had; only a classified one
-      // replaces the whole line.
-      const failure = humanizeBackendFailure(errMessage(err));
-      const classified = failure.raw !== undefined;
-      addLogEntry(
-        agentId,
-        "error",
-        classified ? failure.text : errorText,
-        classified
-          ? backendFailureMeta({ text: failure.text, raw: errorText })
-          : undefined,
-      );
-      managed.sessionManager.lastBackendFailure = classified
-        ? failure.text
-        : errorText;
-      // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-      // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
-      // only call it for claude-typed agents.
-      if (managed.info.agentType === "claude") {
-        // Best-effort env build - see envForHints note above.
-        const hints = diagnoseProcessExit(
-          managed.info.cwd,
-          managed.sessionId,
-          envForHints(managed),
-        );
-        if (hints) addLogEntry(agentId, "system", hints);
-      }
-      const isAuthError = detectAgentAuthError(managed, errorText);
-      if (isAuthError) {
-        emitDetectedAuthInstructions(agentId, managed);
-      }
-      // Same rationale as the "error"-event path above: auth errors aren't
-      // agent failures, surface them as waiting_for_response to match the
-      // (rare) bundled-codex-binary-doesn't-resolve case in
-      // surfaceBackendNotConfigured, and avoid an erroneous red-desk signal.
-      updateState(agentId, isAuthError ? "waiting_for_response" : "error");
     }
   }
 
@@ -5481,7 +5299,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     try {
       // Wait for any in-flight turn to truly end before starting a new one. The
       // trigger from updateState fires synchronously inside processMessage,
-      // before runConsumer's post-loop code can clear the about-to-resolve
+      // before the consumer's post-loop code can clear the about-to-resolve
       // pendingTurn - without this wait, createTurnDeferred below would reject
       // that turn and surface a bogus "Superseded" error to the original caller.
       // ATTACH to the deferred's promise (snapshot once - the slot may be
@@ -6877,7 +6695,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // stop immediately. From the user's perspective the agent stops on Ctrl+C,
     // matching the Claude Code interactive behavior. The hot path keeps the
     // session alive so no drain is needed; the slow path drains while
-    // runConsumer suppresses events from the dying session.
+    // the consumer suppresses events from the dying session.
     updateState(agentId, "waiting_for_response");
     // A turn parked at a permission prompt still owns a pendingTurn (the SDK is
     // inside canUseTool waiting for an answer), so this is the ordinary path for
@@ -7396,7 +7214,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     addLogEntry(agentId, "system", "New conversation started.");
     // Last statement: close the live session and drain its consumer, leaving the
     // agent dormant (info.dormant=true). Rejects any in-flight turn with
-    // SessionSwappedError; runConsumer's catch returns early on the stale
+    // SessionSwappedError; the consumer's catch returns early on the stale
     // session so the rejected turn can't touch state after this resolves.
     await managed.sessionManager.closeAndDrainSession(managed);
   }
