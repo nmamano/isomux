@@ -545,7 +545,7 @@ export function OfficeView({
                 ).length
               }
             />
-            <Floor />
+            <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />
             <GroundShadows />
             <WallDoors
               leftDoor={

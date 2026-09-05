@@ -36,7 +36,9 @@ const SVG_STYLE: React.CSSProperties = {
 };
 const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
 
-export function Floor() {
+// desk8Cable: the cable belongs to the desk at slot 8, so a room without
+// that desk shows no cable.
+export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
   // back=(120,40), left=(-260,230), right=(500,230), front=(120,420)
   const backX = 120,
@@ -221,88 +223,90 @@ export function Floor() {
           the side of the slab and off the edge of the world. Each run is a
           dark body under a thin offset highlight, which is what makes a
           stroke read as a round cable rather than a drawn line. */}
-      <g aria-hidden="true">
-        <path
-          d={cableFloor}
-          transform="translate(1.6 0.9)"
-          fill="none"
-          stroke="#000"
-          strokeOpacity="0.16"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d={cableFloor}
-          fill="none"
-          stroke="#3c414f"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d={cableDrop}
-          fill="none"
-          stroke="#3c414f"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d={cableFloor}
-          transform="translate(-0.3 -0.5)"
-          fill="none"
-          stroke="#575e72"
-          strokeWidth="0.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d={cableDrop}
-          transform="translate(-0.55 -0.2)"
-          fill="none"
-          stroke="#575e72"
-          strokeWidth="0.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {/* The plug is the weight that explains why the free end hangs
-            straight instead of curling. */}
-        <g transform={`translate(${lipX - 3} ${plugY})`}>
-          <rect
-            x="-3.2"
-            y="0"
-            width="6.4"
-            height="8.6"
-            rx="1.6"
-            fill="#2f333f"
+      {desk8Cable && (
+        <g aria-hidden="true">
+          <path
+            d={cableFloor}
+            transform="translate(1.6 0.9)"
+            fill="none"
+            stroke="#000"
+            strokeOpacity="0.16"
+            strokeWidth="2.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
-          <rect
-            x="-3.2"
-            y="0"
-            width="2.5"
-            height="8.6"
-            rx="1.25"
-            fill="#464c5c"
+          <path
+            d={cableFloor}
+            fill="none"
+            stroke="#3c414f"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
-          <rect
-            x="-1.9"
-            y="8"
-            width="1.1"
-            height="3.2"
-            rx="0.5"
-            fill="#8d93a3"
+          <path
+            d={cableDrop}
+            fill="none"
+            stroke="#3c414f"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
-          <rect
-            x="0.8"
-            y="8"
-            width="1.1"
-            height="3.2"
-            rx="0.5"
-            fill="#8d93a3"
+          <path
+            d={cableFloor}
+            transform="translate(-0.3 -0.5)"
+            fill="none"
+            stroke="#575e72"
+            strokeWidth="0.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
+          <path
+            d={cableDrop}
+            transform="translate(-0.55 -0.2)"
+            fill="none"
+            stroke="#575e72"
+            strokeWidth="0.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* The plug is the weight that explains why the free end hangs
+              straight instead of curling. */}
+          <g transform={`translate(${lipX - 3} ${plugY})`}>
+            <rect
+              x="-3.2"
+              y="0"
+              width="6.4"
+              height="8.6"
+              rx="1.6"
+              fill="#2f333f"
+            />
+            <rect
+              x="-3.2"
+              y="0"
+              width="2.5"
+              height="8.6"
+              rx="1.25"
+              fill="#464c5c"
+            />
+            <rect
+              x="-1.9"
+              y="8"
+              width="1.1"
+              height="3.2"
+              rx="0.5"
+              fill="#8d93a3"
+            />
+            <rect
+              x="0.8"
+              y="8"
+              width="1.1"
+              height="3.2"
+              rx="0.5"
+              fill="#8d93a3"
+            />
+          </g>
         </g>
-      </g>
+      )}
 
       <g className="sunrays" aria-hidden="true">
         <path
