@@ -17,7 +17,7 @@ import { HomeView } from "./home-view";
  */
 test("the first paint is the signed-out landing, unchanged", () => {
   expect(renderToStaticMarkup(<HomeView />)).toBe(
-    '<main><h1>Hosted Isomux</h1>' +
+    "<main><h1>Hosted Isomux</h1>" +
       '<p class="lead"><a href="/signin">Sign in</a> to set up an office.</p>' +
       "</main>",
   );

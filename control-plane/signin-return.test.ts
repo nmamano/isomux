@@ -122,7 +122,9 @@ describe("the sign-in page is a prerendered shell", () => {
 
   test("it mounts the guard beside the form", () => {
     const page = code(SIGNIN_PAGE);
-    expect(page).toMatch(/import \{ SignedInRedirect \} from ".\/signed-in-redirect"/);
+    expect(page).toMatch(
+      /import \{ SignedInRedirect \} from ".\/signed-in-redirect"/,
+    );
     expect(page).toContain("<SignedInRedirect />");
     expect(page).toContain("<SignInForm />");
   });
@@ -130,14 +132,18 @@ describe("the sign-in page is a prerendered shell", () => {
   test("the page itself is not a client component", () => {
     // The shell stays a server component: only the two children it mounts ship
     // to the browser.
-    expect(read(SIGNIN_PAGE).trimStart().startsWith('"use client"')).toBe(false);
+    expect(read(SIGNIN_PAGE).trimStart().startsWith('"use client"')).toBe(
+      false,
+    );
     expect(read(SIGNIN_FORM).trimStart().startsWith('"use client"')).toBe(true);
   });
 });
 
 describe("the guard reaches the session route, link by link", () => {
   test("the guard is a client component", () => {
-    expect(read(SIGNIN_GUARD).trimStart().startsWith('"use client"')).toBe(true);
+    expect(read(SIGNIN_GUARD).trimStart().startsWith('"use client"')).toBe(
+      true,
+    );
   });
 
   test("the guard asks the shared probe", () => {
@@ -176,7 +182,9 @@ describe("the guard reaches the session route, link by link", () => {
     // this app does. The test moved off the page; it did not relax.
     const route = code(SESSION_ROUTE);
     expect(route).toMatch(/session\?\.accountId/);
-    expect(route).toMatch(/if \(!accountId\) return answer\(\{ signedIn: false \}\)/);
+    expect(route).toMatch(
+      /if \(!accountId\) return answer\(\{ signedIn: false \}\)/,
+    );
   });
 
   test("the signed-out answer costs no store work", () => {
