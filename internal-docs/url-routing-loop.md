@@ -45,6 +45,20 @@ everything on popstate (~line 541). The saved spot lives in
    plain unit tests; the DOM tests cover App wiring only.
 7. No change to the log view, the settings page internals, the mobile
    layout, or the hosted-office proxy path.
+8. R-2026-09-05-3 (deep link with no office entry underneath; ruled on
+   Reviewer 2's S2 escalation). No synthetic history entries, ever: a
+   `/tasks` link opened in a new tab is one entry, `replaceState`d to
+   carry its page, and the browser's Back leaves the site as on any site.
+   The in-app return controls (Close, Escape, the office button) must
+   still work: on an entry the app did not push, `goHome()` replaces the
+   current entry with the office (`replaceState({ isomux: true, page:
+   null }, "", "/")`) and resets the page state, instead of calling
+   `history.back()`. Loading `/` with a saved panel keeps today's model
+   (the page is opened on top of the load entry, so Back returns to the
+   office). Mechanism (worker+reviewer settle): the boot must mark the
+   entry as app-owned-but-not-pushed so the sync effect adds no duplicate
+   entry and `goHome()` takes the replace path; a tri-state ref or a
+   second ref both qualify.
 
 ## Gates (every hand-off)
 
