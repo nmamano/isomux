@@ -342,7 +342,53 @@ Decide with reviewer: the entry point's name and signature; the exact
 cut of `createSession`.
 Locked: rulings 1-9 (ruling 9 amends this pickup's tests (e)/(f), the entry point's shape and the acceptance grep); views and forwarding lambdas stay until S5.
 
-- [ ] S4 landed (hash, note)
+- [x] S4 landed as 1114d7a (replaceWith(host, resumeId, swapReason): create first, then close/drain/install; twelve swap sites migrated; createSession stays whole in agent-manager.ts; two unit tests with three independent mutants).
+## PICKUP S5 - the views come off, the docs catch up, the loop closes (Worker 1 / Reviewer 1)
+
+Goal: `ManagedAgent` no longer mirrors the nine session fields; every
+reader goes to `managed.sessionManager`; the two forwarding lambdas and
+the unused `createTurnDeferred` dep in the command-handlers deps object
+are gone or justified; the docs name the new layout. This is the closing
+slice. Behaviour identical.
+
+Mechanics (from S4's report):
+- About 170 reads move to `managed.sessionManager.<field>` across
+  agent-manager.ts, agent-turn.ts, command-handlers.ts and
+  usage-report.ts. tsc is the guard: remove the views first, then fix
+  every error it reports, nothing else. Three test shims build
+  `ManagedAgent` by cast; usage-scoping's `liveAgent` (`sessionId: "s1"`)
+  needs a `sessionManager` once the view goes; the other two are
+  unaffected, confirm by running them.
+- The typed `/clear` path (command-handlers.ts ~242-260) does its own
+  pending and queue bookkeeping between create and swap. Decide with the
+  reviewer: either it keeps `deps.createSession` plus a `deps.replaceSession`
+  that forwards to the object (one lambda stays, named and commented as
+  the only remaining direct swap), or the bookkeeping moves into a
+  pre-swap callback on `replaceWith`. Do not move the bookkeeping into
+  the object's body. The never-called `createTurnDeferred` dep is
+  removed from the command-handlers deps type and wiring.
+- `SessionManager.replaceSession` stays public while the lambda or
+  session-lifecycle's mutants reach it; if both go, make it private.
+- Docs: `internal-docs/queue-reliability-design.md` (rewrite the
+  location note into the prose where the operations are described, and
+  fix every "in agent-manager.ts" claim that is now false);
+  `internal-docs/per-agent-mcp-access.md` (`createSession lives in
+  agent-manager.ts` is still true, keep it); walk
+  `internal-docs/documentation.md` for any listed surface that names
+  the old layout. List every doc hunk in the report with before and
+  after text. The loop file itself is deleted by the PM at close, not
+  by the lane.
+- Load note stands: the credential-isolation DI case may cap under
+  concurrent runs; rerun the file alone and paste both lines.
+
+Acceptance: `grep -n "sessionManager\." server/*.ts | wc -l` reported
+alongside `grep -nE "managed\.(session|sessionId|consumerPromise|pendingTurn|turnCancelToken|abortCancelToken|aborting|abortPromise|lastBackendFailure)\b" server/*.ts` returning nothing; `ManagedAgent` in internal-types.ts carries `sessionManager` and none of the nine fields; the S4 twelve-file gate plus usage-scoping and the pending-prompt suites green; eslint on touched files; build:ui; `bunx tsc --noEmit` before the final hand-off; no change under `server/backends/`; doc hunks listed.
+
+Decide with reviewer: the `/clear` shape; whether `replaceSession` goes private.
+Locked: rulings 1-9.
+
+- [ ] S5 landed (hash, note)
+
 
 
 
