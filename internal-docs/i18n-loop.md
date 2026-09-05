@@ -153,8 +153,9 @@ explanatory copy once it has to say the office itself is translated.
   titles, dirty-check prompt) and the office-side panes: Office, Room,
   Theme, My devices, Update, Usage, Storage.
 - S3 (lane 1): the access and connections panes: Invites, External access,
-  API tokens, Connections, ProviderSignInCard, access-shared,
-  ManagedEnvEditor.
+  API tokens, Connections, ProviderSignInCard, access-shared (wholesale,
+  including the tables and list sections the My devices pane renders; ruled
+  on Reviewer 2's S2 escalation, 2026-09-05), ManagedEnvEditor.
 - S4 (lane 2): the dialogs: EditAgentDialog, CronjobDialog,
   CronjobsPromptDialog, the prompt and confirm dialogs, ExpandableTextarea
   chrome.
@@ -165,9 +166,10 @@ explanatory copy once it has to say the office itself is translated.
   cronjobs views, agent list, empty states, toasts, context menu; dates,
   relative times and numbers through Intl (ruling 12).
 - S7 (lane 1): server-produced human-facing strings resolved per user:
-  slash-command descriptions and responses, welcome and onboarding text.
-  Resolution from `ctx.identity` to the stored preference; agents get
-  English.
+  slash-command descriptions and responses, welcome and onboarding text,
+  and `shared/update-notice.ts` (consumed by `server/update-checker.ts` and
+  the UI; the builder takes a translator; ruled 2026-09-05). Resolution
+  from `ctx.identity` to the stored preference; agents get English.
 - S8 (lane 2): sweep. Grep for prose left in English in ui/ and the S7
   server files; the demo builds and shows a translated chrome; the two
   parked English strings from S1 (preferences.intro, preferences.languageHint)
