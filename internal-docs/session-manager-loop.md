@@ -159,4 +159,71 @@ the hand-off; the five ruling-4 suites still green; no production change
 Decide with reviewer: which of 1-8 are already covered; test file name.
 Locked: no production code moves in S1. Rulings 7 and 8 amend this pickup: item 7 is dropped from S1, items 3 (idle half) and 5 move to S2.
 
-- [ ] S1 landed (hash, note)
+- [x] S1 landed as 0f7dd80 (eight characterization tests in server/test-support/session-lifecycle.test.ts, 13 mutants red; behaviours 2 and 8 were already pinned by queue-reliability; kill-during-drain parked as task 3e8482e2).
+## PICKUP S2 - the object, holding the fields and the pure operations (Worker 1 / Reviewer 1)
+
+Goal: `server/session-manager.ts` exists, one instance per managed agent,
+owning `session`, `sessionId`, `consumerPromise`, `pendingTurn`,
+`turnCancelToken`, `abortCancelToken`, `aborting`, `abortPromise`,
+`lastBackendFailure`, and the operations `installSession`,
+`closeAndDrainSession`, `replaceSession`, `drainConsumerBounded`,
+`createTurnDeferred`, `clearLiveTurn`, `turnIsLive`. `runConsumer` and
+`createSession` stay in agent-manager.ts for this slice and reach the
+object through a deps object. Every caller in agent-manager.ts delegates;
+behaviour identical.
+
+Mechanics and traps:
+- Plan-gate first: list every read and write of the nine fields in
+  agent-manager.ts (`grep -n` counts per field in the plan message) and
+  the seven functions' call sites. The plan names, per site, whether it
+  becomes a method call or a property read on the object.
+- `ManagedAgent` (server/internal-types.ts:31): the nine fields move to
+  the object. Decide with the reviewer whether `ManagedAgent` keeps
+  typed getters that forward to the object during S2 (fewer edits per
+  site, the compiler still guards) or every site is rewritten now.
+  Either way, at the end of S2 no production code writes those fields
+  on `ManagedAgent` directly; tsc is the proof (a stray write is a type
+  error when the field is a getter-only view).
+- The deps object carries what the operations need from the manager:
+  `officeState.updateAgent` + `emit` (dormant and sessionSwapping
+  events), the `agents` map lookup for the killed guard (or a
+  `isStillManaged()` callback), `runConsumer`, the drain timeout seam
+  `_testSetConsumerDrainTimeout` (keep it working; session-lifecycle
+  restores it per lane), and the logger used by the warn path. No
+  behaviour hides in the deps: the same lines, moved.
+- Preserve `replaceSession`'s install-then-killed-guard order exactly,
+  with a comment naming task 3e8482e2 at the guard (ruling 7).
+- Class vs closure factory (ruling 5): pick the one that lets tests
+  construct the object with a fake deps object in under ten lines.
+- Direct unit tests, new file `server/session-manager.test.ts`, on the
+  object with a fake deps object and a fake BackendSession (ruling 8,
+  listed by name in the acceptance): (a) an idle install clears live-turn
+  residue, mutant: drop the `clearLiveTurn` in the idle branch; (b)
+  `createTurnDeferred` rejects a stale pending turn with
+  `TurnSupersededError`, mutants: reject with a plain Error, and skip the
+  rejection. Both files run under 5 s.
+- Harness facts from S1 (Worker 1's report): `getAgent()` returns a copy
+  whose queue is never mutated, use `getAllAgents()` for the live queue;
+  the pre-send window exists only for Claude-typed agents; the safety
+  hook rejects `git checkout --` and relative write targets in Bash, so
+  restore from a byte copy with absolute paths and prove it by md5. The
+  `makeLane`/`parkHumanTurn`/`wakeToIdle` helpers in
+  session-lifecycle.test.ts are reusable.
+- Doc: `internal-docs/queue-reliability-design.md` and any other file
+  under internal-docs that names `replaceSession` or `closeAndDrainSession`
+  as living in agent-manager.ts gets a one-line pointer to the new
+  module (grep for the names; list the hits in the hand-off).
+
+Acceptance: the nine fields and seven operations live in
+`server/session-manager.ts`; `agent-manager.ts` shrinks by at least the
+moved lines and gains no new logic; session-lifecycle plus the five
+ruling-4 suites green; the two direct unit tests green with their three
+mutants named red; eslint on touched files; build:ui; `bunx tsc --noEmit`
+before the final hand-off; no change under `server/backends/`.
+
+Decide with reviewer: class vs factory; forwarding getters vs full
+rewrite; the deps object's exact shape.
+Locked: rulings 1-8; `runConsumer` and `createSession` do not move in S2.
+
+- [ ] S2 landed (hash, note)
+
