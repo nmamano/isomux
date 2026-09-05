@@ -718,7 +718,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // manager-side collaborators the lifecycle operations call. Same lines as
   // before the extraction, reached through this object.
   const sessionManagerDeps: SessionManagerDeps<ManagedAgent> = {
-    updateAgent: (agentId, changes) => officeState.updateAgent(agentId, changes),
+    updateAgent: (agentId, changes) =>
+      officeState.updateAgent(agentId, changes),
     emit,
     isStillManaged: (managed) => agents.get(managed.info.id) === managed,
     runConsumer,
@@ -1260,7 +1261,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
         try {
-          await managed.sessionManager.replaceSession(managed, sessionId
+          await managed.sessionManager.replaceSession(
+            managed,
+            sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
             // Settings-driven swap: a mid-flight flush turn cancelled by this
@@ -4038,7 +4041,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(agentId, "error", BACKEND_STOPPED_DURING_TURN, {
             backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
           });
-          managed.sessionManager.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
+          managed.sessionManager.lastBackendFailure =
+            BACKEND_STOPPED_DURING_TURN;
         } else {
           console.warn(
             `Agent ${agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
@@ -4098,7 +4102,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ? backendFailureMeta({ text: failure.text, raw: errorText })
           : undefined,
       );
-      managed.sessionManager.lastBackendFailure = classified ? failure.text : errorText;
+      managed.sessionManager.lastBackendFailure = classified
+        ? failure.text
+        : errorText;
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
       // only call it for claude-typed agents.
@@ -4148,7 +4154,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     mintAgentToken(agentId, managed.info.userId, privileged);
     if (managed.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
-      await managed.sessionManager.replaceSession(managed, sessionId ? createSession(managed, sessionId) : createSession(managed),
+      await managed.sessionManager.replaceSession(
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
       );
     }
     return managed.info;
@@ -4383,7 +4391,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await managed.sessionManager.replaceSession(managed, sessionId
+          await managed.sessionManager.replaceSession(
+            managed,
+            sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
           );
@@ -4428,7 +4438,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const sessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionId && !sessionId)
           clearStaleAutoResumeState(agentId, managed);
-        await managed.sessionManager.replaceSession(managed, sessionId
+        await managed.sessionManager.replaceSession(
+          managed,
+          sessionId
             ? createSession(managed, sessionId)
             : createSession(managed),
         );
@@ -5518,7 +5530,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          managed.sessionManager.installSession(managed, sessionId
+          managed.sessionManager.installSession(
+            managed,
+            sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
           );
@@ -5896,7 +5910,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // death gets the alarming one.
       const wasDormant = managed.info.dormant ?? false;
       const dormantReason = managed.dormantReason;
-      managed.sessionManager.installSession(managed, sessionId ? createSession(managed, sessionId) : createSession(managed),
+      managed.sessionManager.installSession(
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
       );
       // A blank-conversation wake (lazy spawn / released by /clear) is SILENT
       // - nothing to announce, and the old eager paths logged nothing on the
@@ -6404,7 +6420,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { modelFamily: picked.family },
             async () => {
-              await managed.sessionManager.replaceSession(managed, sessionId
+              await managed.sessionManager.replaceSession(
+                managed,
+                sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
                 "settings",
@@ -6466,7 +6484,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed,
             { effort: picked.level },
             async () => {
-              await managed.sessionManager.replaceSession(managed, sessionId
+              await managed.sessionManager.replaceSession(
+                managed,
+                sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
                 "settings",
@@ -6784,7 +6804,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const autoSessionId = pickAutoResumeSessionId(managed);
             if (managed.sessionId && !autoSessionId)
               clearStaleAutoResumeState(agentId, managed);
-            await managed.sessionManager.replaceSession(managed, autoSessionId
+            await managed.sessionManager.replaceSession(
+              managed,
+              autoSessionId
                 ? createSession(managed, autoSessionId)
                 : createSession(managed),
             );

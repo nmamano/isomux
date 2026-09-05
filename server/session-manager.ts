@@ -70,7 +70,11 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // `agents.get(agentId) === managed`: the killed-during-drain guard.
   isStillManaged: (host: H) => boolean;
   // The persistent consumer loop (still in agent-manager for S2).
-  runConsumer: (agentId: string, host: H, session: BackendSession) => Promise<void>;
+  runConsumer: (
+    agentId: string,
+    host: H,
+    session: BackendSession,
+  ) => Promise<void>;
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;
   // Post-swap flush kick.
