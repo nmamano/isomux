@@ -228,7 +228,7 @@ function ReleaseBody({
           style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}
         >
           <button onClick={onClose} style={buttonStyle}>
-            {t("settings.update.close")}
+            {t("common.close")}
           </button>
         </div>
       </>

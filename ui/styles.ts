@@ -149,7 +149,9 @@ ${emitThemesCss()}
      text labels. */
   .md-content .mermaid { display: block; }
   .md-content .mermaid:empty::before {
-    content: "Rendering diagram…";
+    /* The words are catalog-fed: ui/log-view/Markdown.tsx puts them on the
+       node as data-loading, because a stylesheet cannot read the catalog. */
+    content: attr(data-loading);
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     color: var(--text-dim);

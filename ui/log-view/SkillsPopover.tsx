@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SkillInfo } from "../../shared/types.ts";
 import { apiFetch } from "../api.ts";
 import { buildSkillsMenuGroups, type CommandEntry } from "./skills-grouping.ts";
+import { useI18n } from "../i18n.tsx";
 
 // Display groups + most-used ranking live in skills-grouping.ts (a pure,
 // unit-tested transform); this component owns fetching the counts and
@@ -30,6 +31,7 @@ export function SkillsPopover({
   const ref = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
+  const { t } = useI18n();
   // The viewing user's per-skill use counters (server-side so they follow the
   // user across devices). Fetched fresh on every open; until
   // (or if never) loaded, all counts read 0 and the alphabetical order stands.
@@ -117,7 +119,7 @@ export function SkillsPopover({
           ref={filterRef}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter skills & commands..."
+          placeholder={t("logView.skills.filter")}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -143,7 +145,7 @@ export function SkillsPopover({
               color: "var(--text-ghost)",
             }}
           >
-            No matching skills or commands
+            {t("logView.skills.noMatch")}
           </div>
         )}
         {groups.map((group) => (
@@ -158,7 +160,7 @@ export function SkillsPopover({
                 color: "var(--text-ghost)",
               }}
             >
-              {group.label}
+              {t(group.labelKey)}
             </div>
             {group.skills.map((s) => (
               <div

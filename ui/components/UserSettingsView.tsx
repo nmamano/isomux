@@ -379,7 +379,7 @@ export function UserSettingsView({
         },
         {
           id: "you",
-          label: t("settings.sidebar.you"),
+          label: t("common.you"),
           icon: UserIcon,
           rows: [
             // Your own profile used to be reachable only by finding yourself
@@ -1696,7 +1696,7 @@ function UserEditPanel({
             settings that change behavior. */}
         <h5 style={sectionTitleStyle}>{t("settings.profile.appearance")}</h5>
         <label style={subLabelStyle}>
-          {t("settings.profile.avatar")}{" "}
+          {t("common.avatar")}{" "}
           <span style={hintStyle}>{t("settings.profile.avatarHint")}</span>
         </label>
         <AvatarPicker

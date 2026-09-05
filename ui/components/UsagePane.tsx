@@ -100,7 +100,7 @@ export function UsagePane() {
             <>
               <UsageTable
                 title={t("settings.usage.agents")}
-                firstHeader={t("settings.usage.agentColumn")}
+                firstHeader={t("common.agent")}
                 rows={usage.agents.map((row) => ({
                   key: row.id,
                   label: row.name,

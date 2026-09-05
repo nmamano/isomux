@@ -6,6 +6,11 @@ import {
   pipeTailForDisplay,
   BASH_RAW_SUMMARY_CHARS,
 } from "./isomux-curl.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+
+// The catalog's English, so every expectation below is the same sentence the
+// card showed before the strings moved into the catalog (ruling 6).
+const EN = translatorFor("en");
 
 describe("parseIsomuxCurl", () => {
   test("simple GET task list", () => {
@@ -13,7 +18,7 @@ describe("parseIsomuxCurl", () => {
     expect(req).not.toBeNull();
     expect(req!.method).toBe("GET");
     expect(req!.path).toBe("/api/tasks");
-    expect(req!.action).toBe("List tasks");
+    expect(req!.actionKey).toBe("apiCall.tasks.list");
     expect(req!.bodyFields).toBeNull();
     expect(req!.pipeTail).toBeNull();
   });
@@ -21,7 +26,7 @@ describe("parseIsomuxCurl", () => {
   test("GET with query string", () => {
     const req = parseIsomuxCurl("curl -s localhost:4000/api/tasks?status=all");
     expect(req!.path).toBe("/api/tasks?status=all");
-    expect(req!.action).toBe("List tasks");
+    expect(req!.actionKey).toBe("apiCall.tasks.list");
   });
 
   test("POST create task with JSON body", () => {
@@ -29,7 +34,7 @@ describe("parseIsomuxCurl", () => {
       `curl -s -X POST localhost:4000/api/tasks -H 'Content-Type: application/json' -d '{"title":"Fix bug","createdBy":"Isomuxer1","priority":"P1"}'`,
     );
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBe("Create task");
+    expect(req!.actionKey).toBe("apiCall.tasks.create");
     expect(req!.bodyFields).toEqual([
       { key: "title", value: "Fix bug" },
       { key: "createdBy", value: "Isomuxer1" },
@@ -51,7 +56,7 @@ describe("parseIsomuxCurl", () => {
     const req = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"hello there"}'`,
     );
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.path).toBe("/api/agents/agent-123-abc/messages");
     expect(req!.hasAuth).toBe(true);
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hello there" }]);
@@ -61,20 +66,20 @@ describe("parseIsomuxCurl", () => {
     expect(
       parseIsomuxCurl(
         `curl -s -X POST localhost:4000/api/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
-      )!.action,
-    ).toBe("Claim task");
+      )!.actionKey,
+    ).toBe("apiCall.tasks.claim");
     expect(
       parseIsomuxCurl(
         `curl -s -X POST localhost:4000/api/tasks/28ab9400/done -d '{}'`,
-      )!.action,
-    ).toBe("Complete task");
+      )!.actionKey,
+    ).toBe("apiCall.tasks.complete");
   });
 
   test("empty JSON object body yields empty bodyFields", () => {
     const req = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/agents/a1/diff -H "Authorization: Bearer $T" -d '{}'`,
     );
-    expect(req!.action).toBe("Show diff in chat");
+    expect(req!.actionKey).toBe("apiCall.agents.showDiff");
     expect(req!.bodyFields).toEqual([]);
     expect(req!.bodyRaw).toBeNull();
   });
@@ -84,14 +89,14 @@ describe("parseIsomuxCurl", () => {
       `curl -s localhost:4000/api/memory -d '{"scope":"agent","text":"fact"}'`,
     );
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBe("Append memory");
+    expect(req!.actionKey).toBe("apiCall.memory.append");
   });
 
   test("nested JSON values are stringified compactly", () => {
     const req = parseIsomuxCurl(
       `curl -s -X PUT localhost:4000/api/memory -d '{"scope":"room","meta":{"a":1,"b":[2,3]}}'`,
     );
-    expect(req!.action).toBe("Replace memory");
+    expect(req!.actionKey).toBe("apiCall.memory.replace");
     expect(req!.bodyFields).toEqual([
       { key: "scope", value: "room" },
       { key: "meta", value: '{"a":1,"b":[2,3]}' },
@@ -127,7 +132,7 @@ describe("parseIsomuxCurl", () => {
     const req = parseIsomuxCurl(
       `curl -s 'localhost:4000/api/memory?scope=agent' -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" | sed 's/tok-[a-z0-9]*/REDACTED/g'`,
     );
-    expect(req!.action).toBe("Read memory");
+    expect(req!.actionKey).toBe("apiCall.memory.read");
     expect(req!.path).toBe("/api/memory?scope=agent");
     expect(req!.pipeTail).toStartWith("| sed");
   });
@@ -309,13 +314,13 @@ describe("parseIsomuxCurl", () => {
       `curl -s -X DELETE localhost:4000/api/agents/agent-1/scheduled-messages/sched-9 -H "Authorization: Bearer $T"`,
     );
     expect(req!.method).toBe("DELETE");
-    expect(req!.action).toBe("Cancel scheduled message");
+    expect(req!.actionKey).toBe("apiCall.agents.scheduledCancel");
   });
 
   test("unknown isomux route still parses, without action label", () => {
     const req = parseIsomuxCurl("curl -s localhost:4000/api/office/settings");
     expect(req).not.toBeNull();
-    expect(req!.action).toBeNull();
+    expect(req!.actionKey).toBeNull();
     expect(req!.method).toBe("GET");
   });
 
@@ -325,7 +330,7 @@ describe("parseIsomuxCurl", () => {
     );
     expect(req!.path).toBe("/api/agents/$RECEIVER/messages");
     // Unknown segment value still matches the wildcard route.
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
   });
 
   test("custom extra port accepted when passed", () => {
@@ -448,7 +453,7 @@ describe("parseIsomuxCurl", () => {
       `curl -s -o /dev/null -w '%{http_code}' -X POST localhost:4000/api/agents/a1/diff -d '{}'`,
     );
     expect(probe).not.toBeNull();
-    expect(probe!.action).toBe("Show diff in chat");
+    expect(probe!.actionKey).toBe("apiCall.agents.showDiff");
     expect(
       parseIsomuxCurl(
         `curl -s localhost:4000/api/tasks --write-out '%{http_code}'`,
@@ -562,7 +567,7 @@ describe("parseIsomuxCurl", () => {
     const req = parseIsomuxCurl("curl -s localhost:4000");
     expect(req).not.toBeNull();
     expect(req!.path).toBe("/");
-    expect(req!.action).toBeNull();
+    expect(req!.actionKey).toBeNull();
   });
 });
 
@@ -575,7 +580,7 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
     );
     expect(req).not.toBeNull();
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.bodyFields).toEqual([{ key: "text", value: "$MSG" }]);
     expect(req!.bodyNote).toBeNull();
     expect(req!.hasAuth).toBe(true);
@@ -629,28 +634,31 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
     );
     expect(req).not.toBeNull();
     expect(req!.bodyFields).toBeNull();
-    expect(req!.bodyNote).toBe("body built with jq");
+    expect(req!.bodyNote).toEqual({ kind: "jq", readFiles: [] });
   });
 
   test("unresolved --rawfile is named in the note, never concealed", () => {
     const req = parseIsomuxCurl(
       `jq -n --rawfile body /tmp/notes.md '{text: $body, ts: now}' | ${CURL_TAIL}`,
     );
-    expect(req!.bodyNote).toBe("body built with jq (reads /tmp/notes.md)");
+    expect(req!.bodyNote).toEqual({
+      kind: "jq",
+      readFiles: ["/tmp/notes.md"],
+    });
   });
 
   test("string interpolation and undefined vars are not literal templates", () => {
     expect(
       parseIsomuxCurl(`jq -n --arg t "x" '{text: "hi \\($t)"}' | ${CURL_TAIL}`)!
         .bodyNote,
-    ).toBe("body built with jq");
+    ).toEqual({ kind: "jq", readFiles: [] });
     expect(
       parseIsomuxCurl(`jq -n '{text: $missing}' | ${CURL_TAIL}`)!.bodyNote,
-    ).toBe("body built with jq");
+    ).toEqual({ kind: "jq", readFiles: [] });
     // Without -n the program reads stdin, so it is never resolved.
     expect(
       parseIsomuxCurl(`jq --arg t "x" '{text: $t}' | ${CURL_TAIL}`)!.bodyNote,
-    ).toBe("body built with jq");
+    ).toEqual({ kind: "jq", readFiles: [] });
   });
 
   test("producer curl may keep a display pipe tail", () => {
@@ -723,7 +731,7 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
       `jq -n --arg text "hello" '{text: $text}' | ${CURL_TAIL}`,
     );
     expect(
-      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
     ).toBe("Send a message to Bob");
   });
 });
@@ -737,7 +745,7 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     );
     expect(req).not.toBeNull();
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     // The heredoc body IS the payload, shown as the field value (whitespace
     // collapsed for display, like every other field).
     expect(req!.bodyFields).toEqual([
@@ -818,18 +826,17 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     );
     expect(req).not.toBeNull();
     expect(req!.bodyFields).toBeNull();
-    expect(req!.bodyNote).toBe("body built with jq (reads /tmp/brief.md)");
+    expect(req!.bodyNote).toEqual({
+      kind: "jq",
+      readFiles: ["/tmp/brief.md"],
+    });
   });
 
   test("input-shaping flags without a modeled input source", () => {
     // -Rs reading (empty) stdin: accepted, unresolved - note only.
-    expect(parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
-      "body built with jq",
-    );
+    expect(parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toEqual({ kind: "jq", readFiles: [] });
     // `.` under -n has no input to show - never resolves to a field.
-    expect(parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
-      "body built with jq",
-    );
+    expect(parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toEqual({ kind: "jq", readFiles: [] });
   });
 
   test("rejects input shapes beyond the -Rs slurp grammar", () => {
@@ -891,7 +898,7 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
       `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nhello\nEOF`,
     );
     expect(
-      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
     ).toBe("Send a message to Bob");
   });
 });
@@ -906,7 +913,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
     const req = parseIsomuxCurl(POST("'JSON'", `{"text":"hello there"}`));
     expect(req).not.toBeNull();
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hello there" }]);
     expect(req!.bodyNote).toBeNull();
     expect(req!.bodyRaw).toBeNull();
@@ -963,7 +970,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
       const req = parseIsomuxCurl(POST("EOF", body));
       expect(req, body).not.toBeNull();
       expect(req!.bodyFields).toBeNull();
-      expect(req!.bodyNote).toBe("body from heredoc");
+      expect(req!.bodyNote).toEqual({ kind: "heredoc" });
     }
     // Same body under a quoted delimiter is literal -> fields.
     expect(
@@ -974,23 +981,19 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
   test("literal but non-JSON body collapses to a note", () => {
     const req = parseIsomuxCurl(POST("'EOF'", `just some prose, not json`));
     expect(req).not.toBeNull();
-    expect(req!.bodyNote).toBe("body from heredoc");
+    expect(req!.bodyNote).toEqual({ kind: "heredoc" });
     expect(req!.bodyFields).toBeNull();
     expect(req!.bodyRaw).toBeNull();
   });
 
   test("non-object JSON (array/scalar) and empty body note only", () => {
-    expect(parseIsomuxCurl(POST("'EOF'", `[1,2,3]`))!.bodyNote).toBe(
-      "body from heredoc",
-    );
-    expect(parseIsomuxCurl(POST("'EOF'", `"hi"`))!.bodyNote).toBe(
-      "body from heredoc",
-    );
+    expect(parseIsomuxCurl(POST("'EOF'", `[1,2,3]`))!.bodyNote).toEqual({ kind: "heredoc" });
+    expect(parseIsomuxCurl(POST("'EOF'", `"hi"`))!.bodyNote).toEqual({ kind: "heredoc" });
     // Empty heredoc body: JSON.parse("") throws -> note.
     const empty = parseIsomuxCurl(
       `curl -s -X POST localhost:4000/api/agents/agent-1/messages -d @- <<'EOF'\nEOF`,
     );
-    expect(empty!.bodyNote).toBe("body from heredoc");
+    expect(empty!.bodyNote).toEqual({ kind: "heredoc" });
   });
 
   test("carries a display pipe tail after the heredoc curl", () => {
@@ -1018,7 +1021,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
     );
     expect(req).not.toBeNull();
     expect(req!.method).toBe("POST");
-    expect(req!.action).toBeNull();
+    expect(req!.actionKey).toBeNull();
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
   });
 
@@ -1027,7 +1030,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
       POST("'JSON'", `{"text":"hi","deliverAt":"x"}`),
     );
     expect(
-      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+      humanizeIsomuxRequest(EN, req!, (id) => (id === "agent-1" ? "Bob" : null)),
     ).toBe("Schedule a message to Bob");
   });
 
@@ -1098,15 +1101,15 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
 describe("describeIsomuxRoute", () => {
   test("matches with query strings and trailing slashes", () => {
     expect(describeIsomuxRoute("GET", "/api/tasks?status=all")).toBe(
-      "List tasks",
+      "apiCall.tasks.list",
     );
-    expect(describeIsomuxRoute("GET", "/api/tasks/")).toBe("List tasks");
-    expect(describeIsomuxRoute("GET", "/api/tasks")).toBe("List tasks");
+    expect(describeIsomuxRoute("GET", "/api/tasks/")).toBe("apiCall.tasks.list");
+    expect(describeIsomuxRoute("GET", "/api/tasks")).toBe("apiCall.tasks.list");
   });
 
   test("wildcards match exactly one segment", () => {
     expect(describeIsomuxRoute("POST", "/api/tasks/abc/claim")).toBe(
-      "Claim task",
+      "apiCall.tasks.claim",
     );
     expect(describeIsomuxRoute("POST", "/api/tasks/a/b/claim")).toBeNull();
   });
@@ -1117,22 +1120,22 @@ describe("describeIsomuxRoute", () => {
 
   test("agent context and instructions reads are labeled", () => {
     expect(describeIsomuxRoute("GET", "/api/agents/agent-123/context")).toBe(
-      "Check context usage",
+      "apiCall.agents.context",
     );
     expect(
       describeIsomuxRoute("GET", "/api/agents/agent-123/instructions"),
-    ).toBe("Read agent instructions");
+    ).toBe("apiCall.agents.instructions");
   });
 
   test("version read is labeled", () => {
     expect(describeIsomuxRoute("GET", "/api/version")).toBe(
-      "Check isomux version",
+      "apiCall.version.check",
     );
   });
 
   test("office usage read is labeled", () => {
     expect(describeIsomuxRoute("GET", "/api/usage")).toBe(
-      "Check office token usage",
+      "apiCall.usage.tokens",
     );
   });
 
@@ -1145,7 +1148,7 @@ describe("describeIsomuxRoute", () => {
       "/api/agents/agent-123/logs?q=marmalade",
       "/api/agents/agent-123/logs?session=s1&around=e4",
     ]) {
-      expect(describeIsomuxRoute("GET", path)).toBe("Search conversation logs");
+      expect(describeIsomuxRoute("GET", path)).toBe("apiCall.agents.logsSearch");
     }
   });
 });
@@ -1160,11 +1163,13 @@ describe("humanizeIsomuxRequest", () => {
   test("memory reads phrase the scope", () => {
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/memory?scope=agent'"),
       ),
     ).toBe("Read memories for this agent");
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/memory?scope=office'"),
       ),
     ).toBe("Read office memories");
@@ -1174,13 +1179,14 @@ describe("humanizeIsomuxRequest", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/memory -H 'Content-Type: application/json' -d '{"scope":"room","text":"x"}'`,
     );
-    expect(humanizeIsomuxRequest(req)).toBe("Save a room memory");
+    expect(humanizeIsomuxRequest(EN, req)).toBe("Save a room memory");
   });
 
   test("the conversation-log route names its mode and its target", () => {
     const who = (id: string) => (id === "agent-123-abc" ? "Isomuxer4" : null);
     const say = (qs: string) =>
       humanizeIsomuxRequest(
+        EN,
         parse(`curl -s 'localhost:4000/api/agents/agent-123-abc/logs${qs}'`),
         who,
       );
@@ -1200,7 +1206,7 @@ describe("humanizeIsomuxRequest", () => {
       `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -H 'Content-Type: application/json' -d '{"text":"hi"}'`,
     );
     expect(
-      humanizeIsomuxRequest(req, (id) =>
+      humanizeIsomuxRequest(EN, req, (id) =>
         id === "agent-123-abc" ? "Isomuxer4" : null,
       ),
     ).toBe("Send a message to Isomuxer4");
@@ -1210,7 +1216,7 @@ describe("humanizeIsomuxRequest", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -d '{"text":"hi","deliverAt":"2026-01-01T00:00:00Z"}'`,
     );
-    expect(humanizeIsomuxRequest(req, () => "Todoer")).toBe(
+    expect(humanizeIsomuxRequest(EN, req, () => "Todoer")).toBe(
       "Schedule a message to Todoer",
     );
   });
@@ -1219,12 +1225,14 @@ describe("humanizeIsomuxRequest", () => {
     const who = () => "Todoer";
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s localhost:4000/api/agents/agent-123/scheduled-messages"),
         who,
       ),
     ).toBe("List Todoer's outgoing scheduled messages");
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse(
           "curl -s -X DELETE localhost:4000/api/agents/agent-123/scheduled-messages/sm_12345678",
         ),
@@ -1236,6 +1244,7 @@ describe("humanizeIsomuxRequest", () => {
   test("steer turns send into interrupt, and only when it is true", () => {
     const say = (body: string) =>
       humanizeIsomuxRequest(
+        EN,
         parse(
           `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -d '${body}'`,
         ),
@@ -1252,24 +1261,25 @@ describe("humanizeIsomuxRequest", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/agents/agent-9/abort -d '{}'`,
     );
-    expect(humanizeIsomuxRequest(req)).toBe("Interrupt agent-9");
+    expect(humanizeIsomuxRequest(EN, req)).toBe("Interrupt agent-9");
   });
 
   test("task claim includes id and assignee", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
     );
-    expect(humanizeIsomuxRequest(req)).toBe(
+    expect(humanizeIsomuxRequest(EN, req)).toBe(
       "Claim task 28ab9400 for Isomuxer1",
     );
   });
 
   test("task list variants by status param", () => {
     expect(
-      humanizeIsomuxRequest(parse("curl -s localhost:4000/api/tasks")),
+      humanizeIsomuxRequest(EN, parse("curl -s localhost:4000/api/tasks")),
     ).toBe("List open tasks");
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/tasks?status=all'"),
       ),
     ).toBe("List all tasks");
@@ -1278,16 +1288,19 @@ describe("humanizeIsomuxRequest", () => {
   test("task list room filter qualifies the status phrase, not replaces it", () => {
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/tasks?roomId=e6818e47'"),
       ),
     ).toBe("List open tasks in one room");
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/tasks?status=all&roomId=e6818e47'"),
       ),
     ).toBe("List all tasks in one room");
     expect(
       humanizeIsomuxRequest(
+        EN,
         parse("curl -s 'localhost:4000/api/tasks?roomId='"),
       ),
     ).toBe("List open tasks (office-global only)");
@@ -1295,7 +1308,7 @@ describe("humanizeIsomuxRequest", () => {
 
   test("unknown route returns null", () => {
     const req = parse("curl -s localhost:4000/api/does-not-exist");
-    expect(humanizeIsomuxRequest(req)).toBeNull();
+    expect(humanizeIsomuxRequest(EN, req)).toBeNull();
   });
 });
 
@@ -1305,10 +1318,10 @@ describe("agent discovery route label", () => {
       `curl -s localhost:4000/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
     );
     expect(req).not.toBeNull();
-    expect(req!.action).toBe("List office agents");
-    expect(humanizeIsomuxRequest(req!)).toBe("List office agents");
+    expect(req!.actionKey).toBe("apiCall.agents.list");
+    expect(humanizeIsomuxRequest(EN, req!)).toBe("List office agents");
     expect(describeIsomuxRoute("GET", "/api/agents")).toBe(
-      "List office agents",
+      "apiCall.agents.list",
     );
   });
 
@@ -1317,10 +1330,10 @@ describe("agent discovery route label", () => {
       `curl -s "localhost:4000/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
     );
     expect(req).not.toBeNull();
-    expect(humanizeIsomuxRequest(req!)).toBe("List killed agents");
+    expect(humanizeIsomuxRequest(EN, req!)).toBe("List killed agents");
     // The static route label is shared by both rosters; only the humanizer reads
     // the query, exactly like /logs.
-    expect(req!.action).toBe("List office agents");
+    expect(req!.actionKey).toBe("apiCall.agents.list");
   });
 
   // The server answers a present non-"1" value with 400, so the card must not
@@ -1329,13 +1342,13 @@ describe("agent discovery route label", () => {
     for (const q of ["?killed=0", "?killed", "?killed=true", "?killed=yes"]) {
       const req = parseIsomuxCurl(`curl -s "localhost:4000/agents${q}"`);
       expect(req).not.toBeNull();
-      expect(humanizeIsomuxRequest(req!)).toBe(
+      expect(humanizeIsomuxRequest(EN, req!)).toBe(
         "List agents (invalid killed filter)",
       );
     }
     // Absent is untouched: the live roster, as before.
     expect(
-      humanizeIsomuxRequest(parseIsomuxCurl("curl -s localhost:4000/agents")!),
+      humanizeIsomuxRequest(EN, parseIsomuxCurl("curl -s localhost:4000/agents")!),
     ).toBe("List office agents");
   });
 });
@@ -1450,7 +1463,7 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
     expect(req).not.toBeNull();
     expect(req!.method).toBe("GET");
     expect(req!.path).toBe("/api/tasks");
-    expect(req!.action).toBe("List tasks");
+    expect(req!.actionKey).toBe("apiCall.tasks.list");
   });
 
   test("unwraps a POST with headers and a JSON body", () => {
@@ -1458,7 +1471,7 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
       `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H "Content-Type: application/json" -d "{\\"text\\":\\"hi\\"}"'`,
     );
     expect(req).not.toBeNull();
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.hasAuth).toBe(true);
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
   });
@@ -1545,7 +1558,7 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
       `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"hi"}\nEOF'`,
     );
     expect(req).not.toBeNull();
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
   });
 });
@@ -1564,9 +1577,9 @@ describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
       `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"$LEAKED\\"}\nEOF"`,
     );
     expect(req).not.toBeNull();
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.bodyFields).toBeNull();
-    expect(req!.bodyNote).toBe("body from heredoc");
+    expect(req!.bodyNote).toEqual({ kind: "heredoc" });
   });
 
   test("outer double-quoted wrapper with special/positional params ($?, $$) -> note", () => {
@@ -1576,9 +1589,9 @@ describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
       `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"status $?, pid $$\\"}\nEOF"`,
     );
     expect(req).not.toBeNull();
-    expect(req!.action).toBe("Send agent message");
+    expect(req!.actionKey).toBe("apiCall.agents.sendMessage");
     expect(req!.bodyFields).toBeNull();
-    expect(req!.bodyNote).toBe("body from heredoc");
+    expect(req!.bodyNote).toEqual({ kind: "heredoc" });
   });
 
   test("same shape feeding a jq producer stays raw (jq path takes only literal bodies)", () => {

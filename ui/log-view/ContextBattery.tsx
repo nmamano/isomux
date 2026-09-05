@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useI18n } from "../i18n.tsx";
 import type { ContextUsageWire } from "../../shared/types.ts";
 
 // Battery-style context indicator. Design:
@@ -32,6 +33,7 @@ export function ContextBattery({
   usage: ContextUsageWire | null | undefined;
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   // Popover is fixed-positioned (header/cwd-row ancestors clip overflow), so we
   // anchor it to the button's viewport rect at open time.
@@ -93,15 +95,16 @@ export function ContextBattery({
   if (usage) {
     const tokens = usage.totalTokens.toLocaleString("en-US");
     const maxTokens = usage.maxTokens.toLocaleString("en-US");
-    const detail = `Context: ${tokens} / ${maxTokens} tokens used (${remaining}% left).`;
-    const nudge =
-      pct >= 50
-        ? " Consider asking the agent to wrap up, or /clear for a fresh session."
-        : "";
-    full = detail + nudge;
+    const detail = t("contextBattery.detail", {
+      tokens,
+      maxTokens,
+      remaining,
+    });
+    // Two sentences, two keys; the space that joined them lived at the front
+    // of the second string, which no translation should have to carry.
+    full = pct >= 50 ? `${detail} ${t("contextBattery.nudge")}` : detail;
   } else {
-    full =
-      "Context usage not measured yet. It updates when the agent finishes a turn.";
+    full = t("contextBattery.unknown");
   }
 
   const toggle = () => {
@@ -131,8 +134,8 @@ export function ContextBattery({
         title={isMobile ? undefined : full}
         aria-label={
           known
-            ? `Context battery ${remaining}% remaining. Tap for details.`
-            : "Context usage not measured yet. Tap for details."
+            ? t("contextBattery.ariaKnown", { remaining })
+            : t("contextBattery.ariaUnknown")
         }
         style={{
           display: "inline-flex",

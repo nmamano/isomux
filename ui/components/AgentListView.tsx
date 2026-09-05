@@ -62,7 +62,7 @@ export function AgentListView({
     {
       id: "tasks",
       icon: TasksIcon,
-      label: t("nav.tasks"),
+      label: t("common.tasks"),
       onClick: onOpenTasks,
     },
     {

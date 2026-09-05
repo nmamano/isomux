@@ -2,6 +2,9 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { SubscriptionUsageWire } from "../../shared/types.ts";
 import { bandColor } from "./ContextBattery.tsx";
 import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
+import { absoluteTime } from "../../shared/i18n/time.ts";
+import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 
 // Subscription-allowance indicator, rendered immediately left
 // of the context battery. It answers a different question than its neighbor:
@@ -33,50 +36,65 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 // "Reading taken N ago" line in the popover.
 const STALE_READING_MS = 15 * 60 * 1000;
 
-// A short local date-and-time ("Sat 1 Aug, 09:00") in the viewer's own
-// timezone - the reset matters to whoever is looking at the screen, not to the
-// server.
-function formatResetAt(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+// The reset instant is rendered by shared/i18n/time.ts (ruling 12): one
+// absolute formatter for the whole UI, in the reader's language and the
+// machine's zone - the reset matters to whoever is looking at the screen, not
+// to the server. It reads shorter than the hand-built "Sat 1 Aug, 09:00" did,
+// and it no longer names the weekday, which is what Intl's short date style
+// gives every language.
 
 // "2 days 5 hours" / "3 hours 10 min" / "12 min" - rounded, never seconds.
-// Exported for tests.
-export function formatTimeUntil(ms: number): string {
+// Exported for tests. The translator is the first argument (ruling 18); the
+// unit counts go through tn(), so a language picks its own plural form, and
+// the two-unit frames are their own keys rather than a space-joined pair.
+export function formatTimeUntil(i18n: Translator, ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  if (days && hours) return `${plural(days, "day")} ${plural(hours, "hour")}`;
-  if (days) return plural(days, "day");
-  if (hours) return `${plural(hours, "hour")} ${minutes} min`;
-  return `${minutes} min`;
+  const dayText = i18n.tn("common.days", days);
+  const hourText = i18n.tn("subscription.duration.hours", hours);
+  const minuteText = i18n.t("subscription.duration.minutes", {
+    count: minutes,
+  });
+  if (days && hours)
+    return i18n.t("subscription.duration.daysHours", {
+      days: dayText,
+      hours: hourText,
+    });
+  if (days) return dayText;
+  if (hours)
+    return i18n.t("subscription.duration.hoursMinutes", {
+      hours: hourText,
+      minutes: minuteText,
+    });
+  return minuteText;
 }
 
-function plural(n: number, unit: string): string {
-  return `${n} ${unit}${n === 1 ? "" : "s"}`;
-}
+
 
 // One line per window: "Weekly: 34% used - resets Sat 1 Aug, 09:00 (in 2 days
 // 5 hours)". Use plain spaced hyphens, never em dashes.
 // `nowMs` is null for the hover tooltip, which renders on every re-render and
 // so must stay a pure function of the props - only the popover, whose clock
 // is stamped when it opens, gets the countdown.
-function windowLine(
+export function windowLine(
+  i18n: Translator,
   w: SubscriptionUsageWire["windows"][number],
   nowMs: number | null,
 ): string {
-  const head = `${w.label}: ${Math.round(w.usedPercent)}% used`;
-  if (w.resetsAtMs === null) return head;
-  const at = formatResetAt(w.resetsAtMs);
-  if (nowMs === null || w.resetsAtMs <= nowMs) return `${head} - resets ${at}`;
-  return `${head} - resets ${at} (in ${formatTimeUntil(w.resetsAtMs - nowMs)})`;
+  // The window's own label is what the backend reported ("Weekly (Opus)"), so
+  // it is data and stays as delivered (ruling 11).
+  const parts = { label: w.label, percent: Math.round(w.usedPercent) };
+  if (w.resetsAtMs === null) return i18n.t("subscription.window.used", parts);
+  const at = absoluteTime(i18n.language, w.resetsAtMs);
+  if (nowMs === null || w.resetsAtMs <= nowMs)
+    return i18n.t("subscription.window.usedResets", { ...parts, at });
+  return i18n.t("subscription.window.usedResetsIn", {
+    ...parts,
+    at,
+    duration: formatTimeUntil(i18n, w.resetsAtMs - nowMs),
+  });
 }
 
 // Which window the number tracks, given the server's auto pick and the
@@ -118,16 +136,15 @@ export function resolveTrackedWindow(
   return { index: auto, pinned: false };
 }
 
-// The one non-data string in the popover's chooser. "Auto" alone wouldn't say
-// auto-WHAT, and the parenthetical is the whole rule in two words.
-export const AUTO_CHOICE_LABEL = "Auto (most constrained)";
-const CHOOSER_HINT = "Which limit the number tracks:";
-
-// Shown in place of the window list when there is no reading. Second sentence
-// exists so the "?" isn't read as "a number exists and we lost it": an API key
-// / Bedrock / Vertex session has no plan quota to report at all.
-export const UNKNOWN_USAGE_TEXT =
-  "Plan usage not reported yet. It updates when the agent finishes a turn - sessions without plan limits (API key, Bedrock, Vertex) never report one.";
+// The one non-data string in the popover's chooser lives at
+// subscription.autoChoice: "Auto" alone wouldn't say auto-WHAT, and the
+// parenthetical is the whole rule in two words. The chooser's own heading is
+// subscription.chooserHint.
+//
+// With no reading the popover shows subscription.unknown instead of the window
+// list. Its second sentence exists so the "?" isn't read as "a number exists
+// and we lost it": an API key / Bedrock / Vertex session has no plan quota to
+// report at all.
 
 export function SubscriptionPill({
   usage,
@@ -150,6 +167,8 @@ export function SubscriptionPill({
   // Mirror of the stored pin, seeded once from localStorage. LogView keys this
   // component on agent + provider, so an agent or engine switch REMOUNTS it and
   // this initializer re-runs - no prop-into-state effect to keep in sync.
+  const i18n = useI18n();
+  const { t } = i18n;
   const [pin, setPin] = useState<UsagePin | null>(() =>
     getUsagePin(agentId, provider),
   );
@@ -218,16 +237,18 @@ export function SubscriptionPill({
   // rule the battery's unknown label follows.
   const label = reading ? `${used}%` : "?";
 
-  const planLine = reading?.plan ? `Plan: ${reading.plan}` : null;
-  const caveat = "This is account-wide, not per agent.";
+  const planLine = reading?.plan
+    ? t("subscription.plan", { plan: reading.plan })
+    : null;
+  const caveat = t("subscription.caveat");
   // Both lists stay in display order. What identifies the window behind the
   // number is the popover's bullet + bold on that row and the button's
   // accessible name ("5-hour plan allowance 95% used"), NOT position.
   const hoverLines = reading
-    ? reading.windows.map((w) => windowLine(w, null))
+    ? reading.windows.map((w) => windowLine(i18n, w, null))
     : [];
   const popoverLines = reading
-    ? reading.windows.map((w) => windowLine(w, coords?.atMs ?? null))
+    ? reading.windows.map((w) => windowLine(i18n, w, coords?.atMs ?? null))
     : [];
   // How old the reading is. Account data goes stale while an agent sits idle
   // (nothing refreshes it between turns), so the popover says so rather than
@@ -235,11 +256,13 @@ export function SubscriptionPill({
   // unannotated because the line appears only when it is actually stale.
   const ageLine =
     reading && coords && coords.atMs - reading.sampledAtMs > STALE_READING_MS
-      ? `Reading taken ${formatTimeUntil(coords.atMs - reading.sampledAtMs)} ago.`
+      ? t("subscription.readingAge", {
+          age: formatTimeUntil(i18n, coords.atMs - reading.sampledAtMs),
+        })
       : null;
   const tooltip = reading
     ? [...(planLine ? [planLine] : []), ...hoverLines, caveat].join("\n")
-    : UNKNOWN_USAGE_TEXT;
+    : t("subscription.unknown");
 
   const toggle = () => {
     const next = !open;
@@ -269,10 +292,13 @@ export function SubscriptionPill({
         title={isMobile ? undefined : tooltip}
         aria-label={
           headline && tracked
-            ? `${headline.label} plan allowance ${used}% used${
-                tracked.pinned ? ", pinned" : ""
-              }. Tap for details.`
-            : "Plan usage not reported yet. Tap for details."
+            ? t(
+                tracked.pinned
+                  ? "subscription.ariaTrackedPinned"
+                  : "subscription.ariaTracked",
+                { label: headline.label, used },
+              )
+            : t("subscription.ariaUnknown")
         }
         aria-expanded={popoverOpen}
         aria-controls={popoverOpen ? popoverId : undefined}
@@ -347,7 +373,7 @@ export function SubscriptionPill({
           // limit chooser's buttons. Without one there is nothing to choose, so
           // it degrades to the battery's plain descriptive tooltip.
           role={reading ? "dialog" : "tooltip"}
-          aria-label={reading ? CHOOSER_HINT : undefined}
+          aria-label={reading ? t("subscription.chooserHint") : undefined}
           style={{
             position: "fixed",
             top: coords.top,
@@ -370,7 +396,7 @@ export function SubscriptionPill({
             <>
               {planLine && <div>{planLine}</div>}
               <div style={{ marginTop: 4, color: "var(--text-dim)" }}>
-                {CHOOSER_HINT}
+                {t("subscription.chooserHint")}
               </div>
               {popoverLines.map((line, i) => (
                 <ChoiceRow
@@ -384,7 +410,7 @@ export function SubscriptionPill({
                 />
               ))}
               <ChoiceRow
-                text={AUTO_CHOICE_LABEL}
+                text={t("subscription.autoChoice")}
                 active={!tracked.pinned}
                 selected={!tracked.pinned}
                 onClick={() => choose(null)}
@@ -399,7 +425,7 @@ export function SubscriptionPill({
               </div>
             </>
           ) : (
-            UNKNOWN_USAGE_TEXT
+            t("subscription.unknown")
           )}
         </div>
       )}

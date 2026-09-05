@@ -3,11 +3,14 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useTheme } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 import type { ServerMessage } from "../../shared/types.ts";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 import {
   advanceCommandDelivery,
   queueCommand,
   type CommandDeliveryEvent,
+  type CommandDeliveryIssue,
   type CommandDeliveryState,
 } from "./terminal-command.ts";
 import {
@@ -122,7 +125,10 @@ function ensureMobileTerminalStyle() {
 
 type SoftKey = {
   id: string;
+  /** A key cap, as printed on a keyboard: code, never translated (ruling 11). */
   label: string;
+  /** Set instead of trusting `label` when the cap is a word, not a key name. */
+  labelKey?: PlainMessageKey;
   data?: string;
   arrow?: string;
   toggleCtrl?: boolean;
@@ -251,7 +257,12 @@ const MobileInputProxy = forwardRef<
 const SOFT_KEYS: SoftKey[] = [
   { id: "esc", label: "Esc", data: ESC },
   { id: "tab", label: "Tab", data: TAB },
-  { id: "paste", label: "Paste", action: "paste" },
+  {
+    id: "paste",
+    label: "Paste",
+    labelKey: "panels.terminal.paste",
+    action: "paste",
+  },
   { id: "ctrl", label: "Ctrl", toggleCtrl: true },
   { id: "up", label: "▲", arrow: ARROW_UP },
   { id: "down", label: "▼", arrow: ARROW_DOWN },
@@ -303,12 +314,15 @@ export function TerminalPanel({
   // keyboard). The function is set by the touch-handling effect.
   const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { mode } = useTheme();
+  const { t } = useI18n();
   const [exited, setExited] = useState<number | null>(null);
   const [owner, setOwner] = useState<{
     process: string;
     shell: boolean;
   } | null>(null);
-  const [commandIssue, setCommandIssue] = useState<string | null>(null);
+  const [commandIssue, setCommandIssue] = useState<CommandDeliveryIssue | null>(
+    null,
+  );
   // Whether xterm currently has a text selection - drives the "Send to
   // chat" pill's visibility.
   const [hasSelection, setHasSelection] = useState(false);
@@ -396,7 +410,7 @@ export function TerminalPanel({
       commandDeliveryRef.current = null;
       pendingCommandAcceptedRef.current = true;
       const blocked = setTimeout(() => {
-        setCommandIssue(`Not sent: ${owner.process} is using the terminal`);
+        setCommandIssue({ kind: "busy", process: owner.process });
         onCommandHandled?.();
       }, 0);
       return () => clearTimeout(blocked);
@@ -809,13 +823,17 @@ export function TerminalPanel({
           {!mobile && (
             <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>
           )}
-          Terminal
+          {t("common.terminal")}
           <span
             style={{
               color: owner?.shell ? "var(--green)" : "var(--text-muted)",
             }}
           >
-            {owner ? (owner.shell ? "Ready" : `Busy: ${owner.process}`) : ""}
+            {owner
+              ? owner.shell
+                ? t("panels.terminal.ready")
+                : t("panels.terminal.busy", { process: owner.process })
+              : ""}
           </span>
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -833,9 +851,9 @@ export function TerminalPanel({
               fontSize: mobile ? 11 : 10,
               cursor: "pointer",
             }}
-            title="Interrupt the foreground command"
+            title={t("panels.terminal.interruptHint")}
           >
-            Interrupt
+            {t("panels.terminal.interrupt")}
           </button>
           <button
             onClick={handleRespawn}
@@ -848,9 +866,9 @@ export function TerminalPanel({
               fontSize: mobile ? 11 : 10,
               cursor: "pointer",
             }}
-            title="Restart the terminal"
+            title={t("panels.terminal.restartHint")}
           >
-            Restart
+            {t("panels.terminal.restart")}
           </button>
           <button
             onClick={onClose}
@@ -863,7 +881,7 @@ export function TerminalPanel({
               padding: mobile ? "4px 10px" : "4px 12px",
               lineHeight: 1,
             }}
-            title="Close terminal"
+            title={t("panels.terminal.close")}
           >
             &times;
           </button>
@@ -898,7 +916,11 @@ export function TerminalPanel({
               zIndex: 2,
             }}
           >
-            {commandIssue}
+            {commandIssue.kind === "unavailable"
+              ? t("panels.terminal.unavailable")
+              : t("panels.terminal.busyIssue", {
+                  process: commandIssue.process,
+                })}
           </div>
         )}
         {/* "Send to chat" pill - shown only while a selection exists. Top-
@@ -951,9 +973,9 @@ export function TerminalPanel({
               WebkitUserSelect: "none",
               WebkitTapHighlightColor: "transparent",
             }}
-            title="Insert the selected text into the chat input as a code block"
+            title={t("panels.terminal.sendToChatHint")}
           >
-            Send to chat
+            {t("panels.terminal.sendToChat")}
           </button>
         )}
         {/* Exit overlay - anchored to the body so it floats above whatever
@@ -977,7 +999,7 @@ export function TerminalPanel({
               boxShadow: "0 4px 12px var(--shadow)",
             }}
           >
-            <span>Shell exited ({exited})</span>
+            <span>{t("panels.terminal.shellExited", { code: exited })}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -993,7 +1015,7 @@ export function TerminalPanel({
                 cursor: "pointer",
               }}
             >
-              Restart
+              {t("panels.terminal.restart")}
             </button>
           </div>
         )}
@@ -1053,7 +1075,7 @@ export function TerminalPanel({
                   WebkitTapHighlightColor: "transparent",
                 }}
               >
-                {key.label}
+                {key.labelKey ? t(key.labelKey) : key.label}
               </button>
             );
           })}

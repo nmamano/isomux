@@ -130,11 +130,11 @@ describe("translatorFor", () => {
     // English is frozen (ruling 6), so pinning it is safe; the other languages
     // are checked for being their own text, not for wording, which the DOM
     // test and the reviewer's read cover.
-    expect(translatorFor("en").t("nav.tasks")).toBe("Tasks");
-    expect(translatorFor("es").t("nav.tasks")).not.toBe(en["nav.tasks"]);
-    expect(translatorFor("ca").t("nav.tasks")).not.toBe(en["nav.tasks"]);
-    expect(translatorFor("ca").t("nav.tasks")).not.toBe(
-      translatorFor("es").t("nav.tasks"),
+    expect(translatorFor("en").t("common.tasks")).toBe("Tasks");
+    expect(translatorFor("es").t("common.tasks")).not.toBe(en["common.tasks"]);
+    expect(translatorFor("ca").t("common.tasks")).not.toBe(en["common.tasks"]);
+    expect(translatorFor("ca").t("common.tasks")).not.toBe(
+      translatorFor("es").t("common.tasks"),
     );
   });
 
@@ -147,6 +147,6 @@ describe("translatorFor", () => {
   it("rejects parameters a key does not take", () => {
     const { t } = translatorFor("en");
     // @ts-expect-error nav.tasks has no placeholder, so t() takes no params.
-    expect(t("nav.tasks", { name: "x" })).toBe("Tasks");
+    expect(t("common.tasks", { name: "x" })).toBe("Tasks");
   });
 });

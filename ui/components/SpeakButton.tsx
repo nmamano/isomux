@@ -1,6 +1,25 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import { languageLabelFor } from "../../shared/languages.ts";
+import { useI18n } from "../i18n.tsx";
+import type {
+  PlainMessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
+
+// The name of the language the voice would speak, in the reader's own
+// language. An unsupported locale has no catalog entry, so it keeps the raw
+// tag languageLabelFor already falls back to.
+const LANGUAGE_NAME_KEYS: Record<string, PlainMessageKey> = {
+  en: "logView.voice.language.en",
+  es: "logView.voice.language.es",
+  ca: "logView.voice.language.ca",
+};
+
+function spokenLanguageName(i18n: Translator, locale: string): string {
+  const key = LANGUAGE_NAME_KEYS[locale.split("-")[0]?.toLowerCase() ?? ""];
+  return key ? i18n.t(key) : languageLabelFor(locale);
+}
 
 const SPEAK_ICON = (
   <svg
@@ -116,6 +135,7 @@ export function SpeakButton({
   size?: number;
 }) {
   const [speaking, setSpeaking] = useState(false);
+  const i18n = useI18n();
   const locale = useSpeechLocale();
   const voices = useVoices();
   const voice = pickVoice(voices, locale);
@@ -125,7 +145,7 @@ export function SpeakButton({
   // utterance.lang - what we must never do is read Spanish text aloud in an
   // English voice, which is what the old unconditional en-only filter did.
   const noVoiceForLanguage = voices.length > 0 && !voice;
-  const languageName = languageLabelFor(locale);
+  const languageName = spokenLanguageName(i18n, locale);
 
   const handleClick = useCallback(() => {
     if (speaking) {
@@ -157,10 +177,8 @@ export function SpeakButton({
   // and a disabled button would leave them with no way to shut it up.
   const disabled = !speaking && noVoiceForLanguage;
   const label = disabled
-    ? `No ${languageName} voice is installed on this device`
-    : speaking
-      ? "Stop"
-      : "Speak";
+    ? i18n.t("logView.voice.noVoice", { language: languageName })
+    : i18n.t(speaking ? "logView.voice.stop" : "logView.voice.speak");
 
   // The title lives on a wrapper, not the button: browsers do not reliably show
   // a tooltip for a DISABLED button, which is the one case where the

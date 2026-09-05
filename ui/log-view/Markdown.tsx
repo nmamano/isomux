@@ -6,6 +6,8 @@ import {
   useRef,
 } from "react";
 import { Marked } from "marked";
+import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js/lib/core";
 import javascript from "highlight.js/lib/languages/javascript";
@@ -190,18 +192,21 @@ function getMermaid() {
 
 const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>`;
 const CHECK_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>`;
-const COPY_BTN_HTML = `<button class="copy-btn code-copy-btn" title="Copy">${COPY_SVG}</button>`;
+const copyButtonHtml = (title: string) =>
+  `<button class="copy-btn code-copy-btn" title="${title}">${COPY_SVG}</button>`;
 
 // Exported for tests. Full markdown-to-html pipeline as used by the
-// component: marked parse plus the copy-button and table wrappers.
-export function renderMarkdown(content: string): string {
+// component: marked parse plus the copy-button and table wrappers. The
+// translator is the first argument because this builds strings during render
+// and is not a component (internal-docs/i18n-loop.md, ruling 18).
+export function renderMarkdown(i18n: Translator, content: string): string {
   try {
     const raw = marked.parse(content) as string;
     // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
     const withCode = raw
       .replace(
         /<pre>/g,
-        `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`,
+        `<div class="code-block-wrapper">${copyButtonHtml(i18n.t("common.copy"))}<pre>`,
       )
       .replace(/<\/pre>/g, `</pre></div>`);
     // Wrap <table> blocks so they scroll horizontally on narrow viewports instead of overflowing
@@ -214,7 +219,11 @@ export function renderMarkdown(content: string): string {
 }
 
 export function Markdown({ content }: { content: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const i18n = useI18n();
+  // i18n in the deps, not just content: the translator keeps one identity per
+  // language, so this re-renders the html when the reader switches language
+  // and never serves a copy button labelled in the old one.
+  const html = useMemo(() => renderMarkdown(i18n, content), [i18n, content]);
 
   const onClick = useCallback(async (e: React.MouseEvent) => {
     const btn = (e.target as HTMLElement).closest(".code-copy-btn");
@@ -264,7 +273,14 @@ export function Markdown({ content }: { content: string }) {
     const root = containerRef.current;
     if (!root) return;
     root.innerHTML = html;
-  }, [html]);
+    // The diagram placeholder is a CSS ::before, which cannot read the
+    // catalog. The words live in the catalog anyway and ride in on the node,
+    // where `content: attr(data-loading)` picks them up (ui/styles.ts). Set
+    // here rather than in the emitted html because the tokenizer is
+    // module-scope and has no translator.
+    for (const node of root.querySelectorAll<HTMLElement>(".mermaid"))
+      node.dataset.loading = i18n.t("cards.markdown.rendering");
+  }, [html, i18n]);
 
   // After every html change, find any unprocessed mermaid blocks and hand
   // them to the lazy-loaded mermaid library one at a time. We use
@@ -279,8 +295,9 @@ export function Markdown({ content }: { content: string }) {
   //     → mermaid loaded but the diagram source didn't parse
   //   - same wrapper with "Failed to load mermaid: …" → the dynamic import
   //     rejected (network, CSP, syntax-on-old-Safari etc.)
-  // Until any of those terminal states is reached, .mermaid is empty and
-  // CSS shows a "Rendering diagram…" placeholder via ::before.
+  // Until any of those terminal states is reached, .mermaid is empty and CSS
+  // shows the cards.markdown.rendering placeholder via ::before, from the
+  // data-loading attribute the layout effect above puts on the node.
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
@@ -316,7 +333,7 @@ export function Markdown({ content }: { content: string }) {
             node.setAttribute("data-processed", "true");
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            markError(node, "Mermaid error", msg, sources[i]);
+            markError(node, i18n.t("cards.markdown.mermaidError"), msg, sources[i]);
           }
         }
       })
@@ -324,13 +341,13 @@ export function Markdown({ content }: { content: string }) {
         if (cancelled) return;
         const msg = e instanceof Error ? e.message : String(e);
         nodes.forEach((node, i) => {
-          markError(node, "Failed to load mermaid", msg, sources[i]);
+          markError(node, i18n.t("cards.markdown.mermaidLoadFailed"), msg, sources[i]);
         });
       });
     return () => {
       cancelled = true;
     };
-  }, [html]);
+  }, [html, i18n]);
 
   return (
     <div

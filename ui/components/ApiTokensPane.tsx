@@ -15,7 +15,7 @@ const EXPIRY_OPTIONS = [30, 365, null] as const;
 type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 export function ApiTokensPane() {
-  const { t, rich } = useI18n();
+  const { t, tn, rich } = useI18n();
   const [tokens, setTokens] = useState<ApiTokenWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
@@ -169,7 +169,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
               >
                 {days === null
                   ? t("settings.apiTokens.unlimited")
-                  : t("settings.apiTokens.days", { count: days })}
+                  : tn("common.days", days)}
               </option>
             ))}
           </select>

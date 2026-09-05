@@ -8,6 +8,11 @@
 import { describe, it, expect } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
 import { describeMessageSender, serializeEntries } from "./LogEntryCard.tsx";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+
+// The catalog's English, so every label below is the one the card showed
+// before the strings moved into the catalog (ruling 6).
+const EN = translatorFor("en");
 
 function entry(kind: LogEntry["kind"], content: string): LogEntry {
   return { id: content, agentId: "agent-1", timestamp: 1, kind, content };
@@ -16,7 +21,7 @@ function entry(kind: LogEntry["kind"], content: string): LogEntry {
 describe("serializeEntries", () => {
   it("includes an agent's visible message to its remote boss", () => {
     expect(
-      serializeEntries([
+      serializeEntries(EN, [
         entry("user_message", "Please report."),
         entry("text", "Working."),
         {
@@ -32,7 +37,7 @@ describe("serializeEntries", () => {
 
 describe("describeMessageSender", () => {
   it("a boss is a human, labelled by name and device", () => {
-    expect(describeMessageSender({ username: "Nil", device: "Phone" })).toEqual(
+    expect(describeMessageSender(EN, { username: "Nil", device: "Phone" })).toEqual(
       {
         label: "Nil (Phone)",
         fromHuman: true,
@@ -41,7 +46,7 @@ describe("describeMessageSender", () => {
   });
 
   it("no metadata at all is still the human path (the card falls back to 'You')", () => {
-    expect(describeMessageSender(undefined)).toEqual({
+    expect(describeMessageSender(EN, undefined)).toEqual({
       label: undefined,
       fromHuman: true,
     });
@@ -49,7 +54,7 @@ describe("describeMessageSender", () => {
 
   it("an agent sender is labelled agent + room, and is not human", () => {
     expect(
-      describeMessageSender({
+      describeMessageSender(EN, {
         sender_agent_name: "Isomuxer3",
         sender_agent_room: "Isomux Dev",
       }),
@@ -63,7 +68,7 @@ describe("describeMessageSender", () => {
     // The metadata the server stamps for POST /api/app/message (senderMeta's
     // app arm). Without this branch an app's message renders exactly like the
     // boss typing - which is the one reading it must never get wrong.
-    expect(describeMessageSender({ sender_app_name: "habits" })).toEqual({
+    expect(describeMessageSender(EN, { sender_app_name: "habits" })).toEqual({
       label: "habits · app",
       fromHuman: false,
     });
@@ -73,7 +78,7 @@ describe("describeMessageSender", () => {
     // The app's owner may well be stamped elsewhere on the entry; the sender is
     // still the app, so the non-human branch has to win.
     expect(
-      describeMessageSender({ sender_app_name: "habits", username: "Nil" }),
+      describeMessageSender(EN, { sender_app_name: "habits", username: "Nil" }),
     ).toEqual({ label: "habits · app", fromHuman: false });
   });
 
@@ -82,7 +87,7 @@ describe("describeMessageSender", () => {
     // Nil, 2026-08-27: without this branch a scheduled alert rendered as the
     // reader's own message ("YOU") in a solid-accent band.
     expect(
-      describeMessageSender({
+      describeMessageSender(EN, {
         sender_cronjob_id: "08366d7d",
         sender_cronjob_name: "Business health check",
       }),
@@ -94,7 +99,7 @@ describe("describeMessageSender", () => {
     // typing. The token is his authority, so the label stays his identity, but
     // it arrived from a script and reads that way (dashed, not editable).
     expect(
-      describeMessageSender({
+      describeMessageSender(EN, {
         username: "Nil",
         device: 'API token "test" (pat-123)',
       }),
@@ -107,7 +112,7 @@ describe("describeMessageSender", () => {
   it("a cron sender is not made human by carrying a username alongside", () => {
     // The job's creator is stamped on the run; the sender is still the job.
     expect(
-      describeMessageSender({
+      describeMessageSender(EN, {
         sender_cronjob_name: "Business health check",
         username: "Nil",
       }),

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
 
 // Card emitted by POST /api/agents/:id/read-file and /preview-url. Images render
 // inline (clickable for lightbox); other media types render as a clickable file
@@ -17,6 +18,7 @@ export function FileViewCard({
   isMobile?: boolean;
   caption?: string;
 }) {
+  const { t } = useI18n();
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
@@ -146,7 +148,7 @@ export function FileViewCard({
         >
           <img
             src={lightboxSrc}
-            alt="Full size"
+            alt={t("cards.fileView.fullSize")}
             style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }}
           />
         </div>

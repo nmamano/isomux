@@ -97,12 +97,12 @@ describe("commandInputBytes", () => {
       process: "vim",
     });
     expect(foreign.write).toBeUndefined();
-    expect(foreign.issue).toBe("Not sent: vim is using the terminal");
+    expect(foreign.issue).toEqual({ kind: "busy", process: "vim" });
     expect(foreign.handled).toBe(true);
 
     const exited = advanceCommandDelivery(queued.state, { type: "exit" });
     expect(exited.write).toBeUndefined();
-    expect(exited.issue).toBe("Terminal unavailable");
+    expect(exited.issue).toEqual({ kind: "unavailable" });
     expect(exited.handled).toBe(true);
   });
 
@@ -116,7 +116,7 @@ describe("commandInputBytes", () => {
       type: "timeout",
     });
     expect(timedOut.write).toBeUndefined();
-    expect(timedOut.issue).toBe("Terminal unavailable");
+    expect(timedOut.issue).toEqual({ kind: "unavailable" });
     expect(timedOut.handled).toBe(true);
     expect(timedOut.state).toBeNull();
   });
@@ -125,7 +125,7 @@ describe("commandInputBytes", () => {
     for (const type of ["timeout", "exit"] as const) {
       const result = advanceCommandDelivery(null, { type });
       expect(result.write).toBeUndefined();
-      expect(result.issue).toBe("Terminal unavailable");
+      expect(result.issue).toEqual({ kind: "unavailable" });
       expect(result.handled).toBe(true);
       expect(result.state).toBeNull();
     }

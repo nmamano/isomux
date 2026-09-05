@@ -3,7 +3,18 @@
 // frozen here; the DOM/popover lifecycle isn't covered because the UI has no
 // React render harness (same limitation noted in ContextBattery.test.ts).
 import { describe, it, expect } from "bun:test";
-import { formatTimeUntil, resolveTrackedWindow } from "./SubscriptionPill.tsx";
+import {
+  formatTimeUntil,
+  resolveTrackedWindow,
+  windowLine,
+} from "./SubscriptionPill.tsx";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+
+// The catalog's English: the durations read exactly as they did before the
+// strings moved into the catalog (ruling 6).
+const EN = translatorFor("en");
+const ES = translatorFor("es");
+const CA = translatorFor("ca");
 import { bandColor } from "./ContextBattery.tsx";
 
 const MIN = 60_000;
@@ -12,26 +23,69 @@ const DAY = 24 * HOUR;
 
 describe("formatTimeUntil", () => {
   it("drops to minutes under an hour, and never shows seconds", () => {
-    expect(formatTimeUntil(0)).toBe("0 min");
-    expect(formatTimeUntil(45_000)).toBe("0 min");
-    expect(formatTimeUntil(12 * MIN)).toBe("12 min");
-    expect(formatTimeUntil(59 * MIN)).toBe("59 min");
+    expect(formatTimeUntil(EN, 0)).toBe("0 min");
+    expect(formatTimeUntil(EN, 45_000)).toBe("0 min");
+    expect(formatTimeUntil(EN, 12 * MIN)).toBe("12 min");
+    expect(formatTimeUntil(EN, 59 * MIN)).toBe("59 min");
   });
 
   it("pairs hours with minutes, and days with hours", () => {
-    expect(formatTimeUntil(HOUR)).toBe("1 hour 0 min");
-    expect(formatTimeUntil(3 * HOUR + 10 * MIN)).toBe("3 hours 10 min");
-    expect(formatTimeUntil(2 * DAY + 5 * HOUR)).toBe("2 days 5 hours");
-    expect(formatTimeUntil(DAY + HOUR)).toBe("1 day 1 hour");
+    expect(formatTimeUntil(EN, HOUR)).toBe("1 hour 0 min");
+    expect(formatTimeUntil(EN, 3 * HOUR + 10 * MIN)).toBe("3 hours 10 min");
+    expect(formatTimeUntil(EN, 2 * DAY + 5 * HOUR)).toBe("2 days 5 hours");
+    expect(formatTimeUntil(EN, DAY + HOUR)).toBe("1 day 1 hour");
   });
 
   it("omits a zero tail rather than printing '3 days 0 hours'", () => {
-    expect(formatTimeUntil(3 * DAY)).toBe("3 days");
-    expect(formatTimeUntil(DAY + 30 * MIN)).toBe("1 day");
+    expect(formatTimeUntil(EN, 3 * DAY)).toBe("3 days");
+    expect(formatTimeUntil(EN, DAY + 30 * MIN)).toBe("1 day");
   });
 
   it("clamps a past reset to zero instead of going negative", () => {
-    expect(formatTimeUntil(-5 * HOUR)).toBe("0 min");
+    expect(formatTimeUntil(EN, -5 * HOUR)).toBe("0 min");
+  });
+});
+
+// One popover row, in three languages. The row is where the language reaches
+// BOTH the words and the date: the reset instant goes through
+// shared/i18n/time.ts (ruling 12), so a locale that never left the browser's
+// default would order the date the English way for every reader.
+describe("windowLine", () => {
+  // Built from local components and read back in the local zone, so this holds
+  // wherever the machine is (same trick as shared/i18n/time.test.ts).
+  const resetsAtMs = new Date(2026, 0, 2, 15, 4).getTime();
+  const window = {
+    label: "Weekly (Opus)",
+    usedPercent: 34.4,
+    resetsAtMs,
+  } as Parameters<typeof windowLine>[1];
+
+  it("words the row and orders the date the way each language does", () => {
+    expect(windowLine(EN, window, null)).toBe(
+      "Weekly (Opus): 34% used - resets 1/2/26, 3:04 PM",
+    );
+    expect(windowLine(ES, window, null)).toBe(
+      "Weekly (Opus): usado un 34% - se reinicia el 2/1/26, 15:04",
+    );
+    expect(windowLine(CA, window, null)).toBe(
+      "Weekly (Opus): usat un 34% - es reinicia el 2/1/26 15:04",
+    );
+  });
+
+  it("adds the countdown only when a clock is supplied, in the same language", () => {
+    const nowMs = resetsAtMs - 2 * DAY - 5 * HOUR;
+    expect(windowLine(EN, window, nowMs)).toBe(
+      "Weekly (Opus): 34% used - resets 1/2/26, 3:04 PM (in 2 days 5 hours)",
+    );
+    expect(windowLine(CA, window, nowMs)).toBe(
+      "Weekly (Opus): usat un 34% - es reinicia el 2/1/26 15:04 (d'aquí a 2 dies i 5 hores)",
+    );
+  });
+
+  it("leaves the reset out when the backend reports none", () => {
+    expect(windowLine(ES, { ...window, resetsAtMs: null }, null)).toBe(
+      "Weekly (Opus): usado un 34%",
+    );
   });
 });
 

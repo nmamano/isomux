@@ -1,4 +1,5 @@
 import type { FilePayload } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
 
 function relativeOrAbs(payload: FilePayload): string {
   // If the path is inside the cwd, show the relative form. Otherwise show
@@ -17,6 +18,7 @@ export function EditRequestCard({
   payload: FilePayload;
   onOpen: (path: string) => void;
 }) {
+  const { t } = useI18n();
   const display = relativeOrAbs(payload);
   return (
     <div
@@ -65,9 +67,9 @@ export function EditRequestCard({
             cursor: "pointer",
             flexShrink: 0,
           }}
-          title={`Open ${payload.path} in the editor side panel`}
+          title={t("cards.editRequest.openHint", { path: payload.path })}
         >
-          Open in editor
+          {t("cards.editRequest.open")}
         </button>
       </div>
     </div>

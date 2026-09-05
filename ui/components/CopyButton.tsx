@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useI18n } from "../i18n.tsx";
 
 export const COPY_ICON = (
   <svg
@@ -70,12 +71,13 @@ export function CopyButton({
   size?: number;
 }) {
   const { copied, copy } = useClipboardCopy();
+  const { t } = useI18n();
 
   return (
     <button
       onClick={() => void copy(getText())}
       className="copy-btn"
-      title={copied ? "Copied!" : "Copy"}
+      title={copied ? t("common.copiedNotice") : t("common.copy")}
       style={{
         width: size,
         height: size,

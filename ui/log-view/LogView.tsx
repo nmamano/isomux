@@ -39,7 +39,7 @@ import {
   LogEntryCard,
   RawToolCallGroupCard,
   serializeEntries,
-  describeMessageSender,
+  senderIsHuman,
 } from "./LogEntryCard.tsx";
 import { pinnedHumanMessageId } from "./pinned-message.ts";
 import {
@@ -71,19 +71,24 @@ import { SkillsPopover } from "./SkillsPopover.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 
-const STATE_LABELS: Partial<Record<AgentState, string>> = {
-  thinking: "Thinking",
-  tool_executing: "Running tool",
+// Catalog keys, read at render: the header shows them in the reader's language
+// (internal-docs/i18n-loop.md, ruling 7).
+const STATE_LABEL_KEYS: Partial<Record<AgentState, PlainMessageKey>> = {
+  thinking: "logView.state.thinking",
+  tool_executing: "logView.state.toolExecuting",
 };
 
 // Header label for an agent parked on a two-step prompt. It
 // sits where the activity indicator would be if a turn were running - which is
-// blank for a parked agent, since `waiting_for_response` has no STATE_LABELS
+// blank for a parked agent, since `waiting_for_response` has no STATE_LABEL_KEYS
 // entry, so a parked agent rendered identically to one that had simply finished
 // its turn. Static, with no elapsed timer: the wait ends when a human or agent
 // answers, and counting up would imply the agent is working on something.
 function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
+  const { t } = useI18n();
   return (
     <span
       style={{
@@ -93,7 +98,7 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
         whiteSpace: "nowrap",
       }}
     >
-      {PENDING_PROMPT_LABEL[kind]}
+      {t(PENDING_PROMPT_LABEL[kind])}
     </span>
   );
 }
@@ -170,16 +175,17 @@ function ActivityIndicator({
   stateChangedAt?: number;
   agentId: string;
 }) {
-  const label = STATE_LABELS[state];
+  const { t } = useI18n();
+  const labelKey = STATE_LABEL_KEYS[state];
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!label) return;
+    if (!labelKey) return;
     const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
-  }, [label]);
+  }, [labelKey]);
 
-  if (!label) return null;
+  if (!labelKey) return null;
 
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
   const baseColor =
@@ -232,7 +238,7 @@ function ActivityIndicator({
           }}
         />
       </span>
-      <span>{label}...</span>
+      <span>{labelKey && t(labelKey)}...</span>
       <span
         style={{
           fontFamily: "'JetBrains Mono',monospace",
@@ -257,7 +263,7 @@ function ActivityIndicator({
             opacity: 0.8,
           }}
         >
-          Abort
+          {t("logView.abort")}
         </button>
       )}
     </div>
@@ -265,6 +271,7 @@ function ActivityIndicator({
 }
 
 function SessionSwapIndicator({ swapping }: { swapping: boolean }) {
+  const i18n = useI18n();
   if (!swapping) return null;
   return (
     <div
@@ -310,7 +317,7 @@ function SessionSwapIndicator({ swapping }: { swapping: boolean }) {
           }}
         />
       </span>
-      <span>Restarting session...</span>
+      <span>{i18n.t("logView.restartingSession")}</span>
     </div>
   );
 }
@@ -324,6 +331,7 @@ function QueueChips({
   agentId: string;
   isMobile?: boolean;
 }) {
+  const i18n = useI18n();
   if (queue.length === 0) return null;
   return (
     <div
@@ -351,7 +359,7 @@ function QueueChips({
             letterSpacing: "0.05em",
           }}
         >
-          {queue.length} queued
+          {i18n.t("logView.queue.count", { count: queue.length })}
         </span>
         <button
           onClick={() => {
@@ -367,9 +375,9 @@ function QueueChips({
             fontWeight: 600,
             cursor: "pointer",
           }}
-          title="Flush queued messages now (interrupts the current turn)"
+          title={i18n.t("logView.queue.flushHint")}
         >
-          Send now
+          {i18n.t("logView.queue.flushNow")}
         </button>
       </div>
       <div
@@ -387,17 +395,24 @@ function QueueChips({
           // Not-from-a-human, which is what the styling below distinguishes: an
           // agent or one of this agent's own apps.
           const isAgent = msg.sender.kind !== "user";
+          // The same four sender shapes a delivered message shows, so they
+          // read from the same common.sender.* keys the card uses.
           const label =
             msg.sender.kind === "agent"
-              ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
+              ? i18n.t("common.sender.agentInRoom", {
+                  name: msg.sender.agentName,
+                  room: msg.sender.roomName,
+                })
               : msg.sender.kind === "cronjob"
-                ? `${msg.sender.cronjobName} · schedule`
+                ? i18n.t("common.sender.cronjob", {
+                    name: msg.sender.cronjobName,
+                  })
                 : msg.sender.kind === "app"
-                  ? `${msg.sender.appName} · app`
+                  ? i18n.t("common.sender.app", { name: msg.sender.appName })
                   : formatIdentity({
                       username: msg.sender.username,
                       device: msg.sender.device,
-                    }) || "You";
+                    }) || i18n.t("common.you");
           const attachmentCount = msg.attachments?.length ?? 0;
           return (
             <div
@@ -430,7 +445,7 @@ function QueueChips({
                     whiteSpace: "nowrap",
                   }}
                 >
-                  queued · {label}
+                  {i18n.t("logView.queue.chip", { label })}
                 </div>
                 {msg.text && (
                   <div
@@ -455,8 +470,7 @@ function QueueChips({
                       fontStyle: "italic",
                     }}
                   >
-                    📎 {attachmentCount} attachment
-                    {attachmentCount !== 1 ? "s" : ""}
+                    📎 {i18n.tn("logView.queue.attachments", attachmentCount)}
                   </div>
                 )}
               </div>
@@ -477,7 +491,7 @@ function QueueChips({
                   lineHeight: 1,
                   flexShrink: 0,
                 }}
-                title="Cancel this queued message"
+                title={i18n.t("logView.queue.cancel")}
               >
                 ×
               </button>
@@ -496,6 +510,8 @@ function HeaderTimer({
   state: AgentState;
   stateChangedAt?: number;
 }) {
+  const { t } = useI18n();
+  const labelKey = STATE_LABEL_KEYS[state];
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 100);
@@ -509,7 +525,7 @@ function HeaderTimer({
     <>
       <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
       <span style={{ color, fontSize: 12 }}>
-        {STATE_LABELS[state]} {formatElapsed(elapsedMs)}
+        {labelKey && t(labelKey)} {formatElapsed(elapsedMs)}
       </span>
     </>
   );
@@ -520,6 +536,7 @@ export function ChoiceInteractionCard({
 }: {
   interaction: AgentChoiceInteraction;
 }) {
+  const i18n = useI18n();
   const [submitting, setSubmitting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -535,7 +552,7 @@ export function ChoiceInteractionCard({
       );
     } catch {
       setSubmitting(null);
-      setError("Could not apply that choice.");
+      setError(i18n.t("logView.interaction.failed"));
     }
   }
 
@@ -609,7 +626,7 @@ export function ChoiceInteractionCard({
               <span
                 style={{ color: "var(--accent)", fontSize: 11, flexShrink: 0 }}
               >
-                Current
+                {i18n.t("logView.interaction.current")}
               </span>
             )}
           </button>
@@ -659,6 +676,7 @@ export function LogView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
+  const i18n = useI18n();
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const {
@@ -937,11 +955,11 @@ export function LogView({
     const origins = new Map<string, string>(); // name → origin label
     const descs = new Map<string, string>(); // name → description
     const originLabels: Record<string, string> = {
-      user: "user skill",
-      project: "project skill",
-      plugin: "plugin skill",
-      isomux: "isomux-bundled skill",
-      claude: "claude skill",
+      user: i18n.t("logView.skills.origin.user"),
+      project: i18n.t("logView.skills.origin.project"),
+      plugin: i18n.t("logView.skills.origin.plugin"),
+      isomux: i18n.t("logView.skills.origin.isomux"),
+      claude: i18n.t("logView.skills.origin.claude"),
     };
     if (agentCmds) {
       for (const c of agentCmds.commands) {
@@ -953,7 +971,10 @@ export function LogView({
       }
       for (const s of agentCmds.skills) {
         if (!cmds.includes(s.name)) cmds.push(s.name);
-        origins.set(s.name, originLabels[s.origin] ?? "skill");
+        origins.set(
+          s.name,
+          originLabels[s.origin] ?? i18n.t("logView.skills.origin.unknown"),
+        );
         if (s.description) descs.set(s.name, s.description);
       }
     }
@@ -962,7 +983,9 @@ export function LogView({
       skillOrigins: origins,
       commandDescriptions: descs,
     };
-  }, [agentCmds]);
+    // i18n in the deps: the origin labels come from the catalog, so a language
+    // switch must rebuild them (the translator keeps one identity per language).
+  }, [agentCmds, i18n]);
 
   const showAutocomplete =
     input.startsWith("/") && !input.includes(" ") && input.length > 0;
@@ -1233,7 +1256,10 @@ export function LogView({
     return entryMap;
   }, [logs, groupedChildIds]);
 
-  const getConversationText = useCallback(() => serializeEntries(logs), [logs]);
+  const getConversationText = useCallback(
+    () => serializeEntries(i18n, logs),
+    [i18n, logs],
+  );
 
   const handleCancelEdit = useCallback(() => setEditingLogEntryId(null), []);
   const handleSubmitEdit = useCallback(
@@ -1270,14 +1296,21 @@ export function LogView({
 
   const baseAgentActions: NavAction[] = [
     ...(onOpenTasks
-      ? [{ id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks }]
+      ? [
+          {
+            id: "tasks",
+            icon: TasksIcon,
+            label: i18n.t("common.tasks"),
+            onClick: onOpenTasks,
+          },
+        ]
       : []),
     ...(logs.length > 0
       ? [
           {
             id: "copy",
             icon: copied ? CheckIcon : CopyIcon,
-            label: copied ? "Copied" : "Copy",
+            label: i18n.t(copied ? "common.copied" : "common.copy"),
             onClick: handleCopy,
             active: copied,
           },
@@ -1286,17 +1319,17 @@ export function LogView({
     {
       id: "settings",
       icon: AgentIcon,
-      label: "Agent",
+      label: i18n.t("common.agent"),
       onClick: onEditAgent,
-      title: "Agent settings",
+      title: i18n.t("logView.nav.agentTitle"),
     },
     {
       id: "viewAvatar",
       icon: EyeIcon,
-      label: "Avatar",
+      label: i18n.t("common.avatar"),
       onClick: toggleAvatar,
       active: showAvatar,
-      title: "View avatar",
+      title: i18n.t("logView.nav.avatarTitle"),
     },
   ];
 
@@ -1308,10 +1341,10 @@ export function LogView({
         {
           id: "editor",
           icon: EditorIcon,
-          label: "Editor",
+          label: i18n.t("logView.nav.editor"),
           onClick: () => setEditorOpen((v) => !v),
           active: editorOpen,
-          title: "Open file editor (Ctrl+E)",
+          title: i18n.t("logView.nav.editorTitle"),
         },
       ];
     }
@@ -1321,10 +1354,10 @@ export function LogView({
         {
           id: "terminal",
           icon: TerminalIcon,
-          label: "Terminal",
+          label: i18n.t("common.terminal"),
           onClick: () => setTerminalOpen((v) => !v),
           active: terminalOpen,
-          title: "Open terminal (Ctrl+`)",
+          title: i18n.t("logView.nav.terminalTitle"),
         },
       ];
     }
@@ -1342,7 +1375,9 @@ export function LogView({
         {
           id: "editor",
           icon: EditorIcon,
-          label: editorOpen ? "Close editor" : "Editor",
+          label: i18n.t(
+            editorOpen ? "panels.editor.close" : "logView.nav.editor",
+          ),
           onClick: () => setEditorOpen((v) => !v),
           active: editorOpen,
         },
@@ -1354,7 +1389,9 @@ export function LogView({
         {
           id: "terminal",
           icon: TerminalIcon,
-          label: terminalOpen ? "Close terminal" : "Terminal",
+          label: i18n.t(
+            terminalOpen ? "panels.terminal.close" : "common.terminal",
+          ),
           onClick: () => setTerminalOpen((v) => !v),
           active: terminalOpen,
         },
@@ -1425,7 +1462,7 @@ export function LogView({
     recognition.onerror = (event) => {
       isListeningRef.current = false;
       setIsListening(false);
-      const message = voiceInputErrorMessage(event.error);
+      const message = voiceInputErrorMessage(i18n, event.error);
       if (message) setVoiceInputError(message);
     };
     recognitionRef.current = recognition;
@@ -1498,7 +1535,7 @@ export function LogView({
             mediaType: file.type || "application/octet-stream",
             size: file.size,
             uploading: false,
-            error: "File too large (max 200MB)",
+            error: i18n.t("logView.attachTooLarge"),
           },
         ]);
         continue;
@@ -1813,7 +1850,7 @@ export function LogView({
               flexShrink: 0,
             }}
           >
-            ← Back to Office
+            {i18n.t("logView.backToOffice")}
           </button>
           <div
             style={{
@@ -1848,7 +1885,7 @@ export function LogView({
                   whiteSpace: "nowrap",
                   lineHeight: 1.2,
                 }}
-                title="Edit agent"
+                title={i18n.t("logView.editAgent")}
               >
                 {agent.name}
               </span>
@@ -1889,7 +1926,9 @@ export function LogView({
                           color: "var(--accent-blue, #5eafff)",
                           whiteSpace: "nowrap",
                         }}
-                        title={`Backend: ${agent.agentType}`}
+                        title={i18n.t("logView.backendTitle", {
+                          backend: agent.agentType,
+                        })}
                       >
                         {agent.agentType}
                       </span>
@@ -1897,7 +1936,7 @@ export function LogView({
                   )}
               </span>
             </div>
-            {STATE_LABELS[agent.state] && (
+            {STATE_LABEL_KEYS[agent.state] && (
               <HeaderTimer
                 state={agent.state}
                 stateChangedAt={stateChangedAt.get(agent.id)}
@@ -1943,7 +1982,7 @@ export function LogView({
                         whiteSpace: "nowrap",
                         minWidth: 0,
                       }}
-                      title={agent.topic ?? "Click to edit topic"}
+                      title={agent.topic ?? i18n.t("logView.editTopic")}
                     >
                       {agent.topic}
                     </span>
@@ -1957,8 +1996,8 @@ export function LogView({
                       disabled={!canRegenerateTopic}
                       title={
                         canRegenerateTopic
-                          ? "Regenerate topic from conversation"
-                          : "No conversation history to summarize"
+                          ? i18n.t("logView.regenerateTopic")
+                          : i18n.t("logView.noHistoryToSummarize")
                       }
                       style={{
                         background: "none",
@@ -2153,7 +2192,7 @@ export function LogView({
                   >
                     {agent.name}
                   </span>
-                  {STATE_LABELS[agent.state] && (
+                  {STATE_LABEL_KEYS[agent.state] && (
                     <HeaderTimer
                       state={agent.state}
                       stateChangedAt={stateChangedAt.get(agent.id)}
@@ -2227,7 +2266,7 @@ export function LogView({
                   fontWeight: 600,
                 }}
               >
-                ↑ you:
+                {i18n.t("logView.lastMessagePrefix")}
               </span>
               <span
                 style={{
@@ -2316,7 +2355,7 @@ export function LogView({
                     cursor: "pointer",
                     transition: "opacity 0.2s",
                   }}
-                  title="Edit agent"
+                  title={i18n.t("logView.editAgent")}
                 >
                   <Character
                     key={agent.state}
@@ -2335,8 +2374,8 @@ export function LogView({
                 }}
               >
                 {connected
-                  ? "Send a message to start a conversation."
-                  : "Loading..."}
+                  ? i18n.t("logView.empty")
+                  : i18n.t("logView.loading")}
               </div>
             )}
             {logs.map((entry) => {
@@ -2351,7 +2390,7 @@ export function LogView({
                 agent.capabilities.edit;
               const isUserMsg =
                 entry.kind === "user_message" &&
-                describeMessageSender(entry.metadata).fromHuman;
+                senderIsHuman(entry.metadata);
               return (
                 <div
                   key={entry.id}
@@ -2463,7 +2502,7 @@ export function LogView({
                   zIndex: 5,
                   transition: "opacity 0.15s",
                 }}
-                title="Scroll to bottom"
+                title={i18n.t("logView.scrollToBottom")}
               >
                 ↓
               </button>
@@ -2493,10 +2532,7 @@ export function LogView({
                 }}
               >
                 <span>⚠</span>
-                <span>
-                  Couldn't send - reconnecting. Your message is still in the
-                  box; try again once the banner clears.
-                </span>
+                <span>{i18n.t("logView.sendFailedBanner")}</span>
               </div>
             )}
             {voiceInputError && (
@@ -2561,7 +2597,7 @@ export function LogView({
                     </span>
                     {att.uploading && (
                       <span style={{ color: "var(--text-ghost)" }}>
-                        uploading…
+                        {i18n.t("logView.attachUploading")}
                       </span>
                     )}
                     {att.error && (
@@ -2612,7 +2648,7 @@ export function LogView({
                   opacity: 0.7,
                   transition: "opacity 0.15s",
                 }}
-                title="Attach files"
+                title={i18n.t("logView.attachFiles")}
               >
                 <svg
                   width="16"
@@ -2662,7 +2698,7 @@ export function LogView({
                       opacity: skillsOpen ? 1 : 0.7,
                       transition: "opacity 0.15s, color 0.15s",
                     }}
-                    title="Skills & commands"
+                    title={i18n.t("logView.skills.title")}
                   >
                     Sk
                   </button>
@@ -2860,14 +2896,20 @@ export function LogView({
                   }}
                   placeholder={
                     editingLogEntryId
-                      ? "Editing message above..."
+                      ? i18n.t("logView.composer.editing")
                       : isBusy
                         ? isMobile
-                          ? "Type to queue..."
-                          : `Type to queue - sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
+                          ? i18n.t("logView.composer.queueShort")
+                          : i18n.t("logView.composer.queueLong", {
+                              modifier: (navigator.platform || "").includes(
+                                "Mac",
+                              )
+                                ? "⌘"
+                                : "Ctrl+",
+                            })
                         : isMobile
-                          ? "Type a message..."
-                          : "Type a message or / for commands..."
+                          ? i18n.t("logView.composer.typeShort")
+                          : i18n.t("logView.composer.type")
                   }
                   autoFocus={!isMobile}
                   rows={1}
@@ -2928,7 +2970,7 @@ export function LogView({
                     userSelect: "none",
                     WebkitUserSelect: "none",
                   }}
-                  title="Click to talk (Ctrl+Space to hold)"
+                  title={i18n.t("logView.voice.talkHint")}
                 >
                   <svg
                     width="16"
@@ -2971,7 +3013,7 @@ export function LogView({
                       padding: 0,
                       opacity: 0.4,
                     }}
-                    title="Voice input requires HTTPS"
+                    title={i18n.t("logView.voice.httpsTitle")}
                   >
                     <svg
                       width="16"
@@ -3014,15 +3056,16 @@ export function LogView({
                           color: "var(--text-primary)",
                         }}
                       >
-                        Voice input requires HTTPS
+                        {i18n.t("logView.voice.httpsTitle")}
                       </div>
                       <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
-                        Enable HTTPS in your{" "}
-                        <span style={{ color: "var(--text-primary)" }}>
-                          Tailscale admin console
-                        </span>{" "}
-                        (DNS page), then run these on the host (use the built-in
-                        terminal):
+                        {i18n.rich("logView.voice.httpsStep1", {
+                          console: (chunk) => (
+                            <span style={{ color: "var(--text-primary)" }}>
+                              {chunk}
+                            </span>
+                          ),
+                        })}
                       </div>
                       <code
                         style={{
@@ -3048,19 +3091,25 @@ export function LogView({
                           color: "var(--text-muted)",
                         }}
                       >
-                        Visit the HTTPS URL Tailscale prints (e.g.{" "}
-                        <code
-                          style={{
-                            background: "var(--bg-base)",
-                            padding: "1px 5px",
-                            borderRadius: 3,
-                            fontFamily: "'JetBrains Mono',monospace",
-                            fontSize: 11,
-                          }}
-                        >
-                          https://my-mac-mini.&lt;tailnet&gt;.ts.net
-                        </code>
-                        ).
+                        {/* The example URL is code and carries angle
+                            brackets, so it is passed in rather than written
+                            into the catalog (ruling 19). */}
+                        {i18n.rich("logView.voice.httpsStep2", {
+                          example: "https://my-mac-mini.<tailnet>.ts.net",
+                          url: (chunk) => (
+                            <code
+                              style={{
+                                background: "var(--bg-base)",
+                                padding: "1px 5px",
+                                borderRadius: 3,
+                                fontFamily: "'JetBrains Mono',monospace",
+                                fontSize: 11,
+                              }}
+                            >
+                              {chunk}
+                            </code>
+                          ),
+                        })}
                       </div>
                       <button
                         onClick={() => setShowMicHint(false)}
@@ -3105,7 +3154,7 @@ export function LogView({
                       justifyContent: "center",
                       lineHeight: 1,
                     }}
-                    title="Abort"
+                    title={i18n.t("logView.abort")}
                   >
                     ■
                   </button>
@@ -3151,7 +3200,11 @@ export function LogView({
                       lineHeight: 1,
                       transition: "background 0.15s, color 0.15s",
                     }}
-                    title={isBusy ? "Queue message" : "Send"}
+                    title={i18n.t(
+                      isBusy
+                        ? "logView.composer.queue"
+                        : "common.send",
+                    )}
                   >
                     ▲
                   </button>

@@ -6,6 +6,10 @@
 import { describe, it, expect } from "bun:test";
 import { sanitizeSvg } from "./svg-sanitize.ts";
 import { renderMarkdown } from "./Markdown.tsx";
+import { translatorFor } from "../../shared/i18n/translate.ts";
+
+// The catalog's English, so the copy button's title reads as it always has.
+const EN = translatorFor("en");
 
 describe("sanitizeSvg", () => {
   it("keeps shape, structure, and text elements with presentation attrs", () => {
@@ -199,7 +203,7 @@ describe("renderMarkdown svg capture", () => {
   // svg and `breaks: true` inserts <br> between its lines, which makes
   // the browser force-close the svg and drop the shapes.
   it("keeps a multi-line svg intact when text precedes it without a blank line", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `Here is a diagram:\n<svg width="200" height="100">\n  <rect x="10" y="10" width="80" height="40" fill="#333"/>\n  <text x="20" y="35">hello</text>\n</svg>`,
     );
     expect(html).toContain(
@@ -211,7 +215,7 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("keeps an svg with a blank line inside it intact", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `<svg width="10">\n  <rect width="5"/>\n\n  <text>hi</text>\n</svg>`,
     );
     const svgSpan = html.slice(html.indexOf("<svg"), html.indexOf("</svg>"));
@@ -222,7 +226,7 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("captures an svg inside a list item via the inline extension", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `- item with <svg width="5"><rect width="1"/></svg> inline`,
     );
     expect(html).toContain(
@@ -231,7 +235,7 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("sanitizes captured svgs", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `<svg onload="alert(1)">\n<script>alert(2)</script>\n<rect width="5"/>\n</svg>`,
     );
     expect(html).not.toContain("onload");
@@ -240,7 +244,7 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("captures a one-line svg mid-sentence via the inline extension", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `Look <svg width="5"><rect width="1"/><text>hi</text></svg> here`,
     );
     expect(html).toContain(
@@ -249,24 +253,24 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("does not mangle prose that mentions svg tags in inline code", () => {
-    const html = renderMarkdown("Use `<svg>` and `</svg>` tags");
+    const html = renderMarkdown(EN, "Use `<svg>` and `</svg>` tags");
     expect(html).toContain("<code>&lt;svg&gt;</code>");
     expect(html).toContain("<code>&lt;/svg&gt;</code>");
   });
 
   it("does not mangle a code span containing a full svg element", () => {
-    const html = renderMarkdown("here: `an <svg></svg> example` end");
+    const html = renderMarkdown(EN, "here: `an <svg></svg> example` end");
     expect(html).toContain("<code>an &lt;svg&gt;&lt;/svg&gt; example</code>");
   });
 
   it("leaves svg inside fenced code blocks as escaped code", () => {
-    const html = renderMarkdown('```html\n<svg><rect width="5"/></svg>\n```');
+    const html = renderMarkdown(EN, '```html\n<svg><rect width="5"/></svg>\n```');
     expect(html).not.toContain("<svg>");
     expect(html).toContain("&lt;");
   });
 
   it("leaves 4-space-indented svg as an indented code block", () => {
-    const html = renderMarkdown(`    <svg><rect width="1"/></svg>`);
+    const html = renderMarkdown(EN, `    <svg><rect width="1"/></svg>`);
     // Rendered as escaped code (hljs may wrap the escaped tag in spans),
     // never passed through as a live element.
     expect(html).toContain("<pre><code>");
@@ -274,12 +278,12 @@ describe("renderMarkdown svg capture", () => {
   });
 
   it("does not mangle double-backtick code spans containing svg", () => {
-    const html = renderMarkdown("Use ``<svg><rect/></svg>`` here");
+    const html = renderMarkdown(EN, "Use ``<svg><rect/></svg>`` here");
     expect(html).toContain("<code>&lt;svg&gt;&lt;rect/&gt;&lt;/svg&gt;</code>");
   });
 
   it("captures an svg inside a blockquote", () => {
-    const html = renderMarkdown(
+    const html = renderMarkdown(EN, 
       `> quoted\n> <svg width="5"><rect width="1"/></svg>`,
     );
     expect(html).toContain("<blockquote>");

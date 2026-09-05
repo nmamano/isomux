@@ -10,9 +10,11 @@
 // wire field, which carries only the kind.
 
 import type { PendingPromptKind } from "../shared/types.ts";
+import type { MessageKey } from "../shared/i18n/translate.ts";
 
 // Nameplate badge: sits next to the agent name on the office floor, where there
-// is room for one word.
+// is room for one word. Still English: the office scene is S6's slice of the
+// i18n loop (internal-docs/i18n-loop.md), and the log view is S5's.
 export const PENDING_PROMPT_BADGE: Record<PendingPromptKind, string> = {
   permission: "permission",
   resume: "session",
@@ -21,10 +23,15 @@ export const PENDING_PROMPT_BADGE: Record<PendingPromptKind, string> = {
 };
 
 // Header label: the full sentence, shown where the activity indicator would be
-// if the agent were running a turn.
-export const PENDING_PROMPT_LABEL: Record<PendingPromptKind, string> = {
-  permission: "Waiting for permission",
-  resume: "Waiting for a session pick",
-  model: "Waiting for a model pick",
-  effort: "Waiting for an effort pick",
+// if the agent were running a turn. A KEY, not a word: LogView renders it
+// through the catalog, and a table of finished text would freeze the language
+// it was built in.
+export const PENDING_PROMPT_LABEL: Record<
+  PendingPromptKind,
+  Extract<MessageKey, `logView.pendingPrompt.${string}`>
+> = {
+  permission: "logView.pendingPrompt.permission",
+  resume: "logView.pendingPrompt.resume",
+  model: "logView.pendingPrompt.model",
+  effort: "logView.pendingPrompt.effort",
 };

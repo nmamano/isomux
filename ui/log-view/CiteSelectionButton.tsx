@@ -1,4 +1,5 @@
 import { Portal } from "../components/Portal.tsx";
+import { useI18n } from "../i18n.tsx";
 import type { CiteSelection } from "./useSelectionCite.ts";
 
 const PILL_WIDTH = 64;
@@ -31,6 +32,7 @@ export function CiteSelectionButton({
   containerRect: DOMRect;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   // Vertical placement: above the selection if room, else below.
   const aboveTop = cite.rect.top - PILL_HEIGHT - PILL_GAP;
   const placement =
@@ -63,7 +65,7 @@ export function CiteSelectionButton({
           e.stopPropagation();
           onClick();
         }}
-        title="Cite selected text in input"
+        title={t("logView.cite.hint")}
         style={{
           position: "fixed",
           left,
@@ -99,7 +101,7 @@ export function CiteSelectionButton({
         >
           <path d="M3 3h4v4H5v3H3V3zm7 0h4v4h-2v3h-2V3z" />
         </svg>
-        <span>Cite</span>
+        <span>{t("logView.cite.label")}</span>
       </button>
     </Portal>
   );

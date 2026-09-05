@@ -34,15 +34,41 @@
 //   the card verbatim (trailingCommand); see splitStatements and
 //   TRAILING_COMMANDS.
 
+import type {
+  MessageKey,
+  PlainMessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
+
 export type CurlBodyField = { key: string; value: string };
+
+/**
+ * A catalog key under "apiCall.*": what this module returns instead of a
+ * sentence. LogEntryCard memoizes the parse on the raw command alone, so a
+ * request carrying finished text would keep the language it was parsed in
+ * (internal-docs/i18n-loop.md, rulings 7 and 18).
+ */
+export type ApiCallKey = Extract<MessageKey, `apiCall.${string}`>;
+
+/** An apiCall key that needs no values: what the static route table holds. */
+export type RouteLabelKey = Extract<ApiCallKey, PlainMessageKey>;
+
+/**
+ * A body the parser accepted but could not resolve into fields. The card words
+ * it from the catalog; `readFiles` names any file the jq program reads, so a
+ * file read is never concealed.
+ */
+export type IsomuxCurlBodyNote =
+  | { kind: "jq"; readFiles: string[] }
+  | { kind: "heredoc" };
 
 export type IsomuxCurlRequest = {
   /** Uppercased HTTP method ("GET", "POST", ...). */
   method: string;
   /** Path + query string, e.g. "/api/memory?scope=agent". Always starts with "/". */
   path: string;
-  /** Human label for known routes ("Send agent message"), or null if unknown. */
-  action: string | null;
+  /** Catalog key for a known route, or null when the route is not in the table. */
+  actionKey: RouteLabelKey | null;
   /**
    * Top-level fields of the JSON object body, stringified for display.
    * Empty array for an empty object body ("{}"); null when there is no body
@@ -69,12 +95,12 @@ export type IsomuxCurlRequest = {
    */
   pipeTail: string | null;
   /**
-   * Short note describing a body the parser accepted but could not resolve
-   * into fields, e.g. "body built with jq" for a `jq ... | curl -d @-`
-   * producer pipeline whose jq program is more than a literal template.
-   * Mutually exclusive with bodyFields/bodyRaw. Null otherwise.
+   * A body the parser accepted but could not resolve into fields, e.g. a
+   * `jq ... | curl -d @-` producer pipeline whose jq program is more than a
+   * literal template. Mutually exclusive with bodyFields/bodyRaw. Null
+   * otherwise.
    */
-  bodyNote: string | null;
+  bodyNote: IsomuxCurlBodyNote | null;
   /**
    * Filesystem path the response/output is written to, when the command saves
    * it via a stdout redirection (`> file`, `>> file`) or `-o file`. This is a
@@ -730,90 +756,90 @@ function matchIsomuxUrl(
 // Known isomux routes worth a human label in the card. "*" matches exactly one
 // path segment. Kept to the routes agents actually hit from transcripts; an
 // unknown isomux path still gets a card, just without the label.
-const ROUTE_LABELS: Array<[string, string, string]> = [
-  ["GET", "/api/tasks", "List tasks"],
-  ["POST", "/api/tasks", "Create task"],
-  ["POST", "/api/tasks/*/claim", "Claim task"],
-  ["POST", "/api/tasks/*/done", "Complete task"],
-  ["PATCH", "/api/tasks/*", "Update task"],
-  ["DELETE", "/api/tasks/*", "Delete task"],
+const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
+  ["GET", "/api/tasks", "apiCall.tasks.list"],
+  ["POST", "/api/tasks", "apiCall.tasks.create"],
+  ["POST", "/api/tasks/*/claim", "apiCall.tasks.claim"],
+  ["POST", "/api/tasks/*/done", "apiCall.tasks.complete"],
+  ["PATCH", "/api/tasks/*", "apiCall.tasks.update"],
+  ["DELETE", "/api/tasks/*", "apiCall.tasks.delete"],
   // The agent-discovery manifest is exposed both at /agents and /api/agents.
-  ["GET", "/agents", "List office agents"],
-  ["GET", "/api/agents", "List office agents"],
-  ["POST", "/api/agents/*/messages", "Send agent message"],
-  ["GET", "/api/me/api-tokens", "List API tokens"],
-  ["POST", "/api/me/api-tokens", "Create API token"],
-  ["DELETE", "/api/me/api-tokens/*", "Revoke API token"],
-  ["GET", "/api/me/provider-accounts", "Check provider accounts"],
-  ["GET", "/api/users/*/env", "Read managed environment"],
-  ["PUT", "/api/users/*/env", "Save managed environment"],
-  ["GET", "/api/office/env", "Read office environment"],
-  ["PUT", "/api/office/env", "Save office environment"],
-  ["POST", "/api/me/provider-accounts/*/login", "Start provider sign-in"],
-  ["POST", "/api/me/provider-accounts/*/cancel", "Cancel provider sign-in"],
+  ["GET", "/agents", "apiCall.agents.list"],
+  ["GET", "/api/agents", "apiCall.agents.list"],
+  ["POST", "/api/agents/*/messages", "apiCall.agents.sendMessage"],
+  ["GET", "/api/me/api-tokens", "apiCall.apiTokens.list"],
+  ["POST", "/api/me/api-tokens", "apiCall.apiTokens.create"],
+  ["DELETE", "/api/me/api-tokens/*", "apiCall.apiTokens.revoke"],
+  ["GET", "/api/me/provider-accounts", "apiCall.providerAccounts.check"],
+  ["GET", "/api/users/*/env", "apiCall.env.readUser"],
+  ["PUT", "/api/users/*/env", "apiCall.env.saveUser"],
+  ["GET", "/api/office/env", "apiCall.env.readOffice"],
+  ["PUT", "/api/office/env", "apiCall.env.saveOffice"],
+  ["POST", "/api/me/provider-accounts/*/login", "apiCall.providerAccounts.signInStart"],
+  ["POST", "/api/me/provider-accounts/*/cancel", "apiCall.providerAccounts.signInCancel"],
   [
     "POST",
     "/api/me/provider-accounts/*/disconnect",
-    "Sign out provider account",
+    "apiCall.providerAccounts.signOut",
   ],
-  ["POST", "/api/me/provider-accounts/refresh", "Refresh provider accounts"],
+  ["POST", "/api/me/provider-accounts/refresh", "apiCall.providerAccounts.refresh"],
   [
     "POST",
     "/api/me/provider-accounts/:provider/callback",
-    "Submit provider sign-in code",
+    "apiCall.providerAccounts.signInCode",
   ],
-  ["POST", "/api/api-token-inboxes/*/messages", "Message remote boss"],
-  ["POST", "/api/me/api-token-inbox/drain", "Drain API token inbox"],
-  ["POST", "/api/agents/*/handoff", "Hand off to fresh session"],
-  ["GET", "/api/agents/*/scheduled-messages", "List scheduled messages"],
-  ["DELETE", "/api/agents/*/scheduled-messages/*", "Cancel scheduled message"],
-  ["POST", "/api/agents/*/read-file", "Share file to chat"],
-  ["POST", "/api/agents/*/preview-url", "Screenshot page to chat"],
-  ["POST", "/api/agents/*/diff", "Show diff in chat"],
-  ["POST", "/api/agents/*/edit-file", "Offer file in editor"],
-  ["POST", "/api/agents/*/terminal-command", "Suggest terminal command"],
-  ["GET", "/api/agents/*/context", "Check context usage"],
+  ["POST", "/api/api-token-inboxes/*/messages", "apiCall.inbox.messageBoss"],
+  ["POST", "/api/me/api-token-inbox/drain", "apiCall.inbox.drain"],
+  ["POST", "/api/agents/*/handoff", "apiCall.agents.handoff"],
+  ["GET", "/api/agents/*/scheduled-messages", "apiCall.agents.scheduledList"],
+  ["DELETE", "/api/agents/*/scheduled-messages/*", "apiCall.agents.scheduledCancel"],
+  ["POST", "/api/agents/*/read-file", "apiCall.agents.shareFile"],
+  ["POST", "/api/agents/*/preview-url", "apiCall.agents.previewUrl"],
+  ["POST", "/api/agents/*/diff", "apiCall.agents.showDiff"],
+  ["POST", "/api/agents/*/edit-file", "apiCall.agents.offerFile"],
+  ["POST", "/api/agents/*/terminal-command", "apiCall.agents.suggestCommand"],
+  ["GET", "/api/agents/*/context", "apiCall.agents.context"],
   // One route, three modes (search / retrieve / list). This static label is the
   // fallback; humanizeIsomuxRequest below reads the query and says which.
-  ["GET", "/api/agents/*/logs", "Search conversation logs"],
-  ["GET", "/api/agents/*/instructions", "Read agent instructions"],
-  ["GET", "/api/memory", "Read memory"],
-  ["POST", "/api/memory", "Append memory"],
-  ["PUT", "/api/memory", "Replace memory"],
-  ["GET", "/api/cronjobs", "List cronjobs"],
+  ["GET", "/api/agents/*/logs", "apiCall.agents.logsSearch"],
+  ["GET", "/api/agents/*/instructions", "apiCall.agents.instructions"],
+  ["GET", "/api/memory", "apiCall.memory.read"],
+  ["POST", "/api/memory", "apiCall.memory.append"],
+  ["PUT", "/api/memory", "apiCall.memory.replace"],
+  ["GET", "/api/cronjobs", "apiCall.cronjobs.list"],
   // Agent-built apps (internal-docs/agent-apps-design.md).
-  ["GET", "/api/apps", "List apps"],
-  ["POST", "/api/apps", "Register app"],
-  ["GET", "/api/apps/*", "Read app"],
-  ["POST", "/api/apps/*/preview", "Capture app preview"],
-  ["PATCH", "/api/apps/*", "Update app"],
-  ["DELETE", "/api/apps/*", "Delete app"],
-  ["GET", "/api/apps/*/logs", "Read app logs"],
-  ["POST", "/api/apps/*/start", "Start app"],
-  ["POST", "/api/apps/*/stop", "Stop app"],
-  ["POST", "/api/apps/*/restart", "Restart app"],
+  ["GET", "/api/apps", "apiCall.apps.list"],
+  ["POST", "/api/apps", "apiCall.apps.register"],
+  ["GET", "/api/apps/*", "apiCall.apps.read"],
+  ["POST", "/api/apps/*/preview", "apiCall.apps.preview"],
+  ["PATCH", "/api/apps/*", "apiCall.apps.update"],
+  ["DELETE", "/api/apps/*", "apiCall.apps.delete"],
+  ["GET", "/api/apps/*/logs", "apiCall.apps.logs"],
+  ["POST", "/api/apps/*/start", "apiCall.apps.start"],
+  ["POST", "/api/apps/*/stop", "apiCall.apps.stop"],
+  ["POST", "/api/apps/*/restart", "apiCall.apps.restart"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
-  ["GET", "/api/skill-usage", "Read skill-use counts"],
+  ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
   // Deployment version identity (reachable by privileged agent tokens).
-  ["GET", "/api/version", "Check isomux version"],
+  ["GET", "/api/version", "apiCall.version.check"],
   // Storage breakdown (reachable by privileged agent tokens); the prune is
   // owner-only but still worth a label if an owner runs it from a terminal.
-  ["GET", "/api/storage/usage", "Check office disk usage"],
-  ["GET", "/api/usage", "Check office token usage"],
-  ["POST", "/api/storage/prune", "Prune stored history"],
+  ["GET", "/api/storage/usage", "apiCall.storage.usage"],
+  ["GET", "/api/usage", "apiCall.usage.tokens"],
+  ["POST", "/api/storage/prune", "apiCall.storage.prune"],
 ];
 
 export function describeIsomuxRoute(
   method: string,
   path: string,
-): string | null {
+): RouteLabelKey | null {
   const cleanPath = path.split(/[?#]/)[0].replace(/\/+$/, "") || "/";
   const segs = cleanPath.split("/").filter(Boolean);
-  for (const [m, pattern, label] of ROUTE_LABELS) {
+  for (const [m, pattern, key] of ROUTE_LABELS) {
     if (m !== method) continue;
     const patSegs = pattern.split("/").filter(Boolean);
     if (patSegs.length !== segs.length) continue;
-    if (patSegs.every((p, idx) => p === "*" || p === segs[idx])) return label;
+    if (patSegs.every((p, idx) => p === "*" || p === segs[idx])) return key;
   }
   return null;
 }
@@ -822,11 +848,25 @@ function truncateLabel(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
-const MEMORY_SCOPE_PHRASES: Record<string, string> = {
-  agent: "memories for this agent",
-  room: "room memories",
-  office: "office memories",
-  boss: "boss memories",
+// One whole sentence per scope, never a scope word glued into a frame: word
+// order and article differ per language (ruling 16).
+const MEMORY_READ_KEYS: Record<string, RouteLabelKey> = {
+  agent: "apiCall.memory.readAgent",
+  room: "apiCall.memory.readRoom",
+  office: "apiCall.memory.readOffice",
+  boss: "apiCall.memory.readBoss",
+};
+const MEMORY_SAVE_KEYS: Record<string, RouteLabelKey> = {
+  agent: "apiCall.memory.saveAgent",
+  room: "apiCall.memory.saveRoom",
+  office: "apiCall.memory.saveOffice",
+  boss: "apiCall.memory.saveBoss",
+};
+const MEMORY_REWRITE_KEYS: Record<string, RouteLabelKey> = {
+  agent: "apiCall.memory.rewriteAgent",
+  room: "apiCall.memory.rewriteRoom",
+  office: "apiCall.memory.rewriteOffice",
+  boss: "apiCall.memory.rewriteBoss",
 };
 
 /**
@@ -834,12 +874,17 @@ const MEMORY_SCOPE_PHRASES: Record<string, string> = {
  * "Read memories for this agent" or "Send a message to Isomuxer4". Uses query
  * params, body fields, and (when available) an agent-id -> display-name
  * resolver. Returns null when the route has no specific phrasing; callers
- * fall back to `action` (the static route label) or method + path.
+ * fall back to `actionKey` (the static route label) or method + path.
+ *
+ * The translator is the first argument: this runs inside the card's render and
+ * is not a component (internal-docs/i18n-loop.md, ruling 18).
  */
 export function humanizeIsomuxRequest(
+  i18n: Translator,
   req: IsomuxCurlRequest,
   resolveAgentName?: (id: string) => string | null,
 ): string | null {
+  const t = i18n.t;
   const [pathOnly, queryStr] = req.path.split(/[?#]/);
   const segs = (pathOnly ?? "/").split("/").filter(Boolean);
   if (segs[0] === "api") segs.shift();
@@ -856,16 +901,14 @@ export function humanizeIsomuxRequest(
   const m = req.method;
 
   if (segs.length === 1 && segs[0] === "memory") {
-    const scope = query.get("scope") ?? field("scope");
-    const phrase = (scope && MEMORY_SCOPE_PHRASES[scope]) || "memories";
-    if (m === "GET") return `Read ${phrase}`;
+    const scope = query.get("scope") ?? field("scope") ?? "";
+    const known = scope in MEMORY_READ_KEYS;
+    if (m === "GET")
+      return t(known ? MEMORY_READ_KEYS[scope] : "apiCall.memory.readAny");
     if (m === "POST")
-      return scope === "agent"
-        ? "Save a memory for this agent"
-        : scope && MEMORY_SCOPE_PHRASES[scope]
-          ? `Save a ${scope} memory`
-          : "Save a memory";
-    if (m === "PUT") return `Rewrite ${phrase}`;
+      return t(known ? MEMORY_SAVE_KEYS[scope] : "apiCall.memory.save");
+    if (m === "PUT")
+      return t(known ? MEMORY_REWRITE_KEYS[scope] : "apiCall.memory.rewriteAny");
   }
 
   // Task board (/api/tasks; the leading `api` segment was shifted off above)
@@ -875,38 +918,58 @@ export function humanizeIsomuxRequest(
         const status = query.get("status");
         // ?roomId= narrows the board to one room ("" = office-global only). It
         // composes with ?status=, so it qualifies the same phrase rather than
-        // replacing it.
+        // replacing it - as a whole sentence per combination, because a
+        // suffix glued onto a sentence does not survive translation.
         const room = query.get("roomId");
-        const scope =
-          room === null
-            ? ""
-            : room === ""
-              ? " (office-global only)"
-              : " in one room";
-        if (status === "all") return `List all tasks${scope}`;
-        if (status) return `List ${status} tasks${scope}`;
-        return `List open tasks${scope}`;
+        const scope = room === null ? "any" : room === "" ? "global" : "room";
+        if (status === "all")
+          return t(
+            scope === "any"
+              ? "apiCall.tasks.listAll"
+              : scope === "global"
+                ? "apiCall.tasks.listAllGlobal"
+                : "apiCall.tasks.listAllInRoom",
+          );
+        if (status)
+          return t(
+            scope === "any"
+              ? "apiCall.tasks.listStatus"
+              : scope === "global"
+                ? "apiCall.tasks.listStatusGlobal"
+                : "apiCall.tasks.listStatusInRoom",
+            { status },
+          );
+        return t(
+          scope === "any"
+            ? "apiCall.tasks.listOpen"
+            : scope === "global"
+              ? "apiCall.tasks.listOpenGlobal"
+              : "apiCall.tasks.listOpenInRoom",
+        );
       }
       if (m === "POST") {
         const title = field("title");
         return title
-          ? `Create task: ${truncateLabel(title, 40)}`
-          : "Create a task";
+          ? t("apiCall.tasks.createTitled", {
+              title: truncateLabel(title, 40),
+            })
+          : t("apiCall.tasks.createPlain");
       }
     }
     if (segs.length === 2) {
-      if (m === "PATCH") return `Update task ${segs[1]}`;
-      if (m === "DELETE") return `Delete task ${segs[1]}`;
-      if (m === "GET") return `Read task ${segs[1]}`;
+      if (m === "PATCH") return t("apiCall.tasks.updateOne", { task: segs[1] });
+      if (m === "DELETE") return t("apiCall.tasks.deleteOne", { task: segs[1] });
+      if (m === "GET") return t("apiCall.tasks.readOne", { task: segs[1] });
     }
     if (segs.length === 3 && m === "POST") {
       if (segs[2] === "claim") {
         const assignee = field("assignee");
         return assignee
-          ? `Claim task ${segs[1]} for ${assignee}`
-          : `Claim task ${segs[1]}`;
+          ? t("apiCall.tasks.claimFor", { task: segs[1], assignee })
+          : t("apiCall.tasks.claimOne", { task: segs[1] });
       }
-      if (segs[2] === "done") return `Mark task ${segs[1]} done`;
+      if (segs[2] === "done")
+        return t("apiCall.tasks.markDone", { task: segs[1] });
     }
   }
 
@@ -918,76 +981,88 @@ export function humanizeIsomuxRequest(
     // just as wrong as "List killed agents", since neither came back.
     if (segs.length === 1 && m === "GET") {
       const killed = query.get("killed");
-      if (killed === null) return "List office agents";
+      if (killed === null) return t("apiCall.agents.list");
       return killed === "1"
-        ? "List killed agents"
-        : "List agents (invalid killed filter)";
+        ? t("apiCall.agents.listKilled")
+        : t("apiCall.agents.listInvalidFilter");
     }
     if (segs.length === 1 && m === "POST") {
       const name = field("name");
       return name
-        ? `Spawn agent ${truncateLabel(name, 24)}`
-        : "Spawn a new agent";
+        ? t("apiCall.agents.spawnNamed", { name: truncateLabel(name, 24) })
+        : t("apiCall.agents.spawn");
     }
     if (segs.length === 2) {
       const who = agentName(segs[1]);
-      if (m === "PATCH") return `Edit ${who}'s settings`;
-      if (m === "DELETE") return `Remove agent ${who}`;
+      if (m === "PATCH") return t("apiCall.agents.editSettings", { who });
+      if (m === "DELETE") return t("apiCall.agents.remove", { who });
     }
     if (segs.length >= 3) {
       const who = agentName(segs[1]);
       const sub = segs[2];
       if (segs.length === 3) {
         if (sub === "messages" && m === "POST") {
-          if (field("deliverAt")) return `Schedule a message to ${who}`;
+          if (field("deliverAt"))
+            return t("apiCall.agents.scheduleMessage", { who });
           // steer:true interrupts the receiver's turn, which is a different
           // action to a reader watching the card - and "true" is matched
           // exactly so an explicit steer:false reads as the plain send it is.
           return field("steer") === "true"
-            ? `Interrupt ${who} with a message`
-            : `Send a message to ${who}`;
+            ? t("apiCall.agents.steerMessage", { who })
+            : t("apiCall.agents.sendMessageTo", { who });
         }
         if (sub === "scheduled-messages" && m === "GET")
-          return `List ${who}'s outgoing scheduled messages`;
-        if (sub === "read-file" && m === "POST") return "Share a file to chat";
+          return t("apiCall.agents.scheduledListFor", { who });
+        if (sub === "read-file" && m === "POST")
+          return t("apiCall.agents.shareFileDetail");
         if (sub === "preview-url" && m === "POST")
-          return "Screenshot a page to chat";
-        if (sub === "diff" && m === "POST") return "Show a diff in chat";
+          return t("apiCall.agents.previewUrlDetail");
+        if (sub === "diff" && m === "POST")
+          return t("apiCall.agents.showDiffDetail");
         if (sub === "edit-file" && m === "POST")
-          return "Offer a file in the editor";
+          return t("apiCall.agents.offerFileDetail");
         if (sub === "terminal-command" && m === "POST")
-          return "Suggest a terminal command";
+          return t("apiCall.agents.suggestCommandDetail");
         if (sub === "new-conversation" && m === "POST")
-          return `Clear ${who}'s conversation`;
+          return t("apiCall.agents.clearConversation", { who });
         if (sub === "handoff" && m === "POST")
-          return `Hand off ${who} to a fresh session`;
+          return t("apiCall.agents.handoffFor", { who });
         if (sub === "send-now" && m === "POST")
-          return `Flush ${who}'s queue now`;
-        if (sub === "abort" && m === "POST") return `Interrupt ${who}`;
+          return t("apiCall.agents.flushQueue", { who });
+        if (sub === "abort" && m === "POST")
+          return t("apiCall.agents.interrupt", { who });
         if (sub === "resume" && m === "POST")
-          return `Resume a session for ${who}`;
-        if (sub === "sessions" && m === "GET") return `List ${who}'s sessions`;
+          return t("apiCall.agents.resume", { who });
+        if (sub === "sessions" && m === "GET")
+          return t("apiCall.agents.sessions", { who });
         // /logs is one route with three modes, so the label is chosen from the
         // query rather than the path - "Search" would be wrong two thirds of
         // the time.
         if (sub === "logs" && m === "GET") {
           const q = query.get("q");
-          if (q) return `Search ${who}'s logs for "${truncateLabel(q, 32)}"`;
+          if (q)
+            return t("apiCall.agents.logsSearchFor", {
+              who,
+              query: truncateLabel(q, 32),
+            });
           if (query.get("around"))
-            return `Read around an entry in ${who}'s logs`;
-          if (query.get("session")) return `Read a session from ${who}'s logs`;
-          return `List ${who}'s log sessions`;
+            return t("apiCall.agents.logsAround", { who });
+          if (query.get("session"))
+            return t("apiCall.agents.logsSession", { who });
+          return t("apiCall.agents.logsList", { who });
         }
-        if (sub === "move" && m === "POST") return `Move ${who}`;
-        if (sub === "revive" && m === "POST") return `Revive ${who}`;
+        if (sub === "move" && m === "POST")
+          return t("apiCall.agents.move", { who });
+        if (sub === "revive" && m === "POST")
+          return t("apiCall.agents.revive", { who });
       }
       if (segs.length === 4) {
         if (sub === "scheduled-messages" && m === "DELETE")
-          return `Cancel one of ${who}'s outgoing scheduled messages`;
+          return t("apiCall.agents.scheduledCancelFor", { who });
         if (sub === "queue" && m === "DELETE")
-          return `Cancel a queued message to ${who}`;
+          return t("apiCall.agents.cancelQueued", { who });
         if (sub === "messages" && m === "PATCH")
-          return `Edit a message in ${who}'s chat`;
+          return t("apiCall.agents.editMessage", { who });
       }
     }
   }
@@ -995,44 +1070,48 @@ export function humanizeIsomuxRequest(
   if (segs[0] === "rooms") {
     if (segs.length === 1 && m === "POST") {
       const name = field("name");
-      return name ? `Create room ${truncateLabel(name, 24)}` : "Create a room";
+      return name
+        ? t("apiCall.rooms.createNamed", { name: truncateLabel(name, 24) })
+        : t("apiCall.rooms.create");
     }
     if (segs.length === 2) {
       if (m === "PATCH") {
         const name = field("name");
-        if (name) return `Rename room to ${truncateLabel(name, 24)}`;
+        if (name)
+          return t("apiCall.rooms.rename", { name: truncateLabel(name, 24) });
         if (req.bodyFields?.some((f) => f.key === "pet"))
-          return "Set a room's pet";
-        return "Update a room";
+          return t("apiCall.rooms.setPet");
+        return t("apiCall.rooms.update");
       }
-      if (m === "DELETE") return "Close a room";
+      if (m === "DELETE") return t("apiCall.rooms.close");
     }
     if (segs.length === 3) {
-      if (segs[2] === "settings" && m === "PUT") return "Update room settings";
+      if (segs[2] === "settings" && m === "PUT")
+        return t("apiCall.rooms.updateSettings");
       if (segs[2] === "swap-desks" && m === "POST")
-        return "Swap desks in a room";
+        return t("apiCall.rooms.swapDesks");
     }
   }
 
   if (segs[0] === "cronjobs") {
     if (segs.length === 1) {
-      if (m === "GET") return "List cronjobs";
-      if (m === "POST") return "Create a cronjob";
+      if (m === "GET") return t("apiCall.cronjobs.list");
+      if (m === "POST") return t("apiCall.cronjobs.create");
     }
     if (segs.length === 2) {
-      if (m === "GET") return "Read a cronjob";
-      if (m === "PATCH") return "Update a cronjob";
-      if (m === "DELETE") return "Delete a cronjob";
+      if (m === "GET") return t("apiCall.cronjobs.read");
+      if (m === "PATCH") return t("apiCall.cronjobs.update");
+      if (m === "DELETE") return t("apiCall.cronjobs.delete");
     }
     if (segs.length === 3 && segs[2] === "runs") {
-      if (m === "GET") return "List cronjob runs";
-      if (m === "POST") return "Trigger a cronjob run";
+      if (m === "GET") return t("apiCall.cronjobs.listRuns");
+      if (m === "POST") return t("apiCall.cronjobs.triggerRun");
     }
     if (segs.length === 4 && segs[2] === "runs" && m === "GET")
-      return "Read a cronjob run";
+      return t("apiCall.cronjobs.readRun");
   }
   if (segs.length === 1 && segs[0] === "cron-runs" && m === "GET")
-    return "List recent cron runs";
+    return t("apiCall.cronjobs.listRecentRuns");
 
   return null;
 }
@@ -1045,10 +1124,10 @@ function displayValue(v: unknown): string {
 // A request body resolved from something other than an inline `-d` flag -
 // either a leading `jq ... |` producer stage or a heredoc feeding curl's
 // stdin. Either concrete body fields (the source resolved to a literal object)
-// or a short note for the card ("body built with jq", "body from heredoc").
+// or a note the card words from the catalog (see IsomuxCurlBodyNote).
 type ResolvedBody =
   | { kind: "fields"; fields: CurlBodyField[] }
-  | { kind: "note"; note: string };
+  | { kind: "note"; note: IsomuxCurlBodyNote };
 
 /**
  * Read a JSON string literal starting at s[start] (which must be '"').
@@ -1295,12 +1374,7 @@ function parseJqInvocation(
     const fields = resolveJqTemplate(program, vars);
     if (fields) return { kind: "fields", fields };
   }
-  return {
-    kind: "note",
-    note:
-      "body built with jq" +
-      (readFiles.length > 0 ? ` (reads ${readFiles.join(", ")})` : ""),
-  };
+  return { kind: "note", note: { kind: "jq", readFiles } };
 }
 
 /**
@@ -1336,7 +1410,7 @@ function resolveHeredocBody(heredoc: Heredoc): ResolvedBody {
       };
     }
   }
-  return { kind: "note", note: "body from heredoc" };
+  return { kind: "note", note: { kind: "heredoc" } };
 }
 
 /**
@@ -1595,10 +1669,12 @@ function sameAssertedSummary(
   return (
     a.method === b.method &&
     a.path === b.path &&
-    a.action === b.action &&
+    a.actionKey === b.actionKey &&
     JSON.stringify(a.bodyFields) === JSON.stringify(b.bodyFields) &&
     a.bodyRaw === b.bodyRaw &&
-    a.bodyNote === b.bodyNote &&
+    // Structural: the note is an object now, so reference equality would call
+    // two identical notes different and drop a card the parser did assert.
+    JSON.stringify(a.bodyNote) === JSON.stringify(b.bodyNote) &&
     a.hasAuth === b.hasAuth &&
     a.outputFile === b.outputFile &&
     a.outputAppend === b.outputAppend
@@ -1753,7 +1829,7 @@ function parseCurlStage(
 
   let bodyFields: CurlBodyField[] | null = null;
   let bodyRaw: string | null = null;
-  let bodyNote: string | null = null;
+  let bodyNote: IsomuxCurlBodyNote | null = null;
   if (stdinBody !== null) {
     if (stdinBody.kind === "fields") bodyFields = stdinBody.fields;
     else bodyNote = stdinBody.note;
@@ -1798,7 +1874,7 @@ function parseCurlStage(
   return {
     method: resolvedMethod,
     path,
-    action: describeIsomuxRoute(resolvedMethod, path),
+    actionKey: describeIsomuxRoute(resolvedMethod, path),
     bodyFields,
     bodyRaw,
     hasAuth,

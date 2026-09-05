@@ -29,6 +29,7 @@ import { go } from "@codemirror/lang-go";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { addRawListener, removeRawListener } from "../ws.ts";
 import { useAppState, useTheme } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { ServerMessage } from "../../shared/types.ts";
 import {
@@ -169,6 +170,7 @@ export function EditorPanel({
   mobile?: boolean;
 }) {
   const { mode } = useTheme();
+  const i18n = useI18n();
   const { sessionContext } = useAppState();
   // This tab's connectionId binds the editor file-watch to THIS socket: the GET
   // (open) and DELETE (close) carry it as X-Isomux-Connection-Id and
@@ -394,11 +396,17 @@ export function EditorPanel({
           // The server formats the open-error message per reason (not found / not
           // a file / binary / too large / bad path / io), so just surface it.
           setPendingError(
-            `${path}: ${err instanceof ApiError ? err.message : "failed to open"}`,
+            i18n.t("panels.editor.openError", {
+              path,
+              reason:
+                err instanceof ApiError
+                  ? err.message
+                  : i18n.t("panels.editor.openFailed"),
+            }),
           );
         });
     },
-    [agentId, connectionId, setTabsAndPersist, recordRecent],
+    [agentId, connectionId, setTabsAndPersist, recordRecent, i18n],
   );
 
   // Disarm a file watch (DELETE) - used on tab close + panel unmount. The
@@ -477,7 +485,9 @@ export function EditorPanel({
                 banner: {
                   kind: "save_error",
                   message:
-                    err instanceof ApiError ? err.message : "save failed",
+                    err instanceof ApiError
+                      ? err.message
+                      : i18n.t("panels.editor.saveError"),
                 },
               };
             }),
@@ -485,7 +495,7 @@ export function EditorPanel({
           return false;
         });
     },
-    [agentId, setTabsAndPersist],
+    [agentId, setTabsAndPersist, i18n],
   );
 
   // First mount: figure out where to load from.
@@ -994,7 +1004,7 @@ export function EditorPanel({
                 whiteSpace: "nowrap",
               }}
             >
-              No file open
+              {i18n.t("panels.editor.noFileOpen")}
             </div>
           ) : (
             <button
@@ -1028,7 +1038,7 @@ export function EditorPanel({
               >
                 {activeTab
                   ? basename(activeTab.path) + (activeTab.dirty ? "*" : "")
-                  : "Select file"}
+                  : i18n.t("panels.editor.selectFile")}
               </span>
               <span
                 style={{
@@ -1057,9 +1067,9 @@ export function EditorPanel({
                 fontWeight: 500,
                 cursor: "pointer",
               }}
-              title="Save"
+              title={i18n.t("common.save")}
             >
-              Save
+              {i18n.t("common.save")}
             </button>
           )}
           <button
@@ -1074,7 +1084,7 @@ export function EditorPanel({
               lineHeight: 1,
               flexShrink: 0,
             }}
-            title="Close editor"
+            title={i18n.t("panels.editor.close")}
           >
             &times;
           </button>
@@ -1158,7 +1168,7 @@ export function EditorPanel({
                         lineHeight: 1,
                         flexShrink: 0,
                       }}
-                      title="Close tab"
+                      title={i18n.t("panels.editor.closeTab")}
                     >
                       &times;
                     </button>
@@ -1191,13 +1201,19 @@ export function EditorPanel({
                   alignItems: "center",
                 }}
               >
-                No file open. Use{" "}
-                <code
-                  style={{ margin: "0 4px", color: "var(--text-secondary)" }}
-                >
-                  /isomux-edit &lt;path&gt;
-                </code>{" "}
-                or have the agent send one.
+                {/* One sentence, one key (ruling 16); the command carries
+                    angle brackets, so it is passed in rather than written
+                    into the catalog (ruling 19). */}
+                {i18n.rich("panels.editor.emptyHint", {
+                  command: "/isomux-edit <path>",
+                  code: (chunk) => (
+                    <code
+                      style={{ margin: "0 4px", color: "var(--text-secondary)" }}
+                    >
+                      {chunk}
+                    </code>
+                  ),
+                })}
               </div>
             )}
             {tabs.map((t) => (
@@ -1252,7 +1268,7 @@ export function EditorPanel({
                     padding: "0 2px",
                     lineHeight: 1,
                   }}
-                  title="Close tab"
+                  title={i18n.t("panels.editor.closeTab")}
                 >
                   &times;
                 </button>
@@ -1271,7 +1287,7 @@ export function EditorPanel({
               lineHeight: 1,
               flexShrink: 0,
             }}
-            title="Close editor"
+            title={i18n.t("panels.editor.close")}
           >
             &times;
           </button>
@@ -1301,67 +1317,65 @@ export function EditorPanel({
         >
           {activeTab.banner.kind === "stale" && (
             <>
-              <span style={{ flex: 1 }}>
-                File changed on disk since you opened it. Reloading will discard
-                your edits.
-              </span>
+              <span style={{ flex: 1 }}>{i18n.t("panels.editor.staleBanner")}</span>
               <button onClick={overwrite} style={bannerBtn("var(--orange)")}>
-                Overwrite
+                {i18n.t("panels.editor.overwrite")}
               </button>
               <button
                 onClick={reloadFromDisk}
                 style={bannerBtn("var(--text-secondary)")}
               >
-                Reload
+                {i18n.t("panels.editor.reload")}
               </button>
             </>
           )}
           {activeTab.banner.kind === "external" && (
             <>
               <span style={{ flex: 1 }}>
-                File changed externally - your edits will be lost if you reload.
+                {i18n.t("panels.editor.externalBanner")}
               </span>
               <button
                 onClick={reloadFromDisk}
                 style={bannerBtn("var(--orange)")}
               >
-                Reload
+                {i18n.t("panels.editor.reload")}
               </button>
               <button
                 onClick={dismissBanner}
                 style={bannerBtn("var(--text-secondary)")}
               >
-                Dismiss
+                {i18n.t("common.dismiss")}
               </button>
             </>
           )}
           {activeTab.banner.kind === "deleted" && (
             <>
               <span style={{ flex: 1 }}>
-                File was deleted on disk. Saving will recreate it from this
-                buffer.
+                {i18n.t("panels.editor.deletedBanner")}
               </span>
               <button
                 onClick={recreateFromBuffer}
                 style={bannerBtn("var(--orange)")}
               >
-                Save to recreate
+                {i18n.t("panels.editor.saveToRecreate")}
               </button>
               <button
                 onClick={() => closeTab(activeTab.path)}
                 style={bannerBtn("var(--text-secondary)")}
               >
-                Close tab
+                {i18n.t("panels.editor.closeTab")}
               </button>
             </>
           )}
           {activeTab.banner.kind === "save_error" && (
             <>
               <span style={{ flex: 1 }}>
-                Save failed: {activeTab.banner.message}
+                {i18n.t("panels.editor.saveFailed", {
+                  reason: activeTab.banner.message,
+                })}
               </span>
               <button onClick={dismissBanner} style={bannerBtn("var(--red)")}>
-                Dismiss
+                {i18n.t("common.dismiss")}
               </button>
             </>
           )}
@@ -1386,7 +1400,7 @@ export function EditorPanel({
             onClick={() => setPendingError(null)}
             style={bannerBtn("var(--red)")}
           >
-            Dismiss
+            {i18n.t("common.dismiss")}
           </button>
         </div>
       )}
@@ -1416,7 +1430,7 @@ export function EditorPanel({
               marginBottom: 6,
             }}
           >
-            Recently opened
+            {i18n.t("panels.editor.recentlyOpened")}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
             {recentPaths.map((p) => (
@@ -1489,7 +1503,7 @@ export function EditorPanel({
             fontFamily: "'JetBrains Mono', monospace",
           }}
         >
-          No file open
+          {i18n.t("panels.editor.noFileOpen")}
         </div>
       )}
       <div
@@ -1536,9 +1550,13 @@ export function EditorPanel({
           )}
           {mobile && <span style={{ flex: 1 }} />}
           <span>{activeTab.language}</span>
-          <span>{activeTab.dirty ? "modified" : "saved"}</span>
+          <span>
+            {activeTab.dirty
+              ? i18n.t("common.modified")
+              : i18n.t("panels.editor.saved")}
+          </span>
           {!mobile && (
-            <span title="Ctrl+S to save">
+            <span title={i18n.t("panels.editor.saveHint")}>
               {(navigator.platform || "").includes("Mac") ? "⌘S" : "Ctrl+S"}
             </span>
           )}

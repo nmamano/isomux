@@ -1,5 +1,5 @@
 import type { LogEntry } from "../../shared/types.ts";
-import { describeMessageSender } from "./LogEntryCard.tsx";
+import { senderIsHuman } from "./LogEntryCard.tsx";
 
 export interface VerticalRect {
   top: number;
@@ -15,7 +15,7 @@ export function pinnedHumanMessageId(
     const entry = logs[i];
     if (
       entry.kind !== "user_message" ||
-      !describeMessageSender(entry.metadata).fromHuman
+      !senderIsHuman(entry.metadata)
     )
       continue;
     const rect = rectForId(entry.id);

@@ -1,6 +1,7 @@
 import type { IsomuxCurlRequest } from "./isomux-curl.ts";
 import { humanizeIsomuxRequest, pipeTailForDisplay } from "./isomux-curl.ts";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // Ports the isomux server may be reachable on from the agent's shell. 4000 is
 // the documented default; window.location.port covers offices that serve the
@@ -34,11 +35,11 @@ export function IsomuxCurlHeader({
   isMobile?: boolean;
 }) {
   const { agents } = useAppState();
+  const i18n = useI18n();
   const label =
-    humanizeIsomuxRequest(
-      req,
-      (id) => agents.find((a) => a.id === id)?.name ?? null,
-    ) ?? req.action;
+    humanizeIsomuxRequest(i18n, req, (id) =>
+      agents.find((a) => a.id === id)?.name ?? null,
+    ) ?? (req.actionKey ? i18n.t(req.actionKey) : null);
   return (
     <>
       {/* Rendered exactly like the plain "Bash" tool name (same inherited
@@ -133,6 +134,7 @@ export function IsomuxCurlFields({
   req: IsomuxCurlRequest;
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   const chips: Array<{ key: string | null; value: string; note?: boolean }> =
     [];
   if (req.bodyFields && req.bodyFields.length > 0) {
@@ -143,15 +145,27 @@ export function IsomuxCurlFields({
     chips.push({ key: null, value: truncate(req.bodyRaw, MAX_VALUE_CHARS) });
   } else if (req.bodyNote) {
     // e.g. "body built with jq" for producer pipelines the parser accepted
-    // but could not resolve into concrete fields.
-    chips.push({ key: null, value: req.bodyNote, note: true });
+    // but could not resolve into concrete fields. A jq note names the files
+    // the program reads, so a file read is never concealed.
+    const note =
+      req.bodyNote.kind === "heredoc"
+        ? t("apiCall.body.heredoc")
+        : req.bodyNote.readFiles.length > 0
+          ? t("apiCall.body.jqReads", {
+              files: req.bodyNote.readFiles.join(", "),
+            })
+          : t("apiCall.body.jq");
+    chips.push({ key: null, value: note, note: true });
   }
   if (req.outputFile) {
     // A file write is a side effect: always surfaced, never truncated away
     // silently (truncate keeps the leading part of the path visible).
     chips.push({
       key: null,
-      value: `output ${req.outputAppend ? "appended" : "saved"} to ${truncate(req.outputFile, MAX_VALUE_CHARS)}`,
+      value: t(
+        req.outputAppend ? "apiCall.body.outputAppended" : "apiCall.body.output",
+        { file: truncate(req.outputFile, MAX_VALUE_CHARS) },
+      ),
       note: true,
     });
   }
@@ -219,7 +233,7 @@ export function IsomuxCurlFields({
             alignSelf: "center",
           }}
         >
-          +{hidden} more
+          {t("apiCall.body.more", { count: hidden })}
         </span>
       )}
     </span>

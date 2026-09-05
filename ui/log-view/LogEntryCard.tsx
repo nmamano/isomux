@@ -7,6 +7,8 @@ import type {
 import { formatIdentity, isApiTokenDevice } from "../../shared/identity.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 import { SpeakButton } from "../components/SpeakButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
@@ -70,13 +72,22 @@ function SubagentPill({
   origin: SubagentOrigin;
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   // Both fields are model-authored, so the pill is bounded and ellipsized
   // rather than trusted to be short - the backend's 200-char cap still leaves
   // room for a label that would squeeze a mobile tool row. The full text lives
-  // in the hover title, composed here rather than passed through raw.
-  const title =
-    `Subagent${origin.type ? ` (${origin.type})` : ""}` +
-    (origin.description ? `: ${origin.description}` : "");
+  // in the hover title, one whole key per combination (ruling 16) with the
+  // model's own words as data.
+  const title = origin.type
+    ? origin.description
+      ? t("cards.subagent.titleTypedDescribed", {
+          type: origin.type,
+          description: origin.description,
+        })
+      : t("cards.subagent.titleTyped", { type: origin.type })
+    : origin.description
+      ? t("cards.subagent.titleDescribed", { description: origin.description })
+      : t("cards.subagent.title");
   return (
     <span
       title={title}
@@ -95,7 +106,9 @@ function SubagentPill({
         whiteSpace: "nowrap",
       }}
     >
-      {origin.type ? `subagent · ${origin.type}` : "subagent"}
+      {origin.type
+        ? t("cards.subagent.pillTyped", { type: origin.type })
+        : t("cards.subagent.pill")}
     </span>
   );
 }
@@ -112,14 +125,17 @@ function findMatchingToolResult(
 }
 
 /** Serialize visible conversation entries for the clipboard. */
-export function serializeEntries(entries: LogEntry[]): string {
+export function serializeEntries(
+  i18n: Translator,
+  entries: LogEntry[],
+): string {
   const parts: string[] = [];
   for (const e of entries) {
     if (e.kind === "api_token_outbound") {
       const recipient = e.metadata?.recipient_api_token_name;
       parts.push(
         typeof recipient === "string"
-          ? `[To remote boss "${recipient}"] ${e.content}`
+          ? `[${i18n.t("cards.userMessage.toRemoteBossNamed", { name: recipient })}] ${e.content}`
           : e.content,
       );
     } else if (e.kind === "user_message") {
@@ -219,6 +235,7 @@ function AttachmentDisplay({
   setLightboxSrc: (src: string | null) => void;
   hasContent?: boolean;
 }) {
+  const { t } = useI18n();
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
 
@@ -303,7 +320,7 @@ function AttachmentDisplay({
         >
           <img
             src={lightboxSrc}
-            alt="Full size"
+            alt={t("cards.fileView.fullSize")}
             style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }}
           />
         </div>
@@ -341,7 +358,23 @@ function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
 //
 // Exported for its own test: the UI has no React render harness, so the mapping
 // is pinned as a pure function (same pattern as ContextBattery's bandColor).
+export function senderIsHuman(
+  metadata: Record<string, unknown> | undefined,
+): boolean {
+  if (
+    metadata?.sender_agent_name ||
+    metadata?.sender_app_name ||
+    metadata?.sender_cronjob_name
+  )
+    return false;
+  // A personal API token is the human's authority, but the message came from a
+  // script rather than the composer, so it reads as machine-sent (and is not
+  // editable) like the app, agent and cron senders above.
+  return !isApiTokenDevice(metadata?.device as string | undefined);
+}
+
 export function describeMessageSender(
+  i18n: Translator,
   metadata: Record<string, unknown> | undefined,
 ): { label: string | undefined; fromHuman: boolean } {
   const senderAgentName = metadata?.sender_agent_name as string | undefined;
@@ -349,7 +382,12 @@ export function describeMessageSender(
   const senderAppName = metadata?.sender_app_name as string | undefined;
   if (senderAgentName) {
     return {
-      label: `${senderAgentName} · agent${senderAgentRoom ? ` · Room "${senderAgentRoom}"` : ""}`,
+      label: senderAgentRoom
+        ? i18n.t("common.sender.agentInRoom", {
+            name: senderAgentName,
+            room: senderAgentRoom,
+          })
+        : i18n.t("common.sender.agent", { name: senderAgentName }),
       fromHuman: false,
     };
   }
@@ -357,23 +395,28 @@ export function describeMessageSender(
   // for a stronger reason: an app is unattended code, so a reader scrolling back
   // must never take its message for the boss asking for something.
   if (senderAppName) {
-    return { label: `${senderAppName} · app`, fromHuman: false };
+    return {
+      label: i18n.t("common.sender.app", { name: senderAppName }),
+      fromHuman: false,
+    };
   }
   // A scheduled job. Unattended like an app, and it carries no human's
   // authority: without this arm a cron alert renders as the reader's own
   // message ("YOU"), which is exactly the misattribution above.
   const senderCronjobName = metadata?.sender_cronjob_name as string | undefined;
   if (senderCronjobName) {
-    return { label: `${senderCronjobName} · schedule`, fromHuman: false };
+    return {
+      label: i18n.t("common.sender.cronjob", {
+        name: senderCronjobName,
+      }),
+      fromHuman: false,
+    };
   }
   const username = metadata?.username as string | undefined;
   const device = metadata?.device as string | undefined;
   return {
     label: formatIdentity({ username, device }) || undefined,
-    // A personal API token is the human's authority, but the message came from
-    // a script rather than the composer, so it reads as machine-sent (and is
-    // not editable) like the app, agent and cron senders above.
-    fromHuman: !isApiTokenDevice(device),
+    fromHuman: senderIsHuman(metadata),
   };
 }
 
@@ -402,9 +445,12 @@ export const LogEntryCard = memo(function LogEntryCard({
   onOpenInEditor?: (path: string) => void;
   onCopyToTerminal?: (command: string) => void;
 }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   switch (entry.kind) {
     case "user_message": {
       const { label: senderLabel, fromHuman } = describeMessageSender(
+        i18n,
         entry.metadata,
       );
       if (isEditing) {
@@ -440,8 +486,8 @@ export const LogEntryCard = memo(function LogEntryCard({
           isMobile={isMobile}
           username={
             typeof recipient === "string"
-              ? `To remote boss "${recipient}"`
-              : "To remote boss"
+              ? t("cards.userMessage.toRemoteBossNamed", { name: recipient })
+              : t("cards.userMessage.toRemoteBoss")
           }
           fromNonHuman
           outgoing
@@ -626,6 +672,7 @@ export function RawToolCallGroupCard({
   isMobile?: boolean;
   onCopyToTerminal?: (command: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const subagent = subagentOf(entries[0]);
   if (open) {
@@ -642,7 +689,7 @@ export function RawToolCallGroupCard({
             padding: "2px 8px",
           }}
         >
-          &#9660; {entries.length} tool calls
+          &#9660; {t("cards.toolCall.groupCount", { count: entries.length })}
         </button>
         {entries.map((entry, index) => (
           <LogEntryCard
@@ -690,7 +737,9 @@ export function RawToolCallGroupCard({
       >
         <span style={{ fontSize: 8 }}>&#9654;</span>
         {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
-        <span style={{ fontWeight: 600 }}>{entries.length} tool calls</span>
+        <span style={{ fontWeight: 600 }}>
+          {t("cards.toolCall.groupCount", { count: entries.length })}
+        </span>
       </button>
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
@@ -698,9 +747,10 @@ export function RawToolCallGroupCard({
 }
 
 function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
+  const i18n = useI18n();
   const getText = useCallback(
-    () => (turnEntries ? serializeEntries(turnEntries) : ""),
-    [turnEntries],
+    () => (turnEntries ? serializeEntries(i18n, turnEntries) : ""),
+    [i18n, turnEntries],
   );
   if (!turnEntries) return null;
   return (
@@ -737,6 +787,7 @@ function UserMessage({
   canEdit?: boolean;
   onEdit?: () => void;
 }) {
+  const { t } = useI18n();
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const accentColor = fromNonHuman ? "var(--text-muted)" : "var(--accent)";
@@ -803,7 +854,7 @@ function UserMessage({
         {canEdit && onEdit && (
           <button
             onClick={onEdit}
-            title="Edit & branch"
+            title={t("cards.userMessage.editAndBranch")}
             style={{
               background: "transparent",
               border: "none",
@@ -847,6 +898,7 @@ function EditableUserMessage({
   onCancel?: () => void;
   onSubmit?: (entryId: string, newText: string) => void;
 }) {
+  const { t } = useI18n();
   const [text, setText] = useState(content);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
@@ -954,7 +1006,7 @@ function EditableUserMessage({
             cursor: "pointer",
           }}
         >
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           onClick={() => text.trim() && onSubmit?.(entryId, text.trim())}
@@ -970,7 +1022,7 @@ function EditableUserMessage({
             fontWeight: 600,
           }}
         >
-          Send
+          {t("common.send")}
         </button>
       </div>
     </div>
@@ -988,6 +1040,7 @@ function AssistantText({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
 }) {
+  const i18n = useI18n();
   const getText = useCallback(() => content, [content]);
   return (
     <div
@@ -1013,7 +1066,7 @@ function AssistantText({
       >
         <SpeakButton getText={getText} />
         {isLastInTurn && turnEntries && (
-          <CopyButton getText={() => serializeEntries(turnEntries)} />
+          <CopyButton getText={() => serializeEntries(i18n, turnEntries)} />
         )}
       </div>
     </div>
@@ -1033,6 +1086,7 @@ function ThinkingBlock({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <div style={{ margin: "4px 0", position: "relative" }}>
@@ -1061,7 +1115,7 @@ function ThinkingBlock({
         >
           &#9654;
         </span>
-        Thinking...
+        {t("cards.thinking.label")}
         {durationMs != null && (
           <DurationLabel ms={durationMs} isMobile={isMobile} />
         )}
@@ -1116,6 +1170,7 @@ function ToolCall({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const inputStr =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
@@ -1260,12 +1315,12 @@ function ToolCall({
             maxWidth: "100%",
           }}
         >
-          <SectionLabel text="Input" isMobile={isMobile} />
+          <SectionLabel text={t("cards.toolCall.input")} isMobile={isMobile} />
           <div style={{ whiteSpace: "pre-wrap" }}>{inputStr}</div>
           {hasResult && (
             <>
               <SectionLabel
-                text="Output"
+                text={t("cards.toolCall.output")}
                 isMobile={isMobile}
                 isError={resultIsError}
                 marginTop={10}
@@ -1327,6 +1382,7 @@ function ToolResult({
   turnEntries?: LogEntry[];
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [echoOpen, setEchoOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
@@ -1415,7 +1471,7 @@ function ToolResult({
             cursor: "pointer",
           }}
         >
-          {open ? "Show less" : "Show more"}
+          {open ? t("cards.toolResult.showLess") : t("cards.toolResult.showMore")}
         </button>
       )}
       {entry.attachments &&
@@ -1423,7 +1479,7 @@ function ToolResult({
         (isAttachmentEcho && !echoOpen ? (
           <button
             onClick={() => setEchoOpen(true)}
-            title="The agent viewed a file attached earlier in this chat. Click to show it."
+            title={t("cards.fileView.earlierAttachment")}
             style={{
               display: "block",
               marginTop: showText && content ? 6 : 0,
@@ -1436,11 +1492,15 @@ function ToolResult({
               cursor: "pointer",
             }}
           >
-            Viewed{" "}
+            {/* Two whole frames, one per branch: a named file, or a count of
+                images. Never a sentence joined around the data. */}
             {entry.attachments.length === 1
-              ? entry.attachments[0].originalName
-              : `${entry.attachments.length} attached images`}{" "}
-            (click to show)
+              ? t("cards.fileView.viewedFile", {
+                  file: entry.attachments[0].originalName,
+                })
+              : t("cards.fileView.viewedImages", {
+                  count: entry.attachments.length,
+                })}
           </button>
         ) : (
           <AttachmentDisplay
@@ -1621,6 +1681,7 @@ function PermissionDeniedCard({
   onCopyToTerminal?: (command: string) => void;
   isMobile?: boolean;
 }) {
+  const { t } = useI18n();
   // Prefer the deciding component's human-readable reason; the message (what
   // the model was told) is the fallback and stays available on hover.
   const reason = denial.decisionReason || denial.message;
@@ -1642,7 +1703,7 @@ function PermissionDeniedCard({
       title={denial.message}
     >
       <span style={{ color: "var(--red)", fontWeight: 600, flexShrink: 0 }}>
-        Denied
+        {t("cards.toolCall.denied")}
       </span>
       {denial.toolName && (
         <span
@@ -1676,9 +1737,9 @@ function PermissionDeniedCard({
             cursor: "pointer",
             flexShrink: 0,
           }}
-          title="Open the terminal panel and type this command at the prompt (not auto-executed)"
+          title={t("cards.terminalCommand.copyHint")}
         >
-          Copy to terminal
+          {t("cards.terminalCommand.copy")}
         </button>
       )}
     </div>

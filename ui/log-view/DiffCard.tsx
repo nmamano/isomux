@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffFileSummary, DiffPayload } from "../../shared/types.ts";
 import { DiffRenderer, type DiffOutputFormat } from "./DiffRenderer.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 
 const PREF_KEY = "isomux:diff:outputFormat";
 const INLINE_LINES_THRESHOLD = 200;
@@ -61,33 +63,46 @@ function splitPatchByFile(patchText: string): Map<string, string> {
 }
 
 function StatusBadge({ status }: { status: DiffFileSummary["status"] }) {
+  const { t } = useI18n();
   const palette: Record<
     DiffFileSummary["status"],
-    { fg: string; bg: string; label: string }
+    { fg: string; bg: string; labelKey: PlainMessageKey }
   > = {
-    added: { fg: "var(--green)", bg: "var(--green-bg)", label: "added" },
+    added: {
+      fg: "var(--green)",
+      bg: "var(--green-bg)",
+      labelKey: "cards.diff.status.added",
+    },
     modified: {
       fg: "var(--accent)",
       bg: "var(--accent-bg)",
-      label: "modified",
+      labelKey: "common.modified",
     },
-    deleted: { fg: "var(--red)", bg: "var(--red-bg)", label: "deleted" },
+    deleted: {
+      fg: "var(--red)",
+      bg: "var(--red-bg)",
+      labelKey: "cards.diff.status.deleted",
+    },
     renamed: {
       fg: "var(--purple)",
       bg: "rgba(155,109,255,0.10)",
-      label: "renamed",
+      labelKey: "cards.diff.status.renamed",
     },
     copied: {
       fg: "var(--purple)",
       bg: "rgba(155,109,255,0.10)",
-      label: "copied",
+      labelKey: "cards.diff.status.copied",
     },
     untracked: {
       fg: "var(--orange)",
       bg: "var(--orange-bg)",
-      label: "untracked",
+      labelKey: "cards.diff.status.untracked",
     },
-    binary: { fg: "var(--text-muted)", bg: "var(--bg-hover)", label: "binary" },
+    binary: {
+      fg: "var(--text-muted)",
+      bg: "var(--bg-hover)",
+      labelKey: "cards.diff.status.binary",
+    },
   };
   const p = palette[status];
   return (
@@ -105,7 +120,7 @@ function StatusBadge({ status }: { status: DiffFileSummary["status"] }) {
         flexShrink: 0,
       }}
     >
-      {p.label}
+      {t(p.labelKey)}
     </span>
   );
 }
@@ -179,6 +194,7 @@ function DiffOverlay({
   truncated: boolean;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   // Intercept ESC at capture phase so the global window-level handler in
   // App.tsx (which navigates back to the room view) doesn't fire.
   useEffect(() => {
@@ -193,13 +209,13 @@ function DiffOverlay({
   }, [onClose]);
 
   const reason = truncated
-    ? "The total patch was over 2 MB so the diff content was not shipped to the browser. Re-run /isomux-diff after narrowing the working tree, or open this file in your editor."
+    ? t("cards.diff.reasonTruncated")
     : summary.status === "binary"
-      ? "Binary file - no textual diff to render."
+      ? t("cards.diff.reasonBinary")
       : summary.status === "untracked"
-        ? "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run."
+        ? t("cards.diff.reasonUntracked")
         : !patch
-          ? "No patch content for this file."
+          ? t("cards.diff.reasonNoPatch")
           : null;
 
   return (
@@ -261,7 +277,7 @@ function DiffOverlay({
           {patch && <CopyButton getText={() => patch} />}
           <button
             onClick={onClose}
-            title="Close (Esc)"
+            title={t("cards.diff.closeHint")}
             style={{
               background: "transparent",
               border: "1px solid var(--border-medium)",
@@ -273,7 +289,7 @@ function DiffOverlay({
               cursor: "pointer",
             }}
           >
-            Close
+            {t("common.close")}
           </button>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 12 }}>
@@ -318,15 +334,16 @@ function FileRow({
   onOverlay: () => void;
   truncated: boolean;
 }) {
+  const { t } = useI18n();
   const handleClick = summary.inlineEligible ? onToggle : onOverlay;
   const overlayHint = !summary.inlineEligible
     ? truncated
-      ? "Open (patch not shipped)"
+      ? t("cards.diff.openTruncated")
       : summary.status === "binary"
-        ? "Open (binary)"
+        ? t("cards.diff.openBinary")
         : summary.status === "untracked"
-          ? "Open (untracked, too large)"
-          : `Open (${summary.lineCount} lines)`
+          ? t("cards.diff.openUntracked")
+          : t("cards.diff.openLines", { lines: summary.lineCount })
     : null;
 
   return (
@@ -411,6 +428,7 @@ function FileRow({
 }
 
 export function DiffCard({ payload }: { payload: DiffPayload }) {
+  const { t } = useI18n();
   const [outputFormat, setOutputFormat] = useState<DiffOutputFormat>(() =>
     readPref(),
   );
@@ -540,7 +558,9 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
                   fontWeight: 600,
                 }}
               >
-                {fmt === "line-by-line" ? "Unified" : "Split"}
+                {fmt === "line-by-line"
+                  ? t("cards.diff.unified")
+                  : t("cards.diff.split")}
               </button>
             );
           })}
@@ -559,7 +579,9 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
               cursor: "pointer",
             }}
           >
-            {allExpanded ? "Collapse all" : "Expand all"}
+            {allExpanded
+              ? t("cards.diff.collapseAll")
+              : t("cards.diff.expandAll")}
           </button>
         )}
         <span
@@ -574,7 +596,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
           {payload.cwd}
           {payload.truncated && (
             <span style={{ color: "var(--orange)", marginLeft: 8 }}>
-              · patch &gt; 2 MB · summary only
+              {t("cards.diff.summaryOnly")}
             </span>
           )}
         </span>

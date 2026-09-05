@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useI18n } from "../i18n.tsx";
 
 // A 1-px visible divider with a wider invisible hit target sitting on the
 // chat-side edge of a side panel (terminal/editor). Drags resize the panel
@@ -22,6 +23,7 @@ export function PanelResizer({
   getMax: () => number;
   onCommit: (width: number) => void;
 }) {
+  const { t } = useI18n();
   const draggingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -96,7 +98,7 @@ export function PanelResizer({
         // The visible 1-px line is rendered via ::after in styles.ts so we
         // can style the hover state without inline style juggling.
       }}
-      aria-label="Resize side panel"
+      aria-label={t("panels.resizer.label")}
       role="separator"
     />
   );

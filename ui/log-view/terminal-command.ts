@@ -20,11 +20,20 @@ export type CommandDeliveryEvent =
   | { type: "exit" }
   | { type: "timeout" };
 
+/**
+ * Why a queued command was dropped, as a discriminated result rather than a
+ * sentence: the words live in the catalog and the panel renders them in the
+ * reader's language (internal-docs/i18n-loop.md, rulings 7 and 17).
+ */
+export type CommandDeliveryIssue =
+  | { kind: "unavailable" }
+  | { kind: "busy"; process: string };
+
 export type CommandDeliveryResult = {
   state: CommandDeliveryState | null;
   write?: string;
   requestStatus?: true;
-  issue?: string;
+  issue?: CommandDeliveryIssue;
   handled?: true;
 };
 
@@ -45,11 +54,11 @@ export function advanceCommandDelivery(
 ): CommandDeliveryResult {
   if (!state) {
     return event.type === "exit" || event.type === "timeout"
-      ? { state: null, issue: "Terminal unavailable", handled: true }
+      ? { state: null, issue: { kind: "unavailable" }, handled: true }
       : { state: null };
   }
   if (event.type === "exit" || event.type === "timeout") {
-    return { state: null, issue: "Terminal unavailable", handled: true };
+    return { state: null, issue: { kind: "unavailable" }, handled: true };
   }
   if (state.phase === "interrupt_ack") {
     if (event.type !== "output") return { state };
@@ -67,7 +76,7 @@ export function advanceCommandDelivery(
   if (!event.shell) {
     return {
       state: null,
-      issue: `Not sent: ${event.process} is using the terminal`,
+      issue: { kind: "busy", process: event.process },
       handled: true,
     };
   }

@@ -124,6 +124,11 @@ the size of `ui/dist/index.js` before and after the slice. Bun prints no
 per-file time: run each DOM file in its own `bun test <file>` invocation
 inside the same log (the S1 log `/tmp/i18n-lane.log` has the shape).
 
+`t` is a common local name in this codebase (`tabs.map((t) => t.path)`, a
+speech transcript). In a file that already binds it, hold the whole translator
+(`const i18n = useI18n()`) and call `i18n.t`; a destructured `t` there
+type-checks as the local and fails with "has no call signatures" (S5).
+
 The DOM fixture is `onLanguage(language, element, over?)` from
 `ui/test-support/language-fixture.tsx`, loaded with `await import` after
 `setUpDomTestFile()`. The App DOM tests supply state through
@@ -184,7 +189,10 @@ explanatory copy once it has to say the office itself is translated.
   terminal and editor panel chrome, context battery, subscription pill.
 - S6 (lane 2): office view and scene labels, task board, apps view,
   cronjobs views, agent list, empty states, toasts, context menu, the theme
-  display names in `ui/themes.ts` (shown by ThemePane); numbers through
+  display names in `ui/themes.ts` (shown by ThemePane), and
+  `PENDING_PROMPT_BADGE` in `ui/pending-prompt.ts`, whose four one-word
+  badges S5 left English because only `ui/office/DeskUnit.tsx` renders them
+  (its sibling `PENDING_PROMPT_LABEL` is already a key map); numbers through
   Intl, and every surface still formatting a time by hand moves onto
   `shared/i18n/time.ts` (S3), which S6 reuses and does not extend for the
   existing cases; specifically `shared/format-human.ts`'s formatRelativeTime,

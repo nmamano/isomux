@@ -361,7 +361,7 @@ export function BlockedNoteBanner({
           fontSize: 14,
           padding: 0,
         }}
-        title={t("settings.access.dismiss")}
+        title={t("common.dismiss")}
       >
         ×
       </button>

@@ -25,6 +25,7 @@
 // group that was never part of the agreed grouping.
 
 import type { SkillInfo, SkillOrigin } from "../../shared/types.ts";
+import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 
 // Built-in slash commands ride the same slash_commands wire message as
 // skills but with a simpler shape (no origin).
@@ -53,13 +54,16 @@ const GROUP_ORDER: GroupKey[] = [
   "plugin",
 ];
 
-const GROUP_LABELS: Record<GroupKey, string> = {
-  "most-used": "Most used",
-  commands: "Commands",
-  bundled: "Bundled",
-  user: "User",
-  project: "Project",
-  plugin: "Plugin",
+// Catalog KEYS, not words (internal-docs/i18n-loop.md, ruling 7). The popover
+// memoizes this transform on its inputs, which do not include the language, so
+// a group carrying finished text would keep the language it was built in.
+const GROUP_LABEL_KEYS: Record<GroupKey, PlainMessageKey> = {
+  "most-used": "logView.skills.group.mostUsed",
+  commands: "logView.skills.group.commands",
+  bundled: "logView.skills.group.bundled",
+  user: "common.user",
+  project: "logView.skills.group.project",
+  plugin: "logView.skills.group.plugin",
 };
 
 export const MOST_USED_CAP = 8;
@@ -73,7 +77,7 @@ export interface SkillsMenuEntry {
 
 export interface SkillsMenuGroup {
   key: GroupKey;
-  label: string;
+  labelKey: PlainMessageKey;
   skills: SkillsMenuEntry[];
 }
 
@@ -158,7 +162,7 @@ export function buildSkillsMenuGroups(input: {
   }
   return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
     key: g,
-    label: GROUP_LABELS[g],
+    labelKey: GROUP_LABEL_KEYS[g],
     skills: byGroup.get(g)!,
   }));
 }

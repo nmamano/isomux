@@ -39,6 +39,17 @@ export type Placeholders<S extends string> =
 export type EnglishText<K extends MessageKey> = (typeof en)[K];
 
 /**
+ * The keys whose English takes no {placeholder}, so t() needs nothing but the
+ * key. A table that maps an id to a key - a route, an error code, a group -
+ * is typed over THIS rather than MessageKey: ParamsFor reads a union of keys
+ * as one set of placeholders, so a single parameterized member would make
+ * every `t(TABLE[id])` call demand an argument it has nothing to fill.
+ */
+export type PlainMessageKey = {
+  [K in MessageKey]: [Placeholders<EnglishText<K>>] extends [never] ? K : never;
+}[MessageKey];
+
+/**
  * The trailing argument list of t() for one key: nothing when the English
  * text has no placeholder, else one required object naming every placeholder.
  */

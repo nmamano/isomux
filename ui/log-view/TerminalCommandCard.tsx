@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { TerminalCommandPayload } from "../../shared/types.ts";
 import { CopyButton } from "../components/CopyButton.tsx";
+import { useI18n } from "../i18n.tsx";
 
 export function TerminalCommandCard({
   payload,
@@ -9,6 +10,7 @@ export function TerminalCommandCard({
   payload: TerminalCommandPayload;
   onCopy: (command: string) => void;
 }) {
+  const { t } = useI18n();
   const getText = useCallback(() => payload.command, [payload.command]);
   return (
     <div
@@ -60,9 +62,9 @@ export function TerminalCommandCard({
             cursor: "pointer",
             flexShrink: 0,
           }}
-          title="Open the terminal panel and type this command at the prompt (not auto-executed)"
+          title={t("cards.terminalCommand.copyHint")}
         >
-          Copy to terminal
+          {t("cards.terminalCommand.copy")}
         </button>
       </div>
     </div>
