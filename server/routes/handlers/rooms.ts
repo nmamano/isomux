@@ -35,6 +35,7 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
+import { parseRoomPet, type RoomPet } from "../../../shared/pets.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
@@ -50,6 +51,9 @@ export interface RoomsDeps {
   close(roomId: string): boolean;
   // Renames a room. Returns false if the room does not exist (→ 404).
   rename(roomId: string, name: string): boolean;
+  // Sets a room's pet; null clears it back to the default. Returns false if the
+  // room does not exist (→ 404).
+  setPet(roomId: string, pet: RoomPet | null): boolean;
   // Reads a room's settings (the prompt; null means no prompt set) plus the
   // prompt's optimistic-concurrency version. Returns null if the room does not
   // exist (→ 404).
@@ -86,15 +90,44 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         ? noContent()
         : fail(404, "room_not_found", "Room not found"),
 
+    // PATCH is a PARTIAL update over two independent fields, so the old
+    // `if (!name) 422` guard could not simply grow a pet branch: a body of
+    // {"pet":...} is legal and carries no name, and running the rename with an
+    // absent name would have renamed the room to nothing. Each field is applied
+    // only when the body actually carries it.
     "rooms.rename": (ctx) => {
-      const b = (ctx.body ?? {}) as { name?: unknown };
-      const name = typeof b.name === "string" ? b.name.trim() : "";
-      // Shape check only (never an existence oracle): an empty/missing name is a
-      // malformed body, not a comment on whether the room exists.
-      if (!name) return fail(422, "invalid_name", "name is required");
-      return deps.rename(ctx.params.roomId, name)
-        ? noContent()
-        : fail(404, "room_not_found", "Room not found");
+      const b = (ctx.body ?? {}) as { name?: unknown; pet?: unknown };
+      // The two tests differ on purpose and both are right over JSON: a name is
+      // absent or a string, but `pet` carries meaning when it is present AND
+      // null - that is how a client clears it - so presence is the question,
+      // not the value.
+      const hasName = b.name !== undefined;
+      const hasPet = "pet" in b;
+      // Shape checks only (never an existence oracle): a malformed body is not
+      // a comment on whether the room exists.
+      if (!hasName && !hasPet) {
+        return fail(422, "invalid_request", "name or pet is required");
+      }
+      let name = "";
+      if (hasName) {
+        name = typeof b.name === "string" ? b.name.trim() : "";
+        if (!name) return fail(422, "invalid_name", "name is required");
+      }
+      let pet: RoomPet | null = null;
+      if (hasPet) {
+        const parsed = parseRoomPet(b.pet);
+        if (!parsed.ok) return fail(422, "invalid_pet", parsed.reason);
+        pet = parsed.pet;
+      }
+      // One 404 for the whole request: both writes hit the same room, so the
+      // first miss answers for both and neither has run.
+      if (hasName && !deps.rename(ctx.params.roomId, name)) {
+        return fail(404, "room_not_found", "Room not found");
+      }
+      if (hasPet && !deps.setPet(ctx.params.roomId, pet)) {
+        return fail(404, "room_not_found", "Room not found");
+      }
+      return noContent();
     },
 
     "rooms.getSettings": (ctx) => {

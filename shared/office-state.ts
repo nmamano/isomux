@@ -1,3 +1,4 @@
+import type { RoomPet } from "./pets.ts";
 import type {
   AgentInfo,
   AgentOutfit,
@@ -31,6 +32,7 @@ export type OfficeEvent =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
+  | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -553,6 +555,17 @@ export class OfficeState {
     const events: OfficeEvent[] = [
       { type: "room_settings_updated", roomId, prompt: normalizedPrompt },
     ];
+    this.emitEvents(events);
+    return events;
+  }
+
+  /** Sets the room's pet; null clears it back to the default. Shaped like
+   *  setRoomSettings above it: unknown room writes nothing and emits nothing. */
+  setRoomPet(roomId: string, pet: RoomPet | null): OfficeEvent[] {
+    const idx = this._rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) return [];
+    this._rooms[idx] = { ...this._rooms[idx], pet };
+    const events: OfficeEvent[] = [{ type: "room_pet_updated", roomId, pet }];
     this.emitEvents(events);
     return events;
   }

@@ -2733,6 +2733,7 @@ function buildExecutorDeps(
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
+      setPet: (roomId, pet) => agentManager.setRoomPet(roomId, pet),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),

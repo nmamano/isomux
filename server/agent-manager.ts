@@ -1,3 +1,4 @@
+import type { RoomPet } from "../shared/pets.ts";
 import type {
   AgentBackendType,
   AgentChoiceInteraction,
@@ -1331,6 +1332,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return true;
   }
 
+  /** Sets the room's pet; null clears it back to the default. Unlike a rename
+   *  this changes nothing an agent can read, so no session or prompt is
+   *  rebuilt - it only has to reach the other clients and the disk. */
+  function setRoomPet(roomId: string, pet: RoomPet | null): boolean {
+    const events = officeState.setRoomPet(roomId, pet);
+    if (events.length === 0) return false;
+    for (const event of events) eventHandler(event);
+    persistAll();
+    return true;
+  }
+
   function moveAgent(agentId: string, targetRoomId: string): boolean {
     const events = officeState.moveAgent(agentId, targetRoomId);
     if (events.length === 0) return false;
@@ -1469,6 +1481,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       id: r.id,
       name: r.name,
       prompt: r.prompt,
+      pet: r.pet ?? null,
       agents: [] as PersistedAgent[],
     }));
     for (const a of agents.values()) {
@@ -8582,6 +8595,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     createRoom,
     closeRoom,
     renameRoom,
+    setRoomPet,
     moveAgent,
     getAllAgents,
     getUsageReportData,
@@ -8668,6 +8682,7 @@ export function createProductionAgentManager(overrides?: {
             id: r.id,
             name: r.name,
             prompt: r.prompt,
+            pet: r.pet ?? null,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],
     office: {

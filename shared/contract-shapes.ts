@@ -9,6 +9,7 @@
 // lockstep with the canonical shapes - a field rename in shared/types.ts
 // propagates here at compile time.
 
+import type { RoomPet } from "./pets.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -415,7 +416,11 @@ export interface RoomCreateReq {
 }
 
 export interface RoomRenameReq {
-  name: string;
+  // Both fields are optional and independent: the picker sends only `pet`, the
+  // settings dialog sends only `name`. A body carrying neither is malformed.
+  name?: string;
+  // null clears the room's pet back to the default. Absent leaves it alone.
+  pet?: RoomPet | null;
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings

@@ -66,6 +66,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Kaomoji face in the browser tab** for the agent you have open: `(-_-)zz` idle, `~(o_o)~` working, `(^_^)ﾉ` waiting for you.
 - Auto-generated **conversation topic** below nametag.
 - **Drag agents between desks or rooms** to rearrange.
+- **A pet in every room** - a cat by default; click it to pick a cat, dog, rabbit or tortoise and a coat for it. The choice is stored with the room, so everyone sees the same animal.
 - **Skeuomorphic touches**: click the moon through the window to toggle dark mode, click doors to switch rooms, etc.
 - **Color themes**: Dark, Light, Nord, Dracula, Solarized Dark/Light.
 

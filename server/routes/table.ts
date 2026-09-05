@@ -640,12 +640,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     // for ACL/projection honesty (presence is out-of-band, never route-declared).
     emits: ["room_closed", "user_updated", "users_list"],
   }),
+  // Partial update over the room's cosmetic fields: the body carries `name`,
+  // `pet`, or both, and each is applied only when present. The opId still reads
+  // "rooms.rename" because it namespaces idempotency keys and the handler map;
+  // renaming it would be a rename across two test tables for a cosmetic gain.
   defineRoute<RoomRenameReq, NoContent>({
     opId: "rooms.rename",
     method: "PATCH",
     path: "/api/rooms/:roomId",
     auth: cap("room:manage", roomParam("roomId")),
-    emits: ["room_renamed"],
+    emits: ["room_renamed", "room_pet_updated"],
   }),
   // Read side of the settings pair: same ACL as the PUT below, so anyone who
   // can rewrite a room prompt can first read what they'd be overwriting

@@ -566,7 +566,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["room:manage"],
     emits: ["room_closed", "user_updated", "users_list"],
   },
-  "rooms.rename": { caps: ["room:manage"], emits: ["room_renamed"] },
+  "rooms.rename": {
+    caps: ["room:manage"],
+    emits: ["room_renamed", "room_pet_updated"],
+  },
   "rooms.getSettings": { caps: ["room:manage"], emits: [] },
   "rooms.setSettings": {
     caps: ["room:manage"],

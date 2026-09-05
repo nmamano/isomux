@@ -234,7 +234,8 @@ How to manage agents (lifecycle and placement):
 
 How to manage rooms:
   curl -s -X POST localhost:${PORT}/api/rooms -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # create
-  curl -s -X PATCH localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # rename
+  curl -s -X PATCH localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # rename; the body is a partial update, so send name, pet, or both
+  curl -s -X PATCH localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"pet":{"species":"dog","coat":0}}'   # set the room's pet, drawn in the office scene. species is cat, dog, rabbit or tortoise; coat is an index into that species' coats. "pet":null restores the default cat
   curl -s localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                         # read the room prompt -> {"prompt":...,"version":...}
   curl -s -X PUT localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"prompt":"...","version":"<from the read>"}'   # set the room prompt (null clears it). The write REQUIRES the version from a preceding read; a 409 means it changed under you - re-read and retry
   curl -s -X DELETE localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                        # close (delete) the room

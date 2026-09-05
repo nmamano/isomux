@@ -380,6 +380,7 @@ Events whose mutation removes or relocates their projection source (`agent_remov
 | `room_closed` | `{ roomId }` | room-ACL | `roomId` (pre-close access snapshot) | audience computed from who had access before cleanup; triggers recipient `full_state` refresh (index shift) |
 | `room_renamed` | `{ roomId, name }` | room-ACL | `roomId` | |
 | `room_settings_updated` | `{ roomId, prompt }` | room-ACL | `roomId` | |
+| `room_pet_updated` | `{ roomId, pet }` | room-ACL | `roomId` | |
 
 **State / projection (per-recipient)**
 

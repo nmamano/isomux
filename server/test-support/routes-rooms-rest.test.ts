@@ -187,3 +187,132 @@ describe("rooms.rename REST (Phase 3d slice 6)", () => {
     expect(res.status).toBe(403);
   });
 });
+
+// PATCH became a partial update over two independent fields when the room pet
+// arrived. The pair that matters is "name alone still renames" and "pet alone
+// does not blank the name": the old guard read `if (!name) 422`, and extending
+// it instead of restructuring it would have renamed rooms to the empty string
+// on every pet write.
+describe("rooms.rename REST - the pet field", () => {
+  it("pet alone -> 204; the pet is set and the name is untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const before = srv.agentManager.getRooms()[0].name;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { pet: { species: "dog", coat: 2 } },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].pet).toEqual({
+      species: "dog",
+      coat: 2,
+    });
+    expect(srv.agentManager.getRooms()[0].name).toBe(before);
+  });
+
+  it("name alone still renames and leaves the pet alone", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { pet: { species: "rabbit", coat: 1 } },
+      rawSessionId: owner.rawSessionId,
+    });
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { name: "Kennel" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].name).toBe("Kennel");
+    expect(srv.agentManager.getRooms()[0].pet).toEqual({
+      species: "rabbit",
+      coat: 1,
+    });
+  });
+
+  it("both fields in one body -> 204; both applied", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { name: "Both", pet: { species: "tortoise", coat: 0 } },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].name).toBe("Both");
+    expect(srv.agentManager.getRooms()[0].pet).toEqual({
+      species: "tortoise",
+      coat: 0,
+    });
+  });
+
+  it("pet null clears back to the default -> 204", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { pet: { species: "dog", coat: 0 } },
+      rawSessionId: owner.rawSessionId,
+    });
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { pet: null },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].pet).toBe(null);
+  });
+
+  it("a body with neither field -> 422 invalid_request", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: {},
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_request");
+  });
+
+  it("unknown species and out-of-range coat -> 422 invalid_pet", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    for (const pet of [
+      { species: "duck", coat: 0 },
+      { species: "cat", coat: 99 },
+      { species: "cat", coat: -1 },
+      { species: "cat" },
+      "cat",
+    ]) {
+      const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+        body: { pet },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("invalid_pet");
+    }
+    expect(srv.agentManager.getRooms()[0].pet ?? null).toBe(null);
+  });
+
+  it("a rejected pet leaves an accompanying name unwritten", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const before = srv.agentManager.getRooms()[0].name;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { name: "Should not stick", pet: { species: "duck", coat: 0 } },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(srv.agentManager.getRooms()[0].name).toBe(before);
+  });
+});

@@ -1,3 +1,4 @@
+import type { RoomPet } from "../shared/pets.ts";
 import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -711,6 +712,10 @@ export interface Room {
   id: string; // stable 8-char hex
   name: string; // display name
   prompt: string | null; // room-level prompt
+  // The room's chosen pet, or absent/null for the default. Optional because
+  // every agents.json written before the picker existed has no such key, and
+  // this repo has self-hosters whose files must load unchanged.
+  pet?: RoomPet | null;
   agents: PersistedAgent[];
 }
 

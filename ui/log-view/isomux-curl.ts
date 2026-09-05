@@ -998,7 +998,13 @@ export function humanizeIsomuxRequest(
       return name ? `Create room ${truncateLabel(name, 24)}` : "Create a room";
     }
     if (segs.length === 2) {
-      if (m === "PATCH") return "Update a room";
+      if (m === "PATCH") {
+        const name = field("name");
+        if (name) return `Rename room to ${truncateLabel(name, 24)}`;
+        if (req.bodyFields?.some((f) => f.key === "pet"))
+          return "Set a room's pet";
+        return "Update a room";
+      }
       if (m === "DELETE") return "Close a room";
     }
     if (segs.length === 3) {

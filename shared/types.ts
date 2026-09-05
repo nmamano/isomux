@@ -1,3 +1,5 @@
+import type { RoomPet } from "./pets.ts";
+
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -1063,6 +1065,14 @@ export interface RoomWire {
   // OfficeState whenever rooms are materialized; never persisted (re-derived on
   // load), so it cannot drift from the canonical order.
   canCloseWhenEmpty: boolean;
+  // The pet this room keeps. Optional, and absent means exactly what null
+  // means: nobody has chosen, so the room draws DEFAULT_ROOM_PET. Optional
+  // rather than required because a room record written before the picker
+  // existed has no such key, and because every RoomWire built anywhere would
+  // otherwise have to name a field that carries no information when unset.
+  // Persisted with the room like `name` and `prompt`, and carried here so every
+  // client draws the same animal.
+  pet?: RoomPet | null;
 }
 
 // Per-user record stored server-side in ~/.isomux/users.json. Keyed by
@@ -1485,6 +1495,7 @@ export type ServerMessage =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
+  | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event

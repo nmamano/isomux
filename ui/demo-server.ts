@@ -1010,6 +1010,13 @@ function emitEvents(events: OfficeEvent[]) {
           name: event.name,
         });
         break;
+      case "room_pet_updated":
+        shimEmit({
+          type: "room_pet_updated",
+          roomId: event.roomId,
+          pet: event.pet,
+        });
+        break;
       case "room_closed":
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
@@ -2065,7 +2072,10 @@ export async function demoApi(
     const id = decodeURIComponent(roomIdMatch[1]);
     if (method === "PATCH") {
       const b = (body ?? {}) as RoomRenameReq;
-      emitEvents(state.renameRoom(id, b.name));
+      // PATCH is a partial update: the settings dialog sends a name, the pet
+      // picker sends a pet, and either may arrive alone.
+      if (typeof b.name === "string") emitEvents(state.renameRoom(id, b.name));
+      if (b.pet !== undefined) emitEvents(state.setRoomPet(id, b.pet));
       return undefined;
     }
     emitEvents(state.closeRoom(id));

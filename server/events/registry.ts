@@ -26,6 +26,7 @@
 // The emit helper delegates to the projection logic so the live wire stays
 // byte-identical.
 
+import type { RoomPet } from "../../shared/pets.ts";
 import type {
   LogEntry,
   AgentInfo,
@@ -140,6 +141,7 @@ export interface EventPayloads {
   room_closed: { roomId: string };
   room_renamed: { roomId: string; name: string };
   room_settings_updated: { roomId: string; prompt: string | null };
+  room_pet_updated: { roomId: string; pet: RoomPet | null };
 
   session_context: { context: SessionContext };
   full_state: {
@@ -298,6 +300,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },
   room_settings_updated: {
+    audience: "room-ACL",
+    projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
+  },
+  room_pet_updated: {
     audience: "room-ACL",
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },
