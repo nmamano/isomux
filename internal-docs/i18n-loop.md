@@ -91,6 +91,19 @@ Today (as of bd790b7, measured 2026-09-05):
     key with a named placeholder, rendered by a helper in `ui/i18n.tsx`.
     Never split a sentence into before/after keys; word order differs per
     language.
+17. Time helper zero cases (ruled after S3, 2026-09-05): `Intl` runs with
+    numeric "always", so no language gets "this minute", "this hour",
+    "anteayer" or "demà passat" in a column. The under-a-minute and
+    under-an-hour cases are discriminated results of the helper, rendered
+    by the caller from the catalog with the pre-S3 English ("just now",
+    "0h"), so ruling 6 holds for English exactly.
+18. Helper convention (S3): a component takes the translator from the
+    context hook; a function that runs during render but is not a component
+    takes the translator as its first argument (a hook there breaks the
+    rules of hooks).
+19. A catalog value never contains angle brackets that are not a `rich()`
+    tag pair (`https://<host>` fails the balanced-tag test). Such a fragment
+    is code (ruling 11) and is passed in as a placeholder from the call site.
 
 ## Gates (every hand-off)
 
@@ -115,7 +128,9 @@ The DOM fixture is `onLanguage(language, element, over?)` from
 `StateCtx.Provider`, not store seeding. Two DOM traps are documented in
 `internal-docs/testing-guide.md` (S2): a pane fetch that settles after the
 file ends prints "pass, 0 fail" AND exits 1, so read the exit line; and a
-sidebar click proves nothing until the row reports `aria-current`.
+sidebar click proves nothing until the row reports `aria-current`. A list
+seeded through the fixture's `over` needs its loaded flag TRUE, or the
+seed hook fetches and a shim answer overwrites the seeded rows (S3).
 
 ## Prohibitions
 
@@ -167,8 +182,12 @@ explanatory copy once it has to say the office itself is translated.
   terminal and editor panel chrome, context battery, subscription pill.
 - S6 (lane 2): office view and scene labels, task board, apps view,
   cronjobs views, agent list, empty states, toasts, context menu, the theme
-  display names in `ui/themes.ts` (shown by ThemePane); dates, relative
-  times and numbers through Intl (ruling 12).
+  display names in `ui/themes.ts` (shown by ThemePane); numbers through
+  Intl, and every surface still formatting a time by hand moves onto
+  `shared/i18n/time.ts` (S3), which S6 reuses and does not extend for the
+  existing cases; specifically `shared/format-human.ts`'s formatRelativeTime,
+  shared by StoragePane and `server/storage-report.ts`, which S3 did not
+  touch (ruling 12).
 - S7 (lane 1): server-produced human-facing strings resolved per user:
   slash-command descriptions and responses, welcome and onboarding text,
   and `shared/update-notice.ts` (consumed by `server/update-checker.ts` and
@@ -365,3 +384,66 @@ Decide with reviewer: `common.*` moves, the new DOM file's anchors, how
 parameter for the pure helpers).
 Locked: rulings 1, 6, 7, 10, 11, 14, 15, 16; no dialogs, no Intl work, no
 server change.
+
+- [x] S3 landed as 670a464 (+ format 1672bbc). `shared/i18n/time.ts`
+  (timeSince, timeUntil, absoluteTime; expired as a discriminated result),
+  about 150 settings.* keys, 19 common.* keys. Bundle +35536 bytes; new DOM
+  file 2.0 s (measured 2026-09-05). Parked for Nil: "Individual Connections"
+  heading capital C versus "Individual connections" elsewhere (frozen under
+  ruling 6, own key); the External access Public URL placeholder is this
+  box's own tailnet hostname (task filed). Ruling 17 reverses the two
+  Intl phrase substitutions S3 shipped ("just now" -> "this minute", "0h" ->
+  "this hour"); S4 applies it first.
+
+## PICKUP S4 - the dialogs (Worker 2 / Reviewer 2)
+
+Goal: a user on Catalan or Spanish reads the agent dialog (new and edit),
+the schedule dialog, the schedules prompt dialog, and every prompt or
+confirm dialog the office opens, in their language.
+
+Mechanics:
+
+- First, ruling 17 in `shared/i18n/time.ts`: numeric "always"; timeSince
+  under a minute returns `{ kind: "now" }` rendered by its callers from
+  `common.justNow` ("just now"); timeUntil under an hour returns
+  `{ kind: "underHour" }` rendered by the invites caller with its pre-S3
+  text ("0h"); unit tests updated at the same boundaries; the S3 report's
+  before/after table returns to the S3 "before" column for English.
+- Files: `ui/components/EditAgentDialog.tsx`, `ui/components/CronjobDialog.tsx`,
+  `ui/components/CronjobsPromptDialog.tsx`, `ui/components/ExpandableTextarea.tsx`
+  chrome, and whatever else renders `role="dialog"` or a browser
+  confirm/prompt in ui/ outside the log view and the office scene (grep;
+  name each in the plan gate).
+- Keys: `dialogs.agent.*`, `dialogs.schedule.*`, `dialogs.schedulePrompt.*`,
+  `dialogs.confirm.*`; `common.*` second-use rule.
+- Option labels: the effort level labels, model family labels and
+  permission mode labels that the UI reads from `shared/types.ts` tables
+  are prose and move to the catalog keyed by their id (`effort.minimal`,
+  `modelFamily.opus`, `permissionMode.<value>`), the table keeping the id
+  and the UI mapping id to text; model NAMES and slugs stay (ruling 11).
+  Labels that arrive from the server (the live Codex model list, backend
+  permission modes from `/api/backends`) stay as delivered in S4 and are
+  listed in the report for S7 to decide. Verify which is which before
+  building on it.
+- Validation and error messages the dialogs compose client-side move to
+  the catalog; messages relayed from a server error stay as delivered
+  (ruling 2 keeps API errors English).
+- Tests: `ui/components/EditAgentDialog.test.ts`, `ui/App.dirty.dom.test.tsx`
+  and every other existing dialog test stay green on a null-language user;
+  one new DOM file `ui/dialogs.i18n.dom.test.tsx` mounts the agent dialog
+  and the schedule dialog on `ca` through `onLanguage`, asserts one literal
+  anchor per dialog section, rerenders to `es`, under 5 s in-file. Mind
+  the DOM traps in the gates section.
+- Acceptance grep on the touched files as in S2.
+
+Acceptance: the listed files read the catalog; catalog test green; the new
+DOM file and the existing dialog tests green; eslint, `build:ui`,
+`build:demo` if `ui/demo-server.ts` is touched, `tsc` once; bundle delta
+reported; ruling 17 applied and its unit tests green. The report names the
+strings the reviewer debated and the choice made, and lists the
+server-delivered labels left for S7.
+
+Decide with reviewer: the option-label key layout, the new DOM file's
+anchors, whether ExpandableTextarea has any prose at all.
+Locked: rulings 1, 6, 7, 10, 11, 14-19; no log view, no office scene, no
+Intl beyond ruling 17, no server change.
