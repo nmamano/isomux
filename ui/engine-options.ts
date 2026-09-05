@@ -1,27 +1,31 @@
 import type { AgentBackendType } from "../shared/types.ts";
+import type { MessageKey } from "../shared/i18n/translate.ts";
 
+// The engine names are proper nouns and stay as they are (ruling 11); the line
+// under each one is prose, so it is a catalog key the card renders through t()
+// (internal-docs/i18n-loop.md, S4).
 export const ENGINE_OPTIONS: Array<{
   agentType: AgentBackendType;
   label: string;
-  blurb: string;
+  blurbKey: Extract<MessageKey, `dialogs.agent.engineBlurb.${string}`>;
   accent: string;
 }> = [
   {
     agentType: "claude",
     label: "Claude",
-    blurb: "Works with your Claude Code login.",
+    blurbKey: "dialogs.agent.engineBlurb.claude",
     accent: "rgba(100,160,255,0.85)",
   },
   {
     agentType: "codex",
     label: "Codex",
-    blurb: "Works with your ChatGPT login.",
+    blurbKey: "dialogs.agent.engineBlurb.codex",
     accent: "rgba(120,220,160,0.85)",
   },
   {
     agentType: "opencode",
     label: "OpenCode",
-    blurb: "Works with models configured through OpenCode.",
+    blurbKey: "dialogs.agent.engineBlurb.opencode",
     accent: "rgba(245,180,80,0.85)",
   },
 ];

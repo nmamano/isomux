@@ -30,7 +30,14 @@ import {
   templateEngineValues,
   type AgentTemplateGroup,
 } from "./agent-templates.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
 
+// English, so the expectations below stay the frozen English bytes (ruling 6).
+const english = translatorFor("en");
+
+// The card titles the catalog holds, in the order the dialog lays them out.
+// Read through an English translator rather than off the table, because S4
+// moved the words out of ui/agent-templates.ts (internal-docs/i18n-loop.md).
 const EXPECTED_LABELS = [
   "Side Project Builder",
   "Personal Site Builder",
@@ -79,9 +86,9 @@ function model(
 
 describe("agent template catalog", () => {
   it("contains Nil's exact 12 templates in the approved order", () => {
-    expect(AGENT_TEMPLATES.map((template) => template.label)).toEqual(
-      EXPECTED_LABELS,
-    );
+    expect(
+      AGENT_TEMPLATES.map((template) => english.t(template.labelKey)),
+    ).toEqual(EXPECTED_LABELS);
     expect(new Set(AGENT_TEMPLATES.map((template) => template.key)).size).toBe(
       12,
     );
@@ -91,7 +98,7 @@ describe("agent template catalog", () => {
     expect(
       Object.fromEntries(
         AGENT_TEMPLATES.map((template) => [
-          template.label,
+          english.t(template.labelKey),
           [
             template.group,
             template.recommendations.claude.desiredEffort,
@@ -104,7 +111,7 @@ describe("agent template catalog", () => {
 
   it("composes every prompt from the shared software workflow clauses", () => {
     for (const template of AGENT_TEMPLATES) {
-      expect(template.description.length).toBeGreaterThan(0);
+      expect(english.t(template.descriptionKey).length).toBeGreaterThan(0);
       expect(template.customInstructions).toContain(FIRST_TURN_CLAUSE);
       expect(template.customInstructions).toContain(SOFTWARE_TOOL_CLAUSE);
       expect(template.customInstructions).toContain(PLAIN_LANGUAGE_CLAUSE);
@@ -149,7 +156,7 @@ describe("agent template catalog", () => {
 
 describe("resolveTemplateModel", () => {
   const template = AGENT_TEMPLATES.find(
-    (candidate) => candidate.label === "Side Project Builder",
+    (candidate) => candidate.key === "side-project-builder",
   )!;
 
   it("uses the first offered non-hidden Codex preference", () => {
@@ -313,7 +320,7 @@ describe("resolveTemplatePermission", () => {
 describe("template engine switch", () => {
   it("re-resolves a selected template after the Codex model list arrives", () => {
     const template = AGENT_TEMPLATES.find(
-      (candidate) => candidate.label === "Side Project Builder",
+      (candidate) => candidate.key === "side-project-builder",
     )!;
     const result = templateEngineValues(
       template,
@@ -365,8 +372,35 @@ describe("Blank template dirty state", () => {
     privileged: false,
   };
 
+  // The name a template seeds is data the user authors at spawn time, so it is
+  // written in the language they are reading the card in (PM ruling, S4), while
+  // the customInstructions beside it are read by the agent and stay English.
+  // Both halves are literal here (ruling 14): a name read back through the same
+  // translator would pass for any value, including the template's raw id.
+  it("seeds the name in the reader's language and leaves the prompt English", () => {
+    const catalan = translatorFor("ca");
+    const template = AGENT_TEMPLATES.find(
+      (candidate) => candidate.key === "side-project-builder",
+    )!;
+    const applied = templateFormValues(
+      catalan,
+      template,
+      "codex",
+      baseline,
+      [model("gpt-5.6-sol", ["high", "max"])],
+      false,
+    );
+    expect(applied.name).toBe("Creador de projectes paral·lels");
+    expect(applied.customInstructions).toBe(template.customInstructions);
+    expect(applied.customInstructions).toContain(FIRST_TURN_CLAUSE);
+    expect(applied.customInstructions).toContain(
+      "Turn rough ideas into small, useful products that reach real users.",
+    );
+  });
+
   it("counts an applied template as a user edit", () => {
     const applied = templateFormValues(
+      english,
       AGENT_TEMPLATES[1],
       "codex",
       baseline,

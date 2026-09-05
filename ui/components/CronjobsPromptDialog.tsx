@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
+import { useI18n } from "../i18n.tsx";
 import type { CronPromptReq } from "../../shared/contract-shapes.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const { cronjobsPrompt, isMobile } = useAppState();
   const [text, setText] = useState(cronjobsPrompt ?? "");
   const [saving, setSaving] = useState(false);
@@ -35,7 +37,9 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
     const body: CronPromptReq = { value: text.trim() ? text : null };
     apiFetch("PUT", "/api/cron-prompt", body)
       .then(() => onClose())
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : t("common.saveFailed")),
+      )
       .finally(() => setSaving(false));
   }
 
@@ -79,7 +83,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             color: "var(--text-primary)",
           }}
         >
-          Schedules Settings
+          {t("dialogs.schedulePrompt.title")}
         </h3>
 
         <label
@@ -92,16 +96,16 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             marginBottom: 5,
           }}
         >
-          Rules{" "}
+          {t("common.rules")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (system prompt for all schedules)
+            {t("dialogs.schedulePrompt.rulesHint")}
           </span>
         </label>
         <textarea
           ref={textareaRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="e.g. Always write findings to a markdown file. Be terse."
+          placeholder={t("dialogs.schedulePrompt.rulesPlaceholder")}
           rows={8}
           style={{
             width: "100%",
@@ -124,7 +128,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             margin: "3px 0 0",
           }}
         >
-          Applied to the next run; in-flight runs use their captured snapshot.
+          {t("dialogs.schedulePrompt.appliedNextRun")}
         </p>
 
         {error && (
@@ -154,7 +158,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
               cursor: "pointer",
             }}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             onClick={handleSave}
@@ -170,7 +174,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
               cursor: "pointer",
             }}
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? t("common.saving") : t("common.save")}
           </button>
         </div>
       </div>

@@ -255,7 +255,7 @@ export function OfficePane({
             marginBottom: 5,
           }}
         >
-          {t("settings.office.rules")}{" "}
+          {t("common.rules")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             {t("settings.office.rulesHint")}
           </span>

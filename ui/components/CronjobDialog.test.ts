@@ -126,8 +126,10 @@ describe("OpenCode cron model selection", () => {
       new URL("./CronjobDialog.tsx", import.meta.url),
     ).text();
     expect(source).not.toContain("(unavailable on current login)");
-    expect(source).toContain("Current model:");
-    expect(source).toContain("Reopen this dialog to try again.");
+    // The sentences moved to the catalog in S4, so what this pins is that both
+    // dialogs read the same keys (ruling 14 allows a unit test to pin keys).
+    expect(source).toContain('t("common.model.currentIs"');
+    expect(source).toContain('t("common.model.checkFailed")');
   });
 
   it("uses the shared backend-model default picker", async () => {

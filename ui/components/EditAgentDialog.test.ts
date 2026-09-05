@@ -312,7 +312,7 @@ describe("template values after an engine switch", () => {
 
   it("resolves a spawn template from valid target-Codex defaults", () => {
     const template = AGENT_TEMPLATES.find(
-      (candidate) => candidate.label === "Side Project Builder",
+      (candidate) => candidate.key === "side-project-builder",
     )!;
     const models: BackendModelWire[] = [
       {
@@ -332,7 +332,7 @@ describe("template values after an engine switch", () => {
 
   it("resolves an edit template from the same target-Codex defaults", () => {
     const template = AGENT_TEMPLATES.find(
-      (candidate) => candidate.label === "Side Project Builder",
+      (candidate) => candidate.key === "side-project-builder",
     )!;
     expect(
       templateValuesAfterEngineSwitch(template, "codex", null, false),

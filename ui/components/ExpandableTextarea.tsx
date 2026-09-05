@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import { Portal } from "./Portal.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // How many expanded editors are currently mounted (0 or 1 in practice; a
 // counter rather than a boolean so an unmount can never zero out a newer one).
@@ -80,6 +81,7 @@ export function ExpandableTextarea({
   style?: CSSProperties;
   textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const labelId = useId();
   const expandBtnRef = useRef<HTMLButtonElement>(null);
@@ -99,8 +101,8 @@ export function ExpandableTextarea({
         ref={expandBtnRef}
         type="button"
         onClick={() => setExpanded(true)}
-        title={`Expand ${title}`}
-        aria-label={`Expand ${title}`}
+        title={t("dialogs.textarea.expand", { title })}
+        aria-label={t("dialogs.textarea.expand", { title })}
         style={expandBtnStyle}
       >
         {EXPAND_ICON}
@@ -146,6 +148,7 @@ function ExpandedEditor({
   placeholder?: string;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLTextAreaElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -248,10 +251,10 @@ function ExpandedEditor({
           </span>
           <span style={{ flex: 1 }} />
           <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-            Esc to collapse
+            {t("dialogs.textarea.escCollapse")}
           </span>
           <button type="button" onClick={onClose} style={doneBtnStyle}>
-            Done
+            {t("dialogs.textarea.done")}
           </button>
         </div>
         {hint && (

@@ -62,8 +62,7 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
-import { useAccessListsSeed } from "./access-shared.tsx";
-import { timeSince } from "../../shared/i18n/time.ts";
+import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
@@ -933,7 +932,7 @@ function summarizeRoster(
   }
   if (!stats) return "";
   return t("settings.members.lastSeen", {
-    when: timeSince(i18n.language, stats.lastSeenAt),
+    when: formatSince(i18n, stats.lastSeenAt),
   });
 }
 
@@ -1762,7 +1761,7 @@ function UserEditPanel({
               <span
                 style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
               >
-                {t("settings.profile.discardPrompt")}
+                {t("common.discardPrompt")}
               </span>
               <button
                 onClick={commitDiscard}
@@ -1821,8 +1820,8 @@ function UserEditPanel({
               title={t("settings.profile.deleteHint")}
             >
               {confirmDelete
-                ? t("settings.profile.confirmDelete")
-                : t("settings.profile.delete")}
+                ? t("common.confirmQuestion")
+                : t("common.delete")}
             </button>
             <div style={{ display: "flex", gap: 8 }}>
               <button

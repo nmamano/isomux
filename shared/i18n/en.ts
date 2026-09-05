@@ -31,6 +31,10 @@ export const en = {
     "This editor rewrites the file exactly as shown. Use one memory per line.",
   "common.saveFailed": "Save failed",
   "common.nextConversation": "Changes take effect on next conversation.",
+  "common.schedule": "Schedule",
+  "common.discardPrompt": "Discard unsaved changes?",
+  "common.delete": "Delete",
+  "common.confirmQuestion": "Confirm?",
   "common.settings": "Settings",
   "common.theme": "Theme",
   "common.preferences": "Preferences",
@@ -39,10 +43,12 @@ export const en = {
   "common.copy": "Copy",
   "common.device": "Device",
   "common.discard": "Discard",
+  "common.justNow": "just now",
   "common.name": "Name",
   "common.noRooms": "No rooms yet.",
   "common.prefix": "Prefix",
   "common.revoke": "Revoke",
+  "common.rules": "Rules",
   "common.role": "Role",
   "common.rooms": "Rooms",
   "common.signOut": "Sign out",
@@ -130,10 +136,7 @@ export const en = {
   "settings.profile.avatar": "Avatar",
   "settings.profile.avatarHint":
     "(your ghost in the office scene; other users see it next to the agent you're viewing)",
-  "settings.profile.discardPrompt": "Discard unsaved changes?",
-  "settings.profile.delete": "Delete",
   "settings.profile.deleteHint": "Delete this user",
-  "settings.profile.confirmDelete": "Confirm?",
   "settings.profile.deleteFailed": "Delete failed",
   "settings.profile.roomListFailed":
     "Could not confirm your room list; Displayed not saved.",
@@ -146,7 +149,6 @@ export const en = {
   "settings.office.name": "Office Name",
   "settings.office.nameHint": "(optional, shown in browser tab)",
   "settings.office.namePlaceholder": "Nil's Office",
-  "settings.office.rules": "Rules",
   "settings.office.rulesHint": "(system prompt for all agents)",
   "settings.office.rulesTitle": "Office Rules",
   "settings.office.rulesExpandedHint":
@@ -256,7 +258,6 @@ export const en = {
   "settings.usage.roomColumn": "Room",
   "settings.usage.deleted": "deleted",
   "settings.usage.schedules": "Per-schedule usage",
-  "settings.usage.scheduleColumn": "Schedule",
   "settings.usage.total": "Total",
   "settings.usage.officeTotal": "Office total",
   "settings.usage.inSession": "In (sess)",
@@ -353,6 +354,9 @@ export const en = {
   // beside them come from shared/i18n/time.ts, not from here.
   "settings.access.none": "None.",
   "settings.access.expired": "expired",
+  // Under an hour left: Intl would say "in 0h", so the column keeps the text
+  // the hand-built formatter printed (ruling 17).
+  "settings.access.expiresUnderHour": "0h",
   "settings.access.localTime": "{time} local",
   "settings.access.inviteUrl": "Invite URL",
   "settings.access.copyUrl": "Copy URL",
@@ -530,6 +534,236 @@ export const en = {
     "Variables this user set for their own agents. Names only - values stay private.",
   "settings.memberConnections.loadFailed": "Could not load variables.",
   "settings.memberConnections.empty": "No variables.",
+  // The dialogs (internal-docs/i18n-loop.md, S4).
+
+  // ExpandableTextarea's own chrome. Its title, hint and placeholder all
+  // arrive as props, already translated by the dialog or pane that opens it.
+  "dialogs.textarea.expand": "Expand {title}",
+  "dialogs.textarea.escCollapse": "Esc to collapse",
+  "dialogs.textarea.done": "Done",
+
+  "dialogs.schedulePrompt.title": "Schedules Settings",
+  "dialogs.schedulePrompt.rulesHint": "(system prompt for all schedules)",
+  "dialogs.schedulePrompt.rulesPlaceholder":
+    "e.g. Always write findings to a markdown file. Be terse.",
+  "dialogs.schedulePrompt.appliedNextRun":
+    "Applied to the next run; in-flight runs use their captured snapshot.",
+  "common.field.engine": "Engine",
+  "common.field.model": "Model",
+  "common.field.effort": "Thinking Effort",
+  "common.field.sandbox": "Sandbox",
+  "common.field.permissionMode": "Permission Mode",
+  "common.field.approvalPolicy": "Approval Policy",
+  "common.field.workingDirectory": "Working Directory",
+
+  // Reasoning effort, keyed by the id in EFFORT_LEVELS (shared/types.ts). That
+  // table keeps its English label for the server's /effort command until S7;
+  // catalog.test.ts holds the two copies to the same text.
+  "common.effort.minimal": "Minimal (Codex only)",
+  "common.effort.low": "Low",
+  "common.effort.medium": "Medium",
+  "common.effort.high": "High",
+  "common.effort.xhigh": "Extra high",
+  "common.effort.max": "Max",
+  "common.effort.ultra": "Ultra (Codex only)",
+
+  // The permission options both dialogs offer word-for-word. The ones only the
+  // agent dialog or only the schedule dialog shows live under dialogs.*, since
+  // the same value id reads differently per engine and per dialog.
+  "common.permission.claudeBypass": "Bypass (auto-approve all)",
+  "common.permission.codexNever": "Never ask (use sandbox-only)",
+  "common.sandbox.readOnly": "Read-only (model can read, never write)",
+  "common.sandbox.workspaceWrite": "Workspace write (write inside cwd only)",
+  "common.sandbox.dangerFullAccess": "Danger: full access (no sandbox)",
+
+  // The model picker, shared by the agent and schedule dialogs. Model names and
+  // the {detail} a backend reports stay as they arrive (ruling 11).
+  "common.model.currentOption": "Current model",
+  "common.model.currentIs": "Current model: {model}.",
+  "common.model.checkFailed":
+    "The available models could not be checked. Reopen this dialog to try again.",
+  "common.model.notOffered":
+    "This login does not offer it. Choose an available model.",
+  "common.model.loading": "Loading available models…",
+  "common.model.startingOpenCode":
+    "OpenCode is starting. Loading available models…",
+  "common.model.noneConnected":
+    "OpenCode has no connected provider models for this environment.",
+  "common.model.selectConnected":
+    "Select a connected OpenCode model before saving.",
+  "common.model.loadFailed": "Failed to load models",
+  "common.model.openCodeListFailed":
+    "OpenCode could not list its models. Reopen this dialog.",
+  "common.model.codexNotSignedIn":
+    "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)",
+  "common.model.openCodeLoadFailed":
+    "Could not load OpenCode models{detail}. Reopen this dialog to try again.",
+  "common.model.listLoadFailed":
+    "Could not load model list{detail}. Showing fallback list - some options may not work on your account.",
+
+  "dialogs.schedule.titleNew": "New Schedule",
+  "dialogs.schedule.titleEdit": "Edit Schedule",
+  "dialogs.schedule.namePlaceholder": "Daily summary",
+  "dialogs.schedule.daily": "Daily",
+  "dialogs.schedule.weekly": "Weekly",
+  "dialogs.schedule.interval": "Every N minutes",
+  "dialogs.schedule.weekday.sunday": "Sunday",
+  "dialogs.schedule.weekday.monday": "Monday",
+  "dialogs.schedule.weekday.tuesday": "Tuesday",
+  "dialogs.schedule.weekday.wednesday": "Wednesday",
+  "dialogs.schedule.weekday.thursday": "Thursday",
+  "dialogs.schedule.weekday.friday": "Friday",
+  "dialogs.schedule.weekday.saturday": "Saturday",
+  "dialogs.schedule.hour": "Hour (0-23)",
+  "dialogs.schedule.minute": "Minute (0-59)",
+  "dialogs.schedule.intervalMinutes": "Interval (minutes, min 5)",
+  "dialogs.schedule.serverLocal": "Times are server-local.",
+  "dialogs.schedule.prompt": "Prompt",
+  "dialogs.schedule.promptTitle": "Schedule Prompt",
+  "dialogs.schedule.promptPlaceholder":
+    "e.g. \"Summarize what every agent accomplished yesterday.\"",
+  "dialogs.schedule.promptEmpty": "Prompt cannot be empty.",
+  "dialogs.schedule.permissionUnattended":
+    "Allow project tools (unattended)",
+  "dialogs.schedule.permissionHintOpenCode":
+    "Shell and edit tools are allowed. Delegation and questions are denied.",
+  "dialogs.schedule.permissionHint":
+    "Schedules run unattended - modes that require human approval are not available.",
+  "dialogs.schedule.enabled": "Enabled (uncheck to pause without deleting)",
+  "dialogs.schedule.create": "Create",
+
+  "dialogs.agent.titleSpawn": "Spawn New Agent",
+  "dialogs.agent.titleEdit": "Edit Agent",
+  "dialogs.agent.desk": "Desk #{desk}",
+  "dialogs.agent.engineBlurb.claude":
+    "Works with your Claude Code login.",
+  "dialogs.agent.engineBlurb.codex":
+    "Works with your ChatGPT login.",
+  "dialogs.agent.engineBlurb.opencode":
+    "Works with models configured through OpenCode.",
+  "dialogs.agent.template": "Start with a template",
+  "dialogs.agent.templateHint":
+    "Templates fill the fields below. You can edit every suggestion.",
+  "dialogs.agent.blank": "Blank",
+  "dialogs.agent.blankHint": "Set up the agent yourself.",
+  "dialogs.agent.appearance": "Appearance",
+  "dialogs.agent.randomize": "Randomize",
+  "dialogs.agent.skin": "Skin",
+  "dialogs.agent.shirt": "Shirt",
+  "dialogs.agent.hairColor": "Hair Color",
+  "dialogs.agent.hairStyle": "Hair Style",
+  "dialogs.agent.hat": "Hat",
+  "dialogs.agent.beard": "Beard",
+  "dialogs.agent.accessory": "Accessory",
+  "dialogs.agent.hairStyle.short": "Short",
+  "dialogs.agent.hairStyle.long": "Long",
+  "dialogs.agent.hairStyle.ponytail": "Ponytail",
+  "dialogs.agent.hairStyle.bun": "Bun",
+  "dialogs.agent.hairStyle.pigtails": "Pigtails",
+  "dialogs.agent.hairStyle.curly": "Curly",
+  "dialogs.agent.hairStyle.bald": "Bald",
+  "dialogs.agent.hat.none": "None",
+  "dialogs.agent.hat.cap": "Cap",
+  "dialogs.agent.hat.beanie": "Beanie",
+  "dialogs.agent.hat.bow": "Hair Bow",
+  "dialogs.agent.hat.headband": "Headband",
+  "dialogs.agent.accessory.none": "None",
+  "dialogs.agent.accessory.glasses": "Glasses",
+  "dialogs.agent.accessory.headphones": "Headphones",
+  "dialogs.agent.accessory.bowTie": "Bow Tie",
+  "dialogs.agent.accessory.tie": "Tie",
+  "dialogs.agent.accessory.earrings": "Earrings",
+  "dialogs.agent.beard.none": "None",
+  "dialogs.agent.beard.stubble": "Stubble",
+  "dialogs.agent.beard.full": "Full",
+  "dialogs.agent.beard.goatee": "Goatee",
+  "dialogs.agent.beard.mustache": "Mustache",
+  "dialogs.agent.recent": "Recent",
+  "dialogs.agent.manager": "Manager",
+  "dialogs.agent.managerTitle":
+    "Set at spawn - manager cannot be changed after the agent is created.",
+  "dialogs.agent.managerNoUser": "(no user assigned)",
+  "dialogs.agent.managerUnowned": "(unowned)",
+  "dialogs.agent.managerHint":
+    "Locked to the spawning user. Controls which personal variables load on each session (see Settings → You → Individual connections).",
+  "dialogs.agent.privileged": "Privileged operator access",
+  "dialogs.agent.privilegedHint":
+    "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning user's room-scoped permissions. It still acts as the agent, never as the user.",
+  "dialogs.agent.privilegedRestart": "Saving restarts the agent's session.",
+  "dialogs.agent.permission.ask": "Ask",
+  "dialogs.agent.permission.bypassAll": "Bypass all permissions",
+  "dialogs.agent.permission.codexUntrusted": "Untrusted (ask on every tool)",
+  "dialogs.agent.permission.codexOnRequest":
+    "On request (model asks when needed)",
+  "dialogs.agent.permission.claudeAuto":
+    "Auto (classifier auto-approves safe actions)",
+  "dialogs.agent.permission.claudeDefault": "Default (ask for everything)",
+  "dialogs.agent.permission.claudeAcceptEdits":
+    "Accept Edits (auto-approve file changes)",
+  "dialogs.agent.modelTier.free":
+    "Free (the provider may use traffic for training)",
+  "dialogs.agent.modelTier.payg": "Pay-as-you-go (OpenCode credits)",
+  "dialogs.agent.modelTier.subscription": "Subscription (OpenCode Go)",
+  "dialogs.agent.memoryHint":
+    "(durable facts for this agent; raw lines; {size} / {cap})",
+  "dialogs.agent.memoryTitle": "Agent Memory",
+  "dialogs.agent.memoryPlaceholder": "Some memory relevant to this agent",
+  "dialogs.agent.customInstructions": "Custom Instructions",
+  "dialogs.agent.optional": "(optional)",
+  "dialogs.agent.customInstructionsHint":
+    "Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt.",
+  "dialogs.agent.customInstructionsPlaceholder":
+    "e.g. \"You are a backend specialist. Always write tests.\"",
+  "dialogs.agent.systemPromptHint":
+    "Run <code>/isomux-system-prompt</code> in a chat to see the agent's full system prompt.",
+  "dialogs.agent.revive": "Revive a killed agent",
+  "dialogs.agent.reviving": "Reviving…",
+  "dialogs.agent.reviveFailed": "Revive failed",
+  "dialogs.agent.moveToRoom": "Move to Room",
+  "dialogs.agent.invalidDirectory": "Invalid directory",
+  "dialogs.agent.staleInstructions":
+    "Custom instructions changed since you opened this - reopen the dialog to edit the latest.",
+  "dialogs.agent.spawn": "Spawn",
+
+  // The spawn dialog's template cards, keyed by the template id in
+  // ui/agent-templates.ts. The customInstructions each template carries are
+  // agent-facing and stay English.
+  "templates.moneyPlanner.label": "Money Planner",
+  "templates.moneyPlanner.description":
+    "Plan spending, saving, goals, and financial decisions.",
+  "templates.sideProjectBuilder.label": "Side Project Builder",
+  "templates.sideProjectBuilder.description":
+    "Turn a rough idea into a small product that ships.",
+  "templates.healthNavigator.label": "Health Navigator",
+  "templates.healthNavigator.description":
+    "Organize health information and prepare for care.",
+  "templates.lifeCoach.label": "Life Coach",
+  "templates.lifeCoach.description":
+    "Clarify goals, choose next steps, and review progress.",
+  "templates.researchAnalyst.label": "Research Analyst",
+  "templates.researchAnalyst.description":
+    "Investigate questions and produce decision-ready briefs.",
+  "templates.personalSiteBuilder.label": "Personal Site Builder",
+  "templates.personalSiteBuilder.description":
+    "Design, build, and publish a personal website.",
+  "templates.cityGuide.label": "City Guide",
+  "templates.cityGuide.description":
+    "Discover places and plan around how you explore.",
+  "templates.todoListAssistant.label": "Todo List Assistant",
+  "templates.todoListAssistant.description":
+    "Turn commitments into a personal system that stays useful.",
+  "templates.codeReviewer.label": "Code Reviewer",
+  "templates.codeReviewer.description":
+    "Find consequential defects and explain precise fixes.",
+  "templates.relationshipAdvisor.label": "Relationship Advisor",
+  "templates.relationshipAdvisor.description":
+    "Think through communication, needs, and next steps.",
+  "templates.jobSearchCoach.label": "Job Search Coach",
+  "templates.jobSearchCoach.description":
+    "Focus a search and improve applications and interviews.",
+  "templates.tripPlanner.label": "Trip Planner",
+  "templates.tripPlanner.description":
+    "Build practical trips around your interests and limits.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

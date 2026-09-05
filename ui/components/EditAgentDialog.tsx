@@ -35,6 +35,8 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
+import { effortLabel } from "../effort-label.ts";
 import type {
   MoveAgentReq,
   SpawnReq,
@@ -161,40 +163,54 @@ export function templateValuesAfterEngineSwitch(
   );
 }
 
-const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
-  short: "Short",
-  long: "Long",
-  ponytail: "Ponytail",
-  bun: "Bun",
-  pigtails: "Pigtails",
-  curly: "Curly",
-  bald: "Bald",
-};
+// The outfit selects. The value stored on the agent is the id; only the words
+// beside it move to the catalog (internal-docs/i18n-loop.md, S4). Pure
+// functions of the translator, called during a render but not components, so
+// the translator arrives as an argument (ruling 18).
+function hairStyleLabels(
+  i18n: UiTranslator,
+): Record<AgentOutfit["hairStyle"], string> {
+  return {
+    short: i18n.t("dialogs.agent.hairStyle.short"),
+    long: i18n.t("dialogs.agent.hairStyle.long"),
+    ponytail: i18n.t("dialogs.agent.hairStyle.ponytail"),
+    bun: i18n.t("dialogs.agent.hairStyle.bun"),
+    pigtails: i18n.t("dialogs.agent.hairStyle.pigtails"),
+    curly: i18n.t("dialogs.agent.hairStyle.curly"),
+    bald: i18n.t("dialogs.agent.hairStyle.bald"),
+  };
+}
 
-const HAT_LABELS: Record<AgentOutfit["hat"], string> = {
-  none: "None",
-  cap: "Cap",
-  beanie: "Beanie",
-  bow: "Hair Bow",
-  headband: "Headband",
-};
+function hatLabels(i18n: UiTranslator): Record<AgentOutfit["hat"], string> {
+  return {
+    none: i18n.t("dialogs.agent.hat.none"),
+    cap: i18n.t("dialogs.agent.hat.cap"),
+    beanie: i18n.t("dialogs.agent.hat.beanie"),
+    bow: i18n.t("dialogs.agent.hat.bow"),
+    headband: i18n.t("dialogs.agent.hat.headband"),
+  };
+}
 
-const ACCESSORY_LABELS: Record<string, string> = {
-  none: "None",
-  glasses: "Glasses",
-  headphones: "Headphones",
-  bow_tie: "Bow Tie",
-  tie: "Tie",
-  earrings: "Earrings",
-};
+function accessoryLabels(i18n: UiTranslator): Record<string, string> {
+  return {
+    none: i18n.t("dialogs.agent.accessory.none"),
+    glasses: i18n.t("dialogs.agent.accessory.glasses"),
+    headphones: i18n.t("dialogs.agent.accessory.headphones"),
+    bow_tie: i18n.t("dialogs.agent.accessory.bowTie"),
+    tie: i18n.t("dialogs.agent.accessory.tie"),
+    earrings: i18n.t("dialogs.agent.accessory.earrings"),
+  };
+}
 
-const BEARD_LABELS: Record<AgentOutfit["beard"], string> = {
-  none: "None",
-  stubble: "Stubble",
-  full: "Full",
-  goatee: "Goatee",
-  mustache: "Mustache",
-};
+function beardLabels(i18n: UiTranslator): Record<AgentOutfit["beard"], string> {
+  return {
+    none: i18n.t("dialogs.agent.beard.none"),
+    stubble: i18n.t("dialogs.agent.beard.stubble"),
+    full: i18n.t("dialogs.agent.beard.full"),
+    goatee: i18n.t("dialogs.agent.beard.goatee"),
+    mustache: i18n.t("dialogs.agent.beard.mustache"),
+  };
+}
 
 function makeRandomOutfit(): AgentOutfit {
   return {
@@ -274,6 +290,8 @@ type EditAgentDialogProps = {
 );
 
 export function EditAgentDialog(props: EditAgentDialogProps) {
+  const i18n = useI18n();
+  const { t, rich } = i18n;
   const { onClose } = props;
   const isSpawn = !props.agent;
   const spawnProps = props.agent === undefined ? props : null;
@@ -451,6 +469,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     setSelectedTemplateKey(template.key);
     const deferModel = templateModelsPending;
     const values = templateFormValues(
+      i18n,
       template,
       targetEngine,
       { modelFamily, effort, permissionMode },
@@ -558,8 +577,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       .catch((e) => {
         setReviveError(
           e instanceof ApiError
-            ? e.message || "Revive failed"
-            : "Revive failed",
+            ? e.message || t("dialogs.agent.reviveFailed")
+            : t("dialogs.agent.reviveFailed"),
         );
       })
       .finally(() => setReviving(null));
@@ -607,7 +626,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     })
       .then((r) => {
         if (cancelled) return;
-        if (!r.ok) setCwdError(r.error || "Invalid directory");
+        if (!r.ok) setCwdError(r.error || t("dialogs.agent.invalidDirectory"));
       })
       .catch(() => {
         // Transport error: leave the field unflagged, matching the old
@@ -698,7 +717,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         if (cancelled) return;
         setModelsLoading(false);
         setModelsError({
-          message: e instanceof ApiError ? e.message : "Failed to load models",
+          message: e instanceof ApiError ? e.message : t("common.model.loadFailed"),
           authError: false,
         });
       });
@@ -807,7 +826,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // Discard, so the stashed action must not be able to replay later.
     pendingDiscardActionRef.current = null;
     if (!openCodeModelReady) {
-      setCwdError("Select a connected OpenCode model before saving.");
+      setCwdError(t("common.model.selectConnected"));
       return;
     }
     setConfirmDiscard(false);
@@ -820,10 +839,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // never clears `saving` without surfacing the failure.
       const msg =
         e instanceof ApiError && e.code === "version_conflict"
-          ? "Custom instructions changed since you opened this - reopen the dialog to edit the latest."
+          ? t("dialogs.agent.staleInstructions")
           : e instanceof ApiError
-            ? e.message || "Save failed"
-            : "Save failed";
+            ? e.message || t("common.saveFailed")
+            : t("common.saveFailed");
       if (e instanceof ApiError && e.code === "name_taken") {
         setNameError(msg);
         setCwdError(null);
@@ -983,18 +1002,22 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const memoryBlock = !isSpawn && (
     <>
       <label style={{ ...labelStyle, marginTop: 14 }}>
-        Memory{" "}
+        {t("common.memory")}{" "}
         <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-          (durable facts for this agent; raw lines; {mem.size} /{" "}
-          {mem.cap ?? "…"})
+          {t("dialogs.agent.memoryHint", {
+            size: mem.size,
+            cap: mem.cap ?? "…",
+          })}
         </span>
       </label>
       <ExpandableTextarea
-        title="Agent Memory"
+        title={t("dialogs.agent.memoryTitle")}
         value={mem.memory}
         onChange={mem.setMemory}
         placeholder={
-          mem.loaded ? "Some memory relevant to this agent" : "Loading memory…"
+          mem.loaded
+            ? t("dialogs.agent.memoryPlaceholder")
+            : t("common.loadingMemory")
         }
         rows={4}
         readOnly={!mem.loaded}
@@ -1070,11 +1093,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 color: "var(--text-primary)",
               }}
             >
-              {isSpawn ? "Spawn New Agent" : "Edit Agent"}
+              {isSpawn ? t("dialogs.agent.titleSpawn") : t("dialogs.agent.titleEdit")}
             </h3>
             {isSpawn && (
               <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                Desk #{props.deskIndex + 1}
+                {t("dialogs.agent.desk", { desk: props.deskIndex + 1 })}
               </span>
             )}
           </div>
@@ -1086,7 +1109,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 margin: "2px 0 18px",
               }}
             >
-              {`${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}Desk #${agent!.desk + 1}`}
+              {`${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
+                "dialogs.agent.desk",
+                { desk: agent!.desk + 1 },
+              )}`}
             </p>
           )}
 
@@ -1094,7 +1120,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             <div className="agent-dialog-left-column">
               {isSpawn ? (
                 <section className="agent-engine-section">
-                  <label style={labelStyle}>Engine</label>
+                  <label style={labelStyle}>{t("common.field.engine")}</label>
                   <div className="spawn-engine-options">
                     {ENGINE_OPTIONS.map((option) => {
                       const selected = targetEngine === option.agentType;
@@ -1137,7 +1163,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                               lineHeight: 1.4,
                             }}
                           >
-                            {option.blurb}
+                            {t(option.blurbKey)}
                           </span>
                         </button>
                       );
@@ -1149,7 +1175,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 on the new engine. The current conversation stays in resume
                 history, and the settings use the new engine's options. */
                 <section className="agent-engine-section">
-                  <label style={labelStyle}>Engine</label>
+                  <label style={labelStyle}>{t("common.field.engine")}</label>
                   <select
                     value={targetEngine}
                     onChange={(e) =>
@@ -1189,7 +1215,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
               {isSpawn && (
                 <section className="spawn-template-section">
-                  <label style={labelStyle}>Start with a template</label>
+                  <label style={labelStyle}>{t("dialogs.agent.template")}</label>
                   <p
                     style={{
                       fontSize: 10,
@@ -1197,8 +1223,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       margin: "3px 0 8px",
                     }}
                   >
-                    Templates fill the fields below. You can edit every
-                    suggestion.
+                    {t("dialogs.agent.templateHint")}
                   </p>
                   <div
                     style={{
@@ -1222,9 +1247,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       }}
                     >
                       <span style={templateCardTextStyle}>
-                        <span style={templateCardTitleStyle}>Blank</span>
+                        <span style={templateCardTitleStyle}>
+                          {t("dialogs.agent.blank")}
+                        </span>
                         <span style={templateCardDescriptionStyle}>
-                          Set up the agent yourself.
+                          {t("dialogs.agent.blankHint")}
                         </span>
                       </span>
                     </button>
@@ -1252,10 +1279,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           </span>
                           <span style={templateCardTextStyle}>
                             <span style={templateCardTitleStyle}>
-                              {template.label}
+                              {t(template.labelKey)}
                             </span>
                             <span style={templateCardDescriptionStyle}>
-                              {template.description}
+                              {t(template.descriptionKey)}
                             </span>
                           </span>
                         </button>
@@ -1267,7 +1294,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
               <div className="agent-appearance-section">
                 <label style={{ ...labelStyle, marginTop: 14 }}>
-                  Appearance
+                  {t("dialogs.agent.appearance")}
                 </label>
                 <div
                   style={{
@@ -1292,7 +1319,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     onClick={() => setOutfit(makeRandomOutfit())}
                     style={randomBtnStyle}
                   >
-                    Randomize
+                    {t("dialogs.agent.randomize")}
                   </button>
                 </div>
 
@@ -1304,7 +1331,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     marginBottom: 4,
                   }}
                 >
-                  Skin
+                  {t("dialogs.agent.skin")}
                 </div>
                 <div
                   style={{
@@ -1341,7 +1368,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     marginBottom: 4,
                   }}
                 >
-                  Shirt
+                  {t("dialogs.agent.shirt")}
                 </div>
                 <div
                   style={{
@@ -1378,7 +1405,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     marginBottom: 4,
                   }}
                 >
-                  Hair Color
+                  {t("dialogs.agent.hairColor")}
                 </div>
                 <div
                   style={{
@@ -1417,7 +1444,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         marginBottom: 4,
                       }}
                     >
-                      Hair Style
+                      {t("dialogs.agent.hairStyle")}
                     </div>
                     <select
                       value={outfit.hairStyle ?? "short"}
@@ -1431,7 +1458,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {HAIR_STYLES.map((s) => (
                         <option key={s} value={s}>
-                          {HAIR_STYLE_LABELS[s]}
+                          {hairStyleLabels(i18n)[s]}
                         </option>
                       ))}
                     </select>
@@ -1444,7 +1471,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         marginBottom: 4,
                       }}
                     >
-                      Hat
+                      {t("dialogs.agent.hat")}
                     </div>
                     <select
                       value={outfit.hat}
@@ -1458,7 +1485,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {HATS.map((h) => (
                         <option key={h} value={h}>
-                          {HAT_LABELS[h]}
+                          {hatLabels(i18n)[h]}
                         </option>
                       ))}
                     </select>
@@ -1475,7 +1502,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         marginBottom: 4,
                       }}
                     >
-                      Beard
+                      {t("dialogs.agent.beard")}
                     </div>
                     <select
                       value={outfit.beard ?? "none"}
@@ -1489,7 +1516,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {BEARDS.map((b) => (
                         <option key={b} value={b}>
-                          {BEARD_LABELS[b]}
+                          {beardLabels(i18n)[b]}
                         </option>
                       ))}
                     </select>
@@ -1502,7 +1529,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         marginBottom: 4,
                       }}
                     >
-                      Accessory
+                      {t("dialogs.agent.accessory")}
                     </div>
                     <select
                       value={outfit.accessory ?? "none"}
@@ -1519,7 +1546,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {ACCESSORIES.map((a) => (
                         <option key={a ?? "none"} value={a ?? "none"}>
-                          {ACCESSORY_LABELS[a ?? "none"]}
+                          {accessoryLabels(i18n)[a ?? "none"]}
                         </option>
                       ))}
                     </select>
@@ -1530,7 +1557,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
             <div className="agent-dialog-right-column">
               <div className="agent-identity-section">
-                <label style={labelStyle}>Name</label>
+                <label style={labelStyle}>{t("common.name")}</label>
                 {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
                 <input
@@ -1562,7 +1589,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 )}
 
                 <label style={{ ...labelStyle, marginTop: 12 }}>
-                  Working Directory
+                  {t("common.field.workingDirectory")}
                 </label>
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
@@ -1585,7 +1612,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       onClick={() => setShowRecentCwds((shown) => !shown)}
                       style={{ ...dialogCancelBtn, padding: "7px 10px" }}
                     >
-                      Recent
+                      {t("dialogs.agent.recent")}
                     </button>
                   )}
                 </div>
@@ -1633,7 +1660,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       margin: "3px 0 0",
                     }}
                   >
-                    Changes take effect on next conversation.
+                    {t("common.nextConversation")}
                   </p>
                 )}
 
@@ -1643,9 +1670,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 matches the Engine badge (also locked at spawn). On spawn
                 the value comes from the device's bound username; on edit
                 it comes from the agent's persisted user record. */}
-                <label style={{ ...labelStyle, marginTop: 12 }}>Manager</label>
+                <label style={{ ...labelStyle, marginTop: 12 }}>
+                  {t("dialogs.agent.manager")}
+                </label>
                 <div
-                  title="Set at spawn - manager cannot be changed after the agent is created."
+                  title={t("dialogs.agent.managerTitle")}
                   style={{
                     ...inputStyle,
                     display: "flex",
@@ -1660,8 +1689,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   }}
                 >
                   {isSpawn
-                    ? (getUsername() ?? "(no user assigned)")
-                    : (agent!.username ?? agent!.userId ?? "(unowned)")}
+                    ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
+                    : (agent!.username ??
+                      agent!.userId ??
+                      t("dialogs.agent.managerUnowned"))}
                 </div>
                 <p
                   style={{
@@ -1670,9 +1701,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     margin: "3px 0 0",
                   }}
                 >
-                  Locked to the spawning user. Controls which personal variables
-                  load on each session (see Settings → You → Individual
-                  connections).
+                  {t("dialogs.agent.managerHint")}
                 </p>
 
                 {/* Privileged operator access. Grants this agent its spawning user's
@@ -1703,7 +1732,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         onChange={(e) => setPrivileged(e.target.checked)}
                         style={{ cursor: "pointer", margin: 0 }}
                       />
-                      Privileged operator access
+                      {t("dialogs.agent.privileged")}
                     </label>
                     <p
                       style={{
@@ -1712,13 +1741,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         margin: "3px 0 0",
                       }}
                     >
-                      Lets this agent drive other agents' sessions (resume, new
-                      conversation, send-now) and manage its own cronjobs, with
-                      the spawning user's room-scoped permissions. It still acts
-                      as the agent, never as the user.
+                      {t("dialogs.agent.privilegedHint")}
                       {!isSpawn &&
                         privileged !== (agent!.privileged ?? false) &&
-                        " Saving restarts the agent's session."}
+                        ` ${t("dialogs.agent.privilegedRestart")}`}
                     </p>
                   </>
                 )}
@@ -1726,7 +1752,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
               <div className="agent-engine-settings">
                 <label style={{ ...labelStyle, marginTop: 12 }}>
-                  {isCodex ? "Approval Policy" : "Permission Mode"}
+                  {isCodex
+                    ? t("common.field.approvalPolicy")
+                    : t("common.field.permissionMode")}
                 </label>
                 <select
                   value={permissionMode}
@@ -1744,38 +1772,40 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 >
                   {isOpenCode ? (
                     <>
-                      <option value="default">Ask</option>
+                      <option value="default">
+                        {t("dialogs.agent.permission.ask")}
+                      </option>
                       <option value="bypassPermissions">
-                        Bypass all permissions
+                        {t("dialogs.agent.permission.bypassAll")}
                       </option>
                     </>
                   ) : isCodex ? (
                     <>
                       <option value="untrusted">
-                        Untrusted (ask on every tool)
+                        {t("dialogs.agent.permission.codexUntrusted")}
                       </option>
                       <option value="on-request">
-                        On request (model asks when needed)
+                        {t("dialogs.agent.permission.codexOnRequest")}
                       </option>
                       <option value="never">
-                        Never ask (use sandbox-only)
+                        {t("common.permission.codexNever")}
                       </option>
                     </>
                   ) : (
                     <>
                       {claudeFamilySupportsAutoPermission(modelFamily) && (
                         <option value="auto">
-                          Auto (classifier auto-approves safe actions)
+                          {t("dialogs.agent.permission.claudeAuto")}
                         </option>
                       )}
                       <option value="default">
-                        Default (ask for everything)
+                        {t("dialogs.agent.permission.claudeDefault")}
                       </option>
                       <option value="acceptEdits">
-                        Accept Edits (auto-approve file changes)
+                        {t("dialogs.agent.permission.claudeAcceptEdits")}
                       </option>
                       <option value="bypassPermissions">
-                        Bypass (auto-approve all)
+                        {t("common.permission.claudeBypass")}
                       </option>
                     </>
                   )}
@@ -1784,7 +1814,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 {isCodex && (
                   <>
                     <label style={{ ...labelStyle, marginTop: 12 }}>
-                      Sandbox
+                      {t("common.field.sandbox")}
                     </label>
                     <select
                       value={codexSandbox}
@@ -1798,19 +1828,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       }}
                     >
                       <option value="read-only">
-                        Read-only (model can read, never write)
+                        {t("common.sandbox.readOnly")}
                       </option>
                       <option value="workspace-write">
-                        Workspace write (write inside cwd only)
+                        {t("common.sandbox.workspaceWrite")}
                       </option>
                       <option value="danger-full-access">
-                        Danger: full access (no sandbox)
+                        {t("common.sandbox.dangerFullAccess")}
                       </option>
                     </select>
                   </>
                 )}
 
-                <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
+                <label style={{ ...labelStyle, marginTop: 12 }}>
+                  {t("common.field.model")}
+                </label>
                 {(() => {
                   // Codex model options come from the server (auth-aware via
                   // model/list). On fetch failure OR an empty list we fall back to the
@@ -1896,7 +1928,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             {/* OpenCode picker order: Free, then
                                 Pay-as-you-go, then Subscription. */}
                             {pickerModels && pickerModels.free.length > 0 && (
-                              <optgroup label="Free (the provider may use traffic for training)">
+                              <optgroup
+                                label={t("dialogs.agent.modelTier.free")}
+                              >
                                 {pickerModels.free.map((m) => (
                                   <option key={m.id} value={m.id}>
                                     {m.label}
@@ -1908,7 +1942,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                               isOpenCode ? (
                                 <>
                                   {pickerModels.available.length > 0 && (
-                                    <optgroup label="Pay-as-you-go (OpenCode credits)">
+                                    <optgroup
+                                      label={t("dialogs.agent.modelTier.payg")}
+                                    >
                                       {pickerModels.available.map((m) => (
                                         <option key={m.id} value={m.id}>
                                           {m.label}
@@ -1917,7 +1953,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                     </optgroup>
                                   )}
                                   {pickerModels.subscription.length > 0 && (
-                                    <optgroup label="Subscription (OpenCode Go)">
+                                    <optgroup
+                                      label={t(
+                                        "dialogs.agent.modelTier.subscription",
+                                      )}
+                                    >
                                       {pickerModels.subscription.map((m) => (
                                         <option key={m.id} value={m.id}>
                                           {m.label}
@@ -1942,7 +1982,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             ) : null}
                             {storedNotInList && (
                               <option key={modelFamily} value={modelFamily}>
-                                Current model
+                                {t("common.model.currentOption")}
                               </option>
                             )}
                           </>
@@ -1970,10 +2010,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                               margin: "3px 0 0",
                             }}
                           >
-                            Current model: {familyDisplayLabel(modelFamily)}.{" "}
+                            {t("common.model.currentIs", {
+                              model: familyDisplayLabel(modelFamily),
+                            })}{" "}
                             {modelsError
-                              ? "The available models could not be checked. Reopen this dialog to try again."
-                              : "This login does not offer it. Choose an available model."}
+                              ? t("common.model.checkFailed")
+                              : t("common.model.notOffered")}
                           </p>
                         )}
                     </>
@@ -1989,8 +2031,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     }}
                   >
                     {modelsStarting && isOpenCode
-                      ? "OpenCode is starting. Loading available models…"
-                      : "Loading available models…"}
+                      ? t("common.model.startingOpenCode")
+                      : t("common.model.loading")}
                   </p>
                 )}
                 {usesBackendModels && modelsError && !modelsLoading && (
@@ -2001,7 +2043,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       margin: "3px 0 0",
                     }}
                   >
-                    {modelListErrorMessage(isOpenCode, modelsError)}
+                    {modelListErrorMessage(i18n, isOpenCode, modelsError)}
                   </p>
                 )}
                 {isOpenCode &&
@@ -2016,8 +2058,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         margin: "3px 0 0",
                       }}
                     >
-                      OpenCode has no connected provider models for this
-                      environment.
+                      {t("common.model.noneConnected")}
                     </p>
                   )}
                 {openCodeCatalogRejectsSelection && (
@@ -2028,40 +2069,30 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       margin: "3px 0 0",
                     }}
                   >
-                    Select a connected OpenCode model before saving.
+                    {t("common.model.selectConnected")}
                   </p>
                 )}
 
                 {!isOpenCode && (
                   <>
                     <label style={{ ...labelStyle, marginTop: 12 }}>
-                      Thinking Effort
+                      {t("common.field.effort")}
                     </label>
                     {(() => {
                       // For Codex we use the selected model's supportedReasoningEfforts
                       // when available; otherwise we fall back to the global EFFORT_LEVELS
-                      // with the same backend/family filter we used pre-fetch.
-                      let effortLevels: { level: string; label: string }[];
+                      // with the same backend/family filter we used pre-fetch. The words
+                      // come from the catalog either way (effortLabel), including for a
+                      // level the table does not carry, which renders as its own id.
+                      let effortLevels: { level: string }[];
                       if (isCodex && backendModels) {
                         const picked = backendModels.find(
                           (m) => m.id === modelFamily,
                         );
                         if (picked && picked.supportedEfforts.length > 0) {
-                          // Map Codex effort enum strings to friendly labels using the
-                          // shared EFFORT_LEVELS table when present, falling back to the
-                          // raw enum value capitalized.
-                          effortLevels = picked.supportedEfforts.map((o) => {
-                            const match = EFFORT_LEVELS.find(
-                              (e) => e.level === o.level,
-                            );
-                            return {
-                              level: o.level,
-                              label: match
-                                ? match.label
-                                : o.level.charAt(0).toUpperCase() +
-                                  o.level.slice(1),
-                            };
-                          });
+                          effortLevels = picked.supportedEfforts.map((o) => ({
+                            level: o.level,
+                          }));
                         } else {
                           // Codex model with no supportedEfforts reported: fall back to
                           // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
@@ -2070,7 +2101,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           effortLevels = EFFORT_LEVELS.filter(
                             (opt) =>
                               opt.level !== "max" && opt.level !== "ultra",
-                          ).map((o) => ({ level: o.level, label: o.label }));
+                          ).map((o) => ({ level: o.level }));
                         }
                       } else {
                         effortLevels = EFFORT_LEVELS.filter((opt) => {
@@ -2082,7 +2113,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           if (opt.level === "minimal") return isCodex;
                           if (opt.level === "ultra") return false; // per-model Codex list only
                           return true;
-                        }).map((o) => ({ level: o.level, label: o.label }));
+                        }).map((o) => ({ level: o.level }));
                       }
                       return (
                         <select
@@ -2099,7 +2130,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         >
                           {effortLevels.map((opt) => (
                             <option key={opt.level} value={opt.level}>
-                              {opt.label}
+                              {effortLabel(i18n, opt.level)}
                             </option>
                           ))}
                         </select>
@@ -2109,17 +2140,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 )}
               </div>
               <label style={{ ...labelStyle, marginTop: 14 }}>
-                Custom Instructions{" "}
+                {t("dialogs.agent.customInstructions")}{" "}
                 <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                  (optional)
+                  {t("dialogs.agent.optional")}
                 </span>
               </label>
               <ExpandableTextarea
-                title="Custom Instructions"
-                hint="Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt."
+                title={t("dialogs.agent.customInstructions")}
+                hint={t("dialogs.agent.customInstructionsHint")}
                 value={customInstructions}
                 onChange={setCustomInstructions}
-                placeholder='e.g. "You are a backend specialist. Always write tests."'
+                placeholder={t("dialogs.agent.customInstructionsPlaceholder")}
                 rows={3}
                 style={{ ...inputStyle, resize: "vertical" }}
               />
@@ -2130,9 +2161,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   margin: "3px 0 0",
                 }}
               >
-                Run <code>/isomux-system-prompt</code> in a chat to see the
-                agent's full system prompt.
-                {!isSpawn && " Changes take effect on next conversation."}
+                {rich("dialogs.agent.systemPromptHint", {
+                  code: (text) => <code>{text}</code>,
+                })}
+                {!isSpawn && ` ${t("common.nextConversation")}`}
               </p>
               {isMobile && memoryBlock}
             </div>
@@ -2147,7 +2179,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 borderTop: "1px solid var(--border)",
               }}
             >
-              <label style={labelStyle}>Revive a killed agent</label>
+              <label style={labelStyle}>{t("dialogs.agent.revive")}</label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                 {killedAgents.map((killedAgent) => {
                   const isThisReviving = reviving === killedAgent.id;
@@ -2174,7 +2206,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         opacity: disabled ? 0.4 : 1,
                       }}
                     >
-                      {isThisReviving ? "Reviving…" : killedAgent.name}
+                      {isThisReviving
+                        ? t("dialogs.agent.reviving")
+                        : killedAgent.name}
                     </button>
                   );
                 })}
@@ -2195,7 +2229,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           {!isSpawn && roomCount > 1 && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
-                Move to Room
+                {t("dialogs.agent.moveToRoom")}
               </label>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {Array.from({ length: roomCount }, (_, i) => {
@@ -2270,7 +2304,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               <span
                 style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
               >
-                Discard unsaved changes?
+                {t("common.discardPrompt")}
               </span>
               <button
                 onClick={commitDiscard}
@@ -2285,7 +2319,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   cursor: "pointer",
                 }}
               >
-                Discard
+                {t("common.discard")}
               </button>
               <button
                 onClick={cancelDiscard}
@@ -2300,7 +2334,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   cursor: "pointer",
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           )}
@@ -2310,14 +2344,18 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               style={cancelBtnStyle}
               disabled={saving}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               onClick={handleSave}
               style={saveBtnStyle}
               disabled={saving || !openCodeModelReady}
             >
-              {saving ? "Saving…" : isSpawn ? "Spawn" : "Save"}
+              {saving
+                ? t("common.saving")
+                : isSpawn
+                  ? t("dialogs.agent.spawn")
+                  : t("common.save")}
             </button>
           </div>
         </div>

@@ -228,7 +228,7 @@ function LifetimeTable({
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={leftHead}>{t("settings.usage.scheduleColumn")}</th>
+              <th style={leftHead}>{t("common.schedule")}</th>
               <th style={head}>{t("settings.usage.inLifetime")}</th>
               <th style={head}>{t("settings.usage.outLifetime")}</th>
               <th style={head}>{t("settings.usage.costLifetime")}</th>

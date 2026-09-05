@@ -32,17 +32,25 @@ const until = (language: Language, left: number) =>
   timeUntil(language, NOW + left, NOW);
 
 describe("timeSince", () => {
-  // minutes = round(ms / 60000), and the phrase applies while that is 0, so
-  // the switch is at half a minute rather than at one minute.
-  it("leaves the under-a-minute phrase at 30 s, where the rounded minute becomes 1", () => {
-    expect(since("en", 29_999)).toBe("this minute");
-    expect(since("en", 30_000)).toBe("1m ago");
+  // minutes = round(ms / 60000), and the "now" case holds while that is 0, so
+  // the switch is at half a minute rather than at one minute. The word for it
+  // is the caller's (ruling 17); what the helper owes is the kind.
+  it("leaves the now case at 30 s, where the rounded minute becomes 1", () => {
+    expect(since("en", 29_999)).toEqual({ kind: "now" });
+    expect(since("ca", 29_999)).toEqual({ kind: "now" });
+    expect(since("en", 30_000)).toEqual({ kind: "formatted", text: "1m ago" });
   });
 
   // Minutes hold while round(ms / 60000) < 60, so 59m30s is already 60.
   it("leaves minutes for hours at 59m30s", () => {
-    expect(since("en", 59 * MINUTE + 29_999)).toBe("59m ago");
-    expect(since("en", 59 * MINUTE + 30_000)).toBe("1h ago");
+    expect(since("en", 59 * MINUTE + 29_999)).toEqual({
+      kind: "formatted",
+      text: "59m ago",
+    });
+    expect(since("en", 59 * MINUTE + 30_000)).toEqual({
+      kind: "formatted",
+      text: "1h ago",
+    });
   });
 
   // Hours are rounded from the ALREADY rounded minutes, so the transition sits
@@ -50,34 +58,45 @@ describe("timeSince", () => {
   // the hour bucket ends at 47h and the day bucket opens at 2d, which is what
   // the hand-built formatter did and what this pins.
   it("leaves hours for days at 47h29m30s, with no 48h or 1d reading in between", () => {
-    expect(since("en", 47 * HOUR + 29 * MINUTE + 29_999)).toBe("47h ago");
-    expect(since("en", 47 * HOUR + 29 * MINUTE + 30_000)).toBe("2d ago");
+    expect(since("en", 47 * HOUR + 29 * MINUTE + 29_999)).toEqual({
+      kind: "formatted",
+      text: "47h ago",
+    });
+    expect(since("en", 47 * HOUR + 29 * MINUTE + 30_000)).toEqual({
+      kind: "formatted",
+      text: "2d ago",
+    });
   });
 
+  const text = (language: Language, ago: number) => {
+    const result = since(language, ago);
+    return result.kind === "formatted" ? result.text : result.kind;
+  };
+
   it("reads Spanish on es", () => {
-    expect(since("es", 0)).toBe("este minuto");
-    expect(since("es", 30_000)).toBe("hace 1 min");
-    expect(since("es", 59 * MINUTE)).toBe("hace 59 min");
-    expect(since("es", 60 * MINUTE)).toBe("hace 1 h");
-    expect(since("es", 47 * HOUR)).toBe("hace 47 h");
-    expect(since("es", 96 * HOUR)).toBe("hace 4 d");
+    expect(text("es", 30_000)).toBe("hace 1 min");
+    expect(text("es", 59 * MINUTE)).toBe("hace 59 min");
+    expect(text("es", 60 * MINUTE)).toBe("hace 1 h");
+    expect(text("es", 47 * HOUR)).toBe("hace 47 h");
+    expect(text("es", 96 * HOUR)).toBe("hace 4 d");
   });
 
   it("reads Catalan on ca", () => {
-    expect(since("ca", 0)).toBe("aquest minut");
-    expect(since("ca", 30_000)).toBe("fa 1 min");
-    expect(since("ca", 59 * MINUTE)).toBe("fa 59 min");
-    expect(since("ca", 60 * MINUTE)).toBe("fa 1 h");
-    expect(since("ca", 47 * HOUR)).toBe("fa 47 h");
-    expect(since("ca", 96 * HOUR)).toBe("fa 4 dies");
+    expect(text("ca", 30_000)).toBe("fa 1 min");
+    expect(text("ca", 59 * MINUTE)).toBe("fa 59 min");
+    expect(text("ca", 60 * MINUTE)).toBe("fa 1 h");
+    expect(text("ca", 47 * HOUR)).toBe("fa 47 h");
+    expect(text("ca", 96 * HOUR)).toBe("fa 4 dies");
   });
 
-  // numeric "auto" is what makes the under-a-minute case a phrase instead of
-  // "in 0m", and the same setting names the day before yesterday in Spanish
-  // and Catalan. Pinned so the choice is visible if anyone changes the option.
-  it("uses the idiomatic phrase where the language has one", () => {
-    expect(since("es", 48 * HOUR)).toBe("anteayer");
-    expect(since("ca", 48 * HOUR)).toBe("abans-d’ahir");
+  // numeric "always" (ruling 17) is what keeps a phrase out of a column: under
+  // "auto" these two read "anteayer" and "abans-d’ahir", which say nothing
+  // about a session two days old sitting in a table of numbers. Pinned so the
+  // choice is visible if anyone changes the option back.
+  it("counts the days instead of naming them", () => {
+    expect(text("es", 48 * HOUR)).toBe("hace 2 d");
+    expect(text("ca", 48 * HOUR)).toBe("fa 2 dies");
+    expect(text("en", 48 * HOUR)).toBe("2d ago");
   });
 });
 
@@ -88,16 +107,15 @@ describe("timeUntil", () => {
     expect(until("en", 0)).toEqual({ kind: "expired" });
     expect(until("en", -1)).toEqual({ kind: "expired" });
     expect(until("ca", -HOUR)).toEqual({ kind: "expired" });
-    expect(until("en", 1)).toEqual({ kind: "formatted", text: "this hour" });
+    expect(until("en", 1)).toEqual({ kind: "underHour" });
   });
 
-  // hours = round(ms / 3600000), so anything under half an hour is 0 and gets
-  // the phrase. This bucket is new: the hand-built formatter printed "0h".
-  it("leaves the under-an-hour phrase at 30m", () => {
-    expect(until("en", 29 * MINUTE + 59_999)).toEqual({
-      kind: "formatted",
-      text: "this hour",
-    });
+  // hours = round(ms / 3600000), so anything under half an hour is 0. Intl
+  // would say "in 0h"; the caller says what the hand-built formatter said
+  // (ruling 17), so this bucket is a kind and not a text.
+  it("leaves the under-an-hour case at 30m", () => {
+    expect(until("en", 29 * MINUTE + 59_999)).toEqual({ kind: "underHour" });
+    expect(until("ca", 29 * MINUTE + 59_999)).toEqual({ kind: "underHour" });
     expect(until("en", 30 * MINUTE)).toEqual({
       kind: "formatted",
       text: "in 1h",
@@ -118,8 +136,6 @@ describe("timeUntil", () => {
   });
 
   it("reads Spanish and Catalan", () => {
-    expect(until("es", 1)).toEqual({ kind: "formatted", text: "esta hora" });
-    expect(until("ca", 1)).toEqual({ kind: "formatted", text: "aquesta hora" });
     expect(until("es", 12 * HOUR)).toEqual({
       kind: "formatted",
       text: "dentro de 12 h",

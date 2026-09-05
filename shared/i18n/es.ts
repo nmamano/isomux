@@ -17,6 +17,10 @@ export const es: Catalog = {
   "common.saveFailed": "No se pudo guardar",
   "common.nextConversation":
     "Los cambios se aplican en la siguiente conversación.",
+  "common.schedule": "Programación",
+  "common.discardPrompt": "¿Descartar los cambios sin guardar?",
+  "common.delete": "Eliminar",
+  "common.confirmQuestion": "¿Confirmar?",
   "common.settings": "Ajustes",
   "common.theme": "Tema",
   "common.preferences": "Preferencias",
@@ -25,10 +29,12 @@ export const es: Catalog = {
   "common.copy": "Copiar",
   "common.device": "Dispositivo",
   "common.discard": "Descartar",
+  "common.justNow": "ahora mismo",
   "common.name": "Nombre",
   "common.noRooms": "Aún no hay salas.",
   "common.prefix": "Prefijo",
   "common.revoke": "Revocar",
+  "common.rules": "Reglas",
   "common.role": "Rol",
   "common.rooms": "Salas",
   "common.signOut": "Cerrar sesión",
@@ -115,10 +121,7 @@ export const es: Catalog = {
   "settings.profile.avatar": "Avatar",
   "settings.profile.avatarHint":
     "(tu fantasma en la escena de la oficina; los demás usuarios lo ven junto al agente que estás viendo)",
-  "settings.profile.discardPrompt": "¿Descartar los cambios sin guardar?",
-  "settings.profile.delete": "Eliminar",
   "settings.profile.deleteHint": "Eliminar este usuario",
-  "settings.profile.confirmDelete": "¿Confirmar?",
   "settings.profile.deleteFailed": "No se pudo eliminar",
   "settings.profile.roomListFailed":
     "No se pudo confirmar tu lista de salas; Mostradas no se guardó.",
@@ -132,7 +135,6 @@ export const es: Catalog = {
   "settings.office.nameHint":
     "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",
-  "settings.office.rules": "Reglas",
   "settings.office.rulesHint": "(prompt de sistema para todos los agentes)",
   "settings.office.rulesTitle": "Reglas de la oficina",
   "settings.office.rulesExpandedHint":
@@ -251,7 +253,6 @@ export const es: Catalog = {
   "settings.usage.roomColumn": "Sala",
   "settings.usage.deleted": "eliminada",
   "settings.usage.schedules": "Uso por programación",
-  "settings.usage.scheduleColumn": "Programación",
   "settings.usage.total": "Total",
   "settings.usage.officeTotal": "Total de la oficina",
   "settings.usage.inSession": "Entrada (ses.)",
@@ -355,6 +356,7 @@ export const es: Catalog = {
 
   "settings.access.none": "Ninguna.",
   "settings.access.expired": "caducada",
+  "settings.access.expiresUnderHour": "0 h",
   "settings.access.localTime": "{time} local",
   "settings.access.inviteUrl": "URL de invitación",
   "settings.access.copyUrl": "Copiar la URL",
@@ -543,4 +545,227 @@ export const es: Catalog = {
   "settings.memberConnections.loadFailed":
     "No se han podido cargar las variables.",
   "settings.memberConnections.empty": "No hay variables.",
+  "dialogs.textarea.expand": "Ampliar {title}",
+  "dialogs.textarea.escCollapse": "Esc para plegar",
+  "dialogs.textarea.done": "Hecho",
+
+  "dialogs.schedulePrompt.title": "Ajustes de las programaciones",
+  "dialogs.schedulePrompt.rulesHint":
+    "(prompt de sistema para todas las programaciones)",
+  "dialogs.schedulePrompt.rulesPlaceholder":
+    "p. ej. Escribe siempre los hallazgos en un archivo markdown. Sé conciso.",
+  "dialogs.schedulePrompt.appliedNextRun":
+    "Se aplica a la próxima ejecución; las que están en curso usan la copia que capturaron.",
+  "common.field.engine": "Motor",
+  "common.field.model": "Modelo",
+  "common.field.effort": "Esfuerzo de razonamiento",
+  "common.field.sandbox": "Sandbox",
+  "common.field.permissionMode": "Modo de permisos",
+  "common.field.approvalPolicy": "Política de aprobación",
+  "common.field.workingDirectory": "Directorio de trabajo",
+
+  "common.effort.minimal": "Mínimo (solo Codex)",
+  "common.effort.low": "Bajo",
+  "common.effort.medium": "Medio",
+  "common.effort.high": "Alto",
+  "common.effort.xhigh": "Muy alto",
+  "common.effort.max": "Máximo",
+  "common.effort.ultra": "Ultra (solo Codex)",
+
+  "common.permission.claudeBypass":
+    "Omitir permisos (se aprueba todo automáticamente)",
+  "common.permission.codexNever": "No preguntar nunca (solo el sandbox)",
+  "common.sandbox.readOnly":
+    "Solo lectura (el modelo puede leer, nunca escribir)",
+  "common.sandbox.workspaceWrite":
+    "Escritura en el espacio de trabajo (solo dentro del cwd)",
+  "common.sandbox.dangerFullAccess": "Peligro: acceso total (sin sandbox)",
+
+  "common.model.currentOption": "Modelo actual",
+  "common.model.currentIs": "Modelo actual: {model}.",
+  "common.model.checkFailed":
+    "No se han podido comprobar los modelos disponibles. Vuelve a abrir este diálogo para intentarlo de nuevo.",
+  "common.model.notOffered":
+    "Esta cuenta no lo ofrece. Elige un modelo disponible.",
+  "common.model.loading": "Cargando los modelos disponibles…",
+  "common.model.startingOpenCode":
+    "OpenCode se está iniciando. Cargando los modelos disponibles…",
+  "common.model.noneConnected":
+    "OpenCode no tiene modelos de ningún proveedor conectado para este entorno.",
+  "common.model.selectConnected":
+    "Elige un modelo de OpenCode conectado antes de guardar.",
+  "common.model.loadFailed": "No se pudieron cargar los modelos",
+  "common.model.openCodeListFailed":
+    "OpenCode no ha podido listar sus modelos. Vuelve a abrir este diálogo.",
+  "common.model.codexNotSignedIn":
+    "No has iniciado sesión en Codex. Abre un agente de Codex y pulsa la tarjeta de inicio de sesión que emite, y luego vuelve a abrir este diálogo. (O define OPENAI_API_KEY en tu entorno.)",
+  "common.model.openCodeLoadFailed":
+    "No se pudieron cargar los modelos de OpenCode{detail}. Vuelve a abrir este diálogo para intentarlo de nuevo.",
+  "common.model.listLoadFailed":
+    "No se pudo cargar la lista de modelos{detail}. Se muestra la lista de reserva - puede que algunas opciones no funcionen en tu cuenta.",
+
+  "dialogs.schedule.titleNew": "Programación nueva",
+  "dialogs.schedule.titleEdit": "Editar la programación",
+  "dialogs.schedule.namePlaceholder": "Resumen diario",
+  "dialogs.schedule.daily": "Cada día",
+  "dialogs.schedule.weekly": "Cada semana",
+  "dialogs.schedule.interval": "Cada N minutos",
+  "dialogs.schedule.weekday.sunday": "Domingo",
+  "dialogs.schedule.weekday.monday": "Lunes",
+  "dialogs.schedule.weekday.tuesday": "Martes",
+  "dialogs.schedule.weekday.wednesday": "Miércoles",
+  "dialogs.schedule.weekday.thursday": "Jueves",
+  "dialogs.schedule.weekday.friday": "Viernes",
+  "dialogs.schedule.weekday.saturday": "Sábado",
+  "dialogs.schedule.hour": "Hora (0-23)",
+  "dialogs.schedule.minute": "Minuto (0-59)",
+  "dialogs.schedule.intervalMinutes": "Intervalo (minutos, mínimo 5)",
+  "dialogs.schedule.serverLocal": "Las horas son las del servidor.",
+  "dialogs.schedule.prompt": "Prompt",
+  "dialogs.schedule.promptTitle": "Prompt de la programación",
+  "dialogs.schedule.promptPlaceholder":
+    "p. ej. \"Resume lo que consiguió ayer cada agente.\"",
+  "dialogs.schedule.promptEmpty": "El prompt no puede estar vacío.",
+  "dialogs.schedule.permissionUnattended":
+    "Permitir las herramientas del proyecto (sin supervisión)",
+  "dialogs.schedule.permissionHintOpenCode":
+    "Se permiten las herramientas de shell y de edición. Se deniegan la delegación y las preguntas.",
+  "dialogs.schedule.permissionHint":
+    "Las programaciones se ejecutan sin supervisión - los modos que piden aprobación humana no están disponibles.",
+  "dialogs.schedule.enabled":
+    "Activada (desmárcala para pausarla sin eliminarla)",
+  "dialogs.schedule.create": "Crear",
+
+  "dialogs.agent.titleSpawn": "Crear un agente nuevo",
+  "dialogs.agent.titleEdit": "Editar el agente",
+  "dialogs.agent.desk": "Escritorio #{desk}",
+  "dialogs.agent.engineBlurb.claude":
+    "Funciona con tu cuenta de Claude Code.",
+  "dialogs.agent.engineBlurb.codex":
+    "Funciona con tu cuenta de ChatGPT.",
+  "dialogs.agent.engineBlurb.opencode":
+    "Funciona con los modelos configurados a través de OpenCode.",
+  "dialogs.agent.template": "Empezar con una plantilla",
+  "dialogs.agent.templateHint":
+    "Las plantillas rellenan los campos de abajo. Puedes editar todas las sugerencias.",
+  "dialogs.agent.blank": "En blanco",
+  "dialogs.agent.blankHint": "Configura el agente tú mismo.",
+  "dialogs.agent.appearance": "Aspecto",
+  "dialogs.agent.randomize": "Elegir al azar",
+  "dialogs.agent.skin": "Piel",
+  "dialogs.agent.shirt": "Camiseta",
+  "dialogs.agent.hairColor": "Color del pelo",
+  "dialogs.agent.hairStyle": "Peinado",
+  "dialogs.agent.hat": "Gorro",
+  "dialogs.agent.beard": "Barba",
+  "dialogs.agent.accessory": "Accesorio",
+  "dialogs.agent.hairStyle.short": "Corto",
+  "dialogs.agent.hairStyle.long": "Largo",
+  "dialogs.agent.hairStyle.ponytail": "Coleta",
+  "dialogs.agent.hairStyle.bun": "Moño",
+  "dialogs.agent.hairStyle.pigtails": "Coletas",
+  "dialogs.agent.hairStyle.curly": "Rizado",
+  "dialogs.agent.hairStyle.bald": "Calvo",
+  "dialogs.agent.hat.none": "Ninguno",
+  "dialogs.agent.hat.cap": "Gorra",
+  "dialogs.agent.hat.beanie": "Gorro de lana",
+  "dialogs.agent.hat.bow": "Lazo",
+  "dialogs.agent.hat.headband": "Cinta",
+  "dialogs.agent.accessory.none": "Ninguno",
+  "dialogs.agent.accessory.glasses": "Gafas",
+  "dialogs.agent.accessory.headphones": "Auriculares",
+  "dialogs.agent.accessory.bowTie": "Pajarita",
+  "dialogs.agent.accessory.tie": "Corbata",
+  "dialogs.agent.accessory.earrings": "Pendientes",
+  "dialogs.agent.beard.none": "Ninguna",
+  "dialogs.agent.beard.stubble": "Incipiente",
+  "dialogs.agent.beard.full": "Poblada",
+  "dialogs.agent.beard.goatee": "Perilla",
+  "dialogs.agent.beard.mustache": "Bigote",
+  "dialogs.agent.recent": "Recientes",
+  "dialogs.agent.manager": "Responsable",
+  "dialogs.agent.managerTitle":
+    "Se fija al crear el agente - el responsable no se puede cambiar después.",
+  "dialogs.agent.managerNoUser": "(sin usuario asignado)",
+  "dialogs.agent.managerUnowned": "(sin propietario)",
+  "dialogs.agent.managerHint":
+    "Vinculado al usuario que lo crea. Determina qué variables personales se cargan en cada sesión (mira Ajustes → Tú → Conexiones individuales).",
+  "dialogs.agent.privileged": "Acceso de operador con privilegios",
+  "dialogs.agent.privilegedHint":
+    "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del usuario que lo creó. Sigue actuando como el agente, nunca como el usuario.",
+  "dialogs.agent.privilegedRestart":
+    "Al guardar se reinicia la sesión del agente.",
+  "dialogs.agent.permission.ask": "Preguntar",
+  "dialogs.agent.permission.bypassAll": "Omitir todos los permisos",
+  "dialogs.agent.permission.codexUntrusted":
+    "No fiable (preguntar en cada herramienta)",
+  "dialogs.agent.permission.codexOnRequest":
+    "A petición (el modelo pregunta cuando lo necesita)",
+  "dialogs.agent.permission.claudeAuto":
+    "Auto (un clasificador aprueba las acciones seguras)",
+  "dialogs.agent.permission.claudeDefault": "Por defecto (preguntar para todo)",
+  "dialogs.agent.permission.claudeAcceptEdits":
+    "Aceptar ediciones (aprobar los cambios en archivos)",
+  "dialogs.agent.modelTier.free":
+    "Gratis (el proveedor puede usar el tráfico para entrenar)",
+  "dialogs.agent.modelTier.payg": "Pago por uso (créditos de OpenCode)",
+  "dialogs.agent.modelTier.subscription": "Suscripción (OpenCode Go)",
+  "dialogs.agent.memoryHint":
+    "(hechos duraderos de este agente; líneas en bruto; {size} / {cap})",
+  "dialogs.agent.memoryTitle": "Memoria del agente",
+  "dialogs.agent.memoryPlaceholder":
+    "Alguna memoria relevante para este agente",
+  "dialogs.agent.customInstructions": "Instrucciones personalizadas",
+  "dialogs.agent.optional": "(opcional)",
+  "dialogs.agent.customInstructionsHint":
+    "Prompt de sistema personal para este agente. Ejecuta /isomux-system-prompt en un chat para ver el prompt de sistema completo del agente.",
+  "dialogs.agent.customInstructionsPlaceholder":
+    "p. ej. \"Eres un especialista en backend. Escribe siempre tests.\"",
+  "dialogs.agent.systemPromptHint":
+    "Ejecuta <code>/isomux-system-prompt</code> en un chat para ver el prompt de sistema completo del agente.",
+  "dialogs.agent.revive": "Reactivar un agente detenido",
+  "dialogs.agent.reviving": "Reactivando…",
+  "dialogs.agent.reviveFailed": "No se pudo reactivar",
+  "dialogs.agent.moveToRoom": "Mover a la sala",
+  "dialogs.agent.invalidDirectory": "Directorio no válido",
+  "dialogs.agent.staleInstructions":
+    "Las instrucciones personalizadas han cambiado desde que abriste esto - vuelve a abrir el diálogo para editar la versión más reciente.",
+  "dialogs.agent.spawn": "Crear",
+
+  "templates.moneyPlanner.label": "Planificador de finanzas",
+  "templates.moneyPlanner.description":
+    "Planifica gastos, ahorro, objetivos y decisiones financieras.",
+  "templates.sideProjectBuilder.label": "Creador de proyectos paralelos",
+  "templates.sideProjectBuilder.description":
+    "Convierte una idea vaga en un producto pequeño que llega a publicarse.",
+  "templates.healthNavigator.label": "Guía de salud",
+  "templates.healthNavigator.description":
+    "Organiza la información de salud y prepara las consultas.",
+  "templates.lifeCoach.label": "Coach de vida",
+  "templates.lifeCoach.description":
+    "Aclara objetivos, elige los siguientes pasos y revisa el progreso.",
+  "templates.researchAnalyst.label": "Analista de investigación",
+  "templates.researchAnalyst.description":
+    "Investiga preguntas y produce informes listos para decidir.",
+  "templates.personalSiteBuilder.label": "Creador de sitios personales",
+  "templates.personalSiteBuilder.description":
+    "Diseña, construye y publica un sitio web personal.",
+  "templates.cityGuide.label": "Guía de la ciudad",
+  "templates.cityGuide.description":
+    "Descubre lugares y planifica según cómo exploras.",
+  "templates.todoListAssistant.label": "Asistente de tareas pendientes",
+  "templates.todoListAssistant.description":
+    "Convierte los compromisos en un sistema personal que sigue siendo útil.",
+  "templates.codeReviewer.label": "Revisor de código",
+  "templates.codeReviewer.description":
+    "Encuentra los defectos que importan y explica soluciones precisas.",
+  "templates.relationshipAdvisor.label": "Consejero de relaciones",
+  "templates.relationshipAdvisor.description":
+    "Piensa a fondo la comunicación, las necesidades y los siguientes pasos.",
+  "templates.jobSearchCoach.label": "Coach de búsqueda de empleo",
+  "templates.jobSearchCoach.description":
+    "Enfoca la búsqueda y mejora las candidaturas y las entrevistas.",
+  "templates.tripPlanner.label": "Planificador de viajes",
+  "templates.tripPlanner.description":
+    "Construye viajes prácticos según tus intereses y tus límites.",
 };

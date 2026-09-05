@@ -40,15 +40,24 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
+import { useI18n } from "../i18n.tsx";
+import { effortLabel } from "../effort-label.ts";
+import type { MessageKey } from "../../shared/i18n/translate.ts";
 
-const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
-  { value: 0, label: "Sunday" },
-  { value: 1, label: "Monday" },
-  { value: 2, label: "Tuesday" },
-  { value: 3, label: "Wednesday" },
-  { value: 4, label: "Thursday" },
-  { value: 5, label: "Friday" },
-  { value: 6, label: "Saturday" },
+// The weekday select. The day is an id, its name is a catalog key: no hand-built
+// weekday table survives here (ruling 12 keeps date words out of the code, and
+// Intl has no plain list of a language's day names).
+const WEEKDAYS: {
+  value: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  key: Extract<MessageKey, `dialogs.schedule.weekday.${string}`>;
+}[] = [
+  { value: 0, key: "dialogs.schedule.weekday.sunday" },
+  { value: 1, key: "dialogs.schedule.weekday.monday" },
+  { value: 2, key: "dialogs.schedule.weekday.tuesday" },
+  { value: 3, key: "dialogs.schedule.weekday.wednesday" },
+  { value: 4, key: "dialogs.schedule.weekday.thursday" },
+  { value: 5, key: "dialogs.schedule.weekday.friday" },
+  { value: 6, key: "dialogs.schedule.weekday.saturday" },
 ];
 
 type ScheduleType = "daily" | "weekly" | "interval";
@@ -109,6 +118,8 @@ export function CronjobDialog({
   onClose: () => void;
 }) {
   const isEdit = !!cronjob;
+  const i18n = useI18n();
+  const { t } = i18n;
   const { recentCwds, isMobile } = useAppState();
 
   const [name, setName] = useState(cronjob?.name ?? "");
@@ -303,7 +314,7 @@ export function CronjobDialog({
         if (cancelled) return;
         setModelsLoading(false);
         setModelsError({
-          message: e instanceof ApiError ? e.message : "Failed to load models",
+          message: e instanceof ApiError ? e.message : t("common.model.loadFailed"),
           authError: false,
         });
       });
@@ -380,11 +391,11 @@ export function CronjobDialog({
 
   function handleSave() {
     if (!prompt.trim()) {
-      setError("Prompt cannot be empty.");
+      setError(t("dialogs.schedule.promptEmpty"));
       return;
     }
     if (!openCodeModelReady) {
-      setError("Select a connected OpenCode model before saving.");
+      setError(t("common.model.selectConnected"));
       return;
     }
     setError(null);
@@ -430,7 +441,9 @@ export function CronjobDialog({
     }
     req
       .then(() => onClose())
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : t("common.saveFailed")),
+      )
       .finally(() => setSaving(false));
   }
 
@@ -499,7 +512,9 @@ export function CronjobDialog({
               color: "var(--text-primary)",
             }}
           >
-            {isEdit ? "Edit Schedule" : "New Schedule"}
+            {isEdit
+              ? t("dialogs.schedule.titleEdit")
+              : t("dialogs.schedule.titleNew")}
           </h3>
           {isEdit && (
             <p
@@ -514,16 +529,18 @@ export function CronjobDialog({
             </p>
           )}
 
-          <label style={labelStyle}>Name</label>
+          <label style={labelStyle}>{t("common.name")}</label>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Daily summary"
+            placeholder={t("dialogs.schedule.namePlaceholder")}
             autoFocus={!isEdit}
             style={inputStyle}
           />
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Schedule</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("common.schedule")}
+          </label>
           <select
             value={scheduleType}
             onChange={(e) => setScheduleType(e.target.value as ScheduleType)}
@@ -534,9 +551,9 @@ export function CronjobDialog({
               marginBottom: 6,
             }}
           >
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="interval">Every N minutes</option>
+            <option value="daily">{t("dialogs.schedule.daily")}</option>
+            <option value="weekly">{t("dialogs.schedule.weekly")}</option>
+            <option value="interval">{t("dialogs.schedule.interval")}</option>
           </select>
           {scheduleType === "weekly" && (
             <select
@@ -555,7 +572,7 @@ export function CronjobDialog({
             >
               {WEEKDAYS.map((d) => (
                 <option key={d.value} value={d.value}>
-                  {d.label}
+                  {t(d.key)}
                 </option>
               ))}
             </select>
@@ -570,7 +587,7 @@ export function CronjobDialog({
                     marginBottom: 4,
                   }}
                 >
-                  Hour (0-23)
+                  {t("dialogs.schedule.hour")}
                 </div>
                 <input
                   type="number"
@@ -592,7 +609,7 @@ export function CronjobDialog({
                     marginBottom: 4,
                   }}
                 >
-                  Minute (0-59)
+                  {t("dialogs.schedule.minute")}
                 </div>
                 <input
                   type="number"
@@ -617,7 +634,7 @@ export function CronjobDialog({
                   marginBottom: 4,
                 }}
               >
-                Interval (minutes, min 5)
+                {t("dialogs.schedule.intervalMinutes")}
               </div>
               <input
                 type="number"
@@ -640,21 +657,23 @@ export function CronjobDialog({
               margin: "6px 0 0",
             }}
           >
-            Times are server-local.
+            {t("dialogs.schedule.serverLocal")}
           </p>
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Prompt</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("dialogs.schedule.prompt")}
+          </label>
           <ExpandableTextarea
             value={prompt}
             onChange={setPrompt}
-            title="Schedule Prompt"
-            placeholder='e.g. "Summarize what every agent accomplished yesterday."'
+            title={t("dialogs.schedule.promptTitle")}
+            placeholder={t("dialogs.schedule.promptPlaceholder")}
             rows={4}
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
-            Working Directory
+            {t("common.field.workingDirectory")}
           </label>
           <input
             value={cwd}
@@ -678,7 +697,9 @@ export function CronjobDialog({
             </div>
           )}
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Engine</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("common.field.engine")}
+          </label>
           <select
             value={agentType}
             onChange={(e) =>
@@ -691,7 +712,9 @@ export function CronjobDialog({
             <option value="opencode">OpenCode</option>
           </select>
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Model</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            {t("common.field.model")}
+          </label>
           {(() => {
             // Codex models come from the server (auth-aware via model/list).
             // On fetch failure OR an empty list we fall back to the hardcoded
@@ -770,7 +793,7 @@ export function CronjobDialog({
                           : null}
                       {storedNotInList && (
                         <option key={modelFamily} value={modelFamily}>
-                          Current model
+                          {t("common.model.currentOption")}
                         </option>
                       )}
                     </>
@@ -797,10 +820,12 @@ export function CronjobDialog({
                         margin: "3px 0 0",
                       }}
                     >
-                      Current model: {familyDisplayLabel(modelFamily)}.{" "}
+                      {t("common.model.currentIs", {
+                        model: familyDisplayLabel(modelFamily),
+                      })}{" "}
                       {modelsError
-                        ? "The available models could not be checked. Reopen this dialog to try again."
-                        : "This login does not offer it. Choose an available model."}
+                        ? t("common.model.checkFailed")
+                        : t("common.model.notOffered")}
                     </p>
                   )}
               </>
@@ -815,8 +840,8 @@ export function CronjobDialog({
               }}
             >
               {modelsStarting && isOpenCode
-                ? "OpenCode is starting. Loading available models…"
-                : "Loading available models…"}
+                ? t("common.model.startingOpenCode")
+                : t("common.model.loading")}
             </p>
           )}
           {usesBackendModels && modelsError && !modelsLoading && (
@@ -827,7 +852,7 @@ export function CronjobDialog({
                 margin: "3px 0 0",
               }}
             >
-              {modelListErrorMessage(isOpenCode, modelsError)}
+              {modelListErrorMessage(i18n, isOpenCode, modelsError)}
             </p>
           )}
           {isOpenCode &&
@@ -841,7 +866,7 @@ export function CronjobDialog({
                   margin: "3px 0 0",
                 }}
               >
-                OpenCode has no connected provider models for this environment.
+                {t("common.model.noneConnected")}
               </p>
             )}
           {openCodeCatalogRejectsSelection && (
@@ -852,35 +877,27 @@ export function CronjobDialog({
                 margin: "3px 0 0",
               }}
             >
-              Select a connected OpenCode model before saving.
+              {t("common.model.selectConnected")}
             </p>
           )}
 
           {!isOpenCode && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
-                Thinking Effort
+                {t("common.field.effort")}
               </label>
               {(() => {
                 // Codex: per-model supportedEfforts from model/list when available.
                 // Claude: family-level rules (max only for opus).
-                let effortOptions: { level: string; label: string }[];
+                let effortOptions: { level: string }[];
                 if (isCodex) {
                   const picked = backendModels?.find(
                     (m) => m.id === modelFamily,
                   );
                   if (picked && picked.supportedEfforts.length > 0) {
-                    effortOptions = picked.supportedEfforts.map((o) => {
-                      const match = EFFORT_LEVELS.find(
-                        (e) => e.level === o.level,
-                      );
-                      return {
-                        level: o.level,
-                        label: match
-                          ? match.label
-                          : o.level.charAt(0).toUpperCase() + o.level.slice(1),
-                      };
-                    });
+                    effortOptions = picked.supportedEfforts.map((o) => ({
+                      level: o.level,
+                    }));
                   } else {
                     // No supportedEfforts reported (or list not yet loaded): fall
                     // back to the static list minus "max"/"ultra" (not universal
@@ -888,7 +905,7 @@ export function CronjobDialog({
                     // per-model list is the real source when available).
                     effortOptions = EFFORT_LEVELS.filter(
                       (opt) => opt.level !== "max" && opt.level !== "ultra",
-                    ).map((o) => ({ level: o.level, label: o.label }));
+                    ).map((o) => ({ level: o.level }));
                   }
                 } else {
                   effortOptions = EFFORT_LEVELS.filter((opt) => {
@@ -897,7 +914,7 @@ export function CronjobDialog({
                     if (opt.level === "minimal") return false; // Codex-only
                     if (opt.level === "ultra") return false; // Codex-only
                     return true;
-                  }).map((o) => ({ level: o.level, label: o.label }));
+                  }).map((o) => ({ level: o.level }));
                 }
                 return (
                   <select
@@ -911,7 +928,7 @@ export function CronjobDialog({
                   >
                     {effortOptions.map((opt) => (
                       <option key={opt.level} value={opt.level}>
-                        {opt.label}
+                        {effortLabel(i18n, opt.level)}
                       </option>
                     ))}
                   </select>
@@ -921,7 +938,9 @@ export function CronjobDialog({
           )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
-            {isCodex ? "Approval Policy" : "Permission Mode"}
+            {isCodex
+              ? t("common.field.approvalPolicy")
+              : t("common.field.permissionMode")}
           </label>
           <select
             value={permissionMode}
@@ -931,14 +950,14 @@ export function CronjobDialog({
             style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
           >
             {isCodex ? (
-              <option value="never">Never ask (use sandbox-only)</option>
+              <option value="never">{t("common.permission.codexNever")}</option>
             ) : isOpenCode ? (
               <option value="bypassPermissions">
-                Allow project tools (unattended)
+                {t("dialogs.schedule.permissionUnattended")}
               </option>
             ) : (
               <option value="bypassPermissions">
-                Bypass (auto-approve all)
+                {t("common.permission.claudeBypass")}
               </option>
             )}
           </select>
@@ -950,13 +969,15 @@ export function CronjobDialog({
             }}
           >
             {isOpenCode
-              ? "Shell and edit tools are allowed. Delegation and questions are denied."
-              : "Schedules run unattended - modes that require human approval are not available."}
+              ? t("dialogs.schedule.permissionHintOpenCode")
+              : t("dialogs.schedule.permissionHint")}
           </p>
 
           {isCodex && (
             <>
-              <label style={{ ...labelStyle, marginTop: 14 }}>Sandbox</label>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                {t("common.field.sandbox")}
+              </label>
               <select
                 value={codexSandbox}
                 onChange={(e) =>
@@ -965,13 +986,13 @@ export function CronjobDialog({
                 style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
               >
                 <option value="read-only">
-                  Read-only (model can read, never write)
+                  {t("common.sandbox.readOnly")}
                 </option>
                 <option value="workspace-write">
-                  Workspace write (write inside cwd only)
+                  {t("common.sandbox.workspaceWrite")}
                 </option>
                 <option value="danger-full-access">
-                  Danger: full access (no sandbox)
+                  {t("common.sandbox.dangerFullAccess")}
                 </option>
               </select>
             </>
@@ -1001,7 +1022,7 @@ export function CronjobDialog({
                   cursor: "pointer",
                 }}
               >
-                Enabled (uncheck to pause without deleting)
+                {t("dialogs.schedule.enabled")}
               </label>
             </div>
           )}
@@ -1038,13 +1059,13 @@ export function CronjobDialog({
               <span
                 style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
               >
-                Discard unsaved changes?
+                {t("common.discardPrompt")}
               </span>
               <button onClick={commitDiscard} style={discardBtnStyle}>
-                Discard
+                {t("common.discard")}
               </button>
               <button onClick={cancelDiscard} style={cancelBtnStyle}>
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           )}
@@ -1071,7 +1092,7 @@ export function CronjobDialog({
                 }}
                 disabled={saving}
               >
-                {confirmDelete ? "Confirm?" : "Delete"}
+                {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
               </button>
             )}
             <div style={{ display: "flex", gap: 8 }}>
@@ -1080,14 +1101,18 @@ export function CronjobDialog({
                 style={cancelBtnStyle}
                 disabled={saving}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={handleSave}
                 style={saveBtnStyle}
                 disabled={saving || !openCodeModelReady}
               >
-                {saving ? "Saving…" : isEdit ? "Save" : "Create"}
+                {saving
+                  ? t("common.saving")
+                  : isEdit
+                    ? t("common.save")
+                    : t("dialogs.schedule.create")}
               </button>
             </div>
           </div>

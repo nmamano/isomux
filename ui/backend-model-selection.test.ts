@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "./api.ts";
-import { fetchBackendModels } from "./backend-model-selection.ts";
+import {
+  fetchBackendModels,
+  modelListErrorMessage,
+} from "./backend-model-selection.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
 
 const noSleep = async () => {};
 
@@ -87,5 +91,51 @@ describe("fetchBackendModels", () => {
       }),
     ).rejects.toMatchObject({ status: 403 });
     expect(attempts).toBe(1);
+  });
+});
+
+// The four sentences a dialog shows when a model list does not arrive. Written
+// out rather than read back through a translator (ruling 14), so a catalog edit
+// that changes the English has to be made here too; the backend's own message
+// is the untranslated detail the sentence carries (ruling 2).
+describe("modelListErrorMessage", () => {
+  const english = translatorFor("en");
+  const catalan = translatorFor("ca");
+
+  it("names the login that is missing when the failure is an auth one", () => {
+    const authError = { message: "", authError: true };
+    expect(modelListErrorMessage(english, true, authError)).toBe(
+      "OpenCode could not list its models. Reopen this dialog.",
+    );
+    expect(modelListErrorMessage(english, false, authError)).toBe(
+      "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)",
+    );
+  });
+
+  it("carries the backend's own message as an untranslated detail", () => {
+    expect(
+      modelListErrorMessage(english, true, {
+        message: "connect ECONNREFUSED",
+        authError: false,
+      }),
+    ).toBe(
+      "Could not load OpenCode models (connect ECONNREFUSED). Reopen this dialog to try again.",
+    );
+    expect(
+      modelListErrorMessage(catalan, true, {
+        message: "connect ECONNREFUSED",
+        authError: false,
+      }),
+    ).toBe(
+      "No s'han pogut carregar els models d'OpenCode (connect ECONNREFUSED). Torna a obrir aquest diàleg per provar-ho de nou.",
+    );
+  });
+
+  it("drops the parentheses when the backend said nothing", () => {
+    expect(
+      modelListErrorMessage(english, false, { message: "  ", authError: false }),
+    ).toBe(
+      "Could not load model list. Showing fallback list - some options may not work on your account.",
+    );
   });
 });

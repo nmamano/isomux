@@ -262,10 +262,10 @@ export function SessionsTable({
                     device names itself in Device Settings. */}
                 <td style={sessionPrimaryCell}>{s.device ?? " - "}</td>
                 <td style={sessionPrimaryCell}>
-                  {timeSince(i18n.language, s.lastSeenAt)}
+                  {formatSince(i18n, s.lastSeenAt)}
                 </td>
                 <td style={sessionPrimaryCell}>
-                  {timeSince(i18n.language, s.createdAt)}
+                  {formatSince(i18n, s.createdAt)}
                 </td>
                 <td style={sessionPrimaryEllipsis}>{s.userAgent ?? " - "}</td>
                 <td style={sessionPrimaryMono}>{s.sessionPrefix}…</td>
@@ -386,14 +386,23 @@ export function useAutoClearBlockedNote(
   }, [activeSessions.length, setBlockedNote]);
 }
 
-// A deadline as the Expires column shows it. Intl has no form for a deadline
-// already past, so timeUntil reports that case and the word comes from the
-// catalog like every other word.
+// An age as the tables show it. Under a minute there is no number worth
+// printing, so timeSince reports that case and the word comes from the catalog
+// like every other word (ruling 17).
+export function formatSince(i18n: Translator, ts: number): string {
+  const since = timeSince(i18n.language, ts);
+  return since.kind === "now" ? i18n.t("common.justNow") : since.text;
+}
+
+// A deadline as the Expires column shows it. Neither a deadline already past
+// nor one under an hour off has a form worth taking from Intl, so timeUntil
+// reports both cases and the words come from the catalog.
 function formatExpiry(i18n: Translator, ts: number): string {
   const left = timeUntil(i18n.language, ts);
-  return left.kind === "expired"
-    ? i18n.t("settings.access.expired")
-    : left.text;
+  if (left.kind === "expired") return i18n.t("settings.access.expired");
+  if (left.kind === "underHour")
+    return i18n.t("settings.access.expiresUnderHour");
+  return left.text;
 }
 
 // The machine's own zone is the one thing Intl cannot say for us, so the

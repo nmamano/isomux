@@ -16,6 +16,10 @@ export const ca: Catalog = {
     "Aquest editor reescriu el fitxer tal com es mostra. Fes servir una memòria per línia.",
   "common.saveFailed": "No s'ha pogut desar",
   "common.nextConversation": "Els canvis s'apliquen a la conversa següent.",
+  "common.schedule": "Programació",
+  "common.discardPrompt": "Vols descartar els canvis sense desar?",
+  "common.delete": "Elimina",
+  "common.confirmQuestion": "Ho confirmes?",
   "common.settings": "Configuració",
   "common.theme": "Tema",
   "common.preferences": "Preferències",
@@ -24,10 +28,12 @@ export const ca: Catalog = {
   "common.copy": "Copia",
   "common.device": "Dispositiu",
   "common.discard": "Descarta",
+  "common.justNow": "ara mateix",
   "common.name": "Nom",
   "common.noRooms": "Encara no hi ha sales.",
   "common.prefix": "Prefix",
   "common.revoke": "Revoca",
+  "common.rules": "Regles",
   "common.role": "Rol",
   "common.rooms": "Sales",
   "common.signOut": "Tanca la sessió",
@@ -114,10 +120,7 @@ export const ca: Catalog = {
   "settings.profile.avatar": "Avatar",
   "settings.profile.avatarHint":
     "(el teu fantasma a l'escena de l'oficina; els altres usuaris el veuen al costat de l'agent que estàs mirant)",
-  "settings.profile.discardPrompt": "Vols descartar els canvis sense desar?",
-  "settings.profile.delete": "Elimina",
   "settings.profile.deleteHint": "Elimina aquest usuari",
-  "settings.profile.confirmDelete": "Ho confirmes?",
   "settings.profile.deleteFailed": "No s'ha pogut eliminar",
   "settings.profile.roomListFailed":
     "No s'ha pogut confirmar la teva llista de sales; Mostrades no s'ha desat.",
@@ -131,7 +134,6 @@ export const ca: Catalog = {
   "settings.office.nameHint":
     "(opcional, es mostra a la pestanya del navegador)",
   "settings.office.namePlaceholder": "Oficina del Nil",
-  "settings.office.rules": "Regles",
   "settings.office.rulesHint": "(prompt de sistema per a tots els agents)",
   "settings.office.rulesTitle": "Regles de l'oficina",
   "settings.office.rulesExpandedHint":
@@ -248,7 +250,6 @@ export const ca: Catalog = {
   "settings.usage.roomColumn": "Sala",
   "settings.usage.deleted": "eliminada",
   "settings.usage.schedules": "Ús per programació",
-  "settings.usage.scheduleColumn": "Programació",
   "settings.usage.total": "Total",
   "settings.usage.officeTotal": "Total de l'oficina",
   "settings.usage.inSession": "Entrada (ses.)",
@@ -351,6 +352,7 @@ export const ca: Catalog = {
 
   "settings.access.none": "Cap.",
   "settings.access.expired": "caducada",
+  "settings.access.expiresUnderHour": "0 h",
   "settings.access.localTime": "{time} local",
   "settings.access.inviteUrl": "URL d'invitació",
   "settings.access.copyUrl": "Copia la URL",
@@ -538,4 +540,227 @@ export const ca: Catalog = {
   "settings.memberConnections.loadFailed":
     "No s'han pogut carregar les variables.",
   "settings.memberConnections.empty": "No hi ha variables.",
+  "dialogs.textarea.expand": "Amplia {title}",
+  "dialogs.textarea.escCollapse": "Esc per plegar",
+  "dialogs.textarea.done": "Fet",
+
+  "dialogs.schedulePrompt.title": "Configuració de les programacions",
+  "dialogs.schedulePrompt.rulesHint":
+    "(prompt de sistema per a totes les programacions)",
+  "dialogs.schedulePrompt.rulesPlaceholder":
+    "p. ex. Escriu sempre les troballes en un fitxer markdown. Sigues concís.",
+  "dialogs.schedulePrompt.appliedNextRun":
+    "S'aplica a l'execució següent; les que ja s'estan executant fan servir la còpia que van capturar.",
+  "common.field.engine": "Motor",
+  "common.field.model": "Model",
+  "common.field.effort": "Esforç de raonament",
+  "common.field.sandbox": "Sandbox",
+  "common.field.permissionMode": "Mode de permisos",
+  "common.field.approvalPolicy": "Política d'aprovació",
+  "common.field.workingDirectory": "Directori de treball",
+
+  "common.effort.minimal": "Mínim (només Codex)",
+  "common.effort.low": "Baix",
+  "common.effort.medium": "Mitjà",
+  "common.effort.high": "Alt",
+  "common.effort.xhigh": "Molt alt",
+  "common.effort.max": "Màxim",
+  "common.effort.ultra": "Ultra (només Codex)",
+
+  "common.permission.claudeBypass":
+    "Ometre els permisos (s'aprova tot automàticament)",
+  "common.permission.codexNever": "No preguntar mai (només el sandbox)",
+  "common.sandbox.readOnly":
+    "Només lectura (el model pot llegir, mai escriure)",
+  "common.sandbox.workspaceWrite":
+    "Escriptura a l'espai de treball (només dins del cwd)",
+  "common.sandbox.dangerFullAccess": "Perill: accés total (sense sandbox)",
+
+  "common.model.currentOption": "Model actual",
+  "common.model.currentIs": "Model actual: {model}.",
+  "common.model.checkFailed":
+    "No s'han pogut comprovar els models disponibles. Torna a obrir aquest diàleg per provar-ho de nou.",
+  "common.model.notOffered":
+    "Aquest compte no l'ofereix. Tria un model disponible.",
+  "common.model.loading": "Carregant els models disponibles…",
+  "common.model.startingOpenCode":
+    "OpenCode s'està iniciant. Carregant els models disponibles…",
+  "common.model.noneConnected":
+    "OpenCode no té models de cap proveïdor connectat per a aquest entorn.",
+  "common.model.selectConnected":
+    "Tria un model d'OpenCode connectat abans de desar.",
+  "common.model.loadFailed": "No s'han pogut carregar els models",
+  "common.model.openCodeListFailed":
+    "OpenCode no ha pogut llistar els seus models. Torna a obrir aquest diàleg.",
+  "common.model.codexNotSignedIn":
+    "No has iniciat la sessió a Codex. Obre un agent de Codex i fes clic a la targeta d'inici de sessió que emet, i després torna a obrir aquest diàleg. (O defineix OPENAI_API_KEY al teu entorn.)",
+  "common.model.openCodeLoadFailed":
+    "No s'han pogut carregar els models d'OpenCode{detail}. Torna a obrir aquest diàleg per provar-ho de nou.",
+  "common.model.listLoadFailed":
+    "No s'ha pogut carregar la llista de models{detail}. Es mostra la llista de reserva - pot ser que algunes opcions no funcionin al teu compte.",
+
+  "dialogs.schedule.titleNew": "Programació nova",
+  "dialogs.schedule.titleEdit": "Editar la programació",
+  "dialogs.schedule.namePlaceholder": "Resum diari",
+  "dialogs.schedule.daily": "Cada dia",
+  "dialogs.schedule.weekly": "Cada setmana",
+  "dialogs.schedule.interval": "Cada N minuts",
+  "dialogs.schedule.weekday.sunday": "Diumenge",
+  "dialogs.schedule.weekday.monday": "Dilluns",
+  "dialogs.schedule.weekday.tuesday": "Dimarts",
+  "dialogs.schedule.weekday.wednesday": "Dimecres",
+  "dialogs.schedule.weekday.thursday": "Dijous",
+  "dialogs.schedule.weekday.friday": "Divendres",
+  "dialogs.schedule.weekday.saturday": "Dissabte",
+  "dialogs.schedule.hour": "Hora (0-23)",
+  "dialogs.schedule.minute": "Minut (0-59)",
+  "dialogs.schedule.intervalMinutes": "Interval (minuts, mínim 5)",
+  "dialogs.schedule.serverLocal": "Les hores són les del servidor.",
+  "dialogs.schedule.prompt": "Prompt",
+  "dialogs.schedule.promptTitle": "Prompt de la programació",
+  "dialogs.schedule.promptPlaceholder":
+    "p. ex. \"Resumeix què va aconseguir ahir cada agent.\"",
+  "dialogs.schedule.promptEmpty": "El prompt no pot estar buit.",
+  "dialogs.schedule.permissionUnattended":
+    "Permetre les eines del projecte (sense supervisió)",
+  "dialogs.schedule.permissionHintOpenCode":
+    "Es permeten les eines de shell i d'edició. Es deneguen la delegació i les preguntes.",
+  "dialogs.schedule.permissionHint":
+    "Les programacions s'executen sense supervisió - els modes que demanen aprovació humana no estan disponibles.",
+  "dialogs.schedule.enabled":
+    "Activada (desmarca-la per posar-la en pausa sense eliminar-la)",
+  "dialogs.schedule.create": "Crea",
+
+  "dialogs.agent.titleSpawn": "Crear un agent nou",
+  "dialogs.agent.titleEdit": "Editar l'agent",
+  "dialogs.agent.desk": "Escriptori #{desk}",
+  "dialogs.agent.engineBlurb.claude":
+    "Funciona amb el teu compte de Claude Code.",
+  "dialogs.agent.engineBlurb.codex":
+    "Funciona amb el teu compte de ChatGPT.",
+  "dialogs.agent.engineBlurb.opencode":
+    "Funciona amb els models configurats a través d'OpenCode.",
+  "dialogs.agent.template": "Començar amb una plantilla",
+  "dialogs.agent.templateHint":
+    "Les plantilles omplen els camps de sota. Pots editar totes les propostes.",
+  "dialogs.agent.blank": "En blanc",
+  "dialogs.agent.blankHint": "Configura l'agent tu mateix.",
+  "dialogs.agent.appearance": "Aspecte",
+  "dialogs.agent.randomize": "Tria a l'atzar",
+  "dialogs.agent.skin": "Pell",
+  "dialogs.agent.shirt": "Samarreta",
+  "dialogs.agent.hairColor": "Color del cabell",
+  "dialogs.agent.hairStyle": "Pentinat",
+  "dialogs.agent.hat": "Barret",
+  "dialogs.agent.beard": "Barba",
+  "dialogs.agent.accessory": "Accessori",
+  "dialogs.agent.hairStyle.short": "Curt",
+  "dialogs.agent.hairStyle.long": "Llarg",
+  "dialogs.agent.hairStyle.ponytail": "Cua",
+  "dialogs.agent.hairStyle.bun": "Monyo",
+  "dialogs.agent.hairStyle.pigtails": "Cues",
+  "dialogs.agent.hairStyle.curly": "Arrissat",
+  "dialogs.agent.hairStyle.bald": "Calb",
+  "dialogs.agent.hat.none": "Cap",
+  "dialogs.agent.hat.cap": "Gorra",
+  "dialogs.agent.hat.beanie": "Gorro de llana",
+  "dialogs.agent.hat.bow": "Llaç",
+  "dialogs.agent.hat.headband": "Cinta",
+  "dialogs.agent.accessory.none": "Cap",
+  "dialogs.agent.accessory.glasses": "Ulleres",
+  "dialogs.agent.accessory.headphones": "Auriculars",
+  "dialogs.agent.accessory.bowTie": "Corbatí",
+  "dialogs.agent.accessory.tie": "Corbata",
+  "dialogs.agent.accessory.earrings": "Arracades",
+  "dialogs.agent.beard.none": "Cap",
+  "dialogs.agent.beard.stubble": "Incipient",
+  "dialogs.agent.beard.full": "Poblada",
+  "dialogs.agent.beard.goatee": "Perilla",
+  "dialogs.agent.beard.mustache": "Bigoti",
+  "dialogs.agent.recent": "Recents",
+  "dialogs.agent.manager": "Responsable",
+  "dialogs.agent.managerTitle":
+    "Es fixa en crear l'agent - el responsable no es pot canviar després.",
+  "dialogs.agent.managerNoUser": "(cap usuari assignat)",
+  "dialogs.agent.managerUnowned": "(sense propietari)",
+  "dialogs.agent.managerHint":
+    "Vinculat a l'usuari que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).",
+  "dialogs.agent.privileged": "Accés d'operador amb privilegis",
+  "dialogs.agent.privilegedHint":
+    "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'usuari que el va crear. Continua actuant com l'agent, mai com l'usuari.",
+  "dialogs.agent.privilegedRestart":
+    "En desar es reinicia la sessió de l'agent.",
+  "dialogs.agent.permission.ask": "Preguntar",
+  "dialogs.agent.permission.bypassAll": "Ometre tots els permisos",
+  "dialogs.agent.permission.codexUntrusted":
+    "No fiable (preguntar a cada eina)",
+  "dialogs.agent.permission.codexOnRequest":
+    "A petició (el model pregunta quan ho necessita)",
+  "dialogs.agent.permission.claudeAuto":
+    "Auto (un classificador aprova les accions segures)",
+  "dialogs.agent.permission.claudeDefault": "Per defecte (preguntar per a tot)",
+  "dialogs.agent.permission.claudeAcceptEdits":
+    "Acceptar les edicions (aprovar els canvis en fitxers)",
+  "dialogs.agent.modelTier.free":
+    "Gratis (el proveïdor pot fer servir el trànsit per entrenar)",
+  "dialogs.agent.modelTier.payg": "Pagament per ús (crèdits d'OpenCode)",
+  "dialogs.agent.modelTier.subscription": "Subscripció (OpenCode Go)",
+  "dialogs.agent.memoryHint":
+    "(fets duradors d'aquest agent; línies en brut; {size} / {cap})",
+  "dialogs.agent.memoryTitle": "Memòria de l'agent",
+  "dialogs.agent.memoryPlaceholder":
+    "Alguna memòria rellevant per a aquest agent",
+  "dialogs.agent.customInstructions": "Instruccions personalitzades",
+  "dialogs.agent.optional": "(opcional)",
+  "dialogs.agent.customInstructionsHint":
+    "Prompt de sistema personal per a aquest agent. Executa /isomux-system-prompt en un xat per veure el prompt de sistema complet de l'agent.",
+  "dialogs.agent.customInstructionsPlaceholder":
+    "p. ex. \"Ets un especialista en backend. Escriu sempre tests.\"",
+  "dialogs.agent.systemPromptHint":
+    "Executa <code>/isomux-system-prompt</code> en un xat per veure el prompt de sistema complet de l'agent.",
+  "dialogs.agent.revive": "Reactiva un agent aturat",
+  "dialogs.agent.reviving": "Reactivant…",
+  "dialogs.agent.reviveFailed": "No s'ha pogut reactivar",
+  "dialogs.agent.moveToRoom": "Moure a la sala",
+  "dialogs.agent.invalidDirectory": "Directori no vàlid",
+  "dialogs.agent.staleInstructions":
+    "Les instruccions personalitzades han canviat des que vas obrir això - torna a obrir el diàleg per editar la versió més recent.",
+  "dialogs.agent.spawn": "Crea",
+
+  "templates.moneyPlanner.label": "Planificador de finances",
+  "templates.moneyPlanner.description":
+    "Planifica despeses, estalvi, objectius i decisions financeres.",
+  "templates.sideProjectBuilder.label": "Creador de projectes paral·lels",
+  "templates.sideProjectBuilder.description":
+    "Converteix una idea vaga en un producte petit que arriba a publicar-se.",
+  "templates.healthNavigator.label": "Guia de salut",
+  "templates.healthNavigator.description":
+    "Organitza la informació de salut i prepara les consultes.",
+  "templates.lifeCoach.label": "Coach de vida",
+  "templates.lifeCoach.description":
+    "Aclareix objectius, tria els passos següents i revisa el progrés.",
+  "templates.researchAnalyst.label": "Analista de recerca",
+  "templates.researchAnalyst.description":
+    "Investiga preguntes i produeix informes a punt per decidir.",
+  "templates.personalSiteBuilder.label": "Creador de llocs personals",
+  "templates.personalSiteBuilder.description":
+    "Dissenya, construeix i publica un lloc web personal.",
+  "templates.cityGuide.label": "Guia de la ciutat",
+  "templates.cityGuide.description":
+    "Descobreix llocs i planifica segons com explores.",
+  "templates.todoListAssistant.label": "Assistent de tasques pendents",
+  "templates.todoListAssistant.description":
+    "Converteix els compromisos en un sistema personal que continua sent útil.",
+  "templates.codeReviewer.label": "Revisor de codi",
+  "templates.codeReviewer.description":
+    "Troba els defectes que importen i explica solucions precises.",
+  "templates.relationshipAdvisor.label": "Conseller de relacions",
+  "templates.relationshipAdvisor.description":
+    "Pensa a fons la comunicació, les necessitats i els passos següents.",
+  "templates.jobSearchCoach.label": "Coach de cerca de feina",
+  "templates.jobSearchCoach.description":
+    "Enfoca la cerca i millora les candidatures i les entrevistes.",
+  "templates.tripPlanner.label": "Planificador de viatges",
+  "templates.tripPlanner.description":
+    "Construeix viatges pràctics segons els teus interessos i els teus límits.",
 };

@@ -5,6 +5,7 @@ import {
 } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 import { apiFetch, ApiError } from "./api.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
 
 export interface BackendModelsResponse {
   models: BackendModelWire[];
@@ -87,19 +88,27 @@ export function modelSelectCursor(
   return usesBackendModels && modelsLoading ? "not-allowed" : "pointer";
 }
 
+/**
+ * What the dialogs say when a model list does not arrive. Pure, so the
+ * translator is the first argument (ruling 18); the backend's own message is
+ * the untranslated `detail` the sentence carries (ruling 2 keeps a relayed
+ * error as delivered).
+ */
 export function modelListErrorMessage(
+  i18n: Translator,
   isOpenCode: boolean,
   error: { message: string; authError: boolean },
 ): string {
   if (error.authError) {
     return isOpenCode
-      ? "OpenCode could not list its models. Reopen this dialog."
-      : "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)";
+      ? i18n.t("common.model.openCodeListFailed")
+      : i18n.t("common.model.codexNotSignedIn");
   }
-  const detail = error.message.trim();
+  const message = error.message.trim();
+  const detail = message ? ` (${message})` : "";
   return isOpenCode
-    ? `Could not load OpenCode models${detail ? ` (${detail})` : ""}. Reopen this dialog to try again.`
-    : `Could not load model list${detail ? ` (${detail})` : ""}. Showing fallback list - some options may not work on your account.`;
+    ? i18n.t("common.model.openCodeLoadFailed", { detail })
+    : i18n.t("common.model.listLoadFailed", { detail });
 }
 
 export function openCodeModelSelectionReady(

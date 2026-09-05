@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { alternateEngineOptions, ENGINE_OPTIONS } from "./engine-options.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+
+const english = translatorFor("en");
 
 describe("spawn engines", () => {
   it("keeps one non-empty description for every supported engine", () => {
@@ -9,7 +12,7 @@ describe("spawn engines", () => {
       "opencode",
     ]);
     for (const option of ENGINE_OPTIONS) {
-      expect(option.blurb.trim().length).toBeGreaterThan(0);
+      expect(english.t(option.blurbKey).trim().length).toBeGreaterThan(0);
     }
   });
 });

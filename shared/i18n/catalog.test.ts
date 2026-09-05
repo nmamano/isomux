@@ -9,6 +9,8 @@ import { describe, expect, it } from "bun:test";
 import { CATALOGS } from "./translate.ts";
 import { en } from "./en.ts";
 import { SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE } from "../languages.ts";
+import { EFFORT_LEVELS } from "../types.ts";
+import { EFFORT_KEYS } from "../../ui/effort-label.ts";
 
 const ENGLISH_KEYS = Object.keys(en).sort();
 
@@ -147,5 +149,25 @@ describe("the catalogs", () => {
         en[key as keyof typeof en].toLowerCase(),
       );
     }
+  });
+});
+
+// One English string lives in two places on purpose: EFFORT_LEVELS keeps its
+// label for the server's /effort command (a server change is S7's), while the
+// dialogs read common.effort.* through the catalog. Two copies drift unless a
+// test holds them together, so this is that test.
+describe("the effort table and the catalog", () => {
+  it("say the same English for every level", () => {
+    // String(), because the catalog's values are literal types and the table's
+    // label is a plain string: without it this compares two different types and
+    // only tsc notices, since bun test does not typecheck.
+    for (const { level, label } of EFFORT_LEVELS)
+      expect(String(en[EFFORT_KEYS[level]]), level).toBe(label);
+  });
+
+  it("covers every level the table offers", () => {
+    expect(Object.keys(EFFORT_KEYS).sort()).toEqual(
+      EFFORT_LEVELS.map((entry) => entry.level).sort(),
+    );
   });
 });
