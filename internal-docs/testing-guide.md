@@ -76,6 +76,68 @@ A scratch copy made by excluding `.git` from a tar archive makes tests that
 call `git ls-files` exit 128. Confirm that exit appears on both sides before
 reading it as a regression.
 
+### Render tests (happy-dom)
+
+Measured 2026-09-05 with bun 1.3.11, happy-dom 20.14.0,
+`@happy-dom/global-registrator` 20.14.0 and `@testing-library/react` 16.3.3, all
+devDependencies. A render test mounts a real React component in a headless DOM.
+No browser runs in CI. `ui/test-support/dom.ts` is the whole harness;
+`ui/components/NavActions.dom.test.tsx` and `ui/App.dom.test.tsx` are the two
+worked examples.
+
+Name the file `*.dom.test.tsx`. `bun test dom.test` then runs the whole set, and
+`bun test <path>` runs one.
+
+The file shape is fixed, and each rule below exists because the alternative was
+measured to fail:
+
+```tsx
+import { describe, expect, it } from "bun:test";
+import { setUpDomTestFile } from "./test-support/dom.ts";
+
+setUpDomTestFile();
+
+const { render } = await import("@testing-library/react");
+const { App } = await import("./App.tsx");
+```
+
+1. The file shape is fixed. Static-import nothing but `bun:test` and
+   `ui/test-support/dom.ts`; call `setUpDomTestFile()` in the module body; then
+   load `@testing-library/react` and every module under test with top-level
+   `await import(...)`. bun evaluates a file's static imports before its body,
+   so a static import evaluates DOM-sensitive code before the DOM exists. It
+   does not always crash, which is why this is a convention rather than
+   something the next failure will teach you: `ui/store.tsx` reads
+   `window.innerWidth` at module scope behind a `typeof window` guard, so
+   without a DOM it silently records the wrong viewport. A `beforeAll` is not a
+   substitute - every static import in the file has already run by the time any
+   hook fires. Registering at import time inside `ui/test-support/dom.ts` is not
+   a substitute either: bun caches that module, so the side effect serves the
+   first DOM file only.
+2. Leave the unregistration in place. happy-dom replaces
+   `globalThis.WebSocket`, and `server/test-support/harness.ts` constructs one.
+   A DOM file that keeps its globals made three tests in that harness fail in
+   the same `bun test` process.
+3. Use the queries `render()` returns. Do not use the module-level `screen`.
+   `screen` binds to the `document` that existed when `@testing-library/dom` was
+   first evaluated; the next DOM file registers a new window, and `screen` then
+   queries the old one. The symptom is a query error that prints an empty
+   `<body />`.
+4. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
+   throwing `afterAll` fails the run). The clock starts at
+   `setUpDomTestFile()`, so it measures the file and not bun's startup: the App
+   file reads 2251 ms in-file and about 3 s as a whole invocation.
+
+A cold App render costs 758 ms and a warm one about 275 ms, which is the budget
+the cap is spending. Write a render test only for behaviour that needs the
+browser's own machinery - history and popstate, focus, portals. Anything that
+can be stated as a pure function stays a plain unit test.
+
+`ui/App.dom.test.tsx` also documents a useful seam: `App` mounts bare, with no
+provider tree and no fake store. `StateCtx`, `DispatchCtx` and `FeaturesCtx` all
+carry defaults, and it is `StoreProvider` - not `App` - that opens the
+websocket.
+
 ## Seams and where they live
 
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation
@@ -122,7 +184,7 @@ Surfaces that are not below the Backend seam have their own harnesses. Tests und
 - **Conversation-log search / retrieval** - the read core over fixture JSONL, plus the child process that isolates the scan. `log-search.test.ts` is written around the one rule that is easy to break by accident: MATCHING RUNS ON DECODED CONTENT. Every "a raw grep would miss this" case (escaped quotes, embedded newlines and tabs, non-ASCII) is asserted positively, and `canPrefilter` is asserted to REFUSE exactly those queries - the prefilter is a speed optimization that is only sound as a SUPERSET test, so its refusal condition is the actual mechanism under test and gets pinned separately from the searches that depend on it. The fork asymmetry is deliberate and pinned both ways: `session=<id>` reconstructs the ancestor timeline (a forked JSONL holds only branch-local entries), while an all-session scan reads each PHYSICAL entry once so a shared ancestor is not reported per branch; `reconstructTimeline` is additionally pinned against `persistence.loadLogWithAncestors` on the same fixture so the duplicated walk cannot drift. Also: the tier ladder, the `around` window INCLUDING an anchor its own tier filters out (dropping it would answer a question about an entry with a window excluding it), tail-not-head truncation, and the `truncated` / `timedOut` split - "more than your limit" and "I stopped looking" are different facts and are never conflated. `log-search-isolation.test.ts` is the ReDoS proof, and it is written around MEASUREMENTS rather than folklore, because three pieces of the folklore turned out to be false in this runtime. (1) A single catastrophic match does NOT run forever: it is bounded near 0.9s and does not grow with input size, so the textbook "one exec() that never returns" never reproduced. What runs away is the AGGREGATE - twenty such matches measured 17.8s of solid CPU. (2) `worker.terminate()` does NOT kill a Worker: termination is only observed when the worker returns to its event loop, so two workers doing identical work behaved completely differently (the one awaiting between matches died 311ms after terminate; the one with no await never died and held a core at 100%). That is why the scan is a child PROCESS and not a Worker. (3) SIGKILL on a process DOES stop it - 3ms even for the non-yielding spinner - which is what makes the endpoint's 504 a true statement rather than a hopeful one. The load-bearing test therefore uses a deliberately NON-YIELDING fixture (enough bait entries to be expensive, few enough to land in one stream chunk, so the scan is one uninterrupted synchronous burst with no interruption point), and asserts three things: the request returns near the deadline, a main-thread heartbeat kept ticking throughout, and - the part that separates a real kill from merely giving up waiting - the admission slot comes back in well under SCAN_BUDGET_MS. That last assertion matters because the child would ALSO exit on its own once its cooperative budget expired, so a test that just waited "long enough" would pass identically with no kill at all; mutation-tested by removing the SIGKILL, which makes it fail at 6.3s. The timing assertions are self-calibrating (one match timed on the machine running the test, multiplied by the fixture size), and the fixture fails loudly if the bait pattern ever becomes cheap so it cannot pass vacuously. Route + authorization: `routes-logs-rest.test.ts`, whose matrix pins BOTH halves of the widened scope - that a room-mate IS reachable (a self-only implementation would fail it) and that an agent in an inaccessible room is NOT. A KILLED agent answers to a different rule (its own boss, or an office owner - the room lookup runs over the live roster and cannot serve a dead agent), so that half is pinned both ways too: the spawning boss and its agents get in, a room-mate of the corpse does not, and the refusal is byte-identical to the one an id that never existed gets. The guard itself is unit-pinned in `guards.test.ts` (`logSearchAccess`) over fakes, and the killed-list lookup in `guard-deps.test.ts`. ROUTE CAPS: `routes-table.test.ts` (`agents.logs` / `log:read`). Curl-card labels: `ui/log-view/isomux-curl.test.ts`.
 - **Agent-built apps** - the registry (names, ports, data directories) and the supervisor (systemd units) are separate modules with separate tests, because only one of them touches the machine. `server/app-registry.test.ts` runs against a temp state root: allocation, delete freeing both the name and the port for reuse (with the legacy `app-history.json` proven unread - the malformed-bytes case is the one that shows nothing parses it), the data directory moved to `data/.retired/<name>-<deletedAt>` so a later app of the same name cannot inherit it, the fail-closed corruption posture (a registry that cannot read its file refuses every operation, reads included, rather than answering from a partial view), and the write ORDER that makes a half-finished delete recoverable - including the window where the archive landed and the record write did not, where the retry has to converge. `server/app-supervisor.test.ts` runs against a fake host - the one interface holding every systemctl, journalctl and unit-file operation - and pins the generated unit and launcher, the install/teardown call sequences, the two failures registration has to tell apart (systemd refusing the unit, versus the unit installing and the app's own process dying), the `systemctl show` parsing, and the state cache. `server/test-support/routes-apps-rest.test.ts` drives both through real HTTP with real minted tokens: the auth matrix, ownership taken from the token rather than the body, and the ordering between the two collaborators - a delete that cannot stop the app must NOT remove its record, or a live process is left holding a port under a name the registry has forgotten and could hand to whoever registers next. The harness injects the FAKE supervisor by default, and there is no way to ask it for the real one: systemd is machine-global, so a test that reached it would write unit files into whatever box the suite runs on and could stop that box's own apps. Real systemd is covered exactly once, gated, in `server/app-supervisor.live.test.ts` (`test:systemd` above) - it is the only thing that can catch a unit-file setting systemd rejects, and it earned its place immediately by catching one: `WorkingDirectory=` is not quote-parsed, so a quoted path passes every golden-file test and is refused by systemd as "path is not absolute".
 - **App hostnames** - the transport that puts a registered app on its own origin, tested in layers because each layer is fail-closed on its own. Grammar and matching: `server/test-support/app-domain.test.ts`, `app-hosts.test.ts`. Dispatch, which is the regression net for every office route because the Host check runs ahead of URL parsing and auth: `app-host-dispatch.test.ts`. The relays, end to end against real scratch upstreams: `app-host-relay.test.ts` (handshake, byte-exact bodies, cookie strip, a stopped app refused without connecting) and `app-ws-upstream.test.ts` + `app-ws-relay.test.ts` + `app-ws-lifecycle.test.ts` (frame codec, bounded send queue, refusals before the 101, permits released exactly once). Certificate admission: `tls-ask.test.ts`. The app's own view of its address and bind host: `server/app-url-reconcile.test.ts`, `app-url-boot.test.ts`, `ui/components/AppsView.test.ts`. Installer and updater sides by source pin: `deploy/install-sh.test.ts`, `scripts/update-sh.test.ts`. Fill-loop tests here are byte-budgeted and THROW if a queue never refuses, so a mutation that removes a ceiling fails in milliseconds instead of taking the box down with it.
-- **UI** - store-reducer invariants, the `apiFetch` harness, office grid, and room selection. Tests: `ui/store.test.ts`, `ui/api.test.ts`, `ui/office/grid.test.ts`, `ui/roomSelection.test.ts`, `ui/user-merge.test.ts`, `ui/agent-face.test.ts` (the tab-title state faces, frozen verbatim as user-facing copy), `shared/model-label.test.ts` (whether a model's display name already names its engine, which decides if the LogView header still shows the engine badge - pinned against `familyDisplayLabel` so the two cannot drift), `ui/storage-prune-form.test.ts` (the storage panel's destructive path, extracted to a pure seam precisely so it is testable: what request each action produces, that a DELETE is derived from the previewed PLAN rather than re-read from the form, that `keepPerAgent` is stated for transcripts and omitted for attachments, and that a plan no longer matching the form is rejected - the stale-preview race a screenshot cannot exercise).
+- **UI** - store-reducer invariants, the `apiFetch` harness, office grid, and room selection. Tests: `ui/store.test.ts`, `ui/api.test.ts`, `ui/office/grid.test.ts`, `ui/roomSelection.test.ts`, `ui/user-merge.test.ts`, `ui/agent-face.test.ts` (the tab-title state faces, frozen verbatim as user-facing copy), `shared/model-label.test.ts` (whether a model's display name already names its engine, which decides if the LogView header still shows the engine badge - pinned against `familyDisplayLabel` so the two cannot drift), `ui/storage-prune-form.test.ts` (the storage panel's destructive path, extracted to a pure seam precisely so it is testable: what request each action produces, that a DELETE is derived from the previewed PLAN rather than re-read from the form, that `keepPerAgent` is stated for transcripts and omitted for attachments, and that a plan no longer matching the form is rejected - the stale-preview race a screenshot cannot exercise). Render tests, which mount a component in happy-dom, are a separate family with their own rules: `ui/components/NavActions.dom.test.tsx` and `ui/App.dom.test.tsx`, harnessed by `ui/test-support/dom.ts`. See [Render tests (happy-dom)](#render-tests-happy-dom) before adding one.
 
 Most server harnesses live under `server/test-support/`; the in-process server harness (`harness.test.ts`) boots the server against temp state with multiple authenticated users and sockets. Interactive terminal coverage is PARTIAL: the event-registry audience for `terminal_output`/`terminal_exit` is pinned (`event-registry.test.ts`), and the `terminal_open` buffered-replay ACL is now characterized (`projection.test.ts`: a restricted member receives zero `terminal_output` for a hidden agent, the requester gets exactly one, and a second visible user is not re-seeded; the buffer is seeded through the manager's test-only stubbed-terminal seam since FakeBackend has no PTY; task `39ce6225` closed). The broader interactive PTY path (live input/resize/close routing) stays deferred to a future stubbed-PTY/opt-in seam. The Codex subprocess lifecycle is adapter-contract plus opt-in live, not part of the main net.
 
