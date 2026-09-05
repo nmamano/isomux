@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getDevice, setDevice } from "../device-settings.ts";
 import { sectionHeader, hint as hintStyle } from "./access-shared.tsx";
+import { useI18n } from "../i18n.tsx";
 import {
   dialogLabel,
   dialogInput,
@@ -22,6 +23,7 @@ export function DevicePane({
 }: {
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
+  const { t } = useI18n();
   const saved = getDevice() ?? "";
   const [label, setLabel] = useState<string>(saved);
   const [justSaved, setJustSaved] = useState(false);
@@ -33,9 +35,7 @@ export function DevicePane({
   useEffect(() => {
     if (closeRef) {
       closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm("Discard unsaved changes to the device label?")) {
-          return;
-        }
+        if (dirty && !confirm(t("settings.device.discardConfirm"))) return;
         after?.();
       };
     }
@@ -51,14 +51,12 @@ export function DevicePane({
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>Device label</h4>
-      <p style={hintStyle}>
-        Stored in this browser. Tells agents which device you are on (for
-        example "Phone" against "Laptop") so they can adjust their replies.
-      </p>
+      <h4 style={sectionHeader}>{t("settings.sidebar.deviceLabel")}</h4>
+      <p style={hintStyle}>{t("settings.device.intro")}</p>
 
       <label style={labelStyle}>
-        Device Label <span style={hintTextStyle}>(optional)</span>
+        {t("settings.device.label")}{" "}
+        <span style={hintTextStyle}>{t("settings.device.optional")}</span>
       </label>
       <input
         value={label}
@@ -67,7 +65,7 @@ export function DevicePane({
           setJustSaved(false);
         }}
         maxLength={24}
-        placeholder="Phone, Laptop, …"
+        placeholder={t("settings.device.placeholder")}
         style={{ ...inputStyle, maxWidth: 320 }}
         onKeyDown={(e) => {
           if (e.key === "Enter") handleSave();
@@ -83,14 +81,14 @@ export function DevicePane({
           disabled={!dirty}
           style={{ ...cancelBtnStyle, opacity: dirty ? 1 : 0.5 }}
         >
-          Cancel
+          {t("common.cancel")}
         </button>
         <button
           onClick={handleSave}
           disabled={!dirty}
           style={{ ...saveBtnStyle, opacity: dirty ? 1 : 0.5 }}
         >
-          {justSaved && !dirty ? "Saved" : "Save"}
+          {justSaved && !dirty ? t("common.saved") : t("common.save")}
         </button>
       </div>
     </div>

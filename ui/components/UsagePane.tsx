@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { Translator } from "../../shared/i18n/translate.ts";
 import type {
   UsageBucketWire,
   UsageReportWire,
@@ -13,13 +15,13 @@ function tokenCount(n: number): string {
   return n.toLocaleString();
 }
 
-function inputCount(bucket: UsageBucketWire): string {
+function inputCount(bucket: UsageBucketWire, t: Translator["t"]): string {
   if (bucket.totalIn === 0) return "-";
   const cacheable = bucket.cacheRead + bucket.cacheCreation;
   if (cacheable === 0) return tokenCount(bucket.totalIn);
   const hit = Math.round((bucket.cacheRead / cacheable) * 100);
   return hit < 80
-    ? `${tokenCount(bucket.totalIn)} (${hit}% hit)`
+    ? t("settings.usage.cacheHit", { count: tokenCount(bucket.totalIn), hit })
     : tokenCount(bucket.totalIn);
 }
 
@@ -32,6 +34,7 @@ function dollars(n: number): string {
 // footer: the sidebar is the way out.
 export function UsagePane() {
   const { isMobile } = useAppState();
+  const { t } = useI18n();
   const [usage, setUsage] = useState<UsageReportWire | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,8 +42,12 @@ export function UsagePane() {
     apiFetch<UsageReportWire>("GET", "/api/usage")
       .then(setUsage)
       .catch((e: unknown) =>
-        setError(e instanceof ApiError ? e.message : "Could not load usage."),
+        setError(
+          e instanceof ApiError ? e.message : t("settings.usage.loadFailed"),
+        ),
       );
+    // t follows the language; the report itself does not, so load once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
@@ -67,7 +74,7 @@ export function UsagePane() {
       >
         <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
           <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
-            Office Usage
+            {t("settings.usage.title")}
           </h3>
           <p
             style={{
@@ -76,24 +83,24 @@ export function UsagePane() {
               lineHeight: 1.5,
             }}
           >
-            Subscription plan limits are not shown here. This page reports token
-            usage and estimated cost recorded by Isomux.
+            {t("settings.usage.intro")}
           </p>
           {usage?.scoped && (
             <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              Scoped to the rooms you can access. Schedule usage is not
-              included.
+              {t("settings.usage.scoped")}
             </p>
           )}
           {error ? (
             <p style={{ color: "#ff6b6b", fontSize: 11 }}>{error}</p>
           ) : !usage ? (
-            <p style={{ color: "var(--text-ghost)", fontSize: 11 }}>Loading…</p>
+            <p style={{ color: "var(--text-ghost)", fontSize: 11 }}>
+              {t("common.loading")}
+            </p>
           ) : (
             <>
               <UsageTable
-                title="Agent usage"
-                firstHeader="Agent"
+                title={t("settings.usage.agents")}
+                firstHeader={t("settings.usage.agentColumn")}
                 rows={usage.agents.map((row) => ({
                   key: row.id,
                   label: row.name,
@@ -103,35 +110,39 @@ export function UsagePane() {
                 }))}
               />
               <UsageTable
-                title="Per-room usage"
-                note="Killed agents contribute to the room they were last in."
-                firstHeader="Room"
+                title={t("settings.usage.rooms")}
+                note={t("settings.usage.roomsNote")}
+                firstHeader={t("settings.usage.roomColumn")}
                 rows={usage.rooms.map((row) => ({
                   key: row.id,
                   label: row.name,
-                  detail: row.deleted ? "deleted" : undefined,
+                  detail: row.deleted ? t("settings.usage.deleted") : undefined,
                   session: row.session,
                   lifetime: row.lifetime,
                 }))}
               />
               {usage.cronjobs && usage.cronjobs.length > 0 && (
                 <LifetimeTable
-                  title="Per-schedule usage"
+                  title={t("settings.usage.schedules")}
                   rows={usage.cronjobs.map((row) => ({
                     key: row.id,
                     label: row.name,
-                    detail: row.deleted ? "deleted" : undefined,
+                    detail: row.deleted ? t("settings.usage.deleted") : undefined,
                     lifetime: row.lifetime,
                   }))}
                 />
               )}
               <UsageTable
-                title={usage.scoped ? "Total" : "Office total"}
+                title={
+                  usage.scoped
+                    ? t("settings.usage.total")
+                    : t("settings.usage.officeTotal")
+                }
                 firstHeader=""
                 rows={[
                   {
                     key: "total",
-                    label: "Total",
+                    label: t("settings.usage.total"),
                     session: usage.total.session,
                     lifetime: usage.total.lifetime,
                   },
@@ -164,6 +175,7 @@ function UsageTable({
   firstHeader: string;
   rows: UsageRow[];
 }) {
+  const { t } = useI18n();
   return (
     <section style={{ marginTop: 22 }}>
       <h4 style={heading}>{title}</h4>
@@ -173,12 +185,12 @@ function UsageTable({
           <thead>
             <tr>
               <th style={leftHead}>{firstHeader}</th>
-              <th style={head}>In (sess)</th>
-              <th style={head}>Out (sess)</th>
-              <th style={head}>$ (sess)</th>
-              <th style={head}>In (life)</th>
-              <th style={head}>Out (life)</th>
-              <th style={head}>$ (life)</th>
+              <th style={head}>{t("settings.usage.inSession")}</th>
+              <th style={head}>{t("settings.usage.outSession")}</th>
+              <th style={head}>{t("settings.usage.costSession")}</th>
+              <th style={head}>{t("settings.usage.inLifetime")}</th>
+              <th style={head}>{t("settings.usage.outLifetime")}</th>
+              <th style={head}>{t("settings.usage.costLifetime")}</th>
             </tr>
           </thead>
           <tbody>
@@ -206,6 +218,7 @@ function LifetimeTable({
   title: string;
   rows: Omit<UsageRow, "session">[];
 }) {
+  const { t } = useI18n();
   return (
     <section style={{ marginTop: 22 }}>
       <h4 style={heading}>{title}</h4>
@@ -213,10 +226,10 @@ function LifetimeTable({
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={leftHead}>Schedule</th>
-              <th style={head}>In (life)</th>
-              <th style={head}>Out (life)</th>
-              <th style={head}>$ (life)</th>
+              <th style={leftHead}>{t("settings.usage.scheduleColumn")}</th>
+              <th style={head}>{t("settings.usage.inLifetime")}</th>
+              <th style={head}>{t("settings.usage.outLifetime")}</th>
+              <th style={head}>{t("settings.usage.costLifetime")}</th>
             </tr>
           </thead>
           <tbody>
@@ -237,9 +250,10 @@ function LifetimeTable({
 }
 
 function BucketCells({ bucket }: { bucket: UsageBucketWire }) {
+  const { t } = useI18n();
   return (
     <>
-      <td style={cell}>{inputCount(bucket)}</td>
+      <td style={cell}>{inputCount(bucket, t)}</td>
       <td style={cell}>{tokenCount(bucket.totalOut)}</td>
       <td style={cell}>{dollars(bucket.costUSD)}</td>
     </>

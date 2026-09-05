@@ -15,6 +15,7 @@ import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
 import { dialogSaveBtn } from "./dialog-styles.ts";
+import { useI18n } from "../i18n.tsx";
 import {
   InvitesTable,
   SessionsTable,
@@ -36,6 +37,7 @@ export function MyDevicesPane() {
     activeSessionsLoaded,
     sessionContext,
   } = useAppState();
+  const { t } = useI18n();
 
   // Self filters. Sessions key on the stable userId; invites are name-bound
   // (userId isn't stored on invites), so match by the same lowercase key the
@@ -60,7 +62,7 @@ export function MyDevicesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>My devices</h4>
+      <h4 style={sectionHeader}>{t("settings.devices.title")}</h4>
 
       {blockedNote && (
         <BlockedNoteBanner
@@ -71,12 +73,12 @@ export function MyDevicesPane() {
 
       <GenerateDeviceLinkForm />
 
-      <h5 style={subsectionHeader}>Outstanding device links</h5>
+      <h5 style={subsectionHeader}>{t("settings.devices.outstandingLinks")}</h5>
       {renderListSection(myInvites, invitesLoaded, (rows) => (
         <InvitesTable invites={rows} />
       ))}
 
-      <h5 style={subsectionHeader}>My active sessions</h5>
+      <h5 style={subsectionHeader}>{t("settings.devices.activeSessions")}</h5>
       {renderListSection(mySessions, activeSessionsLoaded, (rows) => (
         <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
@@ -85,6 +87,7 @@ export function MyDevicesPane() {
 }
 
 function GenerateDeviceLinkForm() {
+  const { t } = useI18n();
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -102,7 +105,7 @@ function GenerateDeviceLinkForm() {
         setError(
           err instanceof ApiError
             ? err.message
-            : "Failed to generate device link",
+            : t("settings.devices.generateFailed"),
         );
       })
       .finally(() => setPending(false));
@@ -111,20 +114,17 @@ function GenerateDeviceLinkForm() {
   return (
     <div style={cardStyle}>
       <p style={{ ...hint, marginTop: 0 }}>
-        Generate a single-use link to sign another of your devices into your
-        account. The link expires in 1 hour; generating a new one replaces the
-        previous.
+        {t("settings.devices.generateHint")}
       </p>
-      <p style={hint}>
-        Anyone with the link can sign in as you until it expires or is used -
-        treat it like a one-time password and only open it on your own device.
-      </p>
+      <p style={hint}>{t("settings.devices.generateWarning")}</p>
       <button
         onClick={generate}
         disabled={pending}
         style={{ ...dialogSaveBtn, marginTop: 10, opacity: pending ? 0.5 : 1 }}
       >
-        {pending ? "Generating…" : "Generate device link"}
+        {pending
+          ? t("settings.devices.generating")
+          : t("settings.devices.generate")}
       </button>
       {error && (
         <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>

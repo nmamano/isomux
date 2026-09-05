@@ -13,6 +13,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // One room's settings, as a pane. Mounted keyed by roomId, so switching rooms
 // in the sidebar remounts it and no field can carry across.
@@ -29,6 +30,7 @@ export function RoomPane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { agents, rooms } = useAppState();
+  const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
   // room.canCloseWhenEmpty is false ONLY for the protected canonical first room
@@ -140,9 +142,7 @@ export function RoomPane({
           // failed-hydration path above, and the save that already landed
           // still counts.
           setSettingsVersion(null);
-          setError(
-            "Saved, but this page could not reload the room. Select another row and come back to keep editing.",
-          );
+          setError(t("settings.room.reloadFailed"));
         }
         setBaselineName(trimmedName);
         setSavedAt(Date.now());
@@ -153,11 +153,9 @@ export function RoomPane({
         }
       } catch (e) {
         if (e instanceof ApiError && e.code === "version_conflict") {
-          setError(
-            "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
-          );
+          setError(t("settings.room.conflict"));
         } else {
-          setError(e instanceof ApiError ? e.message : "Save failed");
+          setError(e instanceof ApiError ? e.message : t("common.saveFailed"));
         }
       } finally {
         setSaving(false);
@@ -184,7 +182,7 @@ export function RoomPane({
   useEffect(() => {
     if (closeRef) {
       closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm("Discard unsaved changes to this room?")) return;
+        if (dirty && !confirm(t("settings.room.discardConfirm"))) return;
         after?.();
       };
     }
@@ -206,7 +204,7 @@ export function RoomPane({
             color: "var(--text-primary)",
           }}
         >
-          {room.name} · Settings
+          {t("settings.room.title", { room: room.name })}
         </h3>
         <p
           style={{
@@ -216,7 +214,7 @@ export function RoomPane({
             lineHeight: 1.4,
           }}
         >
-          Double-click a room tab to come straight here.
+          {t("settings.room.intro")}
         </p>
 
         <label
@@ -229,12 +227,12 @@ export function RoomPane({
             marginBottom: 5,
           }}
         >
-          Name
+          {t("settings.room.name")}
         </label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Room name"
+          placeholder={t("settings.room.namePlaceholder")}
           style={inputStyle}
         />
 
@@ -248,18 +246,18 @@ export function RoomPane({
             marginBottom: 5,
           }}
         >
-          Room Prompt{" "}
+          {t("settings.room.prompt")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (optional, appended after office prompt)
+            {t("settings.room.promptHint")}
           </span>
         </label>
         <ExpandableTextarea
           textareaRef={textareaRef}
-          title={`${room.name} · Room Prompt`}
-          hint="Changes take effect on next conversation."
+          title={t("settings.room.promptTitle", { room: room.name })}
+          hint={t("common.nextConversation")}
           value={prompt}
           onChange={setPrompt}
-          placeholder="e.g. You're in the Marketing room. Match our brand voice."
+          placeholder={t("settings.room.promptPlaceholder")}
           rows={8}
           readOnly={!settingsLoaded}
           style={{ ...inputStyle, resize: "vertical" }}
@@ -271,8 +269,7 @@ export function RoomPane({
             margin: "3px 0 0",
           }}
         >
-          Changes take effect on next conversation. Set environment variables
-          under Office-wide or Individual connections.
+          {t("settings.room.promptNote")}
         </p>
 
         <label
@@ -285,19 +282,23 @@ export function RoomPane({
             marginBottom: 5,
           }}
         >
-          Memory{" "}
+          {t("common.memory")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (durable facts for this room; raw lines; {mem.size} /{" "}
-            {mem.cap ?? "…"})
+            {t("settings.room.memoryHint", {
+              size: mem.size,
+              cap: mem.cap ?? "…",
+            })}
           </span>
         </label>
         <ExpandableTextarea
-          title={`${room.name} · Memory`}
-          hint="This editor rewrites the file exactly as shown. Use one memory per line."
+          title={t("settings.room.memoryTitle", { room: room.name })}
+          hint={t("common.memoryEditorHint")}
           value={mem.memory}
           onChange={mem.setMemory}
           placeholder={
-            mem.loaded ? "Some memory relevant to this room" : "Loading memory…"
+            mem.loaded
+              ? t("settings.room.memoryPlaceholder")
+              : t("common.loadingMemory")
           }
           rows={6}
           readOnly={!mem.loaded}
@@ -310,8 +311,7 @@ export function RoomPane({
             margin: "3px 0 0",
           }}
         >
-          This editor rewrites the file exactly as shown. Use one memory per
-          line.
+          {t("common.memoryEditorHint")}
         </p>
 
         {error && (
@@ -342,7 +342,7 @@ export function RoomPane({
               style={deleteBtnStyle}
               disabled={saving}
             >
-              Delete empty room
+              {t("settings.room.deleteEmpty")}
             </button>
           )}
           <div style={{ display: "flex", gap: 8 }}>
@@ -356,7 +356,7 @@ export function RoomPane({
               style={cancelBtnStyle}
               disabled={saving || !dirty}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             {(() => {
               const disabled =
@@ -371,7 +371,11 @@ export function RoomPane({
                     cursor: disabled ? "not-allowed" : "pointer",
                   }}
                 >
-                  {saving ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
+                  {saving
+                    ? t("common.saving")
+                    : savedAt && !dirty
+                      ? t("common.saved")
+                      : t("common.save")}
                 </button>
               );
             })()}

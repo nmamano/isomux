@@ -63,6 +63,7 @@ import {
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
 import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -170,6 +171,8 @@ export function UserSettingsView({
     onlineUserIds,
     activeSessions,
   } = useAppState();
+  const i18n = useI18n();
+  const { t } = i18n;
   const isOwner = sessionContext?.role === "owner";
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -350,28 +353,33 @@ export function UserSettingsView({
     ? [
         {
           id: "office",
-          label: "Office",
+          label: t("settings.sidebar.office"),
           icon: BuildingIcon,
           rows: [
-            sectionRow("office", "Office"),
+            sectionRow("office", t("settings.sidebar.office")),
             ...(isOwner
               ? [
-                  sectionRow("access", "Access"),
-                  sectionRow("invites", "Invites"),
-                  sectionRow("sessions", "Sessions"),
+                  sectionRow("access", t("settings.sidebar.access")),
+                  sectionRow("invites", t("settings.sidebar.invites")),
+                  sectionRow("sessions", t("settings.sidebar.sessions")),
                 ]
               : []),
-            sectionRow("connectionsOffice", "Office-wide connections"),
-            sectionRow("usage", "Usage"),
+            sectionRow(
+              "connectionsOffice",
+              t("settings.sidebar.connectionsOffice"),
+            ),
+            sectionRow("usage", t("settings.sidebar.usage")),
             // Storage is owner-only, matching the server: prune is gated on
             // officeOwner and the usage read strips paths for anyone else.
-            ...(isOwner ? [sectionRow("storage", "Storage")] : []),
-            sectionRow("updates", "Updates"),
+            ...(isOwner
+              ? [sectionRow("storage", t("settings.sidebar.storage"))]
+              : []),
+            sectionRow("updates", t("settings.sidebar.updates")),
           ],
         },
         {
           id: "you",
-          label: "You",
+          label: t("settings.sidebar.you"),
           icon: UserIcon,
           rows: [
             // Your own profile used to be reachable only by finding yourself
@@ -381,31 +389,34 @@ export function UserSettingsView({
               ? [
                   {
                     key: "profile",
-                    label: "Profile",
+                    label: t("settings.sidebar.profile"),
                     selected:
                       selection?.kind === "user" && selection.id === selfUserId,
                     target: { kind: "user" as const, id: selfUserId },
                   },
                 ]
               : []),
-            sectionRow("prefs", "Preferences"),
-            sectionRow("connectionsPersonal", "Individual connections"),
-            sectionRow("apiTokens", "API tokens"),
-            sectionRow("signInLinks", "Sign-in links"),
+            sectionRow("prefs", t("common.preferences")),
+            sectionRow(
+              "connectionsPersonal",
+              t("settings.sidebar.connectionsPersonal"),
+            ),
+            sectionRow("apiTokens", t("settings.sidebar.apiTokens")),
+            sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
           ],
         },
         {
           id: "device",
-          label: "Device",
+          label: t("settings.sidebar.device"),
           icon: DeviceIcon,
           rows: [
-            sectionRow("deviceLabel", "Device label"),
-            sectionRow("theme", "Theme"),
+            sectionRow("deviceLabel", t("settings.sidebar.deviceLabel")),
+            sectionRow("theme", t("common.theme")),
           ],
         },
         {
           id: "rooms",
-          label: "Rooms",
+          label: t("settings.sidebar.rooms"),
           // Dynamic: one row per room the viewer can see, so the rows carry a
           // glyph and read as a list of live things - like the roster below,
           // and unlike the fixed rows above.
@@ -418,7 +429,12 @@ export function UserSettingsView({
             target: { kind: "room" as const, roomId: room.id },
           })),
         },
-        { id: "members", label: "Members", rows: [], roster: true },
+        {
+          id: "members",
+          label: t("settings.sidebar.members"),
+          rows: [],
+          roster: true,
+        },
       ]
     : [];
 
@@ -498,12 +514,12 @@ export function UserSettingsView({
             whiteSpace: "nowrap",
           }}
         >
-          {isMobile ? <>&larr; Back to office</> : <>&larr;</>}
+          {isMobile ? <>&larr; {t("settings.backToOffice")}</> : <>&larr;</>}
         </button>
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
         >
-          Settings
+          {t("common.settings")}
         </span>
       </div>
 
@@ -542,7 +558,7 @@ export function UserSettingsView({
                 marginTop: groupsBeforeRoster.length > 0 ? 18 : 0,
               }}
             >
-              {rosterGroup?.label ?? "Members"}
+              {rosterGroup?.label ?? t("settings.sidebar.members")}
             </div>
             {userList.map((u) => {
               const isMe = sessionContext?.userId === u.id;
@@ -558,6 +574,7 @@ export function UserSettingsView({
               const summary = summarizeRoster(
                 online,
                 isOwner ? (sessionStats.get(u.id) ?? null) : null,
+                i18n,
               );
               // Editable rows are real <button>s (keyboard-focusable, with
               // aria-current marking the selection); rows the session can't
@@ -575,7 +592,7 @@ export function UserSettingsView({
                   title={
                     editable
                       ? undefined
-                      : "Only the user themselves and owners can edit a user"
+                      : t("settings.members.editHint")
                   }
                   style={{
                     display: "flex",
@@ -608,7 +625,10 @@ export function UserSettingsView({
                       size={22}
                     />
                     {online && (
-                      <span style={onlineDotStyle} title="Online now" />
+                      <span
+                        style={onlineDotStyle}
+                        title={t("settings.members.onlineNow")}
+                      />
                     )}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -641,7 +661,7 @@ export function UserSettingsView({
                             flexShrink: 0,
                           }}
                         >
-                          (you)
+                          {t("settings.you")}
                         </span>
                       )}
                       <RoleBadge role={u.role} />
@@ -685,8 +705,7 @@ export function UserSettingsView({
                 lineHeight: 1.4,
               }}
             >
-              User profiles are stored on the server. Your notifications and
-              credentials follow you across devices.
+              {t("settings.profilesNote")}
             </p>
 
             {sessionContext && (
@@ -703,9 +722,9 @@ export function UserSettingsView({
                     fontWeight: 600,
                     cursor: "pointer",
                   }}
-                  title="End this device's session"
+                  title={t("settings.signOutHint")}
                 >
-                  Sign out
+                  {t("settings.signOut")}
                 </button>
                 {logoutBlockedReason && (
                   <p
@@ -751,7 +770,7 @@ export function UserSettingsView({
                   padding: "10px 16px 4px",
                 }}
               >
-                &larr; Settings
+                &larr; {t("common.settings")}
               </button>
             )}
             {selection?.kind === "section" ? (
@@ -881,7 +900,7 @@ export function UserSettingsView({
                   fontSize: 13,
                 }}
               >
-                Select a setting from the list
+                {t("settings.selectHint")}
               </div>
             )}
           </div>
@@ -908,13 +927,16 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 function summarizeRoster(
   online: boolean,
   stats: { count: number; lastSeenAt: number } | null,
+  { t, tn }: UiTranslator,
 ): string {
   if (online) {
-    if (!stats) return "online";
-    return `online · ${stats.count} session${stats.count === 1 ? "" : "s"}`;
+    if (!stats) return t("settings.members.online");
+    return tn("settings.members.onlineSessions", stats.count);
   }
   if (!stats) return "";
-  return `last seen ${formatRelative(stats.lastSeenAt)}`;
+  return t("settings.members.lastSeen", {
+    when: formatRelative(stats.lastSeenAt),
+  });
 }
 
 // An office owner's read-only view of another user's individual connections:
@@ -1017,6 +1039,7 @@ function UserEditPanel({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { rooms, allRooms, sessionContext } = useAppState();
+  const { t } = useI18n();
   // Owner-only fields (currently: allowedRooms). The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
@@ -1142,7 +1165,9 @@ function UserEditPanel({
       .catch((err) => {
         pendingDeleteReqRef.current = false;
         setDeleteBlockedReason(
-          err instanceof ApiError ? err.message : "Delete failed",
+          err instanceof ApiError
+            ? err.message
+            : t("settings.profile.deleteFailed"),
         );
         setConfirmDelete(false);
       });
@@ -1330,7 +1355,7 @@ function UserEditPanel({
             )
           ).rooms;
         } catch {
-          setError("Could not confirm your room list; Displayed not saved.");
+          setError(t("settings.profile.roomListFailed"));
           return;
         }
         await apiFetch("PUT", "/api/me/view/shown", {
@@ -1354,7 +1379,7 @@ function UserEditPanel({
       setMemberPrompt(memberPrompt.trim());
       setAvatarColor(normalizedColor);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Save failed");
+      setError(err instanceof ApiError ? err.message : t("common.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -1412,13 +1437,13 @@ function UserEditPanel({
           <RoleBadge role={user.role} />
           {isMe && (
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              (you)
+              {t("settings.you")}
             </span>
           )}
         </div>
 
-        <h5 style={sectionTitleStyle}>Identity</h5>
-        <label style={subLabelStyle}>Display Name</label>
+        <h5 style={sectionTitleStyle}>{t("settings.profile.identity")}</h5>
+        <label style={subLabelStyle}>{t("settings.profile.displayName")}</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value.slice(0, 32))}
@@ -1435,15 +1460,11 @@ function UserEditPanel({
             mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
         {(isOwner && (!targetIsOwner || isMe)) || (!isOwner && isMe) ? (
           <>
-            <h5 style={sectionTitleStyle}>Rooms</h5>
+            <h5 style={sectionTitleStyle}>{t("settings.profile.rooms")}</h5>
             <p style={sectionHintStyle}>
-              {isOwner &&
-                !targetIsOwner &&
-                "Access: rooms this user can see and act in (owner-managed). "}
-              {isMe &&
-                "Displayed: which of your accessible rooms appear in your own view. " +
-                  "Notifications: sound when an agent in that room finishes. " +
-                  "A room must be displayed to notify."}
+              {isOwner && !targetIsOwner && t("settings.profile.accessHint")}
+              {isOwner && !targetIsOwner && isMe && " "}
+              {isMe && t("settings.profile.viewHint")}
             </p>
             <div
               style={{
@@ -1465,18 +1486,22 @@ function UserEditPanel({
                   color: "var(--text-muted)",
                 }}
               >
-                <span style={{ flex: 1, minWidth: 0 }}>Room</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {t("settings.profile.roomColumn")}
+                </span>
                 {isOwner && !targetIsOwner && (
-                  <span style={{ width: 80, textAlign: "center" }}>Access</span>
+                  <span style={{ width: 80, textAlign: "center" }}>
+                    {t("settings.profile.accessColumn")}
+                  </span>
                 )}
                 {isMe && (
                   <span style={{ width: 80, textAlign: "center" }}>
-                    Displayed
+                    {t("settings.profile.displayedColumn")}
                   </span>
                 )}
                 {isMe && (
                   <span style={{ width: 90, textAlign: "center" }}>
-                    Notifications
+                    {t("settings.profile.notificationsColumn")}
                   </span>
                 )}
               </div>
@@ -1488,7 +1513,7 @@ function UserEditPanel({
                     color: "var(--text-muted)",
                   }}
                 >
-                  No rooms yet.
+                  {t("settings.profile.noRooms")}
                 </div>
               ) : (
                 rowsForPrefs.map((r) => {
@@ -1531,7 +1556,9 @@ function UserEditPanel({
                             type="checkbox"
                             checked={hasAccess}
                             onChange={() => toggleRoomAllowed(r.id)}
-                            aria-label={`Access to ${r.name}`}
+                            aria-label={t("settings.profile.accessTo", {
+                              room: r.name,
+                            })}
                             style={{
                               accentColor: "var(--accent)",
                               cursor: "pointer",
@@ -1557,7 +1584,9 @@ function UserEditPanel({
                               if (!hasAccess) return;
                               toggleRoomDisplayed(r.id);
                             }}
-                            aria-label={`Display ${r.name}`}
+                            aria-label={t("settings.profile.display", {
+                              room: r.name,
+                            })}
                             style={{
                               accentColor: "var(--accent)",
                               cursor: hasAccess ? "pointer" : "default",
@@ -1586,7 +1615,10 @@ function UserEditPanel({
                               if (!displayed) return;
                               toggleRoomNotif(r.id);
                             }}
-                            aria-label={`Notifications for ${r.name}`}
+                            aria-label={t(
+                              "settings.profile.notificationsFor",
+                              { room: r.name },
+                            )}
                             style={{
                               accentColor: "var(--accent)",
                               cursor: displayed ? "pointer" : "default",
@@ -1603,21 +1635,20 @@ function UserEditPanel({
           </>
         ) : null}
 
-        <h5 style={sectionTitleStyle}>Agent Context</h5>
+        <h5 style={sectionTitleStyle}>{t("settings.profile.agentContext")}</h5>
 
         <label style={subLabelStyle}>
-          Profile Prompt{" "}
+          {t("settings.profile.profilePrompt")}{" "}
           <span style={hintStyle}>
-            (auto-injected into the system prompt of agents you own; other
-            users&apos; agents can look it up if they need context on you)
+            {t("settings.profile.profilePromptHint")}
           </span>
         </label>
         <ExpandableTextarea
-          title={`${user.name} · Profile Prompt`}
-          hint="Auto-injected into the system prompt of agents this user owns; other users' agents can look it up if they need context on them."
+          title={t("settings.profile.profilePromptTitle", { user: user.name })}
+          hint={t("settings.profile.profilePromptExpandedHint")}
           value={memberPrompt}
           onChange={setMemberPrompt}
-          placeholder="A few notes for agents about who you are, your role, how you like to collaborate…"
+          placeholder={t("settings.profile.profilePromptPlaceholder")}
           rows={5}
           style={{
             ...inputStyle,
@@ -1629,19 +1660,23 @@ function UserEditPanel({
         />
 
         <label style={subLabelStyle}>
-          Memory{" "}
+          {t("common.memory")}{" "}
           <span style={hintStyle}>
-            (durable boss-scoped facts for this user; rewrites the file exactly
-            as shown - one memory per line; {mem.size} / {mem.cap ?? "…"})
+            {t("settings.profile.memoryHint", {
+              size: mem.size,
+              cap: mem.cap ?? "…",
+            })}
           </span>
         </label>
         <ExpandableTextarea
-          title={`${user.name} · Memory`}
-          hint="This editor rewrites the file exactly as shown. Use one memory per line."
+          title={t("settings.profile.memoryTitle", { user: user.name })}
+          hint={t("common.memoryEditorHint")}
           value={mem.memory}
           onChange={mem.setMemory}
           placeholder={
-            mem.loaded ? "Some memory relevant to this user" : "Loading memory…"
+            mem.loaded
+              ? t("settings.profile.memoryPlaceholder")
+              : t("common.loadingMemory")
           }
           rows={8}
           readOnly={!mem.loaded}
@@ -1663,13 +1698,10 @@ function UserEditPanel({
 
         {/* Aesthetics last: looks are secondary to the
             settings that change behavior. */}
-        <h5 style={sectionTitleStyle}>Appearance</h5>
+        <h5 style={sectionTitleStyle}>{t("settings.profile.appearance")}</h5>
         <label style={subLabelStyle}>
-          Avatar{" "}
-          <span style={hintStyle}>
-            (your ghost in the office scene; other users see it next to the
-            agent you&apos;re viewing)
-          </span>
+          {t("settings.profile.avatar")}{" "}
+          <span style={hintStyle}>{t("settings.profile.avatarHint")}</span>
         </label>
         <AvatarPicker
           color={avatarColor}
@@ -1733,7 +1765,7 @@ function UserEditPanel({
               <span
                 style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
               >
-                Discard unsaved changes?
+                {t("settings.profile.discardPrompt")}
               </span>
               <button
                 onClick={commitDiscard}
@@ -1748,7 +1780,7 @@ function UserEditPanel({
                   cursor: "pointer",
                 }}
               >
-                Discard
+                {t("settings.profile.discard")}
               </button>
               <button
                 onClick={cancelDiscard}
@@ -1763,7 +1795,7 @@ function UserEditPanel({
                   cursor: "pointer",
                 }}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
             </div>
           )}
@@ -1789,9 +1821,11 @@ function UserEditPanel({
                 fontWeight: 600,
                 cursor: "pointer",
               }}
-              title="Delete this user"
+              title={t("settings.profile.deleteHint")}
             >
-              {confirmDelete ? "Confirm?" : "Delete"}
+              {confirmDelete
+                ? t("settings.profile.confirmDelete")
+                : t("settings.profile.delete")}
             </button>
             <div style={{ display: "flex", gap: 8 }}>
               <button
@@ -1799,7 +1833,7 @@ function UserEditPanel({
                 style={cancelBtnStyle}
                 disabled={saving}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={() => void handleSave()}
@@ -1811,7 +1845,11 @@ function UserEditPanel({
                     saving || !dirty || !name.trim() ? "default" : "pointer",
                 }}
               >
-                {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+                {saving
+                  ? t("common.saving")
+                  : dirty
+                    ? t("common.save")
+                    : t("common.saved")}
               </button>
             </div>
           </div>
@@ -1932,6 +1970,7 @@ function AvatarPicker({
 // revoke sessions, not about who can do things inside the office (everyone
 // authenticated has full operational access).
 function RoleBadge({ role }: { role: "owner" | "member" }) {
+  const { t } = useI18n();
   const isOwner = role === "owner";
   return (
     <span
@@ -1948,12 +1987,10 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
         flexShrink: 0,
       }}
       title={
-        isOwner
-          ? "Owner - can invite users, revoke sessions, and set per-user room access"
-          : "Member - can act in rooms the owner allowed; can't invite or revoke"
+        isOwner ? t("settings.role.ownerHint") : t("settings.role.memberHint")
       }
     >
-      {role}
+      {isOwner ? t("settings.role.owner") : t("settings.role.member")}
     </span>
   );
 }

@@ -12,6 +12,7 @@ import {
   dialogSaveBtn,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
+import { useI18n } from "../i18n.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -28,6 +29,7 @@ export function OfficePane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { office, sessionContext } = useAppState();
+  const { t } = useI18n();
   // Members can open this modal but can't edit it. Read-only state grays
   // inputs and hides the Save button; the server also rejects the save from
   // non-owner sessions (office.setSettings is gated by the officeOwner guard).
@@ -122,8 +124,7 @@ export function OfficePane({
         setSettingsVersion(null);
         setStatus({
           kind: "error",
-          message:
-            "Saved, but this page could not reload the office. Select another row and come back to keep editing.",
+          message: t("settings.office.reloadFailed"),
         });
       }
       setSavedAt(Date.now());
@@ -136,13 +137,12 @@ export function OfficePane({
       if (e instanceof ApiError && e.code === "version_conflict") {
         setStatus({
           kind: "error",
-          message:
-            "Office settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
+          message: t("settings.office.conflict"),
         });
       } else {
         setStatus({
           kind: "error",
-          message: e instanceof ApiError ? e.message : "Save failed",
+          message: e instanceof ApiError ? e.message : t("common.saveFailed"),
         });
       }
     } finally {
@@ -172,7 +172,7 @@ export function OfficePane({
   useEffect(() => {
     if (closeRef) {
       closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm("Discard unsaved changes to the office?")) return;
+        if (dirty && !confirm(t("settings.office.discardConfirm"))) return;
         after?.();
       };
     }
@@ -192,7 +192,7 @@ export function OfficePane({
             color: "var(--text-primary)",
           }}
         >
-          Office Settings
+          {t("settings.office.title")}
         </h3>
         <p
           style={{
@@ -202,7 +202,7 @@ export function OfficePane({
             lineHeight: 1.4,
           }}
         >
-          The framed sign on the office wall opens this page.
+          {t("settings.office.intro")}
         </p>
         {readOnly && (
           <p
@@ -217,7 +217,7 @@ export function OfficePane({
               lineHeight: 1.4,
             }}
           >
-            View only. Only office owners can edit office-wide settings.
+            {t("settings.office.viewOnly")}
           </p>
         )}
 
@@ -231,15 +231,15 @@ export function OfficePane({
             marginBottom: 5,
           }}
         >
-          Office Name{" "}
+          {t("settings.office.name")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (optional, shown in browser tab)
+            {t("settings.office.nameHint")}
           </span>
         </label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Nil's Office"
+          placeholder={t("settings.office.namePlaceholder")}
           maxLength={60}
           readOnly={readOnly || !settingsLoaded}
           style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
@@ -255,18 +255,18 @@ export function OfficePane({
             marginBottom: 5,
           }}
         >
-          Rules{" "}
+          {t("settings.office.rules")}{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (system prompt for all agents)
+            {t("settings.office.rulesHint")}
           </span>
         </label>
         <ExpandableTextarea
           textareaRef={textareaRef}
-          title="Office Rules"
-          hint="System prompt for all agents. Changes take effect on next conversation."
+          title={t("settings.office.rulesTitle")}
+          hint={t("settings.office.rulesExpandedHint")}
           value={text}
           onChange={setText}
-          placeholder="e.g. Always write tests. Use TypeScript. Be concise."
+          placeholder={t("settings.office.rulesPlaceholder")}
           rows={8}
           readOnly={readOnly || !settingsLoaded}
           style={{
@@ -281,7 +281,7 @@ export function OfficePane({
             margin: "3px 0 0",
           }}
         >
-          Changes take effect on next conversation.
+          {t("common.nextConversation")}
         </p>
 
         {!readOnly && (
@@ -296,21 +296,23 @@ export function OfficePane({
                 marginBottom: 5,
               }}
             >
-              Memory{" "}
+              {t("common.memory")}{" "}
               <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                (durable office-wide facts; raw lines; {mem.size} /{" "}
-                {mem.cap ?? "…"})
+                {t("settings.office.memoryHint", {
+                  size: mem.size,
+                  cap: mem.cap ?? "…",
+                })}
               </span>
             </label>
             <ExpandableTextarea
-              title="Office Memory"
-              hint="This editor rewrites the file exactly as shown. Use one memory per line."
+              title={t("settings.office.memoryTitle")}
+              hint={t("common.memoryEditorHint")}
               value={mem.memory}
               onChange={mem.setMemory}
               placeholder={
                 mem.loaded
-                  ? "Some memory relevant to the entire office"
-                  : "Loading memory…"
+                  ? t("settings.office.memoryPlaceholder")
+                  : t("common.loadingMemory")
               }
               rows={6}
               readOnly={!mem.loaded}
@@ -326,8 +328,7 @@ export function OfficePane({
                 margin: "3px 0 0",
               }}
             >
-              This editor rewrites the file exactly as shown. Use one memory per
-              line.
+              {t("common.memoryEditorHint")}
             </p>
           </>
         )}
@@ -353,14 +354,18 @@ export function OfficePane({
                 style={cancelBtnStyle}
                 disabled={saving || !dirty}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 onClick={() => void handleSave()}
                 style={saveBtnStyle}
                 disabled={saving || settingsVersion == null}
               >
-                {saving ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
+                {saving
+                  ? t("common.saving")
+                  : savedAt && !dirty
+                    ? t("common.saved")
+                    : t("common.save")}
               </button>
             </>
           )}
@@ -371,21 +376,21 @@ export function OfficePane({
 }
 
 function ValidationLine({ status }: { status: ValidationStatus }) {
+  const { t, tn } = useI18n();
   if (status.kind === "idle") return null;
   if (status.kind === "pending") {
     return (
       <p
         style={{ fontSize: 10, color: "var(--text-ghost)", margin: "4px 0 0" }}
       >
-        Checking…
+        {t("common.checking")}
       </p>
     );
   }
   if (status.kind === "ok") {
     return (
       <p style={{ fontSize: 10, color: "var(--accent)", margin: "4px 0 0" }}>
-        Loaded {status.keyCount ?? 0} variable{status.keyCount === 1 ? "" : "s"}
-        .
+        {tn("settings.office.loadedVariables", status.keyCount ?? 0)}
       </p>
     );
   }

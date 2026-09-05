@@ -29,13 +29,14 @@ export type Params = Record<string, string | number>;
 export type Messages = Readonly<Record<string, string | undefined>>;
 
 // "{name} owes {count}" -> "name" | "count". Derived from the English text, so
-// the parameters a key takes are checked where t() is called.
-type Placeholders<S extends string> =
+// the parameters a key takes are checked where t() is called. Exported for
+// ui/i18n.tsx, whose rich() derives its parts the same way.
+export type Placeholders<S extends string> =
   S extends `${string}{${infer P}}${infer Rest}`
     ? P | Placeholders<Rest>
     : never;
 
-type EnglishText<K extends MessageKey> = (typeof en)[K];
+export type EnglishText<K extends MessageKey> = (typeof en)[K];
 
 /**
  * The trailing argument list of t() for one key: nothing when the English

@@ -269,14 +269,14 @@ export function OfficeView({
     {
       id: "settings",
       icon: SettingsIcon,
-      label: t("nav.settings"),
+      label: t("common.settings"),
       onClick: onOpenSettings,
-      title: t("nav.settings"),
+      title: t("common.settings"),
     },
     {
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: t("nav.theme"),
+      label: t("common.theme"),
       onClick: onOpenThemePicker,
       title: t("nav.changeTheme"),
     },

@@ -1,6 +1,7 @@
 import { useTheme } from "../store.tsx";
 import { THEMES, type Theme } from "../themes.ts";
 import { sectionHeader, hint } from "./access-shared.tsx";
+import { useI18n } from "../i18n.tsx";
 
 const HEADING_ID = "theme-pane-heading";
 
@@ -10,15 +11,13 @@ const HEADING_ID = "theme-pane-heading";
 // to cancel, so this pane has no footer.
 export function ThemePane() {
   const { theme: currentId, setTheme } = useTheme();
+  const { t } = useI18n();
   return (
     <div style={{ marginTop: 24 }}>
       <h4 id={HEADING_ID} style={sectionHeader}>
-        Theme
+        {t("common.theme")}
       </h4>
-      <p style={hint}>
-        Stored in this browser. You can also click the office window to walk
-        through the themes without opening this page.
-      </p>
+      <p style={hint}>{t("settings.theme.intro")}</p>
       <div
         role="radiogroup"
         aria-labelledby={HEADING_ID}

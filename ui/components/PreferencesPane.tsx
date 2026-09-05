@@ -67,15 +67,15 @@ export function PreferencesPane() {
   if (!self) {
     return (
       <div style={{ marginTop: 24 }}>
-        <h4 style={sectionHeader}>{t("preferences.title")}</h4>
-        <p style={hint}>{t("preferences.loading")}</p>
+        <h4 style={sectionHeader}>{t("common.preferences")}</h4>
+        <p style={hint}>{t("common.loading")}</p>
       </div>
     );
   }
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>{t("preferences.title")}</h4>
+      <h4 style={sectionHeader}>{t("common.preferences")}</h4>
       <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
 
       <div style={cardStyle}>
@@ -121,7 +121,7 @@ export function PreferencesPane() {
             cursor: saving || !canSave ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? t("preferences.saving") : t("preferences.save")}
+          {saving ? t("common.saving") : t("common.save")}
         </button>
         {saved && !canSave && (
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>

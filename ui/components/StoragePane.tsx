@@ -18,8 +18,16 @@
 // route, dry run unless the body says apply:true - so none of this is the only
 // thing standing between a stray click and a deletion.
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import {
   previewRequest,
@@ -31,9 +39,9 @@ import { formatSize, formatRelativeTime } from "../../shared/format-human.ts";
 import {
   IN_ROOT_ORDER,
   OUT_OF_ROOT_ORDER,
-  CATEGORY_LABELS,
 } from "../../shared/storage-labels.ts";
 import type {
+  StorageCategoryId,
   StorageUsageWire,
   StorageCategoryWire,
   PrunePlanWire,
@@ -45,23 +53,52 @@ import type {
 import type { BackupStatusWire } from "../../shared/contract-shapes.ts";
 import { dialogInput, dialogCancelBtn } from "./dialog-styles.ts";
 
-// What each target deletes, in the words of someone who has to decide whether
-// they want it gone. Used in the picker and again in the confirm sentence.
-const TARGET_LABELS: Record<PruneTarget, string> = {
-  transcripts: "Conversation transcripts",
-  attachments: "Chat attachments",
+// The plain-language name of each storage category, as a catalog key. The
+// wire ids are kebab-case keys for an API; nobody reading this panel should
+// have to know that "other-state" means "the rest of ~/.isomux". The English
+// text is the same as CATEGORY_LABELS in shared/storage-labels.ts, which the
+// chat report still reads until the server strings are translated (S7 of
+// internal-docs/i18n-loop.md); the shared table stays an import-free leaf.
+type CategoryKey =
+  | Extract<MessageKey, `settings.storage.category.${string}`>
+  | "common.memory";
+const CATEGORY_KEYS: Record<StorageCategoryId, CategoryKey> = {
+  transcripts: "settings.storage.category.transcripts",
+  attachments: "settings.storage.category.attachments",
+  "session-metadata": "settings.storage.category.sessionMetadata",
+  "codex-home": "settings.storage.category.codexHome",
+  "provider-homes": "settings.storage.category.providerHomes",
+  cronjobs: "settings.storage.category.cronjobs",
+  memory: "common.memory",
+  "other-state": "settings.storage.category.otherState",
+  backups: "settings.storage.category.backups",
+  "update-snapshots": "settings.storage.category.updateSnapshots",
 };
+
+// What can be deleted, in the picker's order. The label is the category's:
+// what each target deletes, in the words of someone who has to decide whether
+// they want it gone, used in the picker and again in the confirm sentence.
+const TARGETS: readonly PruneTarget[] = ["transcripts", "attachments"];
 
 // Why the planner spared something. The wire reasons are terse enum values; a
 // person reading a preview wants the actual reason, not the enum.
-const SKIP_LABELS: Record<PruneSkipReason, string> = {
-  "too-recent": "newer than the age limit",
-  "keep-newest": "among the newest kept for their agent",
-  "active-session": "belongs to a conversation that is still live",
-  "fork-ancestor": "another conversation was forked from it",
-  referenced: "still shown in a conversation you can read",
-  "queue-state-unknown": "waiting on a message queue that could not be read",
+const SKIP_KEYS: Record<
+  PruneSkipReason,
+  Extract<MessageKey, `settings.storage.skip.${string}`>
+> = {
+  "too-recent": "settings.storage.skip.tooRecent",
+  "keep-newest": "settings.storage.skip.keepNewest",
+  "active-session": "settings.storage.skip.activeSession",
+  "fork-ancestor": "settings.storage.skip.forkAncestor",
+  referenced: "settings.storage.skip.referenced",
+  "queue-state-unknown": "settings.storage.skip.queueStateUnknown",
 };
+
+// The wraps of the catalog's rich entries (ruling 16).
+const inStrong = (chunk: ReactNode) => <strong>{chunk}</strong>;
+const inCode = (chunk: ReactNode) => (
+  <code style={{ fontFamily: "'JetBrains Mono',monospace" }}>{chunk}</code>
+);
 
 // Enough candidates to recognize what is about to go, not so many that the
 // preview becomes the thing you scroll past to reach the button.
@@ -91,6 +128,7 @@ export function StoragePane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { isMobile } = useAppState();
+  const { t } = useI18n();
   const [usage, setUsage] = useState<StorageUsageWire | null>(null);
   // null = still loading, "unavailable" = the probe failed. Both are distinct
   // from a backup that has never run, which is a real answer.
@@ -119,9 +157,13 @@ export function StoragePane({
       .then(setUsage)
       .catch((e: unknown) =>
         setLoadError(
-          e instanceof ApiError ? e.message : "Could not measure storage.",
+          e instanceof ApiError
+            ? e.message
+            : t("settings.storage.measureFailed"),
         ),
       );
+    // t follows the language; the measurement does not, so load once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -174,7 +216,7 @@ export function StoragePane({
       if (ticket !== requestTicket.current) return;
       setPhase({ kind: "idle" });
       setPruneError(
-        e instanceof ApiError ? e.message : "The prune request failed.",
+        e instanceof ApiError ? e.message : t("settings.storage.previewFailed"),
       );
     }
   }
@@ -198,7 +240,7 @@ export function StoragePane({
       // that did not happen.
       if (!res.applied) {
         setPhase({ kind: "idle" });
-        setPruneError("The delete did not run. Nothing was removed.");
+        setPruneError(t("settings.storage.deleteDidNotRun"));
         return;
       }
       setPhase({ kind: "done", result: res.applied });
@@ -209,7 +251,7 @@ export function StoragePane({
       if (ticket !== requestTicket.current) return;
       setPhase({ kind: "idle" });
       setPruneError(
-        e instanceof ApiError ? e.message : "The delete request failed.",
+        e instanceof ApiError ? e.message : t("settings.storage.deleteFailed"),
       );
     }
   }
@@ -241,14 +283,7 @@ export function StoragePane({
   useEffect(() => {
     if (closeRef) {
       closeRef.current = (after?: () => void) => {
-        if (
-          deleting &&
-          !confirm(
-            "A cleanup is still running. If you leave now you lose the only report of what it deleted. Leave anyway?",
-          )
-        ) {
-          return;
-        }
+        if (deleting && !confirm(t("settings.storage.leaveConfirm"))) return;
         after?.();
       };
     }
@@ -291,13 +326,13 @@ export function StoragePane({
               color: "var(--text-primary)",
             }}
           >
-            Office Storage
+            {t("settings.storage.title")}
           </h3>
 
           <UsageBlock usage={usage} error={loadError} />
           <BackupBlock backup={backup} />
 
-          <SectionLabel>Delete old files</SectionLabel>
+          <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
           <div
             style={{
               border: "1px solid rgba(255,107,107,0.45)",
@@ -310,36 +345,39 @@ export function StoragePane({
             }}
           >
             <strong style={{ color: "#ff6b6b" }}>
-              This permanently deletes files from this machine.
+              {t("settings.storage.deleteWarningLead")}
             </strong>{" "}
-            There is no undo and no trash. Old conversations and attachments are
-            only ever deleted when you run this cleanup.
+            {t("settings.storage.deleteWarningBody")}
           </div>
 
-          <FieldLabel>What to delete</FieldLabel>
+          <FieldLabel>{t("settings.storage.whatToDelete")}</FieldLabel>
           <div style={{ display: "flex", gap: 8 }}>
-            {(Object.keys(TARGET_LABELS) as PruneTarget[]).map((t) => (
+            {TARGETS.map((choice) => (
               <button
-                key={t}
-                onClick={() => editForm(() => setTarget(t))}
+                key={choice}
+                onClick={() => editForm(() => setTarget(choice))}
                 disabled={busy}
                 style={{
                   ...dialogCancelBtn,
                   flex: 1,
-                  borderColor: target === t ? "var(--accent)" : "var(--border)",
+                  borderColor:
+                    target === choice ? "var(--accent)" : "var(--border)",
                   color:
-                    target === t ? "var(--text-primary)" : "var(--text-dim)",
-                  background: target === t ? "var(--bg-input)" : "transparent",
+                    target === choice
+                      ? "var(--text-primary)"
+                      : "var(--text-dim)",
+                  background:
+                    target === choice ? "var(--bg-input)" : "transparent",
                   opacity: busy ? 0.5 : 1,
                   cursor: busy ? "not-allowed" : "pointer",
                 }}
               >
-                {TARGET_LABELS[t]}
+                {t(CATEGORY_KEYS[choice])}
               </button>
             ))}
           </div>
 
-          <FieldLabel>Older than</FieldLabel>
+          <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input
               type="number"
@@ -350,13 +388,13 @@ export function StoragePane({
               style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
             />
             <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-              days. Anything touched more recently is kept.
+              {t("settings.storage.daysHint")}
             </span>
           </div>
 
           {target === "transcripts" && (
             <>
-              <FieldLabel>Always keep, per agent</FieldLabel>
+              <FieldLabel>{t("settings.storage.keepPerAgent")}</FieldLabel>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <input
                   type="number"
@@ -369,8 +407,7 @@ export function StoragePane({
                   style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
                 />
                 <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-                  newest conversations, however old they are. 0 spares none on
-                  that basis.
+                  {t("settings.storage.keepHint")}
                 </span>
               </div>
             </>
@@ -391,8 +428,8 @@ export function StoragePane({
             }}
           >
             {phase.kind === "previewing"
-              ? "Checking…"
-              : "Preview what would be deleted"}
+              ? t("common.checking")
+              : t("settings.storage.preview")}
           </button>
 
           {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
@@ -427,11 +464,12 @@ function UsageBlock({
   usage: StorageUsageWire | null;
   error: string | null;
 }) {
+  const { t, rich } = useI18n();
   if (error) return <ErrorLine>{error}</ErrorLine>;
   if (!usage)
     return (
       <p style={{ fontSize: 11, color: "var(--text-ghost)", marginTop: 16 }}>
-        Measuring…
+        {t("settings.storage.measuring")}
       </p>
     );
 
@@ -444,14 +482,23 @@ function UsageBlock({
 
   return (
     <>
-      <SectionLabel>What is on disk</SectionLabel>
+      <SectionLabel>{t("settings.storage.onDisk")}</SectionLabel>
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
-        <strong>{formatSize(total)} total</strong>
         {outsideBytes > 0
-          ? ` - ${formatSize(usage.stateRootBytes)} of office state, plus ${formatSize(outsideBytes)} outside it.`
-          : ", all of it office state."}{" "}
+          ? rich("settings.storage.totalSplit", {
+              total: formatSize(total),
+              state: formatSize(usage.stateRootBytes),
+              outside: formatSize(outsideBytes),
+              strong: inStrong,
+            })
+          : rich("settings.storage.totalAllState", {
+              total: formatSize(total),
+              strong: inStrong,
+            })}{" "}
         <span style={{ color: "var(--text-ghost)" }}>
-          Measured {formatRelativeTime(usage.measuredAt)}.
+          {t("settings.storage.measured", {
+            when: formatRelativeTime(usage.measuredAt),
+          })}
         </span>
       </p>
       <table
@@ -467,7 +514,9 @@ function UsageBlock({
             <CategoryRow key={id} cat={byId.get(id)} id={id} />
           ))}
           <tr>
-            <td style={{ ...cell, fontWeight: 700 }}>Total office state</td>
+            <td style={{ ...cell, fontWeight: 700 }}>
+              {t("settings.storage.totalOfficeState")}
+            </td>
             <td style={{ ...cellRight, fontWeight: 700 }}>
               {formatSize(usage.stateRootBytes)}
             </td>
@@ -489,7 +538,7 @@ function UsageBlock({
                 borderBottom: "none",
               }}
             >
-              Outside office state
+              {t("settings.storage.outsideOfficeState")}
             </td>
           </tr>
           {OUT_OF_ROOT_ORDER.map((id) => (
@@ -500,9 +549,7 @@ function UsageBlock({
       <p
         style={{ fontSize: 10, color: "var(--text-ghost)", margin: "6px 0 0" }}
       >
-        Backups and update snapshots sit outside the office state directory, so
-        they are listed after its subtotal. &ldquo;none&rdquo; means that
-        location is not set up on this machine.
+        {t("settings.storage.outsideNote")}
       </p>
     </>
   );
@@ -513,16 +560,17 @@ function CategoryRow({
   id,
 }: {
   cat: StorageCategoryWire | undefined;
-  id: keyof typeof CATEGORY_LABELS;
+  id: StorageCategoryId;
 }) {
+  const { t } = useI18n();
   // A category the measurement didn't return at all can only mean the contract
   // changed underneath this file; skip it rather than paint a phantom zero.
   if (!cat) return null;
   return (
     <tr>
-      <td style={cell}>{CATEGORY_LABELS[id]}</td>
+      <td style={cell}>{t(CATEGORY_KEYS[id])}</td>
       <td style={cellRight}>
-        {cat.available ? formatSize(cat.bytes) : "none"}
+        {cat.available ? formatSize(cat.bytes) : t("settings.storage.none")}
       </td>
       <td style={{ ...cellRight, color: "var(--text-ghost)" }}>
         {cat.available ? cat.files.toLocaleString() : "-"}
@@ -536,20 +584,21 @@ function BackupBlock({
 }: {
   backup: BackupStatusWire | "unavailable" | null;
 }) {
+  const { t, rich } = useI18n();
   if (backup === null) return null;
   if (backup === "unavailable") {
     return (
       <>
-        <SectionLabel>Backups</SectionLabel>
+        <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
         <p style={{ fontSize: 11, color: "var(--text-ghost)", margin: 0 }}>
-          Backup status unavailable.
+          {t("settings.storage.backupUnavailable")}
         </p>
       </>
     );
   }
   return (
     <>
-      <SectionLabel>Backups</SectionLabel>
+      <SectionLabel>{t("settings.storage.category.backups")}</SectionLabel>
       <p
         style={{
           fontSize: 11,
@@ -559,21 +608,29 @@ function BackupBlock({
         }}
       >
         {backup.lastRunAt === null ? (
-          "No backup has run yet."
+          t("settings.storage.noBackupYet")
         ) : backup.ok ? (
-          <>Last backup {formatRelativeTime(backup.lastRunAt)}, successful.</>
+          t("settings.storage.lastBackupOk", {
+            when: formatRelativeTime(backup.lastRunAt),
+          })
         ) : (
           <span style={{ color: "#ff6b6b" }}>
-            Last backup {formatRelativeTime(backup.lastRunAt)} FAILED
-            {backup.error ? `: ${backup.error}` : "."}
+            {backup.error
+              ? t("settings.storage.lastBackupFailedWith", {
+                  when: formatRelativeTime(backup.lastRunAt),
+                  error: backup.error,
+                })
+              : t("settings.storage.lastBackupFailed", {
+                  when: formatRelativeTime(backup.lastRunAt),
+                })}
           </span>
         )}{" "}
         <span style={{ color: "var(--text-ghost)" }}>
-          Keeping {backup.retention} in{" "}
-          <code style={{ fontFamily: "'JetBrains Mono',monospace" }}>
-            {backup.destDir}
-          </code>
-          .
+          {rich("settings.storage.backupKeeping", {
+            retention: backup.retention,
+            destDir: backup.destDir,
+            code: inCode,
+          })}
         </span>
       </p>
     </>
@@ -599,9 +656,10 @@ function PlanBlock({
   onCancelConfirm: () => void;
   onApply: () => void;
 }) {
+  const { t } = useI18n();
   const count = plan.candidates.length;
   const sample = plan.candidates.slice(0, SAMPLE_ROWS);
-  const targetWord = TARGET_LABELS[plan.target].toLowerCase();
+  const targetWord = t(CATEGORY_KEYS[plan.target]).toLowerCase();
 
   return (
     <div
@@ -622,13 +680,17 @@ function PlanBlock({
         }}
       >
         {count > 0
-          ? `${count.toLocaleString()} ${targetWord} would be deleted, freeing ${formatSize(plan.bytes)}.`
-          : `Nothing matches. No ${targetWord} are old enough to delete.`}
+          ? t("settings.storage.planCount", {
+              count: count.toLocaleString(),
+              target: targetWord,
+              size: formatSize(plan.bytes),
+            })
+          : t("settings.storage.planEmpty", { target: targetWord })}
       </p>
       <p
         style={{ margin: "4px 0 0", fontSize: 10, color: "var(--text-ghost)" }}
       >
-        Nothing has been deleted yet - this is a preview.
+        {t("settings.storage.planPreviewNote")}
       </p>
 
       {plan.skipped.length > 0 && (
@@ -643,8 +705,11 @@ function PlanBlock({
         >
           {plan.skipped.map((s) => (
             <li key={s.reason}>
-              {s.count.toLocaleString()} kept ({formatSize(s.bytes)}):{" "}
-              {SKIP_LABELS[s.reason]}
+              {t("settings.storage.skippedRow", {
+                count: s.count.toLocaleString(),
+                size: formatSize(s.bytes),
+                reason: t(SKIP_KEYS[s.reason]),
+              })}
             </li>
           ))}
         </ul>
@@ -663,26 +728,33 @@ function PlanBlock({
         >
           {sample.map((c) => (
             <div key={c.path}>
-              {c.path} - {formatSize(c.bytes)}, {c.ageDays}d old
+              {t("settings.storage.sampleRow", {
+                path: c.path,
+                size: formatSize(c.bytes),
+                age: c.ageDays,
+              })}
             </div>
           ))}
           {count > sample.length && (
-            <div>…and {(count - sample.length).toLocaleString()} more.</div>
+            <div>
+              {t("settings.storage.sampleMore", {
+                count: (count - sample.length).toLocaleString(),
+              })}
+            </div>
           )}
         </div>
       )}
 
       {queueUnreadable && (
-        <ErrorLine>
-          Isomux could not read the pending-message queue, so it cannot tell
-          which attachments are still owed to messages that have not been
-          delivered. Nothing will be deleted until that is readable again.
-        </ErrorLine>
+        <ErrorLine>{t("settings.storage.queueUnreadable")}</ErrorLine>
       )}
 
       {count > 0 && !queueUnreadable && phase.kind === "previewed" && (
         <button onClick={onAskConfirm} style={dangerBtn}>
-          Delete {count.toLocaleString()} {targetWord} permanently
+          {t("settings.storage.deleteCount", {
+            count: count.toLocaleString(),
+            target: targetWord,
+          })}
         </button>
       )}
 
@@ -696,17 +768,18 @@ function PlanBlock({
               color: "var(--text-secondary)",
             }}
           >
-            <strong style={{ color: "#ff6b6b" }}>This cannot be undone.</strong>{" "}
-            The preview found {formatSize(plan.bytes)} of {targetWord} to erase
-            from this machine. A backup may contain another copy, if one ran
-            after these files were written. Isomux scans again before deleting.
-            Files that no longer match or fail a safety check are kept, so the
-            final count may differ from this preview.
+            <strong style={{ color: "#ff6b6b" }}>
+              {t("settings.storage.cannotUndo")}
+            </strong>{" "}
+            {t("settings.storage.confirmBody", {
+              size: formatSize(plan.bytes),
+              target: targetWord,
+            })}
           </p>
           <input
             value={confirmText}
             onChange={(e) => onConfirmText(e.target.value)}
-            placeholder="Type DELETE to confirm"
+            placeholder={t("settings.storage.confirmPlaceholder")}
             autoFocus
             style={{ ...dialogInput, marginTop: 8 }}
           />
@@ -716,7 +789,7 @@ function PlanBlock({
               style={{ ...dialogCancelBtn, flex: 1 }}
               disabled={phase.kind === "applying"}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
             <button
               onClick={onApply}
@@ -729,7 +802,9 @@ function PlanBlock({
                 cursor: confirmText === "DELETE" ? "pointer" : "not-allowed",
               }}
             >
-              {phase.kind === "applying" ? "Deleting…" : "Delete permanently"}
+              {phase.kind === "applying"
+                ? t("settings.storage.deleting")
+                : t("settings.storage.deletePermanently")}
             </button>
           </div>
         </div>
@@ -739,6 +814,7 @@ function PlanBlock({
 }
 
 function ResultBlock({ result }: { result: PruneResultWire }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -751,20 +827,23 @@ function ResultBlock({ result }: { result: PruneResultWire }) {
     >
       {result.aborted ? (
         <p style={{ margin: 0, fontSize: 12, color: "#ff6b6b" }}>
-          Stopped before deleting anything: {result.aborted}
+          {t("settings.storage.aborted", { reason: result.aborted })}
         </p>
       ) : (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-primary)" }}>
-          Deleted {result.deleted.toLocaleString()} files, freeing{" "}
-          {formatSize(result.bytes)}.
+          {t("settings.storage.deletedResult", {
+            count: result.deleted.toLocaleString(),
+            size: formatSize(result.bytes),
+          })}
         </p>
       )}
       {result.refused.length > 0 && (
         <p
           style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-dim)" }}
         >
-          {result.refused.length.toLocaleString()} could not be removed and were
-          left alone.
+          {t("settings.storage.refused", {
+            count: result.refused.length.toLocaleString(),
+          })}
         </p>
       )}
     </div>

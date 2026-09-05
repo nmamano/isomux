@@ -201,6 +201,16 @@ with `await import(...)` after `setUpDomTestFile()`, because it imports
 translated text, never text read back through `translatorFor`: an oracle that
 repeats the implementation approves a wrong translation.
 
+`ui/settings.i18n.dom.test.tsx` is the larger example: it mounts one page and
+walks it through its panes by clicking, rather than mounting each pane. Two
+things that file had to get right. A pane that loads on mount leaves a promise
+in flight, and one that settles after the file does schedules React work
+against an unregistered happy-dom, which surfaces as an unhandled "window is
+not defined" and a failed run - so drain with `act` after each such pane and
+once at the end. And a click on a sidebar row proves nothing until the row
+reports `aria-current`; without that check a pane anchor that also appears
+elsewhere on the page passes for the pane.
+
 ## Seams and where they live
 
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation

@@ -1,5 +1,6 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { apiFetch } from "../api.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
@@ -23,6 +24,11 @@ function formatDate(iso: string): string {
 type CommitStatus = Extract<UpdateStatusWire, { mode: "commit" }>;
 type ReleaseStatus = Extract<UpdateStatusWire, { mode: "release" }>;
 
+// The two plain-text builders below compose what the copy button puts on the
+// clipboard, which the pane's own tip says to hand to an agent. Agents keep
+// seeing English (internal-docs/i18n-loop.md, north star), so this text is
+// not a UI string and stays out of the catalog on purpose; the visible pane
+// around it is translated.
 function buildCommitPlainText(notice: CommitNotice): string {
   return [
     notice.title,
@@ -83,6 +89,9 @@ const quietButtonStyle: React.CSSProperties = {
   border: "1px solid var(--border-light)",
 };
 
+// The <code> wrap of the catalog's rich entries (ruling 16).
+const inCode = (chunk: ReactNode) => <code style={code}>{chunk}</code>;
+
 // Commit-mode body: the source-checkout notice (running version, latest
 // release, main drift - copy composed in shared/update-notice.ts) with manual
 // update instructions.
@@ -93,6 +102,7 @@ function CommitBody({
   status: CommitStatus;
   notice: CommitNotice;
 }) {
+  const { t, rich } = useI18n();
   return (
     <>
       <p style={{ ...textStyle, margin: "16px 0 0" }}>
@@ -104,7 +114,7 @@ function CommitBody({
             rel="noopener noreferrer"
             style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
           >
-            (release notes)
+            {t("settings.update.releaseNotesParen")}
           </a>
         ) : (
           <a
@@ -113,7 +123,7 @@ function CommitBody({
             rel="noopener noreferrer"
             style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
           >
-            (GitHub)
+            {t("settings.update.githubParen")}
           </a>
         )}
       </p>
@@ -126,18 +136,15 @@ function CommitBody({
           color: "var(--text-primary)",
         }}
       >
-        To update:
+        {t("settings.update.toUpdate")}
       </p>
       <ol style={{ ...textStyle, margin: 0, paddingLeft: 20 }}>
-        <li>Pull the latest changes</li>
+        <li>{t("settings.update.stepPull")}</li>
         <li style={{ marginTop: 4 }}>
-          Run <code style={code}>bun install</code>
+          {rich("settings.update.stepInstall", { code: inCode })}
         </li>
         <li style={{ marginTop: 4 }}>
-          Restart isomux for the update to take effect. Dev:{" "}
-          <code style={code}>bun run dev</code>. User service:{" "}
-          <code style={code}>systemctl --user restart isomux</code>. System
-          service: <code style={code}>sudo systemctl restart isomux</code>.
+          {rich("settings.update.stepRestart", { code: inCode })}
         </li>
       </ol>
 
@@ -150,8 +157,7 @@ function CommitBody({
           fontStyle: "italic",
         }}
       >
-        Tip: click the copy button to copy this notice to clipboard, then ask
-        any agent to take care of it.
+        {t("settings.update.tip")}
       </p>
     </>
   );
@@ -168,6 +174,7 @@ function ReleaseBody({
   onClose: () => void;
 }) {
   const { sessionContext } = useAppState();
+  const { t, tn, rich } = useI18n();
   const isOwner = sessionContext?.role === "owner";
   const [phase, setPhase] = useState<
     "info" | "confirm" | "starting" | "started"
@@ -215,15 +222,13 @@ function ReleaseBody({
     return (
       <>
         <p style={{ ...textStyle, margin: "16px 0 0" }}>
-          Update requested. The server will restart shortly and this page will
-          reconnect. If nothing happens after a few minutes, check the
-          updater&apos;s status file on the server.
+          {t("settings.update.requested")}
         </p>
         <div
           style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}
         >
           <button onClick={onClose} style={buttonStyle}>
-            Close
+            {t("settings.update.close")}
           </button>
         </div>
       </>
@@ -234,12 +239,20 @@ function ReleaseBody({
     <>
       <ul style={{ ...textStyle, margin: "16px 0 0", paddingLeft: 20 }}>
         <li>
-          You are on <code style={code}>{running ?? "an unknown version"}</code>
+          {rich("settings.update.runningOn", {
+            version: running ?? t("settings.update.unknownVersion"),
+            code: inCode,
+          })}
         </li>
         {latest && (
           <li style={{ marginTop: 4 }}>
-            Latest release: <code style={code}>{latest.tag}</code>
-            {latest.publishedAt ? ` (${formatDate(latest.publishedAt)})` : ""}
+            {rich("settings.update.latestRelease", {
+              tag: latest.tag,
+              published: latest.publishedAt
+                ? ` (${formatDate(latest.publishedAt)})`
+                : "",
+              code: inCode,
+            })}
             {latest.url && (
               <>
                 {" - "}
@@ -252,7 +265,7 @@ function ReleaseBody({
                     textDecoration: "none",
                   }}
                 >
-                  release notes
+                  {t("settings.update.releaseNotes")}
                 </a>
               </>
             )}
@@ -262,17 +275,15 @@ function ReleaseBody({
 
       {(phase === "confirm" || phase === "starting") && (
         <p style={{ ...textStyle, margin: "16px 0 0" }}>
-          Updating restarts the server, interrupting every agent.
+          {t("settings.update.restartWarning")}
           {busy !== null &&
             " " +
               (busy === 0
-                ? "No agents are mid-task right now."
-                : busy === 1
-                  ? "1 agent is mid-task right now."
-                  : `${busy} agents are mid-task right now.`)}
+                ? t("settings.update.busyNone")
+                : tn("settings.update.busy", busy))}
           {busy === null &&
             busyUnavailable &&
-            " The busy-agent count is unavailable right now."}
+            " " + t("settings.update.busyUnavailable")}
         </p>
       )}
 
@@ -298,7 +309,7 @@ function ReleaseBody({
             fontStyle: "italic",
           }}
         >
-          An office owner can apply it from this dialog.
+          {t("settings.update.ownerOnly")}
         </p>
       )}
 
@@ -318,7 +329,7 @@ function ReleaseBody({
             }}
             style={buttonStyle}
           >
-            Update now
+            {t("settings.update.updateNow")}
           </button>
         )}
         {isOwner && latest && (phase === "confirm" || phase === "starting") && (
@@ -332,17 +343,19 @@ function ReleaseBody({
             }}
           >
             {phase === "starting"
-              ? "Updating…"
+              ? t("settings.update.updating")
               : busy !== null
-                ? `Update now (${busy} busy)`
-                : "Update now"}
+                ? t("settings.update.updateNowBusy", { count: busy })
+                : t("settings.update.updateNow")}
           </button>
         )}
         <button
           onClick={phase === "confirm" ? () => setPhase("info") : onClose}
           style={phase === "info" && !isOwner ? buttonStyle : quietButtonStyle}
         >
-          {phase === "confirm" || phase === "starting" ? "Cancel" : "Got it"}
+          {phase === "confirm" || phase === "starting"
+            ? t("common.cancel")
+            : t("settings.update.gotIt")}
         </button>
       </div>
     </>
@@ -354,6 +367,7 @@ function ReleaseBody({
 // smaller to dismiss now that this is a pane rather than an overlay.
 export function UpdatePane({ onClose }: { onClose: () => void }) {
   const { updateInfo } = useAppState();
+  const { t } = useI18n();
 
   const release = updateInfo?.mode === "release" ? updateInfo : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
@@ -391,8 +405,8 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
             }}
           >
             {release
-              ? "New Release Available"
-              : (notice?.title ?? "Up to date")}
+              ? t("settings.update.newRelease")
+              : (notice?.title ?? t("settings.update.upToDateTitle"))}
           </h3>
           <CopyButton getText={getText} size={28} />
         </div>
@@ -410,7 +424,7 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
               }}
             >
               <button onClick={onClose} style={buttonStyle}>
-                Got it
+                {t("settings.update.gotIt")}
               </button>
             </div>
           </>
@@ -419,7 +433,7 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
           // now that the sidebar has a permanent Updates row, where the old
           // dialog could only be opened from the pill.
           <p style={{ ...textStyle, margin: "16px 0 0" }}>
-            This office is up to date.
+            {t("settings.update.upToDate")}
           </p>
         )}
       </div>
