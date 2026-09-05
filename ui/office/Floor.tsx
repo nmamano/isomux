@@ -406,7 +406,7 @@ const VINES: Array<[number, number, number, number, number, number]> = [
   [4.5, 9.5, 58, 2.2, 3.9, 5],
   [-6, -6.5, 96, 3.2, 0.4, 8],
   [-2, -2, 62, 2.4, 2.1, 6],
-  [3, 4.5, 108, 3.6, 4.2, 9],
+  [3, 4.5, 78, 3.6, 4.2, 7],
   [7, 8.5, 74, 2.8, 5.6, 6],
 ];
 
@@ -475,23 +475,6 @@ function vineLeaves(vine: (typeof VINES)[number], vi: number) {
         varBig={marble === 0}
       />,
     );
-    // Blossoms hang off the opposite side of the stem from their leaf, one
-    // or two per front vine, so they punctuate the green instead of lining
-    // it. The normal comes off the same tangent the leaf is squared to.
-    if (!back && (i + vi) % 4 === 1) {
-      const len = Math.hypot(bx - ax, by - ay) || 1;
-      const nx = -(by - ay) / len,
-        ny = (bx - ax) / len;
-      out.push(
-        <Blossom
-          key={`v${vi}f${i}`}
-          x={x - side * nx * 2.9}
-          y={y - side * ny * 2.9 + 1.2}
-          size={3.4 * (1 - 0.25 * t)}
-          tone={BLOSSOM_TONES[(vi + i) % BLOSSOM_TONES.length]}
-        />,
-      );
-    }
   }
   return out;
 }
@@ -606,9 +589,9 @@ interface DoorProps {
   onClick: () => void;
   dragOver?: boolean;
   reject?: boolean;
-  // Counts ghosts that have passed through this door. Every change
-  // remounts the panel, which restarts the ajar animation; the value
-  // itself is never read, so any monotonic counter works.
+  // Counts ghosts that have passed through this door. A rise seen by a
+  // mounted door plays the ajar animation once; the value itself is never
+  // read, so any monotonic counter works.
   passCount?: number;
 }
 
@@ -706,6 +689,14 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
       ? "#8a7060"
       : "#6a5040";
   const pass = door.passCount ?? 0;
+  // The swing plays only for a crossing this mounted door has seen: the
+  // counter it keys on advances when passCount rises after mount, never on
+  // mount itself. Otherwise a room switch, which mounts the doors of the
+  // new room with the session's running count, would swing them for the
+  // viewer's own navigation. Render-phase derived state, like the hook.
+  const [seen, setSeen] = useState({ pass, swings: 0 });
+  const swings = pass > seen.pass ? seen.swings + 1 : seen.swings;
+  if (pass !== seen.pass) setSeen({ pass, swings });
   return (
     <g
       data-no-pan
@@ -751,7 +742,7 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
           transform={`translate(${hingeX}, ${(-DOOR_HALF_W * WALL_SLOPE).toFixed(3)})`}
         >
           <g
-            key={pass}
+            key={swings}
             style={{
               transformBox: "fill-box",
               // The panel's bounding box ends (left door) or starts
@@ -759,7 +750,7 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
               // that edge, so only its x matters here.
               transformOrigin: side === "left" ? "100% 50%" : "0% 50%",
               transform: doorRestTransform(side),
-              ...(pass > 0
+              ...(swings > 0
                 ? { animation: `isomuxDoorAjar-${side} ${DOOR_AJAR_MS}ms both` }
                 : {}),
             }}
