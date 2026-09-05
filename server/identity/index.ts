@@ -262,7 +262,8 @@ export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 // decision. Identity and durable-access surfaces stay excluded: invite:manage,
 // session:manage, user:self, user:admin, office:admin, view:manage and
 // agent:privilege. user:env is the explicit exception for the issuing user's
-// self-only managed environment routes. The
+// managed environment routes: their own values, and - when that user is an
+// office owner - the name-only read of another user's variables. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. These exclusions are
 // defense in depth, not a shell boundary - agent:manage can spawn an agent that

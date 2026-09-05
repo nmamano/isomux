@@ -582,6 +582,12 @@ export interface OfficeSettingsReq {
 
 export type UserEnvRes = { mode: "managed"; values: Record<string, string> };
 
+// userEnv.names response: an office owner reads WHICH managed variables a user
+// has set, never what they hold. Deliberately not a slice of UserEnvRes - the
+// values are the secret, so the name-only read gets its own type and no code
+// path can widen it by adding a field.
+export type UserEnvNamesRes = { names: string[] };
+
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
 }

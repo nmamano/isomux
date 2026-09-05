@@ -2017,6 +2017,20 @@ export async function demoApi(
       return undefined;
     }
   }
+  // userEnv.names - the office owner's name-only read of another user's managed
+  // variables. Listed after the bare /env route (different segment count, so the
+  // order is for readers, not for the matcher). Names only: the demo drops the
+  // values here exactly as the server does.
+  const userEnvNamesMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/env\/names$/,
+  );
+  if (userEnvNamesMatch && method === "GET") {
+    const uname = decodeURIComponent(userEnvNamesMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing)
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    return { names: Object.keys(demoManagedEnv[existing.id] ?? {}).sort() };
+  }
   const userAccessMatch = pathname.match(/^\/api\/users\/([^/]+)\/access$/);
   if (userAccessMatch && method === "PUT") {
     const uname = decodeURIComponent(userAccessMatch[1]);

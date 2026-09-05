@@ -108,6 +108,7 @@ import type {
   RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
+  UserEnvNamesRes,
   UserEnvReplaceReq,
   UserEnvRes,
   InviteMintReq,
@@ -738,6 +739,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/users/:username/env",
     auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  // Names without values: an office owner reads WHICH managed variables a user
+  // has set, so they can see who is still unconfigured. officeEnvOwner rather
+  // than selfUserOrApi - the subject is someone else, and the caller must be an
+  // office owner, by cookie or by their own API token. A member's cookie and
+  // every agent token get the uniform 403.
+  defineRoute<void, UserEnvNamesRes>({
+    opId: "userEnv.names",
+    method: "GET",
+    path: "/api/users/:username/env/names",
+    auth: cap("user:env", officeEnvOwner),
     emits: [],
   }),
   defineRoute<void, UserEnvRes>({

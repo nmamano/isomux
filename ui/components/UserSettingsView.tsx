@@ -26,6 +26,7 @@ import {
   getUsername,
 } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
+import type { UserEnvNamesRes } from "../../shared/contract-shapes.ts";
 import { type UserView, isFullUserView } from "../user-merge.ts";
 import {
   GHOST_COLOR_PALETTE,
@@ -916,6 +917,84 @@ function summarizeRoster(
   return `last seen ${formatRelative(stats.lastSeenAt)}`;
 }
 
+// An office owner's read-only view of another user's individual connections:
+// WHICH managed variables that user has set, never what those hold. The values
+// live in that user's own managed env file and reach nobody else, which is why
+// GET /api/users/:username/env/names answers names alone and refuses every
+// caller who is not an office owner. Mounted only for owner viewers, so a
+// member never sees a section they would be refused.
+function MemberVariableNames({ username }: { username: string }) {
+  const [names, setNames] = useState<string[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Keyed on the username at the call site, so a different profile remounts
+  // this with empty state instead of showing the previous user's names while
+  // the next read is in flight.
+  useEffect(() => {
+    let live = true;
+    apiFetch<UserEnvNamesRes>(
+      "GET",
+      `/api/users/${encodeURIComponent(username)}/env/names`,
+    )
+      .then((res) => {
+        if (!live) return;
+        // A body without a names array is a broken read, not an empty file:
+        // "No variables." must mean the server said none, never that the pane
+        // could not tell.
+        if (Array.isArray(res.names)) setNames(res.names);
+        else setFailed(true);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [username]);
+
+  return (
+    <>
+      <h5 style={sectionTitleStyle}>Individual Connections</h5>
+      <p style={sectionHintStyle}>
+        Variables this user set for their own agents. Names only - values stay
+        private.
+      </p>
+      {failed ? (
+        <p style={sectionHintStyle}>Could not load variables.</p>
+      ) : names === null ? (
+        <p style={sectionHintStyle}>Loading…</p>
+      ) : names.length === 0 ? (
+        <p style={sectionHintStyle}>No variables.</p>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 6,
+            marginTop: 10,
+          }}
+        >
+          {names.map((name) => (
+            <span
+              key={name}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-base)",
+                padding: "3px 8px",
+                fontSize: 12,
+                fontFamily: "'JetBrains Mono',monospace",
+                color: "var(--text-primary)",
+              }}
+            >
+              {name}
+            </span>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 function UserEditPanel({
   user,
   isMobile,
@@ -1574,6 +1653,13 @@ function UserEditPanel({
             lineHeight: 1.45,
           }}
         />
+
+        {/* Owner viewers only, per the route's own gate. Placed with the other
+            sections that change how this user's agents run, not with the
+            record fields the owner can edit - nothing here is editable. */}
+        {isOwner && (
+          <MemberVariableNames key={user.name} username={user.name} />
+        )}
 
         {/* Aesthetics last: looks are secondary to the
             settings that change behavior. */}

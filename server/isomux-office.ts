@@ -2416,6 +2416,14 @@ function buildExecutorDeps(
           values: readManagedUserEnv(userId) ?? {},
         };
       },
+      // Names only, and only for a caller the route already gated as an office
+      // owner. Reads the same managed file as get(), then drops every value
+      // before it can leave this closure.
+      names: (username) => {
+        const user = getUserByName(username);
+        if (!user) return null;
+        return Object.keys(readManagedUserEnv(user.id) ?? {}).sort();
+      },
       replace: (userId, values) => {
         const user = getUserById(userId);
         if (!user) return { ok: false, status: 404, code: "not_found" };

@@ -202,3 +202,124 @@ describe("managed office env routes", () => {
     );
   });
 });
+
+// GET /api/users/:username/env/names - the office owner's read of WHICH
+// variables somebody else has set. Sibling of the routes above, and the one
+// managed-env route whose subject is not the caller, so the whole test is about
+// who is refused and about the values never appearing in a body.
+describe("managed user env names route", () => {
+  it("gives an office owner the names, refuses everyone else, and never carries a value", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Member");
+    const ownerId = getUserByName(owner.username)!.id;
+    const memberId = getUserByName(member.username)!.id;
+    const ownerApi = await mintApiToken({
+      userId: ownerId,
+      name: "Owner API",
+      expiresInDays: null,
+    });
+    const memberApi = await mintApiToken({
+      userId: memberId,
+      name: "Member API",
+      expiresInDays: null,
+    });
+    const plainAgent = mintAgentToken("names-agent", ownerId, false);
+    const privilegedAgent = mintAgentToken("names-privileged", ownerId, true);
+    const secret = "do-not-echo-this-secret";
+
+    // The member fills their own managed file through the self route.
+    expect(
+      (
+        await request(server, member.username, {
+          method: "PUT",
+          session: member.rawSessionId,
+          body: { values: { ZED_TOKEN: secret, ANTHROPIC_API_KEY: secret } },
+        })
+      ).status,
+    ).toBe(204);
+
+    const ownerRead = await request(server, member.username, {
+      suffix: "/names",
+      session: owner.rawSessionId,
+    });
+    const ownerApiRead = await request(server, member.username, {
+      suffix: "/names",
+      bearer: ownerApi.token,
+    });
+    const statuses = {
+      ownerCookie: ownerRead.status,
+      ownerApi: ownerApiRead.status,
+      // A member is refused even for their OWN names: values reach them
+      // through userEnv.get, so this route is never theirs.
+      memberCookieOnSelf: (
+        await request(server, member.username, {
+          suffix: "/names",
+          session: member.rawSessionId,
+        })
+      ).status,
+      memberCookieOnOwner: (
+        await request(server, owner.username, {
+          suffix: "/names",
+          session: member.rawSessionId,
+        })
+      ).status,
+      memberApi: (
+        await request(server, member.username, {
+          suffix: "/names",
+          bearer: memberApi.token,
+        })
+      ).status,
+      // An agent spawned by the OWNER still fails: officeEnvOwner gates on
+      // scope, not on whose userId the token carries.
+      plainAgent: (
+        await request(server, member.username, {
+          suffix: "/names",
+          bearer: plainAgent,
+        })
+      ).status,
+      privilegedAgent: (
+        await request(server, member.username, {
+          suffix: "/names",
+          bearer: privilegedAgent,
+        })
+      ).status,
+      unknownUser: (
+        await request(server, "nobody", {
+          suffix: "/names",
+          session: owner.rawSessionId,
+        })
+      ).status,
+    };
+
+    expect(statuses).toEqual({
+      ownerCookie: 200,
+      ownerApi: 200,
+      memberCookieOnSelf: 403,
+      memberCookieOnOwner: 403,
+      memberApi: 403,
+      plainAgent: 403,
+      privilegedAgent: 403,
+      unknownUser: 404,
+    });
+    expect(ownerRead.body).toEqual({
+      names: ["ANTHROPIC_API_KEY", "ZED_TOKEN"],
+    });
+    expect(ownerApiRead.body).toEqual(ownerRead.body);
+    expect(JSON.stringify(ownerRead.body)).not.toContain(secret);
+  });
+
+  it("answers an empty list for a user who has set nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Member");
+    const read = await request(server, member.username, {
+      suffix: "/names",
+      session: owner.rawSessionId,
+    });
+    expect({ status: read.status, body: read.body }).toEqual({
+      status: 200,
+      body: { names: [] },
+    });
+  });
+});

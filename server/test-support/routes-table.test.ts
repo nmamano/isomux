@@ -371,6 +371,46 @@ describe("route table: managed env values are self-only", () => {
     }
   });
 
+  // The name-only read is the ONE managed-env route whose subject is somebody
+  // else, so it swaps selfUserOrApi for officeEnvOwner: office owners only,
+  // by cookie or by their own API token. Walked here at the guard level; the
+  // wire behaviour is in routes-user-env-rest.test.ts.
+  it("opens userEnv.names to office owners only, cookie or their API token", () => {
+    const route = API_ROUTES.find((r) => r.opId === "userEnv.names")!;
+    const ownerDeps: GuardDeps = { ...deps, isOfficeOwnerUserId: () => true };
+    const ownerCookie: Identity = { ...identities.user, role: "owner" };
+    const ownerApi: Identity = { ...identities.api, role: "owner" };
+    // An owner reads ANOTHER user's names - the whole point of the route.
+    for (const who of [ownerCookie, ownerApi]) {
+      expect(
+        runAuthorize(route.auth, who, { username: "other" }, undefined, ownerDeps)
+          .ok,
+      ).toBe(true);
+    }
+    // A member is refused even for their OWN names: they read values through
+    // userEnv.get, so nothing here is theirs to reach.
+    for (const who of [
+      identities.user,
+      identities.api,
+      identities.agent,
+      identities.privilegedAgent,
+    ]) {
+      for (const username of ["self", "other"]) {
+        expect(
+          runAuthorize(route.auth, who, { username }, undefined, deps).ok,
+        ).toBe(false);
+      }
+    }
+    // An agent whose spawning user IS the office owner still cannot pass:
+    // officeEnvOwner gates on scope, not on whose userId the token carries.
+    for (const who of [identities.agent, identities.privilegedAgent]) {
+      expect(
+        runAuthorize(route.auth, who, { username: "other" }, undefined, ownerDeps)
+          .ok,
+      ).toBe(false);
+    }
+  });
+
   it("assigns user:env only to USER and API capability sets", () => {
     expect(USER_CAPABILITIES).toContain("user:env");
     expect(API_CAPABILITIES).toContain("user:env");
@@ -592,6 +632,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "userEnv.get": { caps: ["user:env"], emits: [] },
   "userEnv.replace": { caps: ["user:env"], emits: [] },
+  "userEnv.names": { caps: ["user:env"], emits: [] },
   "officeEnv.get": { caps: ["user:env"], emits: [] },
   "officeEnv.replace": { caps: ["user:env"], emits: [] },
   "apiTokens.list": { caps: ["user:self"], emits: [] },
@@ -974,6 +1015,7 @@ const API_REACHABLE_OPIDS = [
   "rooms.setSettings",
   "userEnv.get",
   "userEnv.replace",
+  "userEnv.names",
   "officeEnv.get",
   "officeEnv.replace",
   "apiTokenInbox.drain",

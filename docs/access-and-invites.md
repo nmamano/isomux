@@ -150,6 +150,9 @@ starts or resumes a conversation. Other per-user variables work the same way,
 for example, each member can set `GH_TOKEN` so their agents use their own
 GitHub credentials.
 
+An office owner opens a member in Settings → Members and sees which variables
+that member has set. The values stay with the member.
+
 An explicit absolute provider directory in the managed variables still overrides the
 Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.
 
