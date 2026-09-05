@@ -216,7 +216,8 @@ function flagChanges(events: AgentEvent[], id: string, from: number) {
     if (e.type !== "agent_updated" || e.agentId !== id) continue;
     if ("sessionSwapping" in e.changes)
       out.push(`sessionSwapping:${String(e.changes.sessionSwapping)}`);
-    if ("dormant" in e.changes) out.push(`dormant:${String(e.changes.dormant)}`);
+    if ("dormant" in e.changes)
+      out.push(`dormant:${String(e.changes.dormant)}`);
   }
   return out;
 }
