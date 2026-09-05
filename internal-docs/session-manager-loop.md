@@ -54,6 +54,22 @@ The surface (as of 101414e): `createSession` (~4842), `installSession`
    after kill during a swap drain). S1 pins nothing for it (no test, no
    todo); S2-S4 preserve the current order exactly, with a comment naming
    the task where the guard sits.
+9. R-2026-09-05-4 (S4 order; ruled on Reviewer 1's plan escalation,
+   verified at agent-manager.ts ~1267 and command-handlers.ts ~242).
+   Every replacement site creates the backend session BEFORE the swap,
+   so a synchronous create failure leaves the old session, its pending
+   turn and the control state untouched; that order is customer-visible
+   and stays. S4's entry point therefore calls the createSession dep
+   first and only then closes, drains and installs; it is a non-async
+   method returning replaceSession's promise, so a synchronous create
+   throw stays synchronous. Pickup S4 tests (e) and (f) are replaced by:
+   (e) the dep is called exactly once, with the resume id given, before
+   any close or drain (mutant: drain first); (f) a dep that throws
+   synchronously propagates synchronously and leaves the old session
+   bound and the pending turn unsettled (mutant: catch and drain). The
+   acceptance grep accepts the one locked forwarding lambda in
+   command-handlers.ts and its call; the requirement is that no migrated
+   agent-manager replacement caller constructs a BackendSession.
 8. R-2026-09-05-2: behaviours that the public surface cannot reach before
    the object exists (S1 pickup items 3 idle-residue half and 5 stale
    deferred) are S2 direct-unit obligations: S2 adds unit tests on
@@ -324,7 +340,7 @@ mutants named red; eslint on touched files; build:ui; `bunx tsc
 
 Decide with reviewer: the entry point's name and signature; the exact
 cut of `createSession`.
-Locked: rulings 1-8; views and forwarding lambdas stay until S5.
+Locked: rulings 1-9 (ruling 9 amends this pickup's tests (e)/(f), the entry point's shape and the acceptance grep); views and forwarding lambdas stay until S5.
 
 - [ ] S4 landed (hash, note)
 
