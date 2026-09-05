@@ -120,7 +120,8 @@ export function setUpDomTestFile({
       // unregister itself does. They are ours, not happy-dom's, and nothing
       // else will clean them up.
       try {
-        if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+        if (GlobalRegistrator.isRegistered)
+          await GlobalRegistrator.unregister();
       } finally {
         removeStubs();
       }

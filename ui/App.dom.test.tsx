@@ -22,7 +22,15 @@
 // fires popstate with the entry's state, so these tests exercise the same path
 // a browser button does rather than a hand-dispatched event.
 
-import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  spyOn,
+} from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
@@ -150,7 +158,11 @@ describe("a page opened over a chat", () => {
 
   it("lands back on the chat at /", async () => {
     const view = render(
-      createElement(StateCtx.Provider, { value: WITH_CHAT }, createElement(App)),
+      createElement(
+        StateCtx.Provider,
+        { value: WITH_CHAT },
+        createElement(App),
+      ),
     );
     expect(window.location.pathname).toBe("/");
 

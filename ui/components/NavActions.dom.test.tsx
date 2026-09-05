@@ -18,7 +18,9 @@ setUpDomTestFile();
 // take a later addition back off - only the harness can, and this is what says
 // it did. AudioContext is the one stub today (see ui/test-support/dom.ts).
 afterAll(() => {
-  expect((globalThis as { AudioContext?: unknown }).AudioContext).toBeUndefined();
+  expect(
+    (globalThis as { AudioContext?: unknown }).AudioContext,
+  ).toBeUndefined();
 });
 
 const { fireEvent, render } = await import("@testing-library/react");

@@ -5,7 +5,15 @@
 // four together were most of a 5 s budget. The rest of App's history wiring is
 // in ui/App.dom.test.tsx, and the cold-load half in ui/App.boot.dom.test.tsx.
 
-import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  spyOn,
+} from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
@@ -39,7 +47,11 @@ afterEach(() => {
  * button's title unless the action names its own) and something only that page
  * renders, so the test proves the right page came up and not just the path.
  */
-const PAGES: Array<{ page: Page; button: string; showing: (v: View) => boolean }> = [
+const PAGES: Array<{
+  page: Page;
+  button: string;
+  showing: (v: View) => boolean;
+}> = [
   {
     page: "tasks",
     button: "Tasks",
