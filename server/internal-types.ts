@@ -8,10 +8,8 @@ import type {
   SkillInfo,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
-import type { BackendSession } from "./backends/types.ts";
 import type {
   DormantReason,
-  PendingTurn,
   SessionManager,
 } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
@@ -41,20 +39,11 @@ export interface ManagedAgent {
   // agent-manager, which casts to mutate before a side effect that may need
   // to revert the change.
   readonly info: Readonly<AgentInfo>;
-  // The per-agent session lifecycle object (server/session-manager.ts) owns
-  // the nine fields below; these are getter-only views for the read sites.
-  // Every write goes through `sessionManager.<field>` - an assignment to a
-  // view is a type error (and a TypeError at runtime).
+  // The per-agent session lifecycle object (server/session-manager.ts): the
+  // BackendSession slot, its consumer, the per-turn deferred and the swap /
+  // abort bookkeeping live there. Read and write them as
+  // `managed.sessionManager.<field>`.
   readonly sessionManager: SessionManager<ManagedAgent>;
-  readonly session: BackendSession | null;
-  readonly sessionId: string | null;
-  readonly consumerPromise: Promise<void> | null;
-  readonly pendingTurn: PendingTurn | null;
-  readonly turnCancelToken: number;
-  readonly abortCancelToken: number;
-  readonly aborting: boolean;
-  readonly lastBackendFailure: string | null;
-  readonly abortPromise: Promise<void> | null;
   slashCommands: {
     name: string;
     description?: string;
@@ -265,7 +254,8 @@ export interface ManagedAgent {
   // backed by a subprocess (lazy spawn, or released by /clear) - its wake is
   // silent because there is nothing to announce resuming; "stream-ended" = the
   // backend's event stream ended on its own while the session was still bound
-  // (subprocess died without a proper error event) and runConsumer released
+  // (subprocess died without a proper error event) and the SessionManager
+// consumer released
   // the dead session pointer. Null while live. In-memory only.
   dormantReason: DormantReason;
 }

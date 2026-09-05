@@ -1,6 +1,6 @@
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
-// agent-manager.ts holds runConsumer / queue / abort / fork / topic-gen / etc.
+// SessionManager holds the session lifecycle; agent-manager.ts holds queue / abort / fork / topic-gen
 // in backend-agnostic form; engines implement this contract under
 // server/backends/{claude,codex}/ and the dispatch lives in
 // server/backends/index.ts (`getBackend(agentType)`).
@@ -97,7 +97,7 @@ export interface TokenUsage {
 
 export type NormalizedEvent =
   // First event from a fresh or resumed session/thread. Carries the backend-
-  // assigned id; orchestrator persists this as ManagedAgent.sessionId.
+  // assigned id; orchestrator persists this as SessionManager.sessionId.
   // sessionId is optional only as a defensive fallback for transports that
   // could emit an init without it (the Claude SDK always supplies one); the
   // orchestrator guards session-related side effects on its presence so

@@ -77,9 +77,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 
   // Snapshot the cancel token immediately after beginTurn. Built-in notice
   // assembly can await a context sample before pendingTurn is installed.
-  const cancelTokenAtEntry = managed.turnCancelToken;
+  const cancelTokenAtEntry = managed.sessionManager.turnCancelToken;
   const checkCancelled = () => {
-    if (managed.turnCancelToken !== cancelTokenAtEntry) {
+    if (managed.sessionManager.turnCancelToken !== cancelTokenAtEntry) {
       throw new SessionSwappedError("Turn cancelled before send.");
     }
   };
@@ -139,15 +139,15 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // 4. Install the per-turn deferred. pendingTurn makes session.send /
   // await turn cancellable on session swap.
   const turn = deps.createTurnDeferred(managed);
-  const ownPending = managed.pendingTurn;
+  const ownPending = managed.sessionManager.pendingTurn;
 
   let thrown: unknown = undefined;
 
   try {
-    if (!managed.session) {
+    if (!managed.sessionManager.session) {
       throw new Error("Cannot send: agent has no session.");
     }
-    await managed.session.send(
+    await managed.sessionManager.session.send(
       finalText,
       attachments && attachments.length > 0 ? attachments : undefined,
     );
@@ -201,11 +201,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   } catch (err) {
     thrown = err;
     // If session.send (or anything before `await turn`) threw, the deferred
-    // remains parked in managed.pendingTurn. Reject and clear it only when we
+    // remains parked in managed.sessionManager.pendingTurn. Reject and clear it only when we
     // still own it so
     // awaiting callers don't hang and concurrent abort/state logic doesn't
     // observe a phantom in-flight turn.
-    if (ownPending && managed.pendingTurn === ownPending) {
+    if (ownPending && managed.sessionManager.pendingTurn === ownPending) {
       managed.sessionManager.pendingTurn = null;
       try {
         ownPending.reject(err);

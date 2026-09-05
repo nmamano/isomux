@@ -52,6 +52,7 @@ import {
   type AgentEvent,
   type EnqueueResult,
 } from "./internal-types.ts";
+import type { BackendSession } from "./backends/types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
@@ -184,14 +185,18 @@ interface HandlerDeps {
     managed: ManagedAgent,
   ) => Promise<void>;
 
+  // The typed /clear builds its session first and runs its own pending-control
+  // and queue bookkeeping before the swap, so it takes the create and the swap
+  // as two steps; it is the only caller that hands SessionManager a session it
+  // built. Every other swap goes through sessionManager.replaceWith.
   createSession: (
     managed: ManagedAgent,
     resumeSessionId?: string,
-  ) => NonNullable<ManagedAgent["session"]>;
+  ) => BackendSession;
   replaceSession: (
     agentId: string,
     managed: ManagedAgent,
-    newSession: NonNullable<ManagedAgent["session"]>,
+    newSession: BackendSession,
   ) => Promise<void>;
   persistAll: () => void;
   persistCurrentSessionTopic: (agentId: string, managed: ManagedAgent) => void;
@@ -207,7 +212,6 @@ interface HandlerDeps {
     username?: string,
     device?: string,
   ) => boolean;
-  createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
   // Context-fullness reset (see resetContextUsage in agent-manager): the typed
   // /clear (also /reset, /new) is a semantic conversation boundary, so it must
   // clear the fullness snapshot + fired context-notice thresholds and
@@ -340,7 +344,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(agentId, "system", lines.join("\n"));
         return true;
       };
-      if (!managed.session) {
+      if (!managed.sessionManager.session) {
         // Released-while-idle renders IDENTICALLY to the live case (no
         // lifecycle note - remaining context doesn't change when the session
         // process is released).
@@ -349,7 +353,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         return true;
       }
       try {
-        const ctx = await managed.session.getContextUsage();
+        const ctx = await managed.sessionManager.session.getContextUsage();
         if (!ctx) {
           if (
             snapshotFallback(
@@ -548,7 +552,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         // directory each session will resume into (it can differ per session).
         // Abbreviate the home prefix to `~` to save horizontal space.
         const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
-        if (s.sessionId === managed.sessionId) {
+        if (s.sessionId === managed.sessionManager.sessionId) {
           lines.push(`  ● ${label}  ${dateStr}${cwdStr}  (current)`);
         } else {
           lines.push(
@@ -1177,7 +1181,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     const busy =
       state === "thinking" ||
       state === "tool_executing" ||
-      managed.pendingTurn !== null;
+      managed.sessionManager.pendingTurn !== null;
     if (busy && !inMultiStepFlow(managed)) {
       const result = deps.enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
@@ -1200,7 +1204,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     // for an actual skill (control commands like /clear never get here), so the
     // no-auto-wake escape hatch on broken sessions stays intact. A genuinely-
     // broken (non-dormant) session is left to surface its own error.
-    if (!managed.session && managed.info.dormant) {
+    if (!managed.sessionManager.session && managed.info.dormant) {
       if (
         !deps.wakeDormantSession(agentId, managed, rawText, username, device)
       ) {

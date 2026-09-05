@@ -553,6 +553,10 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   // 154e2c14's STILL OPEN section for context. The current sendMessage
   // papers over the user-visible delay by echoing the typed message to the
   // log before awaiting abortPromise (see echoEarly there).
+  // Public for one external caller: the typed /clear path (command-handlers)
+  // hands in a session it built itself, because its pending-control and queue
+  // bookkeeping must run between create and swap. Every other swap goes
+  // through replaceWith below.
   async replaceSession(
     host: H,
     newSession: BackendSession,

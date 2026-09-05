@@ -749,7 +749,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   };
   const logCache = new Map<string, LogEntry[]>(); // agentId → entries
   // Agents mid-way through a live fixed-cwd-backend change. The old session is
-  // abandoned, but managed.sessionId stays until the fresh session's system_init
+  // abandoned, but managed.sessionManager.sessionId stays until the fresh session's system_init
   // lands, so the success clear-branch runs and a synchronous replace failure can
   // roll back with the old id intact. Codex bootstraps asynchronously, so a fresh
   // bootstrap failure emits system_init with an
@@ -911,7 +911,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   function getCurrentSessionId(agentId: string): string | null {
-    return agents.get(agentId)?.sessionId ?? null;
+    return agents.get(agentId)?.sessionManager.sessionId ?? null;
   }
 
   // Resolve a stable roomId to its GLOBAL index in officeState.rooms
@@ -1174,13 +1174,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // resumes there (createSession always resumes at managed.info.cwd). Setting
     // changes (model/effort/permission/sandbox) replace regardless, as before.
     const needReplace =
-      settingTriggersReplace || (cwdChanging && managed.session !== null);
+      settingTriggersReplace || (cwdChanging && managed.sessionManager.session !== null);
     // Claude relocates its active session's files on ANY cwd change that has a
     // session id - live or lazily-restored (session null, sessionId set) - so a
     // later resume finds the .jsonl under the new project dir. Matches the
     // pre-per-session-cwd behavior, which moved files gated only on sessionId.
     const needClaudeFileMove =
-      cwdChanging && isClaude && managed.sessionId !== null;
+      cwdChanging && isClaude && managed.sessionManager.sessionId !== null;
 
     // Fixed-cwd backends cannot carry cwd across a resume, so a cwd change
     // abandons the session and the next message starts fresh in the new cwd.
@@ -1194,12 +1194,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     //     rolls back - the lazy-cwd+setting foot-gun. Leaving sessionId set also
     //     lets the success-path system_init clear-branch (new id !== old id) wipe
     //     the abandoned chat.
-    if (fixedCwdChange && managed.sessionId && !needReplace) {
+    if (fixedCwdChange && managed.sessionManager.sessionId && !needReplace) {
       clearStaleAutoResumeState(agentId, managed);
     }
 
     if (needReplace || needClaudeFileMove) {
-      const activeSessionId = managed.sessionId;
+      const activeSessionId = managed.sessionManager.sessionId;
       let claudeFileMoved = false;
 
       // Claude cwd change: relocate the active session's files to the new project
@@ -1262,7 +1262,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // new cwd. Skipped in the lazy case.
       if (needReplace) {
         // A fixed-cwd change that reaches this replace abandons the old session.
-        // We intentionally do NOT drop managed.sessionId yet: leaving it set means
+        // We intentionally do NOT drop managed.sessionManager.sessionId yet: leaving it set means
         // (a) the success-path system_init clear-branch (new id !== old id) wipes
         // the abandoned thread's chat without contaminating the fresh thread, and
         // (b) a SYNCHRONOUS createSession/replaceSession throw rolls back with the
@@ -1277,7 +1277,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const sessionId = fixedCwdChange
           ? null
           : pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId && !fixedCwdChange)
+        if (managed.sessionManager.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
         try {
           await managed.sessionManager.replaceWith(
@@ -1323,8 +1323,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // succeeded). Only the Claude same-session case needs an explicit stamp;
       // fresh sessions (Codex cwd change, or a from-scratch session) get stamped
       // by system_init's ensureSessionCwd.
-      if (cwdChanging && isClaude && managed.sessionId && targetCwd) {
-        persistSessionCwd(agentId, managed.sessionId, targetCwd);
+      if (cwdChanging && isClaude && managed.sessionManager.sessionId && targetCwd) {
+        persistSessionCwd(agentId, managed.sessionManager.sessionId, targetCwd);
       }
     }
 
@@ -1528,7 +1528,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           effort: a.info.effort,
           agentType: a.info.agentType,
           codexSandbox: a.info.codexSandbox,
-          lastSessionId: a.sessionId,
+          lastSessionId: a.sessionManager.sessionId,
           topic: a.info.topic,
           customInstructions: a.info.customInstructions,
           userId: a.info.userId,
@@ -1565,7 +1565,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         effort: a.info.effort,
         agentType: a.info.agentType,
         codexSandbox: a.info.codexSandbox,
-        lastSessionId: a.sessionId,
+        lastSessionId: a.sessionManager.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
         userId: a.info.userId,
@@ -1825,33 +1825,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed: ManagedAgent = {
       info,
       sessionManager,
-      get session() {
-        return sessionManager.session;
-      },
-      get sessionId() {
-        return sessionManager.sessionId;
-      },
-      get consumerPromise() {
-        return sessionManager.consumerPromise;
-      },
-      get pendingTurn() {
-        return sessionManager.pendingTurn;
-      },
-      get turnCancelToken() {
-        return sessionManager.turnCancelToken;
-      },
-      get abortCancelToken() {
-        return sessionManager.abortCancelToken;
-      },
-      get aborting() {
-        return sessionManager.aborting;
-      },
-      get lastBackendFailure() {
-        return sessionManager.lastBackendFailure;
-      },
-      get abortPromise() {
-        return sessionManager.abortPromise;
-      },
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
         ...discoverUserSkills(
@@ -2032,13 +2005,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Marker write: only after resume actually happened (fresh fallback
-    // nulls managed.sessionId so this skips). Mirrors the SDK's own lazy
+    // nulls managed.sessionManager.sessionId so this skips). Mirrors the SDK's own lazy
     // placeholder for interrupted-on-resume sessions.
     if (
       sessionOk &&
       shouldAddInterruptionMarker &&
       resumeSessionId !== null &&
-      managed.sessionId === resumeSessionId
+      managed.sessionManager.sessionId === resumeSessionId
     ) {
       addLogEntry(p.id, "system", "Previous response was interrupted.");
     }
@@ -2658,7 +2631,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   //     exited with code 143" verbatim.
   //   - stay QUIET when the consumer already wrote this same explanation and
   //     then rejected our turn, which is what woke us. See
-  //     ManagedAgent.lastBackendFailure for why this is one pipeline rather
+  //     SessionManager.lastBackendFailure for why this is one pipeline rather
   //     than two independent writers.
   function addCallerFailureEntry(
     agentId: string,
@@ -2672,7 +2645,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const text = classified ? failure.text : frame(raw);
     // Consume the stamp whatever we decide, so it can never suppress a second,
     // genuinely new failure later in the agent's life.
-    const echoed = managed.lastBackendFailure === text;
+    const echoed = managed.sessionManager.lastBackendFailure === text;
     managed.sessionManager.lastBackendFailure = null;
     // Only a CLASSIFIED death is ever suppressed. Two unrelated consecutive
     // errors that happen to share wording both still surface.
@@ -2710,8 +2683,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emit({ type: "log_entry", entry });
 
     const managed = agents.get(agentId);
-    if (managed?.sessionId) {
-      appendLog(agentId, managed.sessionId, entry);
+    if (managed?.sessionManager.sessionId) {
+      appendLog(agentId, managed.sessionManager.sessionId, entry);
       // Track the last entry actually written to this session's JSONL so that
       // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
       managed.lastWrittenEntryId = entry.id;
@@ -2907,10 +2880,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Persist topic + the textCount at which it was generated, so that on
         // resume/restart we can compute drift against the replayed history and
         // decide whether to auto-refresh.
-        if (managed.sessionId) {
+        if (managed.sessionManager.sessionId) {
           persistSessionTopic(
             agentId,
-            managed.sessionId,
+            managed.sessionManager.sessionId,
             topic,
             textEntries.length,
           );
@@ -3084,7 +3057,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     source: ContextUsageSnapshot["source"],
   ): boolean {
     if (managed.contextGen !== token.gen) return false;
-    if (managed.session !== token.session) return false;
+    if (managed.sessionManager.session !== token.session) return false;
     if (token.seq <= managed.contextUsageCommittedSeq) return false;
     managed.contextUsageCommittedSeq = token.seq;
     const snapshot: ContextUsageSnapshot = {
@@ -3164,7 +3137,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     source: ContextUsageSnapshot["source"],
   ): void {
-    const session = managed.session;
+    const session = managed.sessionManager.session;
     if (!session) return;
     const token = {
       gen: managed.contextGen,
@@ -3281,7 +3254,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     source: "turn_completed" | "usage_update",
   ): void {
-    const session = managed.session;
+    const session = managed.sessionManager.session;
     if (!session) return;
     const token = {
       gen: managed.subscriptionGen,
@@ -3362,7 +3335,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): Promise<AgentContextUsageResp> {
     const managed = agents.get(agentId);
     if (!managed) return { available: false, reason: "no_session" };
-    const session = managed.session;
+    const session = managed.sessionManager.session;
     if (session) {
       const token = {
         gen: managed.contextGen,
@@ -3393,7 +3366,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return {
       available: false,
       reason:
-        managed.session || managed.sessionId
+        managed.sessionManager.session || managed.sessionManager.sessionId
           ? "not_yet_measured"
           : "no_session",
     };
@@ -3440,9 +3413,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // thread's chat, so just retire the pending-reset marker here.
           pendingFixedCwdReset.delete(agentId);
           const sessionId = ev.sessionId;
-          const hadPreviousSession = !!managed.sessionId;
+          const hadPreviousSession = !!managed.sessionManager.sessionId;
           // Load prior log history if this session was seen before (walks fork ancestry)
-          if (!managed.sessionId) {
+          if (!managed.sessionManager.sessionId) {
             const history = loadLogWithAncestors(agentId, sessionId);
             if (history.length > 0) {
               for (const entry of history) {
@@ -3451,7 +3424,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           }
           // If we already had a session and got a new init, this is a /clear
-          if (hadPreviousSession && sessionId !== managed.sessionId) {
+          if (hadPreviousSession && sessionId !== managed.sessionManager.sessionId) {
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
             addLogEntry(agentId, "system", "Conversation cleared.");
@@ -3504,7 +3477,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // Empty-sessionId system_init while a live fixed-cwd change was pending:
           // the fresh thread failed to bootstrap (see backends/codex/adapter.ts).
           // replaceSession already closed the old process and AgentInfo.cwd is
-          // committed to the new cwd, but managed.sessionId / logCache still point
+          // committed to the new cwd, but managed.sessionManager.sessionId / logCache still point
           // at the now-abandoned old thread. Drop them so the agent doesn't later
           // associate the old thread with the new cwd - the next message starts a
           // genuinely fresh conversation in the new dir. The old thread's
@@ -3680,17 +3653,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // fork accounting subtract the parent's cumulative-at-the-fork-point
         // exactly, instead of double-counting the resumed prefix.
         const managed = agents.get(agentId);
-        if (managed?.sessionId && ev.usage) {
+        if (managed?.sessionManager.sessionId && ev.usage) {
           const cumulative = accumulateSessionUsage(
             agentId,
-            managed.sessionId,
+            managed.sessionManager.sessionId,
             ev.usage,
             ev.cost ?? 0,
           );
           if (managed.lastWrittenEntryId) {
             appendSessionUsageSnapshot(
               agentId,
-              managed.sessionId,
+              managed.sessionManager.sessionId,
               managed.lastWrittenEntryId,
               cumulative,
             );
@@ -3715,7 +3688,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // so the deferred unblocks the wrap-and-wake in abort() (and any
           // sendMessage / flushQueue callers).
           const isHotAbortClean =
-            managed?.aborting === true && ev.status === "interrupted";
+            managed?.sessionManager.aborting === true && ev.status === "interrupted";
           if (isHotAbortClean)
             flushPendingFreshRecoveryNotice(agentId, managed);
           if (!isHotAbortClean) {
@@ -3724,7 +3697,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // turn_completed). The state="error" flip below signals abort()'s
             // recovery branch to fall through to replaceSession.
             const isHotAbortDirty =
-              managed?.aborting === true && ev.status === "failed";
+              managed?.sessionManager.aborting === true && ev.status === "failed";
             const errorText = isHotAbortDirty
               ? ev.error
                 ? `Codex exited during interrupt: ${ev.error}`
@@ -3782,7 +3755,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Post-refactor stream() is persistent across turns, so we resolve at
         // the turn_completed normalized event instead - same semantic, just at
         // the orchestrator layer.
-        const turn = managed?.pendingTurn;
+        const turn = managed?.sessionManager.pendingTurn;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
           managed.sessionManager.pendingTurn = null;
@@ -3805,17 +3778,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // while it's still running instead of only after it ends. Cheap for
         // Codex (pushed data) and internally throttled for Claude.
         if (managed) refreshSubscriptionUsage(managed, "usage_update");
-        if (managed?.sessionId) {
+        if (managed?.sessionManager.sessionId) {
           const cumulative = accumulateSessionUsage(
             agentId,
-            managed.sessionId,
+            managed.sessionManager.sessionId,
             ev.tokenUsage,
             0,
           );
           if (managed.lastWrittenEntryId) {
             appendSessionUsageSnapshot(
               agentId,
-              managed.sessionId,
+              managed.sessionManager.sessionId,
               managed.lastWrittenEntryId,
               cumulative,
             );
@@ -3863,7 +3836,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // throw on broken env (deliberate); the hint generator does not.
           const hints = diagnoseProcessExit(
             managed.info.cwd,
-            managed.sessionId,
+            managed.sessionManager.sessionId,
             envForHints(managed),
           );
           if (hints) addLogEntry(agentId, "system", hints);
@@ -3872,7 +3845,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emitDetectedAuthInstructions(agentId, managed);
         }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
-        const turn = managed?.pendingTurn;
+        const turn = managed?.sessionManager.pendingTurn;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
           managed.sessionManager.pendingTurn = null;
@@ -3939,7 +3912,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "error",
           "The backend requested interactive input that Isomux cannot display safely.",
         );
-        void managed.session?.abort();
+        void managed.sessionManager.session?.abort();
         updateState(agentId, "error");
         break;
       }
@@ -3969,7 +3942,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Re-mint REVOKES the old token, so a live agent MUST be swapped below or its
     // in-flight token dies mid-turn.
     mintAgentToken(agentId, managed.info.userId, privileged);
-    if (managed.session !== null) {
+    if (managed.sessionManager.session !== null) {
       const sessionId = pickAutoResumeSessionId(managed);
       await managed.sessionManager.replaceWith(managed, sessionId);
     }
@@ -4064,11 +4037,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // less session).
   function canDemote(managed: ManagedAgent): boolean {
     return (
-      managed.session !== null &&
+      managed.sessionManager.session !== null &&
       isQueueIdleState(managed.info.state) &&
-      !managed.pendingTurn &&
+      !managed.sessionManager.pendingTurn &&
       !inMultiStepFlow(managed) &&
-      !managed.abortPromise &&
+      !managed.sessionManager.abortPromise &&
       !managed.info.sessionSwapping &&
       !managed.flushInProgress &&
       managed.messageQueue.length === 0 &&
@@ -4105,7 +4078,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const now = Date.now();
     let demoted = 0;
     for (const [agentId, managed] of [...agents.entries()]) {
-      if (managed.session === null) continue;
+      if (managed.sessionManager.session === null) continue;
       if (now - managed.lastActiveAt < idleMs) continue;
       if (!canDemote(managed)) continue;
       if (await demoteToLazy(agentId)) demoted++;
@@ -4165,15 +4138,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const quiescenceStartedAt =
         managed.lastNormalizedEventAt || managed.turnStartedAt;
       const busySignature =
-        managed.pendingTurn !== null &&
+        managed.sessionManager.pendingTurn !== null &&
         (managed.info.state === "thinking" ||
           managed.info.state === "tool_executing") &&
         inFlightTurn !== null &&
         inFlightTurn.activeTool === null &&
         !inMultiStepFlow(managed) &&
         !managed.info.sessionSwapping &&
-        !managed.aborting &&
-        managed.abortPromise === null &&
+        !managed.sessionManager.aborting &&
+        managed.sessionManager.abortPromise === null &&
         quiescenceStartedAt > 0 &&
         now - quiescenceStartedAt >= busyTurnWatchdogStuckMs;
       if (busySignature) {
@@ -4203,7 +4176,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(agentId, "system", "Message delivery stalled; recovering.");
         try {
           const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionId && !sessionId)
+          if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
           await managed.sessionManager.replaceWith(managed, sessionId);
           acted++;
@@ -4245,7 +4218,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       try {
         // Same resume-or-fresh dance as abort's slow path.
         const sessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId)
+        if (managed.sessionManager.sessionId && !sessionId)
           clearStaleAutoResumeState(agentId, managed);
         await managed.sessionManager.replaceWith(managed, sessionId);
         acted++;
@@ -4324,7 +4297,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // buildEnvFor still resolves the office envFile by the first tick.
 
   // Returns the session id to use for an automatic resume attempt, or null if
-  // the recorded `managed.sessionId` can't safely be resumed and the caller
+  // the recorded `managed.sessionManager.sessionId` can't safely be resumed and the caller
   // should start fresh instead. Applies the "auto-resume policy":
   //
   // The backend owns the storage fact; this caller owns the silent policy. A
@@ -4332,13 +4305,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // keeps the id so the backend can surface the more precise error.
   //
   // Pure: does NOT mutate managed or logCache. The call site decides when to
-  // clear stale UI state (logCache, managed.sessionId) in tandem with the
+  // clear stale UI state (logCache, managed.sessionManager.sessionId) in tandem with the
   // session install. Doing the clear BEFORE entering any withAgentRollback
   // transaction means a downstream throw rolls back AgentInfo without leaving
   // the session/log half-mutated - the cleared state is the correct end state
   // regardless, since the old thread was non-durable.
   function pickAutoResumeSessionId(managed: ManagedAgent): string | null {
-    const candidate = managed.sessionId;
+    const candidate = managed.sessionManager.sessionId;
     if (!candidate) return null;
     try {
       const env = buildSessionEnv(managed);
@@ -4368,7 +4341,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     managed: ManagedAgent,
   ): boolean {
-    if (!managed.sessionId) return false;
+    if (!managed.sessionManager.sessionId) return false;
     managed.sessionManager.sessionId = null;
     // Dropping the conversation id for a fresh start is a conversation
     // boundary: the old transcript's fullness measurement doesn't describe
@@ -4608,33 +4581,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed: ManagedAgent = {
       info,
       sessionManager,
-      get session() {
-        return sessionManager.session;
-      },
-      get sessionId() {
-        return sessionManager.sessionId;
-      },
-      get consumerPromise() {
-        return sessionManager.consumerPromise;
-      },
-      get pendingTurn() {
-        return sessionManager.pendingTurn;
-      },
-      get turnCancelToken() {
-        return sessionManager.turnCancelToken;
-      },
-      get abortCancelToken() {
-        return sessionManager.abortCancelToken;
-      },
-      get aborting() {
-        return sessionManager.aborting;
-      },
-      get lastBackendFailure() {
-        return sessionManager.lastBackendFailure;
-      },
-      get abortPromise() {
-        return sessionManager.abortPromise;
-      },
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
         ...discoverUserSkills(
@@ -4777,7 +4723,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     createSession,
-    // Forwarded to the per-agent object; S4 finishes the caller migration.
+    // The typed /clear is the only caller that hands the object a session it
+    // built itself: its pending-control and queue bookkeeping must run between
+    // create and swap. Every other swap goes through sessionManager.replaceWith.
     replaceSession: (_agentId, managed, newSession) =>
       managed.sessionManager.replaceSession(managed, newSession),
     persistAll,
@@ -4793,8 +4741,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         username,
         device,
       }),
-    createTurnDeferred: (managed) =>
-      managed.sessionManager.createTurnDeferred(),
     enqueueMessage,
     resetContextUsage,
     // Same measurement, same roots, same 30s memo as GET /api/storage/usage -
@@ -5291,11 +5237,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // ATTACH to the deferred's promise (snapshot once - the slot may be
       // nulled by the settle path while we're parked); never replace the
       // record with a wrapper. A wrapper could be orphaned by any settle that
-      // bypasses managed.pendingTurn (e.g. runAgentTurn's send-throw cleanup,
+      // bypasses managed.sessionManager.pendingTurn (e.g. runAgentTurn's send-throw cleanup,
       // which rejects only the record it installed), permanently stranding
       // flushInProgress - the lost-wakeup bug.
       {
-        const pending = managed.pendingTurn;
+        const pending = managed.sessionManager.pendingTurn;
         if (pending) await pending.promise.catch(() => {});
       }
       // Re-check post-wait - state and queue can change while we waited. The
@@ -5308,9 +5254,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (inMultiStepFlow(managed)) return;
       if (managed.messageQueue.length === 0) return;
 
-      if (managed.abortPromise) {
+      if (managed.sessionManager.abortPromise) {
         try {
-          await managed.abortPromise;
+          await managed.sessionManager.abortPromise;
         } catch {}
         // Re-check again after the abort handoff.
         if (!agents.has(agentId)) return;
@@ -5318,7 +5264,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (inMultiStepFlow(managed)) return;
         if (managed.messageQueue.length === 0) return;
       }
-      if (!managed.session) {
+      if (!managed.sessionManager.session) {
         // A session swap is mid-drain (replaceSession's closeAndDrainSession
         // nulls the session before awaiting the old consumer). Don't race it
         // by installing a wake session the swap would then have to yield to -
@@ -5332,7 +5278,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const wasDormant = managed.info.dormant ?? false;
           const dormantReason = managed.dormantReason;
           const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionId && !sessionId)
+          if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
           managed.sessionManager.installSession(
             managed,
@@ -5521,8 +5467,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // word them as the expected behavior they are instead of the generic
           // interrupted-will-retry line.
           const userInitiated =
-            managed.aborting ||
-            managed.turnCancelToken === managed.abortCancelToken;
+            managed.sessionManager.aborting ||
+            managed.sessionManager.turnCancelToken === managed.sessionManager.abortCancelToken;
           if (managed.messageQueue.length > 0 && !userInitiated) {
             addLogEntry(
               agentId,
@@ -5685,7 +5631,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): boolean {
     const { echoEarly, text, username, device, attachments } = opts;
     // Try to create a fresh session so the user's next message doesn't silently
-    // vanish. pickAutoResumeSessionId returns managed.sessionId when it's safely
+    // vanish. pickAutoResumeSessionId returns managed.sessionManager.sessionId when it's safely
     // resumable - the previous session is genuinely dead, but the on-disk
     // transcript is intact and worth restoring. For non-durable Codex threads,
     // it returns null so we fresh-start cleanly instead of crashing on
@@ -5693,7 +5639,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     try {
       const sessionId = pickAutoResumeSessionId(managed);
       const clearedStale =
-        managed.sessionId && !sessionId
+        managed.sessionManager.sessionId && !sessionId
           ? clearStaleAutoResumeState(agentId, managed)
           : false;
       // If we wiped logCache while echoEarly already added the user's
@@ -5824,7 +5770,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const busy =
       state === "thinking" ||
       state === "tool_executing" ||
-      managed.pendingTurn !== null;
+      managed.sessionManager.pendingTurn !== null;
     const isSlash = text.startsWith("/");
     if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
       const result = enqueueMessage(agentId, {
@@ -5862,7 +5808,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic
     // placeholder injected into its own transcript at this moment.
-    if (!managed.session) {
+    if (!managed.sessionManager.session) {
       const tail = (logCache.get(agentId) ?? []).at(-1);
       if (needsInterruptionMarker(tail)) {
         addLogEntry(agentId, "system", "Previous response was interrupted.");
@@ -5898,9 +5844,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Without this, a follow-up message arriving in the gap between session.close()
     // and installSession sees session=null and falls into the recovery branch below,
     // amputating the agent's context.
-    if (managed.abortPromise) {
+    if (managed.sessionManager.abortPromise) {
       try {
-        await managed.abortPromise;
+        await managed.sessionManager.abortPromise;
       } catch {}
     }
     // Defensive: a permission request can briefly appear during the abort drain
@@ -5930,7 +5876,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // resume policy, which for Claude re-throws the missing-file error and would
     // block the user's escape hatch. Normal messages still hit the recovery path
     // below and surface the descriptive error.
-    if (!managed.session && !claimedChoice && !isSlash) {
+    if (!managed.sessionManager.session && !claimedChoice && !isSlash) {
       // Fall through on success so the message is actually sent on the new
       // session; bail on failure (an error was logged inside the helper).
       if (
@@ -5977,7 +5923,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
       }
       const trimmed = (clickedPermissionChoice ?? text).trim();
-      const session = managed.session;
+      const session = managed.sessionManager.session;
       if (!session) {
         recordPermissionOutcome(
           agentId,
@@ -6109,7 +6055,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Captured before the swap: picking a DIFFERENT session is a
         // conversation switch (reset below); re-picking the current one
         // continues it and keeps the fullness measurement.
-        const prevResumeSessionId = managed.sessionId;
+        const prevResumeSessionId = managed.sessionManager.sessionId;
         try {
           // cwd is a property of the session: restore the picked session's cwd
           // before spawning (transactional - rolled back if the resume fails).
@@ -6217,7 +6163,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // stale logCache+sessionId pointing at a dead thread would only
           // confuse the user.
           const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionId && !sessionId)
+          if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
           await withAgentRollback(
             managed,
@@ -6279,7 +6225,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // Auto-resume policy outside the rollback - see model-switch above
           // for the rationale.
           const sessionId = pickAutoResumeSessionId(managed);
-          if (managed.sessionId && !sessionId)
+          if (managed.sessionManager.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
           await withAgentRollback(
             managed,
@@ -6331,7 +6277,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // (the normal lazy-restore path - skipped at the top because isSlash). A
     // genuinely-broken (non-dormant) session is left alone so runAgentTurn
     // surfaces the descriptive "no session, type /clear" error.
-    if (!managed.session && managed.info.dormant) {
+    if (!managed.sessionManager.session && managed.info.dormant) {
       if (
         !wakeSessionForSend(agentId, managed, {
           echoEarly,
@@ -6382,7 +6328,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw; it also
-      // handles the deferred-cleanup invariant (rejecting managed.pendingTurn
+      // handles the deferred-cleanup invariant (rejecting managed.sessionManager.pendingTurn
       // if session.send threw before await turn ran). The per-call-site catch
       // remains responsible for the distinct error semantics each path needs.
       if (err instanceof SessionSwappedError) return;
@@ -6474,13 +6420,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
     if (
-      managed.sessionId &&
+      managed.sessionManager.sessionId &&
       managed.info.topic &&
       managed.info.topic !== "..."
     ) {
       persistSessionTopic(
         agentId,
-        managed.sessionId,
+        managed.sessionManager.sessionId,
         managed.info.topic,
         managed.topicMessageCount,
       );
@@ -6531,7 +6477,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Explicit: the main abort path flips state BEFORE calling us, so the sync
     // inside updateState has already run against the still-parked flag.
     syncPendingPrompt(agentId, managed);
-    const session = managed.session;
+    const session = managed.sessionManager.session;
     if (!session) {
       recordPermissionOutcome(
         agentId,
@@ -6581,11 +6527,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // stamped HERE, not with `aborting = true` below: in the pre-send
     // window pendingTurn is null and abort() returns early, so `aborting`
     // never covers exactly the case where the stamp matters most.
-    managed.sessionManager.abortCancelToken = managed.turnCancelToken;
+    managed.sessionManager.abortCancelToken = managed.sessionManager.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
-    if (!managed.pendingTurn) {
+    if (!managed.sessionManager.pendingTurn) {
       // A parked permission prompt is the case this branch used to answer with
       // silence: no pendingTurn, and state is
       // waiting_for_response rather than a busy state, so the old code returned
@@ -6601,7 +6547,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (denied === "failed") {
           try {
             const autoSessionId = pickAutoResumeSessionId(managed);
-            if (managed.sessionId && !autoSessionId)
+            if (managed.sessionManager.sessionId && !autoSessionId)
               clearStaleAutoResumeState(agentId, managed);
             await managed.sessionManager.replaceWith(managed, autoSessionId);
           } catch (err) {
@@ -6655,9 +6601,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Re-entry guard: a second Stop while the first is still in flight just
     // waits for it instead of starting another abort that would reassign
     // abortPromise and stack abortDone closures.
-    if (managed.aborting && managed.abortPromise) {
+    if (managed.sessionManager.aborting && managed.sessionManager.abortPromise) {
       try {
-        await managed.abortPromise;
+        await managed.sessionManager.abortPromise;
       } catch {}
       return { ok: true };
     }
@@ -6692,7 +6638,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     try {
       let needsReplace = !(
-        managed.session && managed.session.canAbortInPlace()
+        managed.sessionManager.session && managed.sessionManager.session.canAbortInPlace()
       );
       // A denial the backend refused leaves it possibly still inside
       // canUseTool. The hot path would keep that session alive, so force the
@@ -6722,10 +6668,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
       if (needsReplace) {
         // Apply auto-resume policy at the point of replace, against the
-        // freshest managed.sessionId - the hot-abort path can race with
+        // freshest managed.sessionManager.sessionId - the hot-abort path can race with
         // session-died events that leave sessionId stale.
         const autoSessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !autoSessionId)
+        if (managed.sessionManager.sessionId && !autoSessionId)
           clearStaleAutoResumeState(agentId, managed);
         await managed.sessionManager.replaceWith(managed, autoSessionId);
         // If we got here via a hot-abort failure, processNormalizedEvent
@@ -6789,7 +6735,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // the eventual turn_completed); covering both in the race means a single
     // timer protects the whole hot path.
     const inFlight = (async () => {
-      await managed.session!.abort();
+      await managed.sessionManager.session!.abort();
       // Mirror createSession's stale-approval cleanup: replaceSession would
       // have cleared this; the hot path doesn't go through createSession.
       if (managed.pendingPermission) {
@@ -6806,7 +6752,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // createTurnDeferred would supersede the original turn with a
       // "Superseded" error. Mirrors flushQueue's in-flight-turn wait; never
       // replace the record with a wrapper (lost-wakeup hole).
-      const pending = managed.pendingTurn;
+      const pending = managed.sessionManager.pendingTurn;
       if (!pending) return;
       await pending.promise.catch(() => {});
     })();
@@ -6855,7 +6801,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           effort: managed.info.effort,
           agentType: managed.info.agentType,
           codexSandbox: managed.info.codexSandbox,
-          lastSessionId: managed.sessionId,
+          lastSessionId: managed.sessionManager.sessionId,
           topic: managed.info.topic,
           customInstructions: managed.info.customInstructions,
           userId: managed.info.userId,
@@ -6872,7 +6818,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // installed pendingTurn (pre-send notice assembly) bails on its next
     // await checkpoint instead of calling session.send on a dying session.
     managed.sessionManager.turnCancelToken++;
-    // The backend's close() (below, via managed.session?.close()) resolves any
+    // The backend's close() (below, via managed.sessionManager.session?.close()) resolves any
     // in-flight SDK approval with deny; clearing pendingPermission here just
     // drops the orchestrator's pointer so the next message path doesn't think
     // an approval is pending.
@@ -6885,16 +6831,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       );
       clearPermissionPrompt(agentId, managed);
     }
-    const turn = managed.pendingTurn;
+    const turn = managed.sessionManager.pendingTurn;
     managed.sessionManager.pendingTurn = null;
     if (turn) {
       try {
         turn.reject(new Error("Agent killed."));
       } catch {}
     }
-    const oldConsumer = managed.consumerPromise;
+    const oldConsumer = managed.sessionManager.consumerPromise;
     try {
-      managed.session?.close();
+      managed.sessionManager.session?.close();
     } catch {}
     managed.sessionManager.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
@@ -7390,7 +7336,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Captured before the swap: resuming a DIFFERENT session is a conversation
     // switch (reset below); re-resuming the current one continues it (fullness
     // is a property of the transcript, so the measurement stays valid).
-    const prevResumeSessionId = managed.sessionId;
+    const prevResumeSessionId = managed.sessionManager.sessionId;
 
     try {
       // cwd is a property of the session: restore the cwd this session ran in
@@ -7586,7 +7532,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // here rather than at function entry so the ephemeral short-circuit above
     // can still fix a failed slash command in a session-less / first-message
     // state where sessionId is unset.
-    if (!managed.sessionId) {
+    if (!managed.sessionManager.sessionId) {
       addLogEntry(agentId, "error", "Cannot edit: no active session.");
       return;
     }
@@ -7600,7 +7546,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       persistQueueState(agentId, managed);
     }
 
-    const oldSessionId = managed.sessionId;
+    const oldSessionId = managed.sessionManager.sessionId;
     persistCurrentSessionTopic(agentId, managed);
     const oldTopic = managed.info.topic;
     const oldTopicStale = managed.info.topicStale;
@@ -7910,7 +7856,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       console.error(`Agent ${agentId} edit/fork error:`, errMessage(err));
 
-      if (managed.sessionId !== oldSessionId) {
+      if (managed.sessionManager.sessionId !== oldSessionId) {
         // We switched to the fork - roll back to old session and restore UI
         let rollbackRestored = false;
         try {
@@ -7941,7 +7887,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
         // Fullness measurement: restore the parent's snapshot + fired-notice
         // sets ONLY when the parent session was actually reinstalled
-        // (managed.sessionId back to oldSessionId). If rollback failed, the
+        // (managed.sessionManager.sessionId back to oldSessionId). If rollback failed, the
         // session still points at the fork (broken or not), so the parent
         // measurement would mislabel it - clear it instead. Either way the gen
         // bump inside discards any in-flight sample from the abandoned fork.
@@ -7987,10 +7933,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.topicMessageCount = textCount;
     // Persist to sessions.json so resume list shows the manual topic; the
     // count anchors future drift detection to the moment the user signed off.
-    if (managed.sessionId) {
+    if (managed.sessionManager.sessionId) {
       persistSessionTopic(
         agentId,
-        managed.sessionId,
+        managed.sessionManager.sessionId,
         managed.info.topic,
         textCount,
       );

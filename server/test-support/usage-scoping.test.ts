@@ -110,7 +110,7 @@ function seedAgentHistory(
 function liveAgent(id: string, name: string, roomId: string): ManagedAgent {
   return {
     info: { id, name, roomId },
-    sessionId: "s1",
+    sessionManager: { sessionId: "s1" },
   } as unknown as ManagedAgent;
 }
 

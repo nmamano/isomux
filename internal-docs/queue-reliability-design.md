@@ -5,17 +5,6 @@ board note; written by Isomuxer6, reviewed by Reviewer6 (v1 review: request
 changes on 3 points; this is v2 with his findings folded in - deltas marked
 [v2]).
 
-Location note (task 798922c1, S2, 2026-09-05): `installSession`,
-`closeAndDrainSession`, `replaceSession`, `drainConsumerBounded`,
-`createTurnDeferred`, `clearLiveTurn` and `turnIsLive` live in
-`server/session-manager.ts` (one `SessionManager` per agent, reached as
-`managed.sessionManager`); agent-manager.ts calls them. Since S3 the consumer
-loop is `SessionManager.consume` in the same module (its bound-session guard
-reads `this.session !== boundSession`); since S4 every replacement caller
-goes through `SessionManager.replaceWith(host, resumeSessionId?)`, which
-builds the backend session first. The agent-manager line references below
-predate the move.
-
 ## Background: the delivery machinery today
 
 - `enqueueMessage` pushes onto in-memory `managed.messageQueue`; idle receiver →
@@ -29,6 +18,14 @@ predate the move.
   an in-flight turn by REPLACING it with a wrapper object that delegates to the
   original and additionally wakes the waiter: flushQueue's handoff wait
   (agent-manager.ts ~3384) and `tryHotAbort` (~4461).
+- The per-agent session lifecycle - `installSession`, `closeAndDrainSession`,
+  `replaceSession` / `replaceWith`, `drainConsumerBounded`, `createTurnDeferred`,
+  `clearLiveTurn`, `turnIsLive` and the consumer loop `consume` - lives in
+  `server/session-manager.ts` as one `SessionManager` per agent, reached as
+  `managed.sessionManager` (task 798922c1). agent-manager.ts keeps `flushQueue`,
+  `abort` / `tryHotAbort`, `createSession` (prompt and env assembly) and the
+  per-event work. Line numbers in this document are those of the
+  pre-extraction agent-manager.ts.
 
 ## Task da065287 - flushInProgress strands true; queued message sits forever
 
@@ -53,7 +50,8 @@ interleaving leaves the class open.
 ### Fix, three layers
 
 **Layer 1 - kill the wrap-and-wake pattern (the class, not the instance).**
-`ManagedAgent.pendingTurn` becomes `{ promise: Promise<void>; resolve; reject }`
+`SessionManager.pendingTurn` (the `PendingTurn` record; it lived on
+`ManagedAgent` when this was written) becomes `{ promise: Promise<void>; resolve; reject }`
 (createTurnDeferred stores the promise it already builds). Waiters ATTACH
 instead of replacing:
 
@@ -66,17 +64,17 @@ at both wait sites (flushQueue handoff; tryHotAbort, still raced with its 7s
 timeout). Promise semantics wake every attached waiter on any settle, from any
 settle site; nothing is ever replaced, so runAgentTurn's ownership check now
 holds whenever it should. Audit of all settle/null sites after this change
-(turn_completed resolve; error-event reject; runConsumer catch reject;
-closeAndDrainSession reject; createTurnDeferred stale-supersede reject;
+(turn_completed resolve; error-event reject; the consumer loop's catch reject
+(`SessionManager.consume`); closeAndDrainSession reject; createTurnDeferred stale-supersede reject;
 runAgentTurn own-cleanup reject): every site that nulls also settles, so an
 attached waiter can only hang if the deferred NEVER settles - which requires a
 backend contract violation, covered by layers 2–3.
 
-Backstop in the same layer: runConsumer's CLEAN stream-end path (loop exits, no
+Backstop in the same layer: the consumer loop's CLEAN stream-end path (loop exits, no
 throw, no swap, not aborting) currently returns without settling a still-owned
 pendingTurn - a backend whose stream ends silently mid-turn strands `await
 turn`. [v2, per review] Handle the still-bound clean end in BOTH cases, not
-just mid-turn: if `managed.session === boundSession && !managed.aborting` →
+just mid-turn: if `this.session === boundSession && !this.aborting` →
 (a) settle any owned pendingTurn (null + reject "stream ended unexpectedly
 mid-turn"), and (b) null `session`/`consumerPromise` and flip dormant=true
 (mirroring closeAndDrainSession's flip) so the manager never retains a dead
@@ -89,8 +87,8 @@ enqueueMessage treats as busy and flushQueue rejects - so the "next message
 wakes it" claim only holds if we also normalize state: after logging the
 unexpected end, flip busy state → waiting_for_response (matching the dead-turn
 normalization), letting the existing queue trigger work. ALL cleanup/state
-mutation in this path is guarded by `agents.get(agentId) === managed &&
-managed.session === boundSession` so a replacement consumer or a killed agent
+mutation in this path is guarded by `deps.isStillManaged(host) &&
+this.session === boundSession` so a replacement consumer or a killed agent
 is untouched.
 
 **Layer 2 - bound closeAndDrainSession's drain await.**
@@ -99,7 +97,7 @@ where abort() itself is parked in replaceSession → closeAndDrainSession →
 `await oldConsumer`, i.e. a session whose `stream()` never returns after
 `close()`. Race that await against `CONSUMER_DRAIN_TIMEOUT_MS` (15s, named
 constant; timer cleared on the normal path); on timeout, a loud console.error
-diagnostic and proceed. Safety: the runConsumer `managed.session !==
+diagnostic and proceed. Safety: the consumer's `this.session !==
 boundSession` guard already discards late events from the zombie stream. [v2]
 The on-disk .jsonl overlap risk (dying-old vs starting-new subprocess writing
 the same session file - the drain-before-install rationale in the
@@ -247,7 +245,7 @@ session AND mis-normalize its state. Fix, four parts:
    post-swap kick (part 4) re-fires it against the properly installed session.
    This makes the common wake path defer to the swap instead of racing it.
 2. **Conditional install:** when replaceSession resumes from the drain and
-   `managed.session !== null`, another installer won the window (e.g.
+   `this.session !== null`, another installer won the window (e.g.
    wakeSessionForSend). Do NOT clobber it: close the caller's never-installed
    newSession and skip install. Strictly better than today's clobber (which
    leaves the wake turn sending into a foreign session). Residual race noted:

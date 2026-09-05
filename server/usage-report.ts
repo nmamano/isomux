@@ -222,7 +222,7 @@ export function buildUsageReportData(
   const agentRows = [...agents.values()]
     .filter((a) => canSeeRoom(a.info.roomId))
     .map((a) => {
-      const usage = readAgentUsage(a.info.id, a.sessionId);
+      const usage = readAgentUsage(a.info.id, a.sessionManager.sessionId);
       return {
         id: a.info.id,
         name: a.info.name,
@@ -268,7 +268,7 @@ export function buildUsageReportData(
   for (const a of agents.values()) {
     const room = roomByIdMap.get(a.info.roomId);
     if (!room) continue;
-    const usage = readAgentUsage(a.info.id, a.sessionId);
+    const usage = readAgentUsage(a.info.id, a.sessionManager.sessionId);
     const b = getBucket(room.id, room.name, false);
     addBucket(b.sess, usage.session);
     addBucket(b.life, usage.lifetime);
