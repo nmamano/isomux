@@ -17,7 +17,7 @@
 // session count / last-seen summary derived from the active-sessions list.
 // Non-owner viewers get only the dot and a bare "online".
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { cloneElement, useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -35,6 +35,12 @@ import {
   type GhostVariant,
 } from "../../shared/avatar.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
+import {
+  BuildingIcon,
+  DeviceIcon,
+  DoorIcon,
+  UserIcon,
+} from "./NavIcons.tsx";
 import {
   dialogLabel,
   dialogInput,
@@ -106,6 +112,11 @@ type SidebarRow = {
 type SidebarGroup = {
   id: string;
   label: string;
+  // The office / user / device marker the nav bar used to carry, drawn beside
+  // the group label. A group whose rows stand for live things (Rooms,
+  // Members) marks the ROWS with a glyph instead and leaves its header plain,
+  // so the same door never appears once per row under one more of itself.
+  icon?: React.ReactElement<React.SVGProps<SVGSVGElement>>;
   rows: SidebarRow[];
   roster?: boolean;
   dynamic?: boolean;
@@ -344,6 +355,7 @@ export function UserSettingsView({
         {
           id: "office",
           label: "Office",
+          icon: BuildingIcon,
           rows: [
             sectionRow("office", "Office"),
             ...(isOwner
@@ -364,6 +376,7 @@ export function UserSettingsView({
         {
           id: "you",
           label: "You",
+          icon: UserIcon,
           rows: [
             // Your own profile used to be reachable only by finding yourself
             // in the roster. It is the same editor; this row just gives it the
@@ -388,6 +401,7 @@ export function UserSettingsView({
         {
           id: "device",
           label: "Device",
+          icon: DeviceIcon,
           rows: [
             sectionRow("deviceLabel", "Device label"),
             sectionRow("theme", "Theme"),
@@ -1887,6 +1901,12 @@ function SidebarGroupRows({
   return (
     <>
       <div style={{ ...sidebarSectionLabel, marginTop: first ? 0 : 18 }}>
+        {group.icon && (
+          <GroupIcon
+            icon={group.icon}
+            active={group.rows.some((row) => row.selected)}
+          />
+        )}
         {group.label}
       </div>
       {group.rows.map((row) => (
@@ -1935,35 +1955,51 @@ function SidebarGroupRows({
   );
 }
 
-// The Rooms rows' counterpart to the roster's ghost: a door, drawn at the
-// ghost's size so both lists line up. Presentation attributes only - the app
-// renders no external stylesheet for SVG.
+// A group's header marker: the nav bar's icon, which draws itself at 15px
+// against an 11px label, brought down to the sidebar's 10px label. The icons
+// are elements rather than components, so the size arrives through
+// cloneElement; a smaller wrapper box would clip them instead. The group
+// holding the open row lifts to --text-primary, the same emphasis its row
+// carries.
+function GroupIcon({
+  icon,
+  active,
+}: {
+  icon: React.ReactElement<React.SVGProps<SVGSVGElement>>;
+  active: boolean;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        display: "flex",
+        flexShrink: 0,
+        color: active ? "var(--text-primary)" : "var(--text-dim)",
+      }}
+    >
+      {cloneElement(icon, { width: 13, height: 13 })}
+    </span>
+  );
+}
+
+// The Rooms rows' counterpart to the roster's ghost: the nav bar's door,
+// drawn at the ghost's size so both lists line up, and dimmed to the weight a
+// row marker carries rather than the label's.
 function RoomGlyph() {
   return (
-    <svg
-      width={22}
-      height={22}
-      viewBox="0 0 22 22"
-      fill="none"
-      style={{ flexShrink: 0 }}
+    <span
       aria-hidden="true"
+      style={{ display: "flex", flexShrink: 0, color: "var(--text-dim)" }}
     >
-      <rect
-        x={5.5}
-        y={3.5}
-        width={11}
-        height={15}
-        rx={1.5}
-        fill="var(--bg-hover)"
-        stroke="var(--text-dim)"
-        strokeWidth={1.5}
-      />
-      <circle cx={13.5} cy={11} r={1.1} fill="var(--text-dim)" />
-    </svg>
+      {cloneElement(DoorIcon, { width: 22, height: 22 })}
+    </span>
   );
 }
 
 const sidebarSectionLabel: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
   fontSize: 10,
   fontWeight: 700,
   textTransform: "uppercase",
