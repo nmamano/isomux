@@ -128,15 +128,39 @@ const { App } = await import("./App.tsx");
    `setUpDomTestFile()`, so it measures the file and not bun's startup: the App
    file reads 2251 ms in-file and about 3 s as a whole invocation.
 
-A cold App render costs 758 ms and a warm one about 275 ms, which is the budget
-the cap is spending. Write a render test only for behaviour that needs the
-browser's own machinery - history and popstate, focus, portals. Anything that
-can be stated as a pure function stays a plain unit test.
+The harness also supplies what happy-dom does not and the app still reaches
+for. Today that is one stand-in, `AudioContext`, which `ui/store.tsx` opens on
+the first click anywhere in the document: without it every test that clicks
+throws inside a once-only listener, and the error reads as if the click failed.
+Add to that list only what a test actually trips over, only when it is absent,
+and always tracked: `GlobalRegistrator` captures the global property set when it
+registers, so a stub added afterwards survives its unregister and only the
+harness can take it back off. `ui/components/NavActions.dom.test.tsx` registers
+an `afterAll` after the harness's own that asserts the stub is gone, which is
+what keeps that true.
 
-`ui/App.dom.test.tsx` also documents a useful seam: `App` mounts bare, with no
-provider tree and no fake store. `StateCtx`, `DispatchCtx` and `FeaturesCtx` all
-carry defaults, and it is `StoreProvider` - not `App` - that opens the
-websocket.
+Anything a page fetches on mount needs `setApiShim` from `ui/api.ts`, reset to
+null when the file ends because it is a module singleton that outlives the DOM.
+The cronjobs, apps and settings pages all fetch, and without the shim happy-dom
+opens real sockets to localhost.
+
+A cold App render costs 758 ms and a warm one about 275 ms, which is the budget
+the cap is spending. Measured 2026-09-05, a file of App renders lands between
+2.4 s and 4.8 s for the same tests, depending on what else the box is doing -
+so a file that reads comfortable on a quiet box can sit near the cap on a busy
+one. Split by subject well before the number looks tight; the
+`ui/App.*.dom.test.tsx` files are that split. Write a render test only for
+behaviour that needs the browser's own machinery - history and popstate, focus,
+portals. Anything that can be stated as a pure function stays a plain unit
+test.
+
+The `ui/App.*.dom.test.tsx` files also document a useful seam: `App` mounts
+bare, with no provider tree and no fake store. `StateCtx`, `DispatchCtx` and
+`FeaturesCtx` all carry defaults, and it is `StoreProvider` - not `App` - that
+opens the websocket. A test that needs state App cannot reach on its own - a
+focused agent, a signed-in session - wraps it in `StateCtx.Provider`;
+`DispatchCtx` is not exported, so such a fixture can supply state but never
+change it.
 
 ## Seams and where they live
 

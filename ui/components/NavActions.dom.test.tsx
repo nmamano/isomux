@@ -7,10 +7,19 @@
 // renders outside the container. A markup-only test (renderToStaticMarkup, as
 // in ui/office/Character.test.tsx) reaches none of that.
 
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
+
+// Registered after the harness's own afterAll, so it runs after it: whatever
+// the harness put on globalThis has to be gone by now. GlobalRegistrator
+// captures the global property set when it registers, so its unregister cannot
+// take a later addition back off - only the harness can, and this is what says
+// it did. AudioContext is the one stub today (see ui/test-support/dom.ts).
+afterAll(() => {
+  expect((globalThis as { AudioContext?: unknown }).AudioContext).toBeUndefined();
+});
 
 const { fireEvent, render } = await import("@testing-library/react");
 const { NavActions } = await import("./NavActions.tsx");

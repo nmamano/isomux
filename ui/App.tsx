@@ -30,6 +30,7 @@ import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
 import type { AgentInfo } from "../shared/types.ts";
 import { isValidDesk } from "../shared/desks.ts";
+import { pageForPath, pathForPage, type Page } from "./routes.ts";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
 function cycleAgent(
@@ -61,7 +62,36 @@ function cycleAgent(
   return next.id;
 }
 
-export function App() {
+/**
+ * The page a history entry names, `null` for an entry that means the office,
+ * and `undefined` for an entry we cannot read - one from an older build, one
+ * pushed by something else on the page, or one whose page value is not a route
+ * any more. `undefined` is the caller's signal to fall back to the pathname
+ * rather than trust the entry.
+ */
+function pageFromEntry(state: unknown): Page | null | undefined {
+  if (typeof state !== "object" || state === null) return undefined;
+  const entry = state as { isomux?: unknown; page?: unknown };
+  if (entry.isomux !== true) return undefined;
+  if (entry.page === null) return null;
+  return entry.page === "tasks" ||
+    entry.page === "cronjobs" ||
+    entry.page === "apps" ||
+    entry.page === "settings"
+    ? entry.page
+    : undefined;
+}
+
+/**
+ * `routing` is how the app is DEPLOYED, not something it can work out for
+ * itself. The office owns its origin's root, so its four full-page views are
+ * real URLs. The landing demo serves this same App under /demo
+ * (ui/demo-entry.tsx, built to site/demo/), where writing "/tasks" would name a
+ * public URL that does not exist - so it passes false and keeps the pre-routing
+ * behaviour: entries are still pushed, without a path. Giving the demo real
+ * routes is its own slice.
+ */
+export function App({ routing = true }: { routing?: boolean }) {
   const {
     agents,
     logs,
@@ -92,9 +122,13 @@ export function App() {
   // derives message attribution from the session identity (the send/edit routes
   // no longer carry a username), so the value itself is no longer read in the UI.
   const [, setUsername] = useState<string | null>(() => getUsername());
+  // The page the URL asked for, read once at mount. Every page flag below
+  // starts from it, so a shared link renders its page on the FIRST paint - no
+  // flash of the office, and no wait for the websocket.
+  const [bootPage] = useState(() => pageForPath(window.location.pathname));
   // Full-page Settings (like tasks/cronjobs): part of the main view
   // switch, closed via goHome/popstate.
-  const [usersOpen, setUsersOpen] = useState(false);
+  const [usersOpen, setUsersOpen] = useState(bootPage === "settings");
   // Live-avatars: when a ghost is clicked, the user-settings page opens
   // preopened to that user. Null = generic open (no preselection),
   // string = open with that user selected. Reset to null on close so a
@@ -107,9 +141,9 @@ export function App() {
   const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(
     null,
   );
-  const [tasksOpen, setTasksOpen] = useState(false);
-  const [cronjobsOpen, setCronjobsOpen] = useState(false);
-  const [appsOpen, setAppsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(bootPage === "tasks");
+  const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
+  const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The
@@ -162,6 +196,11 @@ export function App() {
     if (saved.agentId && agents.some((a) => a.id === saved.agentId)) {
       dispatch({ type: "focus", agentId: saved.agentId });
     }
+    // Ruling 4: a page in the URL wins over the saved panel, and it is already
+    // open from the first render. The saved spot still supplies room and agent
+    // above, so a shared /tasks link lands on the task page over the chat the
+    // reader left open.
+    if (bootPage !== null) return;
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
     else if (saved.panel === "apps") setAppsOpen(true);
@@ -170,6 +209,7 @@ export function App() {
     else if (saved.panel === "settings" || saved.panel === "users")
       setUsersOpen(true);
   }, [
+    bootPage,
     persistEnabled,
     restored,
     hasReceivedInitialState,
@@ -351,10 +391,35 @@ export function App() {
   // Model: office = home, any other view = one level deep. Only one history
   // entry is ever pushed at a time, but Back can step through more than one
   // UI level: tasks opened over a chat pops back to that chat first (the
-  // popstate handler re-pushes the entry), then to the office. All "return
-  // to office" paths go through goHome(), which calls history.back() so the
-  // popstate handler does the actual cleanup.
-  const deepRef = useRef(false);
+  // popstate handler re-pushes the entry), then to the office. Every "return
+  // to office" path goes through goHome(), which gets there one of two ways
+  // depending on the ref below - history.back() when we pushed the entry, and
+  // a replace when we did not.
+
+  // How the CURRENT history entry relates to us, which is what ruling 8 turns
+  // on. "none": no page open, the office sits on whatever entry the load made.
+  // "adopted": a page is open on an entry we did NOT push - a shared link
+  // opened cold - so the browser's Back leaves the site and goHome() has to
+  // replace instead. "pushed": a page is open on an entry we pushed, and Back
+  // returns to what is underneath, as it always did.
+  const entryRef = useRef<"none" | "adopted" | "pushed">(
+    bootPage === null ? "none" : "adopted",
+  );
+
+  // The one place a page is applied from outside the UI - boot and popstate.
+  // Exactly one flag is set and the other three are cleared, so no restore can
+  // leave two pages open. The settings section and the preselected user are
+  // deliberately dropped: neither is part of a route (ruling 3), so a Forward
+  // into settings lands on the generic page instead of resurrecting whichever
+  // row was open last time.
+  const applyPage = useCallback((page: Page | null) => {
+    setTasksOpen(page === "tasks");
+    setCronjobsOpen(page === "cronjobs");
+    setAppsOpen(page === "apps");
+    setUsersOpen(page === "settings");
+    setEditingUserId(null);
+    setSettingsTarget(null);
+  }, []);
 
   // Open the settings page, optionally on a named row. Passing null is the
   // generic open (the bar's User button), which must CLEAR any section left
@@ -365,19 +430,20 @@ export function App() {
   }, []);
 
   const goHome = useCallback(() => {
-    if (deepRef.current) {
+    if (entryRef.current === "pushed") {
       window.history.back(); // popstate handler will reset state
-    } else {
-      // Safety fallback - shouldn't happen, but don't break if it does
-      setTasksOpen(false);
-      setCronjobsOpen(false);
-      setAppsOpen(false);
-      setUsersOpen(false);
-      setEditingUserId(null);
-      setSettingsTarget(null);
-      dispatch({ type: "focus", agentId: null });
+      return;
     }
-  }, [dispatch]);
+    // Ruling 8: we never pushed this entry, so there is nothing underneath to
+    // go back to and history.back() would leave the office. Replace the entry
+    // with the office instead. Close, Escape and the office button all come
+    // through here, so they all obey the ruling without their own code.
+    if (entryRef.current === "adopted")
+      window.history.replaceState({ isomux: true, page: null }, "", "/");
+    entryRef.current = "none";
+    applyPage(null);
+    dispatch({ type: "focus", agentId: null });
+  }, [applyPage, dispatch]);
 
   // Tasks opened over a chat: the focused agent stays set while TaskView
   // renders on top of it (render priority: tasks > log), so "return to the
@@ -518,28 +584,69 @@ export function App() {
     usersOpen,
   ]);
 
-  const isDeep =
-    tasksOpen ||
-    cronjobsOpen ||
-    appsOpen ||
-    usersOpen ||
-    focusedAgentId !== null;
+  // Which page is showing, in the same precedence as the view switch below. A
+  // chat is not a page: agent chats are not routes (ruling 3), so a chat and
+  // the office share the path "/".
+  const page: Page | null = usersOpen
+    ? "settings"
+    : tasksOpen
+      ? "tasks"
+      : cronjobsOpen
+        ? "cronjobs"
+        : appsOpen
+          ? "apps"
+          : null;
+  const isDeep = page !== null || focusedAgentId !== null;
   useEffect(() => {
-    if (isDeep && !deepRef.current) {
-      window.history.pushState({ isomux: true }, "");
-      deepRef.current = true;
-    } else if (isDeep && deepRef.current) {
-      // Deep → deep transition (e.g. tasks→log, agent cycling): keep one entry
-      window.history.replaceState({ isomux: true }, "");
-    } else if (!isDeep && deepRef.current) {
+    const write = (method: "pushState" | "replaceState") => {
+      const entry = { isomux: true, page };
+      if (routing) window.history[method](entry, "", pathForPage(page));
+      else window.history[method](entry, "");
+    };
+    if (isDeep && entryRef.current === "none") {
+      write("pushState");
+      entryRef.current = "pushed";
+    } else if (isDeep) {
+      // Deep → deep transition (e.g. tasks→log, agent cycling): keep one
+      // entry, and keep whether we pushed it - ruling 8 turns on that, not on
+      // which page is showing. This is also the boot path: an adopted entry is
+      // rewritten here to carry its page, which is how /users canonicalises to
+      // /settings without a second history call.
+      write("replaceState");
+    } else if (entryRef.current !== "none") {
       // Returned to office - entry was consumed by history.back()
-      deepRef.current = false;
+      entryRef.current = "none";
     }
-  }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen, appsOpen, usersOpen]);
+  }, [isDeep, focusedAgentId, page, routing]);
+
+  // Any path that is not a route shows the office, and the office is "/" - so
+  // normalise rather than leave it sitting at /garbage. The entry the load made
+  // is rewritten in place; nothing is pushed, so this cannot be navigated back
+  // into. A page path is not handled here: the effect above owns it.
+  useEffect(() => {
+    if (!routing || bootPage !== null || window.location.pathname === "/")
+      return;
+    window.history.replaceState({ isomux: true, page: null }, "", "/");
+  }, [bootPage, routing]);
 
   useEffect(() => {
-    function handlePopState() {
-      deepRef.current = false;
+    function handlePopState(e: PopStateEvent) {
+      const restored = pageFromEntry(e.state);
+      const target =
+        restored === undefined
+          ? pageForPath(window.location.pathname)
+          : restored;
+      if (target !== null) {
+        // The entry names a page: a Forward back into one, or a Back out of
+        // something deeper. Open it and stay deep. Only a "none" ref is
+        // upgraded - that is the forward-after-back case, where an office
+        // entry really is underneath us again. An adopted entry stays adopted,
+        // so a cold-loaded link can never talk itself into calling back().
+        if (entryRef.current === "none") entryRef.current = "pushed";
+        applyPage(target);
+        return;
+      }
+      entryRef.current = "none";
       if (tasksOverChat) {
         // Back from tasks-over-a-chat steps back to the chat, not the
         // office. We stay deep (focus is still set), so the sync effect
@@ -548,17 +655,12 @@ export function App() {
         setTasksOpen(false);
         return;
       }
-      setTasksOpen(false);
-      setCronjobsOpen(false);
-      setAppsOpen(false);
-      setUsersOpen(false);
-      setEditingUserId(null);
-      setSettingsTarget(null);
+      applyPage(null);
       dispatch({ type: "focus", agentId: null });
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [dispatch, tasksOverChat]);
+  }, [applyPage, dispatch, tasksOverChat]);
 
   return (
     <>

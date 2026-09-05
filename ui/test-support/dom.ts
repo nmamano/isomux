@@ -34,6 +34,50 @@
 import { afterAll, afterEach, beforeAll } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 
+function register(): void {
+  if (!GlobalRegistrator.isRegistered)
+    GlobalRegistrator.register({ url: "http://localhost/" });
+  stubMissingBrowserApis();
+}
+
+// What we put on globalThis ourselves, and therefore have to take back off.
+// GlobalRegistrator captures the global property set when it registers, so a
+// stub added afterwards survives its unregister: only we can remove it.
+const stubbed = new Set<string>();
+
+/**
+ * Stand-ins for browser APIs happy-dom does not implement but the app reaches
+ * for anyway. Kept to what a test actually trips over, and only ever added when
+ * absent, so a happy-dom that grows its own is never overridden.
+ *
+ * AudioContext: ui/store.tsx opens one on the first click anywhere in the
+ * document, for the notification sound. Without this, every DOM test that
+ * clicks throws inside a once-only listener, where the error is unhandled and
+ * reads as if the click failed. A test that needs a sound to actually play will
+ * have to grow this beyond construction.
+ */
+function stubMissingBrowserApis(): void {
+  const globals = globalThis as Record<string, unknown>;
+  if (globals.AudioContext === undefined) {
+    globals.AudioContext = class AudioContextStub {};
+    stubbed.add("AudioContext");
+  }
+}
+
+function removeStubs(): void {
+  const globals = globalThis as Record<string, unknown>;
+  for (const name of stubbed) delete globals[name];
+  stubbed.clear();
+}
+
+// This module's own body is the earliest point at which a DOM can exist, and it
+// runs before the importing test file's body, so registering here and THEN
+// resolving @testing-library/react keeps that library's evaluation at module
+// scope. It must not be evaluated from inside a hook: its module body calls
+// beforeAll, and bun rejects that with "Cannot call beforeAll() inside a test".
+register();
+const { cleanup } = await import("@testing-library/react");
+
 /**
  * Wall-clock budget for one DOM test file. Nil's constraint on this harness:
  * DOM tests stay cheap enough that nobody has to think about them in ci. A
@@ -41,11 +85,6 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
  * routing tests and none for a browser.
  */
 export const DOM_TEST_CAP_MS = 5000;
-
-function register(): void {
-  if (!GlobalRegistrator.isRegistered)
-    GlobalRegistrator.register({ url: "http://localhost/" });
-}
 
 /**
  * Registers happy-dom for one test file and wires its lifecycle: React cleanup
@@ -65,13 +104,7 @@ export function setUpDomTestFile({
   // run that loads every file before executing any test, where another file's
   // afterAll would have unregistered in between.
   beforeAll(register);
-  // Imported here rather than at the top of the module: @testing-library/react
-  // must not be evaluated before a DOM exists, and by the first afterEach one
-  // always does.
-  afterEach(async () => {
-    const { cleanup } = await import("@testing-library/react");
-    cleanup();
-  });
+  afterEach(cleanup);
   afterAll(async () => {
     const elapsedMs = performance.now() - startedAt;
     // try/finally, not sequence: a file that blows its budget still has to hand
@@ -83,7 +116,14 @@ export function setUpDomTestFile({
             `Cut renders or move the assertion to a plain unit test.`,
         );
     } finally {
-      if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+      // Nested, so the stubs come off even when the cap throws AND when
+      // unregister itself does. They are ours, not happy-dom's, and nothing
+      // else will clean them up.
+      try {
+        if (GlobalRegistrator.isRegistered) await GlobalRegistrator.unregister();
+      } finally {
+        removeStubs();
+      }
     }
   });
 }

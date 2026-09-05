@@ -76,7 +76,7 @@ function DemoApp() {
   if (isEmbed) {
     return (
       <div style={{ position: "fixed", inset: 0, transform: "translateZ(0)" }}>
-        <App />
+        <App routing={false} />
       </div>
     );
   }
@@ -94,7 +94,7 @@ function DemoApp() {
           transform: "translateZ(0)",
         }}
       >
-        <App />
+        <App routing={false} />
       </div>
     </>
   );
