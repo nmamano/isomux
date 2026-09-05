@@ -40,6 +40,16 @@ export interface GhostPlacement {
   dimmed: boolean;
 }
 
+// Placements plus a use counter per door. The counters only ever go up,
+// by one per ghost that crosses that door in either direction, so a
+// consumer can restart a door animation by keying on the number and
+// never has to know anything about presences.
+export interface GhostTransitions {
+  placements: GhostPlacement[];
+  leftDoorUses: number;
+  rightDoorUses: number;
+}
+
 // Returns whether two maps have equal keys + (referential) values. Cheap
 // fast-path so we don't trigger spurious re-renders by replacing state with
 // an equivalent-but-new Map instance.
@@ -165,13 +175,16 @@ export function useGhostTransitions(
   ownConnectionId: string | null,
   leftDoor: DoorCoord,
   rightDoor: DoorCoord,
-): GhostPlacement[] {
+): GhostTransitions {
   const [entering, setEntering] = useState<Map<string, DoorCoord>>(
     () => new Map(),
   );
   const [exiting, setExiting] = useState<Map<string, GhostPlacement>>(
     () => new Map(),
   );
+  // One counter per door, bumped in the same render-phase pass that
+  // decides a ghost slides to or from that door.
+  const [doorUses, setDoorUses] = useState({ left: 0, right: 0 });
   // `prevPresences` / `prevOwnRoomId` are kept in STATE (not refs) so the
   // render-phase compare-and-update pattern is a pure function of state
   // and props. Refs would also work but would be a side-effect mutation
@@ -225,6 +238,8 @@ export function useGhostTransitions(
     } else {
       const newEnteringEntries = new Map<string, DoorCoord>();
       const newExitingEntries = new Map<string, GhostPlacement>();
+      let leftUses = 0;
+      let rightUses = 0;
 
       for (const p of presences) {
         const prevRoomId = prevRoomByCid.get(p.connectionId);
@@ -242,6 +257,8 @@ export function useGhostTransitions(
         const goingForward = currIdx > prevIdx;
         if (prevRoomId === currentRoomId) {
           const door = goingForward ? rightDoor : leftDoor;
+          if (goingForward) rightUses += 1;
+          else leftUses += 1;
           newExitingEntries.set(p.connectionId, {
             presence: p,
             left: door.left,
@@ -250,11 +267,19 @@ export function useGhostTransitions(
           });
         } else if (currRoomId === currentRoomId) {
           const door = goingForward ? leftDoor : rightDoor;
+          if (goingForward) leftUses += 1;
+          else rightUses += 1;
           newEnteringEntries.set(p.connectionId, {
             left: door.left,
             top: door.top,
           });
         }
+      }
+      if (leftUses > 0 || rightUses > 0) {
+        setDoorUses({
+          left: doorUses.left + leftUses,
+          right: doorUses.right + rightUses,
+        });
       }
 
       if (newEnteringEntries.size > 0) {
@@ -387,7 +412,7 @@ export function useGhostTransitions(
     [presences, roomAgents, currentRoomId, ownConnectionId],
   );
 
-  return useMemo(() => {
+  const placements = useMemo(() => {
     const byCid = new Map<string, GhostPlacement>();
     for (const p of naturalPlacements) {
       const override = entering.get(p.presence.connectionId);
@@ -405,4 +430,13 @@ export function useGhostTransitions(
       a.presence.connectionId.localeCompare(b.presence.connectionId),
     );
   }, [naturalPlacements, entering, exiting]);
+
+  return useMemo(
+    () => ({
+      placements,
+      leftDoorUses: doorUses.left,
+      rightDoorUses: doorUses.right,
+    }),
+    [placements, doorUses],
+  );
 }

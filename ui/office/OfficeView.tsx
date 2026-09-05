@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
-import { Floor, Walls } from "./Floor.tsx";
+import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
@@ -233,7 +233,11 @@ export function OfficeView({
   // door-slide overrides for ghosts whose presence just crossed into / out
   // of our current room. The hook owns all per-ghost coordinate state;
   // OfficeView just renders the result.
-  const ghostPlacements = useGhostTransitions(
+  const {
+    placements: ghostPlacements,
+    leftDoorUses,
+    rightDoorUses,
+  } = useGhostTransitions(
     presences,
     roomAgents,
     currentRoomId,
@@ -538,6 +542,9 @@ export function OfficeView({
                   (t) => t.status !== "done" && t.status !== "backlog",
                 ).length
               }
+            />
+            <Floor />
+            <WallDoors
               leftDoor={
                 currentRoomIndex > 0
                   ? {
@@ -551,6 +558,7 @@ export function OfficeView({
                         }),
                       dragOver: leftDoorDragOver,
                       reject: leftDoorReject,
+                      passCount: leftDoorUses,
                     }
                   : null
               }
@@ -567,11 +575,11 @@ export function OfficeView({
                         }),
                       dragOver: rightDoorDragOver,
                       reject: rightDoorReject,
+                      passCount: rightDoorUses,
                     }
                   : null
               }
             />
-            <Floor />
             <RoomProps />
             {currentRoomIndex > 0 && (
               <DoorDropZone

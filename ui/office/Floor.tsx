@@ -137,6 +137,306 @@ interface DoorProps {
   onClick: () => void;
   dragOver?: boolean;
   reject?: boolean;
+  // Counts ghosts that have passed through this door. Every change
+  // remounts the panel, which restarts the ajar animation; the value
+  // itself is never read, so any monotonic counter works.
+  passCount?: number;
+}
+
+type DoorSide = "left" | "right";
+
+// Both walls rise at the same 2:1 isometric slope, so one step along a
+// wall lifts the drawing by WALL_SLOPE (the left wall up, the right wall
+// down). The doors are drawn in wall-plane coordinates centred on the
+// doorway: x -33..33, y -93..20.
+const WALL_SKEW_DEG = 27;
+const WALL_SLOPE = Math.tan((WALL_SKEW_DEG * Math.PI) / 180);
+const DOOR_HALF_W = 33;
+const DOOR_ORIGIN: Record<DoorSide, { x: number; y: number }> = {
+  left: { x: -315, y: 237 },
+  right: { x: 555, y: 237 },
+};
+
+// Both doors hinge on the wall edge farthest from the viewer - the edge
+// the knob sits farthest from - and open into the room, so the free edge
+// swings down and towards the viewer.
+function doorHingeX(side: DoorSide): number {
+  return side === "left" ? DOOR_HALF_W : -DOOR_HALF_W;
+}
+
+// The panel transform for a door standing `deg` out of its wall.
+//
+// A point `s` from the hinge lies at s*cos along the wall and s*sin out
+// of it. In this projection those two floor directions have opposite
+// screen-x signs and the same screen-y sign, so the panel narrows by
+// (cos - sin) while its free edge drops by slope*(cos + sin): the door
+// foreshortens and tilts at once, which is what sells the depth. The
+// resulting matrix [[a,0],[b,1]] is exactly skewY(atan(b/a)) scaleX(a),
+// and both of those fix the hinge line, so the panel only needs its
+// transform-origin pinned to the hinge edge - no origin arithmetic.
+//
+// The same matrix also describes the door swinging the other way, out of
+// the room: the two are mirror images through the wall, and this
+// projection maps them onto each other. Only the hinge edge differs.
+function doorSwingTransform(side: DoorSide, deg: number): string {
+  const t = (deg * Math.PI) / 180;
+  const narrow = Math.cos(t) - Math.sin(t);
+  const rise =
+    WALL_SLOPE * (Math.cos(t) + Math.sin(t)) * (side === "left" ? -1 : 1);
+  const skew = (Math.atan2(rise, narrow) * 180) / Math.PI;
+  return `skewY(${skew.toFixed(3)}deg) scaleX(${narrow.toFixed(4)})`;
+}
+
+const DOOR_OPEN_DEG = 11;
+const DOOR_AJAR_MS = 900;
+
+function doorRestTransform(side: DoorSide): string {
+  return doorSwingTransform(side, 0);
+}
+
+function doorOpenTransform(side: DoorSide): string {
+  return doorSwingTransform(side, DOOR_OPEN_DEG);
+}
+
+// Open fast, hold while the ghost crosses, fall shut slower. The ghost
+// slide it accompanies is 220ms, so the panel is wide open by the time
+// the ghost reaches the doorway.
+const DOOR_AJAR_CSS = (["left", "right"] as const)
+  .map(
+    (side) => `
+@keyframes isomuxDoorAjar-${side} {
+  0% { transform: ${doorRestTransform(side)}; filter: brightness(1);
+       animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+  22% { transform: ${doorOpenTransform(side)}; filter: brightness(1.07); }
+  52% { transform: ${doorOpenTransform(side)}; filter: brightness(1.07);
+        animation-timing-function: cubic-bezier(0.5, 0, 0.75, 1); }
+  100% { transform: ${doorRestTransform(side)}; filter: brightness(1); }
+}`,
+  )
+  .join("\n");
+
+function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
+  const origin = DOOR_ORIGIN[side];
+  const hingeX = doorHingeX(side);
+  const skewDeg = side === "left" ? -WALL_SKEW_DEG : WALL_SKEW_DEG;
+  // The knob sits on the free half of the panel, away from the hinge.
+  const knobX = side === "left" ? -15 : 15;
+  const panelFill = door.reject
+    ? "#5a2020"
+    : door.dragOver
+      ? "#5a4a2a"
+      : "#3a2a1a";
+  const faceFill = door.reject
+    ? "#7a3030"
+    : door.dragOver
+      ? "#7a6050"
+      : "#5a4030";
+  const inlayFill = door.reject
+    ? "#8a4040"
+    : door.dragOver
+      ? "#8a7060"
+      : "#6a5040";
+  const pass = door.passCount ?? 0;
+  return (
+    <g
+      data-no-pan
+      onClick={door.onClick}
+      style={{ cursor: "pointer", pointerEvents: "auto" }}
+    >
+      <style>{DOOR_AJAR_CSS}</style>
+      <g transform={`translate(${origin.x}, ${origin.y})`}>
+        {/* The room on the other side: this room's own wall and floor
+            colours, then a shadow over both, so the opening stays in the
+            scene palette and follows the theme. Inset by 1.5 so the
+            closed panel covers it to the last pixel, including its
+            rounded corners; the swing uncovers the rest. */}
+        <g transform={`skewY(${skewDeg})`}>
+          <rect
+            x="-31.5"
+            y="-91.5"
+            width="63"
+            height="110"
+            rx="2"
+            fill={`var(--wall-${side})`}
+          />
+          <rect x="-31.5" y="-8" width="63" height="26.5" fill="var(--floor-dark)" />
+          <rect
+            x="-31.5"
+            y="-91.5"
+            width="63"
+            height="110"
+            rx="2"
+            fill="url(#door-opening)"
+          />
+        </g>
+        {/* Hinge at the local origin, so the panel transform is a pure
+            skew + scale about the transform-origin edge below. The hinge
+            edge is the far one, so it sits above the door centre. */}
+        <g
+          transform={`translate(${hingeX}, ${(-DOOR_HALF_W * WALL_SLOPE).toFixed(3)})`}
+        >
+          <g
+            key={pass}
+            style={{
+              transformBox: "fill-box",
+              // The panel's bounding box ends (left door) or starts
+              // (right door) at the hinge, and skewY / scaleX both fix
+              // that edge, so only its x matters here.
+              transformOrigin: side === "left" ? "100% 50%" : "0% 50%",
+              transform: doorRestTransform(side),
+              ...(pass > 0
+                ? { animation: `isomuxDoorAjar-${side} ${DOOR_AJAR_MS}ms both` }
+                : {}),
+            }}
+          >
+            <g transform={`translate(${-hingeX}, 0)`}>
+              <rect
+                x="-33"
+                y="-93"
+                width="66"
+                height="113"
+                rx="3"
+                fill={panelFill}
+                stroke="#2a1a0a"
+                strokeWidth="1.5"
+              />
+              <rect
+                x="-27"
+                y="-87"
+                width="54"
+                height="101"
+                rx="1.5"
+                fill={faceFill}
+              />
+              <rect
+                x="-21"
+                y="-78"
+                width="42"
+                height="36"
+                rx="1.5"
+                fill={inlayFill}
+                stroke="#4a3020"
+                strokeWidth="0.5"
+              />
+              <rect
+                x="-21"
+                y="-31"
+                width="42"
+                height="36"
+                rx="1.5"
+                fill={inlayFill}
+                stroke="#4a3020"
+                strokeWidth="0.5"
+              />
+              <ellipse
+                cx={knobX + 1.2}
+                cy="-23.8"
+                rx="5"
+                ry="4"
+                fill="#241509"
+                opacity="0.5"
+              />
+              <circle cx={knobX} cy="-25" r="5.2" fill="#6d5128" />
+              <circle cx={knobX} cy="-25" r="4.3" fill="url(#door-knob)" />
+              <ellipse
+                cx={knobX - 1.4}
+                cy="-26.5"
+                rx="1.35"
+                ry="0.9"
+                fill="#fff5c8"
+                opacity="0.78"
+              />
+              {door.dragOver && (
+                <rect
+                  x="-33"
+                  y="-93"
+                  width="66"
+                  height="113"
+                  rx="3"
+                  fill="rgba(126,184,255,0.15)"
+                  stroke="rgba(126,184,255,0.6)"
+                  strokeWidth="2"
+                />
+              )}
+              {door.reject && (
+                <rect
+                  x="-33"
+                  y="-93"
+                  width="66"
+                  height="113"
+                  rx="3"
+                  fill="rgba(255,60,60,0.25)"
+                  stroke="rgba(255,60,60,0.7)"
+                  strokeWidth="2"
+                />
+              )}
+            </g>
+          </g>
+        </g>
+        <g transform={`skewY(${skewDeg})`}>
+          <text
+            x="0"
+            y="-98"
+            textAnchor="middle"
+            fill={
+              door.reject
+                ? "var(--red, #f85149)"
+                : door.dragOver
+                  ? "var(--accent, #58a6ff)"
+                  : "var(--text-dim)"
+            }
+            fontSize="12"
+            fontFamily="'JetBrains Mono',monospace"
+            fontWeight="600"
+            style={{ userSelect: "none" }}
+          >
+            {door.label}
+          </text>
+        </g>
+      </g>
+    </g>
+  );
+}
+
+// The doors sit in their own layer, drawn after the floor: a door that
+// opens into the room swings its bottom corner past the wall-floor
+// junction, and the floor slab would otherwise paint over it.
+export function WallDoors({
+  leftDoor,
+  rightDoor,
+}: {
+  leftDoor?: DoorProps | null;
+  rightDoor?: DoorProps | null;
+}) {
+  return (
+    <svg
+      style={SVG_STYLE}
+      width={SCENE_W}
+      height={SCENE_H}
+      viewBox={VB}
+      overflow="visible"
+    >
+      <defs>
+        <radialGradient id="door-knob" cx="32%" cy="28%" r="68%">
+          <stop offset="0" stopColor="#fff1ad" />
+          <stop offset="0.32" stopColor="#d8bd72" />
+          <stop offset="0.72" stopColor="#a08042" />
+          <stop offset="1" stopColor="#60451f" />
+        </radialGradient>
+        {/* Shadow over the room beyond, deepest at the top where the
+            doorway's own head cuts the light off. */}
+        <linearGradient id="door-opening" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#000" stopOpacity="0.86" />
+          <stop offset="0.66" stopColor="#000" stopOpacity="0.7" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.5" />
+        </linearGradient>
+      </defs>
+      {/* Left wall door - leads to previous room */}
+      {leftDoor && <WallDoor side="left" door={leftDoor} />}
+      {/* Right wall door - leads to next room */}
+      {rightDoor && <WallDoor side="right" door={rightDoor} />}
+    </svg>
+  );
 }
 
 export function Walls({
@@ -146,8 +446,6 @@ export function Walls({
   onOpenTasks,
   onOpenCronjobs,
   taskCount = 0,
-  leftDoor,
-  rightDoor,
 }: {
   onToggleTheme?: () => void;
   onWallPanelClick?: (x: number, y: number) => void;
@@ -155,8 +453,6 @@ export function Walls({
   onOpenTasks?: () => void;
   onOpenCronjobs?: () => void;
   taskCount?: number;
-  leftDoor?: DoorProps | null;
-  rightDoor?: DoorProps | null;
 }) {
   const { currentRoomId, rooms } = useAppState();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
@@ -236,12 +532,6 @@ export function Walls({
         <clipPath id="window-clip">
           <path d="M-290 111 L-149 40.5 L-149 -45.5 L-290 25 Z" />
         </clipPath>
-        <radialGradient id="door-knob" cx="32%" cy="28%" r="68%">
-          <stop offset="0" stopColor="#fff1ad" />
-          <stop offset="0.32" stopColor="#d8bd72" />
-          <stop offset="0.72" stopColor="#a08042" />
-          <stop offset="1" stopColor="#60451f" />
-        </radialGradient>
       </defs>
 
       {/* Cut ends and narrow cap faces make the wall planes read as solid. */}
@@ -1003,273 +1293,6 @@ export function Walls({
         />
       </g>
 
-      {/* Left wall door - leads to previous room */}
-      {leftDoor && (
-        <g
-          data-no-pan
-          onClick={leftDoor.onClick}
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-        >
-          <g transform="translate(-315, 237) skewY(-27)">
-            <rect
-              x="-33"
-              y="-93"
-              width="66"
-              height="113"
-              rx="3"
-              fill={
-                leftDoor.reject
-                  ? "#5a2020"
-                  : leftDoor.dragOver
-                    ? "#5a4a2a"
-                    : "#3a2a1a"
-              }
-              stroke="#2a1a0a"
-              strokeWidth="1.5"
-            />
-            <rect
-              x="-27"
-              y="-87"
-              width="54"
-              height="101"
-              rx="1.5"
-              fill={
-                leftDoor.reject
-                  ? "#7a3030"
-                  : leftDoor.dragOver
-                    ? "#7a6050"
-                    : "#5a4030"
-              }
-            />
-            <rect
-              x="-21"
-              y="-78"
-              width="42"
-              height="36"
-              rx="1.5"
-              fill={
-                leftDoor.reject
-                  ? "#8a4040"
-                  : leftDoor.dragOver
-                    ? "#8a7060"
-                    : "#6a5040"
-              }
-              stroke="#4a3020"
-              strokeWidth="0.5"
-            />
-            <rect
-              x="-21"
-              y="-31"
-              width="42"
-              height="36"
-              rx="1.5"
-              fill={
-                leftDoor.reject
-                  ? "#8a4040"
-                  : leftDoor.dragOver
-                    ? "#8a7060"
-                    : "#6a5040"
-              }
-              stroke="#4a3020"
-              strokeWidth="0.5"
-            />
-            <ellipse
-              cx="16.2"
-              cy="-23.8"
-              rx="5"
-              ry="4"
-              fill="#241509"
-              opacity="0.5"
-            />
-            <circle cx="15" cy="-25" r="5.2" fill="#6d5128" />
-            <circle cx="15" cy="-25" r="4.3" fill="url(#door-knob)" />
-            <ellipse
-              cx="13.6"
-              cy="-26.5"
-              rx="1.35"
-              ry="0.9"
-              fill="#fff5c8"
-              opacity="0.78"
-            />
-            {leftDoor.dragOver && (
-              <rect
-                x="-33"
-                y="-93"
-                width="66"
-                height="113"
-                rx="3"
-                fill="rgba(126,184,255,0.15)"
-                stroke="rgba(126,184,255,0.6)"
-                strokeWidth="2"
-              />
-            )}
-            {leftDoor.reject && (
-              <rect
-                x="-33"
-                y="-93"
-                width="66"
-                height="113"
-                rx="3"
-                fill="rgba(255,60,60,0.25)"
-                stroke="rgba(255,60,60,0.7)"
-                strokeWidth="2"
-              />
-            )}
-            <text
-              x="0"
-              y="-98"
-              textAnchor="middle"
-              fill={
-                leftDoor.reject
-                  ? "var(--red, #f85149)"
-                  : leftDoor.dragOver
-                    ? "var(--accent, #58a6ff)"
-                    : "var(--text-dim)"
-              }
-              fontSize="12"
-              fontFamily="'JetBrains Mono',monospace"
-              fontWeight="600"
-              style={{ userSelect: "none" }}
-            >
-              {leftDoor.label}
-            </text>
-          </g>
-        </g>
-      )}
-
-      {/* Right wall door - leads to next room */}
-      {rightDoor && (
-        <g
-          data-no-pan
-          onClick={rightDoor.onClick}
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-        >
-          <g transform="translate(555, 237) skewY(27)">
-            <rect
-              x="-33"
-              y="-93"
-              width="66"
-              height="113"
-              rx="3"
-              fill={
-                rightDoor.reject
-                  ? "#5a2020"
-                  : rightDoor.dragOver
-                    ? "#5a4a2a"
-                    : "#3a2a1a"
-              }
-              stroke="#2a1a0a"
-              strokeWidth="1.5"
-            />
-            <rect
-              x="-27"
-              y="-87"
-              width="54"
-              height="101"
-              rx="1.5"
-              fill={
-                rightDoor.reject
-                  ? "#7a3030"
-                  : rightDoor.dragOver
-                    ? "#7a6050"
-                    : "#5a4030"
-              }
-            />
-            <rect
-              x="-21"
-              y="-78"
-              width="42"
-              height="36"
-              rx="1.5"
-              fill={
-                rightDoor.reject
-                  ? "#8a4040"
-                  : rightDoor.dragOver
-                    ? "#8a7060"
-                    : "#6a5040"
-              }
-              stroke="#4a3020"
-              strokeWidth="0.5"
-            />
-            <rect
-              x="-21"
-              y="-31"
-              width="42"
-              height="36"
-              rx="1.5"
-              fill={
-                rightDoor.reject
-                  ? "#8a4040"
-                  : rightDoor.dragOver
-                    ? "#8a7060"
-                    : "#6a5040"
-              }
-              stroke="#4a3020"
-              strokeWidth="0.5"
-            />
-            <ellipse
-              cx="-13.8"
-              cy="-23.8"
-              rx="5"
-              ry="4"
-              fill="#241509"
-              opacity="0.5"
-            />
-            <circle cx="-15" cy="-25" r="5.2" fill="#6d5128" />
-            <circle cx="-15" cy="-25" r="4.3" fill="url(#door-knob)" />
-            <ellipse
-              cx="-16.4"
-              cy="-26.5"
-              rx="1.35"
-              ry="0.9"
-              fill="#fff5c8"
-              opacity="0.78"
-            />
-            {rightDoor.dragOver && (
-              <rect
-                x="-33"
-                y="-93"
-                width="66"
-                height="113"
-                rx="3"
-                fill="rgba(126,184,255,0.15)"
-                stroke="rgba(126,184,255,0.6)"
-                strokeWidth="2"
-              />
-            )}
-            {rightDoor.reject && (
-              <rect
-                x="-33"
-                y="-93"
-                width="66"
-                height="113"
-                rx="3"
-                fill="rgba(255,60,60,0.25)"
-                stroke="rgba(255,60,60,0.7)"
-                strokeWidth="2"
-              />
-            )}
-            <text
-              x="0"
-              y="-98"
-              textAnchor="middle"
-              fill={
-                rightDoor.reject
-                  ? "var(--red, #f85149)"
-                  : rightDoor.dragOver
-                    ? "var(--accent, #58a6ff)"
-                    : "var(--text-dim)"
-              }
-              fontSize="12"
-              fontFamily="'JetBrains Mono',monospace"
-              fontWeight="600"
-              style={{ userSelect: "none" }}
-            >
-              {rightDoor.label}
-            </text>
-          </g>
-        </g>
-      )}
     </svg>
   );
 }
