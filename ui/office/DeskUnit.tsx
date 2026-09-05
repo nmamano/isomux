@@ -222,6 +222,9 @@ export function DeskUnit({
             deskIndex={agent.desk}
             cwd={agent.cwd}
             deskProp={modelStyle.deskProp}
+            agentId={agent.id}
+            agentType={agent.agentType}
+            modelFamily={agent.modelFamily}
           />
         </div>
       </div>

@@ -11,6 +11,8 @@
 // Lives in ui/ (not shared/) on purpose: this is pure presentation data (CSS
 // colors, sprite prop names) with no server consumer.
 
+import { familyDisplayLabel } from "../shared/types.ts";
+
 // Desk decorations a model can carry. "book" is the whole current opus
 // rendering, including the per-desk cover-color and clock variation - that
 // variation stays inside DeskSprite's renderer, keyed on deskIndex.
@@ -97,8 +99,10 @@ export const FALLBACK_PALETTE: readonly ModelStyle[] = [
 ];
 
 // djb2-style string hash, forced unsigned with >>> 0 before the modulo so
-// the palette index can never go negative.
-function hashIndex(s: string, buckets: number): number {
+// the palette index can never go negative. Exported because DeskSprite picks
+// the drink in an agent's cup the same way, keyed on the agent id; one
+// implementation keeps the two sites from drifting.
+export function hashIndex(s: string, buckets: number): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) {
     h = (h * 33 + s.charCodeAt(i)) >>> 0;
@@ -119,4 +123,23 @@ export function styleForModel(modelFamily: string | undefined): ModelStyle {
     return MODEL_STYLES[modelFamily];
   }
   return FALLBACK_PALETTE[hashIndex(modelFamily, FALLBACK_PALETTE.length)];
+}
+
+// The label on the side of a desk. Deliberately shorter than the model's full
+// display label: it is a visual cue, not a classification, and it has to fit a
+// face 50 sprite units wide. Two cuts:
+//   - a Codex codename already implies its family, so "GPT-5.6 Sol" becomes
+//     "5.6 SOL". A bare version keeps its prefix, because "5.5" alone says
+//     nothing.
+//   - a trailing tier word is marketing rather than identity, so
+//     "Muse Spark 1.2 Free" becomes "MUSE SPARK 1.2".
+// Everything else is the display label, upper-cased. An agent with no model
+// identity gets no label at all - absence should not look like a model.
+export function deskModelLabel(modelFamily: string | undefined): string | null {
+  if (!modelFamily) return null;
+  const full = familyDisplayLabel(modelFamily);
+  // Guarded so a model literally called "Free" does not strip to nothing.
+  const base = full.replace(/ Free$/, "") || full;
+  const codename = base.match(/^GPT-([\d.]+ .+)$/);
+  return (codename ? codename[1] : base).toUpperCase();
 }

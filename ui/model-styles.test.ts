@@ -3,6 +3,7 @@ import {
   FALLBACK_PALETTE,
   MODEL_STYLES,
   NEUTRAL_STYLE,
+  deskModelLabel,
   styleForModel,
 } from "./model-styles.ts";
 
@@ -60,5 +61,34 @@ describe("styleForModel", () => {
   test("palette entries are distinct so hashing yields variety", () => {
     const borders = new Set(FALLBACK_PALETTE.map((p) => p.border));
     expect(borders.size).toBe(FALLBACK_PALETTE.length);
+  });
+});
+
+describe("deskModelLabel", () => {
+  test("a Codex codename drops the family prefix it already implies", () => {
+    expect(deskModelLabel("gpt-5.6-sol")).toBe("5.6 SOL");
+    expect(deskModelLabel("gpt-5.4-mini")).toBe("5.4 MINI");
+  });
+
+  test("a bare version keeps its prefix, because the number alone says nothing", () => {
+    expect(deskModelLabel("gpt-5.5")).toBe("GPT-5.5");
+    expect(deskModelLabel("gpt-5.4")).toBe("GPT-5.4");
+  });
+
+  test("Claude families keep their name and version", () => {
+    expect(deskModelLabel("opus")).toBe("OPUS 5");
+    expect(deskModelLabel("haiku")).toBe("HAIKU 4.5");
+  });
+
+  test("a trailing tier word is dropped, but never the whole label", () => {
+    expect(deskModelLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
+      "MUSE SPARK 1.2",
+    );
+    expect(deskModelLabel("opencode/free")).toBe("FREE");
+  });
+
+  test("no model identity means no label at all", () => {
+    expect(deskModelLabel(undefined)).toBeNull();
+    expect(deskModelLabel("")).toBeNull();
   });
 });

@@ -26,6 +26,8 @@ import type {
   ApiTokenWire,
 } from "../shared/contract-shapes.ts";
 import type {
+  AgentBackendType,
+  AgentCapabilities,
   AgentInfo,
   AppWire,
   ClientCommand,
@@ -71,6 +73,54 @@ export function setEmbedMode() {
   embedMode = true;
 }
 
+// Per-backend defaults for demo agents. A real server takes capabilities from
+// the Backend implementation and the permission mode from that backend's own
+// list; the demo has no backend process, so it mirrors those tables here.
+// One table, so a seeded agent and one spawned from the dialog agree.
+const DEMO_BACKEND_DEFAULTS: Record<
+  AgentBackendType,
+  {
+    permissionMode: AgentInfo["permissionMode"];
+    capabilities: AgentCapabilities;
+    codexSandbox?: AgentInfo["codexSandbox"];
+    // Claude reports a subscription allowance; the other backends do not.
+    subscription: boolean;
+  }
+> = {
+  claude: {
+    permissionMode: "auto",
+    capabilities: DEFAULT_AGENT_CAPABILITIES,
+    subscription: true,
+  },
+  codex: {
+    permissionMode: "on-request",
+    capabilities: {
+      fork: false,
+      hooks: false,
+      skills: true,
+      canUseTool: true,
+      topicGen: true,
+      edit: true,
+      mcp: true,
+    },
+    codexSandbox: "danger-full-access",
+    subscription: false,
+  },
+  opencode: {
+    permissionMode: "bypassPermissions",
+    capabilities: {
+      fork: true,
+      hooks: false,
+      skills: false,
+      canUseTool: true,
+      topicGen: true,
+      edit: true,
+      mcp: false,
+    },
+    subscription: false,
+  },
+};
+
 const OFFICE_CHARACTERS: {
   name: string;
   desk: number;
@@ -80,7 +130,10 @@ const OFFICE_CHARACTERS: {
   topic: string | null;
   state: AgentInfo["state"];
   customInstructions: string;
-  modelFamily: ModelFamily;
+  agentType: AgentBackendType;
+  // A Claude family for Claude agents, a Codex model id for Codex, and a
+  // provider/model id for OpenCode - the same shapes the real server stores.
+  modelFamily: string;
 }[] = [
   {
     name: "Michael",
@@ -100,6 +153,7 @@ const OFFICE_CHARACTERS: {
     state: "waiting_for_response",
     customInstructions:
       "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best boss. Relate everything back to team morale and family.",
+    agentType: "claude",
     modelFamily: "haiku",
   },
   {
@@ -120,7 +174,8 @@ const OFFICE_CHARACTERS: {
     state: "waiting_for_response",
     customInstructions:
       "You are the assistant to the regional manager and a beet farmer. You take security and efficiency extremely seriously. Always be thorough, literal, and slightly intense.",
-    modelFamily: "opus",
+    agentType: "codex",
+    modelFamily: "gpt-5.6-sol",
   },
   {
     name: "Jim",
@@ -140,6 +195,7 @@ const OFFICE_CHARACTERS: {
     state: "idle",
     customInstructions:
       "You work in sales. Be laid-back, witty, and occasionally sarcastic. Keep responses casual and to the point.",
+    agentType: "claude",
     modelFamily: "sonnet",
   },
   {
@@ -160,7 +216,8 @@ const OFFICE_CHARACTERS: {
     state: "idle",
     customInstructions:
       "You are the office receptionist and an aspiring artist. Be warm, creative, and detail-oriented. You care about aesthetics and good design.",
-    modelFamily: "sonnet",
+    agentType: "opencode",
+    modelFamily: "opencode/muse-spark-1.2-contributor-free",
   },
   {
     name: "Stanley",
@@ -180,7 +237,8 @@ const OFFICE_CHARACTERS: {
     state: "idle",
     customInstructions:
       "You are in sales but would rather be doing crossword puzzles. Be blunt, no-nonsense, and minimally enthusiastic. Do the work, skip the small talk.",
-    modelFamily: "sonnet",
+    agentType: "codex",
+    modelFamily: "gpt-5.4-mini",
   },
   {
     name: "Kevin",
@@ -200,7 +258,8 @@ const OFFICE_CHARACTERS: {
     state: "waiting_for_response",
     customInstructions:
       "You work in accounting but are passionate about cooking. You are lovable but slow with numbers. Always double-check your math (you need to).",
-    modelFamily: "haiku",
+    agentType: "opencode",
+    modelFamily: "opencode/kimi-k3",
   },
   {
     name: "Angela",
@@ -220,6 +279,7 @@ const OFFICE_CHARACTERS: {
     state: "tool_executing",
     customInstructions:
       "You are the head of accounting. Be precise, judgmental, and organized. You maintain an extensive cat photo archive and take both accounting and cats very seriously.",
+    agentType: "claude",
     modelFamily: "opus",
   },
   {
@@ -240,6 +300,7 @@ const OFFICE_CHARACTERS: {
     state: "idle",
     customInstructions:
       "You run customer service. Be chatty, enthusiastic, and easily distracted. You love pop culture and have strong opinions about everything.",
+    agentType: "claude",
     modelFamily: "sonnet",
   },
 ];
@@ -272,7 +333,7 @@ const DEMO_CONTEXT_WINDOW = 1_000_000;
 
 function demoContextUsage(
   desk: number,
-  model: ModelFamily,
+  model: string,
 ): AgentInfo["contextUsage"] {
   const percentage = DEMO_CONTEXT_PERCENT[desk % DEMO_CONTEXT_PERCENT.length];
   return {
@@ -297,6 +358,7 @@ function seedOffice() {
 
   for (const char of chars) {
     const id = `demo-${char.name.toLowerCase().replace(/\s+/g, "-")}`;
+    const backend = DEMO_BACKEND_DEFAULTS[char.agentType];
     state.addExistingAgent({
       id,
       name: char.name,
@@ -304,7 +366,7 @@ function seedOffice() {
       roomId: state.rooms[char.room].id,
       cwd: char.cwd,
       outfit: char.outfit,
-      permissionMode: "auto",
+      permissionMode: backend.permissionMode,
       modelFamily: char.modelFamily,
       effort: DEFAULT_EFFORT,
       state: char.state,
@@ -312,14 +374,17 @@ function seedOffice() {
       topicStale: false,
       customInstructions: char.customInstructions,
       customInstructionsVersion: versionOf(char.customInstructions ?? ""),
-      agentType: "claude",
-      capabilities: DEFAULT_AGENT_CAPABILITIES,
+      agentType: char.agentType,
+      capabilities: backend.capabilities,
+      codexSandbox: backend.codexSandbox,
       userId: null,
       username: null,
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
-      subscriptionUsage: demoSubscriptionUsage(),
+      subscriptionUsage: backend.subscription
+        ? demoSubscriptionUsage()
+        : null,
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
     });
   }
@@ -1771,6 +1836,7 @@ export async function demoApi(
         effort: b.effort,
         agentType: b.agentType,
         codexSandbox: b.codexSandbox,
+        capabilities: DEMO_BACKEND_DEFAULTS[b.agentType ?? "claude"].capabilities,
         username: "Ricky",
       });
       if (!result) {
