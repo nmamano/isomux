@@ -1,6 +1,7 @@
 import type { AgentState } from "../../shared/types.ts";
 import type { DeskProp } from "../model-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import { DeskPlant, DESK_PLANT_COUNT } from "./plants.tsx";
 
 function visualState(
   state: AgentState,
@@ -17,40 +18,6 @@ function visualState(
       return "idle";
   }
 }
-
-// Leaf pattern variants - each is 3 stems with [quadratic control points, stroke color, width]
-const PLANT_VARIANTS: Array<Array<[string, string, number]>> = [
-  // Upright bushy
-  [
-    ["M0 0 Q-6 -8 -2 -14", "#3a7a3a", 1.5],
-    ["M0 -2 Q4 -10 8 -12", "#4a8a4a", 1.2],
-    ["M0 -1 Q-3 -6 1 -10", "#3a7a3a", 1],
-  ],
-  // Droopy fern
-  [
-    ["M0 0 Q-8 -5 -10 -10", "#2e8a4a", 1.4],
-    ["M0 -1 Q6 -8 10 -8", "#3a9a5a", 1.1],
-    ["M0 0 Q-2 -9 2 -13", "#2e7a3a", 1],
-  ],
-  // Spiky succulent
-  [
-    ["M0 0 Q-2 -10 -1 -15", "#4a8a3a", 1.6],
-    ["M0 -1 Q3 -10 5 -14", "#5a9a4a", 1.3],
-    ["M0 0 Q-4 -7 -6 -11", "#4a7a3a", 1.1],
-  ],
-  // Wide spreading
-  [
-    ["M0 0 Q-9 -6 -12 -9", "#3a8a4a", 1.3],
-    ["M0 -1 Q8 -6 12 -8", "#4a9a3a", 1.2],
-    ["M0 0 Q0 -8 -1 -13", "#3a7a4a", 1.4],
-  ],
-  // Tall single stem with side shoots
-  [
-    ["M0 0 Q-1 -10 0 -16", "#3a8a3a", 1.6],
-    ["M0 -6 Q-6 -10 -8 -12", "#4a9a4a", 1],
-    ["M0 -8 Q5 -11 7 -13", "#3a7a3a", 0.9],
-  ],
-];
 
 // Book color variants - [front cover, back/side, spine/dark] - green (index 0) is the BCTCI easter egg
 const BOOK_VARIANTS: Array<[string, string, string]> = [
@@ -116,7 +83,6 @@ export function DeskSprite({
   const on = vs !== "idle";
   const hasPlant = !DESKS_WITHOUT_PLANT.has(deskIndex);
   const hasMug = !DESKS_WITHOUT_MUG.has(deskIndex);
-  const leaves = PLANT_VARIANTS[deskIndex % PLANT_VARIANTS.length];
   const [mugBody, mugSide, mugRim, mugLiquid] =
     MUG_VARIANTS[deskIndex % MUG_VARIANTS.length];
 
@@ -352,17 +318,7 @@ export function DeskSprite({
       {/* Small plant - terracotta pot, varies by desk */}
       {hasPlant && (
         <g transform="translate(35, 54)">
-          <rect x="-3" y="0" width="6" height="7" rx="1" fill="#C4634F" />
-          <ellipse cx="0" cy="0" rx="4" ry="1.5" fill="#D4735F" />
-          {leaves.map(([d, stroke, width], i) => (
-            <path
-              key={i}
-              d={d}
-              stroke={stroke}
-              fill="none"
-              strokeWidth={width}
-            />
-          ))}
+          <DeskPlant variant={deskIndex % DESK_PLANT_COUNT} />
         </g>
       )}
 

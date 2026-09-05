@@ -1,5 +1,22 @@
 import { useState, useEffect } from "react";
-import { SCENE_W, SCENE_H, VB_X, VB_Y, roomPaletteIndex } from "./grid.ts";
+import {
+  SCENE_W,
+  SCENE_H,
+  VB_X,
+  VB_Y,
+  isoXY,
+  roomPaletteIndex,
+} from "./grid.ts";
+import { DESK_SLOTS } from "../../shared/desks.ts";
+import {
+  Leaf,
+  Blossom,
+  BlossomJar,
+  LEAF_TONES,
+  BACK_LEAF_TONES,
+  MARBLE_TONES,
+  BLOSSOM_TONES,
+} from "./plants.tsx";
 import { useAppState } from "../store.tsx";
 
 const NEON_COLORS = [
@@ -89,6 +106,94 @@ export function Floor() {
     );
   }
 
+  // Desk 8 (slot index 7) is the desk nearest the visible floor edge, so its
+  // cable is the one that can reach the lip and fall over it. Reading the
+  // slot through isoXY keeps the cable on the desk if the slot table moves.
+  const desk8 = isoXY(DESK_SLOTS[7].row, DESK_SLOTS[7].col);
+  // The front-left edge runs from the slab's left corner along the column
+  // axis, so its slope is colDy/colDx.
+  const leftCornerX = backX + N * rowDx,
+    leftCornerY = backY + N * rowDy;
+  const edgeY = (x: number) =>
+    leftCornerY + (x - leftCornerX) * (colDy / colDx);
+  // Where the cable goes over the lip.
+  const lipX = desk8.x - 65,
+    lipY = edgeY(lipX);
+  // Along the floor: the run starts inside the desk's front panel, so the
+  // cable has no loose end - it emerges past the near leg on its own. The
+  // desk sprite is a sibling DOM layer drawn after this SVG, so it occludes
+  // whatever of the run passes under it. Points are offsets from the desk's
+  // floor point, so the whole route travels with the desk.
+  //
+  // The slack is coiled on the floor on the way, the way a too-long cable
+  // always is. The coil lies flat, so it is a 2:1 ellipse like everything
+  // else on the floor, and it winds inward as it goes - without that the
+  // second lap would land on the first and the coil would read as one thick
+  // ring instead of a wound cable.
+  //
+  // Three curves are spliced together here - the approach, the coil, the drop
+  // - and a splice reads as a kink unless the two sides leave the joint in
+  // the SAME direction. So every control point next to a joint is placed
+  // along the direction of the curve it meets, rather than picked by eye.
+  const coilCx = desk8.x - 26,
+    coilCy = desk8.y + 16;
+  const COIL_RX = 14,
+    COIL_RY = 7;
+  // The cable arrives from the desk travelling down-left, so the coil has to
+  // start where its own tangent points that way too. On this ellipse the
+  // tangent at angle a is (-RX sin a, RY cos a); down-left in the ratio the
+  // run already has means tan a = 2 RY / RX, so a = 0.588 rad. Winding the
+  // other way, as this did, put the tangent up-left and left a 37-degree
+  // corner at the joint.
+  const COIL_A0 = 0.588,
+    COIL_TURNS = 1.2;
+  const coil: Array<[number, number]> = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = i / 48;
+    const a = COIL_A0 + COIL_TURNS * 2 * Math.PI * t;
+    const r = 1 - 0.26 * t;
+    coil.push([
+      coilCx + Math.cos(a) * COIL_RX * r,
+      coilCy + Math.sin(a) * COIL_RY * r,
+    ]);
+  }
+  const unit = (
+    [ax, ay]: [number, number],
+    [bx, by]: [number, number],
+  ): [number, number] => {
+    const dx = bx - ax,
+      dy = by - ay,
+      len = Math.hypot(dx, dy) || 1;
+    return [dx / len, dy / len];
+  };
+  const coilIn = coil[0],
+    coilOut = coil[coil.length - 1];
+  const inDir = unit(coilIn, coil[1]);
+  const outDir = unit(coil[coil.length - 2], coilOut);
+  // The direction the run travels across the floor, and so the direction it
+  // must still be travelling as it reaches the lip: the row axis.
+  const runLen = Math.hypot(rowDx, rowDy);
+  const runDx = rowDx / runLen,
+    runDy = rowDy / runLen;
+  const at = (x: number, y: number) => `${x.toFixed(2)} ${y.toFixed(2)}`;
+  const cableFloor =
+    `M${at(desk8.x + 30, desk8.y - 26)}` +
+    ` C${at(desk8.x + 18, desk8.y - 18)} ${at(coilIn[0] - inDir[0] * 16, coilIn[1] - inDir[1] * 16)} ${at(coilIn[0], coilIn[1])}` +
+    coil
+      .slice(1)
+      .map(([x, y]) => `L${at(x, y)}`)
+      .join("") +
+    ` C${at(coilOut[0] + outDir[0] * 13, coilOut[1] + outDir[1] * 13)} ${at(lipX - runDx * 13, lipY - runDy * 13)} ${at(lipX, lipY)}`;
+  // Over the lip: down the SLAB_H-deep side face, then free, sagging out and
+  // settling back under the weight of the plug on the end. The first control
+  // continues along the run's direction, so the cable rounds the edge instead
+  // of turning a corner on it.
+  const cableDrop =
+    `M${at(lipX, lipY)}` +
+    ` C${at(lipX + runDx * 7, lipY + runDy * 7)} ${at(lipX - 1, lipY + SLAB_H)} ${at(lipX - 3, lipY + SLAB_H + 9)}` +
+    ` C${at(lipX - 6.5, lipY + SLAB_H + 22)} ${at(lipX - 1.5, lipY + SLAB_H + 30)} ${at(lipX - 3, lipY + SLAB_H + 40)}`;
+  const plugY = lipY + SLAB_H + 40;
+
   return (
     <svg
       style={SVG_STYLE}
@@ -111,6 +216,66 @@ export function Floor() {
       </defs>
       {slabs}
       {tiles}
+
+      {/* Desk 8's cable: out from under the desk, across to the lip, over
+          the side of the slab and off the edge of the world. Each run is a
+          dark body under a thin offset highlight, which is what makes a
+          stroke read as a round cable rather than a drawn line. */}
+      <g aria-hidden="true">
+        <path
+          d={cableFloor}
+          transform="translate(1.6 0.9)"
+          fill="none"
+          stroke="#000"
+          strokeOpacity="0.16"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={cableFloor}
+          fill="none"
+          stroke="#3c414f"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={cableDrop}
+          fill="none"
+          stroke="#3c414f"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={cableFloor}
+          transform="translate(-0.3 -0.5)"
+          fill="none"
+          stroke="#575e72"
+          strokeWidth="0.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d={cableDrop}
+          transform="translate(-0.55 -0.2)"
+          fill="none"
+          stroke="#575e72"
+          strokeWidth="0.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* The plug is the weight that explains why the free end hangs
+            straight instead of curling. */}
+        <g transform={`translate(${lipX - 3} ${plugY})`}>
+          <rect x="-3.2" y="0" width="6.4" height="8.6" rx="1.6" fill="#2f333f" />
+          <rect x="-3.2" y="0" width="2.5" height="8.6" rx="1.25" fill="#464c5c" />
+          <rect x="-1.9" y="8" width="1.1" height="3.2" rx="0.5" fill="#8d93a3" />
+          <rect x="0.8" y="8" width="1.1" height="3.2" rx="0.5" fill="#8d93a3" />
+        </g>
+      </g>
+
       <g className="sunrays" aria-hidden="true">
         <path
           d="M-205 -5 L18 350 L-38 361 Z"
@@ -129,6 +294,280 @@ export function Floor() {
         />
       </g>
     </svg>
+  );
+}
+
+// --- Day-scene clouds ------------------------------------------------------
+// The old clouds were four flat translucent ellipses, which read as lozenges
+// rather than cloud. A cumulus has a flat base and a lumpy top, so the puffs
+// all sit their BOTTOMS on one line and a bar fills the gaps between them:
+// that single constraint is most of what makes a blob read as a cloud.
+//
+// [offset from the cloud's centre, radius]
+const CLOUD_PUFFS: Array<[number, number]> = [
+  [-12.5, 4.6],
+  [-6.5, 7],
+  [0.5, 8.6],
+  [7, 6.4],
+  [12.5, 4.8],
+];
+
+function CloudBody({ fill }: { fill: string }) {
+  return (
+    <g fill={fill}>
+      {CLOUD_PUFFS.map(([dx, r], i) => (
+        <circle key={i} cx={dx} cy={-r} r={r} />
+      ))}
+      <rect x={-13} y={-4.2} width={26.3} height={4.2} />
+    </g>
+  );
+}
+
+// Three copies of the silhouette, each smaller and brighter than the last,
+// every one of them sitting on the SAME base line - scaling about the origin
+// keeps y=0 fixed, so the flat bottom survives while the tops step back. It
+// reads as stacked masses of cloud rather than one lump, and it stays crisp,
+// which is the language the rest of the scene is drawn in: the sun, the moon
+// and the desks are all flat facets with hard edges.
+function Cloud({
+  x,
+  y,
+  scale,
+  opacity,
+}: {
+  x: number;
+  y: number;
+  scale: number;
+  opacity: number;
+}) {
+  return (
+    <g transform={`translate(${x} ${y}) scale(${scale})`} opacity={opacity}>
+      <CloudBody fill="#B7D2E7" />
+      <g transform="translate(-1.5 0) scale(0.92)">
+        <CloudBody fill="#E4EFF8" />
+      </g>
+      <g transform="translate(-4 0) scale(0.72)">
+        <CloudBody fill="#FFFFFF" />
+      </g>
+    </g>
+  );
+}
+
+// --- Window-sill plant -----------------------------------------------------
+// The sill is horizontal in world space and runs ALONG the left wall, so its
+// two axes are the same two floor axes: a circle standing on it projects to
+// the same 2:1 ellipse as a circle on the floor. The sill line across the
+// pane is y = 111 - 0.5 * (x + 290); at POT_X that puts the ledge at y=66,
+// and the pot's base ellipse sits in the 9-unit band below it.
+//
+// POT_X is on the RIGHT half of the sill on purpose. The sill rises to the
+// right, so there is far more clear wall under it there - the west-corner
+// floor plant in RoomProps sits at x -260..-219, y 161 and up, and vines
+// hung from the middle of the sill run straight into it.
+const POT_X = -200;
+const POT_SOIL_Y = 55.5;
+
+// A vine leaves the soil, drapes over the rim, then falls and wanders.
+// [start offset from POT_X, reach past the rim, drop, wander, phase, leaves]
+// The first BACK_VINES entries are the back layer: shorter, darker and
+// slightly transparent, so the plant has a near side and a far side instead
+// of reading as one flat curtain.
+const BACK_VINES = 2;
+const VINES: Array<[number, number, number, number, number, number]> = [
+  [-3.5, -9.5, 70, 2.6, 1.2, 6],
+  [4.5, 9.5, 58, 2.2, 3.9, 5],
+  [-6, -6.5, 96, 3.2, 0.4, 8],
+  [-2, -2, 62, 2.4, 2.1, 6],
+  [3, 4.5, 108, 3.6, 4.2, 9],
+  [7, 8.5, 74, 2.8, 5.6, 6],
+];
+
+// exp() clears the rim fast, then the sine wander grows with the drop so the
+// free tip moves more than the shoulder.
+function vineXY(
+  [start, reach, drop, wander, phase]: (typeof VINES)[number],
+  t: number,
+): [number, number] {
+  return [
+    POT_X +
+      start +
+      reach * (1 - Math.exp(-t * 9)) +
+      wander * t * Math.sin(phase + t * 3.4),
+    POT_SOIL_Y + drop * t,
+  ];
+}
+
+function vinePath(vine: (typeof VINES)[number], samples = 26): string {
+  let d = "";
+  for (let i = 0; i <= samples; i++) {
+    const [x, y] = vineXY(vine, i / samples);
+    d += `${i === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
+  }
+  return d;
+}
+
+// Leaves hang off alternating sides, shrinking toward the tip. The stem is
+// sampled either side of the anchor for its tangent, so a leaf always sits
+// square to the vine it grows on. Spacing and the angle off the stem both
+// carry the vine's phase, so no two vines ladder the same way - a strict
+// zigzag at a fixed angle reads as a fishbone, not a plant. Lower leaves
+// hug the stem harder, the way a hanging leaf does under its own weight.
+function vineLeaves(vine: (typeof VINES)[number], vi: number) {
+  const count = vine[5];
+  const phase = vine[4];
+  const back = vi < BACK_VINES;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const t =
+      0.12 + (i / Math.max(1, count - 1)) * 0.85 + 0.03 * Math.sin(phase + i * 2.3);
+    const [x, y] = vineXY(vine, t);
+    const [ax, ay] = vineXY(vine, Math.max(0, t - 0.03));
+    const [bx, by] = vineXY(vine, Math.min(1, t + 0.03));
+    const along = (Math.atan2(bx - ax, -(by - ay)) * 180) / Math.PI;
+    const side = i % 2 === 0 ? 1 : -1;
+    const spread = (26 + 16 * Math.sin(phase + i * 1.7)) * (1 - 0.3 * t);
+    const tones = back ? BACK_LEAF_TONES : LEAF_TONES;
+    // Marbling: three leaves in four carry it, one of those a big patch.
+    const marble = (vi * 5 + i * 3) % 4;
+    out.push(
+      <Leaf
+        key={`v${vi}l${i}`}
+        x={x}
+        y={y}
+        angle={along + side * spread}
+        size={(back ? 5.4 : 6.6) * (1 - 0.42 * t)}
+        tone={tones[(vi * 3 + i) % tones.length]}
+        varTone={
+          !back && marble < 3
+            ? MARBLE_TONES[(vi + i) % MARBLE_TONES.length]
+            : undefined
+        }
+        varBig={marble === 0}
+      />,
+    );
+    // Blossoms hang off the opposite side of the stem from their leaf, one
+    // or two per front vine, so they punctuate the green instead of lining
+    // it. The normal comes off the same tangent the leaf is squared to.
+    if (!back && (i + vi) % 4 === 1) {
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      const nx = -(by - ay) / len,
+        ny = (bx - ax) / len;
+      out.push(
+        <Blossom
+          key={`v${vi}f${i}`}
+          x={x - side * nx * 2.9}
+          y={y - side * ny * 2.9 + 1.2}
+          size={3.4 * (1 - 0.25 * t)}
+          tone={BLOSSOM_TONES[(vi + i) % BLOSSOM_TONES.length]}
+        />,
+      );
+    }
+  }
+  return out;
+}
+
+// Crown leaves stand out of the soil so the plant has a top, not just tails.
+// [dx, dy, angle, size, tone index]
+const CROWN: Array<[number, number, number, number, number]> = [
+  [-7, -1, -66, 6.4, 1],
+  [-3.5, -2.5, -28, 7.4, 0],
+  [1.5, -3, 12, 7.8, 3],
+  [6, -1.5, 52, 6.8, 2],
+  [-0.5, -1, -6, 5.6, 2],
+];
+
+// Blossoms over the crown, so the colour reads at the top of the plant and
+// not only down the tails. [dx, dy, size, tone index]
+const CROWN_FLOWERS: Array<[number, number, number, number]> = [
+  [-5.5, -7, 3.7, 0],
+  [1.5, -9, 4.1, 1],
+  [6.5, -5.5, 3.4, 2],
+];
+
+function WindowPlant() {
+  return (
+    <g aria-hidden="true">
+      {/* Cast shadow: the plant lifts off the wall. Invisible on the dark
+          themes, where the wall is already near-black, and that is right -
+          a shadow only shows where there is light to block. */}
+      <g
+        transform="translate(2.6 1.3)"
+        filter="url(#plant-soft)"
+        opacity="0.16"
+      >
+        {VINES.map((v, i) => (
+          <path
+            key={`sh${i}`}
+            d={vinePath(v, 12)}
+            fill="none"
+            stroke="#000"
+            strokeWidth="3.4"
+            strokeLinecap="round"
+          />
+        ))}
+        <ellipse cx={POT_X} cy={64} rx="10" ry="11" fill="#000" />
+      </g>
+
+      {/* Pot: a truncated cone under a lipped rim. The body gradient runs
+          light-to-dark across it, so it reads as round rather than flat. */}
+      <path
+        d={`M${POT_X - 9} 58.5 A9 4.5 0 0 1 ${POT_X + 9} 58.5 L${POT_X + 6.4} 70.5 A6.4 3.2 0 0 1 ${POT_X - 6.4} 70.5 Z`}
+        fill="url(#pot-body)"
+      />
+      <ellipse cx={POT_X} cy={55} rx="10" ry="5" fill="#c8825e" />
+      <ellipse cx={POT_X} cy={55.5} rx="8.2" ry="4.1" fill="#493425" />
+      <path
+        d={`M${POT_X - 10} 55 A10 5 0 0 0 ${POT_X + 10} 55 L${POT_X + 10} 58.5 A10 5 0 0 1 ${POT_X - 10} 58.5 Z`}
+        fill="url(#pot-lip)"
+      />
+      {/* Back layer, then the crown, then the front layer. Within a layer the
+          stems all go down before any leaf, so a leaf base covers the stem it
+          grows from instead of being cut by a later stroke. */}
+      <g opacity="0.82">
+        {VINES.slice(0, BACK_VINES).map((v, i) => (
+          <path
+            key={`bv${i}`}
+            d={vinePath(v)}
+            fill="none"
+            stroke="#2c6434"
+            strokeWidth="1"
+            strokeLinecap="round"
+          />
+        ))}
+        {VINES.slice(0, BACK_VINES).map((v, i) => vineLeaves(v, i))}
+      </g>
+      {CROWN.map(([dx, dy, angle, size, tone], i) => (
+        <Leaf
+          key={`c${i}`}
+          x={POT_X + dx}
+          y={POT_SOIL_Y + dy}
+          angle={angle}
+          size={size}
+          tone={LEAF_TONES[tone]}
+        />
+      ))}
+      {VINES.slice(BACK_VINES).map((v, i) => (
+        <path
+          key={`v${i}`}
+          d={vinePath(v)}
+          fill="none"
+          stroke={i % 2 === 0 ? "#3f8446" : "#356f3b"}
+          strokeWidth="1.15"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+      {VINES.slice(BACK_VINES).map((v, i) => vineLeaves(v, i + BACK_VINES))}
+      {CROWN_FLOWERS.map(([dx, dy, size, tone], i) => (
+        <Blossom
+          key={`cf${i}`}
+          x={POT_X + dx}
+          y={POT_SOIL_Y + dy}
+          size={size}
+          tone={BLOSSOM_TONES[tone]}
+        />
+      ))}
+    </g>
   );
 }
 
@@ -532,6 +971,54 @@ export function Walls({
         <clipPath id="window-clip">
           <path d="M-290 111 L-149 40.5 L-149 -45.5 L-290 25 Z" />
         </clipPath>
+        {/* Moon halo: a soft falloff, not a flat disc. The old halo was a
+            5%-opacity circle painted ON TOP of the moon, so it both washed
+            the disc and showed its own hard edge (and the chord where the
+            window frame clipped it) as a grey circle behind the moon. */}
+        <radialGradient id="moon-halo">
+          <stop offset="0" stopColor="#E8E0C8" stopOpacity="0.18" />
+          <stop offset="0.4" stopColor="#E8E0C8" stopOpacity="0.1" />
+          <stop offset="0.7" stopColor="#E8E0C8" stopOpacity="0.03" />
+          <stop offset="1" stopColor="#E8E0C8" stopOpacity="0" />
+        </radialGradient>
+        {/* The crescent is the disc MINUS the shadow, so the shadow is a hole
+            and the halo behind stays continuous. Filling the shadow with the
+            sky colour instead would punch an opaque bite out of the halo. */}
+        {/* The sill's top surface: the band between the pane's bottom edge
+            and the wall opening's bottom edge. Contact shadows are clipped to
+            it, so a shadow stops at the front lip instead of running on down
+            the wall. */}
+        <clipPath id="sill-clip">
+          <path d="M-290 111 L-149 40.5 L-140 45 L-290 120 Z" />
+        </clipPath>
+        {/* A generous region: the default -10%/120% box crops the blur off
+            shadows this flat. */}
+        <filter
+          id="sill-shadow"
+          x="-20%"
+          y="-40%"
+          width="140%"
+          height="180%"
+        >
+          <feGaussianBlur stdDeviation="1.7" />
+        </filter>
+        <mask id="moon-crescent">
+          <circle cx={-203} cy={-8} r={12} fill="#fff" />
+          <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#000" />
+        </mask>
+        <linearGradient id="pot-body" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#b9704e" />
+          <stop offset="0.34" stopColor="#a85e3e" />
+          <stop offset="1" stopColor="#7b4028" />
+        </linearGradient>
+        <linearGradient id="pot-lip" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#cd8a66" />
+          <stop offset="0.34" stopColor="#bb7550" />
+          <stop offset="1" stopColor="#8b4c30" />
+        </linearGradient>
+        <filter id="plant-soft">
+          <feGaussianBlur stdDeviation="1.6" />
+        </filter>
       </defs>
 
       {/* Cut ends and narrow cap faces make the wall planes read as solid. */}
@@ -631,13 +1118,16 @@ export function Walls({
               )}
             </circle>
           ))}
-          {/* Moon - crescent via overlapping circles */}
+          {/* Moon - a masked crescent over a soft halo */}
           <g>
-            <circle cx={-203} cy={-8} r={18} fill="transparent" />
-            <circle cx={-203} cy={-8} r={12} fill="#E8E0C8" />
-            <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#0a0e1a" />
-            {/* Moon glow */}
-            <circle cx={-203} cy={-8} r={18} fill="#E8E0C8" opacity="0.05" />
+            <circle cx={-203} cy={-8} r={30} fill="url(#moon-halo)" />
+            <circle
+              cx={-203}
+              cy={-8}
+              r={12}
+              fill="#E8E0C8"
+              mask="url(#moon-crescent)"
+            />
           </g>
         </g>
 
@@ -653,32 +1143,12 @@ export function Walls({
             <circle cx={-205} cy={-5} r={14} fill="#F5D060" />
             <circle cx={-205} cy={-5} r={20} fill="#F5D060" opacity="0.15" />
           </g>
-          {/* Clouds */}
-          <ellipse
-            cx={-240}
-            cy={40}
-            rx={18}
-            ry={6}
-            fill="white"
-            opacity="0.7"
-          />
-          <ellipse
-            cx={-230}
-            cy={37}
-            rx={12}
-            ry={5}
-            fill="white"
-            opacity="0.6"
-          />
-          <ellipse cx={-175} cy={5} rx={14} ry={5} fill="white" opacity="0.5" />
-          <ellipse
-            cx={-165}
-            cy={3}
-            rx={10}
-            ry={4}
-            fill="white"
-            opacity="0.45"
-          />
+          {/* Clouds. Placed to the pane and clear of the sill props: the
+              upper-left pane, the upper-right pane past the sun, and one
+              small distant one low left of the jar. */}
+          <Cloud x={-250} y={22} scale={0.9} opacity={0.95} />
+          <Cloud x={-172} y={4} scale={1.05} opacity={0.92} />
+          <Cloud x={-262} y={66} scale={0.6} opacity={0.68} />
         </g>
 
         {/* The outer-edge frame is hidden on the left and top. */}
@@ -709,6 +1179,43 @@ export function Walls({
           strokeWidth="2"
           fill="none"
         />
+      </g>
+
+      {/* Everything standing on the sill casts its contact shadow here, in
+          one blurred group clipped to the ledge, so both stop at the same
+          edge and neither runs on down the wall. Blur first, then clip: the
+          shadow is soft where it lies on the sill and cut where the sill
+          ends, which is what a real one does. */}
+      <g clipPath="url(#sill-clip)" aria-hidden="true">
+        <g filter="url(#sill-shadow)">
+          {/* Centred under what casts them. Offsetting a contact shadow to
+              suggest a light direction is what makes the object read as
+              floating: the one place a shadow must touch its object is
+              directly under it. Each sits in the plane of that object's base
+              ellipse - the pot's at y=70.5, the jar's at its own origin. */}
+          <ellipse
+            cx={POT_X}
+            cy={70.5}
+            rx="8.2"
+            ry="3"
+            fill="#000"
+            opacity="0.34"
+          />
+        </g>
+      </g>
+
+      <WindowPlant />
+
+      {/* Jar of cherry blossom, standing on the sill left of the plant.
+          The sill is the wall opening's bottom edge, from (-290,120) to
+          (-140,45), so y = 120 - 0.5 * (x + 290): at x=-248 that is 99.
+          Slide the translate ALONG that line to move it - off the line and
+          the jar floats. Worker 6 drew it at x=-200, which is where the
+          plant's pot stands, so it moved left. It sits in this SVG, whose
+          pointer-events are none, so it does not take the window's
+          "Change theme" click. */}
+      <g transform="translate(-236 92.6)">
+        <BlossomJar />
       </g>
 
       {/* Corkboard on left wall - casual, mutable feel */}
@@ -965,6 +1472,7 @@ export function Walls({
           strokeWidth="1"
           opacity="0.35"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
         {hasOfficePrompt ? (
           <>
@@ -1124,6 +1632,7 @@ export function Walls({
           stroke="var(--clock-hand)"
           strokeWidth="1.5"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
         {/* Minute hand */}
         <line
@@ -1134,6 +1643,7 @@ export function Walls({
           stroke="var(--clock-hand)"
           strokeWidth="1"
           strokeLinecap="round"
+          strokeLinejoin="round"
         />
         {/* Center dot */}
         <circle cx="0" cy="0" r="1.5" fill="var(--clock-hand)" />

@@ -1,4 +1,5 @@
 import { SCENE_W, SCENE_H, VB_X, VB_Y, roomPaletteIndex } from "./grid.ts";
+import { CornerPlant } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
 
 // `face` colours the eyes and whiskers; dark coats need a light stroke or the
@@ -67,31 +68,10 @@ export function RoomProps() {
       viewBox={`${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`}
       overflow="visible"
     >
-      {/* Potted plant - west corner of office */}
+      {/* Potted plant - west corner of office. Drawn in ui/office/plants.tsx,
+          which the window plant and the desk plants also draw from. */}
       <g transform="translate(-245, 212) scale(1.5)">
-        <rect x="-8" y="0" width="16" height="20" rx="3" fill="#5a4a35" />
-        <ellipse cx="0" cy="0" rx="10" ry="4" fill="#6a5a45" />
-        <path
-          d="M0 0 Q-10 -20 -4 -30"
-          stroke="#3a8a3a"
-          fill="none"
-          strokeWidth="2"
-        />
-        <path
-          d="M0 0 Q8 -17 12 -27"
-          stroke="#4a9a4a"
-          fill="none"
-          strokeWidth="1.8"
-        />
-        <path
-          d="M0 0 Q-3 -13 2 -22"
-          stroke="#3a7a3a"
-          fill="none"
-          strokeWidth="1.5"
-        />
-        <ellipse cx="-4" cy="-30" rx="5" ry="4" fill="#3a8a3a" opacity="0.7" />
-        <ellipse cx="12" cy="-27" rx="4" ry="3" fill="#4a9a4a" opacity="0.7" />
-        <ellipse cx="2" cy="-22" rx="4" ry="3.5" fill="#3a7a3a" opacity="0.6" />
+        <CornerPlant />
       </g>
 
       {/* Water cooler - near right wall, only in last room (no right door) */}
