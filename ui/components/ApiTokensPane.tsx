@@ -248,9 +248,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                     {token.expiresAt === null
                       ? t("settings.apiTokens.neverExpires")
                       : t("settings.apiTokens.expiresOn", {
-                          date: new Date(
-                            token.expiresAt,
-                          ).toLocaleDateString(),
+                          date: new Date(token.expiresAt).toLocaleDateString(),
                         })}
                   </div>
                   <div style={hint}>

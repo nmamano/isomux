@@ -494,7 +494,8 @@ export const es: Catalog = {
   "settings.signIn.submitFailed": "No se ha podido enviar el código de Claude.",
   "settings.signIn.cancelFailed":
     "No se ha podido cancelar el inicio de sesión.",
-  "settings.signIn.signOutFailed": "No se ha podido cerrar la sesión de {provider}.",
+  "settings.signIn.signOutFailed":
+    "No se ha podido cerrar la sesión de {provider}.",
   "settings.signIn.externalWarning":
     "Esto cierra la sesión de {provider} en esta máquina, incluso fuera de la oficina.",
   "settings.signIn.directoryWarning":

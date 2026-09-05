@@ -21,9 +21,8 @@ setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { UserSettingsView } = await import("./components/UserSettingsView.tsx");
-const { onLanguage, selfUserRecord } = await import(
-  "./test-support/language-fixture.tsx"
-);
+const { onLanguage, selfUserRecord } =
+  await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
 

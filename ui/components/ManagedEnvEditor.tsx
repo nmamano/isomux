@@ -47,9 +47,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
       })
       .catch((err) =>
         setError(
-          err instanceof ApiError
-            ? err.message
-            : t("settings.env.loadFailed"),
+          err instanceof ApiError ? err.message : t("settings.env.loadFailed"),
         ),
       );
 
@@ -79,9 +77,7 @@ export function ManagedEnvEditor({ path }: { path: string }) {
       setSaved(current);
     } catch (err) {
       setError(
-        err instanceof ApiError
-          ? err.message
-          : t("settings.env.saveFailed"),
+        err instanceof ApiError ? err.message : t("settings.env.saveFailed"),
       );
     } finally {
       setSaving(false);

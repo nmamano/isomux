@@ -489,9 +489,9 @@ export const ca: Catalog = {
   "settings.signIn.startFailed":
     "No s'ha pogut iniciar la sessió a {provider}.",
   "settings.signIn.submitFailed": "No s'ha pogut enviar el codi de Claude.",
-  "settings.signIn.cancelFailed":
-    "No s'ha pogut cancel·lar l'inici de sessió.",
-  "settings.signIn.signOutFailed": "No s'ha pogut tancar la sessió de {provider}.",
+  "settings.signIn.cancelFailed": "No s'ha pogut cancel·lar l'inici de sessió.",
+  "settings.signIn.signOutFailed":
+    "No s'ha pogut tancar la sessió de {provider}.",
   "settings.signIn.externalWarning":
     "Això tanca la sessió de {provider} en aquesta màquina, fins i tot fora de l'oficina.",
   "settings.signIn.directoryWarning":
@@ -530,8 +530,7 @@ export const ca: Catalog = {
   "settings.env.showValues": "Mostra els valors",
   "settings.env.save": "Desa les variables",
   "settings.env.saved": "Variables desades",
-  "settings.env.duplicate":
-    "Els noms de les variables no es poden repetir.",
+  "settings.env.duplicate": "Els noms de les variables no es poden repetir.",
 
   "settings.memberConnections.title": "Connexions individuals",
   "settings.memberConnections.hint":

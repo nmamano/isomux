@@ -32,7 +32,10 @@ const relativeFormatters = new Map<
   SupportedLanguageCode,
   Intl.RelativeTimeFormat
 >();
-const absoluteFormatters = new Map<SupportedLanguageCode, Intl.DateTimeFormat>();
+const absoluteFormatters = new Map<
+  SupportedLanguageCode,
+  Intl.DateTimeFormat
+>();
 
 function relativeFormatter(
   language: SupportedLanguageCode,

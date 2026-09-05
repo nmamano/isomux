@@ -14,10 +14,7 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 
 // Not a component (it labels a button inside one), so it takes the translator
 // rather than reaching for the hook.
-export function signOutButtonLabel(
-  i18n: Translator,
-  pending: boolean,
-): string {
+export function signOutButtonLabel(i18n: Translator, pending: boolean): string {
   return pending
     ? i18n.t("settings.signIn.signingOut")
     : i18n.t("settings.signIn.confirmSignOut");

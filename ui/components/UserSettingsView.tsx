@@ -974,9 +974,7 @@ function MemberVariableNames({ username }: { username: string }) {
 
   return (
     <>
-      <h5 style={sectionTitleStyle}>
-        {t("settings.memberConnections.title")}
-      </h5>
+      <h5 style={sectionTitleStyle}>{t("settings.memberConnections.title")}</h5>
       <p style={sectionHintStyle}>{t("settings.memberConnections.hint")}</p>
       {failed ? (
         <p style={sectionHintStyle}>
