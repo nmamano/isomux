@@ -269,10 +269,38 @@ export function Floor() {
         {/* The plug is the weight that explains why the free end hangs
             straight instead of curling. */}
         <g transform={`translate(${lipX - 3} ${plugY})`}>
-          <rect x="-3.2" y="0" width="6.4" height="8.6" rx="1.6" fill="#2f333f" />
-          <rect x="-3.2" y="0" width="2.5" height="8.6" rx="1.25" fill="#464c5c" />
-          <rect x="-1.9" y="8" width="1.1" height="3.2" rx="0.5" fill="#8d93a3" />
-          <rect x="0.8" y="8" width="1.1" height="3.2" rx="0.5" fill="#8d93a3" />
+          <rect
+            x="-3.2"
+            y="0"
+            width="6.4"
+            height="8.6"
+            rx="1.6"
+            fill="#2f333f"
+          />
+          <rect
+            x="-3.2"
+            y="0"
+            width="2.5"
+            height="8.6"
+            rx="1.25"
+            fill="#464c5c"
+          />
+          <rect
+            x="-1.9"
+            y="8"
+            width="1.1"
+            height="3.2"
+            rx="0.5"
+            fill="#8d93a3"
+          />
+          <rect
+            x="0.8"
+            y="8"
+            width="1.1"
+            height="3.2"
+            rx="0.5"
+            fill="#8d93a3"
+          />
         </g>
       </g>
 
@@ -419,7 +447,9 @@ function vineLeaves(vine: (typeof VINES)[number], vi: number) {
   const out = [];
   for (let i = 0; i < count; i++) {
     const t =
-      0.12 + (i / Math.max(1, count - 1)) * 0.85 + 0.03 * Math.sin(phase + i * 2.3);
+      0.12 +
+      (i / Math.max(1, count - 1)) * 0.85 +
+      0.03 * Math.sin(phase + i * 2.3);
     const [x, y] = vineXY(vine, t);
     const [ax, ay] = vineXY(vine, Math.max(0, t - 0.03));
     const [bx, by] = vineXY(vine, Math.min(1, t + 0.03));
@@ -698,7 +728,13 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
             rx="2"
             fill={`var(--wall-${side})`}
           />
-          <rect x="-31.5" y="-8" width="63" height="26.5" fill="var(--floor-dark)" />
+          <rect
+            x="-31.5"
+            y="-8"
+            width="63"
+            height="26.5"
+            fill="var(--floor-dark)"
+          />
           <rect
             x="-31.5"
             y="-91.5"
@@ -993,13 +1029,7 @@ export function Walls({
         </clipPath>
         {/* A generous region: the default -10%/120% box crops the blur off
             shadows this flat. */}
-        <filter
-          id="sill-shadow"
-          x="-20%"
-          y="-40%"
-          width="140%"
-          height="180%"
-        >
+        <filter id="sill-shadow" x="-20%" y="-40%" width="140%" height="180%">
           <feGaussianBlur stdDeviation="1.7" />
         </filter>
         <mask id="moon-crescent">
@@ -1857,7 +1887,6 @@ export function Walls({
           opacity="0.25"
         />
       </g>
-
     </svg>
   );
 }

@@ -21,7 +21,9 @@ test("every species is drawn and has at least one coat", () => {
 
 test("the default pet is a coat the cat actually has", () => {
   expect(PET_SPECIES).toContain(DEFAULT_ROOM_PET.species);
-  expect(PET_PALETTES[DEFAULT_ROOM_PET.species][DEFAULT_ROOM_PET.coat]).toBeDefined();
+  expect(
+    PET_PALETTES[DEFAULT_ROOM_PET.species][DEFAULT_ROOM_PET.coat],
+  ).toBeDefined();
 });
 
 test("a stored coat index picks that coat", () => {

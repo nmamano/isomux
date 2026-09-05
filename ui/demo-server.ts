@@ -382,9 +382,7 @@ function seedOffice() {
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
-      subscriptionUsage: backend.subscription
-        ? demoSubscriptionUsage()
-        : null,
+      subscriptionUsage: backend.subscription ? demoSubscriptionUsage() : null,
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
     });
   }
@@ -1836,7 +1834,8 @@ export async function demoApi(
         effort: b.effort,
         agentType: b.agentType,
         codexSandbox: b.codexSandbox,
-        capabilities: DEMO_BACKEND_DEFAULTS[b.agentType ?? "claude"].capabilities,
+        capabilities:
+          DEMO_BACKEND_DEFAULTS[b.agentType ?? "claude"].capabilities,
         username: "Ricky",
       });
       if (!result) {

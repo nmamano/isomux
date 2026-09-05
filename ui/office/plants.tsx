@@ -199,10 +199,7 @@ const CORNER_STEMS: ArchStem[] = [
   [1.2, 3.5, 36, 6, 2.7],
   [2.8, 8.5, 28, 5, 5.5],
 ];
-function archStemXY(
-  stem: ArchStem,
-  t: number,
-): [number, number] {
+function archStemXY(stem: ArchStem, t: number): [number, number] {
   const [x0, reach, height, , phase] = stem;
   return [
     x0 + reach * t * t + 0.7 * t * Math.sin(phase + t * 2.8),
@@ -433,10 +430,7 @@ function SakuraBloom({
   const s = size;
   const petal = `M0 0 C${-0.44 * s} ${-0.16 * s} ${-0.56 * s} ${-0.62 * s} ${-0.3 * s} ${-0.93 * s} C${-0.17 * s} ${-1.06 * s} ${-0.06 * s} ${-1} 0 ${-0.86 * s} C${0.06 * s} ${-1} ${0.17 * s} ${-1.06 * s} ${0.3 * s} ${-0.93 * s} C${0.56 * s} ${-0.62 * s} ${0.44 * s} ${-0.16 * s} 0 0 Z`;
   return (
-    <g
-      transform={`translate(${x} ${y}) rotate(${rot})`}
-      aria-hidden="true"
-    >
+    <g transform={`translate(${x} ${y}) rotate(${rot})`} aria-hidden="true">
       {[0, 1, 2, 3, 4].map((i) => (
         <path
           key={i}
@@ -526,7 +520,11 @@ export function BlossomJar() {
           reads as passing behind the jar rather than standing in it. The
           front faces further down are translucent enough that this shows
           through, which is what puts the stems between two panes of glass. */}
-      <path d="M-5.4 -15.5 A5.4 2.7 0 0 1 5.4 -15.5 Q7 -13 6 -3 Q0 0.4 -6 -3 Q-7 -13 -5.4 -15.5 Z" fill="#6E9BAE" opacity="0.5" />
+      <path
+        d="M-5.4 -15.5 A5.4 2.7 0 0 1 5.4 -15.5 Q7 -13 6 -3 Q0 0.4 -6 -3 Q-7 -13 -5.4 -15.5 Z"
+        fill="#6E9BAE"
+        opacity="0.5"
+      />
       <path
         d="M-6 -7.4 Q0 -3.6 6 -7.4 Q6.4 -4.6 6 -3 Q0 0.4 -6 -3 Q-6.4 -4.6 -6 -7.4 Z"
         fill="#54879E"

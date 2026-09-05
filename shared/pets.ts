@@ -27,50 +27,160 @@ export interface PetPalette {
 
 export const CAT_PALETTES: PetPalette[] = [
   // orange tabby
-  { coat: "#E8A050", mark: "#C08030", inner: "#D08040", nose: "#D08080", line: "#333333" },
+  {
+    coat: "#E8A050",
+    mark: "#C08030",
+    inner: "#D08040",
+    nose: "#D08080",
+    line: "#333333",
+  },
   // silver
-  { coat: "#A0A0A8", mark: "#707078", inner: "#909098", nose: "#C09090", line: "#333333" },
+  {
+    coat: "#A0A0A8",
+    mark: "#707078",
+    inner: "#909098",
+    nose: "#C09090",
+    line: "#333333",
+  },
   // black
-  { coat: "#3A3A3A", mark: "#222222", inner: "#4A4A4A", nose: "#A07070", line: "#C8C8C8" },
+  {
+    coat: "#3A3A3A",
+    mark: "#222222",
+    inner: "#4A4A4A",
+    nose: "#A07070",
+    line: "#C8C8C8",
+  },
   // white
-  { coat: "#E8E0D8", mark: "#C0B8B0", inner: "#DCC8C0", nose: "#D0A0A0", line: "#333333" },
+  {
+    coat: "#E8E0D8",
+    mark: "#C0B8B0",
+    inner: "#DCC8C0",
+    nose: "#D0A0A0",
+    line: "#333333",
+  },
   // ginger
-  { coat: "#D07030", mark: "#A05020", inner: "#C06030", nose: "#C07060", line: "#333333" },
+  {
+    coat: "#D07030",
+    mark: "#A05020",
+    inner: "#C06030",
+    nose: "#C07060",
+    line: "#333333",
+  },
   // siamese
-  { coat: "#E0D8C8", mark: "#8B7060", inner: "#C0A890", nose: "#C08888", line: "#333333" },
+  {
+    coat: "#E0D8C8",
+    mark: "#8B7060",
+    inner: "#C0A890",
+    nose: "#C08888",
+    line: "#333333",
+  },
 ];
 
 export const DOG_PALETTES: PetPalette[] = [
   // golden retriever
-  { coat: "#E0B070", mark: "#C08F4E", inner: "#EFCE9C", nose: "#3A3028", line: "#333333" },
+  {
+    coat: "#E0B070",
+    mark: "#C08F4E",
+    inner: "#EFCE9C",
+    nose: "#3A3028",
+    line: "#333333",
+  },
   // chocolate
-  { coat: "#7A5238", mark: "#5A3A26", inner: "#9A7052", nose: "#2E2620", line: "#EFE4D8" , tongue: true },
+  {
+    coat: "#7A5238",
+    mark: "#5A3A26",
+    inner: "#9A7052",
+    nose: "#2E2620",
+    line: "#EFE4D8",
+    tongue: true,
+  },
   // black and tan
-  { coat: "#3C3630", mark: "#26221E", inner: "#8A6A44", nose: "#1E1A16", line: "#D8D0C4" , tongue: true },
+  {
+    coat: "#3C3630",
+    mark: "#26221E",
+    inner: "#8A6A44",
+    nose: "#1E1A16",
+    line: "#D8D0C4",
+    tongue: true,
+  },
   // grey husky
-  { coat: "#A8A8AE", mark: "#6E6E76", inner: "#E4E0DA", nose: "#2E2E34", line: "#333333" },
+  {
+    coat: "#A8A8AE",
+    mark: "#6E6E76",
+    inner: "#E4E0DA",
+    nose: "#2E2E34",
+    line: "#333333",
+  },
   // cream
-  { coat: "#EFE2CC", mark: "#CDBB9C", inner: "#FAF3E6", nose: "#4A3E32", line: "#333333" },
+  {
+    coat: "#EFE2CC",
+    mark: "#CDBB9C",
+    inner: "#FAF3E6",
+    nose: "#4A3E32",
+    line: "#333333",
+  },
 ];
 
 export const RABBIT_PALETTES: PetPalette[] = [
   // dutch grey
-  { coat: "#B4AEA6", mark: "#8A857E", inner: "#EAC4C4", nose: "#C08C8C", line: "#333333" },
+  {
+    coat: "#B4AEA6",
+    mark: "#8A857E",
+    inner: "#EAC4C4",
+    nose: "#C08C8C",
+    line: "#333333",
+  },
   // chestnut
-  { coat: "#9E7048", mark: "#7A5232", inner: "#E0B0A4", nose: "#B47C74", line: "#333333" },
+  {
+    coat: "#9E7048",
+    mark: "#7A5232",
+    inner: "#E0B0A4",
+    nose: "#B47C74",
+    line: "#333333",
+  },
   // cream lop
-  { coat: "#EDDFC6", mark: "#CCB893", inner: "#F0C0BC", nose: "#C08C88", line: "#333333" },
+  {
+    coat: "#EDDFC6",
+    mark: "#CCB893",
+    inner: "#F0C0BC",
+    nose: "#C08C88",
+    line: "#333333",
+  },
   // blue
-  { coat: "#8E96A2", mark: "#6A727E", inner: "#DCB6B6", nose: "#B08484", line: "#333333" },
+  {
+    coat: "#8E96A2",
+    mark: "#6A727E",
+    inner: "#DCB6B6",
+    nose: "#B08484",
+    line: "#333333",
+  },
 ];
 
 export const TORTOISE_PALETTES: PetPalette[] = [
   // olive
-  { coat: "#7C8A4A", mark: "#5A6634", inner: "#B6B27C", nose: "#4A4632", line: "#2E2A20" },
+  {
+    coat: "#7C8A4A",
+    mark: "#5A6634",
+    inner: "#B6B27C",
+    nose: "#4A4632",
+    line: "#2E2A20",
+  },
   // horsfield brown
-  { coat: "#9A7A46", mark: "#6E5630", inner: "#C4A874", nose: "#54462C", line: "#2E2A20" },
+  {
+    coat: "#9A7A46",
+    mark: "#6E5630",
+    inner: "#C4A874",
+    nose: "#54462C",
+    line: "#2E2A20",
+  },
   // amber - the old sandy shell vanished against its own sand box
-  { coat: "#C8934A", mark: "#96682C", inner: "#E3C48E", nose: "#6A5838", line: "#2E2A20" },
+  {
+    coat: "#C8934A",
+    mark: "#96682C",
+    inner: "#E3C48E",
+    nose: "#6A5838",
+    line: "#2E2A20",
+  },
 ];
 
 export const PET_SPECIES = ["cat", "dog", "rabbit", "tortoise"] as const;

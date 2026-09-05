@@ -109,7 +109,12 @@ function StringLights() {
       for (const t of [0.25, 0.5, 0.75]) {
         const [x, y] = point(p0, c, p1, t);
         const i2 = bulbs.length;
-        bulbs.push({ x, y, color: BULB_COLORS[i2 % BULB_COLORS.length], i: i2 });
+        bulbs.push({
+          x,
+          y,
+          color: BULB_COLORS[i2 % BULB_COLORS.length],
+          i: i2,
+        });
       }
     }
   });

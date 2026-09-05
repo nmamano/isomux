@@ -95,7 +95,6 @@ function makeClickHandler(
   };
 }
 
-
 // ---------------------------------------------------------------------
 // Movement trail
 // ---------------------------------------------------------------------
@@ -143,12 +142,69 @@ interface TrailMark {
 }
 
 const TRAIL_MARKS: TrailMark[] = [
-  { kind: "puff", back: 0.3, peak: 0.3, from: 0.35, to: 1.1, delayMs: 0, width: 0.66 },
-  { kind: "puff", back: 0.58, peak: 0.23, from: 0.35, to: 1.3, delayMs: 55, width: 0.8 },
-  { kind: "puff", back: 0.88, peak: 0.15, from: 0.35, to: 1.5, delayMs: 110, width: 0.95 },
-  { kind: "spark", back: 0.24, peak: 0.85, from: 0.35, to: 0.5, mid: 1.15, delayMs: 30, width: 0.3, side: 8, lift: -13 },
-  { kind: "spark", back: 0.52, peak: 0.7, from: 0.35, to: 0.5, mid: 1.1, delayMs: 95, width: 0.24, side: -10, lift: -4 },
-  { kind: "spark", back: 0.8, peak: 0.55, from: 0.35, to: 0.5, mid: 1.05, delayMs: 160, width: 0.19, side: 5, lift: -20 },
+  {
+    kind: "puff",
+    back: 0.3,
+    peak: 0.3,
+    from: 0.35,
+    to: 1.1,
+    delayMs: 0,
+    width: 0.66,
+  },
+  {
+    kind: "puff",
+    back: 0.58,
+    peak: 0.23,
+    from: 0.35,
+    to: 1.3,
+    delayMs: 55,
+    width: 0.8,
+  },
+  {
+    kind: "puff",
+    back: 0.88,
+    peak: 0.15,
+    from: 0.35,
+    to: 1.5,
+    delayMs: 110,
+    width: 0.95,
+  },
+  {
+    kind: "spark",
+    back: 0.24,
+    peak: 0.85,
+    from: 0.35,
+    to: 0.5,
+    mid: 1.15,
+    delayMs: 30,
+    width: 0.3,
+    side: 8,
+    lift: -13,
+  },
+  {
+    kind: "spark",
+    back: 0.52,
+    peak: 0.7,
+    from: 0.35,
+    to: 0.5,
+    mid: 1.1,
+    delayMs: 95,
+    width: 0.24,
+    side: -10,
+    lift: -4,
+  },
+  {
+    kind: "spark",
+    back: 0.8,
+    peak: 0.55,
+    from: 0.35,
+    to: 0.5,
+    mid: 1.05,
+    delayMs: 160,
+    width: 0.19,
+    side: 5,
+    lift: -20,
+  },
 ];
 
 // A four-point twinkle in a 24x24 box. Warm gold, which stays visible on

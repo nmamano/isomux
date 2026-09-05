@@ -351,44 +351,44 @@ export function DeskSprite({
               fontSize={size}
               textAnchor="middle"
             >
-                {/* Brass plate: shadow, face, lit top lip, two screws */}
-                <rect
-                  x={plateX}
-                  y={plateY + 0.7}
-                  width={plateW}
-                  height={plateH}
-                  rx="1.2"
-                  fill="rgba(0,0,0,0.35)"
-                />
-                <rect
-                  x={plateX}
-                  y={plateY}
-                  width={plateW}
-                  height={plateH}
-                  rx="1.2"
-                  fill="#8A7748"
-                  stroke="#A89158"
-                  strokeWidth="0.3"
-                />
-                <rect
-                  x={plateX + 0.6}
-                  y={plateY + 0.45}
-                  width={plateW - 1.2}
-                  height="0.7"
-                  rx="0.35"
-                  fill="#C8B078"
-                  opacity="0.7"
-                />
-                <circle cx={plateX + 1.8} cy="0" r="0.55" fill="#5F5029" />
-                <circle
-                  cx={plateX + plateW - 1.8}
-                  cy="0"
-                  r="0.55"
-                  fill="#5F5029"
-                />
-                <text x="0" y={baseline} fill="#2B2312">
-                  {text}
-                </text>
+              {/* Brass plate: shadow, face, lit top lip, two screws */}
+              <rect
+                x={plateX}
+                y={plateY + 0.7}
+                width={plateW}
+                height={plateH}
+                rx="1.2"
+                fill="rgba(0,0,0,0.35)"
+              />
+              <rect
+                x={plateX}
+                y={plateY}
+                width={plateW}
+                height={plateH}
+                rx="1.2"
+                fill="#8A7748"
+                stroke="#A89158"
+                strokeWidth="0.3"
+              />
+              <rect
+                x={plateX + 0.6}
+                y={plateY + 0.45}
+                width={plateW - 1.2}
+                height="0.7"
+                rx="0.35"
+                fill="#C8B078"
+                opacity="0.7"
+              />
+              <circle cx={plateX + 1.8} cy="0" r="0.55" fill="#5F5029" />
+              <circle
+                cx={plateX + plateW - 1.8}
+                cy="0"
+                r="0.55"
+                fill="#5F5029"
+              />
+              <text x="0" y={baseline} fill="#2B2312">
+                {text}
+              </text>
             </g>
           );
         })()}
@@ -658,10 +658,7 @@ export function DeskSprite({
           {/* Body */}
           <ellipse cx="0.4" cy="-2.4" rx="6.4" ry="4.3" fill="#F5C63A" />
           {/* Underside shading - light falls from the desk lamp, west of here */}
-          <path
-            d="M-6 -1.4 Q0.4 4.2 6.7 -1.6 Q3 2 -6 -1.4 Z"
-            fill="#D9A423"
-          />
+          <path d="M-6 -1.4 Q0.4 4.2 6.7 -1.6 Q3 2 -6 -1.4 Z" fill="#D9A423" />
           {/* Wing */}
           <path
             d="M-2.8 -3.4 Q1.2 -6.6 4.2 -3.2 Q0.8 -0.9 -2.8 -3.4 Z"

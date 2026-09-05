@@ -90,7 +90,12 @@ test("a short-but-sufficient container moves the scene instead of shrinking it",
 });
 
 test("the scene never grows above the authored scale", () => {
-  const v = computeRestView(5000, 3000, artBounds(layoutBox(5000, 3000)), false);
+  const v = computeRestView(
+    5000,
+    3000,
+    artBounds(layoutBox(5000, 3000)),
+    false,
+  );
   expect(v).toEqual({ x: 0, y: 0, scale: 1 });
 });
 
