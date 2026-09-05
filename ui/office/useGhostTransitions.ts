@@ -242,6 +242,11 @@ export function useGhostTransitions(
       let rightUses = 0;
 
       for (const p of presences) {
+        // The viewer's own connection is never a ghost here, and its room
+        // change arrives from the server a render after currentRoomId
+        // moved, so without this it would count as a ghost coming in
+        // through the door.
+        if (p.connectionId === ownConnectionId) continue;
         const prevRoomId = prevRoomByCid.get(p.connectionId);
         const currRoomId = p.currentRoomId;
         if (prevRoomId === undefined) continue;
