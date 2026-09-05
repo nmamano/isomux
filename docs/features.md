@@ -38,11 +38,11 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 - **Multi-user real-time collaboration** - multiple authenticated users can chime in to the same conversation simultaneously.
 - **Invite-link access** - the owner mints an invite URL per new user, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link.
-- **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from their user settings.
+- **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
-- **Customizable ghosts** - each user picks a color and one of 8 ghost styles from User Settings.
+- **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
 ## Multi-device
 
@@ -139,7 +139,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Kill** removes agent and frees desk.
 - **Codex approvals** - when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - **Built-in safety checks (Claude, Codex, and OpenCode agents)** - blocks `rm -rf`, `git reset --hard`, killing processes created by others, reading secret-bearing files like `.env`, and recognized commands that open outbound tunnels. These guards are an honest-agent safety layer, not OS isolation.
-- **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide and personal variables in User Settings → Connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
+- **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide variables in Settings → Office → Connections and personal ones in Settings → You → Connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
 - **Personal API tokens** - drive the office from an external tool and drain durable replies from agents while the web UI shows the work and messages live. The raw token is shown once; you can review its approximate last authenticated request and revoke it at any time.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](self-hosted.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
 - **Daily local backups:** Isomux keeps seven daily office backups.

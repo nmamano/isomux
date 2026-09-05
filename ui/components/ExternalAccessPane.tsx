@@ -1,5 +1,5 @@
 // Owner-only "Access" section: where can people reach this office from?
-// Mounts on the User Settings page (UserSettingsView) when the current
+// Mounts on the Settings page (UserSettingsView) when the current
 // session's role is "owner". The other panes from the old all-in-one
 // "Access & invites" section are InvitesPane and SessionsPane.
 //

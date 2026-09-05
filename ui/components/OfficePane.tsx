@@ -11,12 +11,7 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
 } from "./dialog-styles.ts";
-import {
-  ExpandableTextarea,
-  isExpandedEditorOpen,
-} from "./ExpandableTextarea.tsx";
-import { StorageModal } from "./StorageModal.tsx";
-import { UsageModal } from "./UsageModal.tsx";
+import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -24,8 +19,15 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-export function OfficePromptModal({ onClose }: { onClose: () => void }) {
-  const { office, isMobile, sessionContext } = useAppState();
+// Office name, prompt and memory. Storage and Usage used to hang off buttons
+// inside this dialog; they are sibling sidebar rows now, so they are gone from
+// here.
+export function OfficePane({
+  closeRef,
+}: {
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
+  const { office, sessionContext } = useAppState();
   // Members can open this modal but can't edit it. Read-only state grays
   // inputs and hides the Save button; the server also rejects the save from
   // non-owner sessions (office.setSettings is gated by the officeOwner guard).
@@ -47,10 +49,17 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // over. Until the load resolves the fields are read-only and Save stays
   // disabled; the store values paint first purely as placeholders.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
-  const [storageOpen, setStorageOpen] = useState(false);
-  const [usageOpen, setUsageOpen] = useState(false);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  // What the fields held when they last agreed with the server. Dirtiness is
+  // measured against THIS, not the store snapshot: the prompt and name hydrate
+  // from the version-guarded GET and can legitimately differ from the store's
+  // copy, so comparing against the store makes an untouched pane look dirty.
+  // A read-only member never loads, so settingsLoaded gates the whole thing
+  // and their pane can never be dirty.
+  const [baselineName, setBaselineName] = useState("");
+  const [baselinePrompt, setBaselinePrompt] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
 
@@ -62,6 +71,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         if (cancelled) return;
         setText(r.prompt ?? "");
         setName(r.name ?? "");
+        setBaselinePrompt(r.prompt ?? "");
+        setBaselineName(r.name ?? "");
         setSettingsVersion(r.version);
       })
       .catch(() => {
@@ -77,7 +88,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     // The office settings PUT and the memory REPLACE are separate calls: memory
     // rides the permissive /api/memory surface, not the owner-only settings
     // endpoint. Either failing surfaces server.message in the shared status slot
-    // and keeps the dialog open; a memory conflict (409) asks the user to reopen.
+    // and keeps the reader on the pane; a memory conflict (409) says so.
     if (settingsVersion == null) return;
     setSaving(true);
     const body: OfficeSettingsReq = {
@@ -87,18 +98,46 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     };
     try {
       await apiFetch<void>("PUT", "/api/office/settings", body);
+      // The PUT SPENT the token, so refresh it here - before anything that can
+      // fail and return, or a memory conflict would leave the token spent and
+      // the next Save would blame a phantom concurrent writer. Its own
+      // try/catch, because a failed re-read is not a failed save. The fields
+      // are set from the response too, so a value the server normalized (an
+      // all-whitespace prompt stored as null) cannot leave the field and the
+      // baseline disagreeing.
+      try {
+        const next = await apiFetch<OfficeSettingsRes>(
+          "GET",
+          "/api/office/settings",
+        );
+        setText(next.prompt ?? "");
+        setName(next.name ?? "");
+        setBaselinePrompt(next.prompt ?? "");
+        setBaselineName(next.name ?? "");
+        setSettingsVersion(next.version);
+      } catch {
+        // No safe token to write with: null disables Save rather than leaving
+        // it unsafe, matching the failed-hydration path above. The save that
+        // already landed still counts.
+        setSettingsVersion(null);
+        setStatus({
+          kind: "error",
+          message:
+            "Saved, but this page could not reload the office. Select another row and come back to keep editing.",
+        });
+      }
+      setSavedAt(Date.now());
       const m = await mem.save();
       if (!m.ok) {
         setStatus({ kind: "error", message: m.message });
         return;
       }
-      onClose();
     } catch (e) {
       if (e instanceof ApiError && e.code === "version_conflict") {
         setStatus({
           kind: "error",
           message:
-            "Office settings changed since you opened this - reopen the dialog to edit the latest.",
+            "Office settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
         });
       } else {
         setStatus({
@@ -122,64 +161,30 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     }
   }, [readOnly]);
 
-  // ESC to close. Stands down entirely while the storage panel is up (both
-  // listeners sit on `window` in the capture phase, and stopPropagation does
-  // not stop a sibling listener on the SAME target - without the storageOpen
-  // guard one Escape would close the storage panel and this dialog together),
-  // and stands down while an expanded editor is open, which collapses instead
-  // (this capture listener runs before the overlay's own).
+  // Mirror the unsaved-changes guard into the page's ref every render, so the
+  // captured closure sees fresh field state - the no-deps pattern
+  // UserEditPanel, DevicePane and RoomPane use. Name, prompt and memory are
+  // all dirty-capable. A read-only member never loads, so dirty is false for
+  // them and they are never asked about discarding anything.
+  const dirty =
+    (settingsLoaded &&
+      (name !== baselineName || text !== baselinePrompt)) ||
+    mem.dirty;
   useEffect(() => {
-    if (storageOpen || usageOpen) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !isExpandedEditorOpen()) {
-        e.stopPropagation();
-        onClose();
-      }
+    if (closeRef) {
+      closeRef.current = (after?: () => void) => {
+        if (dirty && !confirm("Discard unsaved changes to the office?")) return;
+        after?.();
+      };
     }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose, storageOpen, usageOpen]);
-
-  // Exactly ONE dialog layer is live at a time. The storage panel REPLACES this
-  // one rather than stacking on it: two overlays means two backdrops, two
-  // Escape handlers, and a focus order nobody can predict. This component stays
-  // mounted throughout, so unsaved edits in the fields below survive a trip
-  // through storage and back.
-  if (storageOpen) return <StorageModal onBack={() => setStorageOpen(false)} />;
-  if (usageOpen) return <UsageModal onBack={() => setUsageOpen(false)} />;
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
+  });
 
   return (
-    <div
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 900,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
-        justifyContent: "center",
-        overflowY: "auto",
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
-          padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 440,
-          maxWidth: isMobile ? "100%" : undefined,
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
-          animation: "hudIn 0.2s ease-out",
-        }}
-      >
+    <div style={{ marginTop: 24 }}>
+      <div>
         <h3
           style={{
             fontSize: 17,
@@ -190,6 +195,16 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         >
           Office Settings
         </h3>
+        <p
+          style={{
+            fontSize: 11,
+            color: "var(--text-ghost)",
+            margin: "6px 0 0",
+            lineHeight: 1.4,
+          }}
+        >
+          The framed sign on the office wall opens this page.
+        </p>
         {readOnly && (
           <p
             style={{
@@ -318,68 +333,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           </>
         )}
 
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
-          Usage{" "}
-          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (tokens and estimated cost)
-          </span>
-        </label>
-        <button
-          onClick={() => setUsageOpen(true)}
-          style={{
-            ...cancelBtnStyle,
-            width: "100%",
-            textAlign: "left",
-            padding: "9px 12px",
-          }}
-        >
-          Open usage…
-        </button>
-
-        {/* Storage is owner-only, matching the server: POST /api/storage/prune
-            is gated on officeOwner, and GET /api/storage/usage strips the
-            per-agent detail and every filesystem path for anyone else. A member
-            who opened this dialog read-only never sees the entry point. */}
-        {isOwner && (
-          <>
-            <label
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 14,
-                marginBottom: 5,
-              }}
-            >
-              Storage{" "}
-              <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                (disk usage; delete old files)
-              </span>
-            </label>
-            <button
-              onClick={() => setStorageOpen(true)}
-              style={{
-                ...cancelBtnStyle,
-                width: "100%",
-                textAlign: "left",
-                padding: "9px 12px",
-              }}
-            >
-              Open storage…
-            </button>
-          </>
-        )}
-
         <ValidationLine status={status} />
         <div
           style={{
@@ -389,17 +342,28 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             marginTop: 20,
           }}
         >
-          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
-            {readOnly ? "Close" : "Cancel"}
-          </button>
           {!readOnly && (
-            <button
-              onClick={() => void handleSave()}
-              style={saveBtnStyle}
-              disabled={saving || settingsVersion == null}
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  setName(baselineName);
+                  setText(baselinePrompt);
+                  mem.reset();
+                  setStatus({ kind: "idle" });
+                }}
+                style={cancelBtnStyle}
+                disabled={saving || !dirty}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSave()}
+                style={saveBtnStyle}
+                disabled={saving || settingsVersion == null}
+              >
+                {saving ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
+              </button>
+            </>
           )}
         </div>
       </div>

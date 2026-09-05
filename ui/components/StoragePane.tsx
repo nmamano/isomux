@@ -78,11 +78,18 @@ type Phase =
   | { kind: "applying"; plan: PrunePlanWire }
   | { kind: "done"; result: PruneResultWire };
 
-// `onBack` returns to Office Settings, which is the only thing that renders
+// `closeRef` is how the page asks before navigating away. A running prune is
+// the one state worth blocking on: leaving does not stop it, and it throws
+// away the only report of what was deleted. It replaces the old `onBack`,
+// which returned to Office Settings, the only thing that rendered
 // this panel and which stays mounted (with its unsaved edits) while we are up.
 // There is no separate "close": one dialog layer at a time, so leaving here
 // means going back there.
-export function StorageModal({ onBack }: { onBack: () => void }) {
+export function StoragePane({
+  closeRef,
+}: {
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
   const { isMobile } = useAppState();
   const [usage, setUsage] = useState<StorageUsageWire | null>(null);
   // null = still loading, "unavailable" = the probe failed. Both are distinct
@@ -127,23 +134,6 @@ export function StorageModal({ onBack }: { onBack: () => void }) {
       .then((b) => setBackup(b))
       .catch(() => setBackup("unavailable"));
   }, [loadUsage]);
-
-  // ESC goes back to Office Settings. Safe to register at capture: Office
-  // Settings stands its own Escape listener down while we are mounted, so this
-  // is the only one live. It still swallows the key while a delete is running,
-  // rather than going unregistered - otherwise Escape would fall through to
-  // whatever is behind and close that instead.
-  const deletingRef = phase.kind === "applying";
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        if (!deletingRef) onBack();
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onBack, deletingRef]);
 
   // Any change to what would be deleted invalidates the preview. Without this
   // you could preview a 90-day prune, retype it to 2 days, and press a delete
@@ -241,31 +231,34 @@ export function StorageModal({ onBack }: { onBack: () => void }) {
   // described.
   const busy = phase.kind === "previewing" || phase.kind === "applying";
   // Once the DELETE has been sent there is nothing left to cancel - the server
-  // is already unlinking. Leaving Escape, the backdrop, or Back live would let
-  // someone dismiss the panel and reasonably believe they had stopped it, while
-  // also throwing away the only receipt they will ever get.
+  // is already unlinking. Letting someone navigate away silently would let them
+  // reasonably believe they had stopped it, while also throwing away the only
+  // receipt they will ever get.
   const deleting = phase.kind === "applying";
-  const leave = () => {
-    if (!deleting) onBack();
-  };
+  // As a pane there is no Escape or backdrop to hold shut, so the guard moves
+  // into the page's unsaved-changes ref. Mirrored every render (the no-deps
+  // pattern the other panes use) so the closure sees the live phase.
+  useEffect(() => {
+    if (closeRef) {
+      closeRef.current = (after?: () => void) => {
+        if (
+          deleting &&
+          !confirm(
+            "A cleanup is still running. If you leave now you lose the only report of what it deleted. Leave anyway?",
+          )
+        ) {
+          return;
+        }
+        after?.();
+      };
+    }
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
+  });
 
   return (
-    <div
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) leave();
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 950,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
-        justifyContent: "center",
-        overflowY: "auto",
-      }}
-    >
+    <div style={{ marginTop: 24 }}>
       <div
         style={{
           background: "var(--bg-overlay)",
@@ -423,29 +416,6 @@ export function StorageModal({ onBack }: { onBack: () => void }) {
           {phase.kind === "done" && <ResultBlock result={phase.result} />}
         </div>
 
-        {/* Outside the scroll region: the way out of a destructive panel should
-            not be something you have to scroll to find. */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            padding: "16px 28px",
-            borderTop: "1px solid var(--border)",
-            flexShrink: 0,
-          }}
-        >
-          <button
-            onClick={leave}
-            disabled={deleting}
-            style={{
-              ...dialogCancelBtn,
-              opacity: deleting ? 0.5 : 1,
-              cursor: deleting ? "not-allowed" : "pointer",
-            }}
-          >
-            {deleting ? "Deleting…" : "Back to settings"}
-          </button>
-        </div>
       </div>
     </div>
   );

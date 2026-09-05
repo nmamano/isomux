@@ -13,7 +13,7 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 ## Message an agent from another device
 
-In **User Settings → API tokens**, create a named token with a 30-day expiry, a 365-day expiry, or no expiry. Copy the raw token when it appears; Isomux does not show it again. Set your office URL and paste the token into your shell:
+In **Settings → You → API tokens**, create a named token with a 30-day expiry, a 365-day expiry, or no expiry. Copy the raw token when it appears; Isomux does not show it again. Set your office URL and paste the token into your shell:
 
 ```bash
 OFFICE_URL="https://office.example.com"

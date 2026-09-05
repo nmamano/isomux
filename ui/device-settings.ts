@@ -4,7 +4,7 @@
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
 // preferences (notif rooms, managed variables, language) live
 // server-side on the user record - see server/users.ts - and are edited from
-// User Settings, so they follow a boss across devices. What stays here is what
+// the Settings page, so they follow a boss across devices. What stays here is what
 // is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
@@ -130,7 +130,7 @@ export function readLegacyUserPrefs(): {
         notifRooms = parsed;
       }
       // Legacy "all" sentinel collapses to []; the user can re-enable
-      // notifications per-room through User Settings if they want.
+      // notifications per-room through the Settings page if they want.
     } catch {}
   }
   return { notifRooms };

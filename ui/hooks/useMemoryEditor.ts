@@ -20,6 +20,8 @@ export interface MemoryEditor {
   setMemory: (v: string) => void;
   loaded: boolean;
   dirty: boolean;
+  // Revert unsaved edits back to the loaded baseline.
+  reset: () => void;
   size: number;
   cap: number | null;
   // Save the current text if loaded + dirty; a no-op success otherwise. On a 409
@@ -116,5 +118,9 @@ export function useMemoryEditor(
     size: injectedMemorySize(memory),
     cap,
     save,
+    // Throw away unsaved edits and go back to what the last load or save
+    // returned. Panes need this because their Cancel button reverts in place
+    // rather than closing a dialog.
+    reset: () => setMemory(baseline),
   };
 }

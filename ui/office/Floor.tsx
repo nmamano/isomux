@@ -918,7 +918,11 @@ export function Walls({
   taskCount = 0,
 }: {
   onToggleTheme?: () => void;
-  onWallPanelClick?: (x: number, y: number) => void;
+  // The plaque. It took click coordinates when it opened a popup at the
+  // pointer; it opens the settings page now, so it takes none. Absent in embed,
+  // where the page it would open has no way back - and the style is gated on it
+  // so the plaque does not offer a pointer cursor for a click that does nothing.
+  onWallPanelClick?: () => void;
   hasOfficePrompt?: boolean;
   onOpenTasks?: () => void;
   onOpenCronjobs?: () => void;
@@ -1440,8 +1444,12 @@ export function Walls({
       <g
         data-no-pan
         transform="translate(50, -75) skewY(-27)"
-        onClick={(e) => onWallPanelClick?.(e.clientX, e.clientY)}
-        style={{ cursor: "pointer", pointerEvents: "auto" }}
+        onClick={onWallPanelClick}
+        style={
+          onWallPanelClick
+            ? { cursor: "pointer", pointerEvents: "auto" }
+            : undefined
+        }
       >
         {/* Outer frame - dark wood/brass */}
         <rect

@@ -264,3 +264,25 @@ export const AppsIcon = (
     <circle cx="6.4" cy="4.25" r="0.55" fill="currentColor" stroke="none" />
   </svg>
 );
+
+// The single settings entry point. Sliders, not a gear: Nil kept the Theme
+// button in the bar, and a gear's ring-and-spokes reads as the sun/moon theme
+// icon at 15px - the two sat side by side and looked like the same control.
+export const SettingsIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <line x1="2" y1="4.5" x2="14" y2="4.5" />
+    <line x1="2" y1="11.5" x2="14" y2="11.5" />
+    <circle cx="6" cy="4.5" r="1.8" fill="var(--btn-surface)" />
+    <circle cx="10.5" cy="11.5" r="1.8" fill="var(--btn-surface)" />
+  </svg>
+);

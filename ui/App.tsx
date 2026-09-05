@@ -13,14 +13,13 @@ import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
-import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
-import { RoomSettingsModal } from "./components/RoomSettingsModal.tsx";
-import { DeviceSettingsModal } from "./components/DeviceSettingsModal.tsx";
-import { UserSettingsView } from "./components/UserSettingsView.tsx";
+import {
+  UserSettingsView,
+  type Selection as SettingsTarget,
+} from "./components/UserSettingsView.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
-import { UpdateModal } from "./components/UpdateModal.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
@@ -93,8 +92,7 @@ export function App() {
   // derives message attribution from the session identity (the send/edit routes
   // no longer carry a username), so the value itself is no longer read in the UI.
   const [, setUsername] = useState<string | null>(() => getUsername());
-  const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
-  // Full-page User Settings (like tasks/cronjobs): part of the main view
+  // Full-page Settings (like tasks/cronjobs): part of the main view
   // switch, closed via goHome/popstate.
   const [usersOpen, setUsersOpen] = useState(false);
   // Live-avatars: when a ghost is clicked, the user-settings page opens
@@ -103,14 +101,15 @@ export function App() {
   // subsequent generic open (UserIcon button) lands on the current user
   // the usual way.
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
-  const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
-  const [editingRoomSettings, setEditingRoomSettings] = useState<string | null>(
+  // Which settings row to open on. Every door that used to open its own
+  // dialog - the bar's Device, Theme and Room buttons, a room tab, the update
+  // pill - now names a row instead, and the page opens there.
+  const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(
     null,
   );
   const [tasksOpen, setTasksOpen] = useState(false);
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
-  const [updateOpen, setUpdateOpen] = useState(false);
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The
@@ -166,7 +165,10 @@ export function App() {
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
     else if (saved.panel === "apps") setAppsOpen(true);
-    else if (saved.panel === "users") setUsersOpen(true);
+    // "users" is the old name for the same page; a spot saved by an earlier
+    // build still reopens it.
+    else if (saved.panel === "settings" || saved.panel === "users")
+      setUsersOpen(true);
   }, [
     persistEnabled,
     restored,
@@ -184,7 +186,7 @@ export function App() {
       roomId: currentRoomId,
       agentId: focusedAgentId,
       panel: usersOpen
-        ? "users"
+        ? "settings"
         : tasksOpen
           ? "tasks"
           : cronjobsOpen
@@ -316,13 +318,8 @@ export function App() {
   // position registered without waiting for user input). The server
   // dedupes on its end so identical updates don't cascade into a
   // broadcast.
-  const anyModalOpen =
-    editingDeviceSettings ||
-    editingOfficePrompt ||
-    editingRoomSettings !== null ||
-    updateOpen;
   const viewMode: "office" | "log" | "away" =
-    tasksOpen || cronjobsOpen || appsOpen || usersOpen || anyModalOpen
+    tasksOpen || cronjobsOpen || appsOpen || usersOpen
       ? "away"
       : focusedAgentId
         ? "log"
@@ -359,6 +356,14 @@ export function App() {
   // popstate handler does the actual cleanup.
   const deepRef = useRef(false);
 
+  // Open the settings page, optionally on a named row. Passing null is the
+  // generic open (the bar's User button), which must CLEAR any section left
+  // over from a previous visit rather than reopening it.
+  const openSettings = useCallback((target: SettingsTarget | null) => {
+    setSettingsTarget(target);
+    setUsersOpen(true);
+  }, []);
+
   const goHome = useCallback(() => {
     if (deepRef.current) {
       window.history.back(); // popstate handler will reset state
@@ -369,6 +374,7 @@ export function App() {
       setAppsOpen(false);
       setUsersOpen(false);
       setEditingUserId(null);
+      setSettingsTarget(null);
       dispatch({ type: "focus", agentId: null });
     }
   }, [dispatch]);
@@ -406,7 +412,7 @@ export function App() {
       }
       // "t": toggle the task board from anywhere (office view or while viewing an
       // agent), as long as you're not typing into a field. Disabled while the
-      // User Settings page is open - jumping away from it would bypass its
+      // Settings page is open - jumping away from it would bypass its
       // unsaved-edits check.
       if (
         !isInput &&
@@ -547,6 +553,7 @@ export function App() {
       setAppsOpen(false);
       setUsersOpen(false);
       setEditingUserId(null);
+      setSettingsTarget(null);
       dispatch({ type: "focus", agentId: null });
     }
     window.addEventListener("popstate", handlePopState);
@@ -557,12 +564,10 @@ export function App() {
     <>
       <style>{CSS}</style>
       <ConnectionBanner />
-      {editingDeviceSettings && (
-        <DeviceSettingsModal onClose={() => setEditingDeviceSettings(false)} />
-      )}
       {usersOpen ? (
         <UserSettingsView
           initialUserId={editingUserId}
+          initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
           onClose={goHome}
         />
@@ -600,17 +605,17 @@ export function App() {
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnPickerDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          onOpenUserSettings={() => setUsersOpen(true)}
-          onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
-          onEditOfficePrompt={() => setEditingOfficePrompt(true)}
-          onEditRoomSettings={() => {
-            const rid = currentRoomId;
-            if (rid) setEditingRoomSettings(rid);
-          }}
+          onOpenSettings={() => openSettings(null)}
+          onEditRoomSettings={(roomId) => openSettings({ kind: "room", roomId })}
+          onOpenThemePicker={() =>
+            openSettings({ kind: "section", section: "theme" })
+          }
           onOpenTasks={() => setTasksOpen(true)}
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
-          onOpenUpdate={() => setUpdateOpen(true)}
+          onOpenUpdate={() =>
+            openSettings({ kind: "section", section: "updates" })
+          }
           onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
@@ -619,21 +624,24 @@ export function App() {
         <OfficeView
           onSpawn={(desk) => setSpawnPickerDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          onOpenUserSettings={() => setUsersOpen(true)}
+          onOpenSettings={() => openSettings(null)}
           onOpenUserSettingsForUser={(userId) => {
             setEditingUserId(userId);
-            setUsersOpen(true);
+            openSettings(null);
           }}
-          onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
-          onEditOfficePrompt={() => setEditingOfficePrompt(true)}
-          onEditRoomSettings={() => {
-            const rid = currentRoomId;
-            if (rid) setEditingRoomSettings(rid);
-          }}
+          onEditOfficePrompt={() =>
+            openSettings({ kind: "section", section: "office" })
+          }
+          onEditRoomSettings={(roomId) => openSettings({ kind: "room", roomId })}
+          onOpenThemePicker={() =>
+            openSettings({ kind: "section", section: "theme" })
+          }
           onOpenTasks={() => setTasksOpen(true)}
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
-          onOpenUpdate={() => setUpdateOpen(true)}
+          onOpenUpdate={() =>
+            openSettings({ kind: "section", section: "updates" })
+          }
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
           viewportControlsRef={viewportControlsRef}
@@ -663,16 +671,6 @@ export function App() {
       {editAgent && (
         <EditAgentDialog agent={editAgent} onClose={() => setEditAgent(null)} />
       )}
-      {editingOfficePrompt && (
-        <OfficePromptModal onClose={() => setEditingOfficePrompt(false)} />
-      )}
-      {editingRoomSettings && (
-        <RoomSettingsModal
-          roomId={editingRoomSettings}
-          onClose={() => setEditingRoomSettings(null)}
-        />
-      )}
-      {updateOpen && <UpdateModal onClose={() => setUpdateOpen(false)} />}
     </>
   );
 }

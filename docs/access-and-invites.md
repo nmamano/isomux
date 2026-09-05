@@ -39,9 +39,9 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 ### 2. Inviting members
 
-Once you're the owner, open `User Settings` → `Invites` section:
+Once you're the owner, open `Settings` → `Office` → `Invites`:
 
-- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
+- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
@@ -57,7 +57,7 @@ Invites create new users only. Typing a name that already exists shows a pointer
 
 ### 4. Device links
 
-Every user adds more of their own devices without involving anyone else. In `User Settings`, the `My devices` pane (the only account section for members; owners have it alongside `Access` / `Invites` / `Sessions`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+Every user adds more of their own devices without involving anyone else. In `Settings` → `You`, the `Sign-in links` pane (owners also have `Access` / `Invites` / `Sessions` under `Office`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
 
 Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
 
@@ -65,7 +65,7 @@ The `My devices` pane also lists your own outstanding device links and active se
 
 ### 5. Sign out
 
-`User Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same user stay signed in.
+`Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same user stay signed in.
 
 ## Reachability
 
@@ -73,7 +73,7 @@ Auth gates who can use the office once they reach it. Getting the box itself rea
 
 ## External access and public origin
 
-Post-claim, the **Access pane** in User Settings has an _External access_ section with:
+Post-claim, the **Access pane** under `Settings` → `Office` has an _External access_ section with:
 
 - **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
 - **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://my-mac-mini.<your-tailnet>.ts.net`).
@@ -129,14 +129,14 @@ explicitly) rather than relying on session expiry.
 
 ## Use your own provider account
 
-In User Settings → Connections, choose whether the account is for every agent
+In Settings → Office → Connections (for every agent) or Settings → You → Connections (for your own), choose whether the account is for every agent
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 
-Add provider API keys under User Settings → Connections:
+Add provider API keys under Settings → You → Connections:
 
 ```text
 ANTHROPIC_API_KEY=sk-ant-...
@@ -186,7 +186,7 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 
 ## Personal API tokens
 
-A signed-in user can create a named personal API token in **User Settings → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+A signed-in user can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
 Personal tokens have a separate API identity scope. They carry the issuing user's curated operational reach across agents, rooms, tasks, apps, logs, cron jobs, editor and file actions, memory, and office reads. They can list live and killed agents, drive agents, and drain replies that agents send to the token's durable inbox. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 

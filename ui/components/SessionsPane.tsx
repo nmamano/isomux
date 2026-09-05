@@ -1,5 +1,5 @@
 // Owner-only "Sessions" section: every signed-in device across the office,
-// with revoke controls. Mounts on the User Settings page (UserSettingsView)
+// with revoke controls. Mounts on the Settings page (UserSettingsView)
 // when the current session's role is "owner". The other panes from the old
 // all-in-one "Access & invites" section are ExternalAccessPane and InvitesPane.
 

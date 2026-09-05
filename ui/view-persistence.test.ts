@@ -266,3 +266,67 @@ describe("drafts: per-composer owner-namespaced keys", () => {
     expect(() => pruneUserDrafts("nil", new Set(), null)).not.toThrow();
   });
 });
+
+// The settings page was called "users" before it grew the office, room and
+// device rows. Renaming the saved panel value is the one migration in this
+// task that can silently cost a reader more than it fixes: the parser rejects
+// a WHOLE payload on an unknown panel value, so a value the running build does
+// not recognise takes roomId and agentId down with the panel.
+describe("saved view: the settings panel rename", () => {
+  const owner = "boss";
+
+  it("still parses a payload written under the old 'users' name", () => {
+    // An older build's saved spot, read by this one. The room and the agent
+    // must survive, not only the panel.
+    const raw = JSON.stringify({
+      user: owner,
+      roomId: "room-1",
+      agentId: "agent-1",
+      panel: "users",
+    });
+    expect(parseSavedView(raw)).toEqual({
+      user: owner,
+      roomId: "room-1",
+      agentId: "agent-1",
+      panel: "users",
+    });
+  });
+
+  it("parses the new 'settings' name", () => {
+    const raw = JSON.stringify({
+      user: owner,
+      roomId: "room-1",
+      agentId: null,
+      panel: "settings",
+    });
+    expect(parseSavedView(raw)?.panel).toBe("settings");
+  });
+
+  it("ignores an unknown extra field instead of rejecting the payload", () => {
+    // A NEWER build may write a section alongside the panel. This build has to
+    // read such a payload without losing the room and the agent with it.
+    const raw = JSON.stringify({
+      user: owner,
+      roomId: "room-1",
+      agentId: "agent-1",
+      panel: "settings",
+      section: "theme",
+    });
+    const parsed = parseSavedView(raw);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.roomId).toBe("room-1");
+    expect(parsed?.agentId).toBe("agent-1");
+  });
+
+  it("still rejects the whole payload for a panel value nobody knows", () => {
+    // The strictness itself is deliberate and must not regress: this is why
+    // "users" has to stay accepted rather than be dropped.
+    const raw = JSON.stringify({
+      user: owner,
+      roomId: "room-1",
+      agentId: "agent-1",
+      panel: "wardrobe",
+    });
+    expect(parseSavedView(raw)).toBeNull();
+  });
+});

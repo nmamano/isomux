@@ -16,22 +16,14 @@ import type {
   SwapDesksReq,
 } from "../../shared/contract-shapes.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
-import { ThemePicker } from "../components/ThemePicker.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
-  WallPanelMenu,
-  type WallPanelMenuItem,
-} from "../components/WallPanelMenu.tsx";
-import {
   TasksIcon,
-  BuildingIcon,
-  DoorIcon,
   ListIcon,
-  DeviceIcon,
   ClockIcon,
   AppsIcon,
-  UserIcon,
+  SettingsIcon,
 } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useViewport } from "./useViewport.ts";
@@ -125,15 +117,17 @@ export interface ViewportControls {
 interface OfficeViewProps {
   onSpawn: (deskIndex: number) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
-  onOpenUserSettings: () => void;
+  // The single settings door in the bar.
+  onOpenSettings: () => void;
   // Click on a ghost: open user settings preopened to that user. Distinct
   // from `onOpenUserSettings` (which opens to the current user / the
   // generic flow). Optional so other consumers of OfficeView aren't
   // forced to thread a handler they don't need.
   onOpenUserSettingsForUser?: (userId: string) => void;
-  onOpenDeviceSettings: () => void;
+  // The plaque on the wall opens the settings page at the office's own row.
   onEditOfficePrompt: () => void;
-  onEditRoomSettings?: () => void;
+  onEditRoomSettings?: (roomId: string) => void;
+  onOpenThemePicker: () => void;
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
   onOpenApps: () => void;
@@ -146,11 +140,11 @@ interface OfficeViewProps {
 export function OfficeView({
   onSpawn,
   onContextMenu,
-  onOpenUserSettings,
+  onOpenSettings,
   onOpenUserSettingsForUser,
-  onOpenDeviceSettings,
   onEditOfficePrompt,
   onEditRoomSettings,
+  onOpenThemePicker,
   onOpenTasks,
   onOpenCronjobs,
   onOpenApps,
@@ -182,7 +176,6 @@ export function OfficeView({
   const officePrompt = office.prompt;
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const { embed } = useFeatures();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
@@ -252,41 +245,6 @@ export function OfficeView({
   const [rightDoorDragOver, setRightDoorDragOver] = useState(false);
   const [leftDoorReject, setLeftDoorReject] = useState(false);
   const [rightDoorReject, setRightDoorReject] = useState(false);
-  const [wallMenu, setWallMenu] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-
-  const wallMenuItems: WallPanelMenuItem[] = [
-    {
-      id: "office",
-      icon: BuildingIcon,
-      label: "Office settings",
-      onClick: onEditOfficePrompt,
-    },
-    ...(onEditRoomSettings
-      ? [
-          {
-            id: "room",
-            icon: DoorIcon,
-            label: "Room settings",
-            onClick: onEditRoomSettings,
-          },
-        ]
-      : []),
-    {
-      id: "user",
-      icon: UserIcon,
-      label: "User settings",
-      onClick: onOpenUserSettings,
-    },
-    {
-      id: "device",
-      icon: DeviceIcon,
-      label: "Device settings",
-      onClick: onOpenDeviceSettings,
-    },
-  ];
-
   const counts = getRoomCounts(roomAgents);
 
   const officeActions: NavAction[] = [
@@ -298,43 +256,21 @@ export function OfficeView({
       onClick: onOpenCronjobs,
     },
     { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
+    // One gear for every setting. The office, room, user and device buttons
+    // that used to sit here are sidebar rows on the settings page now, and the
+    // plaque on the wall opens the same page.
     {
-      id: "user",
-      icon: UserIcon,
-      label: "User",
-      onClick: onOpenUserSettings,
-      title: "User settings",
+      id: "settings",
+      icon: SettingsIcon,
+      label: "Settings",
+      onClick: onOpenSettings,
+      title: "Settings",
     },
-    {
-      id: "device",
-      icon: DeviceIcon,
-      label: "Device",
-      onClick: onOpenDeviceSettings,
-      title: "Device settings",
-    },
-    {
-      id: "office",
-      icon: BuildingIcon,
-      label: "Office",
-      onClick: onEditOfficePrompt,
-      title: "Office settings",
-    },
-    ...(onEditRoomSettings
-      ? [
-          {
-            id: "room",
-            icon: DoorIcon,
-            label: "Room",
-            onClick: onEditRoomSettings,
-            title: "Room settings",
-          },
-        ]
-      : []),
     {
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: () => setThemePickerOpen(true),
+      onClick: onOpenThemePicker,
       title: "Change theme",
     },
   ];
@@ -472,7 +408,7 @@ export function OfficeView({
         </div>
       )}
 
-      {!embed && <RoomTabBar />}
+      {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
 
       {/* Office scene */}
       {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
@@ -535,7 +471,7 @@ export function OfficeView({
           >
             <Walls
               onToggleTheme={cycleTheme}
-              onWallPanelClick={(x, y) => setWallMenu({ x, y })}
+              onWallPanelClick={embed ? undefined : onEditOfficePrompt}
               hasOfficePrompt={!!officePrompt}
               onOpenTasks={onOpenTasks}
               onOpenCronjobs={onOpenCronjobs}
@@ -887,18 +823,6 @@ export function OfficeView({
           ))}
         </div>
       )}
-      {wallMenu && (
-        <WallPanelMenu
-          x={wallMenu.x}
-          y={wallMenu.y}
-          items={wallMenuItems}
-          onClose={() => setWallMenu(null)}
-        />
-      )}
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
     </div>
   );
 }

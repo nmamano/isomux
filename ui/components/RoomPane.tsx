@@ -12,19 +12,23 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
 } from "./dialog-styles.ts";
-import {
-  ExpandableTextarea,
-  isExpandedEditorOpen,
-} from "./ExpandableTextarea.tsx";
+import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 
-export function RoomSettingsModal({
+// One room's settings, as a pane. Mounted keyed by roomId, so switching rooms
+// in the sidebar remounts it and no field can carry across.
+//
+// `onDeleted` exists because deleting an empty room removes its own sidebar
+// row: the page has to move the selection somewhere that still exists.
+export function RoomPane({
   roomId,
-  onClose,
+  onDeleted,
+  closeRef,
 }: {
   roomId: string;
-  onClose: () => void;
+  onDeleted: () => void;
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
-  const { agents, rooms, isMobile } = useAppState();
+  const { agents, rooms } = useAppState();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
   // room.canCloseWhenEmpty is false ONLY for the protected canonical first room
@@ -36,12 +40,21 @@ export function RoomSettingsModal({
     agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
+  // What the fields held when they last agreed with the server - captured at
+  // hydration, reset on save. Dirtiness is measured against THIS, never
+  // against the store snapshot: the prompt comes from the version-guarded GET
+  // and can legitimately differ from the store's copy (see below), and `name`
+  // is captured once at mount, so comparing either against a live store value
+  // makes an untouched pane look dirty and the discard prompt cry wolf. Same
+  // shape useMemoryEditor already uses for mem.dirty.
+  const [baselineName, setBaselineName] = useState(room?.name ?? "");
+  const [baselinePrompt, setBaselinePrompt] = useState("");
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
   const mem = useMemoryEditor("room", roomId, true);
   // The settings PUT is version-guarded (optimistic concurrency, mirroring the
   // memory editor): GET on open, send the version back on save; a 409 means
-  // another writer saved since - keep the dialog open and say so. The token
+  // another writer saved since - stay on the pane and say so. The token
   // must stay coupled to the BYTES read with it, so the prompt field hydrates
   // from the same GET response (never pair a store-snapshot prompt with the
   // GET's version - a fresher server prompt would be silently blessed over).
@@ -49,6 +62,7 @@ export function RoomSettingsModal({
   // the store value paints first purely as a placeholder.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
@@ -59,6 +73,7 @@ export function RoomSettingsModal({
       .then((r) => {
         if (cancelled) return;
         setPrompt(r.prompt ?? "");
+        setBaselinePrompt(r.prompt ?? "");
         setSettingsVersion(r.version);
       })
       .catch(() => {
@@ -76,7 +91,7 @@ export function RoomSettingsModal({
     setSaving(true);
     setError(null);
     // Rename is an independent, cosmetic field; fire-and-forget, parity with the
-    // old WS rename_room (which never blocked the dialog). It shares the settings
+    // old WS rename_room, which never blocked the save. It shares the settings
     // PUT's room:manage guard, so a rename that would 403 already fails the
     // settings save below - no separate error surface needed.
     if (room && trimmedName !== room.name) {
@@ -85,8 +100,9 @@ export function RoomSettingsModal({
         () => {},
       );
     }
-    // The settings save drives the dialog: success closes it, an ApiError shows
-    // inline. Memory is a separate version-guarded REPLACE on /api/memory.
+    // The settings save drives the pane: success settles it to "Saved", an
+    // ApiError shows inline. Memory is a separate version-guarded REPLACE on
+    // /api/memory.
     const settingsBody: RoomSettingsReq = {
       prompt: prompt.trim() ? prompt : null,
       version: settingsVersion,
@@ -98,16 +114,47 @@ export function RoomSettingsModal({
           `/api/rooms/${roomId}/settings`,
           settingsBody,
         );
+        // The PUT above SPENT the token, so refresh it here - before
+        // anything that can fail and return. Doing this after the memory save
+        // meant a memory conflict left a spent token behind, and the reader's
+        // next Save came back as "settings changed since you opened this":
+        // a false cause, for a failure their own successful save created.
+        //
+        // Its own try/catch, because a failed re-read is not a failed save.
+        // Reporting it as one tells the reader the opposite of what happened
+        // and sends them to save again, into a 409.
+        try {
+          const next = await apiFetch<RoomSettingsRes>(
+            "GET",
+            `/api/rooms/${roomId}/settings`,
+          );
+          setSettingsVersion(next.version);
+          // The FIELD is set from the response too, not just the baseline. The
+          // server normalizes an all-whitespace prompt to null, so without
+          // this the field keeps the whitespace, the baseline becomes "", and
+          // the pane is dirty the instant a save succeeds.
+          setPrompt(next.prompt ?? "");
+          setBaselinePrompt(next.prompt ?? "");
+        } catch {
+          // No safe token to write with. Null disables Save, matching the
+          // failed-hydration path above, and the save that already landed
+          // still counts.
+          setSettingsVersion(null);
+          setError(
+            "Saved, but this page could not reload the room. Select another row and come back to keep editing.",
+          );
+        }
+        setBaselineName(trimmedName);
+        setSavedAt(Date.now());
         const m = await mem.save();
         if (!m.ok) {
           setError(m.message);
           return;
         }
-        onClose();
       } catch (e) {
         if (e instanceof ApiError && e.code === "version_conflict") {
           setError(
-            "Room settings changed since you opened this - reopen the dialog to edit the latest.",
+            "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
           );
         } else {
           setError(e instanceof ApiError ? e.message : "Save failed");
@@ -126,54 +173,30 @@ export function RoomSettingsModal({
     }
   }, []);
 
+  // Mirror the unsaved-changes guard into the page's ref every render, so the
+  // captured closure sees fresh field state - the no-deps pattern
+  // UserEditPanel and DevicePane use. Name, prompt and memory are all
+  // dirty-capable; without this a sidebar click drops all three in silence.
+  const dirty =
+    (settingsLoaded && (name.trim() !== baselineName || prompt !== baselinePrompt)) ||
+    mem.dirty;
   useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      // An expanded editor owns Escape while it is open (it collapses instead
-      // of closing this dialog). Our capture listener runs first, so the
-      // stand-down has to happen here.
-      if (e.key === "Escape" && !isExpandedEditorOpen()) {
-        e.stopPropagation();
-        onClose();
-      }
+    if (closeRef) {
+      closeRef.current = (after?: () => void) => {
+        if (dirty && !confirm("Discard unsaved changes to this room?")) return;
+        after?.();
+      };
     }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
+  });
 
   if (!room) return null;
 
   return (
-    <div
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 900,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
-        justifyContent: "center",
-        overflowY: "auto",
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
-          padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 440,
-          maxWidth: isMobile ? "100%" : undefined,
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
-          animation: "hudIn 0.2s ease-out",
-        }}
-      >
+    <div style={{ marginTop: 24 }}>
+      <div>
         <h3
           style={{
             fontSize: 17,
@@ -184,6 +207,16 @@ export function RoomSettingsModal({
         >
           {room.name} · Settings
         </h3>
+        <p
+          style={{
+            fontSize: 11,
+            color: "var(--text-ghost)",
+            margin: "6px 0 0",
+            lineHeight: 1.4,
+          }}
+        >
+          Double-click a room tab to come straight here.
+        </p>
 
         <label
           style={{
@@ -237,8 +270,8 @@ export function RoomSettingsModal({
             margin: "3px 0 0",
           }}
         >
-          Changes take effect on next conversation. Set environment variables in
-          User Settings → Connections.
+          Changes take effect on next conversation. Set environment variables
+          under Connections.
         </p>
 
         <label
@@ -303,7 +336,7 @@ export function RoomSettingsModal({
                 apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
                   () => {},
                 );
-                onClose();
+                onDeleted();
               }}
               style={deleteBtnStyle}
               disabled={saving}
@@ -312,7 +345,16 @@ export function RoomSettingsModal({
             </button>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
+            <button
+              onClick={() => {
+                setName(baselineName);
+                setPrompt(baselinePrompt);
+                mem.reset();
+                setError(null);
+              }}
+              style={cancelBtnStyle}
+              disabled={saving || !dirty}
+            >
               Cancel
             </button>
             {(() => {
@@ -328,7 +370,7 @@ export function RoomSettingsModal({
                     cursor: disabled ? "not-allowed" : "pointer",
                   }}
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? "Saving…" : savedAt && !dirty ? "Saved" : "Save"}
                 </button>
               );
             })()}

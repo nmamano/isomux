@@ -349,24 +349,17 @@ function ReleaseBody({
   );
 }
 
-export function UpdateModal({ onClose }: { onClose: () => void }) {
-  const { updateInfo, isMobile } = useAppState();
-
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+// The Updates pane. `onClose` leaves the settings page entirely: it is what
+// the old dialog's Close and "Got it" buttons did, and there is nothing
+// smaller to dismiss now that this is a pane rather than an overlay.
+export function UpdatePane({ onClose }: { onClose: () => void }) {
+  const { updateInfo } = useAppState();
 
   const release = updateInfo?.mode === "release" ? updateInfo : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
-  // Null while quiet - the pill is hidden then, so the modal normally can't
-  // open; the guard below just keeps a stale-open modal from rendering blank.
+  // Null while quiet - the pill is hidden then, so this pane normally opens
+  // with something to say; the guard below covers the status going quiet
+  // while the pane is up.
   const notice = commit ? buildCommitNotice(commit) : null;
 
   const getText = useCallback(
@@ -380,37 +373,8 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <div
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 900,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
-        justifyContent: "center",
-        overflowY: "auto",
-      }}
-    >
-      <div
-        style={{
-          background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
-          padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 480,
-          maxWidth: isMobile ? "100%" : undefined,
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
-          animation: "hudIn 0.2s ease-out",
-        }}
-      >
+    <div style={{ marginTop: 24 }}>
+      <div>
         <div
           style={{
             display: "flex",
@@ -428,7 +392,7 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
           >
             {release
               ? "New Release Available"
-              : (notice?.title ?? "Update Available")}
+              : (notice?.title ?? "Up to date")}
           </h3>
           <CopyButton getText={getText} size={28} />
         </div>
@@ -451,18 +415,12 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
             </div>
           </>
         ) : (
-          // Stale-open guard: the status went quiet while the modal was up.
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              marginTop: 20,
-            }}
-          >
-            <button onClick={onClose} style={buttonStyle}>
-              Got it
-            </button>
-          </div>
+          // Nothing to report: no release behind, no new commits. Reachable
+          // now that the sidebar has a permanent Updates row, where the old
+          // dialog could only be opened from the pill.
+          <p style={{ ...textStyle, margin: "16px 0 0" }}>
+            This office is up to date.
+          </p>
         )}
       </div>
     </div>

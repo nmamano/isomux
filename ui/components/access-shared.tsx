@@ -1,4 +1,4 @@
-// Shared building blocks for the account panes on the User Settings page
+// Shared building blocks for the account panes on the Settings page
 // (ExternalAccessPane / InvitesPane / SessionsPane for owners, MyDevicesPane
 // for members): the invites + sessions tables, the minted-URL box with its
 // clipboard fallbacks, list-section rendering, relative-time formatting, and

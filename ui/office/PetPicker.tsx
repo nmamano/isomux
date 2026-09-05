@@ -1,6 +1,6 @@
 // Picks the room's pet. Opened by clicking the pet in the scene.
 //
-// Follows WallPanelMenu: a Portal at fixed client coordinates, dismissed by a
+// Follows ContextMenu: a Portal at fixed client coordinates, dismissed by a
 // pointerdown outside or Escape. It reads no capability, because there is none
 // to read - room:manage is held by every human role (server/identity/index.ts
 // says owner and member hold the same set), so a browser user always has it.
@@ -60,7 +60,7 @@ export function PetPicker({
     }
     // pointerdown, not mousedown: the office viewport preventDefaults
     // pointerdown on the pannable background, which suppresses the
-    // compatibility mousedown - same reason as WallPanelMenu.
+    // compatibility mousedown - same reason as ContextMenu.
     document.addEventListener("pointerdown", handleDismiss);
     document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKey);

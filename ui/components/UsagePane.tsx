@@ -5,7 +5,6 @@ import type {
   UsageBucketWire,
   UsageReportWire,
 } from "../../shared/contract-shapes.ts";
-import { dialogCancelBtn } from "./dialog-styles.ts";
 
 function tokenCount(n: number): string {
   if (n === 0) return "-";
@@ -29,7 +28,9 @@ function dollars(n: number): string {
   return n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
 }
 
-export function UsageModal({ onBack }: { onBack: () => void }) {
+// Token and cost totals for the office. Read-only, so no guard and no
+// footer: the sidebar is the way out.
+export function UsagePane() {
   const { isMobile } = useAppState();
   const [usage, setUsage] = useState<UsageReportWire | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,31 +43,8 @@ export function UsageModal({ onBack }: { onBack: () => void }) {
       );
   }, []);
 
-  useEffect(() => {
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onBack();
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onBack]);
-
   return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 950,
-        background: "rgba(0,0,0,0.55)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
-        justifyContent: "center",
-        overflowY: "auto",
-      }}
-    >
+    <div style={{ marginTop: 24 }}>
       <div
         style={{
           background: "var(--bg-overlay)",
@@ -161,17 +139,6 @@ export function UsageModal({ onBack }: { onBack: () => void }) {
               />
             </>
           )}
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            padding: "16px 28px 20px",
-          }}
-        >
-          <button onClick={onBack} style={dialogCancelBtn}>
-            Back
-          </button>
         </div>
       </div>
     </div>

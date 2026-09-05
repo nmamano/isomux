@@ -1027,7 +1027,10 @@ export const initialState: AppState = {
   providerAccounts: [],
 };
 
-const StateCtx = createContext<AppState>(initialState);
+// Exported so a static render can supply a seeded state. The app itself
+// always goes through StoreProvider; nothing but tests should use this
+// directly.
+export const StateCtx = createContext<AppState>(initialState);
 const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
 // Notification sound - AudioContext initialized on first user interaction

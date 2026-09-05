@@ -11,13 +11,15 @@
 import { describe, it, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { reducer, initialState } from "./store.tsx";
+import { reducer, initialState, StateCtx } from "./store.tsx";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
 import {
   ProviderSignInCard,
   signOutButtonLabel,
 } from "./components/ProviderSignInCard.tsx";
 import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
+import { UpdatePane } from "./components/UpdatePane.tsx";
+import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import type { AppWire, LogEntry, TaskItem } from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
@@ -121,28 +123,56 @@ describe("ProviderSignInCard", () => {
     expect(html).not.toContain("Set your Env File Path in User Settings.");
   });
 
-  it("mounts both managed variable editors for an owner", () => {
+  // The pane is split by owner: the office half holds what every agent uses,
+  // the personal half what the caller's own agents use. Each half must mount
+  // ONLY its own editor - the whole point of the split is that a member is no
+  // longer met by a paragraph about variables they cannot edit.
+  it("office half: mounts only the office editor for an owner", () => {
     const html = renderToStaticMarkup(
-      createElement(ConnectionsPane, { username: "Boss", role: "owner" }),
+      createElement(ConnectionsPane, {
+        username: "Boss",
+        role: "owner",
+        half: "office",
+      }),
     );
-    expect(html).toContain("ANTHROPIC_API_KEY");
-    expect(html).toContain("OPENAI_API_KEY");
-    expect(html).toContain("OPENCODE_API_KEY");
     expect(html).toContain('data-managed-env-path="/api/office/env"');
-    expect(html).toContain('data-managed-env-path="/api/users/Boss/env"');
-    expect(html).toContain("GH_TOKEN");
+    expect(html).not.toContain('data-managed-env-path="/api/users/Boss/env"');
+    expect(html).toContain("You → Connections");
   });
 
-  it("shows a member the office placeholder and only mounts their editor", () => {
+  it("office half: shows a member the placeholder and mounts no editor", () => {
     const html = renderToStaticMarkup(
-      createElement(ConnectionsPane, { username: "Member", role: "member" }),
+      createElement(ConnectionsPane, {
+        username: "Member",
+        role: "member",
+        half: "office",
+      }),
     );
     expect(html).toContain(
       "Office-wide variables are managed by an office owner.",
     );
     expect(html).not.toContain('data-managed-env-path="/api/office/env"');
-    expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
+    expect(html).not.toContain('data-managed-env-path="/api/users/Member/env"');
     expect(html).not.toContain("owner-secret-value");
+  });
+
+  it("personal half: mounts only the caller's editor, for either role", () => {
+    for (const role of ["owner", "member"] as const) {
+      const html = renderToStaticMarkup(
+        createElement(ConnectionsPane, {
+          username: "Member",
+          role,
+          half: "personal",
+        }),
+      );
+      expect(html).toContain("ANTHROPIC_API_KEY");
+      expect(html).toContain("OPENAI_API_KEY");
+      expect(html).toContain("OPENCODE_API_KEY");
+      expect(html).toContain("GH_TOKEN");
+      expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
+      expect(html).not.toContain('data-managed-env-path="/api/office/env"');
+      expect(html).toContain("Office → Connections");
+    }
   });
 
   it("uses the generic waiting copy for the Claude code step", () => {
@@ -781,5 +811,115 @@ describe("reducer: apps", () => {
     } as never);
     expect(after.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
     expect(after.hydrationEpoch).toBe(seeded.hydrationEpoch + 1);
+  });
+});
+
+// The settings page's panes and the mechanism that routes a door to one of
+// them. Neither had any coverage: a mutation that disabled the pane routing
+// left the whole scoped gate green, because nothing rendered these at all.
+describe("settings page: panes and initialTarget routing", () => {
+  const pageProps = {
+    onSwitchUser: () => {},
+    onClose: () => {},
+    onOpenOfficeSettings: () => {},
+    modalOpen: false,
+  };
+
+  it("Updates pane says the office is up to date when there is nothing to report", () => {
+    // The sidebar row is permanent where the old pill only appeared when an
+    // update existed, so the quiet state is reachable and must say something.
+    const html = renderToStaticMarkup(
+      createElement(UpdatePane, { onClose: () => {} }),
+    );
+    expect(html).toContain("This office is up to date.");
+    expect(html).not.toContain("New Release Available");
+  });
+
+  it("initialTarget mounts the named pane, not the default selection", () => {
+    // Every door into the page rides this one mechanism - the bar's Theme and
+    // Device buttons, the update pill, a room tab. If it stops resolving,
+    // every entry point lands on the wrong row at once.
+    const theme = renderToStaticMarkup(
+      createElement(UserSettingsView, {
+        ...pageProps,
+        initialTarget: { kind: "section", section: "theme" },
+      }),
+    );
+    expect(theme).toContain("click the office window");
+
+    const device = renderToStaticMarkup(
+      createElement(UserSettingsView, {
+        ...pageProps,
+        initialTarget: { kind: "section", section: "deviceLabel" },
+      }),
+    );
+    expect(device).toContain("Tells agents which device you are on");
+    expect(device).not.toContain("click the office window");
+  });
+
+  it("hides owner-only rows from a member but keeps Office and Usage", () => {
+    // The member read-only path: Office settings has always been readable by
+    // members and Usage is deliberately ungated, while Access, Invites,
+    // Sessions and Storage are owner-only and match server-side gating.
+    const html = renderToStaticMarkup(
+      createElement(
+        StateCtx.Provider,
+        {
+          value: {
+            ...initialState,
+            sessionContext: {
+              username: "Member",
+              userId: "u2",
+              role: "member",
+              connectionId: "c2",
+            },
+          } as typeof initialState,
+        },
+        createElement(UserSettingsView, { ...pageProps }),
+      ),
+    );
+    expect(html).toContain(">Office</button>");
+    expect(html).toContain(">Usage</button>");
+    for (const ownerOnly of ["Access", "Invites", "Sessions", "Storage"]) {
+      expect(html).not.toContain(`>${ownerOnly}</button>`);
+    }
+  });
+
+  it("renders the sidebar grouped by the owner of each setting", () => {
+    // Needs a session: the groups are gated on one, and an unauthenticated
+    // static render shows only the roster header.
+    const html = renderToStaticMarkup(
+      createElement(
+        StateCtx.Provider,
+        {
+          value: {
+            ...initialState,
+            rooms: [
+              {
+                id: "r1",
+                name: "Conference Room",
+                prompt: null,
+                canCloseWhenEmpty: false,
+              },
+            ],
+            sessionContext: {
+              username: "Boss",
+              userId: "u1",
+              role: "owner",
+              connectionId: "c1",
+            },
+          } as typeof initialState,
+        },
+        createElement(UserSettingsView, { ...pageProps }),
+      ),
+    );
+    for (const group of ["Office", "Rooms", "Members", "You", "Device"]) {
+      expect(html).toContain(`>${group}</div>`);
+    }
+    // The Rooms group is built from the live room list, not a fixed set.
+    expect(html).toContain("Conference Room");
+    // The renamed rows, which the old labels would silently survive.
+    expect(html).toContain("Sign-in links");
+    expect(html).not.toContain("My devices");
   });
 });

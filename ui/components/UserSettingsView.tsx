@@ -1,4 +1,4 @@
-// Full-page User Settings (master-detail), replacing the old crowded modal
+// The full-page Settings surface (master-detail), replacing the old crowded modal
 // (UserManagementModal). Entered and exited like the Tasks page: rendered in
 // App's main view switch, closed via the header back arrow, ESC, or the
 // browser back button (goHome → popstate).
@@ -42,6 +42,13 @@ import {
   dialogSaveBtn,
   dialogHint,
 } from "./dialog-styles.ts";
+import { DevicePane } from "./DevicePane.tsx";
+import { OfficePane } from "./OfficePane.tsx";
+import { StoragePane } from "./StoragePane.tsx";
+import { UsagePane } from "./UsagePane.tsx";
+import { RoomPane } from "./RoomPane.tsx";
+import { ThemePane } from "./ThemePane.tsx";
+import { UpdatePane } from "./UpdatePane.tsx";
 import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
@@ -55,31 +62,80 @@ import {
 } from "./ExpandableTextarea.tsx";
 import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
 
-// Account-section entries in the sidebar. Owners get three admin panes plus
-// the two self-scoped panes: "My devices", where device links are self-service
-// for everyone, and "Preferences". Members get the two self-scoped panes.
-type AccountSection =
+// Sections that render INSIDE this page. The sidebar also carries rows that
+// still open a dialog (office, room, device label, theme, updates); those are
+// not sections because nothing of theirs mounts in the detail pane yet.
+//
+// "signInLinks" is the pane formerly labelled "My devices": it holds invite
+// links and sessions for signing in elsewhere, not devices, and the label now
+// says so. "connections" split in two because one pane held both the office's
+// sign-ins and variables and the caller's own.
+export type SettingsSection =
+  | "office"
+  | "storage"
+  | "usage"
   | "access"
   | "invites"
   | "sessions"
-  | "devices"
+  | "connectionsOffice"
   | "prefs"
+  | "connectionsPersonal"
   | "apiTokens"
-  | "connections";
+  | "signInLinks"
+  | "updates"
+  | "deviceLabel"
+  | "theme";
 
-// What the detail pane shows: a user's editor, or one account section.
+// One sidebar entry. A row either moves the detail pane to `target`, or opens
+// a dialog through `open` - never both. The row holds the target as DATA
+// rather than a closure over select(), because select() routes through the
+// unsaved-changes guard and must not be captured during render.
+type SidebarRow = {
+  key: string;
+  label: string;
+  selected: boolean;
+  target?: Selection;
+  open?: () => void;
+};
+
+// A labelled group of sidebar entries. The Members group carries no rows: it
+// renders the live roster instead, which needs per-user avatars and status.
+type SidebarGroup = {
+  id: string;
+  label: string;
+  rows: SidebarRow[];
+  roster?: boolean;
+};
+
+// What the detail pane shows: a user's editor, or one settings section.
 // null = nothing selected - on mobile that means the list is showing; on
 // desktop the detail renders a placeholder. User selections are keyed by the
 // STABLE user id (not the lowercased-name map key), so a rename from this or
 // another session never dangles the selection.
-type Selection =
+// Structural equality over the three arms. Re-selecting the row you are
+// already on must be a no-op, or it would run the unsaved-changes prompt
+// against a pane you never left.
+function sameSelection(a: Selection, b: Selection): boolean {
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "section" && b.kind === "section")
+    return a.section === b.section;
+  if (a.kind === "user" && b.kind === "user") return a.id === b.id;
+  if (a.kind === "room" && b.kind === "room") return a.roomId === b.roomId;
+  return false;
+}
+
+export type Selection =
   | { kind: "user"; id: string }
-  | { kind: "section"; section: AccountSection };
+  | { kind: "section"; section: SettingsSection }
+  // Rooms are not a fixed set, so a room cannot be a section name. It carries
+  // its id instead, which is also how the room-tab double-click points here.
+  | { kind: "room"; roomId: string };
 
 export function UserSettingsView({
   initialUserId,
   onSwitchUser,
   onClose,
+  initialTarget,
 }: {
   // Live-avatars: when set, the page opens with this user's editor selected
   // (used by ghost click → settings shortcut). Read once on mount; updates to
@@ -87,11 +143,22 @@ export function UserSettingsView({
   // parent (App.tsx) clears the value on close, so each reopen with a
   // different initialUserId mounts a fresh page and applies the new target.
   initialUserId?: string | null;
+  // Which sidebar row to open on. Every door into this page carries its own
+  // target - the update pill lands on Updates, the bar's Theme button on
+  // Theme, a room tab on that room - so the page never has to guess where the
+  // reader meant to go. Read once on mount, like initialUserId.
+  initialTarget?: Selection | null;
   onSwitchUser: (name: string | null) => void;
   onClose: () => void;
 }) {
-  const { users, isMobile, sessionContext, onlineUserIds, activeSessions } =
-    useAppState();
+  const {
+    users,
+    rooms,
+    isMobile,
+    sessionContext,
+    onlineUserIds,
+    activeSessions,
+  } = useAppState();
   const isOwner = sessionContext?.role === "owner";
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
@@ -124,6 +191,8 @@ export function UserSettingsView({
   }, [activeSessions]);
 
   const [selection, setSelection] = useState<Selection | null>(() => {
+    // An explicit target beats everything else: the caller named the row.
+    if (initialTarget) return initialTarget;
     if (initialUserId) {
       // Only select ids that resolve to a record already in the store; if it
       // isn't there yet (rare race on first connect), fall through to the
@@ -198,11 +267,7 @@ export function UserSettingsView({
     // Any explicit choice consumes the pending hydration default (above) so
     // a late-arriving roster can't override it.
     defaultAppliedRef.current = true;
-    const same =
-      selection !== null &&
-      (next.kind === "section"
-        ? selection.kind === "section" && selection.section === next.section
-        : selection.kind === "user" && selection.id === next.id);
+    const same = selection !== null && sameSelection(selection, next);
     if (same) return;
     leaveEdit(() => setSelection(next));
   }
@@ -251,26 +316,103 @@ export function UserSettingsView({
     (sessionContext?.userId === u.id || isOwner) && isFullUserView(u);
 
   const accountAvailable = isOwner || !!sessionContext;
-  // Owner: the three admin panes the old "Access & invites" section was split
-  // into, plus the personal My devices pane. Device links are self-service for
-  // EVERYONE - admin sections first, the personal one last. Member: the single
-  // self-scoped devices pane.
-  const accountEntries: { section: AccountSection; label: string }[] = isOwner
+
+  // The sidebar is grouped by WHO owns the setting. Isomux has five owners -
+  // the office, a room, an agent, a member, this device - and every setting
+  // belongs to exactly one of them. Agents get no group on purpose: you reach
+  // an agent by clicking it in the scene, its form doubles as the spawn form,
+  // and the list would churn hourly. The office and the rooms have no other
+  // door, which is what earns them one.
+  //
+  // A row either selects a section that renders in the detail pane, or opens a
+  // dialog that still layers over this page. The dialog rows are permanent;
+  // only their onClick changes when their pane lands.
+  const sectionRow = (section: SettingsSection, label: string): SidebarRow => ({
+    key: section,
+    label,
+    selected: selection?.kind === "section" && selection.section === section,
+    target: { kind: "section", section },
+  });
+
+  const selfUserId = sessionContext?.userId ?? null;
+  const sidebarGroups: SidebarGroup[] = accountAvailable
     ? [
-        { section: "access", label: "Access" },
-        { section: "invites", label: "Invites" },
-        { section: "sessions", label: "Sessions" },
-        { section: "devices", label: "My devices" },
-        { section: "prefs", label: "Preferences" },
-        { section: "connections", label: "Connections" },
-        { section: "apiTokens", label: "API tokens" },
+        {
+          id: "office",
+          label: "Office",
+          rows: [
+            sectionRow("office", "Office"),
+            ...(isOwner
+              ? [
+                  sectionRow("access", "Access"),
+                  sectionRow("invites", "Invites"),
+                  sectionRow("sessions", "Sessions"),
+                ]
+              : []),
+            sectionRow("connectionsOffice", "Connections"),
+            sectionRow("usage", "Usage"),
+            // Storage is owner-only, matching the server: prune is gated on
+            // officeOwner and the usage read strips paths for anyone else.
+            ...(isOwner ? [sectionRow("storage", "Storage")] : []),
+            sectionRow("updates", "Updates"),
+          ],
+        },
+        {
+          id: "rooms",
+          label: "Rooms",
+          rows: rooms.map((room) => ({
+            key: `room:${room.id}`,
+            label: room.name,
+            selected:
+              selection?.kind === "room" && selection.roomId === room.id,
+            target: { kind: "room" as const, roomId: room.id },
+          })),
+        },
+        { id: "members", label: "Members", rows: [], roster: true },
+        {
+          id: "you",
+          label: "You",
+          rows: [
+            // Your own profile used to be reachable only by finding yourself
+            // in the roster below. It is the same editor; this row just gives
+            // it the door it should always have had.
+            ...(selfUserId
+              ? [
+                  {
+                    key: "profile",
+                    label: "Profile",
+                    selected:
+                      selection?.kind === "user" && selection.id === selfUserId,
+                    target: { kind: "user" as const, id: selfUserId },
+                  },
+                ]
+              : []),
+            sectionRow("prefs", "Preferences"),
+            sectionRow("connectionsPersonal", "Connections"),
+            sectionRow("apiTokens", "API tokens"),
+            sectionRow("signInLinks", "Sign-in links"),
+          ],
+        },
+        {
+          id: "device",
+          label: "Device",
+          rows: [
+            sectionRow("deviceLabel", "Device label"),
+            sectionRow("theme", "Theme"),
+          ],
+        },
       ]
-    : [
-        { section: "devices", label: "My devices" },
-        { section: "prefs", label: "Preferences" },
-        { section: "connections", label: "Connections" },
-        { section: "apiTokens", label: "API tokens" },
-      ];
+    : [];
+
+  // The roster splits the sidebar in two. Slicing on it keeps group ORDER in
+  // sidebarGroups alone, so adding or moving a group never means editing the
+  // JSX below.
+  const rosterIndex = sidebarGroups.findIndex((group) => group.roster);
+  const groupsBeforeRoster =
+    rosterIndex === -1 ? [] : sidebarGroups.slice(0, rosterIndex);
+  const groupsAfterRoster =
+    rosterIndex === -1 ? [] : sidebarGroups.slice(rosterIndex + 1);
+  const rosterGroup = rosterIndex === -1 ? null : sidebarGroups[rosterIndex];
 
   function signOut() {
     setLogoutBlockedReason(null);
@@ -334,16 +476,7 @@ export function UserSettingsView({
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
         >
-          User Settings
-        </span>
-        <span
-          style={{
-            fontSize: 11,
-            color: "var(--text-muted)",
-            fontFamily: "'JetBrains Mono',monospace",
-          }}
-        >
-          {userList.length} user{userList.length === 1 ? "" : "s"}
+          Settings
         </span>
       </div>
 
@@ -364,54 +497,25 @@ export function UserSettingsView({
               padding: "12px 0",
             }}
           >
-            {/* Account section sits ABOVE the user list: the entries must stay
-                reachable however long the roster below grows. */}
-            {accountAvailable && (
-              <>
-                <div style={sidebarSectionLabel}>Account</div>
-                {accountEntries.map((entry) => {
-                  const entrySelected =
-                    selection?.kind === "section" &&
-                    selection.section === entry.section;
-                  return (
-                    <button
-                      key={entry.section}
-                      onClick={() =>
-                        select({ kind: "section", section: entry.section })
-                      }
-                      aria-current={entrySelected ? "true" : undefined}
-                      style={{
-                        width: "100%",
-                        textAlign: "left",
-                        font: "inherit",
-                        padding: "8px 14px 8px 22px",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: "var(--text-primary)",
-                        border: "none",
-                        cursor: "pointer",
-                        background: entrySelected
-                          ? "var(--bg-hover)"
-                          : "transparent",
-                        borderLeft: entrySelected
-                          ? "2px solid var(--accent)"
-                          : "2px solid transparent",
-                      }}
-                    >
-                      {entry.label}
-                    </button>
-                  );
-                })}
-              </>
-            )}
+            {/* Groups render in the order of sidebarGroups. The roster group
+                is rendered in place rather than as rows, so the ordering
+                lives in that one array and not here. */}
+            {groupsBeforeRoster.map((group, i) => (
+              <SidebarGroupRows
+                key={group.id}
+                group={group}
+                first={i === 0}
+                onSelect={(target) => select(target)}
+              />
+            ))}
 
             <div
               style={{
                 ...sidebarSectionLabel,
-                marginTop: accountAvailable ? 18 : 0,
+                marginTop: groupsBeforeRoster.length > 0 ? 18 : 0,
               }}
             >
-              Users
+              {rosterGroup?.label ?? "Members"}
             </div>
             {userList.map((u) => {
               const isMe = sessionContext?.userId === u.id;
@@ -535,6 +639,15 @@ export function UserSettingsView({
               );
             })}
 
+            {groupsAfterRoster.map((group) => (
+              <SidebarGroupRows
+                key={group.id}
+                group={group}
+                first={false}
+                onSelect={(target) => select(target)}
+              />
+            ))}
+
             <div style={{ flex: 1 }} />
 
             <p
@@ -611,7 +724,7 @@ export function UserSettingsView({
                   padding: "10px 16px 4px",
                 }}
               >
-                &larr; All users
+                &larr; Settings
               </button>
             )}
             {selection?.kind === "section" ? (
@@ -634,18 +747,60 @@ export function UserSettingsView({
                   <InvitesPane />
                 ) : selection.section === "sessions" && isOwner ? (
                   <SessionsPane />
-                ) : selection.section === "devices" && sessionContext ? (
+                ) : selection.section === "signInLinks" && sessionContext ? (
                   <MyDevicesPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
-                ) : selection.section === "connections" && sessionContext ? (
+                ) : selection.section === "connectionsOffice" && sessionContext ? (
                   <ConnectionsPane
+                    half="office"
                     username={sessionContext.username}
                     role={sessionContext.role}
+                    onGoToOtherHalf={() =>
+                      select({ kind: "section", section: "connectionsPersonal" })
+                    }
                   />
+                ) : selection.section === "connectionsPersonal" &&
+                  sessionContext ? (
+                  <ConnectionsPane
+                    half="personal"
+                    username={sessionContext.username}
+                    role={sessionContext.role}
+                    onGoToOtherHalf={() =>
+                      select({ kind: "section", section: "connectionsOffice" })
+                    }
+                  />
+                ) : selection.section === "office" ? (
+                  <OfficePane closeRef={detailCloseRef} />
+                ) : selection.section === "usage" ? (
+                  <UsagePane />
+                ) : selection.section === "storage" && isOwner ? (
+                  <StoragePane closeRef={detailCloseRef} />
+                ) : selection.section === "updates" ? (
+                  <UpdatePane onClose={() => leaveEdit(() => onClose())} />
+                ) : selection.section === "deviceLabel" ? (
+                  <DevicePane closeRef={detailCloseRef} />
+                ) : selection.section === "theme" ? (
+                  <ThemePane />
                 ) : selection.section === "apiTokens" && sessionContext ? (
                   <ApiTokensPane />
                 ) : null}
+              </div>
+            ) : selection?.kind === "room" ? (
+              <div
+                style={{
+                  padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+                  maxWidth: 720,
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              >
+                <RoomPane
+                  key={selection.roomId}
+                  roomId={selection.roomId}
+                  closeRef={detailCloseRef}
+                  onDeleted={() => setSelection(null)}
+                />
               </div>
             ) : selectedUser && isFullUserView(selectedUser) ? (
               <UserEditPanel
@@ -695,7 +850,7 @@ export function UserSettingsView({
                   fontSize: 13,
                 }}
               >
-                Select a user from the list
+                Select a setting from the list
               </div>
             )}
           </div>
@@ -1700,6 +1855,51 @@ const onlineDotStyle: React.CSSProperties = {
   background: "var(--green)",
   border: "1.5px solid var(--bg-base)",
 };
+
+// One labelled group of sidebar rows. A row that only opens a dialog never
+// paints as selected, because nothing of it is showing in the detail pane.
+function SidebarGroupRows({
+  group,
+  first,
+  onSelect,
+}: {
+  group: SidebarGroup;
+  first: boolean;
+  onSelect: (target: Selection) => void;
+}) {
+  if (group.rows.length === 0) return null;
+  return (
+    <>
+      <div style={{ ...sidebarSectionLabel, marginTop: first ? 0 : 18 }}>
+        {group.label}
+      </div>
+      {group.rows.map((row) => (
+        <button
+          key={row.key}
+          onClick={() => (row.target ? onSelect(row.target) : row.open?.())}
+          aria-current={row.selected ? "true" : undefined}
+          style={{
+            width: "100%",
+            textAlign: "left",
+            font: "inherit",
+            padding: "8px 14px 8px 22px",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            border: "none",
+            cursor: "pointer",
+            background: row.selected ? "var(--bg-hover)" : "transparent",
+            borderLeft: row.selected
+              ? "2px solid var(--accent)"
+              : "2px solid transparent",
+          }}
+        >
+          {row.label}
+        </button>
+      ))}
+    </>
+  );
+}
 
 const sidebarSectionLabel: React.CSSProperties = {
   fontSize: 10,

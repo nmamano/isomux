@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useAppState, useTheme } from "../store.tsx";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { RoomTabBar } from "../office/RoomTabBar.tsx";
@@ -7,16 +6,12 @@ import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { type NavAction } from "./NavActions.tsx";
 import {
   TasksIcon,
-  BuildingIcon,
-  DoorIcon,
   IsoIcon,
-  DeviceIcon,
   ClockIcon,
   AppsIcon,
-  UserIcon,
+  SettingsIcon,
 } from "./NavIcons.tsx";
 import { SunIcon, MoonIcon } from "./ThemeIcons.tsx";
-import { ThemePicker } from "./ThemePicker.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
 
@@ -24,10 +19,9 @@ export function AgentListView({
   onFocus,
   onSpawn,
   onContextMenu,
-  onOpenUserSettings,
-  onOpenDeviceSettings,
-  onEditOfficePrompt,
+  onOpenSettings,
   onEditRoomSettings,
+  onOpenThemePicker,
   onOpenTasks,
   onOpenCronjobs,
   onOpenApps,
@@ -39,10 +33,9 @@ export function AgentListView({
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
-  onOpenUserSettings: () => void;
-  onOpenDeviceSettings: () => void;
-  onEditOfficePrompt: () => void;
-  onEditRoomSettings?: () => void;
+  onOpenSettings: () => void;
+  onEditRoomSettings?: (roomId: string) => void;
+  onOpenThemePicker: () => void;
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
   onOpenApps: () => void;
@@ -54,7 +47,6 @@ export function AgentListView({
   const { agents, currentRoomId, rooms, updateAvailable, needsAttention } =
     useAppState();
   const { mode } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   const currentRoomName = rooms.find((r) => r.id === currentRoomId)?.name;
@@ -73,39 +65,18 @@ export function AgentListView({
       onClick: onOpenCronjobs,
     },
     { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
+    // One gear for every setting, matching the floor view's bar.
     {
-      id: "user",
-      icon: UserIcon,
-      label: "User settings",
-      onClick: onOpenUserSettings,
+      id: "settings",
+      icon: SettingsIcon,
+      label: "Settings",
+      onClick: onOpenSettings,
     },
-    {
-      id: "device",
-      icon: DeviceIcon,
-      label: "Device settings",
-      onClick: onOpenDeviceSettings,
-    },
-    {
-      id: "office",
-      icon: BuildingIcon,
-      label: "Office settings",
-      onClick: onEditOfficePrompt,
-    },
-    ...(onEditRoomSettings
-      ? [
-          {
-            id: "room",
-            icon: DoorIcon,
-            label: "Room settings",
-            onClick: onEditRoomSettings,
-          },
-        ]
-      : []),
     {
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: () => setThemePickerOpen(true),
+      onClick: onOpenThemePicker,
       title: "Change theme",
     },
     {
@@ -134,7 +105,7 @@ export function AgentListView({
           onOpenUpdate={onOpenUpdate}
         />
 
-        <RoomTabBar />
+        <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />
 
         {/* Agent list */}
         <div
@@ -309,10 +280,6 @@ export function AgentListView({
           +
         </button>
       </div>
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
     </>
   );
 }

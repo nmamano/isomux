@@ -3,7 +3,7 @@
 // MyDevicesPane - an existing typed name gets an
 // inline hint and a disabled submit (the server also rejects it, 409). The
 // Recovery card is the one owner-side exception: a device link FOR an
-// existing user who is locked out of every device (invites.mintRecovery). Mounts on the User Settings page (UserSettingsView) when the current
+// existing user who is locked out of every device (invites.mintRecovery). Mounts on the Settings page (UserSettingsView) when the current
 // session's role is "owner". The other panes from the old all-in-one
 // "Access & invites" section are ExternalAccessPane and SessionsPane.
 

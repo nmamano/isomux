@@ -2,7 +2,6 @@ import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
-import { RoomSettingsModal } from "../components/RoomSettingsModal.tsx";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
 import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
 
@@ -152,7 +151,14 @@ function TotalOnlineChip({ count }: { count: number }) {
   );
 }
 
-export function RoomTabBar() {
+// The double-click on a tab opens that room's settings. App owns the dialog
+// (it already renders one from editingRoomSettings); this bar used to render a
+// SECOND copy from its own state, so the office had two of them.
+export function RoomTabBar({
+  onOpenRoomSettings,
+}: {
+  onOpenRoomSettings?: (roomId: string) => void;
+}) {
   const {
     agents,
     currentRoomId,
@@ -168,7 +174,6 @@ export function RoomTabBar() {
   const dispatch = useDispatch();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
-  const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
 
   // Overflow state for the scroll affordances. Tracked per direction so
   // each edge hint appears only when there is actually content hidden on
@@ -394,7 +399,7 @@ export function RoomTabBar() {
                 }}
                 onDoubleClick={(e) => {
                   e.preventDefault();
-                  setSettingsRoomId(room.id);
+                  onOpenRoomSettings?.(room.id);
                 }}
                 onContextMenu={(e) => e.preventDefault()}
                 style={{
@@ -541,12 +546,6 @@ export function RoomTabBar() {
         />
       )}
 
-      {settingsRoomId && (
-        <RoomSettingsModal
-          roomId={settingsRoomId}
-          onClose={() => setSettingsRoomId(null)}
-        />
-      )}
     </div>
   );
 }

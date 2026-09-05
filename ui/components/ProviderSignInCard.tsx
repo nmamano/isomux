@@ -14,6 +14,10 @@ export function signOutButtonLabel(pending: boolean): string {
   return pending ? "Signing out…" : "Confirm sign out";
 }
 
+// `scopes` picks which of the two sign-in scopes this card shows. The
+// settings page renders one scope per pane (office sign-ins under Office,
+// personal ones under You), while the log view's inline card still shows
+// both, so the default stays the full pair.
 export function ProviderSignInCard({
   provider,
   accounts,
@@ -21,6 +25,7 @@ export function ProviderSignInCard({
   onStartNewConversation,
   showTitle = true,
   apiKeyNote = false,
+  scopes = ["office", "personal"],
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
@@ -28,12 +33,13 @@ export function ProviderSignInCard({
   onStartNewConversation?: () => Promise<void>;
   showTitle?: boolean;
   apiKeyNote?: boolean;
+  scopes?: readonly ProviderAccountScope[];
 }) {
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
     <section style={{ ...cardStyle, marginTop: 14 }}>
       {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
-      {(["office", "personal"] as const).map((scope, index) => (
+      {scopes.map((scope, index) => (
         <ProviderScopeConnection
           key={scope}
           provider={provider}
@@ -56,7 +62,7 @@ export function ProviderSignInCard({
             paddingTop: 14,
           }}
         >
-          Do you want to use an API token? See User Settings → Connections.
+          Do you want to use an API token? See Settings → You → Connections.
         </p>
       )}
     </section>

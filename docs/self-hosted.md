@@ -167,7 +167,7 @@ The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Window
 
 The server runs on `localhost:4000`. To use it from another device or share it with another user, you need to expose it. Two paths, depending on who needs access.
 
-> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only - so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see [Authorize users](#authorize-users)), and (b) enable _External access_ in User Settings → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
+> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only - so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see [Authorize users](#authorize-users)), and (b) enable _External access_ in Settings → Office → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
 
 #### Your devices (and anyone willing to install Tailscale)
 
@@ -232,7 +232,7 @@ Steps:
    and report it back to me with these exact instructions:
 
      "Funnel is up at <URL>. To finish, in your isomux office
-      open User Settings → Access → External access, enable the
+      open Settings → Office → Access → External access, enable the
       toggle, paste this URL into the Public URL field, click
       Save, then restart isomux for the bind to take effect (on a
       system service, run sudo systemctl restart isomux instead):
@@ -282,7 +282,7 @@ Visit the HTTPS URL the command prints (e.g. `https://my-mac-mini.<tailnet>.ts.n
 
 Isomux gates every browser request (HTTP and WebSocket) by a session cookie. No accounts, no passwords.
 
-To grant someone access, mint a single-use invite link in `User Settings → Invites` and send it to them out-of-band (Signal, text, email). They click and they're in.
+To grant someone access, mint a single-use invite link in `Settings → Office → Invites` and send it to them out-of-band (Signal, text, email). They click and they're in.
 
 Two roles exist:
 
@@ -300,7 +300,7 @@ For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, t
 ### Provider API keys
 
 Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
-`OPENCODE_API_KEY` under User Settings → Connections. Other per-user variables
+`OPENCODE_API_KEY` under Settings → You → Connections. Other per-user variables
 work the same way, for example, each member can set `GH_TOKEN` so their agents
 use their own GitHub credentials.
 
