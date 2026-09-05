@@ -35,12 +35,7 @@ import {
   type GhostVariant,
 } from "../../shared/avatar.ts";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
-import {
-  BuildingIcon,
-  DeviceIcon,
-  DoorIcon,
-  UserIcon,
-} from "./NavIcons.tsx";
+import { BuildingIcon, DeviceIcon, DoorIcon, UserIcon } from "./NavIcons.tsx";
 import {
   dialogLabel,
   dialogInput,
