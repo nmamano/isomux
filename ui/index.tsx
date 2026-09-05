@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { PRODUCTION_FEATURES } from "../shared/features.ts";
 import { App } from "./App.tsx";
+import { LanguageProvider } from "./i18n.tsx";
 import { initFocusDebug } from "./focus-debug.ts";
 
 // Diagnostic tracer for the editor input-capture bug - inert unless the
@@ -13,7 +14,9 @@ root.render(
   <ThemeProvider>
     <FeaturesProvider features={PRODUCTION_FEATURES}>
       <StoreProvider>
-        <App />
+        <LanguageProvider>
+          <App />
+        </LanguageProvider>
       </StoreProvider>
     </FeaturesProvider>
   </ThemeProvider>,

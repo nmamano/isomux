@@ -26,6 +26,7 @@ import {
   SettingsIcon,
 } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
+import { useI18n } from "../i18n.tsx";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -177,6 +178,7 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
+  const { t } = useI18n();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -248,30 +250,30 @@ export function OfficeView({
   const counts = getRoomCounts(roomAgents);
 
   const officeActions: NavAction[] = [
-    { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
+    { id: "tasks", icon: TasksIcon, label: t("nav.tasks"), onClick: onOpenTasks },
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: "Schedules",
+      label: t("nav.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
+    { id: "apps", icon: AppsIcon, label: t("nav.apps"), onClick: onOpenApps },
     // One gear for every setting. The office, room, user and device buttons
     // that used to sit here are sidebar rows on the settings page now, and the
     // plaque on the wall opens the same page.
     {
       id: "settings",
       icon: SettingsIcon,
-      label: "Settings",
+      label: t("nav.settings"),
       onClick: onOpenSettings,
-      title: "Settings",
+      title: t("nav.settings"),
     },
     {
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: "Theme",
+      label: t("nav.theme"),
       onClick: onOpenThemePicker,
-      title: "Change theme",
+      title: t("nav.changeTheme"),
     },
   ];
 
@@ -280,7 +282,7 @@ export function OfficeView({
     {
       id: "list",
       icon: ListIcon,
-      label: "Show agent list",
+      label: t("nav.showAgentList"),
       onClick: () => dispatch({ type: "toggle_mobile_view" }),
     },
   ];

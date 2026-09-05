@@ -1,9 +1,9 @@
 // The languages a user can pick in their per-user preferences.
 //
-// One preference drives three surfaces: the language agents write their replies
-// in (a clause in buildSystemPrompt), the locale voice-to-text listens for, and
-// the voice used for text-to-speech. The UI chrome itself is NOT translated -
-// that was scoped out deliberately.
+// One preference drives four surfaces: the language agents write their replies
+// in (a clause in buildSystemPrompt), the locale voice-to-text listens for, the
+// voice used for text-to-speech, and the language the office UI itself reads
+// in (the catalogs under shared/i18n/, through the context in ui/i18n.tsx).
 //
 // `speechLocale` is a full BCP-47 tag because both browser speech APIs want a
 // region ("es", alone, is not something SpeechRecognition accepts everywhere);
@@ -26,6 +26,12 @@ export const SUPPORTED_LANGUAGES = [
     label: "Español",
     englishName: "Spanish",
     speechLocale: "es-ES",
+  },
+  {
+    code: "ca",
+    label: "Català",
+    englishName: "Catalan",
+    speechLocale: "ca-ES",
   },
 ] as const;
 

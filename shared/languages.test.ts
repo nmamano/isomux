@@ -28,6 +28,17 @@ describe("isSupportedLanguage", () => {
   it("the default language is one we offer", () => {
     expect(isSupportedLanguage(DEFAULT_LANGUAGE)).toBe(true);
   });
+
+  it("offers English, Spanish and Catalan, in that order, each under its own name", () => {
+    // The picker's contract: the order is the order shown, and the label is
+    // the language's name in itself, not in English.
+    expect(SUPPORTED_LANGUAGES.map((l) => l.code)).toEqual(["en", "es", "ca"]);
+    expect(SUPPORTED_LANGUAGES.map((l) => l.label)).toEqual([
+      "English",
+      "Español",
+      "Català",
+    ]);
+  });
 });
 
 describe("detectBrowserLanguage", () => {
@@ -37,6 +48,8 @@ describe("detectBrowserLanguage", () => {
     expect(detectBrowserLanguage("es-419")).toBe("es");
     expect(detectBrowserLanguage("ES-mx")).toBe("es");
     expect(detectBrowserLanguage("en-GB")).toBe("en");
+    expect(detectBrowserLanguage("ca-ES")).toBe("ca");
+    expect(detectBrowserLanguage("ca")).toBe("ca");
   });
 
   it("returns null for a language we don't offer or a missing value", () => {
@@ -50,6 +63,7 @@ describe("detectBrowserLanguage", () => {
 describe("languageOption", () => {
   it("resolves a code, and null for absent or unknown", () => {
     expect(languageOption("es")?.englishName).toBe("Spanish");
+    expect(languageOption("ca")?.englishName).toBe("Catalan");
     expect(languageOption(null)).toBe(null);
     // A hand-edited users.json can hold a code the type system says is
     // impossible; the runtime guard still has to answer.
@@ -62,6 +76,7 @@ describe("languageLabelFor", () => {
     expect(languageLabelFor("es-ES")).toBe("Spanish");
     expect(languageLabelFor("es")).toBe("Spanish");
     expect(languageLabelFor("en-GB")).toBe("English");
+    expect(languageLabelFor("ca-ES")).toBe("Catalan");
     // Reachable through the navigator fallback, so it must not render as
     // "undefined" or crash.
     expect(languageLabelFor("fr-FR")).toBe("fr-FR");
@@ -72,6 +87,7 @@ describe("speechLocaleFor", () => {
   it("an explicit preference wins over the browser", () => {
     expect(speechLocaleFor("es", "en-US")).toBe("es-ES");
     expect(speechLocaleFor("en", "es-ES")).toBe("en-US");
+    expect(speechLocaleFor("ca", "en-US")).toBe("ca-ES");
   });
 
   it("with no preference it follows the browser verbatim", () => {

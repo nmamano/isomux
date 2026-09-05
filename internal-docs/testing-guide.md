@@ -186,6 +186,17 @@ focused agent, a signed-in session - wraps it in `StateCtx.Provider`;
 `DispatchCtx` is not exported, so such a fixture can supply state but never
 change it.
 
+A test that needs the self user on a language uses
+`ui/test-support/language-fixture.tsx`: `stateWithSelfUser(language, over?)`
+builds an `AppState` from `initialState` with one full user record and a
+`sessionContext` pointing at it, and `onLanguage(language, element, over?)`
+wraps an element in `StateCtx.Provider` and `LanguageProvider` on that state.
+`over` sets anything else the test needs, such as `isMobile`. Load the fixture
+with `await import(...)` after `setUpDomTestFile()`, because it imports
+`ui/store.tsx`. `ui/i18n.dom.test.tsx` is the worked example. Assert literal
+translated text, never text read back through `translatorFor`: an oracle that
+repeats the implementation approves a wrong translation.
+
 ## Seams and where they live
 
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation

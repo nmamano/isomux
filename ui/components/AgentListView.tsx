@@ -3,6 +3,7 @@ import { StatusLight } from "../office/StatusLight.tsx";
 import { RoomTabBar } from "../office/RoomTabBar.tsx";
 import { MobileHeader, getRoomCounts } from "./MobileHeader.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
+import { useI18n } from "../i18n.tsx";
 import { type NavAction } from "./NavActions.tsx";
 import {
   TasksIcon,
@@ -47,6 +48,7 @@ export function AgentListView({
   const { agents, currentRoomId, rooms, updateAvailable, needsAttention } =
     useAppState();
   const { mode } = useTheme();
+  const { t } = useI18n();
   const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   const currentRoomName = rooms.find((r) => r.id === currentRoomId)?.name;
@@ -57,32 +59,32 @@ export function AgentListView({
   );
 
   const actions: NavAction[] = [
-    { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
+    { id: "tasks", icon: TasksIcon, label: t("nav.tasks"), onClick: onOpenTasks },
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: "Schedules",
+      label: t("nav.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
+    { id: "apps", icon: AppsIcon, label: t("nav.apps"), onClick: onOpenApps },
     // One gear for every setting, matching the floor view's bar.
     {
       id: "settings",
       icon: SettingsIcon,
-      label: "Settings",
+      label: t("nav.settings"),
       onClick: onOpenSettings,
     },
     {
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: "Theme",
+      label: t("nav.theme"),
       onClick: onOpenThemePicker,
-      title: "Change theme",
+      title: t("nav.changeTheme"),
     },
     {
       id: "list",
       icon: IsoIcon,
-      label: "Show floor view",
+      label: t("nav.showFloorView"),
       onClick: onToggleView,
     },
   ];

@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import { useSelfUser } from "../hooks/useSelfUser.ts";
+import { useI18n } from "../i18n.tsx";
 import {
   SUPPORTED_LANGUAGES,
   type SupportedLanguageCode,
@@ -26,6 +27,7 @@ import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 
 export function PreferencesPane() {
   const self = useSelfUser();
+  const { t } = useI18n();
   // The form holds only what the user has TOUCHED; everything else is derived
   // from the record by resolvePreferenceForm. That way a record arriving late
   // (or a change saved on another device) simply shows up, with no effect
@@ -55,7 +57,9 @@ export function PreferencesPane() {
         setSaved(true);
       })
       .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Could not save"),
+        setError(
+          e instanceof ApiError ? e.message : t("preferences.saveFailed"),
+        ),
       )
       .finally(() => setSaving(false));
   }
@@ -63,22 +67,21 @@ export function PreferencesPane() {
   if (!self) {
     return (
       <div style={{ marginTop: 24 }}>
-        <h4 style={sectionHeader}>Preferences</h4>
-        <p style={hint}>Loading…</p>
+        <h4 style={sectionHeader}>{t("preferences.title")}</h4>
+        <p style={hint}>{t("preferences.loading")}</p>
       </div>
     );
   }
 
   return (
     <div style={{ marginTop: 24 }}>
-      <h4 style={sectionHeader}>Preferences</h4>
-      <p style={{ ...hint, marginTop: 4 }}>
-        These follow you to every device you sign in from. Settings that are
-        about this browser in particular live under My devices.
-      </p>
+      <h4 style={sectionHeader}>{t("preferences.title")}</h4>
+      <p style={{ ...hint, marginTop: 4 }}>{t("preferences.intro")}</p>
 
       <div style={cardStyle}>
-        <label style={{ ...dialogLabel, marginTop: 0 }}>Language</label>
+        <label style={{ ...dialogLabel, marginTop: 0 }}>
+          {t("preferences.language")}
+        </label>
         <select
           value={language}
           onChange={(e) => {
@@ -97,9 +100,7 @@ export function PreferencesPane() {
           ))}
         </select>
         <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-          The language your agents write in, and the language your voice input
-          and playback use. Agents pick it up on their next conversation. The
-          rest of the interface stays in English for now.
+          {t("preferences.languageHint")}
         </p>
       </div>
 
@@ -120,11 +121,11 @@ export function PreferencesPane() {
             cursor: saving || !canSave ? "not-allowed" : "pointer",
           }}
         >
-          {saving ? "Saving…" : "Save"}
+          {saving ? t("preferences.saving") : t("preferences.save")}
         </button>
         {saved && !canSave && (
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Saved.
+            {t("preferences.saved")}
           </span>
         )}
         {error && (
