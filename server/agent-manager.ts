@@ -1174,7 +1174,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // resumes there (createSession always resumes at managed.info.cwd). Setting
     // changes (model/effort/permission/sandbox) replace regardless, as before.
     const needReplace =
-      settingTriggersReplace || (cwdChanging && managed.sessionManager.session !== null);
+      settingTriggersReplace ||
+      (cwdChanging && managed.sessionManager.session !== null);
     // Claude relocates its active session's files on ANY cwd change that has a
     // session id - live or lazily-restored (session null, sessionId set) - so a
     // later resume finds the .jsonl under the new project dir. Matches the
@@ -1323,7 +1324,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // succeeded). Only the Claude same-session case needs an explicit stamp;
       // fresh sessions (Codex cwd change, or a from-scratch session) get stamped
       // by system_init's ensureSessionCwd.
-      if (cwdChanging && isClaude && managed.sessionManager.sessionId && targetCwd) {
+      if (
+        cwdChanging &&
+        isClaude &&
+        managed.sessionManager.sessionId &&
+        targetCwd
+      ) {
         persistSessionCwd(agentId, managed.sessionManager.sessionId, targetCwd);
       }
     }
@@ -3424,7 +3430,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           }
           // If we already had a session and got a new init, this is a /clear
-          if (hadPreviousSession && sessionId !== managed.sessionManager.sessionId) {
+          if (
+            hadPreviousSession &&
+            sessionId !== managed.sessionManager.sessionId
+          ) {
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
             addLogEntry(agentId, "system", "Conversation cleared.");
@@ -3688,7 +3697,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // so the deferred unblocks the wrap-and-wake in abort() (and any
           // sendMessage / flushQueue callers).
           const isHotAbortClean =
-            managed?.sessionManager.aborting === true && ev.status === "interrupted";
+            managed?.sessionManager.aborting === true &&
+            ev.status === "interrupted";
           if (isHotAbortClean)
             flushPendingFreshRecoveryNotice(agentId, managed);
           if (!isHotAbortClean) {
@@ -3697,7 +3707,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // turn_completed). The state="error" flip below signals abort()'s
             // recovery branch to fall through to replaceSession.
             const isHotAbortDirty =
-              managed?.sessionManager.aborting === true && ev.status === "failed";
+              managed?.sessionManager.aborting === true &&
+              ev.status === "failed";
             const errorText = isHotAbortDirty
               ? ev.error
                 ? `Codex exited during interrupt: ${ev.error}`
@@ -5468,7 +5479,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // interrupted-will-retry line.
           const userInitiated =
             managed.sessionManager.aborting ||
-            managed.sessionManager.turnCancelToken === managed.sessionManager.abortCancelToken;
+            managed.sessionManager.turnCancelToken ===
+              managed.sessionManager.abortCancelToken;
           if (managed.messageQueue.length > 0 && !userInitiated) {
             addLogEntry(
               agentId,
@@ -6527,7 +6539,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // stamped HERE, not with `aborting = true` below: in the pre-send
     // window pendingTurn is null and abort() returns early, so `aborting`
     // never covers exactly the case where the stamp matters most.
-    managed.sessionManager.abortCancelToken = managed.sessionManager.turnCancelToken;
+    managed.sessionManager.abortCancelToken =
+      managed.sessionManager.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
@@ -6601,7 +6614,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Re-entry guard: a second Stop while the first is still in flight just
     // waits for it instead of starting another abort that would reassign
     // abortPromise and stack abortDone closures.
-    if (managed.sessionManager.aborting && managed.sessionManager.abortPromise) {
+    if (
+      managed.sessionManager.aborting &&
+      managed.sessionManager.abortPromise
+    ) {
       try {
         await managed.sessionManager.abortPromise;
       } catch {}
@@ -6638,7 +6654,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     try {
       let needsReplace = !(
-        managed.sessionManager.session && managed.sessionManager.session.canAbortInPlace()
+        managed.sessionManager.session &&
+        managed.sessionManager.session.canAbortInPlace()
       );
       // A denial the backend refused leaves it possibly still inside
       // canUseTool. The hot path would keep that session alive, so force the

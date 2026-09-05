@@ -8,10 +8,7 @@ import type {
   SkillInfo,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
-import type {
-  DormantReason,
-  SessionManager,
-} from "./session-manager.ts";
+import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 
 // A committed context-fullness sample (design: internal-docs/
@@ -255,7 +252,7 @@ export interface ManagedAgent {
   // silent because there is nothing to announce resuming; "stream-ended" = the
   // backend's event stream ended on its own while the session was still bound
   // (subprocess died without a proper error event) and the SessionManager
-// consumer released
+  // consumer released
   // the dead session pointer. Null while live. In-memory only.
   dormantReason: DormantReason;
 }
