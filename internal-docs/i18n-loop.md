@@ -335,8 +335,15 @@ Mechanics:
   on their second use.
 - Rich text through `rich()` (ruling 16). Variable NAMES, token prefixes,
   URLs, and anything shown as code stay as they are (ruling 11).
-- Timestamps and expiry values keep their current formatting; S6 owns
-  Intl. Only the words around them move.
+- Timestamps, relative times and expiry values (ruled on Reviewer 1's
+  plan-gate escalation, 2026-09-05): S3 introduces the Intl time helper
+  under `shared/i18n` (relative formatter with the existing thresholds and
+  the just-now/expired cases on `Intl.RelativeTimeFormat`; absolute
+  formatter on `Intl.DateTimeFormat`), language as an argument, unit test
+  on en/es/ca at the thresholds. `access-shared.tsx` uses it; S6 reuses it
+  for the rest of the UI. A shape change in the English output (Intl vs the
+  hand-built text) is a formatting change, allowed under ruling 6; the
+  report lists the before/after pairs.
 - Tests: the existing `ui/App.settings-connections.dom.test.tsx` and its
   siblings stay green on a null-language user; one new DOM file
   `ui/settings-access.i18n.dom.test.tsx` mounts the settings page on `ca`
