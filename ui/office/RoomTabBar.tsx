@@ -545,7 +545,6 @@ export function RoomTabBar({
           onScroll={isMobile ? null : () => scrollByPage(1)}
         />
       )}
-
     </div>
   );
 }

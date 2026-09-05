@@ -606,7 +606,9 @@ export function App() {
           onSpawn={() => setSpawnPickerDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           onOpenSettings={() => openSettings(null)}
-          onEditRoomSettings={(roomId) => openSettings({ kind: "room", roomId })}
+          onEditRoomSettings={(roomId) =>
+            openSettings({ kind: "room", roomId })
+          }
           onOpenThemePicker={() =>
             openSettings({ kind: "section", section: "theme" })
           }
@@ -632,7 +634,9 @@ export function App() {
           onEditOfficePrompt={() =>
             openSettings({ kind: "section", section: "office" })
           }
-          onEditRoomSettings={(roomId) => openSettings({ kind: "room", roomId })}
+          onEditRoomSettings={(roomId) =>
+            openSettings({ kind: "room", roomId })
+          }
           onOpenThemePicker={() =>
             openSettings({ kind: "section", section: "theme" })
           }

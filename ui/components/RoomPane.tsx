@@ -178,7 +178,8 @@ export function RoomPane({
   // UserEditPanel and DevicePane use. Name, prompt and memory are all
   // dirty-capable; without this a sidebar click drops all three in silence.
   const dirty =
-    (settingsLoaded && (name.trim() !== baselineName || prompt !== baselinePrompt)) ||
+    (settingsLoaded &&
+      (name.trim() !== baselineName || prompt !== baselinePrompt)) ||
     mem.dirty;
   useEffect(() => {
     if (closeRef) {

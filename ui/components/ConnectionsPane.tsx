@@ -153,8 +153,8 @@ export function ConnectionsPane({
               path={`/api/users/${encodeURIComponent(username)}/env`}
             />
             <p style={{ ...hint, margin: "10px 0 0" }}>
-              Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
-              <code>OPENCODE_API_KEY</code> to use provider API keys. Other
+              Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>,
+              or <code>OPENCODE_API_KEY</code> to use provider API keys. Other
               per-user variables work the same way, for example, each member can
               set <code>GH_TOKEN</code> so their agents use their own GitHub
               credentials. Then <code>/clear</code> agents to apply changes.

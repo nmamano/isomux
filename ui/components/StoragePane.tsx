@@ -415,7 +415,6 @@ export function StoragePane({
 
           {phase.kind === "done" && <ResultBlock result={phase.result} />}
         </div>
-
       </div>
     </div>
   );

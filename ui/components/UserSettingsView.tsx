@@ -751,13 +751,17 @@ export function UserSettingsView({
                   <MyDevicesPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
-                ) : selection.section === "connectionsOffice" && sessionContext ? (
+                ) : selection.section === "connectionsOffice" &&
+                  sessionContext ? (
                   <ConnectionsPane
                     half="office"
                     username={sessionContext.username}
                     role={sessionContext.role}
                     onGoToOtherHalf={() =>
-                      select({ kind: "section", section: "connectionsPersonal" })
+                      select({
+                        kind: "section",
+                        section: "connectionsPersonal",
+                      })
                     }
                   />
                 ) : selection.section === "connectionsPersonal" &&
