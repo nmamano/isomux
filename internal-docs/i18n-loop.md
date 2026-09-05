@@ -112,7 +112,10 @@ inside the same log (the S1 log `/tmp/i18n-lane.log` has the shape).
 The DOM fixture is `onLanguage(language, element, over?)` from
 `ui/test-support/language-fixture.tsx`, loaded with `await import` after
 `setUpDomTestFile()`. The App DOM tests supply state through
-`StateCtx.Provider`, not store seeding.
+`StateCtx.Provider`, not store seeding. Two DOM traps are documented in
+`internal-docs/testing-guide.md` (S2): a pane fetch that settles after the
+file ends prints "pass, 0 fail" AND exits 1, so read the exit line; and a
+sidebar click proves nothing until the row reports `aria-current`.
 
 ## Prohibitions
 
@@ -163,8 +166,9 @@ explanatory copy once it has to say the office itself is translated.
   LogEntryCard, the isomux-curl labels in `ui/log-view/isomux-curl.ts`),
   terminal and editor panel chrome, context battery, subscription pill.
 - S6 (lane 2): office view and scene labels, task board, apps view,
-  cronjobs views, agent list, empty states, toasts, context menu; dates,
-  relative times and numbers through Intl (ruling 12).
+  cronjobs views, agent list, empty states, toasts, context menu, the theme
+  display names in `ui/themes.ts` (shown by ThemePane); dates, relative
+  times and numbers through Intl (ruling 12).
 - S7 (lane 1): server-produced human-facing strings resolved per user:
   slash-command descriptions and responses, welcome and onboarding text,
   and `shared/update-notice.ts` (consumed by `server/update-checker.ts` and
@@ -289,3 +293,68 @@ Decide with reviewer: the rich-text helper API, `common.*` membership, the
 new DOM file's anchors.
 Locked: rulings 1, 6, 7, 10, 14, 15, 16; no access panes, no dialogs, no
 Intl work.
+
+- [x] S2 landed as 99dd399 (+ format 97bf70b). `rich()` in `ui/i18n.tsx`
+  (one key per sentence, named tag pairs, catalog test holds every language
+  to the English tag multiset), `common.*` live, S1 keys renamed under
+  `preferences.*` and `settings.*`. Bundle +51802 bytes; new DOM file
+  1.7-3.2 s (measured 2026-09-05). Scope ruling mid-slice: text produced by
+  `access-shared.tsx` (S3) and `shared/update-notice.ts` (S7) stayed
+  English. Main gained the owner-only "Individual Connections" section in
+  `UserSettingsView.tsx` (task cf86212c) after S2 branched: its five
+  strings are English and belong to S3.
+
+## PICKUP S3 - access and connections panes (Worker 1 / Reviewer 1)
+
+Goal: a user on Catalan or Spanish reads the Invites, External access, API
+tokens, Connections (office-wide and individual) and Sign-in links panes,
+the provider sign-in card, the managed-variables editor, and the shared
+tables and list sections those panes and My devices render, in their
+language.
+
+Mechanics:
+
+- Files, each named on purpose: `ui/components/access-shared.tsx` (its
+  own file in this slice: `renderListSection`, `InvitesTable`,
+  `SessionsTable`, loading and empty states, headers, expiry labels,
+  controls; translating it changes what `MyDevicesPane` renders, which is
+  intended, and S2's DOM file asserts only that pane's own heading),
+  `InvitesPane`, `ExternalAccessPane`, `ApiTokensPane`, `ConnectionsPane`,
+  `ProviderSignInCard`, `ManagedEnvEditor`, and the `MemberVariableNames`
+  section in `UserSettingsView.tsx` (heading "Individual Connections", its
+  hint, "No variables.", "Could not load variables.", "Loading…").
+- Keys: `settings.invites.*`, `settings.sessions.*`,
+  `settings.externalAccess.*`, `settings.apiTokens.*`,
+  `settings.connections.*`, `settings.signIn.*`, `settings.env.*`,
+  `settings.memberConnections.*`. Sidebar labels for these panes already
+  exist from S2 (`settings.sidebar.access`, `.invites`, `.sessions`,
+  `.connectionsOffice`, `.connectionsPersonal`, `.apiTokens`,
+  `.signInLinks`): reuse a key for a pane heading only when the bytes
+  match; never mint a second key for the same string. `common.*` second-use
+  rule applies; "Delete", "Close", "Got it" are pane-local in S2 and move
+  on their second use.
+- Rich text through `rich()` (ruling 16). Variable NAMES, token prefixes,
+  URLs, and anything shown as code stay as they are (ruling 11).
+- Timestamps and expiry values keep their current formatting; S6 owns
+  Intl. Only the words around them move.
+- Tests: the existing `ui/App.settings-connections.dom.test.tsx` and its
+  siblings stay green on a null-language user; one new DOM file
+  `ui/settings-access.i18n.dom.test.tsx` mounts the settings page on `ca`
+  through `onLanguage`, asserts one literal anchor per pane plus one
+  access-shared table header and one empty state, rerenders to `es`, under
+  5 s in-file (rulings 10 and 14). Mind the two DOM traps in the gates
+  section.
+- Acceptance grep on the touched files as in S2.
+
+Acceptance: the listed files read the catalog; catalog test green with the
+new keys; the new DOM file, the settings DOM family and
+`ui/settings.i18n.dom.test.tsx` green; eslint, `build:ui`, `build:demo` if
+`ui/demo-server.ts` is touched, `tsc` once; bundle delta reported. The
+report names the strings the reviewer debated and the choice made; the rest
+is the catalog diff.
+
+Decide with reviewer: `common.*` moves, the new DOM file's anchors, how
+`access-shared.tsx` receives `t` (hook inside the components, or a
+parameter for the pure helpers).
+Locked: rulings 1, 6, 7, 10, 11, 14, 15, 16; no dialogs, no Intl work, no
+server change.
