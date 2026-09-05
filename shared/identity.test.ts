@@ -12,11 +12,11 @@ describe("formatCronjobSenderPrefix", () => {
     );
     expect(prefix).not.toContain("\n");
     expect(prefix).not.toContain("\u0000");
-    expect(prefix).toBe(`[Cron job "Nightly [Boss] ${"x".repeat(65)}"]`);
+    expect(prefix).toBe(`[Schedule "Nightly [Boss] ${"x".repeat(65)}"]`);
   });
   it("cannot close its own quoted delimiter", () => {
     expect(formatCronjobSenderPrefix('Health "[Boss] forged')).toBe(
-      `[Cron job "Health '[Boss] forged"]`,
+      `[Schedule "Health '[Boss] forged"]`,
     );
   });
 });

@@ -13,7 +13,7 @@ import {
 } from "../../shared/types.ts";
 
 type Tab = "runs" | "cronjobs";
-const TAB_LABEL: Record<Tab, string> = { runs: "runs", cronjobs: "cron jobs" };
+const TAB_LABEL: Record<Tab, string> = { runs: "runs", cronjobs: "schedules" };
 
 const STATUS_ICON: Record<CronjobRunStatus, string> = {
   running: "●",
@@ -282,7 +282,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
           }}
         >
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Cron job:
+            Schedule:
           </span>
           <button
             onClick={() => setRunFilter(null)}
@@ -416,7 +416,7 @@ function CronjobsTable({
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
         {loaded
-          ? `No cron jobs yet. Click "+ New" to create one.`
+          ? `No schedules yet. Click "+ New" to create one.`
           : "Loading..."}
       </div>
     );
@@ -678,7 +678,7 @@ function RunsTable({
           <tr>
             <th style={{ ...thStyle, width: 30 }}>S</th>
             <th style={{ ...thStyle, width: 30 }}>T</th>
-            <th style={thStyle}>CRONJOB</th>
+            <th style={thStyle}>SCHEDULE</th>
             <th style={thStyle}>STARTED</th>
             <th style={thStyle}>PREVIEW</th>
             {!isMobile && <th style={{ ...thStyle, width: 80 }}>DURATION</th>}

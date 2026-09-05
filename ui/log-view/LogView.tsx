@@ -391,7 +391,7 @@ function QueueChips({
             msg.sender.kind === "agent"
               ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
               : msg.sender.kind === "cronjob"
-                ? `${msg.sender.cronjobName} · cron job`
+                ? `${msg.sender.cronjobName} · schedule`
                 : msg.sender.kind === "app"
                   ? `${msg.sender.appName} · app`
                   : formatIdentity({

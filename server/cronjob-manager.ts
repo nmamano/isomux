@@ -345,7 +345,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         : undefined;
     const cronjob: Cronjob = {
       id: generateCronjobId(cronjobs.map((c) => c.id)),
-      name: input.name.trim() || "Untitled cron job",
+      name: input.name.trim() || "Untitled schedule",
       schedule,
       prompt: input.prompt,
       cwd: resolveCwd(input.cwd),
@@ -548,7 +548,7 @@ How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessio
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
   ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
-To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs tab in the UI.
+To create, edit, delete, or trigger a cronjob, direct the boss to the Schedules page in the UI.
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 

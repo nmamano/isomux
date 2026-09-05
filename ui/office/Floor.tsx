@@ -1617,6 +1617,7 @@ export function Walls({
       <g
         data-no-pan
         transform="translate(240,-85) skewY(27)"
+        aria-label={onOpenCronjobs ? "Schedules" : undefined}
         onClick={onOpenCronjobs}
         style={
           onOpenCronjobs

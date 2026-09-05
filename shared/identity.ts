@@ -63,7 +63,7 @@ export function formatCronjobSenderPrefix(cronjobName: string): string {
     .replace(/"/g, "'")
     .trim()
     .slice(0, 80);
-  return `[Cron job "${normalized}"]`;
+  return `[Schedule "${normalized}"]`;
 }
 
 const API_TOKEN_DEVICE_PREFIX = 'API token "';

@@ -41,7 +41,7 @@ free · open source · no account needed · works with your subscriptions
 - [**Fully multiplayer**](https://x.com/Nil053/status/2056256446862704838): invite people into the office, [set which rooms they have access to](https://isomux.com/docs/access-and-invites), and see which agents they are currently talking to
 - [**Hierarchical**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't have to repeat context every time
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
-- [**Recurring work**](https://x.com/Nil053/status/2048308972072079753) can be scheduled with cron jobs
+- [**Recurring work**](https://x.com/Nil053/status/2048308972072079753) can be scheduled
 - [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), plus everything is interactable (click the moon for dark mode, the door to change rooms, the clock to see scheduled tasks...)
 - **Full of quality-of-life features**: edit a past message to branch the conversation, attach files, auto-generated conversation topics, [pre-tool-call safety hooks](https://x.com/Nil053/status/2039497314826666469), secrets kept out of prompts, daily backups, and more
 

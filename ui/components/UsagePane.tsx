@@ -81,7 +81,7 @@ export function UsagePane() {
           </p>
           {usage?.scoped && (
             <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              Scoped to the rooms you can access. Cron job usage is not
+              Scoped to the rooms you can access. Schedule usage is not
               included.
             </p>
           )}
@@ -116,7 +116,7 @@ export function UsagePane() {
               />
               {usage.cronjobs && usage.cronjobs.length > 0 && (
                 <LifetimeTable
-                  title="Per-cron job usage"
+                  title="Per-schedule usage"
                   rows={usage.cronjobs.map((row) => ({
                     key: row.id,
                     label: row.name,
@@ -213,7 +213,7 @@ function LifetimeTable({
         <table style={tableStyle}>
           <thead>
             <tr>
-              <th style={leftHead}>Cron job</th>
+              <th style={leftHead}>Schedule</th>
               <th style={head}>In (life)</th>
               <th style={head}>Out (life)</th>
               <th style={head}>$ (life)</th>

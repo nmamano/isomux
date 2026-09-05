@@ -23,7 +23,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API.
-- **Privileged agents**: agent can be granted operator access, allowing them to drive other agents the way you do from the UI, like resuming or starting conversations, jumping the queue, aborting a stuck turn, and managing cron jobs.
+- **Privileged agents**: agent can be granted operator access, allowing them to drive other agents the way you do from the UI, like resuming or starting conversations, jumping the queue, aborting a stuck turn, and managing schedules.
 - **Reflection**: privileged agents can tweak every office feature, like creating rooms, spawning agents, setting room/agent prompts, etc.
 
 ### Prompts, skills, and commands
@@ -95,7 +95,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` - rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](self-hosted.md#vps-install) sets up for you (runs headless, so no display is needed); everything else works without one.
-- `/isomux-usage` - per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access. The same report is available under Office Settings.
+- `/isomux-usage` - per-agent / per-room / per-schedule token spend, scoped to the rooms you can access. The same report is available under Office Settings.
 - `/isomux-storage` - disk usage by category; owners also see the biggest agents.
 
 ### Navigation and shortcuts
@@ -110,15 +110,15 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
 
-### Cron jobs
+### Schedules
 
 - **Schedule recurring agent runs**: daily at HH:MM, weekly on a weekday, or every N minutes.
 - Each run is a **fresh agent session** with the same configurability as a desk agent (model, effort, cwd, permission mode).
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
-- **Manual "Run now"** for any cron job, independent of the schedule.
-- **Agent alerts** - a cron job can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
-- Per cron job token usage rolled into `/isomux-usage` (for owners).
+- **Manual "Run now"** for any schedule, independent of its timing.
+- **Agent alerts** - a schedule can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
+- Per schedule token usage rolled into `/isomux-usage` (for owners).
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 
 ### Apps

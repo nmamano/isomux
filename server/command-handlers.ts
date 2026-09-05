@@ -831,9 +831,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (!query) {
         const lines = ["Usage: `/isomux-cronjob-system-prompt <name-or-id>`"];
         if (all.length === 0) {
-          lines.push("\nNo cron jobs are configured.");
+          lines.push("\nNo schedules are configured.");
         } else {
-          lines.push("\nKnown cron jobs:");
+          lines.push("\nKnown schedules:");
           for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);
         }
         deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -849,7 +849,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (!target) {
         if (byNameMatches.length > 1) {
           const lines = [
-            `Multiple cron jobs are named "${query}". Re-run with the id:`,
+            `Multiple schedules are named "${query}". Re-run with the id:`,
           ];
           for (const c of byNameMatches) lines.push(`  \`${c.id}\``);
           deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -857,7 +857,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            `No cron job matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list cron jobs.`,
+            `No schedule matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list schedules.`,
           );
         }
         deps.updateState(agentId, "waiting_for_response");
@@ -873,7 +873,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         0,
       );
       const fence = "`".repeat(Math.max(3, longestRun + 1));
-      const header = `**System prompt + first user message for cron job "${target.name}"** *(reflects current settings; takes effect on next run)*`;
+      const header = `**System prompt + first user message for schedule "${target.name}"** *(reflects current settings; takes effect on next run)*`;
       deps.addLogEntry(
         agentId,
         "system",
@@ -1034,7 +1034,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "- launch `claude`, then type `/usage`",
         "- launch `~/.isomux/bin/codex`, then type `/status`",
         "",
-        "For office-level token spend (per-agent / per-room / per-cron-job), see `/isomux-usage`.",
+        "For office-level token spend (per-agent / per-room / per-schedule), see `/isomux-usage`.",
       ];
       deps.addLogEntry(agentId, "system", usageLines.join("\n"));
       deps.addLogEntry(

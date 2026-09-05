@@ -252,7 +252,7 @@ export function OfficeView({
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: "Cron jobs",
+      label: "Schedules",
       onClick: onOpenCronjobs,
     },
     { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },

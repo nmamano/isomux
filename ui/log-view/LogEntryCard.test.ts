@@ -77,7 +77,7 @@ describe("describeMessageSender", () => {
     ).toEqual({ label: "habits · app", fromHuman: false });
   });
 
-  it("a CRON JOB sender is labelled as a cron job, and is not human", () => {
+  it("a CRON JOB sender is labelled as a schedule, and is not human", () => {
     // The metadata agent-manager stamps for a cron-run sender. Reported live by
     // Nil, 2026-08-27: without this branch a scheduled alert rendered as the
     // reader's own message ("YOU") in a solid-accent band.
@@ -86,7 +86,7 @@ describe("describeMessageSender", () => {
         sender_cronjob_id: "08366d7d",
         sender_cronjob_name: "Business health check",
       }),
-    ).toEqual({ label: "Business health check · cron job", fromHuman: false });
+    ).toEqual({ label: "Business health check · schedule", fromHuman: false });
   });
 
   it("an API-TOKEN message keeps the human's name but renders as machine-sent", () => {
@@ -111,6 +111,6 @@ describe("describeMessageSender", () => {
         sender_cronjob_name: "Business health check",
         username: "Nil",
       }),
-    ).toEqual({ label: "Business health check · cron job", fromHuman: false });
+    ).toEqual({ label: "Business health check · schedule", fromHuman: false });
   });
 });

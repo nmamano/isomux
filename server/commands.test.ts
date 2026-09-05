@@ -3,11 +3,12 @@ import { commands, unsupportedMessage } from "./commands.ts";
 
 describe("unsupportedMessage", () => {
   it("returns the Nil-dictated copy for /loop", () => {
-    // Exact copy decided in task c4717359 - /loop is deliberately not
-    // supported natively; the message redirects to isomux's own
-    // recurring-work primitives. Do not reword without boss sign-off.
+    // Exact copy decided in task c4717359, reworded for the Schedules rename
+    // by Nil's ruling of 2026-09-05 - /loop is deliberately not supported
+    // natively; the message redirects to isomux's own recurring-work
+    // primitives. Do not reword without boss sign-off.
     expect(unsupportedMessage("loop")).toBe(
-      "not supported natively; see if the Cronjobs tab or scheduled messages satisfy your use case",
+      "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
     );
   });
 

@@ -41,7 +41,7 @@ export const CATEGORY_LABELS: Record<StorageCategoryId, string> = {
   "session-metadata": "Session metadata",
   "codex-home": "Codex home",
   "provider-homes": "Personal provider homes",
-  cronjobs: "Cron job history",
+  cronjobs: "Schedule history",
   memory: "Memory",
   "other-state": "Everything else",
   backups: "Backups",

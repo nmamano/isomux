@@ -364,7 +364,7 @@ export function describeMessageSender(
   // message ("YOU"), which is exactly the misattribution above.
   const senderCronjobName = metadata?.sender_cronjob_name as string | undefined;
   if (senderCronjobName) {
-    return { label: `${senderCronjobName} · cron job`, fromHuman: false };
+    return { label: `${senderCronjobName} · schedule`, fromHuman: false };
   }
   const username = metadata?.username as string | undefined;
   const device = metadata?.device as string | undefined;

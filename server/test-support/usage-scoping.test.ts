@@ -187,14 +187,14 @@ describe("usageAudienceForUser", () => {
 });
 
 describe("renderUsageReport room scoping", () => {
-  it("shows an owner every room, every agent, and cron jobs", () => {
+  it("shows an owner every room, every agent, and schedules", () => {
     const report = renderUsageReport(seedOffice(), ROOMS, OWNER);
     expect(report).toContain("| Alpha | Room A |");
     expect(report).toContain("| Beta | Room B |");
     expect(report).toContain("| Room A |");
     expect(report).toContain("| Room B |");
     expect(report).toContain("(unknown room)");
-    expect(report).toContain("## Per-cron job usage");
+    expect(report).toContain("## Per-schedule usage");
     expect(report).toContain("## Office total");
     // 1 + 2 + 4 + 8 agents + 7 cron = 22.
     expect(lifetimeTotalUsd(report)).toBe("$22.00");
@@ -212,9 +212,9 @@ describe("renderUsageReport room scoping", () => {
     expect(lifetimeTotalUsd(report)).toBe("$1.00");
   });
 
-  it("keeps cron jobs out of a member's report and out of their total", () => {
+  it("keeps schedules out of a member's report and out of their total", () => {
     const report = renderUsageReport(seedOffice(), ROOMS, MEMBER_OF_A);
-    expect(report).not.toContain("Per-cron job usage");
+    expect(report).not.toContain("Per-schedule usage");
     expect(report).not.toContain("Nightly");
     expect(report).not.toContain("## Office total");
     expect(report).toContain("## Total");
@@ -322,7 +322,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     expect(memberReport).toContain("Room B");
     expect(memberReport).not.toContain("Alpha");
     expect(memberReport).toContain(
-      "_Scoped to the rooms you can access; cron job spend isn't included._",
+      "_Scoped to the rooms you can access; schedule spend isn't included._",
     );
 
     await srv.agentManager.sendMessage(

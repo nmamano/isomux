@@ -79,7 +79,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
             color: "var(--text-primary)",
           }}
         >
-          Cron Jobs Settings
+          Schedules Settings
         </h3>
 
         <label
@@ -94,7 +94,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
         >
           Rules{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (system prompt for all cron jobs)
+            (system prompt for all schedules)
           </span>
         </label>
         <textarea

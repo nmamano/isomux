@@ -34,7 +34,7 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
   -d '{"text":"Please check the latest alert."}'
 ```
 
-For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, cron jobs, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
+For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
 
 ## Receive replies from office agents
 

@@ -343,7 +343,7 @@ function buildCronjobRows(totalLife: UsageBucket): CronjobUsageWire[] {
     if (u.costUSD === 0 && u.totalIn === 0 && u.totalOut === 0) continue;
     cronjobBuckets.push({
       id,
-      name: cronjobHistory[id]?.lastName ?? "(unknown cron job)",
+      name: cronjobHistory[id]?.lastName ?? "(unknown schedule)",
       deleted: true,
       lifetime: {
         totalIn: u.totalIn,
@@ -375,7 +375,7 @@ export function renderUsageReport(
   if (data.scoped) {
     lines.push(
       "",
-      `_Scoped to the rooms you can access; cron job spend isn't included._`,
+      `_Scoped to the rooms you can access; schedule spend isn't included._`,
     );
   }
   lines.push(
@@ -408,9 +408,9 @@ export function renderUsageReport(
   if (data.cronjobs && data.cronjobs.length > 0) {
     lines.push(
       "",
-      `## Per-cron job usage`,
+      `## Per-schedule usage`,
       "",
-      `| Cron job | In (life) | Out (life) | $ (life) |`,
+      `| Schedule | In (life) | Out (life) | $ (life) |`,
       `| --- | ---: | ---: | ---: |`,
     );
     for (const r of data.cronjobs) {

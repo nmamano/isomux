@@ -416,7 +416,7 @@ export function CronjobDialog({
     } else {
       // username is omitted - the server derives attribution from identity.
       const body: CronCreateReq = {
-        name: name.trim() || "Untitled cron job",
+        name: name.trim() || "Untitled schedule",
         schedule: buildSchedule(),
         prompt,
         cwd,
@@ -499,7 +499,7 @@ export function CronjobDialog({
               color: "var(--text-primary)",
             }}
           >
-            {isEdit ? "Edit Cron Job" : "New Cron Job"}
+            {isEdit ? "Edit Schedule" : "New Schedule"}
           </h3>
           {isEdit && (
             <p
@@ -647,7 +647,7 @@ export function CronjobDialog({
           <ExpandableTextarea
             value={prompt}
             onChange={setPrompt}
-            title="Cron Job Prompt"
+            title="Schedule Prompt"
             placeholder='e.g. "Summarize what every agent accomplished yesterday."'
             rows={4}
             style={{ ...inputStyle, resize: "vertical" }}
@@ -951,7 +951,7 @@ export function CronjobDialog({
           >
             {isOpenCode
               ? "Shell and edit tools are allowed. Delegation and questions are denied."
-              : "Cron jobs run unattended - modes that require human approval are not available."}
+              : "Schedules run unattended - modes that require human approval are not available."}
           </p>
 
           {isCodex && (

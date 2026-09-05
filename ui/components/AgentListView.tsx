@@ -61,7 +61,7 @@ export function AgentListView({
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: "Cron jobs",
+      label: "Schedules",
       onClick: onOpenCronjobs,
     },
     { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },

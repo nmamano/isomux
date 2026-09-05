@@ -142,7 +142,7 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxCronjobSystemPrompt",
-    description: "Show the system prompt a cron job receives (pass name or id)",
+    description: "Show the system prompt a schedule receives (pass name or id)",
   },
   "isomux-diff": {
     type: "hardcoded",
@@ -171,7 +171,7 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxUsage",
-    description: "Per-agent / per-room / per-cron-job token spend",
+    description: "Per-agent / per-room / per-schedule token spend",
     autoRun: true,
   },
   "isomux-storage": {
@@ -443,7 +443,7 @@ export const commands: Record<string, CommandConfig> = {
     // The user-visible string is fixed copy: /loop stays unsupported natively
     // and points users at isomux's own recurring-work primitives.
     message:
-      "not supported natively; see if the Cronjobs tab or scheduled messages satisfy your use case",
+      "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
   },
   "lorem-ipsum": {
     ...UNSUPPORTED_BUNDLED_SKILL,
