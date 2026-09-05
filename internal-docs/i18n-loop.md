@@ -527,3 +527,76 @@ Decide with reviewer: the card key layout, the new DOM file's seed and
 anchors, how the pure helpers receive the translator (ruling 18).
 Locked: rulings 1, 6, 7, 10, 11, 14-19; no office scene, no server change,
 no Intl beyond time.ts reuse.
+
+- [x] S5 landed as 6e41f4c (+ format 28b8794). Log view, cards, API-call
+  labels by opId, subscription pill, context battery, terminal and editor
+  chrome, copy and speak buttons; 322 keys (875 English keys total);
+  `PlainMessageKey` for id-to-key tables. Bundle +59363 bytes; new DOM
+  file 2.0 s (measured 2026-09-06). Parked for Nil: `apiCall.memory.saveOffice`
+  reads "Save a office memory" (pre-existing article bug, frozen under
+  ruling 6; proposed "Save an office memory"). Product gap filed as a
+  task: `ui/spoken-punctuation.ts` is English-only dictation parsing.
+  Left for S7 by report: slash-command names and descriptions, skill
+  descriptions, choice interactions, backend permission prompt text,
+  system entries the server writes into the log ("Conversation cleared."
+  at `server/command-handlers.ts` and `server/agent-manager.ts`), relayed
+  ApiError text, subscription window labels ("Weekly (Opus)").
+  Rule learned: a memoized value never carries finished text; a helper
+  whose caller memoizes on inputs without the language returns a key.
+
+## PICKUP S6 - office view, pages, scene labels, numbers (Worker 2 / Reviewer 2)
+
+Goal: a user on Catalan or Spanish reads the office scene and its labels,
+the task board, the apps page, the schedules pages, the agent list, the
+top-level app chrome (toasts, notices, context menu, nav), the theme names,
+and every number and remaining hand-formatted time in their language.
+
+Mechanics:
+
+- Files: `ui/office/*` (DeskUnit incl. `PENDING_PROMPT_BADGE` from
+  `ui/pending-prompt.ts`, Floor, OfficeView remainder, Character labels,
+  room and desk tooltips), `ui/components/TaskView.tsx`,
+  `ui/components/AppsView.tsx`, `ui/components/CronjobsView.tsx`,
+  `ui/components/CronjobRunView.tsx`, `ui/components/AgentListView.tsx`
+  remainder, `ui/components/ContextMenu.tsx`, `ui/components/NavIcons.tsx`
+  if it holds labels, `ui/App.tsx` and `ui/store.tsx` prose (toasts,
+  notifications, confirms), `ui/themes.ts` display names, `ui/cwd-display.ts`
+  and `ui/roomSelection.ts` if they build prose, and every helper module
+  beside these that holds prose (grep; name each in the plan gate).
+- Keys: `office.*`, `tasks.*`, `apps.*`, `schedules.*`, `agentList.*`,
+  `contextMenu.*`, `toasts.*`, `themes.<id>`; `common.*` second-use rule;
+  camelCase segments (ruling 15).
+- Numbers (ruling 12): one `formatNumber(language, n)` (and a bytes/size
+  variant if the code has one) in `shared/i18n/number.ts` on
+  `Intl.NumberFormat`, unit-tested on en/es/ca; every `toLocaleString` and
+  `toLocaleDateString`/`toLocaleTimeString` call in `ui/` (20 measured on
+  bd790b7; `ContextBattery`'s "en-US" token counts included) moves to it
+  or to `shared/i18n/time.ts`. `shared/format-human.ts`'s
+  `formatRelativeTime` is shared with `server/storage-report.ts`: the UI
+  callers switch to `time.ts`; the server keeps `format-human.ts` and S7
+  decides its fate.
+- Scene text drawn on canvas or SVG: translate the source string the same
+  way; the DOM test asserts where the text reaches the DOM (title, aria
+  label, tooltip) and the report says which labels are canvas-only.
+- Memoization: a memoized value never carries finished text unless the
+  language is in its dependency list (S5 rule).
+- Tests: existing `ui/App.*.dom.test.tsx`, `ui/office/*.test.*`,
+  `ui/components/*.test.*` stay green on a null-language user; one new
+  DOM file `ui/office.i18n.dom.test.tsx` mounts the office view, then
+  the tasks page and the apps page, on `ca` through `onLanguage`, asserts
+  one literal anchor per surface plus one formatted number, rerenders to
+  `es`, under 5 s in-file; `shared/i18n/number.test.ts` plain unit.
+- Acceptance grep on the touched files as in S2.
+
+Acceptance: the listed files read the catalog; catalog test green; the new
+DOM file, the number test and the existing tests green; no `toLocale*`
+call left in `ui/` (grep in the report); eslint, `build:ui`, `build:demo`
+if `ui/demo-server.ts` or `shared/storage-labels.ts` is touched, `tsc`
+once; bundle delta reported. The report names the strings the reviewer
+debated and the choice made, the canvas-only labels, and anything left
+for S7.
+
+Decide with reviewer: the number helper API, the new DOM file's anchors,
+the key layout for the scene.
+Locked: rulings 1, 6, 7, 10, 11, 14-19; no server change; no log view
+changes beyond `ContextBattery`'s number call.
