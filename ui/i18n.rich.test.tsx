@@ -96,7 +96,9 @@ describe("uiTranslatorFor", () => {
   it("follows a translation that moves the tag around its placeholder", () => {
     const es = uiTranslatorFor("es");
     expect(
-      html(es.rich("settings.storage.totalAllState", { total: "1 GB", strong })),
+      html(
+        es.rich("settings.storage.totalAllState", { total: "1 GB", strong }),
+      ),
     ).toBe("<p><strong>1 GB en total</strong>, todo estado de la oficina.</p>");
   });
 

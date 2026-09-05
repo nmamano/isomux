@@ -264,8 +264,7 @@ export const ca: Catalog = {
   "settings.storage.category.cronjobs": "Historial de programacions",
   "settings.storage.category.otherState": "Tota la resta",
   "settings.storage.category.backups": "Còpies de seguretat",
-  "settings.storage.category.updateSnapshots":
-    "Instantànies d'actualització",
+  "settings.storage.category.updateSnapshots": "Instantànies d'actualització",
   "settings.storage.skip.tooRecent": "més recents que el límit d'antiguitat",
   "settings.storage.skip.keepNewest":
     "entre les més recents que es conserven per al seu agent",
@@ -312,7 +311,8 @@ export const ca: Catalog = {
   "settings.storage.backupUnavailable":
     "Estat de les còpies de seguretat no disponible.",
   "settings.storage.noBackupYet": "Encara no s'ha fet cap còpia de seguretat.",
-  "settings.storage.lastBackupOk": "Última còpia de seguretat {when}, correcta.",
+  "settings.storage.lastBackupOk":
+    "Última còpia de seguretat {when}, correcta.",
   "settings.storage.lastBackupFailed":
     "Última còpia de seguretat {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":

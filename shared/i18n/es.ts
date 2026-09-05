@@ -15,7 +15,8 @@ export const es: Catalog = {
   "common.memoryEditorHint":
     "Este editor reescribe el archivo tal como se muestra. Usa una memoria por línea.",
   "common.saveFailed": "No se pudo guardar",
-  "common.nextConversation": "Los cambios se aplican en la siguiente conversación.",
+  "common.nextConversation":
+    "Los cambios se aplican en la siguiente conversación.",
   "common.settings": "Ajustes",
   "common.theme": "Tema",
   "common.preferences": "Preferencias",
@@ -101,7 +102,8 @@ export const es: Catalog = {
   "settings.profile.memoryHint":
     "(hechos duraderos sobre este usuario; reescribe el archivo tal como se muestra - una memoria por línea; {size} / {cap})",
   "settings.profile.memoryTitle": "{user} · Memoria",
-  "settings.profile.memoryPlaceholder": "Alguna memoria relevante para este usuario",
+  "settings.profile.memoryPlaceholder":
+    "Alguna memoria relevante para este usuario",
   "settings.profile.appearance": "Apariencia",
   "settings.profile.avatar": "Avatar",
   "settings.profile.avatarHint":
@@ -121,7 +123,8 @@ export const es: Catalog = {
   "settings.office.viewOnly":
     "Solo lectura. Solo los propietarios de la oficina pueden editar los ajustes de toda la oficina.",
   "settings.office.name": "Nombre de la oficina",
-  "settings.office.nameHint": "(opcional, se muestra en la pestaña del navegador)",
+  "settings.office.nameHint":
+    "(opcional, se muestra en la pestaña del navegador)",
   "settings.office.namePlaceholder": "Oficina de Nil",
   "settings.office.rules": "Reglas",
   "settings.office.rulesHint": "(prompt de sistema para todos los agentes)",
@@ -189,7 +192,8 @@ export const es: Catalog = {
     "Cualquiera con el enlace puede iniciar sesión como tú hasta que caduque o se use - trátalo como una contraseña de un solo uso y ábrelo solo en tu propio dispositivo.",
   "settings.devices.generating": "Generando…",
   "settings.devices.generate": "Generar enlace de dispositivo",
-  "settings.devices.generateFailed": "No se pudo generar el enlace de dispositivo",
+  "settings.devices.generateFailed":
+    "No se pudo generar el enlace de dispositivo",
 
   "settings.update.newRelease": "Nueva versión disponible",
   "settings.update.upToDateTitle": "Actualizado",
@@ -208,12 +212,15 @@ export const es: Catalog = {
   "settings.update.close": "Cerrar",
   "settings.update.runningOn": "Estás en <code>{version}</code>",
   "settings.update.unknownVersion": "una versión desconocida",
-  "settings.update.latestRelease": "Última versión: <code>{tag}</code>{published}",
+  "settings.update.latestRelease":
+    "Última versión: <code>{tag}</code>{published}",
   "settings.update.releaseNotes": "notas de la versión",
   "settings.update.restartWarning":
     "Actualizar reinicia el servidor e interrumpe a todos los agentes.",
-  "settings.update.busyNone": "Ningún agente está a mitad de tarea ahora mismo.",
-  "settings.update.busy.one": "{count} agente está a mitad de tarea ahora mismo.",
+  "settings.update.busyNone":
+    "Ningún agente está a mitad de tarea ahora mismo.",
+  "settings.update.busy.one":
+    "{count} agente está a mitad de tarea ahora mismo.",
   "settings.update.busy.other":
     "{count} agentes están a mitad de tarea ahora mismo.",
   "settings.update.busyUnavailable":
@@ -260,9 +267,9 @@ export const es: Catalog = {
   "settings.storage.category.cronjobs": "Historial de programaciones",
   "settings.storage.category.otherState": "Todo lo demás",
   "settings.storage.category.backups": "Copias de seguridad",
-  "settings.storage.category.updateSnapshots":
-    "Instantáneas de actualización",
-  "settings.storage.skip.tooRecent": "más recientes que el límite de antigüedad",
+  "settings.storage.category.updateSnapshots": "Instantáneas de actualización",
+  "settings.storage.skip.tooRecent":
+    "más recientes que el límite de antigüedad",
   "settings.storage.skip.keepNewest":
     "entre las más recientes que se conservan para su agente",
   "settings.storage.skip.activeSession":
@@ -307,9 +314,12 @@ export const es: Catalog = {
     "Las copias de seguridad y las instantáneas de actualización están fuera del directorio de estado de la oficina, así que se listan después de su subtotal. “ninguno” significa que esa ubicación no está configurada en esta máquina.",
   "settings.storage.backupUnavailable":
     "Estado de las copias de seguridad no disponible.",
-  "settings.storage.noBackupYet": "Aún no se ha hecho ninguna copia de seguridad.",
-  "settings.storage.lastBackupOk": "Última copia de seguridad {when}, correcta.",
-  "settings.storage.lastBackupFailed": "Última copia de seguridad {when} FALLIDA.",
+  "settings.storage.noBackupYet":
+    "Aún no se ha hecho ninguna copia de seguridad.",
+  "settings.storage.lastBackupOk":
+    "Última copia de seguridad {when}, correcta.",
+  "settings.storage.lastBackupFailed":
+    "Última copia de seguridad {when} FALLIDA.",
   "settings.storage.lastBackupFailedWith":
     "Última copia de seguridad {when} FALLIDA: {error}",
   "settings.storage.backupKeeping":

@@ -133,7 +133,8 @@ export const en = {
     "Could not confirm your room list; Displayed not saved.",
 
   "settings.office.title": "Office Settings",
-  "settings.office.intro": "The framed sign on the office wall opens this page.",
+  "settings.office.intro":
+    "The framed sign on the office wall opens this page.",
   "settings.office.viewOnly":
     "View only. Only office owners can edit office-wide settings.",
   "settings.office.name": "Office Name",
@@ -220,7 +221,8 @@ export const en = {
   "settings.update.close": "Close",
   "settings.update.runningOn": "You are on <code>{version}</code>",
   "settings.update.unknownVersion": "an unknown version",
-  "settings.update.latestRelease": "Latest release: <code>{tag}</code>{published}",
+  "settings.update.latestRelease":
+    "Latest release: <code>{tag}</code>{published}",
   "settings.update.releaseNotes": "release notes",
   "settings.update.restartWarning":
     "Updating restarts the server, interrupting every agent.",

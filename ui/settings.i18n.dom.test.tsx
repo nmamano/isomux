@@ -205,7 +205,9 @@ describe("the settings page", () => {
     expect(heading(view, STORAGE_TITLE.ca, "H3")).toBe(true);
 
     open(view, "Actualitzacions");
-    expect(view.queryByText("Aquesta oficina està actualitzada.")).not.toBeNull();
+    expect(
+      view.queryByText("Aquesta oficina està actualitzada."),
+    ).not.toBeNull();
 
     // The device label pane, then its browser confirm on the way to Theme.
     open(view, "Etiqueta del dispositiu");

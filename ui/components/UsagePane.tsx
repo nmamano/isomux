@@ -127,7 +127,9 @@ export function UsagePane() {
                   rows={usage.cronjobs.map((row) => ({
                     key: row.id,
                     label: row.name,
-                    detail: row.deleted ? t("settings.usage.deleted") : undefined,
+                    detail: row.deleted
+                      ? t("settings.usage.deleted")
+                      : undefined,
                     lifetime: row.lifetime,
                   }))}
                 />

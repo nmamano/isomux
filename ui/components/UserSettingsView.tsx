@@ -589,11 +589,7 @@ export function UserSettingsView({
                       : undefined
                   }
                   aria-current={selected ? "true" : undefined}
-                  title={
-                    editable
-                      ? undefined
-                      : t("settings.members.editHint")
-                  }
+                  title={editable ? undefined : t("settings.members.editHint")}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -1615,10 +1611,9 @@ function UserEditPanel({
                               if (!displayed) return;
                               toggleRoomNotif(r.id);
                             }}
-                            aria-label={t(
-                              "settings.profile.notificationsFor",
-                              { room: r.name },
-                            )}
+                            aria-label={t("settings.profile.notificationsFor", {
+                              room: r.name,
+                            })}
                             style={{
                               accentColor: "var(--accent)",
                               cursor: displayed ? "pointer" : "default",
