@@ -91,7 +91,10 @@ export interface SessionManagerDeps<H extends SessionHost> {
   // (null for other engines), and auth detection (emits the login
   // instructions when true and returns the classification for updateState).
   reconcilePendingFixedCwdReset: (host: H) => void;
-  diagnoseProcessExitHints: (host: H, sessionId: string | null) => string | null;
+  diagnoseProcessExitHints: (
+    host: H,
+    sessionId: string | null,
+  ) => string | null;
   handleDetectedAuthError: (host: H, errorText: string) => boolean;
   // Post-swap dead-turn normalization.
   updateState: (agentId: string, state: AgentState) => void;

@@ -52,7 +52,11 @@ function fakeDeps() {
   const processed: NormalizedEvent[] = [];
   const logged: LoggedEntry[] = [];
   const stateUpdates: AgentState[] = [];
-  const diagnostics = { reconciled: 0, diagnosed: 0, authChecked: [] as string[] };
+  const diagnostics = {
+    reconciled: 0,
+    diagnosed: 0,
+    authChecked: [] as string[],
+  };
   const waiters: { n: number; resolve: () => void }[] = [];
   const deps: SessionManagerDeps<TestHost> = {
     updateAgent: (agentId, changes) => [
@@ -93,7 +97,15 @@ function fakeDeps() {
       if (processed.length >= n) resolve();
       else waiters.push({ n, resolve });
     });
-  return { deps, events, processed, logged, stateUpdates, diagnostics, whenProcessed };
+  return {
+    deps,
+    events,
+    processed,
+    logged,
+    stateUpdates,
+    diagnostics,
+    whenProcessed,
+  };
 }
 
 function fakeSession(): FakeSession {
@@ -218,7 +230,9 @@ describe("SessionManager consumer: stream end", () => {
     if (!(captured instanceof Error)) {
       throw new Error("the owned turn did not reject with an Error");
     }
-    expect(captured.message).toBe("Backend stream ended unexpectedly mid-turn.");
+    expect(captured.message).toBe(
+      "Backend stream ended unexpectedly mid-turn.",
+    );
     expect(sm.pendingTurn).toBeNull();
     expect(sm.session).toBeNull();
     expect(sm.consumerPromise).toBeNull();
@@ -241,7 +255,11 @@ describe("SessionManager consumer: stream end", () => {
     // Mid-turn branch: no state transition, and none of the error-path
     // diagnostics run on a clean end.
     expect(stateUpdates).toEqual([]);
-    expect(diagnostics).toEqual({ reconciled: 0, diagnosed: 0, authChecked: [] });
+    expect(diagnostics).toEqual({
+      reconciled: 0,
+      diagnosed: 0,
+      authChecked: [],
+    });
   });
 
   it("a stream that ends after a swap touches nothing: late events are dropped and the cleanup is skipped", async () => {
