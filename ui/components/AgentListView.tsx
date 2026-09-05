@@ -59,7 +59,12 @@ export function AgentListView({
   );
 
   const actions: NavAction[] = [
-    { id: "tasks", icon: TasksIcon, label: t("nav.tasks"), onClick: onOpenTasks },
+    {
+      id: "tasks",
+      icon: TasksIcon,
+      label: t("nav.tasks"),
+      onClick: onOpenTasks,
+    },
     {
       id: "cronjobs",
       icon: ClockIcon,

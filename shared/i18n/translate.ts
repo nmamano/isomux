@@ -13,10 +13,7 @@
 // the plural mechanism can be tested on a fixture catalog before the real one
 // carries any plural pair. Application code uses translatorFor.
 
-import {
-  DEFAULT_LANGUAGE,
-  type SupportedLanguageCode,
-} from "../languages.ts";
+import { DEFAULT_LANGUAGE, type SupportedLanguageCode } from "../languages.ts";
 import { en, type Catalog, type MessageKey } from "./en.ts";
 import { es } from "./es.ts";
 import { ca } from "./ca.ts";
@@ -34,7 +31,9 @@ export type Messages = Readonly<Record<string, string | undefined>>;
 // "{name} owes {count}" -> "name" | "count". Derived from the English text, so
 // the parameters a key takes are checked where t() is called.
 type Placeholders<S extends string> =
-  S extends `${string}{${infer P}}${infer Rest}` ? P | Placeholders<Rest> : never;
+  S extends `${string}{${infer P}}${infer Rest}`
+    ? P | Placeholders<Rest>
+    : never;
 
 type EnglishText<K extends MessageKey> = (typeof en)[K];
 

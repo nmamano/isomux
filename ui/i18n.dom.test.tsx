@@ -35,7 +35,11 @@ afterAll(() => setApiShim(null));
 
 const TASKS = { ca: "Tasques", es: "Tareas", en: "Tasks" } as const;
 const SAVE = { ca: "Desa", es: "Guardar", en: "Save" } as const;
-const TITLE = { ca: "Preferències", es: "Preferencias", en: "Preferences" } as const;
+const TITLE = {
+  ca: "Preferències",
+  es: "Preferencias",
+  en: "Preferences",
+} as const;
 
 const app = (language: "ca" | "es" | null, over = {}) =>
   onLanguage(language, createElement(App), over);

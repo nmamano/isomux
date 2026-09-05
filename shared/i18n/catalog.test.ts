@@ -55,10 +55,9 @@ describe("the catalogs", () => {
 
       it("uses the same placeholders as English", () => {
         for (const key of ENGLISH_KEYS)
-          expect(
-            placeholders(catalog[key as keyof typeof en]),
-            key,
-          ).toEqual(placeholders(en[key as keyof typeof en]));
+          expect(placeholders(catalog[key as keyof typeof en]), key).toEqual(
+            placeholders(en[key as keyof typeof en]),
+          );
       });
     });
   }

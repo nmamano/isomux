@@ -16,9 +16,9 @@ import { SUPPORTED_LANGUAGES } from "../languages.ts";
 
 describe("interpolate", () => {
   it("fills every occurrence of a placeholder and stringifies numbers", () => {
-    expect(interpolate("{name} and {name} owe {n}", { name: "Ada", n: 2 })).toBe(
-      "Ada and Ada owe 2",
-    );
+    expect(
+      interpolate("{name} and {name} owe {n}", { name: "Ada", n: 2 }),
+    ).toBe("Ada and Ada owe 2");
   });
 
   it("leaves a placeholder with no value as written", () => {
@@ -44,9 +44,18 @@ describe("lookupIn", () => {
 describe("pluralIn", () => {
   // A plural pair per language, as a catalog would carry it.
   const PAIRS: Record<string, Messages> = {
-    en: { "agents.count.one": "{count} agent", "agents.count.other": "{count} agents" },
-    es: { "agents.count.one": "{count} agente", "agents.count.other": "{count} agentes" },
-    ca: { "agents.count.one": "{count} agent", "agents.count.other": "{count} agents" },
+    en: {
+      "agents.count.one": "{count} agent",
+      "agents.count.other": "{count} agents",
+    },
+    es: {
+      "agents.count.one": "{count} agente",
+      "agents.count.other": "{count} agentes",
+    },
+    ca: {
+      "agents.count.one": "{count} agent",
+      "agents.count.other": "{count} agents",
+    },
   };
   const pick = (language: string, count: number) =>
     pluralIn(
@@ -85,9 +94,15 @@ describe("pluralIn", () => {
 
   it("takes the one form from English when only the catalog's other exists", () => {
     const partial: Messages = { "agents.count.other": "{count} agents" };
-    expect(pluralIn(partial, PAIRS.en, new Intl.PluralRules("ca"), "agents.count", 1)).toBe(
-      "1 agent",
-    );
+    expect(
+      pluralIn(
+        partial,
+        PAIRS.en,
+        new Intl.PluralRules("ca"),
+        "agents.count",
+        1,
+      ),
+    ).toBe("1 agent");
   });
 
   it("passes the other placeholders through alongside count", () => {
@@ -96,9 +111,16 @@ describe("pluralIn", () => {
       "room.agents.other": "{count} agents in {room}",
     };
     expect(
-      pluralIn(withRoom, withRoom, new Intl.PluralRules("en"), "room.agents", 3, {
-        room: "Lobby",
-      }),
+      pluralIn(
+        withRoom,
+        withRoom,
+        new Intl.PluralRules("en"),
+        "room.agents",
+        3,
+        {
+          room: "Lobby",
+        },
+      ),
     ).toBe("3 agents in Lobby");
   });
 });
