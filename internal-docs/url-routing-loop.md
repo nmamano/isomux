@@ -202,4 +202,62 @@ opens before or after the first full_state arrives (it must not fight
 the saved-spot restore).
 Locked: rulings 3, 4, 5; no new routes; no visible copy.
 
-- [ ] S2 landed (hash, note)
+- [x] S2 landed as 608c65e (ui/routes.ts; entry carries page + path; tri-state ownership ref for ruling 8; bundle refs absolute in index.html; demo entry passes routing off, so the public demo never pushes paths; four App DOM files, worst in-file clock 2.9 s at load 16.8).
+## PICKUP S3 - dirty-check flows under the new history, and the doc surfaces (Worker 2 / Reviewer 2)
+
+Goal: the two unsaved-edit guards keep working with real paths, their
+behaviour under Back is pinned and reported, and every doc surface that
+describes the pages knows they are URLs. The loop closes after this
+slice.
+
+Mechanics:
+- The guards, as they exist today: `ui/components/TaskView.tsx` (the edit
+  panel's dirty/discard flow, `confirmDiscard`, Escape routed through it)
+  and `ui/components/UserSettingsView.tsx` (the unsaved-changes guard that
+  captures Escape so App's `goHome` never sees it while edits are
+  pending). Read both before writing a test.
+- DOM tests, one new file under the 5 s cap (`ui/App.dirty.dom.test.tsx`
+  or similar), each case named for the flow: (1) Escape in a dirty task
+  edit panel on `/tasks` shows the discard prompt and stays on `/tasks`;
+  (2) Escape in dirty settings on `/settings` shows its prompt and does
+  not leave the page; (3) Back (popstate) from `/tasks` with a dirty edit
+  panel: PIN WHAT HAPPENS TODAY, whatever it is (the page closes and the
+  edits are dropped without a prompt, or the prompt appears); do not
+  change it. Write the observed behaviour into the loop file's S3 note
+  and into the report as a question for Nil, with a recommendation
+  (the browser's own model: Back discards, as on any site without a
+  beforeunload guard; or intercept: re-push the consumed entry and show
+  the discard prompt). Ruling 8's "no synthetic entries" covers boot,
+  not a cancelled Back; still, no interception lands in this loop.
+  (4) The S2-parked case: a cold `/tasks` whose saved spot restores an
+  agent, closed to that chat at `/`, then the next in-app return replaces
+  to the office.
+- Demo: routing is off in the demo entry, so the demo server needs no
+  fallback; state that in the loop file's S3 note and leave
+  `ui/demo-server.ts` alone.
+- PWA: `ui/manifest.json` has `start_url: "/"`; check whether a service
+  worker or install flow references paths (grep serviceWorker, manifest)
+  and report; change nothing unless a real path breaks it.
+- Doc surfaces: walk `internal-docs/documentation.md` and update every
+  surface that describes opening the task board, cron jobs, apps or
+  settings as an in-app state where a URL now applies (README, docs/*,
+  the agent-facing system prompt if it tells agents how to link to the
+  board, in-app help strings). The `docs/features.md` line is PROPOSED in
+  the report in Nil's voice, not written. List every touched surface in
+  the report with the old and new sentence.
+- Loop close: the worker does not delete the loop file; the PM does.
+
+Acceptance: the four DOM cases green with their mutants named (drop the
+guard's Escape capture; drop the adopted-entry replace); per-file
+runtimes in the hand-off; the S1/S2 suites green; build:ui, build:demo
+(if demo files are touched), eslint on touched files, `bunx tsc
+--noEmit` before the final hand-off; doc surfaces listed with before and
+after text.
+
+Decide with reviewer: test-file split; how to drive a dirty edit panel
+in happy-dom.
+Locked: rulings 1-8; no interception of Back; no new routes; no visible
+copy written (proposed only).
+
+- [ ] S3 landed (hash, note)
+
