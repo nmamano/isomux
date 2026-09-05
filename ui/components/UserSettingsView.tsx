@@ -464,7 +464,8 @@ export function UserSettingsView({
         color: "var(--text-primary)",
       }}
     >
-      {/* Header - same bar as the Tasks/Cronjobs pages. minHeight (not
+      {/* Header - same bar as the Tasks/Cronjobs pages, apart from the
+          labelled back control on phones (see below). minHeight (not
           height) so the safe-area-inset-top padding extends the bar below
           the camera notch instead of being squashed into the 44px box. */}
       <div
@@ -482,18 +483,26 @@ export function UserSettingsView({
           zIndex: 500,
         }}
       >
+        {/* Leaves the page for the office. On a phone the detail pane adds
+            its own back control below, which goes to the sidebar list, so a
+            bare arrow here would read as one more "back to Settings" - it
+            says where it goes instead. Desktop shows no second control and
+            keeps the bare arrow the Tasks and Schedules pages use. */}
         <button
           onClick={() => leaveEdit(() => onClose())}
           style={{
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            fontSize: 18,
+            // A labelled control carries its own width; at the arrow's 18px
+            // the words would outweigh the page title beside them.
+            fontSize: isMobile ? 13 : 18,
             cursor: "pointer",
             padding: "2px 8px",
+            whiteSpace: "nowrap",
           }}
         >
-          &larr;
+          {isMobile ? <>&larr; Back to office</> : <>&larr;</>}
         </button>
         <span
           style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}
