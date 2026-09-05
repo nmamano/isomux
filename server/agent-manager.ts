@@ -4205,10 +4205,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
-          await managed.sessionManager.replaceWith(
-            managed,
-            sessionId,
-          );
+          await managed.sessionManager.replaceWith(managed, sessionId);
           acted++;
         } catch (err) {
           console.error(
@@ -4250,10 +4247,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const sessionId = pickAutoResumeSessionId(managed);
         if (managed.sessionId && !sessionId)
           clearStaleAutoResumeState(agentId, managed);
-        await managed.sessionManager.replaceWith(
-          managed,
-          sessionId,
-        );
+        await managed.sessionManager.replaceWith(managed, sessionId);
         acted++;
       } catch (err) {
         console.error(
@@ -6609,10 +6603,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const autoSessionId = pickAutoResumeSessionId(managed);
             if (managed.sessionId && !autoSessionId)
               clearStaleAutoResumeState(agentId, managed);
-            await managed.sessionManager.replaceWith(
-              managed,
-              autoSessionId,
-            );
+            await managed.sessionManager.replaceWith(managed, autoSessionId);
           } catch (err) {
             addLogEntry(
               agentId,

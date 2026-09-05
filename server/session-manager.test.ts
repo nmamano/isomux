@@ -332,7 +332,8 @@ function flagChanges(events: AgentEvent[]): string[] {
     if (e.type !== "agent_updated") continue;
     if ("sessionSwapping" in e.changes)
       out.push(`sessionSwapping:${String(e.changes.sessionSwapping)}`);
-    if ("dormant" in e.changes) out.push(`dormant:${String(e.changes.dormant)}`);
+    if ("dormant" in e.changes)
+      out.push(`dormant:${String(e.changes.dormant)}`);
   }
   return out;
 }
@@ -361,7 +362,11 @@ describe("SessionManager.replaceWith", () => {
     // Create first: exactly one call, with the id given, while the old session
     // is still bound and open.
     expect(calls).toEqual([
-      { resumeSessionId: "resume-1", oldClosedAtCall: false, oldBoundAtCall: true },
+      {
+        resumeSessionId: "resume-1",
+        oldClosedAtCall: false,
+        oldBoundAtCall: true,
+      },
     ]);
     // Then close, drain, install.
     expect(old.closed).toBe(true);
