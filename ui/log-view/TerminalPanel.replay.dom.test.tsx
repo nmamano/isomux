@@ -65,7 +65,10 @@ describe("a terminal seeded with scrollback", () => {
     const bareAnswers: string[] = [];
     bare.onData((data) => bareAnswers.push(data));
     await new Promise<void>((resolve) => bare.write(QUERIES, () => resolve()));
-    expect(bareAnswers).toEqual(["\x1b]11;rgb:0a0a/0e0e/1616\x1b\\", "\x1b[1;1R"]);
+    expect(bareAnswers).toEqual([
+      "\x1b]11;rgb:0a0a/0e0e/1616\x1b\\",
+      "\x1b[1;1R",
+    ]);
     bare.dispose();
     host.remove();
 
