@@ -3,6 +3,7 @@ import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
+import { Seasonal } from "./Seasonal.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
@@ -583,6 +584,7 @@ export function OfficeView({
               }
             />
             <RoomProps />
+            <Seasonal />
             {currentRoomIndex > 0 && (
               <DoorDropZone
                 side="left"
