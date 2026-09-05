@@ -4667,6 +4667,11 @@ async function handleInboundMessage(
                 type: "terminal_output",
                 agentId: cmd.agentId,
                 data: buffer,
+                // Marks the chunk as scrollback, so the panel parses it with
+                // the terminal's query answers suppressed. Without the mark a
+                // query left in the scrollback is answered on every mount and
+                // the answer lands at the shell prompt as if typed.
+                replay: true,
               }),
             );
           }

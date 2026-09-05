@@ -1447,7 +1447,12 @@ export type ServerMessage =
   // rollback: this clear restores a prior timeline (failed edit-fork rollback),
   // not a conversation boundary - clients keep the unread dot.
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
-  | { type: "terminal_output"; agentId: string; data: string }
+  // replay: the scrollback the terminal_open handler seeds a newly opened
+  // panel with, not live output. The client parses a replayed chunk with the
+  // terminal's query answers suppressed, because an answer to a query some
+  // program asked minutes ago reaches the PTY as if it had been typed (see
+  // ui/log-view/terminal-replay-guard.ts).
+  | { type: "terminal_output"; agentId: string; data: string; replay?: true }
   | {
       type: "terminal_status";
       agentId: string;

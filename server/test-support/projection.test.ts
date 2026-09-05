@@ -684,6 +684,10 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
       (m) => m.type === "terminal_output" && m.agentId === hid.id,
     );
     expect(replay.data).toBe(BACKLOG);
+    // The mark that tells the panel this chunk is scrollback, not live output.
+    // Without it the panel answers a terminal query left in the backlog and the
+    // answer lands at the shell prompt as typed input (task 74d33445).
+    expect(replay.replay).toBe(true);
     // Requester-only positive: exactly one replay, no duplicate to the owner.
     expect(terminalOutFor(ownerSock)).toHaveLength(1);
 
