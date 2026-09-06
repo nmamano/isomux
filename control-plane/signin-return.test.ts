@@ -38,6 +38,7 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { en } from "./web/lib/i18n/en.ts";
 
 const WEB = path.join(import.meta.dir, "web");
 const SIGNIN_PAGE = path.join(WEB, "app", "signin", "page.tsx");
@@ -210,7 +211,11 @@ describe("a signed-in visitor is moved to / and nowhere else", () => {
 
   test("the unauthenticated render is unchanged: Google always, dev gated", () => {
     const form = read(SIGNIN_FORM);
-    expect(form).toContain("Continue with Google");
+    // The button's WORDS moved to the catalog in S11. What this test protects is
+    // that the button is always rendered and that its English did not change, so
+    // it now asserts both halves rather than one literal.
+    expect(form).toContain('t("signIn.google")');
+    expect(en["signIn.google"]).toBe("Continue with Google");
     // The dev form stays behind the public flag, so a production build shows
     // Google alone.
     expect(form).toMatch(/devAuth &&/);

@@ -3119,6 +3119,72 @@ webhook path out of the storefront's module graph.
 - No webhook processing. Deliveries stay with `billing-cli.ts serve`, exactly as
   slice 3 built them. No operator actions either: 4a is the read side.
 
+### The customer pages in Spanish and Catalan
+
+Added 2026-09-06. A customer reads sign-in, the landing dashboard, sign-up, the
+office page and every payment refusal in English, Spanish or Catalan. `app/ops`
+is English and carries no language switch: it is an operator surface.
+
+The catalogs are `web/lib/i18n/` - a typed English source of truth with `es` and
+`ca` as complete records over its keys, plus `translatorFor`, `{name}`
+interpolation, `Intl.PluralRules` for the one/other pairs, and `rich()` for a
+sentence with a link inside it. **It is a copy of `shared/i18n/`, not an import**,
+because `web-boundary.test.ts` refuses any `../..` import outside its allow list.
+When a language is added to `shared/languages.ts`, add it here too.
+
+Precedence, highest first: the `isomux_lang` cookie the switch writes, then the
+request's `Accept-Language`, then English. There is NO stored customer language
+and no column for one - this deployment sends no customer email (see the
+Managed Payments section), so nothing needs a language that outlives a browser.
+
+Two resolution paths, because the pages render two different ways:
+
+- `/signup` and `/office/[officeKey]` are `force-dynamic`. They call
+  `languageForRequest()` (`lib/i18n/request.server.ts`) and serve translated
+  HTML, with `lang` on the translated region for a reader with no JavaScript.
+- `/` and `/signin` are prerendered under `dynamic = "error"` so a CDN can hold
+  them. They cannot read a request at all, so they paint English and move to the
+  reader's language after hydration (`useLanguage`, which reads the cookie and
+  then `navigator.languages` in order). A visitor on Spanish or Catalan reads one
+  frame of English; that is the price of the shell being cacheable.
+
+`<html lang>` in `app/layout.tsx` is a static `"en"` and cannot be anything else:
+reading the request there would make every route dynamic. Each page declares its
+own language through `<DocumentLanguage>`, which moves the attribute to match the
+text and puts it back to English on ops.
+
+The step ladder, the liveness rungs and the attention classes are translated from
+the ids the projection already carries, with the sentence `progress.ts` worded as
+the fallback for an id we have no key for. The key is DERIVED from the id rather
+than looked up in a table, because `web-boundary.test.ts` forbids any file under
+`web/` from containing an operation kind.
+
+**The switch does not reach Stripe's own page, and that is deliberate.** No
+`locale` is sent with a Checkout session. The session's idempotency key is
+derived from stored state alone (`checkoutKeysFor`, `reinstatementSessionKey`),
+so every replay of one generation must send a byte-identical body - and a locale
+read from the request is the one input a language switch could change between a
+lost create response and its retry, which Stripe refuses
+(https://docs.stripe.com/api/idempotent_requests). Checkout falls back to the
+customer's own browser, which is the right answer in the common case. Making the
+hosted page follow the switch instead needs a locale stored with the generation;
+that is a governed-schema change and has not been taken. (Reviewed and ruled
+2026-09-06.)
+
+Tests: `web/lib/i18n/catalog.test.ts` (completeness, placeholders, rich tags,
+and no orphan keys), `languages.test.ts` (negotiation), `use-language.test.ts`
+(the browser-side resolver, including the ordered preference list and a
+malformed cookie), `web/components/pages.i18n.test.tsx` (page renders per
+language), and `control-plane/web-i18n.test.tsx`, which is out here because
+proving a step label is translated means naming real operation kinds. A payment
+refusal is asserted through its real caller in
+`stripe/checkout-poll.test.ts`. The real-browser transcript is
+`bun run --cwd control-plane/web e2e:i18n`: it drives Accept-Language, the cookie
+beating it, the browser's ordered preference list, the switch under a real mouse
+click, the operator floor staying English, and a soft navigation carrying the
+root `lang` back to English, and it writes screenshots. It runs on a scratch
+schema that it drops, and prints no connection string.
+
 ### Signup, and why a name is unique
 
 `signup.ts` owns it. `name_reservations.name` is a primary key, and **the INSERT

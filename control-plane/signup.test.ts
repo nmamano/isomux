@@ -211,8 +211,10 @@ describe("the reservation", () => {
       new URL("web/lib/services.server.ts", import.meta.url),
       "utf8",
     );
-    expect(caller).toContain("safeCustomerReason(reserved.reason)");
-    expect(caller).toContain("return openReservedCheckout(reserved);");
+    expect(caller).toContain("safeCustomerReason(language, reserved.reason)");
+    expect(caller).toContain(
+      "return openReservedCheckout({ language, ...reserved });",
+    );
   });
 
   test("an admission older than seven days frees one place", async () => {

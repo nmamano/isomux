@@ -152,8 +152,9 @@ h3 {
 
 /* ---------- Top bar ---------- */
 
-/* site/docs/_styles.css .topbar. It carries the mark and nothing else: this
-   application has one page per customer and no navigation to offer. */
+/* site/docs/_styles.css .topbar. It carries the mark and the language switch:
+   this application has one page per customer and no other navigation to
+   offer. */
 .topbar {
   position: sticky;
   top: 0;
@@ -180,6 +181,32 @@ h3 {
   background-repeat: no-repeat;
   background-size: contain;
   background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>");
+}
+
+/* The language switch sits at the far end of the bar, opposite the mark. The
+   language NAMES are never translated, so the buttons read the same in every
+   language and only the current one is marked. */
+.language-switch {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.language-switch button {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.language-switch button:hover {
+  color: var(--text);
+}
+.language-switch button[aria-current="true"] {
+  color: var(--text);
+  border-color: var(--border);
 }
 
 /* ---------- Page column ---------- */

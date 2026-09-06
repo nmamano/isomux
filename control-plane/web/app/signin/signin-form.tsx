@@ -2,6 +2,9 @@
 
 import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { DocumentLanguage } from "../../lib/i18n/document-language";
+import { useLanguage } from "../../lib/i18n/use-language";
+import { translatorFor } from "../../lib/i18n/translate";
 
 /**
  * The sign-in controls. Split out of `page.tsx` so that the page itself can be
@@ -19,22 +22,30 @@ import { useState } from "react";
  * The dev provider's form is rendered only when the server put it in the
  * providers list; `NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH` mirrors that flag for the
  * browser half. Google gets a plain button, and pressing it when no client is
- * configured is a 404 from Auth.js rather than a half-working form.
+ * configured is a 404 from Auth.js rather than a half-working form. THE DEV FORM
+ * IS NOT TRANSLATED: it is a developer tool behind a build flag, not something a
+ * customer reads.
+ *
+ * This page is prerendered too, so its language is resolved in the browser and
+ * the first paint is English. See `home-view.tsx` for why.
  */
 export function SignInForm() {
   const [email, setEmail] = useState("");
   const devAuth = process.env.NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH === "1";
+  const language = useLanguage();
+  const { t } = translatorFor(language);
 
   return (
     <main>
-      <h1>Sign in</h1>
+      <DocumentLanguage language={language} />
+      <h1>{t("signIn.heading")}</h1>
       <div className="card card-narrow">
         <button
           className="btn-primary"
           type="button"
           onClick={() => void signIn("google", { callbackUrl: "/" })}
         >
-          Continue with Google
+          {t("signIn.google")}
         </button>
       </div>
       {devAuth && (

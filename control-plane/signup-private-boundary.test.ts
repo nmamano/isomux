@@ -64,7 +64,7 @@ describe("the signup private-key boundary", () => {
     expect(continuation).toContain('state.kind !== "continue"');
     expect(continuation).toContain("if (officeName !== state.officeName)");
     expect(continuation).toContain(
-      "await continueSignup(accountId, officeName)",
+      "await continueSignup(language, accountId, officeName)",
     );
   });
 });

@@ -1,5 +1,6 @@
 import "./globals.css";
 import Script from "next/script";
+import { LanguageSwitch } from "../lib/i18n/language-switch";
 
 const analyticsBootstrap = `
   (function () {
@@ -66,11 +67,20 @@ export default function RootLayout({
         </Script>
         {/* The chrome lives here rather than in a wrapper component, so that no
             page has to give up its own <main> to get it. The bar carries the
-            mark and no words: the copy on these pages is fixed, and a brand
-            wordmark would be a new one. */}
+            mark and the language switch, and no words of its own: a brand
+            wordmark would be new copy, and the language names are not copy.
+
+            `lang="en"` above is the STATIC default and cannot be anything else:
+            reading the request here would make every route dynamic, and `/` and
+            `/signin` are prerendered under `dynamic = "error"` so that a CDN can
+            hold them. Each page declares its own language instead, through
+            `DocumentLanguage`, which moves the attribute to match the text; the
+            server-rendered pages also mark their translated region with `lang`
+            for a reader with no JavaScript. */}
         <div className="topbar">
           <div className="topbar-inner">
             <span className="brand-mark" />
+            <LanguageSwitch />
           </div>
         </div>
         {children}

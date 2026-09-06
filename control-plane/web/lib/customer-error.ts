@@ -1,3 +1,6 @@
+import type { SupportedLanguageCode } from "./i18n/languages";
+import { translatorFor, type PlainMessageKey } from "./i18n/translate";
+
 export type CustomerFailureKind = "configuration" | "transient";
 
 export type CustomerFailureSurface =
@@ -18,26 +21,34 @@ function referenceCode(): string {
   return `${REFERENCE_PREFIX}${crypto.randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
 }
 
-function friendlyLine(
+/**
+ * The sentence for a failure, by kind and surface.
+ *
+ * These are customer copy - what a paying customer reads when a payment fails -
+ * so they are translated by the request's language (S11). THE REFERENCE CODE IS
+ * NOT: it is the handle a customer pastes to support and support greps for, and
+ * it stays byte-identical in every language.
+ */
+function friendlyKey(
   kind: CustomerFailureKind,
   surface: CustomerFailureSurface,
-): string {
+): PlainMessageKey {
   if (kind === "configuration") {
     return surface === "checkout_reserved"
-      ? "We could not open a payment page. Your name is reserved."
-      : "Payments are not available right now.";
+      ? "errors.checkoutReservedConfiguration"
+      : "errors.paymentsConfiguration";
   }
   switch (surface) {
     case "checkout_reserved":
-      return "We could not open a payment page just now. Your name is reserved, so try again in a moment.";
+      return "errors.checkoutReservedTransient";
     case "reinstatement":
-      return "We could not open reinstatement payment just now. Try again in a moment.";
+      return "errors.reinstatementTransient";
     case "billing_change_ambiguous":
-      return "We could not confirm your change with our payment provider. Check back in a moment before trying again.";
+      return "errors.billingChangeAmbiguous";
     case "billing_change":
-      return "We could not reach our payment provider just now. Try again in a moment.";
+      return "errors.providerTransient";
     case "payments":
-      return "We could not reach our payment provider just now. Try again in a moment.";
+      return "errors.providerTransient";
   }
 }
 
@@ -46,6 +57,7 @@ function friendlyLine(
  * directly only at the explicit branches where our own code produced it.
  */
 export function customerFailure(
+  language: SupportedLanguageCode,
   kind: CustomerFailureKind,
   surface: CustomerFailureSurface,
   detail: unknown,
@@ -54,17 +66,29 @@ export function customerFailure(
   const reference = deps.newReference?.() ?? referenceCode();
   const log = deps.log ?? console.error;
   log(`[customer-error ${reference}]`, detail);
-  return `${friendlyLine(kind, surface)} Reference: ${reference}.`;
+  const { t } = translatorFor(language);
+  return `${t(friendlyKey(kind, surface))} ${t("errors.reference", { reference })}`;
 }
 
-/** Make an explicitly safe refusal a complete, capitalized sentence. */
+/**
+ * Make an explicitly safe refusal a complete, capitalized sentence.
+ *
+ * THE REFUSAL ITSELF IS NOT TRANSLATED, and cannot be: it arrived from the
+ * control plane as English prose with no id to key on (a rejected office name, a
+ * coupon the provider would not verify). The wrapper's own punctuation is what
+ * this adds, and it is the same in every language. `language` is here for the
+ * one branch that produces copy of our own: an empty refusal, which becomes an
+ * opaque failure sentence.
+ */
 export function safeCustomerReason(
+  language: SupportedLanguageCode,
   reason: string,
   deps: CustomerFailureDependencies = {},
 ): string {
   const trimmed = reason.trim();
   if (!trimmed)
     return customerFailure(
+      language,
       "configuration",
       "payments",
       "An explicitly safe customer refusal was empty",

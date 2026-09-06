@@ -6,6 +6,8 @@ import {
   signupPageState,
 } from "../../../lib/services.server";
 
+import { languageForRequest } from "../../../lib/i18n/request.server";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -30,6 +32,10 @@ export async function POST(request: Request): Promise<Response> {
   const here = new URL(request.url).origin;
   if (!accountId) return Response.redirect(`${here}/signin`, 303);
 
+  // The customer's language, by the same resolver the pages use, so a refusal
+  // is worded the way the page that shows it reads. It also decides the language
+  // Stripe renders its own hosted Checkout page in.
+  const language = await languageForRequest();
   const form = await request.formData();
   // A form field can be a File, and stringifying one yields "[object Object]".
   // Anything that is not text is not an office name.
@@ -47,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
     if (officeName !== state.officeName) {
       return new Response(null, { status: 409 });
     }
-    const result = await continueSignup(accountId, officeName);
+    const result = await continueSignup(language, accountId, officeName);
     if (!result.ok) {
       if ("officeName" in result)
         return Response.redirect(`${here}/office/${result.officeName}`, 303);
@@ -62,6 +68,7 @@ export async function POST(request: Request): Promise<Response> {
   const couponRaw = field("couponId");
 
   const result = await signUpOffice({
+    language,
     accountId,
     officeName,
     plan,

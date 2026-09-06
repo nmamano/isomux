@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { ProgressView } from "../lib/services.server";
 import { customerPriceLine } from "./plan-copy";
 import { PolicyNotice } from "./policy-notice";
+import type { SupportedLanguageCode } from "../lib/i18n/languages";
+import { webTranslatorFor, type WebTranslator } from "../lib/i18n/rich";
+import { keyFrom, type PlainMessageKey } from "../lib/i18n/translate";
+import { en } from "../lib/i18n/en";
 
 /** Fast while the office is being built, slow once it is serving. The server
  * side of this is a read of rows already in the database, so the cost of the
@@ -34,13 +38,77 @@ const COLLECT_TIMEOUT_MS = 120_000;
  */
 const GRACE_DAYS = 7;
 
-export const STATE_WORDS: Record<string, string> = {
-  waiting: "not started",
-  active: "in progress",
-  checking: "checking",
-  done: "done",
-  failed: "failed",
+/** Ours, and the same in every language. */
+const SUPPORT_EMAIL = "llc@isomux.com";
+
+/**
+ * The control plane's ids, mapped to catalog keys.
+ *
+ * The PROJECTION already carries an id beside every sentence it words for us -
+ * a step's `kind`, a liveness `rung`, an attention `reasonClass` - so this page
+ * translates from the id and never has to parse the English. `control-plane/
+ * progress.ts` keeps its own English for the CLI and the ops floor, which are
+ * English by ruling; an id we have no key for falls back to the sentence the
+ * projection sent, so a new step kind reads as English rather than as a key.
+ */
+export const STATE_KEYS: Record<string, PlainMessageKey> = {
+  waiting: "stepState.waiting",
+  active: "stepState.active",
+  checking: "stepState.checking",
+  done: "stepState.done",
+  failed: "stepState.failed",
 };
+
+/**
+ * The catalog key for an id the control plane sent, DERIVED rather than looked
+ * up in a table of ids.
+ *
+ * Derived because it has to be: `control-plane/web-boundary.test.ts` forbids any
+ * file under web/ from containing an operation kind, so that a page cannot ask
+ * for one by spelling it, and a table mapping every kind to a key would be
+ * exactly that spelling - and the scan reads comments too, so this one cannot
+ * even give an example. The transform is ruling 15's camelCase rule read
+ * backwards: a snake_case or kebab-case id becomes one camelCase segment under
+ * the namespace, and the English catalog is what says whether the result is a
+ * key we hold.
+ *
+ * The segment carries a `label` prefix for the same rule: without it, a
+ * single-word id would produce a key segment that IS the kind, and the catalogs
+ * would name it even though no request here ever could.
+ *
+ * An id we have no key for falls back to the sentence the projection already
+ * worded, so a new step kind reads as English rather than as a key. That is also
+ * why `control-plane/progress.ts` keeps its own English: the CLI and the ops
+ * floor read it, and both are English by ruling.
+ */
+function keyForId(
+  namespace: "steps" | "liveness" | "attention",
+  id: string,
+): PlainMessageKey | undefined {
+  const pascal = id
+    .replace(/[-_](\w)/g, (_, c: string) => c.toUpperCase())
+    .replace(/^\w/, (c) => c.toUpperCase());
+  const key = `${namespace}.label${pascal}`;
+  return Object.hasOwn(en, key) ? (key as PlainMessageKey) : undefined;
+}
+
+/** The word for a step's state. A state is not an operation kind, so unlike the
+ * kinds it may be spelled here. */
+function stateWord(i18n: WebTranslator, state: string): string {
+  const key = keyFrom(STATE_KEYS, state);
+  return key ? i18n.t(key) : state;
+}
+
+/** The catalog text for `id`, or the English the projection already sent. */
+function fromId(
+  i18n: WebTranslator,
+  namespace: "steps" | "liveness" | "attention",
+  id: string,
+  delivered: string,
+): string {
+  const key = keyForId(namespace, id);
+  return key ? i18n.t(key) : delivered;
+}
 
 /** The server clock moves on every response and is not progress. */
 export function stableProgressSignature(view: ProgressView): string {
@@ -113,10 +181,12 @@ export function startProgressPolling(args: {
 }
 
 export function Steps({
+  i18n,
   steps,
   testid,
   now,
 }: {
+  i18n: WebTranslator;
   steps: ProgressView["steps"];
   testid: string;
   now: number | null;
@@ -125,11 +195,13 @@ export function Steps({
     <ol className="card ladder" data-testid={testid}>
       {steps.map((step) => (
         <li key={step.kind} data-testid={`step-${step.kind}`}>
-          {step.label} -{" "}
-          <span data-state={step.state}>{STATE_WORDS[step.state]}</span>
+          {fromId(i18n, "steps", step.kind, step.label)} -{" "}
+          <span data-state={step.state}>
+            {stateWord(i18n, step.state)}
+          </span>
           {step.startedAt !== null &&
             (step.elapsedMs !== null || now !== null) && (
-              <StepDuration step={step} now={now} />
+              <StepDuration i18n={i18n} step={step} now={now} />
             )}
           {step.detail ? ` (${step.detail})` : ""}
         </li>
@@ -148,28 +220,33 @@ export function formatDuration(elapsedMs: number): string {
   return `${remainder}s`;
 }
 
-function spokenDuration(elapsedMs: number): string {
+/** The screen-reader form. `formatDuration` above stays as it is: "1h 04m" is
+ * the same compact notation in every language this app serves, and it carries no
+ * words to translate. This one does, so it takes the translator (ruling 18) and
+ * its unit/plural split is `Intl.PluralRules`, which agrees with the English it
+ * replaces at every count. */
+function spokenDuration(i18n: WebTranslator, elapsedMs: number): string {
   const seconds = Math.floor(Math.max(elapsedMs, 0) / 1_000);
   const hours = Math.floor(seconds / 3_600);
   const minutes = Math.floor((seconds % 3_600) / 60);
   const remainder = seconds % 60;
   return (
     [
-      hours ? `${hours} ${hours === 1 ? "hour" : "hours"}` : "",
-      minutes ? `${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "",
-      !hours && remainder
-        ? `${remainder} ${remainder === 1 ? "second" : "seconds"}`
-        : "",
+      hours ? i18n.tn("office.duration.hours", hours) : "",
+      minutes ? i18n.tn("office.duration.minutes", minutes) : "",
+      !hours && remainder ? i18n.tn("office.duration.seconds", remainder) : "",
     ]
       .filter(Boolean)
-      .join(" ") || "0 seconds"
+      .join(" ") || i18n.tn("office.duration.seconds", 0)
   );
 }
 
 function StepDuration({
+  i18n,
   step,
   now,
 }: {
+  i18n: WebTranslator;
   step: ProgressView["steps"][number];
   now: number | null;
 }) {
@@ -179,12 +256,12 @@ function StepDuration({
       : step.elapsedMs;
   const running = step.elapsedMs === null;
   const compact = formatDuration(elapsed);
-  const spoken = spokenDuration(elapsed);
+  const spoken = spokenDuration(i18n, elapsed);
   return running ? (
     <span
       className="step-duration"
       role="timer"
-      aria-label={`running for ${spoken}`}
+      aria-label={i18n.t("office.runningFor", { spoken })}
     >
       {compact}
     </span>
@@ -193,7 +270,9 @@ function StepDuration({
       <span className="step-duration" aria-hidden="true">
         {compact}
       </span>
-      <span className="visually-hidden">, took {spoken}</span>
+      <span className="visually-hidden">
+        {i18n.t("office.took", { spoken })}
+      </span>
     </>
   );
 }
@@ -229,21 +308,24 @@ export function nextClock(
  * customer: until first contact has written the expiry option and read it back,
  * the honest sentence is the one without a date.
  */
-function accessSentence(access: ProgressView["access"]): string {
+function accessSentence(
+  i18n: WebTranslator,
+  access: ProgressView["access"],
+): string {
   const date = access.expiresAt
     ? new Date(access.expiresAt).toISOString().slice(0, 10)
     : null;
   switch (access.state) {
     case "not_started":
-      return "Hosted Isomux Provisioning does not have a key to your server yet.";
+      return i18n.t("office.access.notStarted");
     case "gone":
-      return "Hosted Isomux Provisioning no longer has a key to your server.";
+      return i18n.t("office.access.gone");
     case "needs_attention":
-      return "Hosted Isomux Provisioning cannot confirm whether it still has a key to your server.";
+      return i18n.t("office.access.needsAttention");
     default:
       return date && access.ceilingProven
-        ? `Hosted Isomux Provisioning holds a temporary key to your server, until ${date} at the latest.`
-        : "Hosted Isomux Provisioning holds a temporary key to your server.";
+        ? i18n.t("office.access.holdsUntil", { date })
+        : i18n.t("office.access.holds");
   }
 }
 
@@ -289,12 +371,19 @@ function reasonOf(data: Record<string, unknown>, fallback: string): string {
 }
 
 export function OfficeView({
+  language,
   initial,
   instanceId,
 }: {
+  language: SupportedLanguageCode;
   initial: ProgressView;
   instanceId: string;
 }) {
+  // THE LANGUAGE IS A PROP FROM THE SERVER RENDER, so it is fixed for the life
+  // of this component: the switch writes a cookie and reloads rather than
+  // re-rendering in place. That is why the message state below may hold a
+  // finished sentence - ours or the server's - instead of a key.
+  const i18n = webTranslatorFor(language);
   const [view, setView] = useState(initial);
   const [clock, setClock] = useState<Clock | null>(null);
   const progressSignature = useRef(stableProgressSignature(initial));
@@ -313,6 +402,8 @@ export function OfficeView({
     view.origin === "adopted" || view.handoff.invite.mintedAt !== null;
   const paymentStep: ProgressView["steps"][number] = {
     kind: "waiting-for-payment" as ProgressView["steps"][number]["kind"],
+    // The only step this page invents. Its label is the English fallback for a
+    // reader whose language we have no key for; keyForId is the normal path.
     label: "Waiting for payment",
     state: view.subscription ? "done" : "active",
     detail: null,
@@ -435,15 +526,14 @@ export function OfficeView({
         if (data.status !== "not_ready") {
           setInvite({
             phase: "problem",
-            message: reasonOf(data, "that invite is no longer available"),
+            message: reasonOf(data, i18n.t("office.invite.gone")),
           });
           return;
         }
         if (Date.now() > deadline) {
           setInvite({
             phase: "problem",
-            message:
-              "preparing your invite is taking longer than expected. Try asking again.",
+            message: i18n.t("office.invite.slow"),
           });
           return;
         }
@@ -454,7 +544,9 @@ export function OfficeView({
     return () => {
       cancelled = true;
     };
-  }, [invite, instanceId]);
+    // `i18n` is one cached object per language (webTranslatorFor), so naming it
+    // here costs nothing and keeps the dependency list honest.
+  }, [invite, instanceId, i18n]);
 
   const askForInvite = async (): Promise<void> => {
     setInvite({ phase: "asking" });
@@ -462,7 +554,7 @@ export function OfficeView({
     if (status !== 200 || data.ok !== true) {
       setInvite({
         phase: "problem",
-        message: reasonOf(data, "we could not ask for an invite just now."),
+        message: reasonOf(data, i18n.t("office.invite.askFailed")),
       });
       return;
     }
@@ -470,7 +562,7 @@ export function OfficeView({
     if (typeof operationId !== "string") {
       setInvite({
         phase: "problem",
-        message: "we could not ask for an invite just now.",
+        message: i18n.t("office.invite.askFailed"),
       });
       return;
     }
@@ -488,11 +580,11 @@ export function OfficeView({
       if (status === 200 && data.ok === true) return;
       setBilling(null);
       setBillingProblem(
-        reasonOf(data, "we could not change your plan just now."),
+        reasonOf(data, i18n.t("office.cancel.planFailedLower")),
       );
     } catch {
       setBilling(null);
-      setBillingProblem("We could not change your plan just now.");
+      setBillingProblem(i18n.t("office.cancel.planFailed"));
     }
   };
 
@@ -504,19 +596,21 @@ export function OfficeView({
       return;
     }
     setBillingProblem(
-      reasonOf(data, "we could not open reinstatement payment."),
+      reasonOf(data, i18n.t("office.reinstate.failedLower")),
     );
   };
 
-  const act = async (path: string, label: string): Promise<boolean> => {
+  const act = async (path: string, action: string): Promise<boolean> => {
     setAction(null);
     try {
       const { data, status } = await postJson(path, { instanceId });
       if (status === 200 && data.ok === true) return true;
-      setAction(reasonOf(data, `we could not ${label} just now.`));
+      setAction(
+        reasonOf(data, i18n.t("office.action.failedLower", { action })),
+      );
       return false;
     } catch {
-      setAction(`We could not ${label} just now.`);
+      setAction(i18n.t("office.action.failed", { action }));
       return false;
     }
   };
@@ -531,36 +625,38 @@ export function OfficeView({
       if (status === 200 && data.ok === true) return;
       setHandoffPending(false);
       setHandoffProblem(
-        reasonOf(data, "we could not remove our access just now."),
+        reasonOf(data, i18n.t("office.handoff.failedLower")),
       );
     } catch {
       setHandoffPending(false);
-      setHandoffProblem("We could not remove our access just now.");
+      setHandoffProblem(i18n.t("office.handoff.failed"));
     }
   };
 
   return (
-    <main>
+    <main lang={language}>
       <h1 data-testid="office-hostname">{view.hostname}</h1>
       <section className="card" data-testid="office-tier">
+        {/* The plan name and its specification are the product's own words and
+            its hardware figures, not copy (ruling 11). */}
         <strong>{view.tier.label}</strong>
         {view.tier.specification && <p>{view.tier.specification}</p>}
-        {customerPriceLine(view.tier.customerPrice) && (
-          <p>{customerPriceLine(view.tier.customerPrice)}</p>
+        {customerPriceLine(language, view.tier.customerPrice) && (
+          <p>{customerPriceLine(language, view.tier.customerPrice)}</p>
         )}
       </section>
       <p className="lead" data-testid="office-status">
-        {view.ready ? "Your office is ready." : "Your office is not ready yet."}
+        {view.ready ? i18n.t("office.ready") : i18n.t("office.notReady")}
       </p>
       {!view.subscription && (
         <section className="card" data-testid="payment-guidance">
-          <p>Complete payment to start ordering your server.</p>
+          <p>{i18n.t("office.completePayment")}</p>
           <form className="form" method="post" action="/api/signup">
             <input type="hidden" name="signupIntent" value="continue" />
             <input type="hidden" name="officeName" value={view.officeName} />
-            <PolicyNotice />
+            <PolicyNotice language={language} />
             <button className="btn-primary" type="submit">
-              Continue to payment
+              {i18n.t("common.continueToPayment")}
             </button>
           </form>
         </section>
@@ -573,7 +669,7 @@ export function OfficeView({
             target="_blank"
             rel="noopener"
           >
-            Open your office
+            {i18n.t("office.openOffice")}
           </a>
         </p>
       )}
@@ -586,31 +682,40 @@ export function OfficeView({
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 1.5a1 1 0 0 1 .87.5l6 10.5A1 1 0 0 1 14 14H2a1 1 0 0 1-.87-1.5l6-10.5A1 1 0 0 1 8 1.5Zm0 3.75a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.25ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
             </svg>
-            <strong>We need to check your setup</strong>
+            <strong>{i18n.t("office.attention.heading")}</strong>
           </div>
           <ul className="rows">
             {view.attention.map((item, index) => (
               <li key={index} data-severity={item.severity}>
-                {item.summary}
-                {item.acknowledged ? " (we have seen it)" : ""}
+                {fromId(i18n, "attention", item.reasonClass, item.summary)}
+                {item.acknowledged ? i18n.t("office.attention.seen") : ""}
               </li>
             ))}
           </ul>
           <p>
-            You do not need to do anything. We have been notified. If this
-            message is still here after 12 hours, email{" "}
-            <a href="mailto:llc@isomux.com">llc@isomux.com</a>.
+            {i18n.rich("office.attention.note", {
+              address: SUPPORT_EMAIL,
+              mail: (chunk) => (
+                <a href={`mailto:${SUPPORT_EMAIL}`}>{chunk}</a>
+              ),
+            })}
           </p>
         </section>
       )}
 
-      <h2>Progress</h2>
-      <Steps steps={progressSteps} testid="steps" now={timerNow} />
+      <h2>{i18n.t("office.progressHeading")}</h2>
+      <Steps
+        i18n={i18n}
+        steps={progressSteps}
+        testid="steps"
+        now={timerNow}
+      />
 
       {view.otherOperations.length > 0 && (
         <>
-          <h2>Other work on this office</h2>
+          <h2>{i18n.t("office.otherWorkHeading")}</h2>
           <Steps
+            i18n={i18n}
             steps={view.otherOperations}
             testid="other-operations"
             now={timerNow}
@@ -618,27 +723,30 @@ export function OfficeView({
         </>
       )}
 
-      <h2>Getting in</h2>
+      <h2>{i18n.t("office.gettingInHeading")}</h2>
       <section className="card" data-testid="handoff">
         {view.sshCommand && (
           <p data-testid="ssh-command">
-            Your SSH access: <code>{view.sshCommand}</code>
+            {i18n.rich("office.sshAccess", {
+              command: view.sshCommand,
+              cmd: (chunk) => <code>{chunk}</code>,
+            })}
           </p>
         )}
         {view.access.state !== "not_started" &&
           (view.access.state !== "gone" ||
             view.handoff.revocation.state === "none") && (
             <p className="note" data-testid="access-window">
-              {accessSentence(view.access)}
+              {accessSentence(i18n, view.access)}
             </p>
           )}
 
         <ol className="handoff-steps">
           <li>
-            <h3>Get your owner invite</h3>
+            <h3>{i18n.t("office.invite.heading")}</h3>
             {view.handoff.invite.state === "none" && !view.ready && (
               <p className="note" data-testid="invite-not-yet">
-                Wait until the office is serving.
+                {i18n.t("office.invite.notYet")}
               </p>
             )}
 
@@ -655,12 +763,12 @@ export function OfficeView({
                   }
                 >
                   {view.handoff.invite.mintedAt
-                    ? "Send me a new invite"
-                    : "Get my owner invite"}
+                    ? i18n.t("office.invite.resend")
+                    : i18n.t("office.invite.get")}
                 </button>
                 {view.handoff.invite.mintedAt ? (
                   <span data-testid="resend-caveat">
-                    A new invite replaces the previous one, which stops working.
+                    {i18n.t("office.invite.resendCaveat")}
                   </span>
                 ) : null}
               </p>
@@ -668,13 +776,12 @@ export function OfficeView({
 
             {!view.handoff.canMint && view.handoff.invite.mintedAt !== null && (
               <p className="note" data-testid="invite-closed">
-                Hosted Isomux Provisioning can no longer create invites for this
-                office. If you cannot get in, contact support.
+                {i18n.t("office.invite.closed")}
               </p>
             )}
 
             {invite.phase === "asking" && (
-              <p className="note">Asking for an invite...</p>
+              <p className="note">{i18n.t("office.invite.asking")}</p>
             )}
             {invite.phase === "waiting" &&
               (view.handoff.invite.state === "failed" ? (
@@ -682,11 +789,11 @@ export function OfficeView({
                   className="callout callout-danger"
                   data-testid="invite-problem"
                 >
-                  We could not prepare an invite. Try asking again.
+                  {i18n.t("office.invite.failed")}
                 </p>
               ) : (
                 <p className="note" data-testid="invite-waiting">
-                  Preparing your invite. This takes a few seconds.
+                  {i18n.t("office.invite.waiting")}
                 </p>
               ))}
             {invite.phase === "problem" && (
@@ -700,7 +807,7 @@ export function OfficeView({
           </li>
 
           <li>
-            <h3>Open your office and sign in</h3>
+            <h3>{i18n.t("common.openOfficeAndSignIn")}</h3>
             {invite.phase === "shown" ? (
               <div className="callout" data-testid="invite-shown">
                 <p>
@@ -711,23 +818,18 @@ export function OfficeView({
                     target="_blank"
                     rel="noopener"
                   >
-                    Open your office and sign in
+                    {i18n.t("common.openOfficeAndSignIn")}
                   </a>
                 </p>
-                <p className="note">
-                  Open this from the browser profile where you&apos;ll use the
-                  office (not incognito). It works once and is gone after five
-                  minutes; if you miss it, ask for a new one. You can add your
-                  other devices later from inside the office.
-                </p>
+                <p className="note">{i18n.t("office.invite.linkNote")}</p>
               </div>
             ) : view.handoff.canMint ? (
               <p className="note" data-testid="sign-in-guidance">
                 {view.handoff.invite.mintedAt
-                  ? "Your link was shown once and is not kept. Ask for a new one above if you still need to sign in."
+                  ? i18n.t("office.signIn.shownOnce")
                   : view.origin === "adopted" && view.ready
-                    ? "Open your office above and make sure it works in this browser."
-                    : "Your sign-in link will appear here after the invite is ready."}
+                    ? i18n.t("office.signIn.adopted")
+                    : i18n.t("office.signIn.pending")}
               </p>
             ) : null}
           </li>
@@ -742,13 +844,9 @@ export function OfficeView({
             view.ready &&
             view.handoff.revocation.state === "none" && (
               <li data-testid="handoff-nag">
-                <h3>Confirm office access, then remove our access</h3>
+                <h3>{i18n.t("office.handoff.heading")}</h3>
                 <div className="callout">
-                  <p>
-                    Do not continue until your office is open in this browser.
-                    After removal, Hosted Isomux Provisioning cannot create
-                    another owner invite for you.
-                  </p>
+                  <p>{i18n.t("office.handoff.warning")}</p>
                   <label className="handoff-confirm">
                     <input
                       type="checkbox"
@@ -758,13 +856,12 @@ export function OfficeView({
                         setSignedInConfirmed(event.target.checked)
                       }
                       disabled={!invitePathOffered || handoffPending}
-                    />
-                    Click to confirm that your office is open in this browser.
+                    />{" "}
+                    {i18n.t("office.handoff.confirm")}
                   </label>
                   {!invitePathOffered && (
                     <p className="note" data-testid="invite-required">
-                      Get your owner invite and open your office before you
-                      confirm.
+                      {i18n.t("office.handoff.inviteRequired")}
                     </p>
                   )}
                   <button
@@ -776,17 +873,15 @@ export function OfficeView({
                     onClick={() => void requestHandoff()}
                   >
                     {handoffPending
-                      ? "Removing temporary access..."
-                      : "Remove Hosted Isomux Provisioning access"}
+                      ? i18n.t("office.handoff.removing")
+                      : i18n.t("office.handoff.remove")}
                   </button>
                   <p
                     className="note handoff-status"
                     role="status"
                     data-testid="revocation-pending"
                   >
-                    {handoffPending
-                      ? "Your request was received. We are removing our temporary access now."
-                      : ""}
+                    {handoffPending ? i18n.t("office.handoff.pending") : ""}
                   </p>
                   {handoffProblem && (
                     <p
@@ -802,10 +897,10 @@ export function OfficeView({
 
           {view.handoff.revocation.state !== "none" && (
             <li>
-              <h3>Access removal</h3>
+              <h3>{i18n.t("office.revocation.heading")}</h3>
               <p>
                 <span className="note" data-testid="revocation-state">
-                  {revocationSentence(view.handoff.revocation)}
+                  {revocationSentence(i18n, view.handoff.revocation)}
                 </span>
               </p>
             </li>
@@ -815,27 +910,24 @@ export function OfficeView({
 
       {view.liveness && (
         <>
-          <h2>Is it answering?</h2>
+          <h2>{i18n.t("office.livenessHeading")}</h2>
           <p className="card" data-testid="liveness">
-            {view.liveness.unreachable
-              ? `Your office has not answered its last ${view.liveness.strikes} checks: ${view.liveness.words}. This has been raised with us.`
-              : view.liveness.strikes > 0
-                ? `The last check did not get through: ${view.liveness.words}.`
-                : `Checked just now: ${view.liveness.words}.`}
+            {livenessSentence(i18n, view.liveness)}
           </p>
         </>
       )}
 
-      <h2>Restart</h2>
+      <h2>{i18n.t("office.restartHeading")}</h2>
       <div className="card">
         <p className="note" data-testid="restart-caveat">
-          Restarting powers the whole server off and on, not just isomux. It
-          interrupts every agent that is running and takes a couple of minutes.
+          {i18n.t("office.restartCaveat")}
         </p>
         <p className="action">
           <button
             data-testid="restart-button"
-            onClick={() => void act("/api/restart", "restart your server")}
+            onClick={() =>
+              void act("/api/restart", i18n.t("office.action.restartServer"))
+            }
             disabled={
               !view.subscription ||
               !view.ready ||
@@ -843,7 +935,9 @@ export function OfficeView({
               !!(view.lifecycle && view.lifecycle.phase !== "grace")
             }
           >
-            {view.restart.active ? "Restarting..." : "Restart my server"}
+            {view.restart.active
+              ? i18n.t("office.restarting")
+              : i18n.t("office.restart")}
           </button>
         </p>
         {action && (
@@ -853,25 +947,26 @@ export function OfficeView({
         )}
       </div>
 
-      <h2>Your plan</h2>
+      <h2>{i18n.t("office.planHeading")}</h2>
       <div className="card">
-        <p data-testid="subscription">{planLine(view)}</p>
+        <p data-testid="subscription">{planLine(i18n, view)}</p>
         <CancelPanel
+          i18n={i18n}
           view={view}
           pending={billing}
           onAct={(path, label) => void billingAct(path, label)}
         />
         {view.lifecycle?.reinstate.allowed && (
           <>
-            <PolicyNotice />
+            <PolicyNotice language={language} />
             <p className="action">
               <button
                 data-testid="reinstate-button"
                 onClick={() => void reinstate()}
               >
                 {view.lifecycle.phase === "reinstatement_pending"
-                  ? "Return to payment"
-                  : "Reinstate this office"}
+                  ? i18n.t("office.reinstate.return")
+                  : i18n.t("office.reinstate.reinstate")}
               </button>
             </p>
           </>
@@ -894,18 +989,42 @@ export function OfficeView({
  * customer sees the honest state rather than a euphemism.
  */
 function revocationSentence(
+  i18n: WebTranslator,
   revocation: ProgressView["handoff"]["revocation"],
 ): string {
   switch (revocation.state) {
     case "done":
-      return "Hosted Isomux Provisioning no longer has a key to your server. We confirmed this by trying to reconnect with it and being refused.";
+      return i18n.t("office.revocation.done");
     case "failed":
-      return "We could not remove our key, and a person has been asked to finish it. Your server's own expiry still removes it at the latest date shown above.";
+      return i18n.t("office.revocation.failed");
     case "checking":
-      return "We are removing our key and could not confirm it yet. A person has been asked to check. Your server's own expiry still removes it at the latest date shown above.";
+      return i18n.t("office.revocation.checking");
     default:
-      return "We are removing our key from your server.";
+      return i18n.t("office.revocation.removing");
   }
+}
+
+/**
+ * The probe ladder, in the customer's terms.
+ *
+ * The RUNG is what is translated, not the sentence the projection wrote: the
+ * view carries both, so an unknown rung still reads as the English the control
+ * plane classified it with rather than as a key.
+ */
+function livenessSentence(
+  i18n: WebTranslator,
+  liveness: NonNullable<ProgressView["liveness"]>,
+): string {
+  const words = fromId(i18n, "liveness", liveness.rung, liveness.words);
+  if (liveness.unreachable) {
+    return i18n.t("office.liveness.unreachable", {
+      strikes: liveness.strikes,
+      words,
+    });
+  }
+  return liveness.strikes > 0
+    ? i18n.t("office.liveness.strike", { words })
+    : i18n.t("office.liveness.ok", { words });
 }
 
 /** Dates as yyyy-mm-dd, the format the rest of this page already uses. */
@@ -932,10 +1051,12 @@ function instant(value: number): string {
  * normally until then.
  */
 function CancelPanel({
+  i18n,
   view,
   pending,
   onAct,
 }: {
+  i18n: WebTranslator;
   view: ProgressView;
   pending: "cancel" | "uncancel" | null;
   onAct: (
@@ -950,16 +1071,14 @@ function CancelPanel({
   if (pending === "cancel") {
     return (
       <p className="note" data-testid="cancel-pending">
-        We have asked Stripe to cancel your subscription. This page updates when
-        Stripe confirms it.
+        {i18n.t("office.cancel.pendingCancel")}
       </p>
     );
   }
   if (pending === "uncancel") {
     return (
       <p className="note" data-testid="uncancel-pending">
-        We have asked Stripe to keep your subscription. This page updates when
-        Stripe confirms it.
+        {i18n.t("office.cancel.pendingUncancel")}
       </p>
     );
   }
@@ -967,15 +1086,17 @@ function CancelPanel({
   // Service has ended: the timeline is real, and every date in it is proven.
   if (life) {
     if (life.phase === "ended") {
-      return <p data-testid="cancel-ended">This office has been deleted.</p>;
+      return (
+        <p data-testid="cancel-ended">{i18n.t("office.cancel.ended")}</p>
+      );
     }
     if (life.phase === "reinstatement_pending" && life.retentionEnd !== null) {
       return (
         <>
           <p className="callout" data-testid="reinstate-pending">
-            Your office remains powered off while payment is pending. Complete
-            payment before {instant(life.retentionEnd)} to reinstate this same
-            office.
+            {i18n.t("office.cancel.reinstatePending", {
+              deadline: instant(life.retentionEnd),
+            })}
           </p>
           {!life.reinstate.allowed && (
             <p className="note" data-testid="reinstate-refused">
@@ -988,8 +1109,7 @@ function CancelPanel({
     if (life.phase === "checkout_expiry_due") {
       return (
         <p className="callout" data-testid="reinstate-expired">
-          The reinstatement deadline has been reached. This payment can no
-          longer reinstate the office.
+          {i18n.t("office.cancel.reinstateExpired")}
         </p>
       );
     }
@@ -1000,10 +1120,9 @@ function CancelPanel({
       return (
         <>
           <p className="callout" data-testid="cancel-suspended">
-            Your office is powered off. Restart your subscription by{" "}
-            {day(life.retentionEnd)} to restore it, or contact support for free
-            temporary access to your office so you can get your data out. After{" "}
-            {day(life.retentionEnd)}, your office cannot be recovered.
+            {i18n.t("office.cancel.suspended", {
+              date: day(life.retentionEnd),
+            })}
           </p>
           {!life.reinstate.allowed && (
             <p className="note" data-testid="reinstate-refused">
@@ -1016,8 +1135,7 @@ function CancelPanel({
     if (life.phase === "deprovision_due") {
       return (
         <p className="callout" data-testid="cancel-retention-ended">
-          The retention period for this office has ended. It can no longer be
-          recovered.
+          {i18n.t("office.cancel.retentionEnded")}
         </p>
       );
     }
@@ -1025,15 +1143,13 @@ function CancelPanel({
       return (
         <>
           <p className="callout" data-testid="cancel-power-off">
-            Your subscription ended on {day(sub.endedAt!)}. Your office is being
-            powered off. Restart your subscription by {day(life.retentionEnd!)}{" "}
-            to restore it, or contact support for free temporary access to your
-            office so you can get your data out. After {day(life.retentionEnd!)}
-            , your office cannot be recovered.
+            {i18n.t("office.cancel.powerOffLaunch", {
+              endedAt: day(sub.endedAt!),
+              date: day(life.retentionEnd!),
+            })}
           </p>
           <p className="note" data-testid="cancel-restart-refused">
-            This office cannot be restarted. Your office dashboard shows the
-            options available now.
+            {i18n.t("office.cancel.restartRefusedLaunch")}
           </p>
         </>
       );
@@ -1041,14 +1157,14 @@ function CancelPanel({
     return (
       <>
         <p className="callout" data-testid="cancel-grace">
-          Your subscription ended on {day(sub.endedAt!)}. Your office keeps
-          serving until {day(life.graceEnd!)} so you can take your work out.
-          After that your server is powered off.
+          {i18n.t("office.cancel.grace", {
+            endedAt: day(sub.endedAt!),
+            graceEnd: day(life.graceEnd!),
+          })}
         </p>
         {life.phase === "grace" ? null : (
           <p className="note" data-testid="cancel-restart-refused">
-            This office cannot be restarted here after suspension. Contact
-            support if you need help.
+            {i18n.t("office.cancel.restartRefused")}
           </p>
         )}
       </>
@@ -1060,29 +1176,24 @@ function CancelPanel({
       return (
         <section data-testid="cancel-scheduled">
           <p>
-            Your subscription is scheduled to end on {day(sub.currentPeriodEnd)}
-            . Your office runs through the period you paid for and is powered
-            off when that period ends.
+            {i18n.t("office.cancel.scheduledLaunch", {
+              date: day(sub.currentPeriodEnd),
+            })}
           </p>
-          <p>
-            We retain the server data for 14 days. During that time, restart
-            your subscription to restore the same office, or contact support for
-            free temporary access to your office so you can get your data out.
-            After that, your office cannot be recovered.
-          </p>
-          <RefundNotice />
+          <p>{i18n.t("office.cancel.scheduledLaunchRetention")}</p>
+          <RefundNotice i18n={i18n} />
           <p className="action">
             <button
               className="btn-primary"
               data-testid="uncancel-button"
               onClick={() => onAct("/api/uncancel", "uncancel")}
             >
-              Keep my office
+              {i18n.t("office.cancel.keep")}
             </button>
             <span data-testid="uncancel-caveat">
-              {" "}
-              Keeping your office means your subscription renews on{" "}
-              {day(sub.currentPeriodEnd)} and normal billing continues.
+              {i18n.t("office.cancel.keepCaveat", {
+                date: day(sub.currentPeriodEnd),
+              })}
             </span>
           </p>
         </section>
@@ -1092,13 +1203,15 @@ function CancelPanel({
     return (
       <section data-testid="cancel-scheduled">
         <p>
-          Your subscription is scheduled to end on {day(sub.currentPeriodEnd)}.
-          Your office keeps serving until {day(sub.currentPeriodEnd)}, and then
-          for a further 7 days until {day(graceEnd)}.
+          {i18n.t("office.cancel.scheduled", {
+            date: day(sub.currentPeriodEnd),
+            graceEnd: day(graceEnd),
+          })}
         </p>
         <p>
-          After {day(graceEnd)} your server is powered off. Your data stays on
-          it for one calendar month, and then the server is permanently deleted.
+          {i18n.t("office.cancel.scheduledAfter", {
+            graceEnd: day(graceEnd),
+          })}
         </p>
         <p className="action">
           <button
@@ -1106,12 +1219,12 @@ function CancelPanel({
             data-testid="uncancel-button"
             onClick={() => onAct("/api/uncancel", "uncancel")}
           >
-            Keep my office
+            {i18n.t("office.cancel.keep")}
           </button>
           <span data-testid="uncancel-caveat">
-            {" "}
-            Keeping your office means your subscription renews on{" "}
-            {day(sub.currentPeriodEnd)} and normal billing continues.
+            {i18n.t("office.cancel.keepCaveat", {
+              date: day(sub.currentPeriodEnd),
+            })}
           </span>
         </p>
       </section>
@@ -1121,28 +1234,25 @@ function CancelPanel({
   return (
     <section data-testid="cancel-offer">
       <p className="note" data-testid="cancel-caveat">
-        Cancelling keeps your office running until the end of the period you
-        have paid for.
+        {i18n.t("office.cancel.caveat")}
       </p>
-      <RefundNotice />
+      <RefundNotice i18n={i18n} />
       <p className="action">
         <button
           data-testid="cancel-button"
           onClick={() => onAct("/api/cancel", "cancel")}
         >
-          Cancel my office
+          {i18n.t("office.cancel.cancel")}
         </button>
       </p>
     </section>
   );
 }
 
-function RefundNotice() {
+function RefundNotice({ i18n }: { i18n: WebTranslator }) {
   return (
     <p className="note" data-testid="refund-notice">
-      You can request a full refund by emailing llc@isomux.com within 7 days of
-      your first payment. If we refund you, we don&apos;t retain the server data
-      for 14 days in case you want to restore it later.
+      {i18n.t("office.refundNotice", { address: SUPPORT_EMAIL })}
     </p>
   );
 }
@@ -1155,10 +1265,14 @@ function RefundNotice() {
  * past. The date is the same number throughout - what changes is whether it is
  * a bill or an ending.
  */
-function planLine(view: ProgressView) {
+function planLine(i18n: WebTranslator, view: ProgressView) {
   const sub = view.subscription;
-  if (!sub) return `${view.tier.label} - waiting for payment to be confirmed`;
-  const head = `${view.tier.label} - ${sub.status}${sub.comped ? ", no charge" : ""}`;
+  // The tier label is the plan's own name and `sub.status` is Stripe's own
+  // status word: both are data, not copy (ruling 11).
+  if (!sub) {
+    return `${view.tier.label} - ${i18n.t("office.plan.waitingForPayment")}`;
+  }
+  const head = `${view.tier.label} - ${sub.status}${sub.comped ? i18n.t("office.plan.noCharge") : ""}`;
   // Ended: the period end is history, so it is not shown at all. The
   // cancellation panel below is where the remaining dates live.
   if (sub.endedAt !== null) return head;
@@ -1167,10 +1281,10 @@ function planLine(view: ProgressView) {
     <>
       {head},{" "}
       <strong className="period-end">
-        period ends {day(sub.currentPeriodEnd)}
+        {i18n.t("office.plan.periodEnds", { date: day(sub.currentPeriodEnd) })}
       </strong>
     </>
   ) : (
-    `${head}, next invoice ${day(sub.currentPeriodEnd)}`
+    `${head}, ${i18n.t("office.plan.nextInvoice", { date: day(sub.currentPeriodEnd) })}`
   );
 }

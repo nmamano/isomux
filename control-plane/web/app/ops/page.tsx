@@ -2,8 +2,18 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { opsFloor } from "../../lib/services.server";
+import { DocumentLanguage } from "../../lib/i18n/document-language";
+import { OPS_LANGUAGE } from "../../lib/i18n/request.server";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * OPS IS ENGLISH, and says so rather than inheriting it. The operator floor is
+ * not a customer surface (S11 scope), so it renders no language switch and no
+ * catalog text; `DocumentLanguage` is here to put the root `lang` BACK to
+ * English after a client navigation from a translated page, which is the one
+ * way this page could end up described as Spanish.
+ */
 
 /**
  * The alerting floor the design asks for before we charge anyone, as a page
@@ -24,6 +34,7 @@ export default async function Ops() {
 
   return (
     <main className="wide">
+      <DocumentLanguage language={OPS_LANGUAGE} />
       <h1>Ops floor</h1>
 
       <h2>Attention</h2>

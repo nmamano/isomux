@@ -9,16 +9,8 @@ import {
   generateServerAdministratorKey,
   type ServerAdministratorKey,
 } from "./server-administrator-key";
-
-const CRYPTO_ERROR =
-  "Your browser cannot create or copy the server administrator key on this page. Open the signup page over HTTPS in a current browser and try again.";
-const CLIPBOARD_ERROR =
-  "Your browser could not copy the server administrator key. Reveal the key and select it from the field instead.";
-const CHECKOUT_ERROR =
-  "We could not open a payment page just now. Try again in a moment.";
-const SIGNUP_REFUSED_ERROR =
-  "We could not continue signup. Reload the page and try again.";
-const SAVE_KEY_REASON = "Save your server administrator key before continuing.";
+import type { SupportedLanguageCode } from "../lib/i18n/languages";
+import { webTranslatorFor } from "../lib/i18n/rich";
 
 type SignupResponse = {
   ok: boolean;
@@ -26,12 +18,35 @@ type SignupResponse = {
   reason?: string;
 };
 
+/**
+ * What is on screen when something failed, and WHY IT IS NOT A STRING.
+ *
+ * Two kinds of failure reach this box. One is ours, and it belongs to a catalog
+ * key: state that outlives a render must hold the key rather than finished text,
+ * or a language change would leave the sentence behind. The other arrived from
+ * the server already worded for this request, and there is nothing left to look
+ * up.
+ */
+type FormErrorKey =
+  | "signup.cryptoError"
+  | "signup.clipboardError"
+  | "signup.checkoutError"
+  | "signup.refusedError";
+
+type FormError =
+  | { kind: "key"; key: FormErrorKey }
+  | { kind: "text"; text: string };
+
+const asError = (key: FormErrorKey): FormError => ({ kind: "key", key });
+
 export function SignupForm({
+  language,
   domain,
   initialName,
   initialError = null,
   plans,
 }: {
+  language: SupportedLanguageCode;
   domain: string;
   initialName: string;
   initialError?: string | null;
@@ -46,21 +61,24 @@ export function SignupForm({
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
   const [revealed, setRevealed] = useState(false);
-  const [error, setError] = useState<string | null>(initialError);
+  const [error, setError] = useState<FormError | null>(
+    initialError ? { kind: "text", text: initialError } : null,
+  );
   const [submitting, setSubmitting] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRef = useRef<HTMLParagraphElement | null>(null);
+  const { t, rich } = webTranslatorFor(language);
 
   useEffect(() => {
     void Promise.resolve().then(async () => {
       if (!window.isSecureContext || !globalThis.crypto?.subtle) {
-        setError(CRYPTO_ERROR);
+        setError(asError("signup.cryptoError"));
         return;
       }
       try {
         setKey(await generateServerAdministratorKey());
       } catch {
-        setError(CRYPTO_ERROR);
+        setError(asError("signup.cryptoError"));
       }
     });
   }, []);
@@ -88,7 +106,7 @@ export function SignupForm({
       }, 2_000);
     } catch {
       setCopied(false);
-      setError(CLIPBOARD_ERROR);
+      setError(asError("signup.clipboardError"));
     }
   }
 
@@ -138,18 +156,27 @@ export function SignupForm({
         // A refusal can be plain text or empty, including at the trust boundary.
       }
       if (!response.ok || !result?.ok || !result.checkoutUrl) {
-        const refusal =
+        // A refusal the server worded for this request is used as delivered;
+        // only our own two fallbacks are catalog keys.
+        const relayed =
           result?.reason ??
           (response.status >= 400 && response.status < 500
-            ? (responseType === "text/plain" && responseText.trim()) ||
-              SIGNUP_REFUSED_ERROR
-            : CHECKOUT_ERROR);
-        setError(refusal);
+            ? (responseType === "text/plain" && responseText.trim()) || null
+            : null);
+        setError(
+          relayed
+            ? { kind: "text", text: relayed }
+            : asError(
+                response.status >= 400 && response.status < 500
+                  ? "signup.refusedError"
+                  : "signup.checkoutError",
+              ),
+        );
         return;
       }
       window.location.assign(result.checkoutUrl);
     } catch {
-      setError(CHECKOUT_ERROR);
+      setError(asError("signup.checkoutError"));
     } finally {
       setSubmitting(false);
     }
@@ -157,9 +184,13 @@ export function SignupForm({
 
   return (
     <form className="form card" onSubmit={(event) => void submit(event)}>
-      <OfficeAddressPreview initialName={initialName} domain={domain} />
+      <OfficeAddressPreview
+        language={language}
+        initialName={initialName}
+        domain={domain}
+      />
       <fieldset>
-        <legend>Choose your office</legend>
+        <legend>{t("signup.choosePlan")}</legend>
         {plans.map((plan, index) => (
           <label key={plan.id} className="plan-option">
             <input
@@ -170,41 +201,29 @@ export function SignupForm({
             />
             <strong>{plan.label}</strong>
             <span className="note">{plan.specification}</span>
-            {customerPriceLine(plan.customerPrice) && (
+            {customerPriceLine(language, plan.customerPrice) && (
               <span className="note">
-                {customerPriceLine(plan.customerPrice)}
+                {customerPriceLine(language, plan.customerPrice)}
               </span>
             )}
           </label>
         ))}
-        <span className="note">
-          Changing plans after signup is not available yet.
-        </span>
+        <span className="note">{t("signup.planChangeNote")}</span>
       </fieldset>
       <p>
         <label>
-          Promotional code (optional){" "}
+          {t("signup.couponLabel")}{" "}
           <input name="couponId" data-testid="coupon" autoComplete="off" />
         </label>
-        <span className="note">
-          If you received a promotional code, enter it here.
-        </span>
+        <span className="note">{t("signup.couponHint")}</span>
       </p>
       <p>
-        <label>Save your server administrator key</label>
+        <label>{t("signup.keyLabel")}</label>
+        <span className="note">{t("signup.keyNote")}</span>
         <span className="note">
-          This key is for accessing your entire server, not just the Isomux
-          office. You need it to install software as an administrator and manage
-          or repair your server. It was generated locally in your browser and is
-          shown only to you. Save it somewhere only you can access. We cannot
-          create a new one after the fact because we lock ourselves out of your
-          server after setup.
-        </span>
-        <span className="note">
-          <strong>How to use it:</strong> This is an SSH private key. A chatbot
-          can walk you through how to use it to access your server through a
-          terminal, or an agent running locally on your computer can use it to
-          access the server for you.
+          {rich("signup.keyHowTo", {
+            label: (chunk) => <strong>{chunk}</strong>,
+          })}
         </span>
         <span className="key-field">
           <textarea
@@ -212,7 +231,7 @@ export function SignupForm({
             rows={8}
             readOnly
             value={revealed ? (key?.privateKey ?? "") : ""}
-            placeholder="Private key hidden"
+            placeholder={t("signup.keyHidden")}
             autoComplete="off"
             spellCheck={false}
           />
@@ -223,7 +242,7 @@ export function SignupForm({
             disabled={!key}
             aria-pressed={revealed}
           >
-            {revealed ? "Hide private key" : "Reveal private key"}
+            {revealed ? t("signup.keyHide") : t("signup.keyReveal")}
           </button>
           <button
             className="key-copy"
@@ -231,10 +250,10 @@ export function SignupForm({
             onClick={() => void copyPrivateKey()}
             disabled={!key}
           >
-            Copy private key
+            {t("signup.keyCopy")}
           </button>
           <span className="copy-status" aria-live="polite">
-            {copied ? "Copied" : ""}
+            {copied ? t("signup.keyCopied") : ""}
           </span>
           <button
             className="key-download"
@@ -242,7 +261,7 @@ export function SignupForm({
             onClick={downloadPrivateKey}
             disabled={!key}
           >
-            Download private key
+            {t("signup.keyDownload")}
           </button>
         </span>
         <label className="key-confirm">
@@ -252,10 +271,10 @@ export function SignupForm({
             onChange={(event) => setSaved(event.target.checked)}
             disabled={!key}
           />{" "}
-          I saved it
+          {t("signup.keySaved")}
         </label>
       </p>
-      <PolicyNotice />
+      <PolicyNotice language={language} />
       {error && (
         <p
           ref={errorRef}
@@ -263,7 +282,7 @@ export function SignupForm({
           data-testid="signup-error"
           role="alert"
         >
-          {error}
+          {error.kind === "key" ? t(error.key) : error.text}
         </p>
       )}
       <div className="action">
@@ -276,10 +295,10 @@ export function SignupForm({
             key && !saved ? "signup-save-key-reason" : undefined
           }
         >
-          Continue to payment
+          {t("common.continueToPayment")}
         </button>
         {key && !saved && (
-          <span id="signup-save-key-reason">{SAVE_KEY_REASON}</span>
+          <span id="signup-save-key-reason">{t("signup.saveKeyReason")}</span>
         )}
       </div>
     </form>

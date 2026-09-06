@@ -204,6 +204,47 @@ describe("pending ordinary Checkout polling", () => {
     });
   });
 
+  test("a payment-page refusal reaches the customer in their own language", async () => {
+    // THE ACTUAL CALLER PATH, not a render: `continueSignup` is what the
+    // /api/signup route calls, and the language it is given is the one
+    // `languageForRequest()` resolved from the request. Literal translated
+    // strings, so a broken translator cannot pass its own test.
+    const store = await tempStore();
+    await pending(store, "unreachable", "cs_stuck");
+    (
+      globalThis as {
+        [STORE_SLOT]?: { opening?: Promise<Store> };
+      }
+    )[STORE_SLOT] = { opening: Promise.resolve(store) };
+    process.env.AUTH_URL = "https://cloud.example.test";
+    process.env.CONTROL_PLANE_ENTRY_PRICE_ID = "price_entry";
+    process.env.CONTROL_PLANE_STRIPE_MODE = "test";
+    process.env.STRIPE_TEST_SECRET_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+    // Stripe cannot say whether the session is still usable.
+    globalThis.fetch = (async () =>
+      new Response("upstream is down", {
+        status: 503,
+      })) as unknown as typeof fetch;
+
+    expect(await continueSignup("es", "acct-1", "unreachable")).toEqual({
+      ok: false,
+      reason:
+        "No hemos podido comprobar tu página de pago ahora mismo - vuelve a intentarlo en un momento.",
+    });
+    expect(await continueSignup("ca", "acct-1", "unreachable")).toEqual({
+      ok: false,
+      reason:
+        "No hem pogut comprovar la teva pàgina de pagament ara mateix - torna-ho a provar d'aquí a un moment.",
+    });
+    // English is unchanged, which is the bytes this branch returned before the
+    // catalog (ruling 6).
+    expect(await continueSignup("en", "acct-1", "unreachable")).toEqual({
+      ok: false,
+      reason:
+        "We could not check your payment page just now - try again in a moment.",
+    });
+  });
+
   test("Continue advances after the poll has already marked the session expired", async () => {
     const store = await tempStore();
     const reservation = await pending(store, "returning", "cs_old");
@@ -246,7 +287,7 @@ describe("pending ordinary Checkout polling", () => {
       });
     }) as typeof fetch;
 
-    expect(await continueSignup("acct-1", "returning")).toEqual({
+    expect(await continueSignup("en", "acct-1", "returning")).toEqual({
       ok: true,
       checkoutUrl: "https://checkout.stripe.test/cs_new",
       instanceId: reservation.instance_id,
@@ -300,7 +341,7 @@ describe("pending ordinary Checkout polling", () => {
       });
     }) as typeof fetch;
 
-    expect(await continueSignup("acct-1", "remote-expiry")).toEqual({
+    expect(await continueSignup("en", "acct-1", "remote-expiry")).toEqual({
       ok: true,
       checkoutUrl: "https://checkout.stripe.test/cs_new",
       instanceId: reservation.instance_id,

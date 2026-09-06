@@ -21,6 +21,7 @@ afterEach(() => {
 
 async function attempt(plan: string) {
   return signUpOffice({
+    language: "en",
     accountId: "acct-price-test",
     officeName: "price-test",
     plan,

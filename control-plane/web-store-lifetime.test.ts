@@ -196,6 +196,7 @@ describe("hosted signup page state", () => {
     await seed.close();
 
     const result = await signUpOffice({
+      language: "en",
       accountId: account.id,
       officeName: "keyless",
       plan: "office",
@@ -259,7 +260,7 @@ describe("hosted signup page state", () => {
       }),
     );
     expect(await signupPageState(account.id)).toEqual({ kind: "paid" });
-    expect(await continueSignup(account.id, "continue-me")).toEqual({
+    expect(await continueSignup("en", account.id, "continue-me")).toEqual({
       ok: false,
       officeName: "continue-me",
     });

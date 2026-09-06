@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ProgressView } from "../lib/services.server";
+import { webTranslatorFor } from "../lib/i18n/rich";
 import {
   anchoredNow,
   formatDuration,
@@ -12,6 +13,10 @@ import {
   STALLED_AFTER_MS,
   Steps,
 } from "./office-view";
+
+/** Every existing assertion in this file is English, and stays English: the
+ * pages default to it and the catalog move must not have changed a byte. */
+const english = webTranslatorFor("en");
 
 const baseView: ProgressView = {
   asOf: 0,
@@ -61,6 +66,7 @@ function renderedWithLifecycle(
 ) {
   return renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{ ...baseView, lifecycle }}
       instanceId={baseView.instanceId}
     />,
@@ -83,6 +89,7 @@ test("durations use one compact format at every scale", () => {
 test("a running step is a silent timer anchored to control-plane time", () => {
   const html = renderToStaticMarkup(
     <Steps
+      i18n={english}
       testid="timed"
       now={13_240}
       steps={[
@@ -106,6 +113,7 @@ test("a running step is a silent timer anchored to control-plane time", () => {
 test("a finished step reads as took without retaining the timer role", () => {
   const html = renderToStaticMarkup(
     <Steps
+      i18n={english}
       testid="timed"
       now={99_000}
       steps={[
@@ -128,6 +136,7 @@ test("a finished step reads as took without retaining the timer role", () => {
 test("a finished duration is present in the server-rendered office", () => {
   const html = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{
         ...baseView,
         steps: [
@@ -273,7 +282,7 @@ test("office without a payment action omits the policy notice", () => {
     reinstate: { allowed: false, reason: "Reinstatement is unavailable." },
   });
   const healthy = renderToStaticMarkup(
-    <OfficeView initial={baseView} instanceId={baseView.instanceId} />,
+    <OfficeView language="en" initial={baseView} instanceId={baseView.instanceId} />,
   );
   expect(refused).not.toContain("Before you pay");
   expect(healthy).not.toContain("Before you pay");
@@ -282,6 +291,7 @@ test("office without a payment action omits the policy notice", () => {
 test("an unpaid reservation owns its payment continuation and guidance", () => {
   const html = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{
         ...baseView,
         access: { state: "not_started", expiresAt: null, ceilingProven: false },
@@ -299,7 +309,7 @@ test("an unpaid reservation owns its payment continuation and guidance", () => {
 
 test("payment completes its ladder step and restart waits for provisioning", () => {
   const building = renderToStaticMarkup(
-    <OfficeView initial={baseView} instanceId={baseView.instanceId} />,
+    <OfficeView language="en" initial={baseView} instanceId={baseView.instanceId} />,
   );
   expect(building).not.toContain('data-testid="payment-guidance"');
   expect(building).toContain('data-state="done">done</span>');
@@ -307,6 +317,7 @@ test("payment completes its ladder step and restart waits for provisioning", () 
 
   const ready = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{ ...baseView, ready: true }}
       instanceId={baseView.instanceId}
     />,
@@ -318,6 +329,7 @@ test("payment completes its ladder step and restart waits for provisioning", () 
 test("the top office link waits for a minted-or-adopted invite path", () => {
   const created = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{ ...baseView, ready: true }}
       instanceId={baseView.instanceId}
     />,
@@ -328,6 +340,7 @@ test("the top office link waits for a minted-or-adopted invite path", () => {
 
   const minted = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{
         ...baseView,
         ready: true,
@@ -348,6 +361,7 @@ test("the top office link waits for a minted-or-adopted invite path", () => {
 
   const adopted = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{ ...baseView, ready: true, origin: "adopted" }}
       instanceId={baseView.instanceId}
     />,
@@ -371,10 +385,11 @@ test("refund terms stay visible before and after cancellation is scheduled", () 
     },
   } satisfies ProgressView;
   const offered = renderToStaticMarkup(
-    <OfficeView initial={active} instanceId={active.instanceId} />,
+    <OfficeView language="en" initial={active} instanceId={active.instanceId} />,
   );
   const scheduled = renderToStaticMarkup(
     <OfficeView
+      language="en"
       initial={{
         ...active,
         subscription: { ...active.subscription, cancelAtPeriodEnd: true },

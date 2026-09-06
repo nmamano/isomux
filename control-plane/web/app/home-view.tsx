@@ -4,6 +4,9 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { useSessionProbe } from "../lib/use-session";
 import type { OfficeCard } from "../lib/session-view";
+import { DocumentLanguage } from "../lib/i18n/document-language";
+import { useLanguage } from "../lib/i18n/use-language";
+import { webTranslatorFor, type WebTranslator } from "../lib/i18n/rich";
 
 /**
  * The landing page's body, on the client, so that `page.tsx` can be prerendered.
@@ -15,30 +18,56 @@ import type { OfficeCard } from "../lib/session-view";
  * dashboard replaces it. That flash is the price of the page being cacheable at
  * all; cookie-varying HTML cannot be held by a shared cache under any flag.
  *
+ * IT ALSO PAINTS FIRST IN ENGLISH, for the same reason: the prerendered bytes
+ * are English, so `useLanguage` returns English on the first render and moves to
+ * the visitor's language after hydration. `DocumentLanguage` moves the root
+ * `lang` in the same commit, so the attribute never describes text that is no
+ * longer there.
+ *
  * `loading` and `unavailable` draw the same shell, because neither knows the
  * visitor is signed in. The hook keeps asking; see `lib/use-session.ts`.
  */
 export function HomeView() {
   const probe = useSessionProbe({ offices: true });
-  if (probe.state !== "signed-in") return <SignedOut />;
-  return <Dashboard email={probe.email} offices={probe.offices ?? []} />;
+  const language = useLanguage();
+  const i18n = webTranslatorFor(language);
+  return (
+    <>
+      <DocumentLanguage language={language} />
+      {probe.state === "signed-in" ? (
+        <Dashboard
+          i18n={i18n}
+          email={probe.email}
+          offices={probe.offices ?? []}
+        />
+      ) : (
+        <SignedOut i18n={i18n} />
+      )}
+    </>
+  );
 }
 
-function SignedOut() {
+/** The shell a CDN holds. Exported so its test can render it on a language
+ * without running an effect (ruling 14: the test asserts literal text). */
+export function SignedOut({ i18n }: { i18n: WebTranslator }) {
   return (
     <main>
       <h1>Hosted Isomux</h1>
       <p className="lead">
-        <Link href="/signin">Sign in</Link> to set up an office.
+        {i18n.rich("home.signedOutLead", {
+          signin: (chunk) => <Link href="/signin">{chunk}</Link>,
+        })}
       </p>
     </main>
   );
 }
 
-function Dashboard({
+export function Dashboard({
+  i18n,
   email,
   offices,
 }: {
+  i18n: WebTranslator;
   email: string | null;
   offices: OfficeCard[];
 }) {
@@ -46,7 +75,7 @@ function Dashboard({
     <main>
       <div className="account-line">
         <p className="note" data-testid="signed-in-as">
-          Signed in as {email}
+          {i18n.t("home.signedInAs", { email: email ?? "" })}
         </p>
         {/* Still a form around the button, so the flex row and the click target
             are the ones the page has always had. What changed is who handles the
@@ -60,11 +89,22 @@ function Dashboard({
           }}
         >
           <button type="submit" data-testid="sign-out">
-            Sign out
+            {i18n.t("common.signOut")}
           </button>
         </form>
       </div>
-      <h1>{offices.length > 1 ? "Your offices" : "Your office"}</h1>
+      {/* The English splits at MORE THAN ONE, which is not where Intl.PluralRules
+          splits: an account with no office reads "Your office" today, and a
+          plural pair picked by tn() would move it to "Your offices". Two keys
+          chosen by the page's own test keep every language on the same branch.
+          The plural one is `common.backToOffices`: this heading and the back
+          link on the inner pages are the same string, so it lives under
+          common.* (ruling 15). */}
+      <h1>
+        {offices.length > 1
+          ? i18n.t("common.backToOffices")
+          : i18n.t("home.officeHeading")}
+      </h1>
       {offices.length > 0 ? (
         <>
           {offices.map((office) => (
@@ -78,20 +118,26 @@ function Dashboard({
                 {/* The same chip the provisioning ladder uses, so "ready" reads
                     the same here as it does inside the office. */}
                 <span data-state={office.ready ? "done" : "active"}>
-                  {office.ready ? "ready" : "not ready yet"}
+                  {office.ready ? i18n.t("home.ready") : i18n.t("home.notReady")}
                 </span>
               </p>
-              <span className="office-card-action">View office &rarr;</span>
+              <span className="office-card-action">
+                {i18n.t("home.viewOffice")} &rarr;
+              </span>
             </Link>
           ))}
           <p>
-            <Link href="/signup?another=1">Set up another office</Link>.
+            {i18n.rich("home.setUpAnother", {
+              link: (chunk) => <Link href="/signup?another=1">{chunk}</Link>,
+            })}
           </p>
         </>
       ) : (
         <div className="card">
           <p>
-            You have no office yet. <Link href="/signup">Set one up</Link>.
+            {i18n.rich("home.noOffice", {
+              link: (chunk) => <Link href="/signup">{chunk}</Link>,
+            })}
           </p>
         </div>
       )}

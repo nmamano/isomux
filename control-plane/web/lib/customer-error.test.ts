@@ -7,9 +7,9 @@ describe("customer payment failures", () => {
     const logged: unknown[][] = [];
     const raw =
       "Permission denied on acct_private; edit https://dashboard.stripe.com/b/acct_private";
-    const shown = customerFailure("configuration", "payments", raw, {
+    const shown = customerFailure("en", "configuration", "payments", raw, {
       newReference: () => "PAY-0123456789",
-      log: (...args) => logged.push(args),
+      log: (...args: unknown[]) => logged.push(args),
     });
 
     expect(shown).toBe(
@@ -22,12 +22,14 @@ describe("customer payment failures", () => {
 
   test("offers a retry only for a transient failure and keeps the reservation fact", () => {
     const configuration = customerFailure(
+      "en",
       "configuration",
       "checkout_reserved",
       "bad key",
       { newReference: () => "PAY-AAAAAAAAAA", log: () => {} },
     );
     const transient = customerFailure(
+      "en",
       "transient",
       "checkout_reserved",
       "timeout",
@@ -44,17 +46,17 @@ describe("customer payment failures", () => {
   });
 
   test("capitalizes only explicitly safe refusals", () => {
-    expect(safeCustomerReason("we do not recognise this account")).toBe(
+    expect(safeCustomerReason("en", "we do not recognise this account")).toBe(
       "We do not recognise this account.",
     );
-    expect(safeCustomerReason('"acme" is taken')).toBe(
+    expect(safeCustomerReason("en", '"acme" is taken')).toBe(
       'Request refused: "acme" is taken.',
     );
   });
 
   test("makes an empty safe refusal opaque and traceable", () => {
     expect(
-      safeCustomerReason(" ", {
+      safeCustomerReason("en", " ", {
         newReference: () => "PAY-3F0A9C21B7",
         log: () => {},
       }),
@@ -67,8 +69,8 @@ describe("customer payment failures", () => {
     const wrapped = `--coupon SECRET cannot be used as a full discount: ${raw}`;
     const translated = customerReason(wrapped);
     const shown = translated
-      ? safeCustomerReason(translated)
-      : customerFailure("configuration", "checkout_reserved", wrapped, {
+      ? safeCustomerReason("en", translated)
+      : customerFailure("en", "configuration", "checkout_reserved", wrapped, {
           newReference: () => "PAY-3F0A9C21B7",
           log: () => {},
         });
@@ -79,5 +81,38 @@ describe("customer payment failures", () => {
     expect(shown).not.toContain("acct_");
     expect(shown).not.toContain("dashboard.stripe.com");
     expect(shown).toContain("PAY-3F0A9C21B7");
+  });
+
+  test("a payment failure is worded in the request's language", () => {
+    const reference = { newReference: () => "PAY-0123456789", log: () => {} };
+    expect(
+      customerFailure("es", "transient", "payments", "timeout", reference),
+    ).toBe(
+      "No hemos podido contactar con nuestro proveedor de pagos ahora mismo. " +
+        "Vuelve a intentarlo en un momento. Referencia: PAY-0123456789.",
+    );
+    expect(
+      customerFailure("ca", "configuration", "checkout_reserved", "x", reference),
+    ).toBe(
+      "No hem pogut obrir una pàgina de pagament. El teu nom està reservat. " +
+        "Referència: PAY-0123456789.",
+    );
+  });
+
+  test("the reference code is byte-identical in every language", () => {
+    const reference = { newReference: () => "PAY-0123456789", log: () => {} };
+    for (const language of ["en", "es", "ca"] as const) {
+      const shown = customerFailure(
+        language,
+        "transient",
+        "payments",
+        "timeout",
+        reference,
+      );
+      expect([language, shown.includes("PAY-0123456789")]).toEqual([
+        language,
+        true,
+      ]);
+    }
   });
 });

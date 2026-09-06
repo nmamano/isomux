@@ -41,6 +41,8 @@ import type { ReservationRow } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
 import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
 import { customerFailure, safeCustomerReason } from "./customer-error";
+import type { SupportedLanguageCode } from "./i18n/languages";
+import { translatorFor } from "./i18n/translate";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
 
@@ -224,9 +226,11 @@ export async function signupPageState(
 }
 
 async function openReservedCheckout(args: {
+  language: SupportedLanguageCode;
   reservation: ReservationRow;
   account: AccountRow;
 }): Promise<SignupResult> {
+  const language = args.language;
   const [
     {
       advanceExpiredOrdinaryCheckout,
@@ -253,6 +257,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "checkout_reserved",
         `The stored plan ${args.reservation.plan} is not offered`,
@@ -263,6 +268,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "checkout_reserved",
         resolved.reason,
@@ -273,6 +279,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "checkout_reserved",
         "This deployment has no origin configured",
@@ -285,7 +292,7 @@ async function openReservedCheckout(args: {
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure("configuration", "checkout_reserved", err),
+      reason: customerFailure(language, "configuration", "checkout_reserved", err),
     };
   }
   const { key, mode } = runtime;
@@ -317,8 +324,7 @@ async function openReservedCheckout(args: {
   ) {
     return {
       ok: false,
-      reason:
-        "We could not check your payment page just now - try again in a moment.",
+      reason: translatorFor(language).t("errors.checkoutSessionUnavailable"),
     };
   }
   if (
@@ -332,16 +338,16 @@ async function openReservedCheckout(args: {
     if (existing.kind === "unavailable") {
       return {
         ok: false,
-        reason:
-          "We could not check your payment page just now - try again in a moment.",
+        reason: translatorFor(language).t("errors.checkoutSessionUnavailable"),
       };
     }
     if (existing.kind === "absent" || existing.object.status === "expired") {
       if (!(await advanceTerminalGeneration(reservation.checkout_session_id))) {
         return {
           ok: false,
-          reason:
-            "We could not check your payment page just now - try again in a moment.",
+          reason: translatorFor(language).t(
+            "errors.checkoutSessionUnavailable",
+          ),
         };
       }
     } else if (
@@ -371,6 +377,13 @@ async function openReservedCheckout(args: {
     successUrl: `${origin}/office/${reservation.name}`,
     cancelUrl: `${origin}/signup`,
   });
+  // NO `locale` HERE, deliberately. The session's idempotency key is derived
+  // from stored state alone (checkoutKeysFor in signup.ts,
+  // reinstatementSessionKey in reinstatement.ts), so every replay of one
+  // generation must send a byte-identical body. A locale read from the REQUEST
+  // is the one input a language switch can change between a lost response and
+  // its retry, and Stripe refuses a reused key with a different body. Checkout
+  // reads the customer's own browser instead. (PM ruling, 2026-09-06.)
   let opened: Awaited<ReturnType<typeof openCheckout>>;
   try {
     opened = await openCheckout(client, inputs);
@@ -378,6 +391,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         err instanceof CheckoutCreationError && err.ambiguous
           ? "transient"
           : "configuration",
@@ -389,10 +403,11 @@ async function openReservedCheckout(args: {
   if (!opened.ok) {
     const couponReason = customerReason(opened.reason);
     if (couponReason)
-      return { ok: false, reason: safeCustomerReason(couponReason) };
+      return { ok: false, reason: safeCustomerReason(language, couponReason) };
     return {
       ok: false,
       reason: customerFailure(
+        language,
         opened.retryable ? "transient" : "configuration",
         "checkout_reserved",
         opened.reason,
@@ -403,6 +418,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "checkout_reserved",
         "Stripe returned a session with no URL",
@@ -434,8 +450,7 @@ async function openReservedCheckout(args: {
   if (!recorded) {
     return {
       ok: false,
-      reason:
-        "We could not save your payment page just now - try again in a moment.",
+      reason: translatorFor(language).t("errors.checkoutSessionUnsaved"),
     };
   }
   return {
@@ -446,6 +461,7 @@ async function openReservedCheckout(args: {
 }
 
 export async function continueSignup(
+  language: SupportedLanguageCode,
   accountId: string,
   officeName: string,
 ): Promise<SignupResult | { ok: false; officeName: string }> {
@@ -467,13 +483,14 @@ export async function continueSignup(
   if (!owned)
     return {
       ok: false,
-      reason: safeCustomerReason("we do not recognise this account"),
+      reason: safeCustomerReason(language, "we do not recognise this account"),
     };
   if (owned.paid) return { ok: false, officeName: owned.reservation.name };
-  return openReservedCheckout(owned);
+  return openReservedCheckout({ language, ...owned });
 }
 
 export async function reinstateOffice(
+  language: SupportedLanguageCode,
   accountId: string,
   instanceId: string,
 ): Promise<SignupResult> {
@@ -502,6 +519,7 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "reinstatement",
         "Reinstatement payment has no deployment origin configured",
@@ -517,7 +535,7 @@ export async function reinstateOffice(
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure("configuration", "reinstatement", err),
+      reason: customerFailure(language, "configuration", "reinstatement", err),
     };
   }
 
@@ -534,6 +552,7 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "reinstatement",
         "Reinstatement has no offered plan",
@@ -545,6 +564,7 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "reinstatement",
         resolved.reason,
@@ -564,8 +584,8 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: safeReasons.has(prepared.reason)
-        ? safeCustomerReason(prepared.reason)
-        : customerFailure("configuration", "reinstatement", prepared.reason),
+        ? safeCustomerReason(language, prepared.reason)
+        : customerFailure(language, "configuration", "reinstatement", prepared.reason),
     };
   }
   if (prepared.existingSessionId) {
@@ -579,13 +599,14 @@ export async function reinstateOffice(
     } catch (err) {
       return {
         ok: false,
-        reason: customerFailure("configuration", "reinstatement", err),
+        reason: customerFailure(language, "configuration", "reinstatement", err),
       };
     }
     if (fetched.kind !== "ok")
       return {
         ok: false,
         reason: customerFailure(
+          language,
           fetched.kind === "unavailable" ? "transient" : "configuration",
           "reinstatement",
           fetched.kind === "unavailable"
@@ -597,6 +618,7 @@ export async function reinstateOffice(
       return {
         ok: false,
         reason: safeCustomerReason(
+        language,
           "the prior payment is still being reconciled",
         ),
       };
@@ -614,6 +636,13 @@ export async function reinstateOffice(
       if (!prepared.ok) return prepared;
     }
   }
+  // NO `locale` HERE, deliberately. The session's idempotency key is derived
+  // from stored state alone (checkoutKeysFor in signup.ts,
+  // reinstatementSessionKey in reinstatement.ts), so every replay of one
+  // generation must send a byte-identical body. A locale read from the REQUEST
+  // is the one input a language switch can change between a lost response and
+  // its retry, and Stripe refuses a reused key with a different body. Checkout
+  // reads the customer's own browser instead. (PM ruling, 2026-09-06.)
   let opened: Awaited<ReturnType<typeof openCheckout>>;
   try {
     opened = await openCheckout(client, {
@@ -655,6 +684,7 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: customerFailure(
+        language,
         err instanceof CheckoutCreationError && err.ambiguous
           ? "transient"
           : "configuration",
@@ -669,10 +699,11 @@ export async function reinstateOffice(
     );
     const couponReason = customerReason(opened.reason);
     return couponReason
-      ? { ok: false, reason: safeCustomerReason(couponReason) }
+      ? { ok: false, reason: safeCustomerReason(language, couponReason) }
       : {
           ok: false,
           reason: customerFailure(
+            language,
             opened.retryable ? "transient" : "configuration",
             "reinstatement",
             opened.reason,
@@ -686,6 +717,7 @@ export async function reinstateOffice(
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "reinstatement",
         "Stripe returned no payment URL",
@@ -708,6 +740,7 @@ export async function reinstateOffice(
  * retry cannot become a second customer or a second session.
  */
 export async function signUpOffice(args: {
+  language: SupportedLanguageCode;
   accountId: string;
   officeName: string;
   plan: string;
@@ -715,6 +748,7 @@ export async function signUpOffice(args: {
   customerSshKey?: string | null;
 }): Promise<SignupResult> {
   if (!args.customerSshKey) return { ok: false, reason: "" };
+  const language = args.language;
   const { reserveOffice, validateSignup } = await import("../../signup");
   const { resolveStripePrice } = await import("../../plans");
 
@@ -727,20 +761,20 @@ export async function signUpOffice(args: {
     plan: args.plan,
     customerSshKey: args.customerSshKey,
   });
-  if (!valid.ok) return { ok: false, reason: safeCustomerReason(valid.reason) };
+  if (!valid.ok) return { ok: false, reason: safeCustomerReason(language, valid.reason) };
 
   const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
   if (!resolved.ok)
     return {
       ok: false,
-      reason: customerFailure("configuration", "payments", resolved.reason),
+      reason: customerFailure(language, "configuration", "payments", resolved.reason),
     };
   try {
     await stripeRuntime();
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure("configuration", "payments", err),
+      reason: customerFailure(language, "configuration", "payments", err),
     };
   }
   // Redirect targets come from the deployment's own origin, never from the
@@ -750,6 +784,7 @@ export async function signUpOffice(args: {
     return {
       ok: false,
       reason: customerFailure(
+        language,
         "configuration",
         "payments",
         "This deployment has no origin configured",
@@ -772,10 +807,10 @@ export async function signUpOffice(args: {
       reason:
         reserved.reason ===
         "this deployment needs its multi-office database migration"
-          ? customerFailure("configuration", "payments", reserved.reason)
-          : safeCustomerReason(reserved.reason),
+          ? customerFailure(language, "configuration", "payments", reserved.reason)
+          : safeCustomerReason(language, reserved.reason),
     };
-  return openReservedCheckout(reserved);
+  return openReservedCheckout({ language, ...reserved });
 }
 
 /** The account's offices, in reservation order. */
@@ -898,6 +933,7 @@ export async function requestRestart(
 export type CancelResult = { ok: true } | { ok: false; reason: string };
 
 async function billingVerb(
+  language: SupportedLanguageCode,
   verb: "requestCancel" | "requestUncancel",
   accountId: string,
   instanceId: string,
@@ -916,7 +952,7 @@ async function billingVerb(
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure("configuration", "billing_change", err),
+      reason: customerFailure(language, "configuration", "billing_change", err),
     };
   }
   return withStore(async (store) => {
@@ -928,35 +964,38 @@ async function billingVerb(
     if (outcome.code === "stripe_unavailable")
       return {
         ok: false,
-        reason: customerFailure("transient", "billing_change", outcome.reason),
+        reason: customerFailure(language, "transient", "billing_change", outcome.reason),
       };
     if (outcome.code === "stripe_ambiguous")
       return {
         ok: false,
         reason: customerFailure(
+          language,
           "transient",
           "billing_change_ambiguous",
           outcome.reason,
         ),
       };
-    return { ok: false, reason: safeCustomerReason(outcome.reason) };
+    return { ok: false, reason: safeCustomerReason(language, outcome.reason) };
   });
 }
 
 /** "Cancel my office": schedule the subscription to end at the period end. */
 export async function requestCancel(
+  language: SupportedLanguageCode,
   accountId: string,
   instanceId: string,
 ): Promise<CancelResult> {
-  return billingVerb("requestCancel", accountId, instanceId);
+  return billingVerb(language, "requestCancel", accountId, instanceId);
 }
 
 /** "Keep my office": Stripe reactivation, while the period is still open. */
 export async function requestUncancel(
+  language: SupportedLanguageCode,
   accountId: string,
   instanceId: string,
 ): Promise<CancelResult> {
-  return billingVerb("requestUncancel", accountId, instanceId);
+  return billingVerb(language, "requestUncancel", accountId, instanceId);
 }
 
 // -------------------------------------------------------------- ops floor

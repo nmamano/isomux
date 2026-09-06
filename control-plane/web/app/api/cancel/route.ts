@@ -4,6 +4,8 @@ import {
   requestCancel,
 } from "../../../lib/services.server";
 
+import { languageForRequest } from "../../../lib/i18n/request.server";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -28,6 +30,7 @@ export async function POST(request: Request): Promise<Response> {
     typeof body?.instanceId === "string" ? body.instanceId : "";
   if (!instanceId) return new Response("bad request", { status: 400 });
 
-  const result = await requestCancel(accountId, instanceId);
+  const language = await languageForRequest();
+  const result = await requestCancel(language, accountId, instanceId);
   return Response.json(result, { status: result.ok ? 200 : 409 });
 }

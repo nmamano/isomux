@@ -12,9 +12,9 @@ function expectPolicyLinksBefore(html: string, paymentLabel: string) {
 }
 
 test("signup renders both specifications and omits unset prices", () => {
-  expect(customerPriceLine(null)).toBeNull();
+  expect(customerPriceLine("en", null)).toBeNull();
   expect(
-    customerPriceLine({
+    customerPriceLine("en", {
       amount: 19,
       currency: "EUR",
       billingPeriod: "month",
@@ -22,6 +22,7 @@ test("signup renders both specifications and omits unset prices", () => {
   ).toBe("€19.00 per month");
   const html = renderToStaticMarkup(
     <SignupForm
+      language="en"
       domain="test.isomux.app"
       initialName=""
       plans={[
@@ -72,15 +73,17 @@ test("signup renders both specifications and omits unset prices", () => {
 });
 
 test("returning signup shows every policy before continuing to payment", () => {
-  const notice = renderToStaticMarkup(<PolicyNotice />);
+  const notice = renderToStaticMarkup(<PolicyNotice language="en" />);
   expectPolicyLinksBefore(`${notice}Continue signup`, "Continue signup");
   const page = readFileSync(
     new URL("../app/signup/page.tsx", import.meta.url),
     "utf8",
   );
-  const noticePosition = page.indexOf("<PolicyNotice />");
+  // The ORDER in the source, not the words: the continue button reads from the
+  // catalog now, so the key is what names it here.
+  const noticePosition = page.indexOf("<PolicyNotice");
   expect(noticePosition).toBeGreaterThan(0);
-  expect(noticePosition).toBeLessThan(page.indexOf("Continue signup"));
+  expect(noticePosition).toBeLessThan(page.indexOf('t("signup.continue")'));
   expect(page).toContain('data-testid="signup-error"');
 });
 
@@ -96,6 +99,7 @@ test("returning signup passes a redirect refusal into the interactive form", () 
 test("interactive signup announces a refusal at the payment action", () => {
   const html = renderToStaticMarkup(
     <SignupForm
+      language="en"
       domain="test.isomux.app"
       initialName=""
       initialError="Try signup again."

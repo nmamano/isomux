@@ -4,6 +4,8 @@ import {
   reinstateOffice,
 } from "../../../lib/services.server";
 
+import { languageForRequest } from "../../../lib/i18n/request.server";
+
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request): Promise<Response> {
@@ -16,7 +18,12 @@ export async function POST(request: Request): Promise<Response> {
   };
   if (typeof body.instanceId !== "string")
     return Response.json({ ok: false }, { status: 400 });
-  const result = await reinstateOffice(session.accountId, body.instanceId);
+  const language = await languageForRequest();
+  const result = await reinstateOffice(
+    language,
+    session.accountId,
+    body.instanceId,
+  );
   return result.ok
     ? Response.json(result)
     : Response.json(result, { status: 409 });

@@ -157,7 +157,9 @@ These aren't user-facing docs, but they do describe features and can fall out of
 - `internal-docs/post-release-verification.md` - the **maintained** mandatory playbook run after every release: fresh install, update from the previous release, the onboarding walk, and environment-shape checks, with the disposition rule for what earns a same-day patch tag. Keep it current when the install/update paths or the first-run surfaces change.
 - `internal-docs/testing-guide.md` - the **maintained** living reference for the test suite: the tiers (T0-T3), how to run (`bun test` vs `bun run test:live`), the seam-to-test-file map, and conventions. Unlike the rest of `internal-docs/`, keep this current as the test suite evolves. (Its companion `internal-docs/generic-runtime-refactor.md` stays the historical design/decision record.)
 - `control-plane/README.md` - the **maintained** reference for the hosted control
-  plane: its store and driver protocol, the web app, billing, invites,
+  plane: its store and driver protocol, the web app (including its own copy of
+  the i18n catalogs under `control-plane/web/lib/i18n/`, which the office's
+  `shared/i18n/` cannot be imported into), billing, invites,
   cancellation, and the deployed topology (Neon, fly.io, Vercel) with the
   operator procedures for each. Unlike the design documents in `internal-docs/`,
   keep it current as the control plane changes - it is what the next person

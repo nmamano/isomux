@@ -10,7 +10,8 @@
     "e2e": "bun e2e/signup-flow.e2e.ts",
     "e2e:handoff": "bun e2e/handoff.e2e.ts",
     "e2e:handoff-local": "bun e2e/handoff-local.e2e.ts",
-    "e2e:lifecycle": "bun e2e/lifecycle.e2e.ts"
+    "e2e:lifecycle": "bun e2e/lifecycle.e2e.ts",
+    "e2e:i18n": "bun e2e/i18n.e2e.ts"
   },
   "dependencies": {
     "next": "16.3.0",

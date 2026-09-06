@@ -217,6 +217,16 @@ export interface CheckoutArgs {
   expiresAt?: number;
 }
 
+// NO `locale` PARAMETER, and that is a decision rather than an omission. The
+// storefront speaks three languages, but the session's idempotency key is
+// derived from stored state alone (checkoutKeysFor, reinstatementSessionKey),
+// so every replay of one generation must send a byte-identical body - and a
+// locale read from the request is the one input a language switch could change
+// between a lost response and its retry, which Stripe refuses. Checkout follows
+// the customer's own browser instead. (PM ruling, 2026-09-06. The fix, if the
+// hosted page should ever follow our switch, is a locale stored with the
+// generation.)
+
 export interface CheckoutSessionCreated {
   id: string;
   url: string | null;
