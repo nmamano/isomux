@@ -580,6 +580,14 @@ Mechanics:
   label, tooltip) and the report says which labels are canvas-only.
 - Memoization: a memoized value never carries finished text unless the
   language is in its dependency list (S5 rule).
+- Shared helpers with server callers (ruled on Reviewer 2's S6 escalation,
+  2026-09-06): `sessionResumeLabel` in `shared/session-label.ts` takes an
+  optional fallback label defaulting to the current English (server
+  callers byte-identical; ContextMenu passes the catalog value); schedule
+  sentences get a localized display helper under `shared/i18n` (Intl
+  weekday and date parts, catalog keys, language first) used by
+  CronjobsView, while `humanizeSchedule` in `shared/types.ts` stays for its
+  server callers until S7 decides.
 - Tests: existing `ui/App.*.dom.test.tsx`, `ui/office/*.test.*`,
   `ui/components/*.test.*` stay green on a null-language user; one new
   DOM file `ui/office.i18n.dom.test.tsx` mounts the office view, then
