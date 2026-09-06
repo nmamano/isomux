@@ -320,139 +320,134 @@ export function StoragePane({
 
   return (
     <div style={{ marginTop: 24 }}>
-          <h3
+      <h3
+        style={{
+          fontSize: 17,
+          fontWeight: 700,
+          margin: 0,
+          color: "var(--text-primary)",
+        }}
+      >
+        {t("settings.storage.title")}
+      </h3>
+
+      <UsageBlock usage={usage} error={loadError} />
+      <BackupBlock backup={backup} />
+
+      <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
+      <div
+        style={{
+          border: "1px solid rgba(255,107,107,0.45)",
+          background: "rgba(255,107,107,0.08)",
+          borderRadius: 8,
+          padding: "10px 12px",
+          fontSize: 11,
+          lineHeight: 1.5,
+          color: "var(--text-secondary)",
+        }}
+      >
+        <strong style={{ color: "#ff6b6b" }}>
+          {t("settings.storage.deleteWarningLead")}
+        </strong>{" "}
+        {t("settings.storage.deleteWarningBody")}
+      </div>
+
+      <FieldLabel>{t("settings.storage.whatToDelete")}</FieldLabel>
+      <div style={{ display: "flex", gap: 8 }}>
+        {TARGETS.map((choice) => (
+          <button
+            key={choice}
+            onClick={() => editForm(() => setTarget(choice))}
+            disabled={busy}
             style={{
-              fontSize: 17,
-              fontWeight: 700,
-              margin: 0,
-              color: "var(--text-primary)",
+              ...dialogCancelBtn,
+              flex: 1,
+              borderColor:
+                target === choice ? "var(--accent)" : "var(--border)",
+              color:
+                target === choice ? "var(--text-primary)" : "var(--text-dim)",
+              background: target === choice ? "var(--bg-input)" : "transparent",
+              opacity: busy ? 0.5 : 1,
+              cursor: busy ? "not-allowed" : "pointer",
             }}
           >
-            {t("settings.storage.title")}
-          </h3>
+            {categoryLabel(t, choice)}
+          </button>
+        ))}
+      </div>
 
-          <UsageBlock usage={usage} error={loadError} />
-          <BackupBlock backup={backup} />
+      <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <input
+          type="number"
+          min={1}
+          value={olderThanDays}
+          disabled={busy}
+          onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
+          style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
+        />
+        <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+          {t("settings.storage.daysHint")}
+        </span>
+      </div>
 
-          <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
-          <div
-            style={{
-              border: "1px solid rgba(255,107,107,0.45)",
-              background: "rgba(255,107,107,0.08)",
-              borderRadius: 8,
-              padding: "10px 12px",
-              fontSize: 11,
-              lineHeight: 1.5,
-              color: "var(--text-secondary)",
-            }}
-          >
-            <strong style={{ color: "#ff6b6b" }}>
-              {t("settings.storage.deleteWarningLead")}
-            </strong>{" "}
-            {t("settings.storage.deleteWarningBody")}
-          </div>
-
-          <FieldLabel>{t("settings.storage.whatToDelete")}</FieldLabel>
-          <div style={{ display: "flex", gap: 8 }}>
-            {TARGETS.map((choice) => (
-              <button
-                key={choice}
-                onClick={() => editForm(() => setTarget(choice))}
-                disabled={busy}
-                style={{
-                  ...dialogCancelBtn,
-                  flex: 1,
-                  borderColor:
-                    target === choice ? "var(--accent)" : "var(--border)",
-                  color:
-                    target === choice
-                      ? "var(--text-primary)"
-                      : "var(--text-dim)",
-                  background:
-                    target === choice ? "var(--bg-input)" : "transparent",
-                  opacity: busy ? 0.5 : 1,
-                  cursor: busy ? "not-allowed" : "pointer",
-                }}
-              >
-                {categoryLabel(t, choice)}
-              </button>
-            ))}
-          </div>
-
-          <FieldLabel>{t("settings.storage.olderThan")}</FieldLabel>
+      {target === "transcripts" && (
+        <>
+          <FieldLabel>{t("settings.storage.keepPerAgent")}</FieldLabel>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <input
               type="number"
-              min={1}
-              value={olderThanDays}
+              min={0}
+              value={keepPerAgent}
               disabled={busy}
-              onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
+              onChange={(e) => editForm(() => setKeepPerAgent(e.target.value))}
               style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
             />
             <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-              {t("settings.storage.daysHint")}
+              {t("settings.storage.keepHint")}
             </span>
           </div>
+        </>
+      )}
 
-          {target === "transcripts" && (
-            <>
-              <FieldLabel>{t("settings.storage.keepPerAgent")}</FieldLabel>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  type="number"
-                  min={0}
-                  value={keepPerAgent}
-                  disabled={busy}
-                  onChange={(e) =>
-                    editForm(() => setKeepPerAgent(e.target.value))
-                  }
-                  style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
-                />
-                <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-                  {t("settings.storage.keepHint")}
-                </span>
-              </div>
-            </>
-          )}
-
-          {/* Stays available after a delete too: the receipt below is replaced by
+      {/* Stays available after a delete too: the receipt below is replaced by
               a fresh preview when one is run, so a second pass never reads as a
               continuation of the finished one. */}
-          <button
-            onClick={() => void runPreview()}
-            disabled={!formValid || busy}
-            style={{
-              ...dialogCancelBtn,
-              marginTop: 14,
-              width: "100%",
-              opacity: formValid && !busy ? 1 : 0.5,
-              cursor: formValid && !busy ? "pointer" : "not-allowed",
-            }}
-          >
-            {phase.kind === "previewing"
-              ? t("common.checking")
-              : t("settings.storage.preview")}
-          </button>
+      <button
+        onClick={() => void runPreview()}
+        disabled={!formValid || busy}
+        style={{
+          ...dialogCancelBtn,
+          marginTop: 14,
+          width: "100%",
+          opacity: formValid && !busy ? 1 : 0.5,
+          cursor: formValid && !busy ? "pointer" : "not-allowed",
+        }}
+      >
+        {phase.kind === "previewing"
+          ? t("common.checking")
+          : t("settings.storage.preview")}
+      </button>
 
-          {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
+      {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
 
-          {plan && (
-            <PlanBlock
-              plan={plan}
-              queueUnreadable={queueUnreadable}
-              phase={phase}
-              confirmText={confirmText}
-              onConfirmText={setConfirmText}
-              onAskConfirm={() => setPhase({ kind: "confirming", plan })}
-              onCancelConfirm={() => {
-                setPhase({ kind: "previewed", plan });
-                setConfirmText("");
-              }}
-              onApply={() => void runApply(plan)}
-            />
-          )}
+      {plan && (
+        <PlanBlock
+          plan={plan}
+          queueUnreadable={queueUnreadable}
+          phase={phase}
+          confirmText={confirmText}
+          onConfirmText={setConfirmText}
+          onAskConfirm={() => setPhase({ kind: "confirming", plan })}
+          onCancelConfirm={() => {
+            setPhase({ kind: "previewed", plan });
+            setConfirmText("");
+          }}
+          onApply={() => void runApply(plan)}
+        />
+      )}
 
-          {phase.kind === "done" && <ResultBlock result={phase.result} />}
+      {phase.kind === "done" && <ResultBlock result={phase.result} />}
     </div>
   );
 }

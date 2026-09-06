@@ -132,19 +132,34 @@ describe("CronjobManager DI (disk-free seam)", () => {
     const fake = new FakeBackend({
       session: {
         autoSystemInit: false,
-        onSend: (_text, _attachments, session) => session.completeTurn({ text: secret }),
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: secret }),
       },
     });
     const { events, sink } = capture();
-    const mgr = createCronjobManager(baseDeps({
-      resolveBackend: () => fake, eventSink: sink,
-      persistence: { ...makeFakeCronPersistence(), appendRunLog: (_job, _run, _session, entry) => { written.push(entry); } },
-    }));
-    const job = mgr.addCronjob({ ...intervalInput("Redaction"), prompt: secret });
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        eventSink: sink,
+        persistence: {
+          ...makeFakeCronPersistence(),
+          appendRunLog: (_job, _run, _session, entry) => {
+            written.push(entry);
+          },
+        },
+      }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("Redaction"),
+      prompt: secret,
+    });
     const run = mgr.runCronjobNow(job.id, "Nil")!;
     try {
       const deadline = Date.now() + 2000;
-      while (mgr.findRun(job.id, run.id)?.status === "running" && Date.now() < deadline) {
+      while (
+        mgr.findRun(job.id, run.id)?.status === "running" &&
+        Date.now() < deadline
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       expect(JSON.stringify(written)).toContain(safe);

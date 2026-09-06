@@ -30,19 +30,30 @@ describe("install kind marker", () => {
   });
 });
 
-
 describe("access install kind", () => {
   it("uses the marker even with no hosted origin", () => {
     expect(isHostedAccess("hosted", "https://custom.example")).toBe(true);
     expect(isHostedAccess("hosted", null)).toBe(true);
   });
   it("recognizes the configured hosted suffix without a marker", () => {
-    expect(isHostedAccess("self-hosted", "https://office.isomux.app")).toBe(true);
-    expect(isHostedAccess("self-hosted", "https://OFFICE.ISOMUX.APP")).toBe(true);
+    expect(isHostedAccess("self-hosted", "https://office.isomux.app")).toBe(
+      true,
+    );
+    expect(isHostedAccess("self-hosted", "https://OFFICE.ISOMUX.APP")).toBe(
+      true,
+    );
     expect(isHostedAccess("self-hosted", "https://isomux.app")).toBe(true);
   });
   it("leaves other origins self-hosted, including lookalikes", () => {
-    for (const origin of [null, "invalid", "http://office.isomux.app", "https://notisomux.app", "https://office.isomux.app.evil.example", "https://isomux.app@custom.example", "https://custom.example/isomux.app"]) {
+    for (const origin of [
+      null,
+      "invalid",
+      "http://office.isomux.app",
+      "https://notisomux.app",
+      "https://office.isomux.app.evil.example",
+      "https://isomux.app@custom.example",
+      "https://custom.example/isomux.app",
+    ]) {
       expect(isHostedAccess("self-hosted", origin)).toBe(false);
     }
   });

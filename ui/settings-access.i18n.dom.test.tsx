@@ -44,7 +44,14 @@ setApiShim(async (_method, path) => {
     };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
   if (path === "/api/me/api-tokens") return { apiTokens: [] };
-  if (path.endsWith("/env/names")) return { names: [], providers: [{ provider: "claude", status: "unknown" }, { provider: "codex", status: "not_connected" }] };
+  if (path.endsWith("/env/names"))
+    return {
+      names: [],
+      providers: [
+        { provider: "claude", status: "unknown" },
+        { provider: "codex", status: "not_connected" },
+      ],
+    };
   if (path === "/api/office/env" || path.endsWith("/env"))
     return { mode: "managed", values: {} };
   throw new Error(`no shim for ${path}`);

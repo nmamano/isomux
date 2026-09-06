@@ -296,17 +296,30 @@ describe("executor: idempotency", () => {
 
   it("marks an in-flight collapsed 204 as replayed without marking fresh responses", async () => {
     let release!: () => void;
-    const pending = new Promise<void>((resolve) => { release = resolve; });
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     let entered!: () => void;
-    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
     let calls = 0;
     const r = route("t.delete", "POST", "/api/d", capAuth("task:write"));
-    const deps = makeDeps({ "t.delete": async () => {
-      calls++; entered(); await pending; return noContent();
-    } });
-    const run = (key?: string) => executeRoute(match(r),
-      req("POST", "/api/d", {}, key ? { "Idempotency-Key": key } : {}),
-      userIdentity("member"), deps);
+    const deps = makeDeps({
+      "t.delete": async () => {
+        calls++;
+        entered();
+        await pending;
+        return noContent();
+      },
+    });
+    const run = (key?: string) =>
+      executeRoute(
+        match(r),
+        req("POST", "/api/d", {}, key ? { "Idempotency-Key": key } : {}),
+        userIdentity("member"),
+        deps,
+      );
     const first = run("collapse");
     await started;
     const second = run("collapse");

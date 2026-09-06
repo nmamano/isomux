@@ -19,13 +19,20 @@ export function readInstallKind(path = INSTALL_KIND_FILE): InstallKind {
 
 export const INSTALL_KIND = readInstallKind();
 
-
 // Access policy also recognizes hosted addresses on offices installed before
 // the marker existed. Inspect configured origins, never a request Host header.
-export function isHostedAccess(markerKind: InstallKind = INSTALL_KIND, configuredOrigin: string | null = null): boolean {
+export function isHostedAccess(
+  markerKind: InstallKind = INSTALL_KIND,
+  configuredOrigin: string | null = null,
+): boolean {
   if (markerKind === "hosted") return true;
-  const origin = configuredOrigin ? normalizePublicOrigin(configuredOrigin) : null;
+  const origin = configuredOrigin
+    ? normalizePublicOrigin(configuredOrigin)
+    : null;
   if (!origin) return false;
   const url = new URL(origin);
-  return url.protocol === "https:" && (url.hostname === "isomux.app" || url.hostname.endsWith(".isomux.app"));
+  return (
+    url.protocol === "https:" &&
+    (url.hostname === "isomux.app" || url.hostname.endsWith(".isomux.app"))
+  );
 }

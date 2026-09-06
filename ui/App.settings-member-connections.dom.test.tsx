@@ -29,7 +29,14 @@ setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
-  if (path.endsWith("/env/names")) return { names: ["GH_TOKEN", "ZED_TOKEN"], providers: [{ provider: "claude", status: "connected" }, { provider: "codex", status: "not_connected" }] };
+  if (path.endsWith("/env/names"))
+    return {
+      names: ["GH_TOKEN", "ZED_TOKEN"],
+      providers: [
+        { provider: "claude", status: "connected" },
+        { provider: "codex", status: "not_connected" },
+      ],
+    };
   return {};
 });
 afterAll(() => setApiShim(null));

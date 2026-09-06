@@ -85,7 +85,11 @@ export function prepareLogEntry(entry: LogEntry): LogEntry {
     preparedLogEntries.add(out);
     return out;
   } catch {
-    console.error("Log secret redaction failed; keeping original entry.", entry.id, entry.kind);
+    console.error(
+      "Log secret redaction failed; keeping original entry.",
+      entry.id,
+      entry.kind,
+    );
     return entry;
   }
 }

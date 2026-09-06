@@ -178,7 +178,8 @@ describe("personal API tokens", () => {
     expect(full.status).toBe(429);
     expect((await full.json()).error).toMatchObject({
       code: "inbox_full",
-      message: "The API token inbox is full. The client must drain or acknowledge messages.",
+      message:
+        "The API token inbox is full. The client must drain or acknowledge messages.",
     });
 
     const tooLong = await bearer(srv, agentToken, path, {
@@ -511,65 +512,134 @@ describe("personal API tokens", () => {
   });
 });
 
-
 describe("API token channel contract", () => {
   it("mints ack mode, validates ACKs, retains replies and replays a drain", async () => {
-    const srv = await startTestServer(); server = srv;
+    const srv = await startTestServer();
+    server = srv;
     const owner = await srv.seedOwner("Boss");
     const userId = getUserByName(owner.username)!.id;
-    const minted = await mintThroughApi(srv, owner.rawSessionId, "Ack", null, true);
+    const minted = await mintThroughApi(
+      srv,
+      owner.rawSessionId,
+      "Ack",
+      null,
+      true,
+    );
     expect(minted.response.status).toBe(201);
     expect(minted.body.apiToken.ackMode).toBe(true);
     const path = "/api/me/api-token-inbox/drain";
-    const send = (text: string) => enqueueApiTokenInboxMessage({ tokenId: minted.body.apiToken.id,
-      userId, text, senderAgentId: "a1", senderAgentName: "Worker", senderRoomName: "Lab" });
-    const drain = (body: unknown, key?: string) => bearer(srv, minted.body.token, path, {
-      method: "POST", headers: { "Content-Type": "application/json", ...(key ? { "Idempotency-Key": key } : {}) },
-      body: JSON.stringify(body),
-    });
-    await send("one"); await send("two");
-    for (const ackThrough of [-1, 0.5, "1", null, Number.MAX_SAFE_INTEGER + 1]) {
+    const send = (text: string) =>
+      enqueueApiTokenInboxMessage({
+        tokenId: minted.body.apiToken.id,
+        userId,
+        text,
+        senderAgentId: "a1",
+        senderAgentName: "Worker",
+        senderRoomName: "Lab",
+      });
+    const drain = (body: unknown, key?: string) =>
+      bearer(srv, minted.body.token, path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(key ? { "Idempotency-Key": key } : {}),
+        },
+        body: JSON.stringify(body),
+      });
+    await send("one");
+    await send("two");
+    for (const ackThrough of [
+      -1,
+      0.5,
+      "1",
+      null,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
       const invalid = await drain({ ackThrough });
       expect(invalid.status).toBe(400);
       expect((await invalid.json()).error.code).toBe("invalid_ack_through");
     }
     const first = await drain({});
-    expect(await first.json()).toMatchObject({ depth: 2, capacity: 100, highWatermark: 2 });
+    expect(await first.json()).toMatchObject({
+      depth: 2,
+      capacity: 100,
+      highWatermark: 2,
+    });
     const partial = await drain({ ackThrough: 1 }, "ack-one");
     const body = await partial.json();
-    expect(body.messages.map((m: { sequence: number }) => m.sequence)).toEqual([2]);
+    expect(body.messages.map((m: { sequence: number }) => m.sequence)).toEqual([
+      2,
+    ]);
     await send("three");
     const replay = await drain({ ackThrough: 1 }, "ack-one");
     expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
     expect(await replay.json()).toEqual(body);
     const fresh = await drain({});
-    expect((await fresh.json()).messages.map((m: { sequence: number }) => m.sequence)).toEqual([2, 3]);
+    expect(
+      (await fresh.json()).messages.map(
+        (m: { sequence: number }) => m.sequence,
+      ),
+    ).toEqual([2, 3]);
 
     const legacy = await mintThroughApi(srv, owner.rawSessionId);
     expect(legacy.body.apiToken.ackMode).toBe(false);
-    const rejected = await bearer(srv, legacy.body.token, path, { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ackThrough: 0 }) });
+    const rejected = await bearer(srv, legacy.body.token, path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ackThrough: 0 }),
+    });
     expect(rejected.status).toBe(400);
-    expect((await rejected.json()).error).toEqual({ code: "ack_mode_required",
-      message: "ackThrough requires a token with ackMode enabled." });
-    const badMint = await srv.http("/api/me/api-tokens", { method: "POST", rawSessionId: owner.rawSessionId,
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "bad", expiresInDays: null, ackMode: "true" }) });
+    expect((await rejected.json()).error).toEqual({
+      code: "ack_mode_required",
+      message: "ackThrough requires a token with ackMode enabled.",
+    });
+    const badMint = await srv.http("/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "bad",
+        expiresInDays: null,
+        ackMode: "true",
+      }),
+    });
     expect(badMint.status).toBe(422);
     expect((await badMint.json()).error.code).toBe("invalid_ack_mode");
   });
 
   it("rejects clientMessageId for API token sends and names Idempotency-Key", async () => {
-    const srv = await startTestServer(); server = srv;
+    const srv = await startTestServer();
+    server = srv;
     const owner = await srv.seedOwner("Boss");
-    const target = await spawn(srv, "Target", srv.agentManager.getRooms()[0].id);
+    const target = await spawn(
+      srv,
+      "Target",
+      srv.agentManager.getRooms()[0].id,
+    );
     const minted = await mintThroughApi(srv, owner.rawSessionId);
-    const response = await bearer(srv, minted.body.token, `/api/agents/${target.id}/messages`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "must not arrive", clientMessageId: "client-1" }),
-    });
+    const response = await bearer(
+      srv,
+      minted.body.token,
+      `/api/agents/${target.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: "must not arrive",
+          clientMessageId: "client-1",
+        }),
+      },
+    );
     expect(response.status).toBe(400);
-    expect((await response.json()).error).toEqual({ code: "client_message_id_not_supported",
-      message: "clientMessageId is not supported for API token senders. Use Idempotency-Key." });
-    expect(srv.agentManager.getAgentLogs(target.id).filter((entry) => entry.kind === "user_message")).toHaveLength(0);
+    expect((await response.json()).error).toEqual({
+      code: "client_message_id_not_supported",
+      message:
+        "clientMessageId is not supported for API token senders. Use Idempotency-Key.",
+    });
+    expect(
+      srv.agentManager
+        .getAgentLogs(target.id)
+        .filter((entry) => entry.kind === "user_message"),
+    ).toHaveLength(0);
   });
 });

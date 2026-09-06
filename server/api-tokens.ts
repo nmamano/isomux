@@ -84,7 +84,8 @@ function ensureLoaded(): void {
         typeof value.createdAt !== "number" ||
         (value.ackMode !== undefined && typeof value.ackMode !== "boolean") ||
         (value.ackMode === true &&
-          (!Number.isSafeInteger(value.lastSequence) || value.lastSequence! < 0)) ||
+          (!Number.isSafeInteger(value.lastSequence) ||
+            value.lastSequence! < 0)) ||
         (typeof value.expiresAt !== "number" && value.expiresAt !== null)
       ) {
         console.error("Ignoring invalid API token record:", id);
@@ -102,11 +103,14 @@ function ensureLoaded(): void {
       }
       // Old inboxes have no sequences. Assign them in stored order while
       // preserving the counter even when previous messages have been removed.
-      let lastSequence = Number.isSafeInteger(value.lastSequence) && value.lastSequence! >= 0
-        ? value.lastSequence! : 0;
+      let lastSequence =
+        Number.isSafeInteger(value.lastSequence) && value.lastSequence! >= 0
+          ? value.lastSequence!
+          : 0;
       const inbox = inboxValid ? value.inbox! : [];
       for (const message of inbox) {
-        if (message.sequence !== undefined) lastSequence = Math.max(lastSequence, message.sequence);
+        if (message.sequence !== undefined)
+          lastSequence = Math.max(lastSequence, message.sequence);
       }
       for (const message of inbox) {
         if (message.sequence === undefined) message.sequence = ++lastSequence;
@@ -148,7 +152,8 @@ function validInboxMessage(value: unknown): value is ApiTokenInboxMessage {
     return false;
   const message = value as Partial<ApiTokenInboxMessage>;
   return (
-    (message.sequence === undefined || (Number.isSafeInteger(message.sequence) && message.sequence > 0)) &&
+    (message.sequence === undefined ||
+      (Number.isSafeInteger(message.sequence) && message.sequence > 0)) &&
     typeof message.id === "string" &&
     typeof message.sentAt === "number" &&
     typeof message.text === "string" &&
@@ -308,7 +313,10 @@ export async function drainApiTokenInbox(
     if (ackThrough !== undefined && !record.ackMode) return "ack_mode_required";
     const previousInbox = record.inbox;
     const messages = record.ackMode
-      ? record.inbox.filter((message) => ackThrough === undefined || message.sequence > ackThrough)
+      ? record.inbox.filter(
+          (message) =>
+            ackThrough === undefined || message.sequence > ackThrough,
+        )
       : record.inbox;
     const previouslyDrainedAt = record.lastDrainedAt;
     record.inbox = record.ackMode ? messages : [];
@@ -321,8 +329,14 @@ export async function drainApiTokenInbox(
       throw err;
     }
     // The executor caches this response. Later enqueues must not change it.
-    return { messages: [...messages], previouslyDrainedAt, drainedAt: now,
-      depth: record.inbox.length, capacity: API_TOKEN_INBOX_CAPACITY, highWatermark: record.lastSequence };
+    return {
+      messages: [...messages],
+      previouslyDrainedAt,
+      drainedAt: now,
+      depth: record.inbox.length,
+      capacity: API_TOKEN_INBOX_CAPACITY,
+      highWatermark: record.lastSequence,
+    };
   });
 }
 

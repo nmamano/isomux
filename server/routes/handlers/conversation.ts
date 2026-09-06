@@ -341,8 +341,11 @@ export function conversationHandlers(
         );
       }
       if (ctx.identity.scope === "api" && b.clientMessageId !== undefined) {
-        return fail(400, "client_message_id_not_supported",
-          "clientMessageId is not supported for API token senders. Use Idempotency-Key.");
+        return fail(
+          400,
+          "client_message_id_not_supported",
+          "clientMessageId is not supported for API token senders. Use Idempotency-Key.",
+        );
       }
       if (ctx.identity.scope === "cron-run" && b.senderAgentId !== undefined) {
         return fail(

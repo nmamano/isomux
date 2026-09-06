@@ -1,4 +1,8 @@
-import { INSTALL_KIND, isHostedAccess, type InstallKind } from "./install-kind.ts";
+import {
+  INSTALL_KIND,
+  isHostedAccess,
+  type InstallKind,
+} from "./install-kind.ts";
 import type { Server, ServerWebSocket } from "bun";
 import type {
   ServerMessage,
@@ -969,16 +973,28 @@ async function applyAccessSettings(
   const origin = rawOrigin ? normalizePublicOrigin(rawOrigin) : null;
   const current = computeAccessSettings(installKind);
   if (current.hosted) {
-    if (!current.externalAccess || !externalAccess || !origin || origin !== (current.envOrigin ?? current.publicOrigin)) {
+    if (
+      !current.externalAccess ||
+      !externalAccess ||
+      !origin ||
+      origin !== (current.envOrigin ?? current.publicOrigin)
+    ) {
       return {
         ok: false,
         status: 403,
         code: "hosted_access_managed",
-        error: "Isomux manages this office’s address; it cannot be changed here.",
+        error:
+          "Isomux manages this office’s address; it cannot be changed here.",
       };
     }
-    return { ok: true, externalAccess: true, publicOrigin: current.publicOrigin,
-      envOrigin: current.envOrigin, signInUrl: null, restartRequired: false };
+    return {
+      ok: true,
+      externalAccess: true,
+      publicOrigin: current.publicOrigin,
+      envOrigin: current.envOrigin,
+      signInUrl: null,
+      restartRequired: false,
+    };
   }
   if (rawOrigin && !origin) {
     return {
@@ -3538,7 +3554,8 @@ function buildExecutorDeps(
             }
           : result;
       },
-      drainInbox: (tokenId, ackThrough) => drainApiTokenInbox(tokenId, undefined, ackThrough),
+      drainInbox: (tokenId, ackThrough) =>
+        drainApiTokenInbox(tokenId, undefined, ackThrough),
       agentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
       agentManagerUserId: (agentId) =>
         agentManager.getAgent(agentId)?.userId ?? null,

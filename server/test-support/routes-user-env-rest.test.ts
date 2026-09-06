@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { activatePersonalProvider, personalProviderHome } from "../provider-homes.ts";
+import {
+  activatePersonalProvider,
+  personalProviderHome,
+} from "../provider-homes.ts";
 import { getUserByName } from "../users.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
@@ -213,16 +216,28 @@ describe("managed user env names route", () => {
     const probed: string[] = [];
     server = await startTestServer({
       startServer: {
-        createClaudeAccountClient: (env) => ({
-          start: async () => { probed.push(env!.CLAUDE_CONFIG_DIR!); },
-          read: async () => ({ connected: true, label: "private-account-label" }),
-          close: async () => {},
-        }) as never,
-        createCodexAccountClient: (env) => ({
-          start: async () => { probed.push(env!.CODEX_HOME!); },
-          read: async () => ({ connected: false, label: "private-account-label" }),
-          close: async () => {},
-        }) as never,
+        createClaudeAccountClient: (env) =>
+          ({
+            start: async () => {
+              probed.push(env!.CLAUDE_CONFIG_DIR!);
+            },
+            read: async () => ({
+              connected: true,
+              label: "private-account-label",
+            }),
+            close: async () => {},
+          }) as never,
+        createCodexAccountClient: (env) =>
+          ({
+            start: async () => {
+              probed.push(env!.CODEX_HOME!);
+            },
+            read: async () => ({
+              connected: false,
+              label: "private-account-label",
+            }),
+            close: async () => {},
+          }) as never,
       },
     });
     const owner = await server.seedOwner("Boss");
@@ -327,7 +342,12 @@ describe("managed user env names route", () => {
       ],
     });
     // Both owner reads reuse the same personal cache. No office probe runs.
-    expect(probed.sort()).toEqual([personalProviderHome(memberId, "claude"), personalProviderHome(memberId, "codex")].sort());
+    expect(probed.sort()).toEqual(
+      [
+        personalProviderHome(memberId, "claude"),
+        personalProviderHome(memberId, "codex"),
+      ].sort(),
+    );
     expect(ownerApiRead.body).toEqual(ownerRead.body);
     expect(JSON.stringify(ownerRead.body)).not.toContain(secret);
     for (const auth of [
@@ -336,7 +356,10 @@ describe("managed user env names route", () => {
       { bearer: plainAgent },
       { bearer: privilegedAgent },
     ]) {
-      const denied = await request(server, member.username, { suffix: "/names", ...auth });
+      const denied = await request(server, member.username, {
+        suffix: "/names",
+        ...auth,
+      });
       expect(denied.status).toBe(403);
       expect(denied.body).not.toHaveProperty("providers");
       const selfRead = await request(server, member.username, auth);
@@ -354,10 +377,13 @@ describe("managed user env names route", () => {
     });
     expect({ status: read.status, body: read.body }).toEqual({
       status: 200,
-      body: { names: [], providers: [
-        { provider: "claude", status: "not_connected" },
-        { provider: "codex", status: "not_connected" },
-      ] },
+      body: {
+        names: [],
+        providers: [
+          { provider: "claude", status: "not_connected" },
+          { provider: "codex", status: "not_connected" },
+        ],
+      },
     });
   });
   it("keeps names and the other provider when a personal probe fails", async () => {
@@ -365,19 +391,28 @@ describe("managed user env names route", () => {
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Member");
     activatePersonalProvider(getUserByName(member.username)!.id, "codex");
-    expect((await request(server, member.username, {
-      method: "PUT", session: member.rawSessionId,
-      body: { values: { ZED_TOKEN: "private-value" } },
-    })).status).toBe(204);
+    expect(
+      (
+        await request(server, member.username, {
+          method: "PUT",
+          session: member.rawSessionId,
+          body: { values: { ZED_TOKEN: "private-value" } },
+        })
+      ).status,
+    ).toBe(204);
     const read = await request(server, member.username, {
-      suffix: "/names", session: owner.rawSessionId,
+      suffix: "/names",
+      session: owner.rawSessionId,
     });
-    expect(read).toEqual({ status: 200, body: {
-      names: ["ZED_TOKEN"],
-      providers: [
-        { provider: "claude", status: "not_connected" },
-        { provider: "codex", status: "unknown" },
-      ],
-    } });
+    expect(read).toEqual({
+      status: 200,
+      body: {
+        names: ["ZED_TOKEN"],
+        providers: [
+          { provider: "claude", status: "not_connected" },
+          { provider: "codex", status: "unknown" },
+        ],
+      },
+    });
   });
 });

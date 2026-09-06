@@ -325,25 +325,47 @@ describe("AgentManager DI (temp-state isolated)", () => {
     const secret = "sk-proj-" + "R".repeat(24);
     const safe = "sk-proj-...REDACTED";
     const fake = new FakeBackend({
-      session: { onSend: (_text, _attachments, session) => session.completeTurn({ text: secret }) },
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: secret }),
+      },
     });
     const { events, sink } = capture();
     const mgr = createAgentManager({
       resolveBackend: () => fake,
       officeState: new OfficeState({ rooms: rooms("room-redaction") }),
-      initialRooms: [], eventSink: sink,
+      initialRooms: [],
+      eventSink: sink,
     });
     mgr.configureAgentTurnDeps();
-    const info = await mgr.spawn("Redaction", STATE_ROOT, "default", undefined, undefined, "room-redaction");
+    const info = await mgr.spawn(
+      "Redaction",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-redaction",
+    );
     try {
       await mgr.sendMessage(info!.id, secret, "tester");
       const deadline = Date.now() + 2000;
-      while (!mgr.getAgentLogs(info!.id).some((log) => log.kind === "text" && log.content === safe) && Date.now() < deadline) {
+      while (
+        !mgr
+          .getAgentLogs(info!.id)
+          .some((log) => log.kind === "text" && log.content === safe) &&
+        Date.now() < deadline
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
       const logs = mgr.getAgentLogs(info!.id);
-      expect(logs.some((log) => log.kind === "text" && log.content === safe)).toBe(true);
-      expect(logs.some((log) => log.kind === "user_message" && log.content.includes(safe))).toBe(true);
+      expect(
+        logs.some((log) => log.kind === "text" && log.content === safe),
+      ).toBe(true);
+      expect(
+        logs.some(
+          (log) => log.kind === "user_message" && log.content.includes(safe),
+        ),
+      ).toBe(true);
       expect(JSON.stringify(logs)).not.toContain(secret);
       const streamed = events.filter((event) => event.type === "log_entry");
       expect(JSON.stringify(streamed)).toContain(safe);

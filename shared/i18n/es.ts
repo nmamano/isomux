@@ -404,7 +404,8 @@ export const es: Catalog = {
   "settings.sessions.expiryInactivity": "Caduca por inactividad",
   "settings.sessions.expiryLatest": "Caduca como muy tarde",
 
-  "settings.externalAccess.managed": "Isomux gestiona la dirección de esta oficina; no se puede cambiar desde aquí.",
+  "settings.externalAccess.managed":
+    "Isomux gestiona la dirección de esta oficina; no se puede cambiar desde aquí.",
   "settings.externalAccess.intro":
     "Controla si se puede llegar a esta oficina desde fuera de esta máquina. Los enlaces de invitación y los dispositivos que han entrado están en las secciones Invitaciones y Sesiones.",
   "settings.externalAccess.title": "Acceso externo",
@@ -435,7 +436,8 @@ export const es: Catalog = {
     "Maneja tu oficina desde scripts y automatizaciones, y lee lo que responden tus agentes. Un token tiene tus mismas capacidades, salvo cambiar quién puede entrar en la oficina. Mira la <link>guía de la API para desarrollo</link> para todo lo que puede hacer un token.",
   "settings.apiTokens.howToUse": "Cómo se usa",
   "settings.apiTokens.namePlaceholder": "Script del portátil",
-  "settings.apiTokens.ackMode": "Conservar las respuestas hasta que el cliente las confirme",
+  "settings.apiTokens.ackMode":
+    "Conservar las respuestas hasta que el cliente las confirme",
   "settings.apiTokens.expiresAfter": "Caduca al cabo de",
   "settings.apiTokens.unlimited": "Sin límite",
   "settings.apiTokens.creating": "Creando…",

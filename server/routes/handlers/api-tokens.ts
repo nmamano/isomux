@@ -43,7 +43,10 @@ export interface ApiTokenDeps {
       }
     | { ok: false; reason: "unavailable" | "full" }
   >;
-  drainInbox(tokenId: string, ackThrough?: number): Promise<ApiTokenInboxDrainRes | "ack_mode_required" | null>;
+  drainInbox(
+    tokenId: string,
+    ackThrough?: number,
+  ): Promise<ApiTokenInboxDrainRes | "ack_mode_required" | null>;
   agentDisplay(agentId: string): { name: string; roomName: string } | null;
   agentManagerUserId(agentId: string): string | null;
   echoToAgent(agentId: string, tokenName: string, text: string): void;
@@ -145,13 +148,23 @@ export function apiTokenHandlers(
     "apiTokenInbox.drain": async (ctx) => {
       const tokenId = ctx.identity.apiTokenId ?? "";
       const body = (ctx.body ?? {}) as ApiTokenInboxDrainReq;
-      if (body.ackThrough !== undefined &&
-        (!Number.isSafeInteger(body.ackThrough) || body.ackThrough < 0)) {
-        return fail(400, "invalid_ack_through", "ackThrough must be a nonnegative safe integer.");
+      if (
+        body.ackThrough !== undefined &&
+        (!Number.isSafeInteger(body.ackThrough) || body.ackThrough < 0)
+      ) {
+        return fail(
+          400,
+          "invalid_ack_through",
+          "ackThrough must be a nonnegative safe integer.",
+        );
       }
       const result = await deps.drainInbox(tokenId, body.ackThrough);
       if (result === "ack_mode_required") {
-        return fail(400, "ack_mode_required", "ackThrough requires a token with ackMode enabled.");
+        return fail(
+          400,
+          "ack_mode_required",
+          "ackThrough requires a token with ackMode enabled.",
+        );
       }
       return result
         ? ok(result satisfies ApiTokenInboxDrainRes)

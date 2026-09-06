@@ -774,7 +774,12 @@ export function UserSettingsView({
               <div
                 style={{
                   padding: isMobile ? "0 16px 24px" : "0 24px 24px",
-                  paddingTop: isMobile && (selection.section === "storage" || selection.section === "usage") ? "env(safe-area-inset-top, 16px)" : undefined,
+                  paddingTop:
+                    isMobile &&
+                    (selection.section === "storage" ||
+                      selection.section === "usage")
+                      ? "env(safe-area-inset-top, 16px)"
+                      : undefined,
                   maxWidth: 720,
                   width: "100%",
                   boxSizing: "border-box",
@@ -959,7 +964,8 @@ function MemberVariableNames({ username }: { username: string }) {
         // A body without a names array is a broken read, not an empty file:
         // "No variables." must mean the server said none, never that the pane
         // could not tell.
-        if (Array.isArray(res.names) && Array.isArray(res.providers)) setConnections(res);
+        if (Array.isArray(res.names) && Array.isArray(res.providers))
+          setConnections(res);
         else setFailed(true);
       })
       .catch(() => {
@@ -976,10 +982,13 @@ function MemberVariableNames({ username }: { username: string }) {
       <p style={sectionHintStyle}>{t("settings.memberConnections.hint")}</p>
       {connections?.providers.map(({ provider, status }) => (
         <p key={provider} style={sectionHintStyle}>
-          {provider === "claude" ? "Claude" : "Codex"}: {t(
-            status === "connected" ? "settings.signIn.connected"
-              : status === "not_connected" ? "settings.signIn.notConnected"
-              : "settings.memberConnections.unknown",
+          {provider === "claude" ? "Claude" : "Codex"}:{" "}
+          {t(
+            status === "connected"
+              ? "settings.signIn.connected"
+              : status === "not_connected"
+                ? "settings.signIn.notConnected"
+                : "settings.memberConnections.unknown",
           )}
         </p>
       ))}

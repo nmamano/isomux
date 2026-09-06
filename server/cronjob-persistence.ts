@@ -19,7 +19,11 @@ import {
   readdirSync,
 } from "fs";
 import type { Cronjob, CronjobRun, LogEntry } from "../shared/types.ts";
-import { prepareLogEntry, atomicWriteFileSync, type PersistedUsage } from "./persistence.ts";
+import {
+  prepareLogEntry,
+  atomicWriteFileSync,
+  type PersistedUsage,
+} from "./persistence.ts";
 
 const ISOMUX_DIR = STATE_ROOT;
 const CRONJOBS_DIR = join(ISOMUX_DIR, "cronjobs");

@@ -179,8 +179,11 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
           </select>
         </label>
         <label style={{ display: "block", fontSize: 12, marginTop: 12 }}>
-          <input type="checkbox" checked={ackMode}
-            onChange={(event) => setAckMode(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={ackMode}
+            onChange={(event) => setAckMode(event.target.checked)}
+          />
           {t("settings.apiTokens.ackMode")}
         </label>
         <button

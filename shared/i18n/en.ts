@@ -148,8 +148,7 @@ export const en = {
     "Could not confirm your room list; Displayed not saved.",
 
   "settings.office.title": "Office Settings",
-  "settings.office.intro":
-    "The vent on the office wall opens this page.",
+  "settings.office.intro": "The vent on the office wall opens this page.",
   "settings.office.viewOnly":
     "View only. Only office owners can edit office-wide settings.",
   "settings.office.name": "Office Name",
@@ -405,7 +404,8 @@ export const en = {
   "settings.sessions.expiryInactivity": "Expires after inactivity",
   "settings.sessions.expiryLatest": "Expires at the latest",
 
-  "settings.externalAccess.managed": "Isomux manages this office’s address; it cannot be changed here.",
+  "settings.externalAccess.managed":
+    "Isomux manages this office’s address; it cannot be changed here.",
   "settings.externalAccess.intro":
     "Control whether this office is reachable from outside the host machine. Invite links and signed-in devices live in the Invites and Sessions sections.",
   "settings.externalAccess.title": "External access",
@@ -435,7 +435,8 @@ export const en = {
     "Drive your office from scripts and automations, and read the replies your agents send back. A token has your own capabilities, except changing who can get into the office. See the <link>Developer API guide</link> for everything a token can do.",
   "settings.apiTokens.howToUse": "How to use",
   "settings.apiTokens.namePlaceholder": "Laptop script",
-  "settings.apiTokens.ackMode": "Keep replies until the client acknowledges them",
+  "settings.apiTokens.ackMode":
+    "Keep replies until the client acknowledges them",
   "settings.apiTokens.expiresAfter": "Expires after",
   "settings.apiTokens.unlimited": "Unlimited",
   "settings.apiTokens.creating": "Creating…",

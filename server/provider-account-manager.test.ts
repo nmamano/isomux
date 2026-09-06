@@ -20,9 +20,15 @@ const disconnectedAccountClient = () => ({
 describe("ProviderAccountManager", () => {
   it("projects an invalid personal target to unknown without account metadata", async () => {
     const manager = new ProviderAccountManager(
-      () => {}, disconnectedAccountClient as never, undefined,
-      (id) => id, () => ({}), disconnectedAccountClient as never,
-      () => ({}), () => ({}), () => ({ CODEX_HOME: "private-relative-path" }),
+      () => {},
+      disconnectedAccountClient as never,
+      undefined,
+      (id) => id,
+      () => ({}),
+      disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      () => ({ CODEX_HOME: "private-relative-path" }),
       () => [{ id: "member" }],
     );
     expect(await manager.memberStatuses("member")).toEqual([
@@ -33,13 +39,23 @@ describe("ProviderAccountManager", () => {
 
   it("maps a rejected probe to unknown and keeps the other provider", async () => {
     const manager = new ProviderAccountManager(
-      () => {}, disconnectedAccountClient as never, undefined,
-      (id) => id, () => ({}), disconnectedAccountClient as never,
-      () => ({}), () => ({}), () => ({}),
+      () => {},
+      disconnectedAccountClient as never,
+      undefined,
+      (id) => id,
+      () => ({}),
+      disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      () => ({}),
       () => [{ id: "member" }],
     );
-    const real = (manager as unknown as { wireFor: (...a: unknown[]) => Promise<unknown> }).wireFor.bind(manager);
-    (manager as unknown as { wireFor: unknown }).wireFor = async (...args: unknown[]) => {
+    const real = (
+      manager as unknown as { wireFor: (...a: unknown[]) => Promise<unknown> }
+    ).wireFor.bind(manager);
+    (manager as unknown as { wireFor: unknown }).wireFor = async (
+      ...args: unknown[]
+    ) => {
       if (args[1] === "codex") throw new Error("probe exploded");
       return real(...args);
     };

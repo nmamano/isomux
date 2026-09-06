@@ -1446,17 +1446,45 @@ export function Walls({
         transform="translate(50, -75) skewY(-27)"
         onClick={onOpenApps}
         aria-label={onOpenApps ? t("common.apps") : undefined}
-        style={onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
+        style={
+          onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
+        }
       >
         {onOpenApps && <title>{t("common.apps")}</title>}
-        <rect x="-30" y="-32" width="60" height="58" rx="3"
-          fill="var(--wall-decor)" stroke="var(--wall-decor-stroke)" strokeWidth="1.2" />
-        <path d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
-          fill="none" stroke="#fff" strokeWidth="1" opacity="0.22" />
-        <path d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
-          fill="none" stroke="#000" strokeWidth="1.5" opacity="0.35" />
-        <rect x="-25" y="-27" width="50" height="46" rx="1.5"
-          fill="var(--bg-surface-solid)" stroke="var(--wall-decor-stroke)" strokeWidth="0.6" />
+        <rect
+          x="-30"
+          y="-32"
+          width="60"
+          height="58"
+          rx="3"
+          fill="var(--wall-decor)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="1.2"
+        />
+        <path
+          d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1"
+          opacity="0.22"
+        />
+        <path
+          d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
+          fill="none"
+          stroke="#000"
+          strokeWidth="1.5"
+          opacity="0.35"
+        />
+        <rect
+          x="-25"
+          y="-27"
+          width="50"
+          height="46"
+          rx="1.5"
+          fill="var(--bg-surface-solid)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="0.6"
+        />
         {/* Four tiles and a glass highlight, all SVG for mobile. */}
         <g fill="var(--accent)" opacity="0.85">
           <rect x="-9" y="-19" width="7" height="7" rx="1" />
@@ -1465,8 +1493,16 @@ export function Walls({
           <rect x="2" y="-8" width="7" height="7" rx="1" />
         </g>
         <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
-        <text x="0" y="13" textAnchor="middle" fontSize="11" fontWeight="600"
-          fill="var(--text-primary)">{t("common.apps")}</text>
+        <text
+          x="0"
+          y="13"
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="600"
+          fill="var(--text-primary)"
+        >
+          {t("common.apps")}
+        </text>
         <circle cx="0" cy="22" r="0.8" fill="var(--accent)" />
       </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
@@ -1488,16 +1524,39 @@ export function Walls({
         {/* The rear case sits behind a raised, bevelled rim. */}
         <circle cx="2.5" cy="3.5" r={R + 1} fill="#000" opacity="0.16" />
         <circle cx="1.5" cy="2" r={R} fill="var(--wall-decor-stroke)" />
-        <circle cx="0" cy="0" r={R} fill="var(--wall-decor)"
-          stroke="var(--wall-decor-stroke)" strokeWidth="1" />
-        <path d="M-22 7 A23 23 0 0 1 15 -17"
-          fill="none" stroke="#fff" strokeWidth="1.4" opacity="0.3" strokeLinecap="round" />
-        <path d="M-15 17 A23 23 0 0 0 22 -7"
-          fill="none" stroke="#000" strokeWidth="1.5" opacity="0.3" strokeLinecap="round" />
+        <circle
+          cx="0"
+          cy="0"
+          r={R}
+          fill="var(--wall-decor)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="1"
+        />
+        <path
+          d="M-22 7 A23 23 0 0 1 15 -17"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1.4"
+          opacity="0.3"
+          strokeLinecap="round"
+        />
+        <path
+          d="M-15 17 A23 23 0 0 0 22 -7"
+          fill="none"
+          stroke="#000"
+          strokeWidth="1.5"
+          opacity="0.3"
+          strokeLinecap="round"
+        />
         <circle cx="0" cy="0" r={r + 0.8} fill="var(--wall-decor-stroke)" />
         <circle cx="0" cy="0.6" r={r} fill="var(--wall-decor-inner)" />
-        <path d="M-18 6 A19 19 0 0 1 12 -14"
-          fill="none" stroke="#000" strokeWidth="1" opacity="0.16" />
+        <path
+          d="M-18 6 A19 19 0 0 1 12 -14"
+          fill="none"
+          stroke="#000"
+          strokeWidth="1"
+          opacity="0.16"
+        />
         {/* Hour ticks */}
         {Array.from({ length: 12 }, (_, i) => {
           const a = (i * 30 * Math.PI) / 180;
@@ -1683,10 +1742,16 @@ export function Walls({
         transform="translate(500, 60) skewY(27)"
         onClick={onOpenSettings}
         aria-label={onOpenSettings ? t("common.settings") : undefined}
-        style={onOpenSettings ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
+        style={
+          onOpenSettings
+            ? { cursor: "pointer", pointerEvents: "auto" }
+            : undefined
+        }
       >
         {onOpenSettings && <title>{t("common.settings")}</title>}
-        {onOpenSettings && <rect x="-29" y="-22" width="58" height="44" fill="transparent" />}
+        {onOpenSettings && (
+          <rect x="-29" y="-22" width="58" height="44" fill="transparent" />
+        )}
         {/* Drop shadow, falling right and down like every other shadow in
             the scene. The vent keeps its bevel and shadow. */}
         <rect

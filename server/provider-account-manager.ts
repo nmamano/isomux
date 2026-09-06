@@ -329,7 +329,10 @@ export class ProviderAccountManager {
         }
         return {
           provider,
-          status: wire.accountStatus === "unavailable" ? "unknown" : wire.accountStatus,
+          status:
+            wire.accountStatus === "unavailable"
+              ? "unknown"
+              : wire.accountStatus,
         };
       }),
     );

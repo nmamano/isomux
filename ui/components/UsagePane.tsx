@@ -71,85 +71,83 @@ export function UsagePane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
-            {t("settings.usage.title")}
-          </h3>
-          <p
-            style={{
-              fontSize: 11,
-              color: "var(--text-ghost)",
-              lineHeight: 1.5,
-            }}
-          >
-            {t("settings.usage.intro")}
-          </p>
-          {usage?.scoped && (
-            <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              {t("settings.usage.scoped")}
-            </p>
+      <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
+        {t("settings.usage.title")}
+      </h3>
+      <p
+        style={{
+          fontSize: 11,
+          color: "var(--text-ghost)",
+          lineHeight: 1.5,
+        }}
+      >
+        {t("settings.usage.intro")}
+      </p>
+      {usage?.scoped && (
+        <p style={{ fontSize: 11, color: "var(--text-muted)" }}>
+          {t("settings.usage.scoped")}
+        </p>
+      )}
+      {error ? (
+        <p style={{ color: "#ff6b6b", fontSize: 11 }}>{error}</p>
+      ) : !usage ? (
+        <p style={{ color: "var(--text-ghost)", fontSize: 11 }}>
+          {t("common.loading")}
+        </p>
+      ) : (
+        <>
+          <UsageTable
+            title={t("settings.usage.agents")}
+            firstHeader={t("common.agent")}
+            rows={usage.agents.map((row) => ({
+              key: row.id,
+              label: row.name,
+              detail: row.roomName,
+              session: row.session,
+              lifetime: row.lifetime,
+            }))}
+          />
+          <UsageTable
+            title={t("settings.usage.rooms")}
+            note={t("settings.usage.roomsNote")}
+            firstHeader={t("settings.usage.roomColumn")}
+            rows={usage.rooms.map((row) => ({
+              key: row.id,
+              label: row.name,
+              detail: row.deleted ? t("settings.usage.deleted") : undefined,
+              session: row.session,
+              lifetime: row.lifetime,
+            }))}
+          />
+          {usage.cronjobs && usage.cronjobs.length > 0 && (
+            <LifetimeTable
+              title={t("settings.usage.schedules")}
+              rows={usage.cronjobs.map((row) => ({
+                key: row.id,
+                label: row.name,
+                detail: row.deleted ? t("settings.usage.deleted") : undefined,
+                lifetime: row.lifetime,
+              }))}
+            />
           )}
-          {error ? (
-            <p style={{ color: "#ff6b6b", fontSize: 11 }}>{error}</p>
-          ) : !usage ? (
-            <p style={{ color: "var(--text-ghost)", fontSize: 11 }}>
-              {t("common.loading")}
-            </p>
-          ) : (
-            <>
-              <UsageTable
-                title={t("settings.usage.agents")}
-                firstHeader={t("common.agent")}
-                rows={usage.agents.map((row) => ({
-                  key: row.id,
-                  label: row.name,
-                  detail: row.roomName,
-                  session: row.session,
-                  lifetime: row.lifetime,
-                }))}
-              />
-              <UsageTable
-                title={t("settings.usage.rooms")}
-                note={t("settings.usage.roomsNote")}
-                firstHeader={t("settings.usage.roomColumn")}
-                rows={usage.rooms.map((row) => ({
-                  key: row.id,
-                  label: row.name,
-                  detail: row.deleted ? t("settings.usage.deleted") : undefined,
-                  session: row.session,
-                  lifetime: row.lifetime,
-                }))}
-              />
-              {usage.cronjobs && usage.cronjobs.length > 0 && (
-                <LifetimeTable
-                  title={t("settings.usage.schedules")}
-                  rows={usage.cronjobs.map((row) => ({
-                    key: row.id,
-                    label: row.name,
-                    detail: row.deleted
-                      ? t("settings.usage.deleted")
-                      : undefined,
-                    lifetime: row.lifetime,
-                  }))}
-                />
-              )}
-              <UsageTable
-                title={
-                  usage.scoped
-                    ? t("settings.usage.total")
-                    : t("settings.usage.officeTotal")
-                }
-                firstHeader=""
-                rows={[
-                  {
-                    key: "total",
-                    label: t("settings.usage.total"),
-                    session: usage.total.session,
-                    lifetime: usage.total.lifetime,
-                  },
-                ]}
-              />
-            </>
-          )}
+          <UsageTable
+            title={
+              usage.scoped
+                ? t("settings.usage.total")
+                : t("settings.usage.officeTotal")
+            }
+            firstHeader=""
+            rows={[
+              {
+                key: "total",
+                label: t("settings.usage.total"),
+                session: usage.total.session,
+                lifetime: usage.total.lifetime,
+              },
+            ]}
+          />
+        </>
+      )}
     </div>
   );
 }
