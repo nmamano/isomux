@@ -108,8 +108,10 @@ Today (as of bd790b7, measured 2026-09-05):
     is code (ruling 11) and is passed in as a placeholder from the call site.
 20. Nil, 2026-09-06: the subscription reset keeps its weekday. S8 adds a
     weekday-bearing shape to `shared/i18n/time.ts` (Intl weekday short,
-    day, month short, 24-hour clock; English reads "Sat 1 Aug, 09:00" as
-    before S5) and `SubscriptionPill` uses it; unit test pins the English.
+    day, month short, 24-hour clock) and `SubscriptionPill` uses it; unit
+    test pins the native Intl English, "Sat, Aug 1, 09:00" (amended at the
+    S8 plan gate: the weekday is Nil's ask, the exact pre-S5 bytes were the
+    PM's pin, and the shape change is a formatting change under ruling 6).
 
 ## Gates (every hand-off)
 
