@@ -729,3 +729,72 @@ commands and choices.
 Locked: rulings 1, 2, 6, 7, 11, 12, 15-19; the no-server-change prohibition
 is lifted for S7 only; no UI copy changes beyond what the update notice
 move requires; never restart the server.
+
+- [x] S7 landed as 3f7854a (+ format 5ed18e2). `server/i18n.ts` resolver
+  (translatorForUsername for the chat path, translatorForUserId for the
+  owner fallback; agents English), `shared/i18n/command-keys.ts`, 91
+  command descriptions and every response, lifecycle log entries, choice
+  cards, permission prompt, storage report, update notice, backend failure
+  sentences. 1,406 keys per language. Bundle +88438 bytes. English bytes
+  changed on one surface only: the storage report's ages (round vs floor at
+  the minute and hour; the day bucket opens at 48 h), and the old date calls
+  used the server's system locale (en-US on this box). Conventions: server
+  state that outlives a render holds a language-independent identity;
+  id-to-key tables use own-property lookup (`keyFrom`). No signed-in
+  onboarding prose exists. Ruling 5's pre-sign-in promise is OUTSTANDING
+  (task 852694dc). Deliberately English: the unknown-error pass-through in
+  `humanizeBackendFailure`, `formatSize` for the attachment prompt.
+
+## PICKUP S8 - sweep and loop close (Worker 2 / Reviewer 2)
+
+Goal: nothing a boss reads in the office is left in English by accident;
+ruling 20 delivered; the demo shows a translated chrome; the docs lines
+proposed for Nil; the loop ready to close.
+
+Mechanics:
+
+- Ruling 20 first: a weekday-bearing shape in `shared/i18n/time.ts`
+  (Intl weekday short, day, month short, 24-hour clock) whose English
+  pins to "Sat 1 Aug, 09:00"; `SubscriptionPill` uses it; unit test on
+  en/es/ca.
+- The sweep: for every file under `ui/` and the S7 server files, the
+  acceptance grep of S2 (JSX text, `title=`, `aria-label=`,
+  `placeholder=`, template literals, and, for the server, the log-writer
+  method as S7 learned) lists every remaining English literal. Each one is
+  either converted, or listed in the report under one of: proper noun or
+  code (ruling 11), agent-facing (frozen), API error (ruling 2),
+  deliberately English (S7's two), or persisted data. Nothing is left
+  unlisted.
+- Catalog hygiene: the S6 curly apostrophe in `schedules.nextRunIn` to
+  straight; the two bare ">" values (`cards.diff.reasonUntracked`,
+  `cards.diff.summaryOnly`) stay as English bytes (ruling 6) and the
+  catalog test's comment names them as the allowed exception; any key
+  with no remaining caller is deleted (grep each namespace).
+- Demo: `bun run build:demo`, then the demo bundle in headless Chrome
+  (internal-docs/ui-verification.md) with the demo user put on `ca`: the
+  office, the settings page and one dialog read Catalan; screenshot paths
+  in the report.
+- Docs, proposed not written (Nil's copy): one line for
+  `docs/features.md` and one for the README and landing feature list per
+  `internal-docs/documentation.md` (landing wins; sync the README to it)
+  saying the office reads in English, Spanish and Catalan per user
+  preference; the `docs/features.md` voice-to-text bullet stays.
+  `internal-docs/documentation.md` already names the command surface (S7).
+- The parked English strings are NOT changed (Nil's call); the report
+  repeats them with the proposed text in one list: `preferences.intro`
+  ("My devices"), `preferences.languageHint` ("stays in English for now"
+  is now false), "Individual Connections" capital C,
+  `apiCall.memory.saveOffice` ("Save a office memory"), `common.loading`
+  vs `common.loadingDots`.
+- Tests: the whole `ui/` DOM family and the S7 server suites green;
+  `bunx tsc --noEmit` once.
+
+Acceptance: ruling 20 landed with its test; the sweep report has zero
+unlisted English literals; catalog test green with no orphan keys; demo
+screenshots in Catalan; proposed docs lines verbatim in the report;
+bundle delta reported.
+
+Decide with reviewer: the sweep's grep commands (write them in the
+report so the next loop reuses them), the orphan-key method.
+Locked: every ruling; no English wording change; no docs/ or site/ edit;
+no server change beyond deleting orphan keys' callers if any.
