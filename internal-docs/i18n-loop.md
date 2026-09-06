@@ -831,6 +831,21 @@ report so the next loop reuses them), the orphan-key method.
 Locked: every ruling; no English wording change; no docs/ or site/ edit;
 no server change beyond deleting orphan keys' callers if any.
 
+- [x] S8 landed as e43bcd6. AST literal inventory (15,150 literals over
+  120 ui/ files and 7 server files, scripts kept at /tmp/s8/), ruling 20
+  (`weekdayDateTime`), eight agent-manager log writes through `logWords`,
+  no orphan among 1,435 keys, demo verified in Catalan through the real
+  picker. Bundle +5256 bytes. English formatting changes: subscription
+  reset "Fri, Jan 2, 15:04"; sizes at 1 GiB read "1.0 GB"; "1,024.0 KB"
+  gains its separator. Ruling 10 is proven by the harness exit code, not
+  by whole-invocation clocks. For follow-up tasks at close: the login
+  instructions (agent-manager.ts:410 and per-adapter getLoginInstructions);
+  three thrown Errors that read as UI guidance (agent-manager.ts:1276-1298,
+  :4579, :4596); `commands.*` keys read from non-command HTTP paths (move
+  the shared ones to `systemEntries.*`); tracked `ui/index.js` looks dead;
+  40 English values carried by more than one key. Docs lines proposed in
+  the S8 report, for Nil.
+
 ## PICKUP S9 - the pre-sign-in office pages (Worker 1 / Reviewer 1)
 
 Goal: a visitor whose browser prefers Spanish or Catalan reads the
