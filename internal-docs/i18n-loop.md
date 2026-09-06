@@ -106,6 +106,10 @@ Today (as of bd790b7, measured 2026-09-05):
 19. A catalog value never contains angle brackets that are not a `rich()`
     tag pair (`https://<host>` fails the balanced-tag test). Such a fragment
     is code (ruling 11) and is passed in as a placeholder from the call site.
+20. Nil, 2026-09-06: the subscription reset keeps its weekday. S8 adds a
+    weekday-bearing shape to `shared/i18n/time.ts` (Intl weekday short,
+    day, month short, 24-hour clock; English reads "Sat 1 Aug, 09:00" as
+    before S5) and `SubscriptionPill` uses it; unit test pins the English.
 
 ## Gates (every hand-off)
 
