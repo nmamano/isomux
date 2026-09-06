@@ -7,6 +7,7 @@ import {
   DEFAULT_LANGUAGE,
   SUPPORTED_LANGUAGES,
   detectBrowserLanguage,
+  languageFromAcceptLanguage,
   isSupportedLanguage,
   languageOption,
   speechLocaleFor,
@@ -107,5 +108,63 @@ describe("speechLocaleFor", () => {
     expect(speechLocaleFor("klingon" as SupportedLanguageCode, "es-ES")).toBe(
       "es-ES",
     );
+  });
+});
+
+// The pre-sign-in pages have no stored preference to read, so the header is
+// the whole input (internal-docs/i18n-loop.md, S9).
+describe("languageFromAcceptLanguage", () => {
+  it("takes the primary subtag of a language we offer", () => {
+    expect(languageFromAcceptLanguage("es-ES")).toBe("es");
+    expect(languageFromAcceptLanguage("ca")).toBe("ca");
+    expect(languageFromAcceptLanguage("en-GB")).toBe("en");
+    expect(languageFromAcceptLanguage("ES-es")).toBe("es");
+  });
+
+  it("prefers the highest quality value", () => {
+    expect(languageFromAcceptLanguage("es;q=0.8, ca;q=0.9")).toBe("ca");
+    expect(languageFromAcceptLanguage("ca;q=0.1, es;q=0.7")).toBe("es");
+    expect(languageFromAcceptLanguage(" es ; q=0.9 , ca ")).toBe("ca");
+  });
+
+  it("keeps the header's own order when the quality ties", () => {
+    // Two languages a browser wants equally: the one it named first wins,
+    // which is what every other Accept-* negotiation does.
+    expect(languageFromAcceptLanguage("es, ca")).toBe("es");
+    expect(languageFromAcceptLanguage("ca, es")).toBe("ca");
+    expect(languageFromAcceptLanguage("ca;q=0.5, es;q=0.5")).toBe("ca");
+  });
+
+  it("skips what it cannot use and keeps looking", () => {
+    expect(languageFromAcceptLanguage("fr, de;q=0.9, ca;q=0.1")).toBe("ca");
+    expect(languageFromAcceptLanguage("*;q=0.1, es;q=0.2")).toBe("es");
+    // q=0 is "not acceptable", not "least preferred". The first two cases
+    // have no other supported language to fall on, so only a rejected ca can
+    // produce English; the third proves the search carries on past it.
+    expect(languageFromAcceptLanguage("ca;q=0")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("ca;q=0, fr")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("ca;q=0, es")).toBe("es");
+  });
+
+  it("drops an element whose quality is not a quality value", () => {
+    // parseFloat("0.9abc") is 0.9; a prefix is not a q, so the element goes.
+    expect(languageFromAcceptLanguage("ca;q=0.9abc, es;q=0.1")).toBe("es");
+    expect(languageFromAcceptLanguage("ca;q=2, es;q=0.1")).toBe("es");
+    expect(languageFromAcceptLanguage("ca;q=, es;q=0.1")).toBe("es");
+    expect(languageFromAcceptLanguage("ca;q=0.5;q=0.6, es;q=0.1")).toBe("es");
+    // An extension parameter is not our business and does not spoil the entry.
+    expect(languageFromAcceptLanguage("ca;level=1, es;q=0.9")).toBe("ca");
+  });
+
+  it("reads English when the header offers nothing we have", () => {
+    expect(languageFromAcceptLanguage("fr")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("*")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("   ")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage(",,;;")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("es_ES")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage("\u{1f4a5}")).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage(null)).toBe(DEFAULT_LANGUAGE);
+    expect(languageFromAcceptLanguage(undefined)).toBe(DEFAULT_LANGUAGE);
   });
 });

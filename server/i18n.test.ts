@@ -10,8 +10,10 @@ import {
   translatorForLanguage,
   translatorForUsername,
   translatorForUserId,
+  translatorForRequest,
   english,
 } from "./i18n.ts";
+import type { Identity } from "./identity/index.ts";
 import { _testResetUsers, claimUser, updateUserById } from "./users.ts";
 
 // "Conversation cleared." in each language - a key S7 added, so it exercises
@@ -105,5 +107,42 @@ describe("interpolation survives resolution", () => {
         label: "topic",
       }),
     ).toBe("Resumed session: topic");
+  });
+});
+
+// A caller identity as the gating layer hands one over. Capabilities are
+// irrelevant here - this resolver reads scope and userId only.
+function identity(scope: Identity["scope"], userId: string | null): Identity {
+  return { scope, userId, role: "owner", capabilities: [] };
+}
+
+describe("translatorForRequest - the pre-sign-in pages", () => {
+  it("gives a reader we know their stored preference, header or no header", () => {
+    const id = seed("Ana", "es");
+    expect(translatorForRequest(identity("user", id), "en").t(KEY)).toBe(ES);
+    expect(translatorForRequest(identity("user", id), null).t(KEY)).toBe(ES);
+    // A human's own API token is that human reading, not a machine.
+    expect(translatorForRequest(identity("api", id), "en").t(KEY)).toBe(ES);
+  });
+
+  it("leaves a reader who never chose one in English, whatever the browser says", () => {
+    const id = seed("Sam", null);
+    expect(translatorForRequest(identity("user", id), "es").t(KEY)).toBe(EN);
+  });
+
+  it("writes English for a machine, even one whose owner reads Spanish", () => {
+    // An agent bearer can fetch an invite page. It must not pick up the
+    // owner's language through the userId its identity carries (ruling 2).
+    const id = seed("Ana", "es");
+    expect(translatorForRequest(identity("agent", id), "es").t(KEY)).toBe(EN);
+    expect(translatorForRequest(identity("cron-run", id), "ca").t(KEY)).toBe(EN);
+    expect(translatorForRequest(identity("app", id), "ca").t(KEY)).toBe(EN);
+  });
+
+  it("negotiates from the header for a visitor with no identity", () => {
+    expect(translatorForRequest(null, "es-ES,es;q=0.9").t(KEY)).toBe(ES);
+    expect(translatorForRequest(null, "es;q=0.8, ca;q=0.9").t(KEY)).toBe(CA);
+    expect(translatorForRequest(null, "fr").t(KEY)).toBe(EN);
+    expect(translatorForRequest(null, null).t(KEY)).toBe(EN);
   });
 });

@@ -23,6 +23,9 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { getUserById, getUserByName, hasOwner } from "./users.ts";
+import { translatorForRequest } from "./i18n.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../shared/languages.ts";
 import {
   readBearerToken,
   identityFromSession,
@@ -207,7 +210,7 @@ function unauthorized(req: Request, officeName: string | null): Response {
       headers: { "Content-Type": "application/json" },
     });
   }
-  return new Response(renderLoginPage(officeName), {
+  return new Response(renderLoginPage(translatorForVisitor(req), officeName), {
     status: 401,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -219,9 +222,23 @@ function unauthorized(req: Request, officeName: string | null): Response {
   });
 }
 
+// The language a pre-sign-in page is written in (S9). The gating layer's own
+// helpers answer who is asking - a bearer, a cookie session, or nobody - and
+// server/i18n.ts turns that into a translator: a reader we already know reads
+// their stored preference, a stranger reads what their browser asked for.
+function translatorForVisitor(req: Request): Translator {
+  const cookies = readSessionCookies(req);
+  const identity = resolveIdentityForRequest(
+    req,
+    validateSession(cookies.selected || null),
+  );
+  return translatorForRequest(identity, req.headers.get("accept-language"));
+}
+
 // Browser-tab title for /auth/* and /i/<token> pages. Mirrors the format
 // used by the SPA shell (see serveIndexHtml in server/isomux-office.ts) so the tab
-// title stays consistent across authenticated and pre-auth surfaces.
+// title stays consistent across authenticated and pre-auth surfaces. The suffix
+// arrives translated; the frame around it is punctuation and a proper noun.
 function authPageTitle(officeName: string | null, suffix: string): string {
   return officeName
     ? `${officeName} | Isomux - ${suffix}`
@@ -345,18 +362,19 @@ export function handleInvitePeek(
   token: string,
   officeName: string | null,
 ): Response {
+  const i18n = translatorForVisitor(req);
   const peek = peekInvite(token);
   if ("error" in peek) {
     if (peek.error === "consumed") {
       const signedIn = redirectConsumedVisitorIfSignedIn(req);
       if (signedIn) return signedIn;
     }
-    return renderInviteError(peek.error, officeName);
+    return renderInviteError(i18n, peek.error, officeName);
   }
   const conflict = inviteIdentityConflict(req, peek, null);
-  if (conflict) return renderInviteIdentityConflict(conflict, officeName);
+  if (conflict) return renderInviteIdentityConflict(i18n, conflict, officeName);
   return new Response(
-    renderAcceptPage(token, peek.needsName, null, officeName),
+    renderAcceptPage(i18n, token, peek.needsName, null, officeName),
     {
       status: 200,
       headers: {
@@ -377,12 +395,13 @@ export async function handleAccept(
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
+  const i18n = translatorForVisitor(req);
   const form = await req.formData().catch(() => null);
   const tokenField = form?.get("token");
   const nameField = form?.get("name");
   const token = typeof tokenField === "string" ? tokenField : "";
   const name = typeof nameField === "string" ? nameField : "";
-  if (!token) return renderInviteError("not_found", officeName);
+  if (!token) return renderInviteError(i18n, "not_found", officeName);
   const peek = peekInvite(token);
   // This is an allow-list: a live browser session may accept only for the
   // same stable user. A missing target record therefore refuses rather than
@@ -390,7 +409,8 @@ export async function handleAccept(
   // acceptInvite path below, which preserves the consumed-invite redirect.
   if (!("error" in peek)) {
     const conflict = inviteIdentityConflict(req, peek, name);
-    if (conflict) return renderInviteIdentityConflict(conflict, officeName);
+    if (conflict)
+      return renderInviteIdentityConflict(i18n, conflict, officeName);
   }
   const ua = req.headers.get("user-agent");
   const result = await acceptInvite(token, { userAgent: ua, chosenName: name });
@@ -398,9 +418,10 @@ export async function handleAccept(
     if (result.error === "needs_name" || result.error === "invalid_name") {
       return new Response(
         renderAcceptPage(
+          i18n,
           token,
           true,
-          "Please pick a display name.",
+          i18n.t("preAuth.invite.errorName"),
           officeName,
         ),
         {
@@ -416,7 +437,7 @@ export async function handleAccept(
       const signedIn = redirectConsumedVisitorIfSignedIn(req);
       if (signedIn) return signedIn;
     }
-    return renderInviteError(result.error, officeName);
+    return renderInviteError(i18n, result.error, officeName);
   }
   if (result.isBootstrap && onOwnerCreated) {
     // Best-effort: never roll back the accept on hook failure.
@@ -438,13 +459,6 @@ export async function handleAccept(
     },
   });
 }
-
-const INVITE_IDENTITY_CONFLICT_COPY = {
-  heading: "This invite is for a different user",
-  body: (current: string, invitee: string) =>
-    `You are signed in as ${current}. This invite is for ${invitee}: open it on their device or in a separate browser profile.`,
-  link: "Return to office",
-};
 
 function inviteIdentityConflict(
   req: Request,
@@ -479,16 +493,21 @@ function inviteIdentityConflict(
 }
 
 function renderInviteIdentityConflict(
+  i18n: Translator,
   conflict: { current: string; invitee: string },
   officeName: string | null,
 ): Response {
-  const copy = INVITE_IDENTITY_CONFLICT_COPY;
+  const { t } = i18n;
   return new Response(
     baseHtml(
-      authPageTitle(officeName, "invite"),
-      `<h1>${copy.heading}</h1>
-      <p>${escapeHtml(copy.body(conflict.current, conflict.invitee))}</p>
-      <p><a href="/">${copy.link}</a></p>`,
+      i18n.language,
+      authPageTitle(officeName, t("common.titleInvite")),
+      `<h1>${t("preAuth.conflict.heading")}</h1>
+      <p>${t("preAuth.conflict.body", {
+        current: escapeHtml(conflict.current),
+        invitee: escapeHtml(conflict.invitee),
+      })}</p>
+      <p><a href="/">${t("common.returnToOffice")}</a></p>`,
     ),
     {
       status: 409,
@@ -515,11 +534,11 @@ export async function handleLogout(
   const cookie = readSessionCookie(req);
   const lookup = validateSession(cookie);
   if (lookup && wouldRevokeLeaveOfficeUnreachable(lookup.sessionIdHash)) {
+    const i18n = translatorForVisitor(req);
     return new Response(
       renderLockoutBlocked(
-        "Sign out refused: this is the last active owner session in the " +
-          "office. Mint an additional invite for yourself and accept it " +
-          "on another device first, then retry.",
+        i18n,
+        i18n.t("preAuth.signOutBlocked.lastOwnerSession"),
         officeName,
       ),
       {
@@ -546,14 +565,17 @@ export async function handleLogout(
 }
 
 function renderLockoutBlocked(
+  i18n: Translator,
   message: string,
   officeName: string | null,
 ): string {
+  const { t } = i18n;
   return baseHtml(
-    authPageTitle(officeName, "sign out blocked"),
-    `<h1>Sign out blocked</h1>
+    i18n.language,
+    authPageTitle(officeName, t("preAuth.signOutBlocked.title")),
+    `<h1>${t("preAuth.signOutBlocked.heading")}</h1>
     <p>${escapeHtml(message)}</p>
-    <p><a href="/">Return to office</a></p>`,
+    <p><a href="/">${t("common.returnToOffice")}</a></p>`,
   );
 }
 
@@ -590,7 +612,7 @@ export async function tryHandleAuthRoute<T>(
   // + loopback-peer-IP check on the POST as defense-in-depth in case the
   // bind is widened by operator override.
   if (req.method === "GET" && url.pathname === "/" && !hasOwner()) {
-    return handleClaimForm(officeName);
+    return handleClaimForm(translatorForVisitor(req), officeName);
   }
   if (req.method === "POST" && url.pathname === "/auth/claim") {
     return handleClaim(req, server, officeName);
@@ -598,7 +620,12 @@ export async function tryHandleAuthRoute<T>(
   // GET /i/<token> - peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
     const token = url.pathname.slice(3);
-    if (!token) return renderInviteError("not_found", officeName);
+    if (!token)
+      return renderInviteError(
+        translatorForVisitor(req),
+        "not_found",
+        officeName,
+      );
     return handleInvitePeek(req, token, officeName);
   }
   // POST /auth/accept - actually consumes the invite. Origin-checked.
@@ -628,8 +655,11 @@ export async function tryHandleAuthRoute<T>(
 // between that header and `Origin: null` on top-level form POSTs would
 // otherwise make the form's strict same-origin check reject the real
 // browser submit with 403.
-function handleClaimForm(officeName: string | null): Response {
-  return new Response(renderClaimPage(null, officeName), {
+function handleClaimForm(
+  i18n: Translator,
+  officeName: string | null,
+): Response {
+  return new Response(renderClaimPage(i18n, null, officeName), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -673,11 +703,12 @@ async function handleClaim<T>(
   const ua = req.headers.get("user-agent");
   const result = await claimOwnership(name, { userAgent: ua });
   if (!result.ok) {
+    const i18n = translatorForVisitor(req);
     const errorMsg =
       result.error === "owner_exists"
-        ? "This office already has an owner. Refresh and sign in with an invite link instead."
-        : "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).";
-    return new Response(renderClaimPage(errorMsg, officeName), {
+        ? i18n.t("preAuth.claim.errorOwnerExists")
+        : i18n.t("preAuth.claim.errorName");
+    return new Response(renderClaimPage(i18n, errorMsg, officeName), {
       status: 400,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
@@ -741,7 +772,8 @@ const EMPTY_PNG = Buffer.from(
 // pages are static enough that string concatenation is clearer than spinning
 // up a renderer.
 
-function renderLoginPage(officeName: string | null): string {
+function renderLoginPage(i18n: Translator, officeName: string | null): string {
+  const { t } = i18n;
   // The visible page body remains generic - the backdrop is a baked
   // screenshot of the office UI served from /auth/login-bg.png (the same
   // asset isomux.com uses on its marketing page) so it reveals nothing
@@ -754,17 +786,22 @@ function renderLoginPage(officeName: string | null): string {
       <h1>Isomux</h1>
       ${
         hasOfficeOwner
-          ? `<p>Open an invite link to sign in on this device.</p>
-      <p>Already signed in elsewhere? Create one in User settings there.</p>
-      <p class="muted">Otherwise, ask the office owner for one.</p>`
-          : `<p>No owner has been set up for this office yet.</p>
-      <p>Open <a href="/">this office's home page</a> to claim ownership.</p>
-      <p class="muted">If you're trying to reach this office from another machine, you'll need to SSH-tunnel first (the claim form is only reachable from loopback). The server's startup log spells out the exact <code>ssh -L</code> command.</p>`
+          ? `<p>${t("preAuth.login.openInvite")}</p>
+      <p>${t("preAuth.login.alreadySignedIn")}</p>
+      <p class="muted">${t("preAuth.login.askOwner")}</p>`
+          : `<p>${t("preAuth.login.noOwner")}</p>
+      <p>${t("preAuth.login.claimHere", {
+        link: `<a href="/">${t("preAuth.login.claimHereLink")}</a>`,
+      })}</p>
+      <p class="muted">${t("preAuth.login.sshHint", {
+        command: "<code>ssh -L</code>",
+      })}</p>`
       }
     </main>
   `;
   return baseHtml(
-    authPageTitle(officeName, "sign in"),
+    i18n.language,
+    authPageTitle(officeName, t("preAuth.login.title")),
     body,
     undefined,
     PREAUTH_EXTRA_CSS,
@@ -776,27 +813,30 @@ function renderLoginPage(officeName: string | null): string {
 // "form must be submitted to take effect" anti-preview property) but without
 // a token field since locality is the gate.
 function renderClaimPage(
+  i18n: Translator,
   errorMsg: string | null,
   officeName: string | null,
 ): string {
+  const { t } = i18n;
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
   // Match the open-graph treatment from renderAcceptPage; no image, generic
   // copy that reveals nothing about the deployment.
   const og = {
-    title: "Isomux - first-time setup",
-    description: "Claim ownership of a new Isomux office.",
+    title: t("common.ogTitleFirstTimeSetup"),
+    description: t("preAuth.claim.ogDescription"),
   };
   return baseHtml(
-    authPageTitle(officeName, "first-time setup"),
+    i18n.language,
+    authPageTitle(officeName, t("common.titleFirstTimeSetup")),
     `
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
-      <h1>Welcome to your new Isomux office</h1>
-      <p>You're the first person to claim this office. Pick a display name; it'll appear next to anything you say.</p>
+      <h1>${t("common.welcomeNewOffice")}</h1>
+      <p>${t("preAuth.claim.intro")}</p>
       <form method="POST" action="/auth/claim">
-        <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
+        <label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
         ${err}
-        <button type="submit">Continue</button>
+        <button type="submit">${t("common.continue")}</button>
       </form>
     </main>
     `,
@@ -880,11 +920,13 @@ const PREAUTH_EXTRA_CSS = `
 `;
 
 function renderAcceptPage(
+  i18n: Translator,
   token: string,
   needsName: boolean,
   errorMsg: string | null,
   officeName: string | null,
 ): string {
+  const { t } = i18n;
   const safeToken = escapeAttr(token);
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
   // Open-graph metadata so chat-app link unfurlers show a readable preview
@@ -894,27 +936,30 @@ function renderAcceptPage(
   // name is intentionally NOT plumbed into OG fields - those are scraped
   // by external preview services we shouldn't leak the office name to.
   const og = {
-    title: needsName ? "Isomux - first-time setup" : "Isomux - accept invite",
+    title: needsName
+      ? t("common.ogTitleFirstTimeSetup")
+      : t("preAuth.invite.ogTitleAccept"),
     description: needsName
-      ? "Open this link to claim ownership of an Isomux office."
-      : "Open this link to sign in to an Isomux office on this device.",
+      ? t("preAuth.invite.ogDescriptionSetup")
+      : t("preAuth.invite.ogDescriptionAccept"),
   };
   if (needsName) {
     // Bootstrap (or any null-username invite): invitee picks their display
     // name. The form double-purposes as the "accept" gesture, so a link
     // previewer can't burn it just by fetching the URL.
     return baseHtml(
-      authPageTitle(officeName, "first-time setup"),
+      i18n.language,
+      authPageTitle(officeName, t("common.titleFirstTimeSetup")),
       `
       <div class="login-bg" aria-hidden="true"></div>
       <main class="card">
-        <h1>Welcome to your new Isomux office</h1>
-        <p>You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.</p>
+        <h1>${t("common.welcomeNewOffice")}</h1>
+        <p>${t("preAuth.invite.bootstrapIntro")}</p>
         <form method="POST" action="/auth/accept">
           <input type="hidden" name="token" value="${safeToken}" />
-          <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
+          <label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
           ${err}
-          <button type="submit">Continue</button>
+          <button type="submit">${t("common.continue")}</button>
         </form>
       </main>
       `,
@@ -927,19 +972,20 @@ function renderAcceptPage(
   // the office has a display name we surface it in the heading so the
   // invitee can confirm they're joining the right office before clicking.
   const heading = officeName
-    ? `Open your invite to the Isomux office: ${escapeHtml(officeName)}`
-    : "Open your Isomux invite";
+    ? t("preAuth.invite.headingNamed", { office: escapeHtml(officeName) })
+    : t("preAuth.invite.heading");
   return baseHtml(
-    authPageTitle(officeName, "accept invite"),
+    i18n.language,
+    authPageTitle(officeName, t("preAuth.invite.titleAccept")),
     `
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
       <h1>${heading}</h1>
-      <p>Clicking the button below will sign you in on this device.</p>
+      <p>${t("preAuth.invite.clickHint")}</p>
       <form method="POST" action="/auth/accept">
         <input type="hidden" name="token" value="${safeToken}" />
         ${err}
-        <button type="submit" autofocus>Accept and continue</button>
+        <button type="submit" autofocus>${t("preAuth.invite.accept")}</button>
       </form>
     </main>
     `,
@@ -970,20 +1016,30 @@ function redirectConsumedVisitorIfSignedIn(req: Request): Response | null {
   });
 }
 
-function renderInviteError(kind: string, officeName: string | null): Response {
-  const msg =
-    kind === "consumed"
-      ? "This invite has already been used."
-      : kind === "expired"
-        ? "This invite has expired."
-        : kind === "role_mismatch"
-          ? "This invite can't be accepted because the existing user has a different role. Ask the owner to mint a new invite."
-          : kind === "owner_exists"
-            ? "This office already has an owner. Bootstrap invites stop working once the office has been claimed."
-            : "This invite is no longer valid.";
+// The peek and accept paths hand this function whatever error the invite
+// store reported, so the lookup is by own property (an inherited name like
+// "constructor" must not resolve to a key) and anything unknown reads as the
+// generic sentence, exactly as the chain it replaces did.
+const INVITE_ERROR_KEYS = {
+  consumed: "preAuth.inviteError.consumed",
+  expired: "preAuth.inviteError.expired",
+  role_mismatch: "preAuth.inviteError.roleMismatch",
+  owner_exists: "preAuth.inviteError.ownerExists",
+} as const;
+
+function renderInviteError(
+  i18n: Translator,
+  kind: string,
+  officeName: string | null,
+): Response {
+  const { t } = i18n;
+  const key = Object.prototype.hasOwnProperty.call(INVITE_ERROR_KEYS, kind)
+    ? INVITE_ERROR_KEYS[kind as keyof typeof INVITE_ERROR_KEYS]
+    : "preAuth.inviteError.generic";
   const body = baseHtml(
-    authPageTitle(officeName, "invite"),
-    `<h1>Invite unavailable</h1><p>${escapeHtml(msg)}</p>`,
+    i18n.language,
+    authPageTitle(officeName, t("common.titleInvite")),
+    `<h1>${t("preAuth.inviteError.heading")}</h1><p>${escapeHtml(t(key))}</p>`,
   );
   return new Response(body, {
     status: 410, // Gone - invite was once valid (or never)
@@ -995,6 +1051,7 @@ function renderInviteError(kind: string, officeName: string | null): Response {
 }
 
 function baseHtml(
+  lang: SupportedLanguageCode,
   title: string,
   body: string,
   og?: { title: string; description: string },
@@ -1010,7 +1067,7 @@ function baseHtml(
 <meta name="twitter:description" content="${escapeAttr(og.description)}" />`
     : "";
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(title)}</title>

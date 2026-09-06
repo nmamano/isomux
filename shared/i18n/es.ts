@@ -1857,4 +1857,68 @@ export const es: Catalog = {
   "storageReport.nothingDeleted":
     "_Aquí no se borra nada automáticamente. Las transcripciones y los adjuntos solo se eliminan cuando el propietario lo pide._",
   "storageReport.unknownSize": "tamaño desconocido",
+
+  // --- S9: the pre-sign-in pages the server renders itself -----------------
+  // The claim page, the invite-accept page, the login page and the three
+  // error pages of the same flow. No picker (ruling 5): the language comes
+  // from the visitor's Accept-Language header, or from their stored
+  // preference on the pages that can know them. The common.* keys here are
+  // common because two of those pages share the byte-identical string
+  // (ruling 15), not because anything outside this flow uses them yet.
+  "common.continue": "Continuar",
+  "common.displayName": "Nombre para mostrar",
+  "common.returnToOffice": "Volver a la oficina",
+  "common.welcomeNewOffice": "Te damos la bienvenida a tu nueva oficina Isomux",
+  "common.titleFirstTimeSetup": "configuración inicial",
+  "common.titleInvite": "invitación",
+  "common.ogTitleFirstTimeSetup": "Isomux - configuración inicial",
+  "preAuth.login.title": "iniciar sesión",
+  "preAuth.login.openInvite":
+    "Abre un enlace de invitación para iniciar sesión en este dispositivo.",
+  "preAuth.login.alreadySignedIn":
+    "¿Ya tienes sesión iniciada en otro sitio? Crea uno en Ajustes de usuario allí.",
+  "preAuth.login.askOwner": "Si no, pídeselo al propietario de la oficina.",
+  "preAuth.login.noOwner": "Esta oficina todavía no tiene propietario.",
+  "preAuth.login.claimHere": "Abre {link} para reclamar la propiedad.",
+  "preAuth.login.claimHereLink": "la página de inicio de esta oficina",
+  "preAuth.login.sshHint":
+    "Si quieres llegar a esta oficina desde otra máquina, primero necesitas un túnel SSH (el formulario de reclamación solo es accesible desde loopback). El registro de arranque del servidor indica el comando {command} exacto.",
+  "preAuth.claim.intro":
+    "Eres la primera persona que reclama esta oficina. Elige un nombre para mostrar; aparecerá junto a todo lo que digas.",
+  "preAuth.claim.ogDescription":
+    "Reclama la propiedad de una oficina Isomux nueva.",
+  "preAuth.claim.errorOwnerExists":
+    "Esta oficina ya tiene propietario. Actualiza la página e inicia sesión con un enlace de invitación.",
+  "preAuth.claim.errorName":
+    "Elige un nombre para mostrar (letras, números, espacios, puntos, guiones, apóstrofos o guiones bajos).",
+  "preAuth.invite.titleAccept": "aceptar invitación",
+  "preAuth.invite.bootstrapIntro":
+    "Eres la primera persona que reclama esta oficina. Elige un nombre para mostrar - aparecerá junto a todo lo que digas.",
+  "preAuth.invite.heading": "Abre tu invitación de Isomux",
+  "preAuth.invite.headingNamed":
+    "Abre tu invitación a la oficina Isomux: {office}",
+  "preAuth.invite.clickHint":
+    "Al pulsar el botón de abajo iniciarás sesión en este dispositivo.",
+  "preAuth.invite.accept": "Aceptar y continuar",
+  "preAuth.invite.errorName": "Elige un nombre para mostrar.",
+  "preAuth.invite.ogTitleAccept": "Isomux - aceptar invitación",
+  "preAuth.invite.ogDescriptionSetup":
+    "Abre este enlace para reclamar la propiedad de una oficina Isomux.",
+  "preAuth.invite.ogDescriptionAccept":
+    "Abre este enlace para iniciar sesión en una oficina Isomux en este dispositivo.",
+  "preAuth.inviteError.heading": "Invitación no disponible",
+  "preAuth.inviteError.consumed": "Esta invitación ya se ha usado.",
+  "preAuth.inviteError.expired": "Esta invitación ha caducado.",
+  "preAuth.inviteError.roleMismatch":
+    "Esta invitación no se puede aceptar porque el usuario que ya existe tiene otro rol. Pide al propietario que cree una invitación nueva.",
+  "preAuth.inviteError.ownerExists":
+    "Esta oficina ya tiene propietario. Las invitaciones iniciales dejan de funcionar cuando la oficina ya está reclamada.",
+  "preAuth.inviteError.generic": "Esta invitación ya no es válida.",
+  "preAuth.conflict.heading": "Esta invitación es para otro usuario",
+  "preAuth.conflict.body":
+    "Has iniciado sesión como {current}. Esta invitación es para {invitee}: ábrela en su dispositivo o en otro perfil del navegador.",
+  "preAuth.signOutBlocked.title": "cierre de sesión bloqueado",
+  "preAuth.signOutBlocked.heading": "Cierre de sesión bloqueado",
+  "preAuth.signOutBlocked.lastOwnerSession":
+    "Cierre de sesión rechazado: esta es la última sesión activa de propietario en la oficina. Crea otra invitación para ti y acéptala en otro dispositivo antes de volver a intentarlo.",
 };

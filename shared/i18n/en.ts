@@ -1851,6 +1851,68 @@ export const en = {
   "storageReport.nothingDeleted":
     "_Nothing here is deleted automatically. Transcripts and attachments are only removed when the owner asks for it._",
   "storageReport.unknownSize": "unknown size",
+
+  // --- S9: the pre-sign-in pages the server renders itself -----------------
+  // The claim page, the invite-accept page, the login page and the three
+  // error pages of the same flow. No picker (ruling 5): the language comes
+  // from the visitor's Accept-Language header, or from their stored
+  // preference on the pages that can know them. The common.* keys here are
+  // common because two of those pages share the byte-identical string
+  // (ruling 15), not because anything outside this flow uses them yet.
+  "common.continue": "Continue",
+  "common.displayName": "Display name",
+  "common.returnToOffice": "Return to office",
+  "common.welcomeNewOffice": "Welcome to your new Isomux office",
+  "common.titleFirstTimeSetup": "first-time setup",
+  "common.titleInvite": "invite",
+  "common.ogTitleFirstTimeSetup": "Isomux - first-time setup",
+  "preAuth.login.title": "sign in",
+  "preAuth.login.openInvite": "Open an invite link to sign in on this device.",
+  "preAuth.login.alreadySignedIn":
+    "Already signed in elsewhere? Create one in User settings there.",
+  "preAuth.login.askOwner": "Otherwise, ask the office owner for one.",
+  "preAuth.login.noOwner": "No owner has been set up for this office yet.",
+  "preAuth.login.claimHere": "Open {link} to claim ownership.",
+  "preAuth.login.claimHereLink": "this office's home page",
+  "preAuth.login.sshHint":
+    "If you're trying to reach this office from another machine, you'll need to SSH-tunnel first (the claim form is only reachable from loopback). The server's startup log spells out the exact {command} command.",
+  "preAuth.claim.intro":
+    "You're the first person to claim this office. Pick a display name; it'll appear next to anything you say.",
+  "preAuth.claim.ogDescription": "Claim ownership of a new Isomux office.",
+  "preAuth.claim.errorOwnerExists":
+    "This office already has an owner. Refresh and sign in with an invite link instead.",
+  "preAuth.claim.errorName":
+    "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).",
+  "preAuth.invite.titleAccept": "accept invite",
+  "preAuth.invite.bootstrapIntro":
+    "You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.",
+  "preAuth.invite.heading": "Open your Isomux invite",
+  "preAuth.invite.headingNamed":
+    "Open your invite to the Isomux office: {office}",
+  "preAuth.invite.clickHint":
+    "Clicking the button below will sign you in on this device.",
+  "preAuth.invite.accept": "Accept and continue",
+  "preAuth.invite.errorName": "Please pick a display name.",
+  "preAuth.invite.ogTitleAccept": "Isomux - accept invite",
+  "preAuth.invite.ogDescriptionSetup":
+    "Open this link to claim ownership of an Isomux office.",
+  "preAuth.invite.ogDescriptionAccept":
+    "Open this link to sign in to an Isomux office on this device.",
+  "preAuth.inviteError.heading": "Invite unavailable",
+  "preAuth.inviteError.consumed": "This invite has already been used.",
+  "preAuth.inviteError.expired": "This invite has expired.",
+  "preAuth.inviteError.roleMismatch":
+    "This invite can't be accepted because the existing user has a different role. Ask the owner to mint a new invite.",
+  "preAuth.inviteError.ownerExists":
+    "This office already has an owner. Bootstrap invites stop working once the office has been claimed.",
+  "preAuth.inviteError.generic": "This invite is no longer valid.",
+  "preAuth.conflict.heading": "This invite is for a different user",
+  "preAuth.conflict.body":
+    "You are signed in as {current}. This invite is for {invitee}: open it on their device or in a separate browser profile.",
+  "preAuth.signOutBlocked.title": "sign out blocked",
+  "preAuth.signOutBlocked.heading": "Sign out blocked",
+  "preAuth.signOutBlocked.lastOwnerSession":
+    "Sign out refused: this is the last active owner session in the office. Mint an additional invite for yourself and accept it on another device first, then retry.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

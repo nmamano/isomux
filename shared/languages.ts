@@ -97,3 +97,52 @@ export function speechLocaleFor(
   }
   return "en-US";
 }
+
+// Negotiate a language from an Accept-Language header, for the pre-sign-in
+// pages: a visitor with no identity has no stored preference, and the header is
+// the only thing the request carries about what they read (S9).
+//
+// Deliberately strict where the header is malformed: a quality value is read
+// only when it is RFC 7231 shaped (0-1, at most three decimals), so a
+// "q=0.9abc" drops its entry instead of silently becoming 0.9 the way a
+// parseFloat prefix would. `q=0` means "not acceptable" and is skipped, a
+// wildcard (`*`) names no language and is skipped, and equal quality keeps the
+// header's own order. Nothing supported, absent or unparseable reads English.
+export function languageFromAcceptLanguage(
+  header: string | null | undefined,
+): SupportedLanguageCode {
+  if (typeof header !== "string") return DEFAULT_LANGUAGE;
+  let best: { code: SupportedLanguageCode; q: number } | null = null;
+  for (const element of header.split(",")) {
+    const [rawTag, ...params] = element.split(";");
+    const tag = (rawTag ?? "").trim().toLowerCase();
+    // Language-range grammar (RFC 4647 basic): alphabetic primary subtag,
+    // alphanumeric subtags. "*" and "es_ES" fail it and are skipped.
+    if (!/^[a-z]{1,8}(-[a-z0-9]{1,8})*$/.test(tag)) continue;
+    const quality = qualityOf(params);
+    if (quality === null || quality === 0) continue;
+    const primary = tag.split("-")[0];
+    const match = SUPPORTED_LANGUAGES.find((l) => l.code === primary);
+    if (!match) continue;
+    // Strict >: the first element of a tie wins, so header order is preserved.
+    if (!best || quality > best.q) best = { code: match.code, q: quality };
+  }
+  return best?.code ?? DEFAULT_LANGUAGE;
+}
+
+// The q of one header element: 1 when it carries none, the value when it is
+// well formed, and null when it is not - a malformed parameter list is a
+// malformed element, so its caller drops the whole entry.
+function qualityOf(params: string[]): number | null {
+  let quality: number | null = null;
+  for (const param of params) {
+    const [rawName, ...rest] = param.split("=");
+    const name = (rawName ?? "").trim().toLowerCase();
+    if (name !== "q") continue; // an extension parameter, not our business
+    if (quality !== null) return null; // two q values: malformed
+    const value = rest.join("=").trim();
+    if (!/^(0(\.\d{1,3})?|1(\.0{1,3})?)$/.test(value)) return null;
+    quality = Number(value);
+  }
+  return quality ?? 1;
+}
