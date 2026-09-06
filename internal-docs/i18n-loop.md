@@ -213,8 +213,29 @@ explanatory copy once it has to say the office itself is translated.
   server files; the demo builds and shows a translated chrome; the two
   parked English strings from S1 (preferences.intro, preferences.languageHint)
   get Nil's wording; doc surfaces per `internal-docs/documentation.md` that
-  describe language support get proposed lines for Nil (not written); loop
-  close.
+  describe language support get proposed lines for Nil (not written).
+- Extended by Nil, 2026-09-06 (extra slices in this loop, not a new one):
+  the product sends a boss to isomux.com to learn what it is, so the
+  public explanation follows the boss's language too. Docs, README, the
+  developer API page and the legal pages stay English; the legal pages
+  are named as the governing text.
+- S9 (lane 1): the pre-sign-in office pages in `server/auth-middleware.ts`
+  (first-time claim, invite accept, login): Accept-Language negotiation
+  with quality values, English fallback, a `lang` attribute on the served
+  HTML, strings in the shared catalogs, a route test per language. Ruling
+  5 delivered; task 852694dc folds in.
+- S10 (lane 2): the landing page (`site/index.html`) and the hosted page
+  (`site/hosted.html`) in Spanish and Catalan as static copies under their
+  own paths with hreflang and a language switch; the office links a boss
+  to the copy in their language. The legal pages stay English with one
+  line on the hosted page saying so. The Spanish and Catalan copy is Nil's
+  voice on the public site: the report pastes it verbatim and the slice
+  merges only on his word.
+- S11 (lane 1): the control plane web app (`control-plane/web`): sign-in,
+  plan choice, payment, the waiting-for-your-office page and the emails,
+  with its own copy of the catalog pattern (it cannot import
+  `shared/i18n`), locale from Accept-Language and then the stored
+  preference; `bun run ci:web` is the gate. Loop close after S11.
 
 ## PICKUP S1 - catalog and plumbing (Worker 1 / Reviewer 1)
 
