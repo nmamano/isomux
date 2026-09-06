@@ -288,8 +288,37 @@ describe("executor: idempotency", () => {
       deps,
     );
     expect(calls).toBe(1);
+    expect(a.headers.get("Idempotency-Replayed")).toBeNull();
+    expect(b.headers.get("Idempotency-Replayed")).toBe("true");
     expect(await a.json()).toEqual({ n: 1 });
     expect(await b.json()).toEqual({ n: 1 });
+  });
+
+  it("marks an in-flight collapsed 204 as replayed without marking fresh responses", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    let calls = 0;
+    const r = route("t.delete", "POST", "/api/d", capAuth("task:write"));
+    const deps = makeDeps({ "t.delete": async () => {
+      calls++; entered(); await pending; return noContent();
+    } });
+    const run = (key?: string) => executeRoute(match(r),
+      req("POST", "/api/d", {}, key ? { "Idempotency-Key": key } : {}),
+      userIdentity("member"), deps);
+    const first = run("collapse");
+    await started;
+    const second = run("collapse");
+    release();
+    const [fresh, replay] = await Promise.all([first, second]);
+    expect(calls).toBe(1);
+    expect(fresh.status).toBe(204);
+    expect(fresh.headers.get("Idempotency-Replayed")).toBeNull();
+    expect(replay.status).toBe(204);
+    expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
+    expect((await run()).headers.get("Idempotency-Replayed")).toBeNull();
+    expect(calls).toBe(2);
   });
 
   it("409s a same-key different-body mutation", async () => {
@@ -309,6 +338,7 @@ describe("executor: idempotency", () => {
       deps,
     );
     expect(conflict.status).toBe(409);
+    expect(conflict.headers.get("Idempotency-Replayed")).toBeNull();
     expect((await conflict.json()).error.code).toBe("idempotency_conflict");
   });
 

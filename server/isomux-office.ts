@@ -3538,7 +3538,7 @@ function buildExecutorDeps(
             }
           : result;
       },
-      drainInbox: (tokenId) => drainApiTokenInbox(tokenId),
+      drainInbox: (tokenId, ackThrough) => drainApiTokenInbox(tokenId, undefined, ackThrough),
       agentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
       agentManagerUserId: (agentId) =>
         agentManager.getAgent(agentId)?.userId ?? null,

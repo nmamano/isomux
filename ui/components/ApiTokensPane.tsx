@@ -21,6 +21,7 @@ export function ApiTokensPane() {
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
+  const [ackMode, setAckMode] = useState(false);
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
@@ -53,11 +54,13 @@ export function ApiTokensPane() {
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
+      ackMode,
     })
       .then((res) => {
         setTokens((current) => [res.apiToken, ...current]);
         setRawToken(res.token);
         setName("");
+        setAckMode(false);
       })
       .catch((err) =>
         setError(
@@ -174,6 +177,11 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
               </option>
             ))}
           </select>
+        </label>
+        <label style={{ display: "block", fontSize: 12, marginTop: 12 }}>
+          <input type="checkbox" checked={ackMode}
+            onChange={(event) => setAckMode(event.target.checked)} />
+          {t("settings.apiTokens.ackMode")}
         </label>
         <button
           onClick={create}

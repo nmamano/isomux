@@ -102,6 +102,7 @@ import type {
   ApiTokenCreateReq,
   ApiTokenCreateRes,
   ApiTokenListRes,
+  ApiTokenInboxDrainReq,
   ApiTokenInboxDrainRes,
   ApiTokenInboxSendReq,
   ApiTokenInboxSendRes,
@@ -841,7 +842,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["log_entry"],
     preconditions: ["apiTokenInboxTargetAvailable"],
   }),
-  defineRoute<void, ApiTokenInboxDrainRes>({
+  defineRoute<ApiTokenInboxDrainReq, ApiTokenInboxDrainRes>({
     opId: "apiTokenInbox.drain",
     method: "POST",
     path: "/api/me/api-token-inbox/drain",

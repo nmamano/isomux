@@ -7,6 +7,7 @@ import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import type {
+  ApiTokenInboxDrainRes,
   ApiTokenInboxMessage,
   ApiTokenWire,
 } from "../shared/contract-shapes.ts";
@@ -24,6 +25,7 @@ const RAW_PREFIX = "isomux_pat_";
 interface StoredApiToken extends ApiTokenWire {
   userId: string;
   tokenHash: string;
+  lastSequence: number;
   inbox: ApiTokenInboxMessage[];
   lastDrainedAt: number | null;
 }
@@ -80,6 +82,9 @@ function ensureLoaded(): void {
         typeof value.tokenPrefix !== "string" ||
         typeof value.tokenHash !== "string" ||
         typeof value.createdAt !== "number" ||
+        (value.ackMode !== undefined && typeof value.ackMode !== "boolean") ||
+        (value.ackMode === true &&
+          (!Number.isSafeInteger(value.lastSequence) || value.lastSequence! < 0)) ||
         (typeof value.expiresAt !== "number" && value.expiresAt !== null)
       ) {
         console.error("Ignoring invalid API token record:", id);
@@ -95,6 +100,17 @@ function ensureLoaded(): void {
       if (!lastDrainedAtValid && value.lastDrainedAt !== undefined) {
         console.error("Ignoring malformed API token last-drained time:", id);
       }
+      // Old inboxes have no sequences. Assign them in stored order while
+      // preserving the counter even when previous messages have been removed.
+      let lastSequence = Number.isSafeInteger(value.lastSequence) && value.lastSequence! >= 0
+        ? value.lastSequence! : 0;
+      const inbox = inboxValid ? value.inbox! : [];
+      for (const message of inbox) {
+        if (message.sequence !== undefined) lastSequence = Math.max(lastSequence, message.sequence);
+      }
+      for (const message of inbox) {
+        if (message.sequence === undefined) message.sequence = ++lastSequence;
+      }
       const record: StoredApiToken = {
         id,
         userId: value.userId,
@@ -105,7 +121,9 @@ function ensureLoaded(): void {
         expiresAt: value.expiresAt,
         lastUsedAt:
           typeof value.lastUsedAt === "number" ? value.lastUsedAt : null,
-        inbox: inboxValid ? value.inbox! : [],
+        ackMode: value.ackMode === true,
+        lastSequence,
+        inbox,
         lastDrainedAt: lastDrainedAtValid ? value.lastDrainedAt! : null,
       };
       tokens.set(id, record);
@@ -130,6 +148,7 @@ function validInboxMessage(value: unknown): value is ApiTokenInboxMessage {
     return false;
   const message = value as Partial<ApiTokenInboxMessage>;
   return (
+    (message.sequence === undefined || (Number.isSafeInteger(message.sequence) && message.sequence > 0)) &&
     typeof message.id === "string" &&
     typeof message.sentAt === "number" &&
     typeof message.text === "string" &&
@@ -148,6 +167,7 @@ function persist(): void {
 
 function wire(record: StoredApiToken): ApiTokenWire {
   return {
+    ackMode: record.ackMode,
     id: record.id,
     name: record.name,
     tokenPrefix: record.tokenPrefix,
@@ -169,6 +189,7 @@ export async function mintApiToken(input: {
   userId: string;
   name: string;
   expiresInDays: number | null;
+  ackMode?: boolean;
   now?: number;
 }): Promise<{ token: string; apiToken: ApiTokenWire }> {
   return mutate(() => {
@@ -189,6 +210,8 @@ export async function mintApiToken(input: {
           ? null
           : now + input.expiresInDays * 24 * 60 * 60 * 1000,
       lastUsedAt: null,
+      ackMode: input.ackMode ?? false,
+      lastSequence: 0,
       inbox: [],
       lastDrainedAt: null,
     };
@@ -246,7 +269,9 @@ export async function enqueueApiTokenInboxMessage(input: {
     if (record.inbox.length >= API_TOKEN_INBOX_CAPACITY) {
       return { ok: false as const, reason: "full" as const };
     }
+    const previousSequence = record.lastSequence;
     const message: ApiTokenInboxMessage = {
+      sequence: ++record.lastSequence,
       id: randomBytes(8).toString("hex"),
       sentAt: now,
       text: input.text,
@@ -259,6 +284,7 @@ export async function enqueueApiTokenInboxMessage(input: {
       persist();
     } catch (err) {
       record.inbox.pop();
+      record.lastSequence = previousSequence;
       throw err;
     }
     return {
@@ -273,27 +299,30 @@ export async function enqueueApiTokenInboxMessage(input: {
 export async function drainApiTokenInbox(
   tokenId: string,
   now = Date.now(),
-): Promise<{
-  messages: ApiTokenInboxMessage[];
-  previouslyDrainedAt: number | null;
-  drainedAt: number;
-} | null> {
+  ackThrough?: number,
+): Promise<ApiTokenInboxDrainRes | "ack_mode_required" | null> {
   return mutate(() => {
     ensureLoaded();
     const record = tokens!.get(tokenId);
     if (!record || !isLive(record, now)) return null;
-    const messages = record.inbox;
+    if (ackThrough !== undefined && !record.ackMode) return "ack_mode_required";
+    const previousInbox = record.inbox;
+    const messages = record.ackMode
+      ? record.inbox.filter((message) => ackThrough === undefined || message.sequence > ackThrough)
+      : record.inbox;
     const previouslyDrainedAt = record.lastDrainedAt;
-    record.inbox = [];
+    record.inbox = record.ackMode ? messages : [];
     record.lastDrainedAt = now;
     try {
       persist();
     } catch (err) {
-      record.inbox = messages;
+      record.inbox = previousInbox;
       record.lastDrainedAt = previouslyDrainedAt;
       throw err;
     }
-    return { messages, previouslyDrainedAt, drainedAt: now };
+    // The executor caches this response. Later enqueues must not change it.
+    return { messages: [...messages], previouslyDrainedAt, drainedAt: now,
+      depth: record.inbox.length, capacity: API_TOKEN_INBOX_CAPACITY, highWatermark: record.lastSequence };
   });
 }
 

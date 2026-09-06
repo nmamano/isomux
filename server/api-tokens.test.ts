@@ -150,6 +150,7 @@ describe("personal API token persistence", () => {
         messages: [],
         previouslyDrainedAt: null,
         drainedAt: 3_000,
+        depth: 0, capacity: 100, highWatermark: 0,
       });
       expect(error).toHaveBeenCalledWith(
         "Ignoring malformed API token inbox:",
@@ -192,6 +193,7 @@ describe("personal API token persistence", () => {
     ).toEqual({ ok: false, reason: "full" });
     _testResetApiTokens();
     const first = await drainApiTokenInbox(minted.apiToken.id, 5_000);
+    if (first === "ack_mode_required") throw new Error("Unexpected ack mode error");
     expect(first?.messages).toHaveLength(API_TOKEN_INBOX_CAPACITY);
     expect(first?.messages[0]).toMatchObject({
       text: "message 0",
@@ -203,6 +205,7 @@ describe("personal API token persistence", () => {
       messages: [],
       previouslyDrainedAt: 5_000,
       drainedAt: 6_000,
+      depth: 0, capacity: 100, highWatermark: 100,
     });
   });
 
@@ -234,5 +237,142 @@ describe("personal API token persistence", () => {
     expect(
       await enqueueApiTokenInboxMessage({ ...input, userId: "u1", now: 2_000 }),
     ).toEqual({ ok: false, reason: "unavailable" });
+  });
+});
+
+async function inboxMessage(tokenId: string, text: string) {
+  return enqueueApiTokenInboxMessage({ tokenId, userId: "u1", text,
+    senderAgentId: "a1", senderAgentName: "Worker", senderRoomName: "Lab" });
+}
+async function readInbox(tokenId: string, ackThrough?: number) {
+  const result = await drainApiTokenInbox(tokenId, undefined, ackThrough);
+  if (!result || result === "ack_mode_required") throw new Error("Expected live inbox");
+  return result;
+}
+
+describe("API token inbox cursors", () => {
+  it("loads a pre-upgrade credential and backfills every message in load order", async () => {
+    const minted = await mintApiToken({ userId: "u1", name: "Old", expiresInDays: null });
+    await inboxMessage(minted.apiToken.id, "first");
+    await inboxMessage(minted.apiToken.id, "second");
+    const stored = JSON.parse(readFileSync(file, "utf-8"));
+    const old = stored[minted.apiToken.id];
+    delete old.ackMode;
+    delete old.lastSequence;
+    for (const message of old.inbox) delete message.sequence;
+    writeFileSync(file, JSON.stringify(stored));
+    _testResetApiTokens();
+    expect(resolveApiToken(minted.token)?.id).toBe(minted.apiToken.id);
+    expect(listApiTokens("u1")[0].ackMode).toBe(false);
+    const first = await readInbox(minted.apiToken.id);
+    expect(first.messages.map(({ text, sequence }) => ({ text, sequence }))).toEqual([
+      { text: "first", sequence: 1 }, { text: "second", sequence: 2 },
+    ]);
+    expect(first.highWatermark).toBe(2);
+    _testResetApiTokens();
+    await inboxMessage(minted.apiToken.id, "after drain");
+    expect((await readInbox(minted.apiToken.id)).messages[0].sequence).toBe(3);
+  });
+
+  it("rejects corrupt ACK-mode counters instead of reusing acknowledged sequences", async () => {
+    const minted = await mintApiToken({ userId: "u1", name: "Corrupt", expiresInDays: null, ackMode: true });
+    await inboxMessage(minted.apiToken.id, "acknowledged");
+    await readInbox(minted.apiToken.id, 1);
+    const valid = JSON.parse(readFileSync(file, "utf-8"));
+    const error = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      for (const lastSequence of [undefined, null, -1, 1.5, "1", Number.MAX_SAFE_INTEGER + 1]) {
+        const stored = structuredClone(valid);
+        if (lastSequence === undefined) delete stored[minted.apiToken.id].lastSequence;
+        else stored[minted.apiToken.id].lastSequence = lastSequence;
+        writeFileSync(file, JSON.stringify(stored));
+        _testResetApiTokens();
+        error.mockClear();
+        expect(resolveApiToken(minted.token)).toBeNull();
+        expect(error).toHaveBeenCalledWith("Ignoring invalid API token record:", minted.apiToken.id);
+        expect(listApiTokens("u1")).toEqual([]);
+      }
+    } finally { error.mockRestore(); }
+  });
+
+  it("rejects a malformed stored mode instead of switching to destructive delivery", async () => {
+    const minted = await mintApiToken({ userId: "u1", name: "Mode", expiresInDays: null, ackMode: true });
+    const valid = JSON.parse(readFileSync(file, "utf-8"));
+    const error = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      for (const ackMode of [null, "true", "false", 0, 1, {}, []]) {
+        const stored = structuredClone(valid);
+        stored[minted.apiToken.id].ackMode = ackMode;
+        writeFileSync(file, JSON.stringify(stored));
+        _testResetApiTokens();
+        error.mockClear();
+        expect(resolveApiToken(minted.token)).toBeNull();
+        expect(error).toHaveBeenCalledWith("Ignoring invalid API token record:", minted.apiToken.id);
+      }
+    } finally { error.mockRestore(); }
+  });
+
+  it("redelivers after reload and deletes only through the inclusive ACK bound", async () => {
+    const { apiToken } = await mintApiToken({ userId: "u1", name: "Ack", expiresInDays: null, ackMode: true });
+    for (const text of ["one", "two", "three"]) await inboxMessage(apiToken.id, text);
+    const first = await readInbox(apiToken.id);
+    expect(first).toMatchObject({ depth: 3, capacity: 100, highWatermark: 3 });
+    _testResetApiTokens();
+    expect(listApiTokens("u1")[0].ackMode).toBe(true);
+    const retry = await readInbox(apiToken.id);
+    expect(retry.messages).toEqual(first.messages);
+    expect(retry.previouslyDrainedAt).toBe(first.drainedAt);
+    const partial = await readInbox(apiToken.id, 2);
+    expect(partial.messages.map((message) => message.sequence)).toEqual([3]);
+    expect(partial.depth).toBe(1);
+    expect((await readInbox(apiToken.id, 2)).messages).toEqual(partial.messages);
+    _testResetApiTokens();
+    await inboxMessage(apiToken.id, "four");
+    expect((await readInbox(apiToken.id)).messages.map((message) => message.sequence)).toEqual([3, 4]);
+    expect((await readInbox(apiToken.id, 100)).depth).toBe(0);
+    _testResetApiTokens();
+    await inboxMessage(apiToken.id, "five");
+    const next = await readInbox(apiToken.id);
+    expect(next.messages.map((message) => message.sequence)).toEqual([5]);
+    expect(next.highWatermark).toBe(5);
+  });
+
+  it("stamps each no-ACK read without deleting messages", async () => {
+    const { apiToken } = await mintApiToken({ userId: "u1", name: "Reads", expiresInDays: null, ackMode: true });
+    await inboxMessage(apiToken.id, "retained");
+    const first = await drainApiTokenInbox(apiToken.id, 10_000);
+    const second = await drainApiTokenInbox(apiToken.id, 20_000);
+    expect(first).toMatchObject({ previouslyDrainedAt: null, drainedAt: 10_000, depth: 1 });
+    expect(second).toMatchObject({ previouslyDrainedAt: 10_000, drainedAt: 20_000, depth: 1 });
+    if (!first || !second || typeof first === "string" || typeof second === "string") {
+      throw new Error("Expected live inbox reads");
+    }
+    expect(first.messages.map((message) => message.text)).toEqual(["retained"]);
+    expect(second.messages).toEqual(first.messages);
+  });
+
+  it("keeps a full ACK-mode inbox full until the client acknowledges a message", async () => {
+    const { apiToken } = await mintApiToken({ userId: "u1", name: "Full", expiresInDays: null, ackMode: true });
+    for (let i = 0; i < API_TOKEN_INBOX_CAPACITY; i++) {
+      expect((await inboxMessage(apiToken.id, `message ${i}`)).ok).toBe(true);
+    }
+    const polled = await readInbox(apiToken.id);
+    expect(polled.messages).toHaveLength(API_TOKEN_INBOX_CAPACITY);
+    expect(polled.depth).toBe(API_TOKEN_INBOX_CAPACITY);
+    expect(await inboxMessage(apiToken.id, "still full")).toEqual({ ok: false, reason: "full" });
+    expect((await readInbox(apiToken.id, 1)).depth).toBe(API_TOKEN_INBOX_CAPACITY - 1);
+    expect((await inboxMessage(apiToken.id, "now accepted")).ok).toBe(true);
+  });
+
+  it("refuses an ACK on a legacy token without deleting or stamping its inbox", async () => {
+    const { apiToken } = await mintApiToken({ userId: "u1", name: "Legacy", expiresInDays: null });
+    await inboxMessage(apiToken.id, "kept");
+    const before = readFileSync(file, "utf-8");
+    expect(await drainApiTokenInbox(apiToken.id, undefined, 0)).toBe("ack_mode_required");
+    expect(readFileSync(file, "utf-8")).toBe(before);
+    const first = await readInbox(apiToken.id);
+    expect(first.messages.map((message) => message.text)).toEqual(["kept"]);
+    expect(first.previouslyDrainedAt).toBeNull();
+    expect((await readInbox(apiToken.id)).messages).toEqual([]);
   });
 });

@@ -483,6 +483,7 @@ export type PreferencesReq = Partial<{
 export const PREFERENCE_KEYS = ["language"] as const;
 
 export interface ApiTokenWire {
+  ackMode: boolean;
   id: string;
   name: string;
   tokenPrefix: string;
@@ -492,6 +493,7 @@ export interface ApiTokenWire {
 }
 
 export interface ApiTokenCreateReq {
+  ackMode?: boolean;
   name: string;
   expiresInDays: 30 | 365 | null;
 }
@@ -506,6 +508,7 @@ export interface ApiTokenListRes {
 }
 
 export interface ApiTokenInboxMessage {
+  sequence: number;
   id: string;
   sentAt: number;
   text: string;
@@ -523,7 +526,14 @@ export interface ApiTokenInboxSendRes {
   lastDrainedAt: number | null;
 }
 
+export interface ApiTokenInboxDrainReq {
+  ackThrough?: number;
+}
+
 export interface ApiTokenInboxDrainRes {
+  depth: number;
+  capacity: number;
+  highWatermark: number;
   messages: ApiTokenInboxMessage[];
   previouslyDrainedAt: number | null;
   drainedAt: number;

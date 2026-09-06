@@ -340,7 +340,11 @@ export async function executeRoute(
         ),
       );
     }
-    return render(outcome.response);
+    const response = render(outcome.response);
+    if (outcome.kind === "replayed") {
+      response.headers.set("Idempotency-Replayed", "true");
+    }
+    return response;
   } catch (err) {
     if (err instanceof HandlerErrorSignal) return render(err.result);
     console.error(`[executeRoute] ${route.opId} threw:`, err);
