@@ -344,8 +344,7 @@ export function permissionPromptLines(
   // A title and a description supplied by the backend stay as delivered; only
   // the fallback and the wrapper are Isomux's own words.
   const title =
-    request.title ??
-    t("choices.permission.title", { tool: request.toolName });
+    request.title ?? t("choices.permission.title", { tool: request.toolName });
   const lines = [`**${title}**`];
   if (request.description) lines.push(request.description);
   lines.push("", t("choices.permission.reply"));
@@ -593,8 +592,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         agentId,
         "system",
         logWords(agentId, username)("systemEntries.signOutNoScope", {
-        provider: providerDisplayName(provider),
-      }),
+          provider: providerDisplayName(provider),
+        }),
       );
       return;
     }
@@ -728,7 +727,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logTranslator(managed).tn("systemEntries.queueCleared.notConfigured", queuedCount),
+        logTranslator(managed).tn(
+          "systemEntries.queueCleared.notConfigured",
+          queuedCount,
+        ),
       );
       emitQueueUpdate(agentId, managed);
       persistQueueState(agentId, managed);
@@ -2063,7 +2065,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       resumeSessionId !== null &&
       managed.sessionManager.sessionId === resumeSessionId
     ) {
-      addLogEntry(p.id, "system", logWords(p.id)("systemEntries.previousInterrupted"));
+      addLogEntry(
+        p.id,
+        "system",
+        logWords(p.id)("systemEntries.previousInterrupted"),
+      );
     }
 
     // Emit only on success so a failed revive doesn't flicker an add the
@@ -2200,7 +2206,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.fileOpenFailed", { path: resolved.path, message: probe.message }),
+        logWords(agentId)("systemEntries.fileOpenFailed", {
+          path: resolved.path,
+          message: probe.message,
+        }),
       );
       return { ok: true };
     }
@@ -2278,7 +2287,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.fileReadFailed", { path: absPath, message: err instanceof Error ? err.message : String(err) }),
+        logWords(agentId)("systemEntries.fileReadFailed", {
+          path: absPath,
+          message: err instanceof Error ? err.message : String(err),
+        }),
       );
       return { ok: true };
     }
@@ -2301,7 +2313,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.fileReadFailed", { path: absPath, message: err instanceof Error ? err.message : String(err) }),
+        logWords(agentId)("systemEntries.fileReadFailed", {
+          path: absPath,
+          message: err instanceof Error ? err.message : String(err),
+        }),
       );
       return { ok: true };
     }
@@ -2405,7 +2420,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId)("systemEntries.diffBadDir", { path: result.attempted, message: result.message }),
+          logWords(agentId)("systemEntries.diffBadDir", {
+            path: result.attempted,
+            message: result.message,
+          }),
         );
         break;
       case "clean":
@@ -2414,7 +2432,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "system",
           commit
             ? logWords(agentId)("systemEntries.diffEmptyCommit", { commit })
-            : logWords(agentId)("systemEntries.diffClean", { path: result.cwd }),
+            : logWords(agentId)("systemEntries.diffClean", {
+                path: result.cwd,
+              }),
         );
         break;
       case "ok":
@@ -2567,10 +2587,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
    * language too; nothing the server writes is ever delivered TO an agent,
    * which reads its turns, not its log chrome.
    */
-  function logTranslator(
-    managed: ManagedAgent,
-    username?: string,
-  ): Translator {
+  function logTranslator(managed: ManagedAgent, username?: string): Translator {
     return username
       ? translatorForUsername(username)
       : translatorForUserId(managed.info.userId);
@@ -2584,7 +2601,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function logWords(agentId: string, username?: string): Translator["t"] {
     const managed = agents.get(agentId);
     return (
-      managed ? logTranslator(managed, username) : translatorForUsername(username)
+      managed
+        ? logTranslator(managed, username)
+        : translatorForUsername(username)
     ).t;
   }
 
@@ -2611,15 +2630,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const { t } = managed
       ? logTranslator(managed, username)
       : translatorForUsername(username);
-    addLogEntry(agentId, "system", t("systemEntries.permissionChoice", { label }), {
-      permissionAudit: {
-        event: "outcome",
-        toolName: pending.toolName,
-        inputSummary: pending.inputSummary,
-        outcome,
-        ...(actor ? { actor } : {}),
+    addLogEntry(
+      agentId,
+      "system",
+      t("systemEntries.permissionChoice", { label }),
+      {
+        permissionAudit: {
+          event: "outcome",
+          toolName: pending.toolName,
+          inputSummary: pending.inputSummary,
+          outcome,
+          ...(actor ? { actor } : {}),
+        },
       },
-    });
+    );
   }
 
   function claimTypedChoiceInteraction(
@@ -3521,7 +3545,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ) {
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
-            addLogEntry(agentId, "system", logWords(agentId)("systemEntries.conversationCleared"));
+            addLogEntry(
+              agentId,
+              "system",
+              logWords(agentId)("systemEntries.conversationCleared"),
+            );
             // New thread id on an old conversation = conversation boundary
             // (e.g. the fresh thread of a committed Codex cwd change). Usually
             // redundant with an earlier reset at the semantic call site;
@@ -3910,7 +3938,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           agentId,
           "system",
           ev.summary
-            ? logWords(agentId)("systemEntries.contextCompacted", { summary: ev.summary })
+            ? logWords(agentId)("systemEntries.contextCompacted", {
+                summary: ev.summary,
+              })
             : logWords(agentId)("systemEntries.contextCompactedNoSummary"),
         );
         break;
@@ -4294,7 +4324,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         console.error(
           `[queue-watchdog] ${managed.info.name} (${agentId}): Claude turn quiescent for ${now - quiescenceStartedAt}ms with ${managed.messageQueue.length} queued message(s), no active tool, tail=${tailKind}; forcing recovery via session replacement`,
         );
-        addLogEntry(agentId, "system", logWords(agentId)("systemEntries.deliveryStalled"));
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)("systemEntries.deliveryStalled"),
+        );
         try {
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionManager.sessionId && !sessionId)
@@ -4335,7 +4369,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       console.error(
         `[queue-watchdog] ${managed.info.name} (${agentId}): flush stuck for ${now - managed.flushStartedAt}ms with ${managed.messageQueue.length} message(s) queued; forcing recovery via session replacement`,
       );
-      addLogEntry(agentId, "system", logWords(agentId)("systemEntries.deliveryStalled"));
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("systemEntries.deliveryStalled"),
+      );
       try {
         // Same resume-or-fresh dance as abort's slow path.
         const sessionId = pickAutoResumeSessionId(managed);
@@ -4526,7 +4564,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.id,
         managed.pendingPermission,
         "canceled",
-        logTranslator(managed).t("systemEntries.permissionOutcome.sessionChanged"),
+        logTranslator(managed).t(
+          "systemEntries.permissionOutcome.sessionChanged",
+        ),
       );
       clearPermissionPrompt(managed.info.id, managed);
     }
@@ -4801,13 +4841,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     if (cwdError) {
       console.error(`Failed to validate cwd for ${name}:`, cwdError);
-      addLogEntry(id, "error", logWords(id, username)("systemEntries.startFailed", { error: cwdError }));
+      addLogEntry(
+        id,
+        "error",
+        logWords(id, username)("systemEntries.startFailed", {
+          error: cwdError,
+        }),
+      );
       updateState(id, "error");
     } else {
       addLogEntry(
         id,
         "system",
-        logWords(info.id, username)("systemEntries.agentReady", { name, cwd: resolvedCwd, mode: info.permissionMode }),
+        logWords(info.id, username)("systemEntries.agentReady", {
+          name,
+          cwd: resolvedCwd,
+          mode: info.permissionMode,
+        }),
       );
     }
 
@@ -5455,7 +5505,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(
             agentId,
             "error",
-            logWords(agentId)("systemEntries.flushStartFailed", { error: errMessage(err) }),
+            logWords(agentId)("systemEntries.flushStartFailed", {
+              error: errMessage(err),
+            }),
           );
           updateState(agentId, "error");
           return;
@@ -5631,12 +5683,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           return;
         }
         console.error(`Agent ${agentId} flush error:`, errMessage(err));
-        addCallerFailureEntry(
-          agentId,
-          managed,
-          err,
-          (raw) =>
-            logWords(agentId)("systemEntries.flushError", { error: raw }),
+        addCallerFailureEntry(agentId, managed, err, (raw) =>
+          logWords(agentId)("systemEntries.flushError", { error: raw }),
         );
         updateState(agentId, "error");
       }
@@ -5807,9 +5855,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // window vanishingly rare, so we accept the cosmetic mismatch rather than
       // re-probe durability under the wake.
       if (sessionId) {
-        let wakeText = logWords(agentId, username)(
-          "systemEntries.wake.resumedAfterUnexpectedEnd",
-        );
+        let wakeText = logWords(
+          agentId,
+          username,
+        )("systemEntries.wake.resumedAfterUnexpectedEnd");
         if (wasDormant) {
           // Arms managed.wakeNotice as a side effect: our caller sends the
           // message this wake serves, and runAgentTurn carries the note with it.
@@ -5860,7 +5909,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId, username)("systemEntries.sessionStartFailed", { error: errMessage(err) }),
+        logWords(agentId, username)("systemEntries.sessionStartFailed", {
+          error: errMessage(err),
+        }),
       );
       updateState(agentId, "error");
       return false;
@@ -5918,7 +5969,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.queueFailed", { error: result.error }),
+          logWords(agentId, username)("systemEntries.queueFailed", {
+            error: result.error,
+          }),
         );
         opts?.onAccepted?.({
           ok: false,
@@ -5947,7 +6000,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed.sessionManager.session) {
       const tail = (logCache.get(agentId) ?? []).at(-1);
       if (needsInterruptionMarker(tail)) {
-        addLogEntry(agentId, "system", logWords(agentId, username)("systemEntries.previousInterrupted"));
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.previousInterrupted"),
+        );
       }
     }
 
@@ -6002,7 +6059,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         agentId,
         managed.pendingPermission,
         "canceled",
-        logWords(agentId, username)("systemEntries.permissionOutcome.priorSessionStopped"),
+        logWords(
+          agentId,
+          username,
+        )("systemEntries.permissionOutcome.priorSessionStopped"),
       );
       clearPermissionPrompt(agentId, managed);
     }
@@ -6065,7 +6125,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           agentId,
           pending,
           "session_gone",
-          logWords(agentId, username)("systemEntries.permissionOutcome.sessionEnded"),
+          logWords(
+            agentId,
+            username,
+          )("systemEntries.permissionOutcome.sessionEnded"),
           username,
           device,
         );
@@ -6091,15 +6154,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.permissionGrantedPersistent"),
+          logWords(
+            agentId,
+            username,
+          )("systemEntries.permissionGrantedPersistent"),
         );
         decision = { kind: "allow_persistent" };
         resumeState = "tool_executing";
-        outcome = logWords(agentId, username)(
-          "systemEntries.permissionOutcome.allowPersistent",
-        );
+        outcome = logWords(
+          agentId,
+          username,
+        )("systemEntries.permissionOutcome.allowPersistent");
       } else if (resolved?.kind === "allow_once") {
-        emitEphemeralLog(agentId, "system", logWords(agentId, username)("systemEntries.permissionGrantedOnce"));
+        emitEphemeralLog(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.permissionGrantedOnce"),
+        );
         decision = { kind: "allow_once" };
         resumeState = "tool_executing";
         outcome = logWords(agentId, username)("choices.permission.allowOnce");
@@ -6112,11 +6183,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ...(resolved.prefixText ? { prefixText: resolved.prefixText } : {}),
         };
         resumeState = "tool_executing";
-        outcome = logWords(agentId, username)(
-          "systemEntries.permissionOutcome.allowPrefix",
-        );
+        outcome = logWords(
+          agentId,
+          username,
+        )("systemEntries.permissionOutcome.allowPrefix");
       } else if (resolved?.kind === "deny") {
-        emitEphemeralLog(agentId, "system", logWords(agentId, username)("systemEntries.permissionDenied"));
+        emitEphemeralLog(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.permissionDenied"),
+        );
         decision = { kind: "deny" };
         resumeState = "thinking";
         outcome = logWords(agentId, username)("choices.permission.deny");
@@ -6124,13 +6200,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emitEphemeralLog(
           agentId,
           "system",
-          logWords(agentId, username)("systemEntries.permissionDeniedWithReason"),
+          logWords(
+            agentId,
+            username,
+          )("systemEntries.permissionDeniedWithReason"),
         );
         decision = { kind: "deny", reason: text };
         resumeState = "thinking";
-        outcome = logWords(agentId, username)(
-          "systemEntries.permissionOutcome.denyWithReason",
-        );
+        outcome = logWords(
+          agentId,
+          username,
+        )("systemEntries.permissionOutcome.denyWithReason");
       }
       // The reply hands the turn back to the agent, so flip out of the
       // `waiting_for_response` state the prompt parked us in (set ~:1952) and
@@ -6169,7 +6249,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emitEphemeralLog(
           agentId,
           "error",
-          logWords(agentId, username)("systemEntries.permissionResolveFailed", { error: errMessage(err) }),
+          logWords(agentId, username)("systemEntries.permissionResolveFailed", {
+            error: errMessage(err),
+          }),
         );
         updateState(agentId, "error");
       }
@@ -6261,7 +6343,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.resumedSession", { label: picked.topic || picked.sessionId.slice(0, 8) + "..." }),
+            logWords(agentId, username)("systemEntries.resumedSession", {
+              label: picked.topic || picked.sessionId.slice(0, 8) + "...",
+            }),
           );
           updateState(agentId, "waiting_for_response");
           // Regenerate immediately if there's no topic at all, or if the
@@ -6276,7 +6360,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emitEphemeralLog(
             agentId,
             "error",
-            logWords(agentId, username)("systemEntries.resumeFailed", { error: errMessage(err) }),
+            logWords(agentId, username)("systemEntries.resumeFailed", {
+              error: errMessage(err),
+            }),
           );
           updateState(agentId, "error");
         }
@@ -6284,7 +6370,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       } else {
         // Not a valid number - cancel pendingResume, process as normal
         managed.pendingResumeSessions = [];
-        emitEphemeralLog(agentId, "system", logWords(agentId, username)("systemEntries.resumeCancelled"));
+        emitEphemeralLog(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.resumeCancelled"),
+        );
       }
     }
 
@@ -6301,7 +6391,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.alreadyUsing", { label }),
+            logWords(agentId, username)("systemEntries.alreadyUsing", {
+              label,
+            }),
           );
         } else {
           // Run the auto-resume policy OUTSIDE withAgentRollback so the clear
@@ -6334,12 +6426,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.modelSwitched", { label }),
+            logWords(agentId, username)("systemEntries.modelSwitched", {
+              label,
+            }),
           );
         }
         return;
       } else {
-        emitEphemeralLog(agentId, "system", logWords(agentId, username)("systemEntries.modelCancelled"));
+        emitEphemeralLog(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.modelCancelled"),
+        );
       }
     }
 
@@ -6373,7 +6471,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emitEphemeralLog(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.alreadyUsing", { label }),
+            logWords(agentId, username)("systemEntries.alreadyUsing", {
+              label,
+            }),
           );
         } else {
           // Auto-resume policy outside the rollback - see model-switch above
@@ -6399,12 +6499,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(
             agentId,
             "system",
-            logWords(agentId, username)("systemEntries.effortSwitched", { label }),
+            logWords(agentId, username)("systemEntries.effortSwitched", {
+              label,
+            }),
           );
         }
         return;
       } else {
-        emitEphemeralLog(agentId, "system", logWords(agentId, username)("systemEntries.effortCancelled"));
+        emitEphemeralLog(
+          agentId,
+          "system",
+          logWords(agentId, username)("systemEntries.effortCancelled"),
+        );
       }
     }
 
@@ -6656,11 +6762,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       );
       return "denied";
     } catch (err) {
-      recordPermissionOutcome(agentId, pending, "failed", logWords(agentId)("systemEntries.permissionOutcome.failed"));
+      recordPermissionOutcome(
+        agentId,
+        pending,
+        "failed",
+        logWords(agentId)("systemEntries.permissionOutcome.failed"),
+      );
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId)("systemEntries.permissionResolveFailed", { error: errMessage(err) }),
+        logWords(agentId)("systemEntries.permissionResolveFailed", {
+          error: errMessage(err),
+        }),
       );
       return "failed";
     }
@@ -6716,7 +6829,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             addLogEntry(
               agentId,
               "error",
-              logWords(agentId)("systemEntries.interruptHandlerFailed", { error: errMessage(err) }),
+              logWords(agentId)("systemEntries.interruptHandlerFailed", {
+                error: errMessage(err),
+              }),
             );
             updateState(agentId, "error");
             return {
@@ -6746,7 +6861,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.state === "tool_executing"
       ) {
         updateState(agentId, "waiting_for_response");
-        addLogEntry(agentId, "system", logWords(agentId)("systemEntries.interrupted"));
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)("systemEntries.interrupted"),
+        );
         return { ok: true };
       }
       // Genuinely nothing to interrupt: no turn, no prompt, not busy. Reported
@@ -6861,7 +6980,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId)("systemEntries.interruptHandlerFailed", { error: errMessage(err) }),
+        logWords(agentId)("systemEntries.interruptHandlerFailed", {
+          error: errMessage(err),
+        }),
       );
       updateState(agentId, "error");
       // A refused denial AND a failed replacement means neither route ended the
@@ -7296,7 +7417,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // onChange (capturing the null sessionId set above).
     for (const event of officeState.resetTopic(agentId)) emit(event);
     updateState(agentId, "idle");
-    addLogEntry(agentId, "system", logWords(agentId)("systemEntries.newConversation"));
+    addLogEntry(
+      agentId,
+      "system",
+      logWords(agentId)("systemEntries.newConversation"),
+    );
     // Last statement: close the live session and drain its consumer, leaving the
     // agent dormant (info.dormant=true). Rejects any in-flight turn with
     // SessionSwappedError; the consumer's catch returns early on the stale
@@ -7387,7 +7512,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.resumeCwdUnavailable", { stored: storedCwd, error: errMessage(err), previous: prevCwd }),
+        logWords(agentId)("systemEntries.resumeCwdUnavailable", {
+          stored: storedCwd,
+          error: errMessage(err),
+          previous: prevCwd,
+        }),
       );
       return { prevCwd, switched: false, storedCwdInvalid: true };
     }
@@ -7590,14 +7719,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          logTranslator(managed).tn("systemEntries.queueCleared.switching", queuedCount),
+          logTranslator(managed).tn(
+            "systemEntries.queueCleared.switching",
+            queuedCount,
+          ),
         );
       }
       updateState(agentId, "waiting_for_response");
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId)("systemEntries.resumedSession", { label: restoredTopic || sessionId.slice(0, 8) + "..." }),
+        logWords(agentId)("systemEntries.resumedSession", {
+          label: restoredTopic || sessionId.slice(0, 8) + "...",
+        }),
       );
 
       // Regenerate now (rather than waiting for the next user_message) if the
@@ -7607,7 +7741,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         void generateTopic(agentId);
       }
     } catch (err) {
-      addLogEntry(agentId, "error", logWords(agentId)("systemEntries.resumeFailed", { error: errMessage(err) }));
+      addLogEntry(
+        agentId,
+        "error",
+        logWords(agentId)("systemEntries.resumeFailed", {
+          error: errMessage(err),
+        }),
+      );
       updateState(agentId, "error");
     }
   }
@@ -7622,7 +7762,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed = agents.get(agentId);
     if (!managed) return;
     if (managed.info.state !== "waiting_for_response") {
-      addLogEntry(agentId, "error", logWords(agentId, username)("systemEntries.editBusy"));
+      addLogEntry(
+        agentId,
+        "error",
+        logWords(agentId, username)("systemEntries.editBusy"),
+      );
       return;
     }
 
@@ -7645,7 +7789,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // error can return before the fork pipeline runs.
     const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
-      addLogEntry(agentId, "error", logWords(agentId, username)("systemEntries.editNotFound"));
+      addLogEntry(
+        agentId,
+        "error",
+        logWords(agentId, username)("systemEntries.editNotFound"),
+      );
       return;
     }
 
@@ -7699,7 +7847,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // can still fix a failed slash command in a session-less / first-message
     // state where sessionId is unset.
     if (!managed.sessionManager.sessionId) {
-      addLogEntry(agentId, "error", logWords(agentId, username)("systemEntries.editNoSession"));
+      addLogEntry(
+        agentId,
+        "error",
+        logWords(agentId, username)("systemEntries.editNoSession"),
+      );
       return;
     }
 
@@ -7969,7 +8121,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        logWords(agentId, username)("systemEntries.branchedFrom", { label: oldTopic || oldSessionId.slice(0, 8) + "..." }),
+        logWords(agentId, username)("systemEntries.branchedFrom", {
+          label: oldTopic || oldSessionId.slice(0, 8) + "...",
+        }),
       );
 
       // 8. Inherit parent's topic, marked stale. The drift-aware trigger in
@@ -8080,7 +8234,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "error",
-        logWords(agentId, username)("systemEntries.branchFailed", { error: errMessage(err) }),
+        logWords(agentId, username)("systemEntries.branchFailed", {
+          error: errMessage(err),
+        }),
       );
       updateState(agentId, "error");
     }

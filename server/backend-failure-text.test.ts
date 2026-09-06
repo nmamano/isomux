@@ -68,7 +68,10 @@ describe("humanizeBackendFailure", () => {
   it("passes an ordinary exit code through untouched", () => {
     // diagnoseProcessExit already says something specific about these; a vague
     // sentence here would only push its hint further down the chat.
-    const r = humanizeBackendFailure(t, "Claude Code process exited with code 1");
+    const r = humanizeBackendFailure(
+      t,
+      "Claude Code process exited with code 1",
+    );
     expect(r.text).toBe("Claude Code process exited with code 1");
     expect(r.raw).toBeUndefined();
   });
@@ -130,7 +133,10 @@ describe("in the reader's language", () => {
     // The Catalan sentence contains none of the English the matcher keys on,
     // so a classifier that read `text` instead of `raw` would stop recognizing
     // this the moment the reader was not English.
-    const r = humanizeBackendFailure(ca, "Claude Code process exited with code 137");
+    const r = humanizeBackendFailure(
+      ca,
+      "Claude Code process exited with code 137",
+    );
     expect(r.id).toBe("sigkill:137");
     expect(r.text).toContain("SIGKILL");
     expect(r.text).toContain("La conversa està desada i es pot reprendre.");

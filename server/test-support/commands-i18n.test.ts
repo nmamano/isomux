@@ -180,7 +180,11 @@ describe("a KNOWN actor wins over the agent's owner", () => {
     await server.agentManager.sendMessage(agent.id, "/effort", member.username);
     expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
     // Anything that is not a listed number cancels the pick.
-    await server.agentManager.sendMessage(agent.id, "no thanks", member.username);
+    await server.agentManager.sendMessage(
+      agent.id,
+      "no thanks",
+      member.username,
+    );
     expect(systemEntries(server, agent.id)).toContain(
       "Canvi d'esforç cancel·lat.",
     );
@@ -202,7 +206,11 @@ describe("a KNOWN actor wins over the agent's owner", () => {
 
     await server.agentManager.sendMessage(agent.id, "/model", member.username);
     expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
-    await server.agentManager.sendMessage(agent.id, "no thanks", member.username);
+    await server.agentManager.sendMessage(
+      agent.id,
+      "no thanks",
+      member.username,
+    );
     expect(systemEntries(server, agent.id)).toContain(
       "Canvi de model cancel·lat.",
     );
@@ -281,15 +289,12 @@ describe("an actorless LIFECYCLE entry falls back to the agent's owner", () => {
 
     // The real HTTP route, not the manager call: this is the path whose
     // handler contract passes no identity through.
-    const res = await server.http(
-      `/api/agents/${agent.id}/new-conversation`,
-      {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      },
-    );
+    const res = await server.http(`/api/agents/${agent.id}/new-conversation`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
     expect(res.status).toBe(204);
     await waitUntil(
       () =>
@@ -389,7 +394,12 @@ describe("what stays English", () => {
     const owner = await server.seedOwner("Boss");
     setLanguage(owner.username, "es");
     const room = server.agentManager.getRooms()[0];
-    const receiver = await spawnAgent(server, "Receiver", room.id, owner.username);
+    const receiver = await spawnAgent(
+      server,
+      "Receiver",
+      room.id,
+      owner.username,
+    );
     const sender = await spawnAgent(server, "Sender", room.id, owner.username);
 
     // The ENABLING CONDITION: the receiver's owner is on Spanish, so if this

@@ -390,8 +390,8 @@ export function createCommandHandling(deps: HandlerDeps) {
         const ctx = await managed.sessionManager.session.getContextUsage();
         if (!ctx) {
           if (
-            snapshotFallback(
-              (age) => t("commands.context.staleUnavailable", { age }),
+            snapshotFallback((age) =>
+              t("commands.context.staleUnavailable", { age }),
             )
           )
             return true;
@@ -462,9 +462,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(agentId, "system", lines.join("\n"));
       } catch (err) {
         if (
-          snapshotFallback(
-            (age) => t("commands.context.staleFailed", { age }),
-          )
+          snapshotFallback((age) => t("commands.context.staleFailed", { age }))
         )
           return true;
         deps.addLogEntry(
@@ -582,7 +580,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [`${t("commands.resume.header")}\n`];
       const pickable: typeof sessions = [];
       for (const s of sessions.slice(0, 20)) {
-        const dateStr = formatDateTime(language, s.lastModified, "monthDayTime");
+        const dateStr = formatDateTime(
+          language,
+          s.lastModified,
+          "monthDayTime",
+        );
         const rawLabel = sessionResumeLabel(
           s,
           t("common.untitledConversation"),
@@ -884,7 +886,9 @@ export function createCommandHandling(deps: HandlerDeps) {
           }),
         ];
         if (all.length === 0) {
-          lines.push(`\n${t("commands.isomuxCronjobSystemPrompt.noSchedules")}`);
+          lines.push(
+            `\n${t("commands.isomuxCronjobSystemPrompt.noSchedules")}`,
+          );
         } else {
           lines.push(`\n${t("commands.isomuxCronjobSystemPrompt.known")}`);
           for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);

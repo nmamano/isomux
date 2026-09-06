@@ -97,9 +97,13 @@ describe("renderStorageReport", () => {
   });
 
   it("says everything is office state when nothing lives outside it", () => {
-    const out = renderStorageReport(english, usageFixture({ transcripts: 2 * MB }), {
-      agentLabel: () => ({ name: "x" }),
-    });
+    const out = renderStorageReport(
+      english,
+      usageFixture({ transcripts: 2 * MB }),
+      {
+        agentLabel: () => ({ name: "x" }),
+      },
+    );
     expect(out).toContain("**2.0 MB total**, all of it office state.");
     // No phantom credit to locations with nothing in them.
     expect(out).not.toContain("plus");
@@ -131,12 +135,16 @@ describe("renderStorageReport", () => {
   });
 
   it("gives the owner paths and the per-agent breakdown", () => {
-    const out = renderStorageReport(english, usageFixture({ transcripts: 1 * MB }), {
-      agentLabel: (id: string) =>
-        id === "agent-gone"
-          ? { name: "Ghost", killed: true }
-          : { name: "Live" },
-    });
+    const out = renderStorageReport(
+      english,
+      usageFixture({ transcripts: 1 * MB }),
+      {
+        agentLabel: (id: string) =>
+          id === "agent-gone"
+            ? { name: "Ghost", killed: true }
+            : { name: "Live" },
+      },
+    );
     expect(out).toContain("office state `/srv/state`");
     expect(out).toContain("### Biggest agents");
     // Sorted by transcripts + attachments, so the killed 40 MB agent leads.

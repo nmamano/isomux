@@ -43,7 +43,11 @@ describe("permission options", () => {
     allowPersistentLabel?: string,
     allowPrefixLabel?: string,
   ): Array<{ label: string; decision: string }> {
-    const options = permissionOptions(t, allowPersistentLabel, allowPrefixLabel);
+    const options = permissionOptions(
+      t,
+      allowPersistentLabel,
+      allowPrefixLabel,
+    );
     const lines = permissionPromptLines(t, {
       toolName: "Bash",
       allowPersistentLabel,

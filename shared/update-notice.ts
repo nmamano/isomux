@@ -37,7 +37,8 @@ export function buildCommitNotice(
   if (!s.updateAvailable) return null;
   const { t, tn } = i18n;
   const short = s.current.sha.slice(0, 7);
-  const running = s.current.release ?? t("updateNotice.running", { sha: short });
+  const running =
+    s.current.release ?? t("updateNotice.running", { sha: short });
   const latest = s.latest;
 
   let identity: string;

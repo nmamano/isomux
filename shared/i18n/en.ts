@@ -1332,15 +1332,23 @@ export const en = {
   "commands.resume.description": "Pick up a previous session",
   "commands.login.description": "Show how to (re-)authenticate this agent",
   "commands.logout.description": "Manage sign-in or sign out",
-  "commands.isomuxAllHands.description": "Summary of all agents and their conversations",
-  "commands.isomuxSystemPrompt.description": "Show the full system prompt this agent receives",
-  "commands.isomuxCronjobSystemPrompt.description": "Show the system prompt a schedule receives (pass name or id)",
-  "commands.isomuxDiff.description": "Peek uncommitted changes in the agent's cwd (or pass a directory)",
-  "commands.isomuxEdit.description": "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
-  "commands.isomuxUsage.description": "Per-agent / per-room / per-schedule token spend",
-  "commands.isomuxStorage.description": "Disk space the office is using, broken down by category",
+  "commands.isomuxAllHands.description":
+    "Summary of all agents and their conversations",
+  "commands.isomuxSystemPrompt.description":
+    "Show the full system prompt this agent receives",
+  "commands.isomuxCronjobSystemPrompt.description":
+    "Show the system prompt a schedule receives (pass name or id)",
+  "commands.isomuxDiff.description":
+    "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+  "commands.isomuxEdit.description":
+    "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
+  "commands.isomuxUsage.description":
+    "Per-agent / per-room / per-schedule token spend",
+  "commands.isomuxStorage.description":
+    "Disk space the office is using, broken down by category",
   "commands.compact.description": "Compress context",
-  "commands.compact.message": "`/compact` is not yet supported in Isomux. Context is auto-compacted by the SDK.",
+  "commands.compact.message":
+    "`/compact` is not yet supported in Isomux. Context is auto-compacted by the SDK.",
   "commands.branch.description": "Branch conversation into new session",
   "commands.fork.description": "Branch conversation into new session",
   "commands.export.description": "Export conversation to file",
@@ -1353,12 +1361,14 @@ export const en = {
   "commands.effort.description": "Set thinking effort level",
   "commands.advisor.description": "Toggle advisor mode",
   "commands.cost.description": "Token usage and cost estimate",
-  "commands.cost.message": "`/cost` is a Claude Code command for API users. Isomux uses subscription-based billing.",
+  "commands.cost.message":
+    "`/cost` is a Claude Code command for API users. Isomux uses subscription-based billing.",
   "commands.usage.description": "Where to check subscription and office usage",
   "commands.stats.description": "Usage patterns over time",
   "commands.extraUsage.description": "Extra usage options",
   "commands.rateLimitOptions.description": "Rate limit configuration",
-  "commands.diff.description": "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+  "commands.diff.description":
+    "Peek uncommitted changes in the agent's cwd (or pass a directory)",
   "commands.rewind.description": "Undo changes and revert conversation",
   "commands.checkpoint.description": "Undo changes and revert conversation",
   "commands.copy.description": "Copy last response to clipboard",
@@ -1382,7 +1392,8 @@ export const en = {
   "commands.vim.description": "Toggle vim keybindings",
   "commands.terminalSetup.description": "Configure terminal integration",
   "commands.reloadPlugins.description": "Reload installed plugins",
-  "commands.reloadPlugins.message": "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
+  "commands.reloadPlugins.message":
+    "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
   "commands.tasks.description": "List/manage background tasks",
   "commands.bashes.description": "List/manage background tasks",
   "commands.doctor.description": "Check installation health",
@@ -1402,18 +1413,22 @@ export const en = {
   "commands.teleport.description": "Transfer session to another device",
   "commands.remoteEnv.description": "Configure remote environment",
   "commands.exit.description": "Exit Claude Code",
-  "commands.exit.message": "Use the Isomux UI to manage agents. `/exit` only works in the Claude Code CLI.",
+  "commands.exit.message":
+    "Use the Isomux UI to manage agents. `/exit` only works in the Claude Code CLI.",
   "commands.stickers.description": "Fun stickers",
   "commands.upgrade.description": "Upgrade Claude Code",
   "commands.plugin.description": "Manage plugins",
-  "commands.plugin.message": "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `{addCommand}` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
+  "commands.plugin.message":
+    "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `{addCommand}` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
   "commands.batch.description": "Decompose into parallel worktree agents",
-  "commands.claudeApi.description": "Load API/SDK reference for detected language",
+  "commands.claudeApi.description":
+    "Load API/SDK reference for detected language",
   "commands.claudeInChrome.description": "Automate Chrome browser interactions",
   "commands.debug.description": "Diagnose session/tool issues from debug log",
   "commands.keybindingsHelp.description": "Customize keyboard shortcuts",
   "commands.loop.description": "Run a prompt on a recurring schedule",
-  "commands.loop.message": "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
+  "commands.loop.message":
+    "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
   "commands.loremIpsum.description": "Generate placeholder text",
   "commands.review.description": "Code review for bugs, logic, and edge cases",
   "commands.schedule.description": "Create cron-scheduled remote agents",
@@ -1442,7 +1457,8 @@ export const en = {
   // /context
   "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
   "commands.context.noSession": "No active session.",
-  "commands.context.unavailable": "Context usage not available for this session.",
+  "commands.context.unavailable":
+    "Context usage not available for this session.",
   "commands.context.staleUnavailable":
     "Live measurement unavailable. Showing the last committed reading, sampled {age}.",
   "commands.context.staleFailed":
@@ -1455,7 +1471,8 @@ export const en = {
   "commands.context.memoryFile": "{path} ({tokens} tokens)",
   "commands.context.systemPrompt": "**System prompt:**",
   "commands.context.systemPromptSection": "{name}: {tokens} tokens",
-  "commands.context.autoCompact": "Auto-compact at {percent}% ({tokens} tokens)",
+  "commands.context.autoCompact":
+    "Auto-compact at {percent}% ({tokens} tokens)",
   "commands.context.failed": "Failed to get context usage: {error}",
 
   // /help. The URLs are passed in from the call site rather than written here
@@ -1465,9 +1482,9 @@ export const en = {
   "commands.help.tipAgents":
     "Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
   "commands.help.tipQueue":
-    "Type ahead while an agent is busy: messages queue and flush when it's idle. Hit \"Send now\" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.",
+    'Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
   "commands.help.tipVoice":
-    "Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say \"question mark\", \"comma\", \"period\", \"new line\", and so on.",
+    'Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.',
   "commands.help.tipPhoneVpn":
     "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
   "commands.help.tipInviteFunnel":
@@ -1521,11 +1538,11 @@ export const en = {
     "No schedules are configured.",
   "commands.isomuxCronjobSystemPrompt.known": "Known schedules:",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
-    "Multiple schedules are named \"{query}\". Re-run with the id:",
+    'Multiple schedules are named "{query}". Re-run with the id:',
   "commands.isomuxCronjobSystemPrompt.noMatch":
     "No schedule matches `{query}`. Try `/isomux-cronjob-system-prompt` with no argument to list schedules.",
   "commands.isomuxCronjobSystemPrompt.header":
-    "**System prompt + first user message for schedule \"{name}\"** *(reflects current settings; takes effect on next run)*",
+    '**System prompt + first user message for schedule "{name}"** *(reflects current settings; takes effect on next run)*',
   "commands.isomuxCronjobSystemPrompt.firstUserMessage": "First user message:",
 
   // /isomux-edit
@@ -1604,7 +1621,7 @@ export const en = {
   "systemEntries.backendFailure.signal":
     "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
   "systemEntries.agentReady":
-    "Agent \"{name}\" ready. Working in {cwd}. Permission mode: {mode}.",
+    'Agent "{name}" ready. Working in {cwd}. Permission mode: {mode}.',
   "systemEntries.streamError": "Stream error: {error}",
   "systemEntries.startFailed": "Failed to start: {error}",
   "systemEntries.interrupted": "Agent interrupted.",
@@ -1639,7 +1656,8 @@ export const en = {
     "Started a fresh session (previous one could not be restored).",
   "systemEntries.freshSessionBeforeFlush":
     "Started a fresh session before flushing queued messages.",
-  "systemEntries.flushStartFailed": "Cannot start session to flush queue: {error}",
+  "systemEntries.flushStartFailed":
+    "Cannot start session to flush queue: {error}",
   "systemEntries.restartingForSettings":
     "Restarting session to apply settings; queued messages will send after the restart.",
   "systemEntries.flushError": "Error flushing queue: {error}",
@@ -1662,7 +1680,8 @@ export const en = {
   "systemEntries.contextCompacted": "Context compacted: {summary}",
   "systemEntries.contextCompactedNoSummary": "Context compacted.",
   "systemEntries.toolCallDenied": "Tool call denied: {tool}",
-  "systemEntries.toolCallDeniedWithReason": "Tool call denied: {tool} ({reason})",
+  "systemEntries.toolCallDeniedWithReason":
+    "Tool call denied: {tool} ({reason})",
   "systemEntries.inputRequest":
     "The backend requested interactive input that Isomux cannot display safely.",
   "systemEntries.permissionRequested":
@@ -1695,7 +1714,8 @@ export const en = {
     "Permission denied with reason forwarded to agent.",
   "systemEntries.permissionSessionGone":
     "Permission could not be resolved - session is gone.",
-  "systemEntries.permissionResolveFailed": "Failed to resolve permission: {error}",
+  "systemEntries.permissionResolveFailed":
+    "Failed to resolve permission: {error}",
   "systemEntries.resumedSession": "Resumed session: {label}",
   "systemEntries.resumeFailed": "Failed to resume: {error}",
   "systemEntries.resumeCancelled": "Resume cancelled.",
@@ -1719,7 +1739,7 @@ export const en = {
   "systemEntries.editNotLocated":
     "Cannot edit: could not locate message in backend session.",
   "systemEntries.editOtherSession":
-    "This message lives in a different session (\"{label}\"). Use /resume to switch to it first, then edit.",
+    'This message lives in a different session ("{label}"). Use /resume to switch to it first, then edit.',
   "systemEntries.cwdMoveBackFailed":
     "Warning: after the failed cwd change, session files could not be moved back to {previous} and now live in {target}; resume may fail until they are restored.",
   "systemEntries.fileOpenFailed": "Failed to open `{path}`: {message}",
@@ -1781,7 +1801,7 @@ export const en = {
   "storageReport.totalOfficeState": "Total office state",
   "storageReport.total": "Total",
   "storageReport.outsideNote":
-    "_Backups and update snapshots sit outside the office state directory, so they are listed after its subtotal. \"none\" means that location isn't set up on this machine._",
+    '_Backups and update snapshots sit outside the office state directory, so they are listed after its subtotal. "none" means that location isn\'t set up on this machine._',
   "storageReport.locations": "_Locations: {paths}._",
   "storageReport.locationOfficeState": "office state",
   "storageReport.locationNotSetUp": "{label} (not set up)",

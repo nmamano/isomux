@@ -1355,16 +1355,25 @@ export const es: Catalog = {
   "commands.resume.description": "Retomar una sesión anterior",
   "commands.login.description": "Ver cómo autenticar (de nuevo) este agente",
   "commands.logout.description": "Gestionar el inicio de sesión o cerrarla",
-  "commands.isomuxAllHands.description": "Resumen de todos los agentes y sus conversaciones",
-  "commands.isomuxSystemPrompt.description": "Ver el prompt de sistema completo que recibe este agente",
-  "commands.isomuxCronjobSystemPrompt.description": "Ver el prompt de sistema que recibe una programación (pasa el nombre o el id)",
-  "commands.isomuxDiff.description": "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
-  "commands.isomuxEdit.description": "Abrir un archivo en el panel lateral del editor (relativo al cwd, absoluto o ~/...)",
-  "commands.isomuxUsage.description": "Gasto de tokens por agente, por sala y por programación",
-  "commands.isomuxStorage.description": "Espacio en disco que usa la oficina, desglosado por categoría",
+  "commands.isomuxAllHands.description":
+    "Resumen de todos los agentes y sus conversaciones",
+  "commands.isomuxSystemPrompt.description":
+    "Ver el prompt de sistema completo que recibe este agente",
+  "commands.isomuxCronjobSystemPrompt.description":
+    "Ver el prompt de sistema que recibe una programación (pasa el nombre o el id)",
+  "commands.isomuxDiff.description":
+    "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
+  "commands.isomuxEdit.description":
+    "Abrir un archivo en el panel lateral del editor (relativo al cwd, absoluto o ~/...)",
+  "commands.isomuxUsage.description":
+    "Gasto de tokens por agente, por sala y por programación",
+  "commands.isomuxStorage.description":
+    "Espacio en disco que usa la oficina, desglosado por categoría",
   "commands.compact.description": "Comprimir el contexto",
-  "commands.compact.message": "`/compact` todavía no está disponible en Isomux. El SDK compacta el contexto automáticamente.",
-  "commands.branch.description": "Ramificar la conversación en una sesión nueva",
+  "commands.compact.message":
+    "`/compact` todavía no está disponible en Isomux. El SDK compacta el contexto automáticamente.",
+  "commands.branch.description":
+    "Ramificar la conversación en una sesión nueva",
   "commands.fork.description": "Ramificar la conversación en una sesión nueva",
   "commands.export.description": "Exportar la conversación a un archivo",
   "commands.plan.description": "Activar o desactivar el modo de planificación",
@@ -1376,14 +1385,20 @@ export const es: Catalog = {
   "commands.effort.description": "Fijar el nivel de esfuerzo de razonamiento",
   "commands.advisor.description": "Activar o desactivar el modo asesor",
   "commands.cost.description": "Uso de tokens y coste estimado",
-  "commands.cost.message": "`/cost` es un comando de Claude Code para quien usa la API. Isomux factura por suscripción.",
-  "commands.usage.description": "Dónde consultar el uso de la suscripción y de la oficina",
+  "commands.cost.message":
+    "`/cost` es un comando de Claude Code para quien usa la API. Isomux factura por suscripción.",
+  "commands.usage.description":
+    "Dónde consultar el uso de la suscripción y de la oficina",
   "commands.stats.description": "Patrones de uso a lo largo del tiempo",
   "commands.extraUsage.description": "Opciones de uso adicional",
-  "commands.rateLimitOptions.description": "Configuración del límite de peticiones",
-  "commands.diff.description": "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
-  "commands.rewind.description": "Deshacer los cambios y revertir la conversación",
-  "commands.checkpoint.description": "Deshacer los cambios y revertir la conversación",
+  "commands.rateLimitOptions.description":
+    "Configuración del límite de peticiones",
+  "commands.diff.description":
+    "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
+  "commands.rewind.description":
+    "Deshacer los cambios y revertir la conversación",
+  "commands.checkpoint.description":
+    "Deshacer los cambios y revertir la conversación",
   "commands.copy.description": "Copiar la última respuesta al portapapeles",
   "commands.files.description": "Listar los archivos que hay en el contexto",
   "commands.addDir.description": "Añadir más directorios de trabajo",
@@ -1391,7 +1406,8 @@ export const es: Catalog = {
   "commands.config.description": "Abrir la interfaz de ajustes",
   "commands.settings.description": "Abrir la interfaz de ajustes",
   "commands.hooks.description": "Gestionar los hooks del ciclo de vida",
-  "commands.permissions.description": "Gestionar los permisos de las herramientas",
+  "commands.permissions.description":
+    "Gestionar los permisos de las herramientas",
   "commands.keybindings.description": "Editar los atajos de teclado",
   "commands.memory.description": "Ver o editar la memoria persistente",
   "commands.mcp.description": "Gestionar las conexiones a servidores MCP",
@@ -1403,11 +1419,15 @@ export const es: Catalog = {
   "commands.theme.description": "Cambiar el tema de color",
   "commands.color.description": "Cambiar el tema de color",
   "commands.vim.description": "Activar o desactivar los atajos de vim",
-  "commands.terminalSetup.description": "Configurar la integración con el terminal",
+  "commands.terminalSetup.description":
+    "Configurar la integración con el terminal",
   "commands.reloadPlugins.description": "Recargar los plugins instalados",
-  "commands.reloadPlugins.message": "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
-  "commands.tasks.description": "Listar o gestionar las tareas en segundo plano",
-  "commands.bashes.description": "Listar o gestionar las tareas en segundo plano",
+  "commands.reloadPlugins.message":
+    "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
+  "commands.tasks.description":
+    "Listar o gestionar las tareas en segundo plano",
+  "commands.bashes.description":
+    "Listar o gestionar las tareas en segundo plano",
   "commands.doctor.description": "Comprobar el estado de la instalación",
   "commands.feedback.description": "Informar de errores a Anthropic",
   "commands.bug.description": "Informar de errores a Anthropic",
@@ -1416,7 +1436,8 @@ export const es: Catalog = {
   "commands.status.description": "Ver el estado del sistema",
   "commands.tag.description": "Etiquetar la conversación actual",
   "commands.init.description": "Inicializar Claude Code en un proyecto",
-  "commands.installGithubApp.description": "Configurar la app de revisión de PR de Claude en GitHub",
+  "commands.installGithubApp.description":
+    "Configurar la app de revisión de PR de Claude en GitHub",
   "commands.prComments.description": "Ver los comentarios del PR",
   "commands.desktop.description": "Abrir la app de escritorio",
   "commands.mobile.description": "Abrir la app móvil",
@@ -1425,24 +1446,34 @@ export const es: Catalog = {
   "commands.teleport.description": "Transferir la sesión a otro dispositivo",
   "commands.remoteEnv.description": "Configurar el entorno remoto",
   "commands.exit.description": "Salir de Claude Code",
-  "commands.exit.message": "Usa la interfaz de Isomux para gestionar los agentes. `/exit` solo funciona en la CLI de Claude Code.",
+  "commands.exit.message":
+    "Usa la interfaz de Isomux para gestionar los agentes. `/exit` solo funciona en la CLI de Claude Code.",
   "commands.stickers.description": "Pegatinas divertidas",
   "commands.upgrade.description": "Actualizar Claude Code",
   "commands.plugin.description": "Gestionar los plugins",
-  "commands.plugin.message": "Gestionar plugins requiere la CLI de Claude Code directamente.\n\nPara gestionar los plugins:\n1. Abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente)\n2. Ejecuta `claude`\n3. Escribe `/plugin` para explorar, instalar, activar o desactivar plugins\n\nComandos útiles:\n- `/plugin` - gestor interactivo de plugins (explorar, instalar, activar/desactivar)\n- `{addCommand}` - instalar un plugin por su nombre\n- `/plugin marketplace add owner/repo` - añadir un marketplace de la comunidad\n\nDespués de instalar un plugin, ejecuta `/reload-plugins` dentro de la sesión de Claude para activarlo.",
+  "commands.plugin.message":
+    "Gestionar plugins requiere la CLI de Claude Code directamente.\n\nPara gestionar los plugins:\n1. Abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente)\n2. Ejecuta `claude`\n3. Escribe `/plugin` para explorar, instalar, activar o desactivar plugins\n\nComandos útiles:\n- `/plugin` - gestor interactivo de plugins (explorar, instalar, activar/desactivar)\n- `{addCommand}` - instalar un plugin por su nombre\n- `/plugin marketplace add owner/repo` - añadir un marketplace de la comunidad\n\nDespués de instalar un plugin, ejecuta `/reload-plugins` dentro de la sesión de Claude para activarlo.",
   "commands.batch.description": "Descomponer en agentes paralelos con worktree",
-  "commands.claudeApi.description": "Cargar la referencia de la API o el SDK del lenguaje detectado",
-  "commands.claudeInChrome.description": "Automatizar interacciones con el navegador Chrome",
-  "commands.debug.description": "Diagnosticar problemas de sesión o de herramientas desde el log de depuración",
+  "commands.claudeApi.description":
+    "Cargar la referencia de la API o el SDK del lenguaje detectado",
+  "commands.claudeInChrome.description":
+    "Automatizar interacciones con el navegador Chrome",
+  "commands.debug.description":
+    "Diagnosticar problemas de sesión o de herramientas desde el log de depuración",
   "commands.keybindingsHelp.description": "Personalizar los atajos de teclado",
   "commands.loop.description": "Ejecutar un prompt de forma periódica",
-  "commands.loop.message": "no está disponible de forma nativa; mira si la página de Programaciones o los mensajes programados te sirven",
+  "commands.loop.message":
+    "no está disponible de forma nativa; mira si la página de Programaciones o los mensajes programados te sirven",
   "commands.loremIpsum.description": "Generar texto de relleno",
-  "commands.review.description": "Revisión de código en busca de errores, lógica y casos límite",
+  "commands.review.description":
+    "Revisión de código en busca de errores, lógica y casos límite",
   "commands.schedule.description": "Crear agentes remotos programados con cron",
-  "commands.securityReview.description": "Revisión de código centrada en la seguridad",
-  "commands.simplify.description": "Limpieza de código y análisis de reutilización",
-  "commands.skillify.description": "Capturar procesos como habilidades reutilizables",
+  "commands.securityReview.description":
+    "Revisión de código centrada en la seguridad",
+  "commands.simplify.description":
+    "Limpieza de código y análisis de reutilización",
+  "commands.skillify.description":
+    "Capturar procesos como habilidades reutilizables",
   "commands.stuck.description": "Diagnosticar sesiones bloqueadas o lentas",
   "commands.ultrareview.description": "Revisión de PR ultraexhaustiva",
   "commands.updateConfig.description": "Configurar settings.json",
@@ -1450,7 +1481,8 @@ export const es: Catalog = {
     "`/{name}` ({description}) es un comando de Claude Code, pero no está disponible en Isomux.",
   "commands.unsupported.bundledSkill":
     "`/{name}` ({description}) es una habilidad incluida en Claude Code, pero no está disponible en Isomux. Puedes sustituirla creando tu propio archivo de habilidad.",
-  "commands.unsupported.notAvailable": "`/{name}` no está disponible en Isomux.",
+  "commands.unsupported.notAvailable":
+    "`/{name}` no está disponible en Isomux.",
   "commands.unsupported.unknownCommand":
     "Comando desconocido `/{name}`. Escribe `/help` para ver los comandos disponibles.",
   "commands.clear.failed": "No se pudo borrar la conversación: {error}",
@@ -1479,9 +1511,9 @@ export const es: Catalog = {
   "commands.help.tipAgents":
     "Los agentes pueden consultarse y enviarse mensajes entre ellos. Pídeselo con naturalidad o usa habilidades como `/second-opinion`, `/pair-programming`, etc.",
   "commands.help.tipQueue":
-    "Puedes escribir mientras un agente está ocupado: los mensajes se encolan y salen cuando queda libre. Pulsa \"Enviar ahora\" o envía con Ctrl/Cmd+Enter para interrumpir y vaciar la cola al momento.",
+    'Puedes escribir mientras un agente está ocupado: los mensajes se encolan y salen cuando queda libre. Pulsa "Enviar ahora" o envía con Ctrl/Cmd+Enter para interrumpir y vaciar la cola al momento.',
   "commands.help.tipVoice":
-    "Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. La puntuación dictada se escribe como puntuación: di \"question mark\", \"comma\", \"period\", \"new line\", y así.",
+    'Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. La puntuación dictada se escribe como puntuación: di "question mark", "comma", "period", "new line", y así.',
   "commands.help.tipPhoneVpn":
     "Isomux funciona en el móvil. Lo más fácil es conectarlo a la misma VPN (por ejemplo Tailscale, que es gratis) que la máquina donde se ejecuta.",
   "commands.help.tipInviteFunnel":
@@ -1524,11 +1556,11 @@ export const es: Catalog = {
     "No hay ninguna programación configurada.",
   "commands.isomuxCronjobSystemPrompt.known": "Programaciones conocidas:",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
-    "Hay varias programaciones que se llaman \"{query}\". Vuelve a ejecutarlo con el id:",
+    'Hay varias programaciones que se llaman "{query}". Vuelve a ejecutarlo con el id:',
   "commands.isomuxCronjobSystemPrompt.noMatch":
     "Ninguna programación coincide con `{query}`. Prueba `/isomux-cronjob-system-prompt` sin argumentos para listarlas.",
   "commands.isomuxCronjobSystemPrompt.header":
-    "**Prompt de sistema y primer mensaje de usuario de la programación \"{name}\"** *(refleja los ajustes actuales; se aplica en la próxima ejecución)*",
+    '**Prompt de sistema y primer mensaje de usuario de la programación "{name}"** *(refleja los ajustes actuales; se aplica en la próxima ejecución)*',
   "commands.isomuxCronjobSystemPrompt.firstUserMessage":
     "Primer mensaje de usuario:",
   "commands.isomuxEdit.usage":
@@ -1592,7 +1624,7 @@ export const es: Catalog = {
   "systemEntries.backendFailure.signal":
     "El backend del agente se detuvo con la señal {signal} (código de salida {code}). La conversación está guardada y se puede retomar.",
   "systemEntries.agentReady":
-    "El agente \"{name}\" está listo. Trabaja en {cwd}. Modo de permisos: {mode}.",
+    'El agente "{name}" está listo. Trabaja en {cwd}. Modo de permisos: {mode}.',
   "systemEntries.streamError": "Error de flujo: {error}",
   "systemEntries.startFailed": "No se pudo iniciar: {error}",
   "systemEntries.interrupted": "Agente interrumpido.",
@@ -1605,7 +1637,7 @@ export const es: Catalog = {
   "systemEntries.wake.inFlightWarning":
     "Puede que algún comando en curso se ejecutara a medias; comprueba sus efectos antes de reintentar.",
   "systemEntries.wake.shutdownRejection":
-    "El resultado \"user rejected\" de aquí arriba viene del apagado, no de una persona.",
+    'El resultado "user rejected" de aquí arriba viene del apagado, no de una persona.',
   "systemEntries.wake.resumedBeforeFlush":
     "Se retomó la sesión anterior antes de vaciar la cola de mensajes.",
   "systemEntries.wake.resumedAfterUnexpectedEnd":
@@ -1704,7 +1736,8 @@ export const es: Catalog = {
   "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
   "systemEntries.branchFailed": "No se pudo ramificar la conversación: {error}",
   "systemEntries.editBusy": "No se puede editar mientras el agente trabaja.",
-  "systemEntries.editNotFound": "No se puede editar: no se encuentra el mensaje.",
+  "systemEntries.editNotFound":
+    "No se puede editar: no se encuentra el mensaje.",
   "systemEntries.editNoSession":
     "No se puede editar: no hay ninguna sesión activa.",
   "systemEntries.editPendingInteraction":
@@ -1714,7 +1747,7 @@ export const es: Catalog = {
   "systemEntries.editNotLocated":
     "No se puede editar: no se encuentra el mensaje en la sesión del backend.",
   "systemEntries.editOtherSession":
-    "Este mensaje está en otra sesión (\"{label}\"). Usa /resume para cambiar a ella y edítalo después.",
+    'Este mensaje está en otra sesión ("{label}"). Usa /resume para cambiar a ella y edítalo después.',
   "systemEntries.cwdMoveBackFailed":
     "Aviso: tras el fallo al cambiar de cwd, los archivos de sesión no se pudieron devolver a {previous} y ahora están en {target}; retomarla puede fallar hasta que se restauren.",
   "systemEntries.fileOpenFailed": "No se pudo abrir `{path}`: {message}",
@@ -1750,8 +1783,7 @@ export const es: Catalog = {
     "Estás en {running}, por delante de la última versión ({latest}).",
   "updateNotice.identity.unknown":
     "Estás en {running}. La última versión es {latest};",
-  "updateNotice.drift.beyond.one":
-    "main tiene {count} commit más allá de eso.",
+  "updateNotice.drift.beyond.one": "main tiene {count} commit más allá de eso.",
   "updateNotice.drift.beyond.other":
     "main tiene {count} commits más allá de eso.",
   "updateNotice.drift.newer.one": "main tiene {count} commit más nuevo.",
@@ -1774,7 +1806,7 @@ export const es: Catalog = {
   "storageReport.totalOfficeState": "Total del estado de la oficina",
   "storageReport.total": "Total",
   "storageReport.outsideNote":
-    "_Las copias de seguridad y las instantáneas de actualización están fuera del directorio de estado de la oficina, así que se listan después de su subtotal. \"ninguno\" significa que esa ubicación no está configurada en esta máquina._",
+    '_Las copias de seguridad y las instantáneas de actualización están fuera del directorio de estado de la oficina, así que se listan después de su subtotal. "ninguno" significa que esa ubicación no está configurada en esta máquina._',
   "storageReport.locations": "_Ubicaciones: {paths}._",
   "storageReport.locationOfficeState": "estado de la oficina",
   "storageReport.locationNotSetUp": "{label} (sin configurar)",

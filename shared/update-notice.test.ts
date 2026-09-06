@@ -202,8 +202,12 @@ describe("the notice in the reader's language", () => {
 
   it("picks the singular form for one commit", () => {
     expect(
-      notice(onTag("v2026.7.22"), rel("v2026.7.22"), cmp(1), translatorFor("es"))
-        ?.notice,
+      notice(
+        onTag("v2026.7.22"),
+        rel("v2026.7.22"),
+        cmp(1),
+        translatorFor("es"),
+      )?.notice,
     ).toBe(
       "Estás en v2026.7.22 (la última versión). main tiene 1 commit más nuevo si quieres lo último de lo último.",
     );
