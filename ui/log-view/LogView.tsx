@@ -2375,7 +2375,7 @@ export function LogView({
               >
                 {connected
                   ? i18n.t("logView.empty")
-                  : i18n.t("logView.loading")}
+                  : i18n.t("common.loadingDots")}
               </div>
             )}
             {logs.map((entry) => {

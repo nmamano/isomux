@@ -68,10 +68,10 @@ export function AgentListView({
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: t("nav.schedules"),
+      label: t("common.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: t("nav.apps"), onClick: onOpenApps },
+    { id: "apps", icon: AppsIcon, label: t("common.apps"), onClick: onOpenApps },
     // One gear for every setting, matching the floor view's bar.
     {
       id: "settings",
@@ -84,7 +84,7 @@ export function AgentListView({
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: t("common.theme"),
       onClick: onOpenThemePicker,
-      title: t("nav.changeTheme"),
+      title: t("common.changeTheme"),
     },
     {
       id: "list",
@@ -138,11 +138,13 @@ export function AgentListView({
             >
               <span style={{ fontSize: 15, color: "var(--text-muted)" }}>
                 {roomCount > 1
-                  ? `${currentRoomName ?? "This room"} is empty`
-                  : "No agents yet"}
+                  ? t("agentList.roomEmpty", {
+                      room: currentRoomName ?? t("agentList.thisRoom"),
+                    })
+                  : t("agentList.noAgents")}
               </span>
               <span style={{ fontSize: 13, color: "var(--text-faint)" }}>
-                Tap + to spawn one
+                {t("agentList.spawnHint")}
               </span>
             </div>
           ) : (

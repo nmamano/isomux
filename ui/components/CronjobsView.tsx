@@ -6,14 +6,30 @@ import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
 import {
-  humanizeSchedule,
   type Cronjob,
   type CronjobRun,
   type CronjobRunStatus,
 } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
+import {
+  formatDateTime,
+  timeSince,
+  timeUntilFine,
+} from "../../shared/i18n/time.ts";
+import { scheduleText } from "../../shared/i18n/schedule.ts";
+import type {
+  MessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 type Tab = "runs" | "cronjobs";
-const TAB_LABEL: Record<Tab, string> = { runs: "runs", cronjobs: "schedules" };
+// Keys, not words: a table of finished text would freeze the language it was
+// built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
+const TAB_LABEL: Record<Tab, Extract<MessageKey, `schedules.tab.${string}`>> = {
+  runs: "schedules.tab.runs",
+  cronjobs: "schedules.tab.cronjobs",
+};
 
 const STATUS_ICON: Record<CronjobRunStatus, string> = {
   running: "●",
@@ -31,32 +47,45 @@ const STATUS_COLOR: Record<CronjobRunStatus, string> = {
   skipped: "var(--text-muted)",
 };
 
-function timeAgo(ts: number | null): string {
+// None of the four below is a component, so the language and the translator
+// arrive as arguments (ruling 18). The relative readings come from
+// shared/i18n/time.ts; only the words for the cases Intl has no reading for
+// are chosen here, from the catalog.
+function timeAgo(
+  language: SupportedLanguageCode,
+  t: Translator["t"],
+  ts: number | null,
+): string {
   if (!ts) return " - ";
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  const since = timeSince(language, ts);
+  return since.kind === "now" ? t("common.justNow") : since.text;
 }
 
-function timeUntil(ts: number): string {
-  const diff = ts - Date.now();
-  if (diff <= 0) return "any moment";
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "<1m";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ${hours % 24}h`;
+// A duration Intl has no reading for. It is a code fragment, not words, so it
+// is passed INTO the catalog sentence rather than written in it: a catalog
+// value never carries a stray angle bracket (ruling 19).
+const UNDER_A_MINUTE = "<1m";
+
+function timeUntil(
+  language: SupportedLanguageCode,
+  t: Translator["t"],
+  ts: number,
+): string {
+  const left = timeUntilFine(language, ts);
+  if (left.kind === "expired") return t("schedules.anyMoment");
+  if (left.kind === "underHour")
+    return t("schedules.nextRunIn", { duration: UNDER_A_MINUTE });
+  return left.text;
 }
 
-function formatDuration(start: number, end: number | null): string {
-  if (!end) return "running…";
+// h, m and s are symbols and stay as they are (ruling 11); only the word for a
+// run that has not finished is a word.
+function formatDuration(
+  t: Translator["t"],
+  start: number,
+  end: number | null,
+): string {
+  if (!end) return t("schedules.running");
   const sec = Math.floor((end - start) / 1000);
   if (sec < 60) return `${sec}s`;
   const min = Math.floor(sec / 60);
@@ -65,13 +94,17 @@ function formatDuration(start: number, end: number | null): string {
   return `${hr}h ${min % 60}m`;
 }
 
-function formatStartedAt(ts: number): string {
+// Today's runs show the clock alone; older ones carry the day in front of it.
+function formatStartedAt(
+  language: SupportedLanguageCode,
+  ts: number,
+): string {
   const d = new Date(ts);
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = formatDateTime(language, ts, "clock");
   if (sameDay) return time;
-  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+  return `${formatDateTime(language, ts, "monthDay")} ${time}`;
 }
 
 export function CronjobsView({ onClose }: { onClose: () => void }) {
@@ -82,6 +115,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
     cronjobRunsLoaded,
     isMobile,
   } = useAppState();
+  const { t } = useI18n();
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
@@ -217,22 +251,22 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               overflow: "hidden",
             }}
           >
-            {(["runs", "cronjobs"] as Tab[]).map((t) => (
+            {(["runs", "cronjobs"] as Tab[]).map((name) => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={name}
+                onClick={() => setTab(name)}
                 style={{
                   padding: "5px 12px",
                   border: "none",
-                  background: tab === t ? "var(--accent)" : "transparent",
-                  color: tab === t ? "var(--bg-base)" : "var(--text-muted)",
+                  background: tab === name ? "var(--accent)" : "transparent",
+                  color: tab === name ? "var(--bg-base)" : "var(--text-muted)",
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: "pointer",
                   textTransform: "capitalize",
                 }}
               >
-                {TAB_LABEL[t]}
+                {t(TAB_LABEL[name])}
               </button>
             ))}
           </div>
@@ -250,7 +284,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               cursor: "pointer",
             }}
           >
-            Settings
+            {t("common.settings")}
           </button>
           <button
             onClick={() => setCreating(true)}
@@ -265,7 +299,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               cursor: "pointer",
             }}
           >
-            + New
+            {t("schedules.newButton")}
           </button>
         </div>
       </div>
@@ -282,7 +316,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
           }}
         >
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            Schedule:
+            {t("schedules.filterLabel")}
           </span>
           <button
             onClick={() => setRunFilter(null)}
@@ -382,6 +416,7 @@ function CronjobsTable({
   onToggleEnabled: (c: Cronjob) => void;
   onRunNow: (c: Cronjob) => void;
 }) {
+  const { t, language } = useI18n();
   // Brief visual ack after clicking Run. Cleared after 1.8s so subsequent
   // clicks always re-flash. The persistent in-flight badge (below) is the
   // longer-lived signal that something is actually executing.
@@ -415,9 +450,7 @@ function CronjobsTable({
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
-        {loaded
-          ? `No schedules yet. Click "+ New" to create one.`
-          : "Loading..."}
+        {loaded ? t("schedules.empty") : t("common.loadingDots")}
       </div>
     );
   }
@@ -427,12 +460,12 @@ function CronjobsTable({
       <thead>
         <tr>
           <th style={{ ...thStyle, width: 30 }}></th>
-          <th style={thStyle}>NAME</th>
-          {!isMobile && <th style={thStyle}>SCHEDULE</th>}
-          {!isMobile && <th style={thStyle}>LAST RUN</th>}
-          <th style={thStyle}>NEXT RUN</th>
-          <th style={{ ...thStyle, width: 80 }}>RUNS</th>
-          {!isMobile && <th style={thStyle}>BY</th>}
+          <th style={thStyle}>{t("schedules.col.name")}</th>
+          {!isMobile && <th style={thStyle}>{t("schedules.col.schedule")}</th>}
+          {!isMobile && <th style={thStyle}>{t("schedules.col.lastRun")}</th>}
+          <th style={thStyle}>{t("schedules.col.nextRun")}</th>
+          <th style={{ ...thStyle, width: 80 }}>{t("schedules.col.runs")}</th>
+          {!isMobile && <th style={thStyle}>{t("schedules.col.by")}</th>}
           <th style={{ ...thStyle, width: 130 }}></th>
         </tr>
       </thead>
@@ -465,8 +498,8 @@ function CronjobsTable({
                 <span
                   title={
                     c.enabled
-                      ? "Enabled (click to pause)"
-                      : "Paused (click to enable)"
+                      ? t("schedules.enabledToggle")
+                      : t("schedules.pausedToggle")
                   }
                   style={{
                     display: "inline-block",
@@ -502,7 +535,8 @@ function CronjobsTable({
                         verticalAlign: "middle",
                       }}
                     >
-                      ● running{inFlight > 1 ? ` ×${inFlight}` : ""}
+                      ● {t("schedules.inFlight")}
+                      {inFlight > 1 ? ` ×${inFlight}` : ""}
                     </span>
                   );
                 })()}
@@ -516,7 +550,7 @@ function CronjobsTable({
                     fontFamily: "'JetBrains Mono',monospace",
                   }}
                 >
-                  {humanizeSchedule(c.schedule)}
+                  {scheduleText(language, t, c.schedule)}
                 </td>
               )}
               {!isMobile && (
@@ -528,7 +562,7 @@ function CronjobsTable({
                     fontFamily: "'JetBrains Mono',monospace",
                   }}
                 >
-                  {timeAgo(c.lastFireAt)}
+                  {timeAgo(language, t, c.lastFireAt)}
                 </td>
               )}
               <td
@@ -541,7 +575,9 @@ function CronjobsTable({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {c.enabled ? `in ${timeUntil(c.nextFireAt)}` : "paused"}
+                {c.enabled
+                  ? timeUntil(language, t, c.nextFireAt)
+                  : t("schedules.paused")}
               </td>
               <td
                 style={{
@@ -580,7 +616,7 @@ function CronjobsTable({
                 >
                   <button
                     onClick={() => handleRunClick(c)}
-                    title="Run now"
+                    title={t("schedules.runNow")}
                     style={{
                       padding: "3px 10px",
                       borderRadius: 4,
@@ -598,11 +634,11 @@ function CronjobsTable({
                         "background 0.2s, color 0.2s, border-color 0.2s",
                     }}
                   >
-                    Run
+                    {t("schedules.run")}
                   </button>
                   <button
                     onClick={() => onEdit(c)}
-                    title="Edit"
+                    title={t("common.edit")}
                     style={{
                       padding: "3px 10px",
                       borderRadius: 4,
@@ -614,7 +650,7 @@ function CronjobsTable({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    Edit
+                    {t("common.edit")}
                   </button>
                 </div>
               </td>
@@ -639,6 +675,7 @@ function RunsTable({
   isMobile: boolean;
   onRowClick: (r: CronjobRun) => void;
 }) {
+  const { t, language } = useI18n();
   const cellPad = isMobile ? "8px 6px" : "10px 12px";
   const thStyle: React.CSSProperties = {
     padding: cellPad,
@@ -666,7 +703,7 @@ function RunsTable({
       <div
         style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}
       >
-        {loaded ? "No runs yet." : "Loading..."}
+        {loaded ? t("schedules.runsEmpty") : t("common.loadingDots")}
       </div>
     );
   }
@@ -676,12 +713,12 @@ function RunsTable({
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ ...thStyle, width: 30 }}>S</th>
-            <th style={{ ...thStyle, width: 30 }}>T</th>
-            <th style={thStyle}>SCHEDULE</th>
-            <th style={thStyle}>STARTED</th>
-            <th style={thStyle}>PREVIEW</th>
-            {!isMobile && <th style={{ ...thStyle, width: 80 }}>DURATION</th>}
+            <th style={{ ...thStyle, width: 30 }}>{t("schedules.col.status")}</th>
+            <th style={{ ...thStyle, width: 30 }}>{t("schedules.col.trigger")}</th>
+            <th style={thStyle}>{t("schedules.col.schedule")}</th>
+            <th style={thStyle}>{t("schedules.col.started")}</th>
+            <th style={thStyle}>{t("schedules.col.preview")}</th>
+            {!isMobile && <th style={{ ...thStyle, width: 80 }}>{t("schedules.col.duration")}</th>}
           </tr>
         </thead>
         <tbody>
@@ -734,7 +771,7 @@ function RunsTable({
                       fontSize: 11,
                     }}
                   >
-                    (deleted)
+                    {t("schedules.deleted")}
                   </span>
                 )}
               </td>
@@ -747,7 +784,7 @@ function RunsTable({
                   whiteSpace: "nowrap",
                 }}
               >
-                {formatStartedAt(r.startedAt)}
+                {formatStartedAt(language, r.startedAt)}
               </td>
               <td
                 style={{
@@ -771,7 +808,7 @@ function RunsTable({
                     fontFamily: "'JetBrains Mono',monospace",
                   }}
                 >
-                  {formatDuration(r.startedAt, r.endedAt)}
+                  {formatDuration(t, r.startedAt, r.endedAt)}
                 </td>
               )}
             </tr>
@@ -793,7 +830,7 @@ function RunsTable({
             disabled={page === 0}
             style={pagerBtn(page === 0)}
           >
-            ← Prev
+            {t("schedules.prevPage")}
           </button>
           <span
             style={{
@@ -809,7 +846,7 @@ function RunsTable({
             disabled={page >= totalPages - 1}
             style={pagerBtn(page >= totalPages - 1)}
           >
-            Next →
+            {t("schedules.nextPage")}
           </button>
         </div>
       )}

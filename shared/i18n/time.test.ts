@@ -18,7 +18,13 @@
 // rendering, so it does not depend on the machine's time zone either.
 
 import { describe, expect, it } from "bun:test";
-import { absoluteTime, timeSince, timeUntil } from "./time.ts";
+import {
+  absoluteTime,
+  formatDateTime,
+  timeSince,
+  timeUntil,
+  timeUntilFine,
+} from "./time.ts";
 
 const NOW = 1_800_000_000_000;
 const MINUTE = 60_000;
@@ -164,5 +170,97 @@ describe("absoluteTime", () => {
     expect(absoluteTime("en", stamp)).toBe("1/2/26, 3:04 PM");
     expect(absoluteTime("es", stamp)).toBe("2/1/26, 15:04");
     expect(absoluteTime("ca", stamp)).toBe("2/1/26 15:04");
+  });
+});
+
+// The shapes S6 moved the hand-built toLocale* call sites onto. English is
+// pinned against what those call sites printed before, so the move is provably
+// a language change and not a shape change (ruling 6); Spanish and Catalan
+// prove the language reaches the formatter at all.
+describe("formatDateTime", () => {
+  const stamp = new Date(2026, 0, 2, 15, 4, 5).getTime();
+
+  it("keeps the English each shape printed before it moved here", () => {
+    expect(formatDateTime("en", stamp, "clock")).toBe("03:04 PM");
+    expect(formatDateTime("en", stamp, "monthDay")).toBe("Jan 2");
+    expect(formatDateTime("en", stamp, "monthDayTime")).toBe("Jan 2, 03:04 PM");
+    expect(formatDateTime("en", stamp, "date")).toBe("1/2/2026");
+    expect(formatDateTime("en", stamp, "dateTimeSeconds")).toBe(
+      "1/2/2026, 3:04:05 PM",
+    );
+    expect(formatDateTime("en", stamp, "fullDate")).toBe("Jan 2, 2026");
+  });
+
+  it("reads Spanish and Catalan, which order and word the date their own way", () => {
+    expect(formatDateTime("es", stamp, "clock")).toBe("15:04");
+    expect(formatDateTime("es", stamp, "monthDay")).toBe("2 ene");
+    expect(formatDateTime("es", stamp, "fullDate")).toBe("2 ene 2026");
+    expect(formatDateTime("es", stamp, "dateTimeSeconds")).toBe(
+      "2/1/2026, 15:04:05",
+    );
+    expect(formatDateTime("ca", stamp, "monthDay")).toBe("2 de gen.");
+    expect(formatDateTime("ca", stamp, "fullDate")).toBe("2 de gen. del 2026");
+    expect(formatDateTime("ca", stamp, "dateTimeSeconds")).toBe(
+      "2/1/2026 15:04:05",
+    );
+  });
+
+  it("is the same formatter absoluteTime names", () => {
+    expect(formatDateTime("en", stamp, "dateTime")).toBe(
+      absoluteTime("en", stamp),
+    );
+  });
+});
+
+// The fine countdown S6 needs for the next scheduled run. Same kinds as
+// timeUntil, one bucket more: minutes survive instead of rounding to an hour.
+describe("timeUntilFine", () => {
+  const untilFine = (language: Language, left: number) =>
+    timeUntilFine(language, NOW + left, NOW);
+
+  it("keeps minutes where timeUntil rounds them away", () => {
+    expect(untilFine("en", 45 * MINUTE)).toEqual({
+      kind: "formatted",
+      text: "in 45m",
+    });
+    expect(until("en", 45 * MINUTE)).toEqual({
+      kind: "formatted",
+      text: "in 1h",
+    });
+    expect(untilFine("es", 45 * MINUTE)).toEqual({
+      kind: "formatted",
+      text: "dentro de 45 min",
+    });
+  });
+
+  it("has the same expired and under-a-minute kinds as timeUntil", () => {
+    expect(untilFine("en", 0)).toEqual({ kind: "expired" });
+    expect(untilFine("en", -1)).toEqual({ kind: "expired" });
+    expect(untilFine("en", 29_999)).toEqual({ kind: "underHour" });
+    expect(untilFine("en", 30_000)).toEqual({
+      kind: "formatted",
+      text: "in 1m",
+    });
+  });
+
+  it("leaves minutes for hours at 59m30s and hours for days at 47h29m30s", () => {
+    expect(untilFine("en", 59 * MINUTE + 29_999)).toEqual({
+      kind: "formatted",
+      text: "in 59m",
+    });
+    expect(untilFine("en", 59 * MINUTE + 30_000)).toEqual({
+      kind: "formatted",
+      text: "in 1h",
+    });
+    expect(untilFine("en", 47 * HOUR + 29 * MINUTE + 30_000)).toEqual({
+      kind: "formatted",
+      text: "in 2d",
+    });
+    // The hour form takes U+2018 and the day form U+2019, as the timeUntil
+    // block above already pins; the difference is Intl's, not a typo here.
+    expect(untilFine("ca", 3 * HOUR)).toEqual({
+      kind: "formatted",
+      text: "d‘aquí a 3 h",
+    });
   });
 });

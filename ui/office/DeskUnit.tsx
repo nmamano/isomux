@@ -8,6 +8,7 @@ import { deskPixelPos } from "./grid.ts";
 import { getDraggedDesk, setDraggedDesk } from "./drag-state.ts";
 import { styleForModel } from "../model-styles.ts";
 import { PENDING_PROMPT_BADGE } from "../pending-prompt.ts";
+import { useI18n } from "../i18n.tsx";
 
 export function DeskUnit({
   agent,
@@ -24,6 +25,7 @@ export function DeskUnit({
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
 }) {
+  const { t } = useI18n();
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -292,7 +294,7 @@ export function DeskUnit({
                 flexShrink: 0,
               }}
             >
-              unread
+              {t("office.unread")}
             </span>
           )}
           {/* Parked on a two-step prompt. Distinct from the
@@ -312,7 +314,7 @@ export function DeskUnit({
                 flexShrink: 0,
               }}
             >
-              {PENDING_PROMPT_BADGE[agent.pendingPrompt]}
+              {t(PENDING_PROMPT_BADGE[agent.pendingPrompt])}
             </span>
           )}
         </div>

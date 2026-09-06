@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n.tsx";
+import { formatNumber } from "../../shared/i18n/number.ts";
 import type { ContextUsageWire } from "../../shared/types.ts";
 
 // Battery-style context indicator. Design:
@@ -33,7 +34,7 @@ export function ContextBattery({
   usage: ContextUsageWire | null | undefined;
   isMobile?: boolean;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const [open, setOpen] = useState(false);
   // Popover is fixed-positioned (header/cwd-row ancestors clip overflow), so we
   // anchor it to the button's viewport rect at open time.
@@ -93,8 +94,8 @@ export function ContextBattery({
   // Use a plain spaced hyphen, not an em dash.
   let full: string;
   if (usage) {
-    const tokens = usage.totalTokens.toLocaleString("en-US");
-    const maxTokens = usage.maxTokens.toLocaleString("en-US");
+    const tokens = formatNumber(language, usage.totalTokens);
+    const maxTokens = formatNumber(language, usage.maxTokens);
     const detail = t("contextBattery.detail", {
       tokens,
       maxTokens,

@@ -8,6 +8,9 @@ import { sessionResumeLabel } from "../../shared/session-label.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import { alternateEngineOptions } from "../engine-options.ts";
+import { useI18n } from "../i18n.tsx";
+import { formatDateTime } from "../../shared/i18n/time.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -25,6 +28,7 @@ export function ContextMenu({
   onEdit,
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const { t, language } = useI18n();
   const { sessionsList } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
@@ -134,7 +138,7 @@ export function ContextMenu({
         {agent.name}
       </div>
       <MenuItem
-        label="Edit Agent..."
+        label={t("contextMenu.editAgent")}
         onClick={() => {
           onEdit(agent);
           onClose();
@@ -142,7 +146,7 @@ export function ContextMenu({
       />
       {features.sessions && (
         <MenuItem
-          label="New Conversation"
+          label={t("contextMenu.newConversation")}
           onClick={() => handleAction("new_conversation")}
         />
       )}
@@ -150,7 +154,9 @@ export function ContextMenu({
         alternateEngines.map((option) => (
           <MenuItem
             key={option.agentType}
-            label={`New ${option.label} Conversation`}
+            label={t("contextMenu.newEngineConversation", {
+              engine: option.label,
+            })}
             onClick={() =>
               handleAction("new_conversation", undefined, option.agentType)
             }
@@ -176,20 +182,25 @@ export function ContextMenu({
               letterSpacing: "0.05em",
             }}
           >
-            Resume
+            {t("contextMenu.resume")}
           </div>
           {sessions.slice(0, 5).map((s) => {
             const isCurrent = s.sessionId === currentSessionId;
-            const rawLabel = sessionResumeLabel(s);
+            const rawLabel = sessionResumeLabel(
+              s,
+              t("contextMenu.untitledConversation"),
+            );
             const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
-            const branchedSuffix = s.branched ? " (branched)" : "";
+            const branchedSuffix = s.branched
+              ? ` ${t("contextMenu.branched")}`
+              : "";
             // No engine badge: which backend a past session ran on doesn't
             // change the choice of what to resume, and the row reads better
             // without it. Selecting a row still flips the agent to that
             // session's engine.
             const displayLabel = isCurrent
-              ? `● ${label}  ${formatTime(s.lastModified)}  (current)`
-              : `${label}  ${formatTime(s.lastModified)}${branchedSuffix}`;
+              ? `● ${label}  ${formatTime(language, s.lastModified)}  ${t("contextMenu.current")}`
+              : `${label}  ${formatTime(language, s.lastModified)}${branchedSuffix}`;
             return (
               <MenuItem
                 key={s.sessionId}
@@ -214,7 +225,7 @@ export function ContextMenu({
         }}
       />
       <MenuItem
-        label="Kill Agent"
+        label={t("contextMenu.killAgent")}
         danger
         onClick={() => handleAction("kill")}
       />
@@ -270,12 +281,17 @@ function MenuItem({
   );
 }
 
-function formatTime(timestamp: number): string {
+// Not a component, so the language arrives as an argument (ruling 18). Today's
+// sessions show the clock alone; older ones carry the day in front of it.
+function formatTime(
+  language: SupportedLanguageCode,
+  timestamp: number,
+): string {
   const d = new Date(timestamp);
   const now = new Date();
-  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const time = formatDateTime(language, timestamp, "clock");
   if (d.toDateString() === now.toDateString()) {
     return time;
   }
-  return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
+  return `${formatDateTime(language, timestamp, "monthDay")} ${time}`;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import { deskPixelPos } from "./grid.ts";
+import { useI18n } from "../i18n.tsx";
 
 export function EmptySlot({
   deskIndex,
@@ -11,6 +12,7 @@ export function EmptySlot({
   onClick: () => void;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
 }) {
+  const { t } = useI18n();
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const pos = DESK_SLOTS[deskIndex];
@@ -147,7 +149,7 @@ export function EmptySlot({
           <div
             style={{ fontSize: 10, color: "var(--accent)", fontWeight: 500 }}
           >
-            New Agent
+            {t("office.newAgent")}
           </div>
         </div>
       )}

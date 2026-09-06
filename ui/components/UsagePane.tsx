@@ -3,31 +3,52 @@ import { apiFetch, ApiError } from "../api.ts";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
+import {
+  formatDecimal,
+  formatMoneyUSD,
+  formatNumber,
+} from "../../shared/i18n/number.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import type {
   UsageBucketWire,
   UsageReportWire,
 } from "../../shared/contract-shapes.ts";
 
-function tokenCount(n: number): string {
+// Not components, so the language arrives as an argument (ruling 18). k and M
+// are magnitude symbols and stay as they are (ruling 11); the number in front
+// of each one is a number like any other, so it takes the reader's marks.
+function tokenCount(language: SupportedLanguageCode, n: number): string {
   if (n === 0) return "-";
-  if (n >= 999_500) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
-  return n.toLocaleString();
+  if (n >= 999_500) return `${formatDecimal(language, n / 1_000_000, 1)}M`;
+  if (n >= 1_000) return `${formatDecimal(language, n / 1_000, 0)}k`;
+  return formatNumber(language, n);
 }
 
-function inputCount(bucket: UsageBucketWire, t: Translator["t"]): string {
+function inputCount(
+  language: SupportedLanguageCode,
+  bucket: UsageBucketWire,
+  t: Translator["t"],
+): string {
   if (bucket.totalIn === 0) return "-";
   const cacheable = bucket.cacheRead + bucket.cacheCreation;
-  if (cacheable === 0) return tokenCount(bucket.totalIn);
+  if (cacheable === 0) return tokenCount(language, bucket.totalIn);
   const hit = Math.round((bucket.cacheRead / cacheable) * 100);
   return hit < 80
-    ? t("settings.usage.cacheHit", { count: tokenCount(bucket.totalIn), hit })
-    : tokenCount(bucket.totalIn);
+    ? t("settings.usage.cacheHit", {
+        count: tokenCount(language, bucket.totalIn),
+        hit,
+      })
+    : tokenCount(language, bucket.totalIn);
 }
 
-function dollars(n: number): string {
+// Isomux reports its spend in US dollars whoever is reading, so the currency
+// is fixed and only its rendering moves. A hard "$" in front of the number is
+// English typography, not a symbol like k or M.
+function dollars(language: SupportedLanguageCode, n: number): string {
   if (n === 0) return "-";
-  return n >= 100 ? `$${n.toFixed(0)}` : `$${n.toFixed(2)}`;
+  return n >= 100
+    ? formatMoneyUSD(language, n, 0)
+    : formatMoneyUSD(language, n, 2);
 }
 
 // Token and cost totals for the office. Read-only, so no guard and no
@@ -252,12 +273,12 @@ function LifetimeTable({
 }
 
 function BucketCells({ bucket }: { bucket: UsageBucketWire }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   return (
     <>
-      <td style={cell}>{inputCount(bucket, t)}</td>
-      <td style={cell}>{tokenCount(bucket.totalOut)}</td>
-      <td style={cell}>{dollars(bucket.costUSD)}</td>
+      <td style={cell}>{inputCount(language, bucket, t)}</td>
+      <td style={cell}>{tokenCount(language, bucket.totalOut)}</td>
+      <td style={cell}>{dollars(language, bucket.costUSD)}</td>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 
 // Brief grace window - covers reconnect blips so the banner doesn't flash on
 // every transient cycle. Implemented as a CSS animation-delay (with fill-mode
@@ -11,6 +12,7 @@ const SHOW_DELAY_MS = 600;
 
 export function ConnectionBanner() {
   const { connected, hasReceivedInitialState } = useAppState();
+  const { t } = useI18n();
   if (connected || !hasReceivedInitialState) return null;
 
   return (
@@ -50,7 +52,7 @@ export function ConnectionBanner() {
           animation: "isomuxBannerPulse 1.4s ease-in-out infinite",
         }}
       />
-      <span>Reconnecting…</span>
+      <span>{t("app.reconnecting")}</span>
       <style>{`
         @keyframes isomuxBannerSlideIn {
           from { opacity: 0; transform: translateY(-100%); }

@@ -45,6 +45,7 @@ function ThemeRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       data-theme-row
@@ -74,7 +75,7 @@ function ThemeRow({
       }}
     >
       <ThemeSwatch theme={theme} />
-      <span style={{ flex: 1 }}>{theme.displayName}</span>
+      <span style={{ flex: 1 }}>{t(theme.displayNameKey)}</span>
       {selected && (
         <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>
           ✓

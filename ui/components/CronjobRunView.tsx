@@ -9,13 +9,21 @@ import {
 } from "../../shared/types.ts";
 import { getDevice } from "../device-settings.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import { useI18n } from "../i18n.tsx";
+import { formatDateTime } from "../../shared/i18n/time.ts";
+import type { MessageKey } from "../../shared/i18n/translate.ts";
 
-const STATUS_LABEL: Record<CronjobRun["status"], string> = {
-  running: "Running",
-  completed: "Completed",
-  failed: "Failed",
-  timed_out: "Timed out",
-  skipped: "Skipped",
+// Keys, not words: a table of finished text would freeze the language it was
+// built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
+const STATUS_LABEL: Record<
+  CronjobRun["status"],
+  Extract<MessageKey, `schedules.status.${string}`>
+> = {
+  running: "schedules.status.running",
+  completed: "schedules.status.completed",
+  failed: "schedules.status.failed",
+  timed_out: "schedules.status.timedOut",
+  skipped: "schedules.status.skipped",
 };
 
 const STATUS_COLOR: Record<CronjobRun["status"], string> = {
@@ -54,6 +62,7 @@ export function CronjobRunView({
   onClose: () => void;
 }) {
   const { cronjobRunsByJob, isMobile, logs, hydrationEpoch } = useAppState();
+  const { t, language } = useI18n();
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
@@ -351,7 +360,7 @@ export function CronjobRunView({
                     flexShrink: 0,
                   }}
                 >
-                  {STATUS_LABEL[run.status]}
+                  {t(STATUS_LABEL[run.status])}
                 </span>
               </div>
               <div
@@ -365,15 +374,14 @@ export function CronjobRunView({
                 }}
               >
                 <span>
-                  {new Date(run.startedAt).toLocaleString([], {
-                    month: "short",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {formatDateTime(language, run.startedAt, "monthDayTime")}
                 </span>
                 <span style={{ color: "var(--text-ghost)" }}>
-                  {run.trigger === "manual" ? "manual" : "scheduled"}
+                  {t(
+                    run.trigger === "manual"
+                      ? "schedules.trigger.manual"
+                      : "schedules.trigger.scheduled",
+                  )}
                 </span>
               </div>
             </div>
@@ -406,7 +414,7 @@ export function CronjobRunView({
                   fontWeight: 600,
                 }}
               >
-                {STATUS_LABEL[run.status]}
+                {t(STATUS_LABEL[run.status])}
               </span>
               <span
                 style={{
@@ -415,12 +423,7 @@ export function CronjobRunView({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {new Date(run.startedAt).toLocaleString([], {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+                {formatDateTime(language, run.startedAt, "monthDayTime")}
               </span>
               <span
                 style={{
@@ -430,8 +433,10 @@ export function CronjobRunView({
                 }}
               >
                 {run.trigger === "manual"
-                  ? `manual${run.triggeredBy ? ` · ${run.triggeredBy}` : ""}`
-                  : "scheduled"}
+                  ? run.triggeredBy
+                    ? t("schedules.trigger.manualBy", { who: run.triggeredBy })
+                    : t("schedules.trigger.manual")
+                  : t("schedules.trigger.scheduled")}
               </span>
             </div>
           )
@@ -443,7 +448,7 @@ export function CronjobRunView({
               color: "var(--text-primary)",
             }}
           >
-            Run #{runId}
+            {t("schedules.runNumber", { id: runId })}
           </span>
         )}
       </div>
@@ -478,19 +483,22 @@ export function CronjobRunView({
                 marginBottom: 4,
               }}
             >
-              PROMPT
+              {t("schedules.promptLabel")}
             </div>
             <div style={{ whiteSpace: "pre-wrap" }}>{run.promptSnapshot}</div>
             <div
               style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}
             >
-              cwd: {shortenCwd(run.cwdSnapshot)} · model:{" "}
-              {run.modelFamilySnapshot} · effort: {run.effortSnapshot} ·
-              permission: {run.permissionModeSnapshot}
+              {t("schedules.snapshot", {
+                cwd: shortenCwd(run.cwdSnapshot),
+                model: run.modelFamilySnapshot,
+                effort: run.effortSnapshot,
+                permission: run.permissionModeSnapshot,
+              })}
             </div>
             {run.errorReason && (
               <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>
-                Error: {run.errorReason}
+                {t("schedules.errorLine", { reason: run.errorReason })}
               </div>
             )}
           </div>
@@ -503,9 +511,11 @@ export function CronjobRunView({
               padding: 40,
             }}
           >
-            {run?.status === "skipped"
-              ? "This run was skipped."
-              : "No log entries."}
+            {t(
+              run?.status === "skipped"
+                ? "schedules.runSkipped"
+                : "schedules.noEntries",
+            )}
           </div>
         ) : (
           entries.map((entry) => {
@@ -572,7 +582,7 @@ export function CronjobRunView({
                 }}
               />
             </span>
-            <span>Running...</span>
+            <span>{t("schedules.runningDots")}</span>
           </div>
         )}
       </div>
@@ -623,8 +633,8 @@ export function CronjobRunView({
                 }}
                 placeholder={
                   editingLogEntryId
-                    ? "Editing message above..."
-                    : "Send a follow-up"
+                    ? t("schedules.editingAbove")
+                    : t("schedules.followUp")
                 }
                 autoFocus={!isMobile}
                 rows={1}
@@ -675,7 +685,7 @@ export function CronjobRunView({
                   justifyContent: "center",
                   lineHeight: 1,
                 }}
-                title="Send"
+                title={t("common.send")}
               >
                 ▲
               </button>
@@ -694,10 +704,12 @@ export function CronjobRunView({
           }}
         >
           {isRunning
-            ? "Run in progress - wait for it to finish before sending a follow-up."
-            : run?.status === "skipped"
-              ? "Skipped runs have no session to resume."
-              : "This run can't be resumed (no session was established)."}
+            ? t("schedules.waitToFollowUp")
+            : t(
+                run?.status === "skipped"
+                  ? "schedules.skippedNoSession"
+                  : "schedules.noSession",
+              )}
         </div>
       )}
     </div>

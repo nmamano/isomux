@@ -8,6 +8,7 @@ import type {
 import { dialogInput, dialogLabel, dialogSaveBtn } from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
+import { formatDateTime } from "../../shared/i18n/time.ts";
 
 const DEVELOPER_API_GUIDE = "https://isomux.com/docs/developer-api";
 
@@ -15,7 +16,7 @@ const EXPIRY_OPTIONS = [30, 365, null] as const;
 type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 export function ApiTokensPane() {
-  const { t, tn, rich } = useI18n();
+  const { t, tn, rich, language } = useI18n();
   const [tokens, setTokens] = useState<ApiTokenWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
@@ -248,14 +249,22 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
                     {token.expiresAt === null
                       ? t("settings.apiTokens.neverExpires")
                       : t("settings.apiTokens.expiresOn", {
-                          date: new Date(token.expiresAt).toLocaleDateString(),
+                          date: formatDateTime(
+                            language,
+                            token.expiresAt,
+                            "date",
+                          ),
                         })}
                   </div>
                   <div style={hint}>
                     {t("settings.apiTokens.lastRequest", {
                       when: token.lastUsedAt
                         ? t("settings.apiTokens.about", {
-                            date: new Date(token.lastUsedAt).toLocaleString(),
+                            date: formatDateTime(
+                              language,
+                              token.lastUsedAt,
+                              "dateTimeSeconds",
+                            ),
                           })
                         : t("settings.apiTokens.never"),
                     })}

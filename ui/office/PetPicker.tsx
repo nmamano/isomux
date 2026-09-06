@@ -15,12 +15,20 @@ import {
   type RoomPet,
 } from "../../shared/pets.ts";
 import { PETS, PetDefs } from "./RoomProps.tsx";
+import { useI18n } from "../i18n.tsx";
+import type { MessageKey } from "../../shared/i18n/translate.ts";
 
-const SPECIES_LABEL: Record<PetSpecies, string> = {
-  cat: "Cat",
-  dog: "Dog",
-  rabbit: "Rabbit",
-  tortoise: "Tortoise",
+// A KEY per species, not a word: a table of finished text would freeze the
+// language it was built in (internal-docs/i18n-loop.md, ruling 18 and the S5
+// id-to-key pattern).
+const SPECIES_KEY: Record<
+  PetSpecies,
+  Extract<MessageKey, `office.pet.species.${string}`>
+> = {
+  cat: "office.pet.species.cat",
+  dog: "office.pet.species.dog",
+  rabbit: "office.pet.species.rabbit",
+  tortoise: "office.pet.species.tortoise",
 };
 
 /** One animal at picker size. The drawings sit on the floor at y 0 with ears
@@ -48,6 +56,7 @@ export function PetPicker({
   onPick: (next: RoomPet | null) => void;
   onClose: () => void;
 }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,7 +90,7 @@ export function PetPicker({
       <div
         ref={ref}
         role="dialog"
-        aria-label="Room pet"
+        aria-label={t("office.pet.label")}
         style={{
           position: "fixed",
           left: Math.max(8, left),
@@ -103,7 +112,7 @@ export function PetPicker({
             padding: "0 2px 8px",
           }}
         >
-          Room pet
+          {t("office.pet.label")}
         </div>
         <button
           type="button"
@@ -124,11 +133,13 @@ export function PetPicker({
             cursor: "pointer",
           }}
         >
-          Default
+          {t("office.pet.default")}
         </button>
-        {PET_SPECIES.map((species) => (
-          <div
-            key={species}
+        {PET_SPECIES.map((species) => {
+          const speciesName = t(SPECIES_KEY[species]);
+          return (
+            <div
+              key={species}
             style={{
               display: "flex",
               alignItems: "center",
@@ -149,8 +160,14 @@ export function PetPicker({
                     // is no help to a screen reader or to anyone who cannot
                     // separate the accent from the coat's own outline.
                     aria-pressed={chosen}
-                    title={`${SPECIES_LABEL[species]} ${coat + 1}`}
-                    aria-label={`${SPECIES_LABEL[species]} coat ${coat + 1}`}
+                    title={t("office.pet.coat", {
+                      species: speciesName,
+                      number: coat + 1,
+                    })}
+                    aria-label={t("office.pet.coatAria", {
+                      species: speciesName,
+                      number: coat + 1,
+                    })}
                     onClick={() => onPick({ species, coat })}
                     style={{
                       width: 18,
@@ -166,8 +183,9 @@ export function PetPicker({
                 );
               })}
             </div>
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </Portal>
   );

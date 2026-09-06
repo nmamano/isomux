@@ -1,6 +1,11 @@
 import { useEffect, useCallback, useState, type ReactNode } from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { formatDateTime } from "../../shared/i18n/time.ts";
+import {
+  DEFAULT_LANGUAGE,
+  type SupportedLanguageCode,
+} from "../../shared/languages.ts";
 import { CopyButton } from "./CopyButton.tsx";
 import { apiFetch } from "../api.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
@@ -11,14 +16,12 @@ import {
 
 const REPO = "nmamano/isomux";
 
-function formatDate(iso: string): string {
+// Not a component, so the language arrives as an argument (ruling 18). The
+// clipboard builders above pass DEFAULT_LANGUAGE on purpose: their whole text
+// is agent-facing and stays English.
+function formatDate(language: SupportedLanguageCode, iso: string): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return formatDateTime(language, new Date(iso).getTime(), "fullDate");
 }
 
 type CommitStatus = Extract<UpdateStatusWire, { mode: "commit" }>;
@@ -49,7 +52,7 @@ function buildReleasePlainText(s: ReleaseStatus): string {
   const lines = ["New Release Available", "", `- You are on ${running}`];
   if (s.latest) {
     lines.push(
-      `- Latest release: ${s.latest.tag}${s.latest.publishedAt ? ` (${formatDate(s.latest.publishedAt)})` : ""}${s.latest.url ? `: ${s.latest.url}` : ""}`,
+      `- Latest release: ${s.latest.tag}${s.latest.publishedAt ? ` (${formatDate(DEFAULT_LANGUAGE, s.latest.publishedAt)})` : ""}${s.latest.url ? `: ${s.latest.url}` : ""}`,
     );
     lines.push(
       "",
@@ -174,7 +177,7 @@ function ReleaseBody({
   onClose: () => void;
 }) {
   const { sessionContext } = useAppState();
-  const { t, tn, rich } = useI18n();
+  const { t, tn, rich, language } = useI18n();
   const isOwner = sessionContext?.role === "owner";
   const [phase, setPhase] = useState<
     "info" | "confirm" | "starting" | "started"
@@ -249,7 +252,7 @@ function ReleaseBody({
             {rich("settings.update.latestRelease", {
               tag: latest.tag,
               published: latest.publishedAt
-                ? ` (${formatDate(latest.publishedAt)})`
+                ? ` (${formatDate(language, latest.publishedAt)})`
                 : "",
               code: inCode,
             })}

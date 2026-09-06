@@ -178,7 +178,7 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -259,10 +259,10 @@ export function OfficeView({
     {
       id: "cronjobs",
       icon: ClockIcon,
-      label: t("nav.schedules"),
+      label: t("common.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: t("nav.apps"), onClick: onOpenApps },
+    { id: "apps", icon: AppsIcon, label: t("common.apps"), onClick: onOpenApps },
     // One gear for every setting. The office, room, user and device buttons
     // that used to sit here are sidebar rows on the settings page now, and the
     // plaque on the wall opens the same page.
@@ -278,7 +278,7 @@ export function OfficeView({
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: t("common.theme"),
       onClick: onOpenThemePicker,
-      title: t("nav.changeTheme"),
+      title: t("common.changeTheme"),
     },
   ];
 
@@ -496,7 +496,9 @@ export function OfficeView({
                   ? {
                       label:
                         roomNames[currentRoomIndex - 1] ??
-                        `Room ${currentRoomIndex}`,
+                        t("office.door.roomFallback", {
+                          number: currentRoomIndex,
+                        }),
                       onClick: () =>
                         dispatch({
                           type: "set_current_room",
@@ -513,7 +515,9 @@ export function OfficeView({
                   ? {
                       label:
                         roomNames[currentRoomIndex + 1] ??
-                        `Room ${currentRoomIndex + 2}`,
+                        t("office.door.roomFallback", {
+                          number: currentRoomIndex + 2,
+                        }),
                       onClick: () =>
                         dispatch({
                           type: "set_current_room",
@@ -752,7 +756,7 @@ export function OfficeView({
                   color: "var(--text-primary)",
                 }}
               >
-                No rooms assigned
+                {t("office.noRooms.title")}
               </div>
               <div
                 style={{
@@ -763,16 +767,14 @@ export function OfficeView({
                 }}
               >
                 <p style={{ margin: "0 0 8px" }}>
-                  Use the <strong>+</strong> in the room tab bar to create your
-                  own room.
+                  {rich("office.noRooms.create", {
+                    strong: (chunk) => <strong>{chunk}</strong>,
+                  })}
                 </p>
                 <p style={{ margin: "0 0 8px" }}>
-                  New rooms you create are visible only to you and the office
-                  owners by default (owners can change that).
+                  {t("office.noRooms.visibility")}
                 </p>
-                <p style={{ margin: 0 }}>
-                  You can also ask an owner to add you to existing rooms.
-                </p>
+                <p style={{ margin: 0 }}>{t("office.noRooms.askOwner")}</p>
               </div>
             </div>
           </div>

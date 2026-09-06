@@ -18,6 +18,7 @@ import {
   BLOSSOM_TONES,
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
+import { useI18n } from "../i18n.tsx";
 
 const NEON_COLORS = [
   "#ff6ec7", // hot pink (original)
@@ -929,6 +930,7 @@ export function Walls({
   taskCount?: number;
 }) {
   const { currentRoomId, rooms } = useAppState();
+  const { t } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
@@ -1096,7 +1098,7 @@ export function Walls({
         data-no-pan
         role="button"
         tabIndex={0}
-        aria-label="Change theme"
+        aria-label={t("common.changeTheme")}
         onClick={onToggleTheme}
         onMouseDown={(event) => event.preventDefault()}
         onKeyDown={(event) => {
@@ -1617,7 +1619,7 @@ export function Walls({
       <g
         data-no-pan
         transform="translate(240,-85) skewY(27)"
-        aria-label={onOpenCronjobs ? "Schedules" : undefined}
+        aria-label={onOpenCronjobs ? t("common.schedules") : undefined}
         onClick={onOpenCronjobs}
         style={
           onOpenCronjobs

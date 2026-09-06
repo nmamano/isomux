@@ -35,7 +35,10 @@ import {
   planMatchesForm,
   type PolicyForm,
 } from "../storage-prune-form.ts";
-import { formatSize, formatRelativeTime } from "../../shared/format-human.ts";
+import { formatBytes, formatNumber } from "../../shared/i18n/number.ts";
+import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
+import type { Translator } from "../../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   IN_ROOT_ORDER,
   OUT_OF_ROOT_ORDER,
@@ -122,6 +125,43 @@ type Phase =
 // this panel and which stays mounted (with its unsaved edits) while we are up.
 // There is no separate "close": one dialog layer at a time, so leaving here
 // means going back there.
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A size for the panel, or the catalog's word for a reading that is not a size
+ * (formatBytes returns null there, since shared/i18n holds no words).
+ */
+function sizeText(
+  language: SupportedLanguageCode,
+  t: Translator["t"],
+  bytes: number,
+): string {
+  return formatBytes(language, bytes) ?? t("common.unknownSize");
+}
+
+/**
+ * An age for the panel. Under a week it reads as a relative time; older than
+ * that it reads as a date, which is easier to place than "23d ago" - the rule
+ * shared/format-human.ts states and the /isomux-storage report still follows.
+ * The cutoff is this panel's display policy, so it lives here and not in
+ * shared/i18n/time.ts, which owns only the formatting. The clock is read once
+ * per reading, so the cutoff and the relative reading cannot be taken from two different
+ * clocks; it is read here rather than in the component, which must stay pure.
+ */
+function ageText(
+  language: SupportedLanguageCode,
+  t: Translator["t"],
+  ts: number,
+): string {
+  // Read once per reading, so the cutoff below and timeSince under it cannot
+  // land on two sides of the same instant. Reading it here rather than in the
+  // component keeps the component itself pure.
+  const now = Date.now();
+  if (now - ts >= WEEK_MS) return formatDateTime(language, ts, "monthDay");
+  const since = timeSince(language, ts, now);
+  return since.kind === "now" ? t("common.justNow") : since.text;
+}
+
 export function StoragePane({
   closeRef,
 }: {
@@ -464,7 +504,9 @@ function UsageBlock({
   usage: StorageUsageWire | null;
   error: string | null;
 }) {
-  const { t, rich } = useI18n();
+  const { t, rich, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
+  const age = (ts: number) => ageText(language, t, ts);
   if (error) return <ErrorLine>{error}</ErrorLine>;
   if (!usage)
     return (
@@ -486,18 +528,18 @@ function UsageBlock({
       <p style={{ fontSize: 12, color: "var(--text-secondary)", margin: 0 }}>
         {outsideBytes > 0
           ? rich("settings.storage.totalSplit", {
-              total: formatSize(total),
-              state: formatSize(usage.stateRootBytes),
-              outside: formatSize(outsideBytes),
+              total: size(total),
+              state: size(usage.stateRootBytes),
+              outside: size(outsideBytes),
               strong: inStrong,
             })
           : rich("settings.storage.totalAllState", {
-              total: formatSize(total),
+              total: size(total),
               strong: inStrong,
             })}{" "}
         <span style={{ color: "var(--text-ghost)" }}>
           {t("settings.storage.measured", {
-            when: formatRelativeTime(usage.measuredAt),
+            when: age(usage.measuredAt),
           })}
         </span>
       </p>
@@ -518,7 +560,7 @@ function UsageBlock({
               {t("settings.storage.totalOfficeState")}
             </td>
             <td style={{ ...cellRight, fontWeight: 700 }}>
-              {formatSize(usage.stateRootBytes)}
+              {size(usage.stateRootBytes)}
             </td>
             <td style={cellRight} />
           </tr>
@@ -562,7 +604,8 @@ function CategoryRow({
   cat: StorageCategoryWire | undefined;
   id: StorageCategoryId;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
   // A category the measurement didn't return at all can only mean the contract
   // changed underneath this file; skip it rather than paint a phantom zero.
   if (!cat) return null;
@@ -570,10 +613,10 @@ function CategoryRow({
     <tr>
       <td style={cell}>{t(CATEGORY_KEYS[id])}</td>
       <td style={cellRight}>
-        {cat.available ? formatSize(cat.bytes) : t("settings.storage.none")}
+        {cat.available ? size(cat.bytes) : t("settings.storage.none")}
       </td>
       <td style={{ ...cellRight, color: "var(--text-ghost)" }}>
-        {cat.available ? cat.files.toLocaleString() : "-"}
+        {cat.available ? formatNumber(language, cat.files) : "-"}
       </td>
     </tr>
   );
@@ -584,7 +627,8 @@ function BackupBlock({
 }: {
   backup: BackupStatusWire | "unavailable" | null;
 }) {
-  const { t, rich } = useI18n();
+  const { t, rich, language } = useI18n();
+  const age = (ts: number) => ageText(language, t, ts);
   if (backup === null) return null;
   if (backup === "unavailable") {
     return (
@@ -611,17 +655,17 @@ function BackupBlock({
           t("settings.storage.noBackupYet")
         ) : backup.ok ? (
           t("settings.storage.lastBackupOk", {
-            when: formatRelativeTime(backup.lastRunAt),
+            when: age(backup.lastRunAt),
           })
         ) : (
           <span style={{ color: "#ff6b6b" }}>
             {backup.error
               ? t("settings.storage.lastBackupFailedWith", {
-                  when: formatRelativeTime(backup.lastRunAt),
+                  when: age(backup.lastRunAt),
                   error: backup.error,
                 })
               : t("settings.storage.lastBackupFailed", {
-                  when: formatRelativeTime(backup.lastRunAt),
+                  when: age(backup.lastRunAt),
                 })}
           </span>
         )}{" "}
@@ -656,7 +700,8 @@ function PlanBlock({
   onCancelConfirm: () => void;
   onApply: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
   const count = plan.candidates.length;
   const sample = plan.candidates.slice(0, SAMPLE_ROWS);
   const targetWord = t(CATEGORY_KEYS[plan.target]).toLowerCase();
@@ -681,9 +726,9 @@ function PlanBlock({
       >
         {count > 0
           ? t("settings.storage.planCount", {
-              count: count.toLocaleString(),
+              count: formatNumber(language, count),
               target: targetWord,
-              size: formatSize(plan.bytes),
+              size: size(plan.bytes),
             })
           : t("settings.storage.planEmpty", { target: targetWord })}
       </p>
@@ -706,8 +751,8 @@ function PlanBlock({
           {plan.skipped.map((s) => (
             <li key={s.reason}>
               {t("settings.storage.skippedRow", {
-                count: s.count.toLocaleString(),
-                size: formatSize(s.bytes),
+                count: formatNumber(language, s.count),
+                size: size(s.bytes),
                 reason: t(SKIP_KEYS[s.reason]),
               })}
             </li>
@@ -730,7 +775,7 @@ function PlanBlock({
             <div key={c.path}>
               {t("settings.storage.sampleRow", {
                 path: c.path,
-                size: formatSize(c.bytes),
+                size: size(c.bytes),
                 age: c.ageDays,
               })}
             </div>
@@ -738,7 +783,7 @@ function PlanBlock({
           {count > sample.length && (
             <div>
               {t("settings.storage.sampleMore", {
-                count: (count - sample.length).toLocaleString(),
+                count: formatNumber(language, count - sample.length),
               })}
             </div>
           )}
@@ -752,7 +797,7 @@ function PlanBlock({
       {count > 0 && !queueUnreadable && phase.kind === "previewed" && (
         <button onClick={onAskConfirm} style={dangerBtn}>
           {t("settings.storage.deleteCount", {
-            count: count.toLocaleString(),
+            count: formatNumber(language, count),
             target: targetWord,
           })}
         </button>
@@ -772,7 +817,7 @@ function PlanBlock({
               {t("settings.storage.cannotUndo")}
             </strong>{" "}
             {t("settings.storage.confirmBody", {
-              size: formatSize(plan.bytes),
+              size: size(plan.bytes),
               target: targetWord,
             })}
           </p>
@@ -814,7 +859,8 @@ function PlanBlock({
 }
 
 function ResultBlock({ result }: { result: PruneResultWire }) {
-  const { t } = useI18n();
+  const { t, language } = useI18n();
+  const size = (bytes: number) => sizeText(language, t, bytes);
   return (
     <div
       style={{
@@ -832,8 +878,8 @@ function ResultBlock({ result }: { result: PruneResultWire }) {
       ) : (
         <p style={{ margin: 0, fontSize: 12, color: "var(--text-primary)" }}>
           {t("settings.storage.deletedResult", {
-            count: result.deleted.toLocaleString(),
-            size: formatSize(result.bytes),
+            count: formatNumber(language, result.deleted),
+            size: size(result.bytes),
           })}
         </p>
       )}
@@ -842,7 +888,7 @@ function ResultBlock({ result }: { result: PruneResultWire }) {
           style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-dim)" }}
         >
           {t("settings.storage.refused", {
-            count: result.refused.length.toLocaleString(),
+            count: formatNumber(language, result.refused.length),
           })}
         </p>
       )}

@@ -26,9 +26,42 @@ const RELATIVE_OPTIONS: Intl.RelativeTimeFormatOptions = {
   style: "narrow",
   numeric: "always",
 };
-const ABSOLUTE_OPTIONS: Intl.DateTimeFormatOptions = {
-  dateStyle: "short",
-  timeStyle: "short",
+/**
+ * The date and time shapes the office renders, each named for what it shows
+ * rather than for the surface that first wanted it. S6 moved every hand-built
+ * toLocale* call onto this set; the OPTIONS are the ones those call sites
+ * passed, so each surface reads the same way it did, in the reader's language
+ * instead of the browser's.
+ */
+export type DateShape =
+  | "clock"
+  | "monthDay"
+  | "monthDayTime"
+  | "date"
+  | "dateTime"
+  | "dateTimeSeconds"
+  | "fullDate";
+
+const SHAPE_OPTIONS: Record<DateShape, Intl.DateTimeFormatOptions> = {
+  clock: { hour: "2-digit", minute: "2-digit" },
+  monthDay: { month: "short", day: "numeric" },
+  monthDayTime: {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  },
+  date: { year: "numeric", month: "numeric", day: "numeric" },
+  dateTime: { dateStyle: "short", timeStyle: "short" },
+  dateTimeSeconds: {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  },
+  fullDate: { year: "numeric", month: "short", day: "numeric" },
 };
 
 // Intl formatters are expensive to build and hold no per-call state, so one
@@ -37,10 +70,8 @@ const relativeFormatters = new Map<
   SupportedLanguageCode,
   Intl.RelativeTimeFormat
 >();
-const absoluteFormatters = new Map<
-  SupportedLanguageCode,
-  Intl.DateTimeFormat
->();
+// Keyed by language AND shape: one formatter per pair, built once.
+const absoluteFormatters = new Map<string, Intl.DateTimeFormat>();
 
 function relativeFormatter(
   language: SupportedLanguageCode,
@@ -54,11 +85,13 @@ function relativeFormatter(
 
 function absoluteFormatter(
   language: SupportedLanguageCode,
+  shape: DateShape,
 ): Intl.DateTimeFormat {
-  const cached = absoluteFormatters.get(language);
+  const cacheKey = `${language}|${shape}`;
+  const cached = absoluteFormatters.get(cacheKey);
   if (cached) return cached;
-  const made = new Intl.DateTimeFormat(language, ABSOLUTE_OPTIONS);
-  absoluteFormatters.set(language, made);
+  const made = new Intl.DateTimeFormat(language, SHAPE_OPTIONS[shape]);
+  absoluteFormatters.set(cacheKey, made);
   return made;
 }
 
@@ -127,10 +160,50 @@ export function timeUntil(
   };
 }
 
-/** `ts` as a date and time in the reader's locale, in the machine's zone. */
+/**
+ * How long is left until `ts`, to the MINUTE: minutes under an hour, then
+ * hours, then days. timeUntil above is the coarse one, built for an expiry
+ * table where hours are the smallest reading that matters; a countdown to the
+ * next scheduled run has to say 45 minutes rather than round it away. Both are
+ * kept because the choice belongs to the surface, not to the formatter.
+ */
+export function timeUntilFine(
+  language: SupportedLanguageCode,
+  ts: number,
+  now: number = Date.now(),
+): TimeUntil {
+  const remaining = ts - now;
+  if (remaining <= 0) return { kind: "expired" };
+  const minutes = Math.round(remaining / 60_000);
+  if (minutes < 1) return { kind: "underHour" };
+  const format = relativeFormatter(language);
+  if (minutes < 60)
+    return { kind: "formatted", text: format.format(minutes, "minute") };
+  const hours = Math.round(minutes / 60);
+  if (hours < 48)
+    return { kind: "formatted", text: format.format(hours, "hour") };
+  return {
+    kind: "formatted",
+    text: format.format(Math.round(hours / 24), "day"),
+  };
+}
+
+/** `ts` in the shape asked for, in the reader's locale and the machine's zone. */
+export function formatDateTime(
+  language: SupportedLanguageCode,
+  ts: number,
+  shape: DateShape,
+): string {
+  return absoluteFormatter(language, shape).format(new Date(ts));
+}
+
+/**
+ * `ts` as a short date and time. The name S3 gave the shape its access tables
+ * use, kept so those call sites read as they did.
+ */
 export function absoluteTime(
   language: SupportedLanguageCode,
   ts: number,
 ): string {
-  return absoluteFormatter(language).format(new Date(ts));
+  return formatDateTime(language, ts, "dateTime");
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useI18n } from "../i18n.tsx";
 
 function ZoomButton({
   onClick,
@@ -89,6 +90,7 @@ export function ZoomControls({
   onZoomOut: () => void;
   onReset: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       data-no-pan
@@ -102,16 +104,24 @@ export function ZoomControls({
         zIndex: 400,
       }}
     >
-      <ZoomButton onClick={onZoomIn} title="Zoom in" aria-label="Zoom in">
+      <ZoomButton
+        onClick={onZoomIn}
+        title={t("office.zoom.in")}
+        aria-label={t("office.zoom.in")}
+      >
         +
       </ZoomButton>
-      <ZoomButton onClick={onZoomOut} title="Zoom out" aria-label="Zoom out">
+      <ZoomButton
+        onClick={onZoomOut}
+        title={t("office.zoom.out")}
+        aria-label={t("office.zoom.out")}
+      >
         -
       </ZoomButton>
       <ZoomButton
         onClick={onReset}
-        title="Reset view (0)"
-        aria-label="Reset view"
+        title={t("office.zoom.reset")}
+        aria-label={t("office.zoom.resetAria")}
         marginTop={4}
       >
         <svg

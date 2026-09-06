@@ -22,6 +22,12 @@ import {
 } from "../app-preview-queue.ts";
 import { getAppPreviews, setAppPreviews } from "../device-settings.ts";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
+import type {
+  MessageKey,
+  PlainMessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -144,10 +150,14 @@ export function appLinkHref(
   return appHref(app, officeHostname);
 }
 
-export function appLinkLabel(app: Pick<AppWire, "url">): string {
+// Not a component, so the translator arrives as an argument (ruling 18).
+export function appLinkLabel(
+  t: Translator["t"],
+  app: Pick<AppWire, "url">,
+): string {
   return typeof app.url === "string" && app.url !== ""
-    ? "Open app"
-    : "Open on this network";
+    ? t("apps.openApp")
+    : t("apps.openOnNetwork");
 }
 
 export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
@@ -219,6 +229,7 @@ export function AppPreview({
   href: string;
   isMobile: boolean;
 }) {
+  const { t } = useI18n();
   const hostRef = useRef<HTMLDivElement>(null);
   const cacheKey = appPreviewCacheKey(app);
   const cachedImageUrl = cacheKey
@@ -372,15 +383,17 @@ export function AppPreview({
   const message =
     phase.kind !== "error"
       ? null
-      : phase.code === "app_not_running"
-        ? "Preview unavailable: app is not running."
-        : phase.code === "no_browser"
-          ? "Preview unavailable: Chrome is not installed."
-          : phase.code === "unreachable"
-            ? "Preview unavailable: the app is not responding."
-            : phase.code === "capture_busy"
-              ? "Preview is busy. Try again."
-              : "Preview could not be captured.";
+      : t(
+          phase.code === "app_not_running"
+            ? "apps.preview.notRunning"
+            : phase.code === "no_browser"
+              ? "apps.preview.noBrowser"
+              : phase.code === "unreachable"
+                ? "apps.preview.unreachable"
+                : phase.code === "capture_busy"
+                  ? "apps.preview.busy"
+                  : "apps.preview.failed",
+        );
   const style: React.CSSProperties = {
     position: "relative",
     display: "grid",
@@ -420,11 +433,11 @@ export function AppPreview({
         >
           <div>
             {phase.kind === "queued"
-              ? "Preview queued…"
+              ? t("apps.preview.queued")
               : phase.kind === "loading"
-                ? "Capturing preview…"
+                ? t("apps.preview.capturing")
                 : phase.kind === "busy"
-                  ? "Preview is busy. Retrying…"
+                  ? t("apps.preview.retrying")
                   : message}
           </div>
           {phase.kind === "error" && (
@@ -439,7 +452,7 @@ export function AppPreview({
               }}
               style={{ ...actionStyle, marginTop: 9 }}
             >
-              Try again
+              {t("apps.preview.tryAgain")}
             </button>
           )}
         </div>
@@ -458,7 +471,7 @@ export function AppPreview({
             boxShadow: "0 1px 4px var(--shadow-heavy)",
           }}
         >
-          Screenshot preview
+          {t("apps.preview.label")}
         </span>
       )}
     </div>
@@ -466,17 +479,18 @@ export function AppPreview({
 }
 
 export function AppPreviewImage({ href, url }: { href: string; url: string }) {
+  const { t } = useI18n();
   return (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      title="Open app"
+      title={t("apps.openApp")}
       style={{ width: "100%", height: "100%" }}
     >
       <img
         src={url}
-        alt="Screenshot preview"
+        alt={t("apps.preview.label")}
         style={{
           width: "100%",
           height: "100%",
@@ -549,6 +563,31 @@ const agentLinkStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 
+/**
+ * An error the page shows: either a message the server sent, which is relayed
+ * as delivered (ruling 2), or a catalog key this page chose. A KEY and not
+ * finished text, so a language switch re-reads it (the S5 rule). PlainMessageKey,
+ * because a union holding one parameterized member would make every t(e.key)
+ * demand an argument it has nothing to fill.
+ */
+type ErrorKey = Extract<MessageKey, `apps.${string}`> & PlainMessageKey;
+
+type PageError =
+  | { kind: "relayed"; message: string }
+  | { kind: "key"; key: ErrorKey };
+
+function pageError(err: unknown, key: ErrorKey): PageError {
+  return err instanceof ApiError
+    ? { kind: "relayed", message: err.message }
+    : { kind: "key", key };
+}
+
+const ACTION_FAILED: Record<"start" | "stop" | "restart", ErrorKey> = {
+  start: "apps.actionFailed.start",
+  stop: "apps.actionFailed.stop",
+  restart: "apps.actionFailed.restart",
+};
+
 export function AppsView({
   onClose,
   onFocusAgent,
@@ -558,9 +597,10 @@ export function AppsView({
 }) {
   const { apps, appsLoaded, appsRevision, isMobile, hydrationEpoch, agents } =
     useAppState();
+  const { t } = useI18n();
   const dispatch = useDispatch();
   const features = useFeatures();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<PageError | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
   const [previewsEnabled, setPreviewsEnabled] = useState(() =>
@@ -580,7 +620,9 @@ export function AppsView({
   const logGenRef = useRef(0);
   const openLogsRef = useRef<string | null>(null);
   const [logLines, setLogLines] = useState<string[] | null>(null);
-  const [logError, setLogError] = useState<string | null>(null);
+  const [logError, setLogError] = useState<PageError | null>(null);
+  const errorText = (e: PageError) =>
+    e.kind === "relayed" ? e.message : t(e.key);
 
   // Mirrors the store's app revision so the async poll body reads the CURRENT
   // value rather than the one captured when its closure was created.
@@ -638,9 +680,7 @@ export function AppsView({
         landed = revision === revisionRef.current;
       } catch (err) {
         if (cancelled) return;
-        setError(
-          err instanceof ApiError ? err.message : "Could not load apps.",
-        );
+        setError(pageError(err, "apps.loadFailed"));
       }
       const delay = nextPollDelay(cancelled, landed);
       if (delay === null) return;
@@ -666,7 +706,7 @@ export function AppsView({
       );
       dispatch({ type: "app_upserted", app });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : `Could not ${verb}.`);
+      setError(pageError(err, ACTION_FAILED[verb]));
     } finally {
       setBusy(null);
     }
@@ -685,7 +725,7 @@ export function AppsView({
         openLogsRef.current = null;
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Could not delete.");
+      setError(pageError(err, "apps.deleteFailed"));
     } finally {
       setBusy(null);
     }
@@ -717,9 +757,7 @@ export function AppsView({
       if (!shouldCommit(gen, logGenRef.current, name, openLogsRef.current)) {
         return;
       }
-      setLogError(
-        err instanceof ApiError ? err.message : "Could not read the log.",
-      );
+      setLogError(pageError(err, "apps.logReadFailed"));
     }
   }
 
@@ -771,7 +809,7 @@ export function AppsView({
       >
         <button
           onClick={onClose}
-          aria-label="Back"
+          aria-label={t("common.back")}
           style={{
             background: "none",
             border: "none",
@@ -783,7 +821,9 @@ export function AppsView({
         >
           ←
         </button>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>Apps</div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>
+          {t("common.apps")}
+        </div>
         {features.liveAppPreviews && (
           <button
             type="button"
@@ -792,7 +832,9 @@ export function AppsView({
               setPreviewsEnabled(next);
               setAppPreviews(next);
             }}
-            title={previewsEnabled ? "Hide app previews" : "Show app previews"}
+            title={t(
+              previewsEnabled ? "apps.hidePreviews" : "apps.showPreviews",
+            )}
             style={{
               marginLeft: "auto",
               padding: "3px 7px",
@@ -804,7 +846,7 @@ export function AppsView({
               cursor: "pointer",
             }}
           >
-            previews {previewsEnabled ? "on" : "off"}
+            {t(previewsEnabled ? "apps.previewsOn" : "apps.previewsOff")}
           </button>
         )}
         <div
@@ -829,7 +871,7 @@ export function AppsView({
             flexShrink: 0,
           }}
         >
-          {error}
+          {errorText(error)}
         </div>
       )}
 
@@ -842,7 +884,7 @@ export function AppsView({
               padding: "24px 4px",
             }}
           >
-            No apps yet.
+            {t("apps.empty")}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -867,7 +909,7 @@ export function AppsView({
                   href={linkHref}
                   target="_blank"
                   rel="noreferrer"
-                  title={appLinkLabel(app)}
+                  title={appLinkLabel(t, app)}
                   style={style}
                 >
                   {label}
@@ -905,11 +947,11 @@ export function AppsView({
                         textTransform: "lowercase",
                       }}
                     >
-                      {app.state}
+                      {t(STATE_LABELS[app.state])}
                     </span>
                     {appLink(
                       <>
-                        <span>{appLinkLabel(app)}</span>
+                        <span>{appLinkLabel(t, app)}</span>
                         <OpenIcon />
                       </>,
                       {
@@ -949,16 +991,16 @@ export function AppsView({
                       fontSize: 11,
                     }}
                   >
-                    <Meta label="port" value={String(app.port)} />
+                    <Meta label={t("apps.meta.port")} value={String(app.port)} />
                     {/* The creator opens its conversation when it is still an
                         agent of this office; otherwise it stays plain text. */}
                     <Meta
-                      label="created by"
+                      label={t("apps.meta.createdBy")}
                       value={
                         creatorAgentId !== null ? (
                           <button
                             type="button"
-                            title="Open the agent"
+                            title={t("apps.openAgent")}
                             onClick={() => onFocusAgent?.(creatorAgentId)}
                             style={agentLinkStyle}
                             onMouseEnter={(e) =>
@@ -977,7 +1019,7 @@ export function AppsView({
                       }
                     />
                     {app.username && (
-                      <Meta label="owner" value={app.username} />
+                      <Meta label={t("apps.meta.owner")} value={app.username} />
                     )}
                   </div>
 
@@ -992,7 +1034,10 @@ export function AppsView({
                       }}
                     >
                       {app.command}
-                      <span style={{ opacity: 0.7 }}> in {app.cwd}</span>
+                      <span style={{ opacity: 0.7 }}>
+                        {" "}
+                        {t("apps.commandIn", { cwd: app.cwd })}
+                      </span>
                     </div>
                   )}
 
@@ -1030,30 +1075,30 @@ export function AppsView({
                         return (
                           <button
                             key={verb}
-                            title={VERB_TITLES[verb]}
+                            title={t(VERB_TITLES[verb])}
                             disabled={inert}
                             onClick={() => void act(app.name, verb)}
                             style={btnStyle(false, inert)}
                           >
-                            {verb}
+                            {t(VERB_LABELS[verb])}
                           </button>
                         );
                       })}
                       <button
-                        title="Show the app's recent output"
+                        title={t("apps.showLog")}
                         disabled={isBusy}
                         onClick={() => void toggleLogs(app.name)}
                         style={btnStyle(false, isBusy)}
                       >
-                        {openLogs === app.name ? "hide log" : "log"}
+                        {t(openLogs === app.name ? "apps.hideLog" : "apps.log")}
                       </button>
                       <button
-                        title="Remove the app"
+                        title={t("apps.removeTitle")}
                         disabled={isBusy}
                         onClick={() => setConfirmDelete(app)}
                         style={btnStyle(true, isBusy)}
                       >
-                        delete
+                        {t("apps.delete")}
                       </button>
                     </div>
                   )}
@@ -1075,11 +1120,11 @@ export function AppsView({
                         overflowWrap: "anywhere",
                       }}
                     >
-                      {logError ??
+                      {(logError && errorText(logError)) ??
                         (logLines === null
-                          ? "Loading…"
+                          ? t("common.loading")
                           : logLines.length === 0
-                            ? "Nothing in the log yet."
+                            ? t("apps.logEmpty")
                             : logLines.join("\n"))}
                     </pre>
                   )}
@@ -1116,7 +1161,7 @@ export function AppsView({
             }}
           >
             <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-              Delete {confirmDelete.name}? Its data directory will be kept.
+              {t("apps.confirmDelete", { name: confirmDelete.name })}
             </div>
             <div
               style={{
@@ -1130,14 +1175,14 @@ export function AppsView({
                 onClick={() => setConfirmDelete(null)}
                 style={btnStyle(false, false)}
               >
-                cancel
+                {t("apps.cancel")}
               </button>
               <button
                 disabled={busy !== null}
                 onClick={() => void doDelete(confirmDelete)}
                 style={btnStyle(true, busy !== null)}
               >
-                delete
+                {t("apps.delete")}
               </button>
             </div>
           </div>
@@ -1147,11 +1192,33 @@ export function AppsView({
   );
 }
 
-const VERB_TITLES = {
-  start: "Run the app",
-  stop: "Shut the app down (its data is kept)",
-  restart: "Stop the app and start it again",
-} as const;
+// Keys, not words (the S5 id-to-key pattern).
+const VERB_TITLES: Record<
+  "start" | "stop" | "restart",
+  Extract<MessageKey, `apps.verbTitle.${string}`>
+> = {
+  start: "apps.verbTitle.start",
+  stop: "apps.verbTitle.stop",
+  restart: "apps.verbTitle.restart",
+};
+
+const VERB_LABELS: Record<
+  "start" | "stop" | "restart",
+  Extract<MessageKey, `apps.verb.${string}`>
+> = {
+  start: "apps.verb.start",
+  stop: "apps.verb.stop",
+  restart: "apps.verb.restart",
+};
+
+const STATE_LABELS: Record<AppState, Extract<MessageKey, `apps.state.${string}`>> =
+  {
+    running: "apps.state.running",
+    starting: "apps.state.starting",
+    stopped: "apps.state.stopped",
+    failed: "apps.state.failed",
+    unknown: "apps.state.unknown",
+  };
 
 // A verb that cannot change the app's current state renders disabled: "start"
 // on a running app reads as a bug even though systemd would no-op it. State

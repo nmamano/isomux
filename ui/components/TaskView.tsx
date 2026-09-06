@@ -30,6 +30,14 @@ type PendingNav =
   | { kind: "select"; id: string }
   | { kind: "create"; title: string };
 
+import { useI18n } from "../i18n.tsx";
+import { timeSince } from "../../shared/i18n/time.ts";
+import type {
+  MessageKey,
+  Translator,
+} from "../../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
+
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
   open: 1,
@@ -58,11 +66,16 @@ const STATUS_COLORS: Record<TaskStatus, string> = {
   done: "var(--text-muted)",
 };
 
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  backlog: "Backlog",
-  done: "Done",
+// Keys, not words: a table of finished text would freeze the language it was
+// built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
+const STATUS_LABELS: Record<
+  TaskStatus,
+  Extract<MessageKey, `tasks.status.${string}`>
+> = {
+  open: "tasks.status.open",
+  in_progress: "tasks.status.inProgress",
+  backlog: "tasks.status.backlog",
+  done: "tasks.status.done",
 };
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -72,15 +85,16 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   P3: "var(--text-muted)",
 };
 
-function timeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+// Not a component, so the language and the translator arrive as arguments
+// (ruling 18). Under a minute has no Intl reading, so the word for it comes
+// from the catalog here (ruling 17).
+function timeAgo(
+  language: SupportedLanguageCode,
+  t: Translator["t"],
+  ts: number,
+): string {
+  const since = timeSince(language, ts);
+  return since.kind === "now" ? t("common.justNow") : since.text;
 }
 
 function TaskDetailPanel({
@@ -118,8 +132,11 @@ function TaskDetailPanel({
   // its own Room selector (the `roomId` state below).
   createRoomId?: string;
 }) {
+  const { t, language } = useI18n();
   const roomLabel = (roomId: string | undefined) =>
-    roomId ? (rooms.find((r) => r.id === roomId)?.name ?? "Unknown room") : "";
+    roomId
+      ? (rooms.find((r) => r.id === roomId)?.name ?? t("tasks.unknownRoom"))
+      : "";
   // Most-recent agents first - the raw list is oldest-first and can be long.
   // Capped to MAX_ASSIGNEE_SUGGESTIONS by default; a "+N more" chip expands to
   // the full list (same recency order, so the visible chips don't reshuffle).
@@ -332,7 +349,7 @@ function TaskDetailPanel({
               color: "var(--text-primary)",
             }}
           >
-            New Task
+            {t("tasks.newTask")}
           </span>
         ) : (
           // The whole `#<id>` is the copy control (big hit target). Uses the
@@ -342,7 +359,7 @@ function TaskDetailPanel({
           <button
             type="button"
             onClick={() => void copyId(task!.id)}
-            title={idCopied ? "Copied!" : "Copy task ID"}
+            title={t(idCopied ? "tasks.idCopied" : "tasks.copyId")}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -398,7 +415,7 @@ function TaskDetailPanel({
         }}
       >
         <div>
-          <label style={labelStyle}>Title</label>
+          <label style={labelStyle}>{t("tasks.field.title")}</label>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
@@ -414,22 +431,22 @@ function TaskDetailPanel({
 
         {mode === "create" ? (
           <div>
-            <label style={labelStyle}>Create in</label>
+            <label style={labelStyle}>{t("tasks.field.createIn")}</label>
             <div style={{ ...inputStyle, background: "var(--bg-subtle)" }}>
-              {createRoomId ? roomLabel(createRoomId) : "Global (office-wide)"}
+              {createRoomId ? roomLabel(createRoomId) : t("tasks.global")}
             </div>
           </div>
         ) : (
           task && (
             <div>
-              <label style={labelStyle}>Room</label>
+              <label style={labelStyle}>{t("tasks.field.room")}</label>
               <select
                 value={roomId}
                 onChange={(e) => setRoomId(e.target.value)}
-                title="Move this task to another room"
+                title={t("tasks.moveToRoom")}
                 style={inputStyle}
               >
-                <option value="">Global (office-wide)</option>
+                <option value="">{t("tasks.global")}</option>
                 {/* The task's current room may not be in the visible `rooms`
                     list (e.g. access changed); keep it selectable so a save
                     doesn't silently re-file it. */}
@@ -447,7 +464,7 @@ function TaskDetailPanel({
         )}
 
         <div>
-          <label style={labelStyle}>Description</label>
+          <label style={labelStyle}>{t("tasks.field.description")}</label>
           <textarea
             autoFocus={mode === "create"}
             value={description}
@@ -460,13 +477,13 @@ function TaskDetailPanel({
 
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Priority</label>
+            <label style={labelStyle}>{t("tasks.field.priority")}</label>
             <select
               value={priority}
               onChange={(e) => setPriority(e.target.value as TaskPriority | "")}
               style={inputStyle}
             >
-              <option value="">None</option>
+              <option value="">{t("tasks.priorityNone")}</option>
               <option value="P0">P0</option>
               <option value="P1">P1</option>
               <option value="P2">P2</option>
@@ -474,27 +491,27 @@ function TaskDetailPanel({
             </select>
           </div>
           <div style={{ flex: 1 }}>
-            <label style={labelStyle}>Status</label>
+            <label style={labelStyle}>{t("tasks.field.status")}</label>
             <select
               value={status}
               onChange={(e) => setStatus(e.target.value as TaskStatus)}
               style={inputStyle}
             >
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="backlog">Backlog</option>
-              <option value="done">Done</option>
+              <option value="open">{t("tasks.status.open")}</option>
+              <option value="in_progress">{t("tasks.status.inProgress")}</option>
+              <option value="backlog">{t("tasks.status.backlog")}</option>
+              <option value="done">{t("tasks.status.done")}</option>
             </select>
           </div>
         </div>
 
         <div>
-          <label style={labelStyle}>Assignee</label>
+          <label style={labelStyle}>{t("tasks.field.assignee")}</label>
           <input
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
             style={inputStyle}
-            placeholder="Unassigned"
+            placeholder={t("tasks.unassigned")}
             onKeyDown={(e) => e.stopPropagation()}
           />
           {visibleAgents.length > 0 && (
@@ -547,11 +564,13 @@ function TaskDetailPanel({
                   }}
                   title={
                     showAllAgents
-                      ? "Show only recent agents"
-                      : "Show all agents"
+                      ? t("tasks.showRecentAgents")
+                      : t("tasks.showAllAgents")
                   }
                 >
-                  {showAllAgents ? "show less" : `+${hiddenAgentCount} more`}
+                  {showAllAgents
+                    ? t("tasks.showLess")
+                    : t("tasks.moreAgents", { count: hiddenAgentCount })}
                 </button>
               )}
             </div>
@@ -567,10 +586,13 @@ function TaskDetailPanel({
             }}
           >
             {task.username && task.username !== task.createdBy
-              ? `${task.createdBy} · for ${task.username}`
+              ? t("tasks.createdFor", {
+                  who: task.createdBy,
+                  target: task.username,
+                })
               : task.createdBy}
             {" · "}
-            {timeAgo(task.createdAt)}
+            {timeAgo(language, t, task.createdAt)}
           </div>
         )}
       </div>
@@ -597,7 +619,7 @@ function TaskDetailPanel({
             }}
           >
             <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-              Discard unsaved changes?
+              {t("tasks.discardPrompt")}
             </span>
             <button
               onClick={onClose}
@@ -612,7 +634,7 @@ function TaskDetailPanel({
                 cursor: "pointer",
               }}
             >
-              Discard
+              {t("tasks.discard")}
             </button>
             <button
               onClick={() => {
@@ -630,7 +652,7 @@ function TaskDetailPanel({
                 cursor: "pointer",
               }}
             >
-              Cancel
+              {t("common.cancel")}
             </button>
           </div>
         )}
@@ -651,7 +673,7 @@ function TaskDetailPanel({
               cursor: title.trim() ? "pointer" : "default",
             }}
           >
-            {mode === "create" ? "Create" : "Save"}
+            {t(mode === "create" ? "tasks.create" : "common.save")}
             <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 400 }}>
               {(navigator.platform || "").includes("Mac")
                 ? "⌘+Enter"
@@ -673,7 +695,7 @@ function TaskDetailPanel({
                 cursor: "pointer",
               }}
             >
-              {confirmDelete ? "Confirm?" : "Delete"}
+              {t(confirmDelete ? "tasks.confirmDelete" : "common.delete")}
             </button>
           )}
         </div>
@@ -691,6 +713,7 @@ export function TaskView({
 }) {
   const { tasks, tasksLoaded, agents, isMobile, rooms, currentRoomId } =
     useAppState();
+  const { t, language, rich } = useI18n();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<
     TaskStatus | "all" | "active"
@@ -722,7 +745,9 @@ export function TaskView({
     return m;
   }, [rooms]);
   const roomLabel = (roomId: string | undefined) =>
-    roomId ? (roomNameById.get(roomId) ?? "Unknown room") : "Global";
+    roomId
+      ? (roomNameById.get(roomId) ?? t("tasks.unknownRoom"))
+      : t("tasks.globalShort");
   const [creating, setCreating] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState("");
   const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -1043,7 +1068,7 @@ export function TaskView({
                 letterSpacing: "-0.02em",
               }}
             >
-              Tasks
+              {t("tasks.heading")}
             </span>
             <span
               style={{
@@ -1052,7 +1077,7 @@ export function TaskView({
                 fontFamily: "'JetBrains Mono',monospace",
               }}
             >
-              {filtered.length} shown
+              {t("tasks.shownCount", { count: filtered.length })}
             </span>
           </div>
         </div>
@@ -1101,7 +1126,7 @@ export function TaskView({
                   openCreatePanel();
                 }
               }}
-              placeholder="Quick add a task…"
+              placeholder={t("tasks.quickAdd")}
               style={{
                 flex: 1,
                 padding: "9px 12px",
@@ -1122,19 +1147,19 @@ export function TaskView({
                     flexShrink: 0,
                   }}
                 >
-                  file in
+                  {t("tasks.fileIn")}
                 </span>
                 <select
                   value={allRoomsCreateRoomId}
                   onChange={(e) => setAllRoomsCreateRoomId(e.target.value)}
-                  title="New tasks are filed in this room"
+                  title={t("tasks.fileInTitle")}
                   style={{
                     ...selectStyle,
                     flexShrink: 0,
                     maxWidth: isMobile ? 120 : 160,
                   }}
                 >
-                  <option value="">Global</option>
+                  <option value="">{t("tasks.globalShort")}</option>
                   {rooms.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name}
@@ -1154,9 +1179,7 @@ export function TaskView({
               fontFamily: "'JetBrains Mono',monospace",
             }}
           >
-            {isMobile
-              ? "Enter to add details"
-              : "Enter to add details · n to focus"}
+            {t(isMobile ? "tasks.hintMobile" : "tasks.hintDesktop")}
           </div>
 
           {/* Filter row - view/status/assignee + search. These narrow the table
@@ -1174,11 +1197,11 @@ export function TaskView({
               <select
                 value={roomScope}
                 onChange={(e) => setRoomScope(e.target.value)}
-                title="Filter tasks and set where new tasks are filed"
+                title={t("tasks.scopeTitle")}
                 style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
               >
-                <option value="all">All rooms</option>
-                <option value="global">Global</option>
+                <option value="all">{t("tasks.allRooms")}</option>
+                <option value="global">{t("tasks.globalShort")}</option>
                 {rooms.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.name}
@@ -1194,18 +1217,20 @@ export function TaskView({
                 }
                 style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
               >
-                <option value="active">Open + In Progress</option>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="backlog">Backlog</option>
-                <option value="done">Done</option>
-                <option value="all">All</option>
+                <option value="active">{t("tasks.filterActive")}</option>
+                <option value="open">{t("tasks.status.open")}</option>
+                <option value="in_progress">
+                  {t("tasks.status.inProgress")}
+                </option>
+                <option value="backlog">{t("tasks.status.backlog")}</option>
+                <option value="done">{t("tasks.status.done")}</option>
+                <option value="all">{t("tasks.filterAll")}</option>
               </select>
               {!isMobile && (
                 <input
                   value={filterAssignee}
                   onChange={(e) => setFilterAssignee(e.target.value)}
-                  placeholder="Filter assignee..."
+                  placeholder={t("tasks.filterAssignee")}
                   style={{ ...selectStyle, width: 130 }}
                   onKeyDown={(e) => e.stopPropagation()}
                 />
@@ -1217,7 +1242,7 @@ export function TaskView({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.stopPropagation()}
-              placeholder="Search tasks..."
+              placeholder={t("tasks.searchPlaceholder")}
               style={{
                 flex: isMobile ? undefined : 1,
                 padding: "9px 12px",
@@ -1256,7 +1281,7 @@ export function TaskView({
                     style={{ ...thStyle, width: isMobile ? 24 : 36 }}
                     onClick={() => handleSort("status")}
                   >
-                    S
+                    {t("tasks.col.status")}
                     {sortField === "status"
                       ? sortDir === "asc"
                         ? " \u25B2"
@@ -1267,7 +1292,7 @@ export function TaskView({
                     style={{ ...thStyle, width: isMobile ? 24 : 36 }}
                     onClick={() => handleSort("priority")}
                   >
-                    P
+                    {t("tasks.col.priority")}
                     {sortField === "priority"
                       ? sortDir === "asc"
                         ? " \u25B2"
@@ -1275,7 +1300,7 @@ export function TaskView({
                       : ""}
                   </th>
                   <th style={thStyle} onClick={() => handleSort("title")}>
-                    TITLE
+                    {t("tasks.col.title")}
                     {sortField === "title"
                       ? sortDir === "asc"
                         ? " \u25B2"
@@ -1286,7 +1311,7 @@ export function TaskView({
                     style={{ ...thStyle, width: isMobile ? 60 : 100 }}
                     onClick={() => handleSort("assignee")}
                   >
-                    ASSIGNEE
+                    {t("tasks.col.assignee")}
                     {sortField === "assignee"
                       ? sortDir === "asc"
                         ? " \u25B2"
@@ -1298,7 +1323,7 @@ export function TaskView({
                       style={{ ...thStyle, width: 140 }}
                       onClick={() => handleSort("createdBy")}
                     >
-                      BY
+                      {t("tasks.col.by")}
                       {sortField === "createdBy"
                         ? sortDir === "asc"
                           ? " \u25B2"
@@ -1310,7 +1335,7 @@ export function TaskView({
                     style={{ ...thStyle, width: 70 }}
                     onClick={() => handleSort("createdAt")}
                   >
-                    AGE
+                    {t("tasks.col.age")}
                     {sortField === "createdAt"
                       ? sortDir === "asc"
                         ? " \u25B2"
@@ -1331,7 +1356,7 @@ export function TaskView({
                         fontSize: 13,
                       }}
                     >
-                      {tasksLoaded ? "No tasks" : "Loading..."}
+                      {tasksLoaded ? t("tasks.empty") : t("common.loadingDots")}
                     </td>
                   </tr>
                 ) : (
@@ -1432,8 +1457,10 @@ export function TaskView({
                             }}
                             title={
                               task.roomId
-                                ? `Room: ${roomLabel(task.roomId)}`
-                                : "Office-global task"
+                                ? t("tasks.roomChipTitle", {
+                                    room: roomLabel(task.roomId),
+                                  })
+                                : t("tasks.globalChipTitle")
                             }
                           >
                             {roomLabel(task.roomId)}
@@ -1477,14 +1504,12 @@ export function TaskView({
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {task.username && task.username !== task.createdBy ? (
-                            <>
-                              {renderName(task.createdBy)} · for{" "}
-                              {renderName(task.username)}
-                            </>
-                          ) : (
-                            renderName(task.createdBy)
-                          )}
+                          {task.username && task.username !== task.createdBy
+                            ? rich("tasks.createdFor", {
+                                who: renderName(task.createdBy),
+                                target: renderName(task.username),
+                              })
+                            : renderName(task.createdBy)}
                         </td>
                       )}
                       <td
@@ -1496,7 +1521,7 @@ export function TaskView({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {timeAgo(task.createdAt)}
+                        {timeAgo(language, t, task.createdAt)}
                       </td>
                     </tr>
                   ))

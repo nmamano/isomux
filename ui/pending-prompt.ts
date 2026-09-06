@@ -13,13 +13,16 @@ import type { PendingPromptKind } from "../shared/types.ts";
 import type { MessageKey } from "../shared/i18n/translate.ts";
 
 // Nameplate badge: sits next to the agent name on the office floor, where there
-// is room for one word. Still English: the office scene is S6's slice of the
-// i18n loop (internal-docs/i18n-loop.md), and the log view is S5's.
-export const PENDING_PROMPT_BADGE: Record<PendingPromptKind, string> = {
-  permission: "permission",
-  resume: "session",
-  model: "model",
-  effort: "effort",
+// is room for one word. A KEY, not a word, for the same reason as the header
+// label below: DeskUnit renders it through the catalog.
+export const PENDING_PROMPT_BADGE: Record<
+  PendingPromptKind,
+  Extract<MessageKey, `office.pendingPrompt.${string}`>
+> = {
+  permission: "office.pendingPrompt.permission",
+  resume: "office.pendingPrompt.resume",
+  model: "office.pendingPrompt.model",
+  effort: "office.pendingPrompt.effort",
 };
 
 // Header label: the full sentence, shown where the activity indicator would be

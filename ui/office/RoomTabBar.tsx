@@ -4,6 +4,7 @@ import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
 import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
+import { useI18n } from "../i18n.tsx";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
 // stays at 32px (the tabs' existing height) - mini ghosts must read as
@@ -41,6 +42,7 @@ function EdgeScrollHint({
   side: "left" | "right";
   onScroll: (() => void) | null;
 }) {
+  const { t } = useI18n();
   const fade = (
     <span
       aria-hidden
@@ -50,11 +52,14 @@ function EdgeScrollHint({
       }}
     />
   );
+  const scrollLabel = t(
+    side === "left" ? "office.tabs.scrollLeft" : "office.tabs.scrollRight",
+  );
   const chevron = onScroll && (
     <button
       onClick={onScroll}
-      aria-label={side === "left" ? "Scroll rooms left" : "Scroll rooms right"}
-      title={side === "left" ? "Scroll rooms left" : "Scroll rooms right"}
+      aria-label={scrollLabel}
+      title={scrollLabel}
       style={{
         pointerEvents: "auto",
         width: 22,
@@ -112,13 +117,14 @@ function EdgeScrollHint({
 }
 
 function TotalOnlineChip({ count }: { count: number }) {
+  const { tn } = useI18n();
   if (count <= 0) return null;
   // Text + green "online" dot - the conventional online-status visual
   // language (Discord/Slack/Teams). The count is distinct users
   // (server dedupes by userId), hence "users" - a ghost represents a
   // device/connection, not a user. Italic and right-aligned via
   // marginLeft:auto so the chip reads as ambient annotation, not a tab.
-  const label = count === 1 ? "1 online user" : `${count} online users`;
+  const label = tn("office.tabs.onlineUsers", count);
   return (
     <span
       style={{
@@ -169,6 +175,7 @@ export function RoomTabBar({
     sessionContext,
     isMobile,
   } = useAppState();
+  const { t } = useI18n();
   const selfConnectionId = sessionContext?.connectionId ?? null;
   const roomCount = rooms.length;
   const dispatch = useDispatch();
@@ -429,7 +436,7 @@ export function RoomTabBar({
                   // looked taller than on tabs whose names fit.
                   whiteSpace: "nowrap",
                 }}
-                title="Double-click for room settings"
+                title={t("office.tabs.roomSettings")}
               >
                 {displayName}
                 <span
@@ -494,7 +501,7 @@ export function RoomTabBar({
                     padding: 0,
                     lineHeight: 1,
                   }}
-                  title="Close empty room"
+                  title={t("office.tabs.closeEmptyRoom")}
                 >
                   ×
                 </button>
@@ -521,7 +528,7 @@ export function RoomTabBar({
             marginLeft: 4,
             flexShrink: 0,
           }}
-          title="Create new room"
+          title={t("office.tabs.newRoom")}
         >
           +
         </button>

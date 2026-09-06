@@ -9,6 +9,8 @@
 // office-scene props are picked to fit each palette rather than hand-tuned
 // pixel-by-pixel.
 
+import type { MessageKey } from "../shared/i18n/translate.ts";
+
 export type ThemeMode = "dark" | "light";
 
 // The Dark theme acts as the canonical variable schema: every other theme
@@ -664,25 +666,64 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
 
 export interface Theme {
   id: string;
+  /**
+   * The name as a comment in the emitted stylesheet, which no reader sees and
+   * no language changes. Kept beside the key because emitThemesCss runs with
+   * no translator.
+   */
   displayName: string;
+  /**
+   * The name a reader sees, as a KEY: a table of finished text would freeze the
+   * language it was built in (internal-docs/i18n-loop.md, the S5 id-to-key
+   * pattern). ThemePane is the one caller that renders it. The palettes named
+   * after their author's work - Nord, Dracula, Solarized - read the same in
+   * every language (ruling 11); only Dark and Light are words.
+   */
+  displayNameKey: Extract<MessageKey, `themes.${string}`>;
   mode: ThemeMode;
   vars: ThemeVars;
 }
 
 export const THEMES: readonly Theme[] = [
-  { id: "dark", displayName: "Dark", mode: "dark", vars: DARK_VARS },
-  { id: "light", displayName: "Light", mode: "light", vars: LIGHT_VARS },
-  { id: "nord", displayName: "Nord", mode: "dark", vars: NORD_VARS },
-  { id: "dracula", displayName: "Dracula", mode: "dark", vars: DRACULA_VARS },
+  {
+    id: "dark",
+    displayName: "Dark",
+    displayNameKey: "themes.dark",
+    mode: "dark",
+    vars: DARK_VARS,
+  },
+  {
+    id: "light",
+    displayName: "Light",
+    displayNameKey: "themes.light",
+    mode: "light",
+    vars: LIGHT_VARS,
+  },
+  {
+    id: "nord",
+    displayName: "Nord",
+    displayNameKey: "themes.nord",
+    mode: "dark",
+    vars: NORD_VARS,
+  },
+  {
+    id: "dracula",
+    displayName: "Dracula",
+    displayNameKey: "themes.dracula",
+    mode: "dark",
+    vars: DRACULA_VARS,
+  },
   {
     id: "solarized-dark",
     displayName: "Solarized Dark",
+    displayNameKey: "themes.solarizedDark",
     mode: "dark",
     vars: SOLARIZED_DARK_VARS,
   },
   {
     id: "solarized-light",
     displayName: "Solarized Light",
+    displayNameKey: "themes.solarizedLight",
     mode: "light",
     vars: SOLARIZED_LIGHT_VARS,
   },
