@@ -744,6 +744,7 @@ export function UserSettingsView({
 
         {showDetail && (
           <div
+            data-testid="settings-content"
             style={{
               flex: 1,
               minWidth: 0,
@@ -773,6 +774,7 @@ export function UserSettingsView({
               <div
                 style={{
                   padding: isMobile ? "0 16px 24px" : "0 24px 24px",
+                  paddingTop: isMobile && (selection.section === "storage" || selection.section === "usage") ? "env(safe-area-inset-top, 16px)" : undefined,
                   maxWidth: 720,
                   width: "100%",
                   boxSizing: "border-box",
@@ -936,15 +938,12 @@ function summarizeRoster(
   });
 }
 
-// An office owner's read-only view of another user's individual connections:
-// WHICH managed variables that user has set, never what those hold. The values
-// live in that user's own managed env file and reach nobody else, which is why
-// GET /api/users/:username/env/names answers names alone and refuses every
-// caller who is not an office owner. Mounted only for owner viewers, so a
-// member never sees a section they would be refused.
+// Owners see managed variable names and personal provider status, never
+// variable values or account metadata. The route enforces the same owner guard.
 function MemberVariableNames({ username }: { username: string }) {
   const { t } = useI18n();
-  const [names, setNames] = useState<string[] | null>(null);
+  const [connections, setConnections] = useState<UserEnvNamesRes | null>(null);
+  const names = connections?.names ?? null;
   const [failed, setFailed] = useState(false);
   // Keyed on the username at the call site, so a different profile remounts
   // this with empty state instead of showing the previous user's names while
@@ -960,7 +959,7 @@ function MemberVariableNames({ username }: { username: string }) {
         // A body without a names array is a broken read, not an empty file:
         // "No variables." must mean the server said none, never that the pane
         // could not tell.
-        if (Array.isArray(res.names)) setNames(res.names);
+        if (Array.isArray(res.names) && Array.isArray(res.providers)) setConnections(res);
         else setFailed(true);
       })
       .catch(() => {
@@ -975,6 +974,15 @@ function MemberVariableNames({ username }: { username: string }) {
     <>
       <h5 style={sectionTitleStyle}>{t("settings.memberConnections.title")}</h5>
       <p style={sectionHintStyle}>{t("settings.memberConnections.hint")}</p>
+      {connections?.providers.map(({ provider, status }) => (
+        <p key={provider} style={sectionHintStyle}>
+          {provider === "claude" ? "Claude" : "Codex"}: {t(
+            status === "connected" ? "settings.signIn.connected"
+              : status === "not_connected" ? "settings.signIn.notConnected"
+              : "settings.memberConnections.unknown",
+          )}
+        </p>
+      ))}
       {failed ? (
         <p style={sectionHintStyle}>
           {t("settings.memberConnections.loadFailed")}

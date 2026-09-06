@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
-import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import {
@@ -54,7 +53,6 @@ function dollars(language: SupportedLanguageCode, n: number): string {
 // Token and cost totals for the office. Read-only, so no guard and no
 // footer: the sidebar is the way out.
 export function UsagePane() {
-  const { isMobile } = useAppState();
   const { t } = useI18n();
   const [usage, setUsage] = useState<UsageReportWire | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,27 +71,6 @@ export function UsagePane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      <div
-        style={{
-          background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 24 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 760,
-          maxWidth: isMobile ? "100%" : "calc(100% - 48px)",
-          maxHeight: isMobile
-            ? "calc(100dvh - 48px - var(--banner-h, 0px))"
-            : "calc(90vh - var(--banner-h, 0px))",
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
-          animation: "hudIn 0.2s ease-out",
-        }}
-      >
-        <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
           <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0 }}>
             {t("settings.usage.title")}
           </h3>
@@ -173,8 +150,6 @@ export function UsagePane() {
               />
             </>
           )}
-        </div>
-      </div>
     </div>
   );
 }

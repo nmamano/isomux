@@ -18,6 +18,19 @@ const disconnectedAccountClient = () => ({
 });
 
 describe("ProviderAccountManager", () => {
+  it("projects an invalid personal target to unknown without account metadata", async () => {
+    const manager = new ProviderAccountManager(
+      () => {}, disconnectedAccountClient as never, undefined,
+      (id) => id, () => ({}), disconnectedAccountClient as never,
+      () => ({}), () => ({}), () => ({ CODEX_HOME: "private-relative-path" }),
+      () => [{ id: "member" }],
+    );
+    expect(await manager.memberStatuses("member")).toEqual([
+      { provider: "claude", status: "not_connected" },
+      { provider: "codex", status: "unknown" },
+    ]);
+  });
+
   it("marks external CLI directories by resolved path for both providers", async () => {
     const fake = () => ({
       start: async () => {},

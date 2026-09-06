@@ -133,6 +133,8 @@ In Settings → Office → Office-wide connections (for every agent) or Settings
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
+Office owners can open a member’s profile in Settings to see their personal Claude and Codex connection status and managed variable names. A provider whose status cannot be checked is shown as unknown. This read-only section shows no variable values or account details.
+
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 

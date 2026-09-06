@@ -541,9 +541,10 @@ export const es: Catalog = {
 
   "settings.memberConnections.title": "Conexiones individuales",
   "settings.memberConnections.hint":
-    "Variables que esta persona ha puesto para sus propios agentes. Solo los nombres - los valores quedan privados.",
+    "Estado de los proveedores personales y nombres de variables para los agentes de esta persona.",
   "settings.memberConnections.loadFailed":
-    "No se han podido cargar las variables.",
+    "No se han podido cargar las conexiones.",
+  "settings.memberConnections.unknown": "No se pudo comprobar el estado.",
   "settings.memberConnections.empty": "No hay variables.",
   "dialogs.textarea.expand": "Ampliar {title}",
   "dialogs.textarea.escCollapse": "Esc para plegar",

@@ -44,7 +44,7 @@ setApiShim(async (_method, path) => {
     };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
   if (path === "/api/me/api-tokens") return { apiTokens: [] };
-  if (path.endsWith("/env/names")) return { names: [] };
+  if (path.endsWith("/env/names")) return { names: [], providers: [{ provider: "claude", status: "unknown" }, { provider: "codex", status: "not_connected" }] };
   if (path === "/api/office/env" || path.endsWith("/env"))
     return { mode: "managed", values: {} };
   throw new Error(`no shim for ${path}`);
@@ -272,6 +272,8 @@ describe("the access and connections panes", () => {
       }),
     ).not.toBeNull();
 
+    shows(view, "Claude: No s’ha pogut comprovar l’estat.");
+
     // Spanish: the open pane follows, and every fresh pane reads it too.
     view.rerender(page("es"));
     expect(
@@ -280,6 +282,11 @@ describe("the access and connections panes", () => {
         level: 5,
       }),
     ).not.toBeNull();
+
+    shows(view, "Claude: No se pudo comprobar el estado.");
+    view.rerender(page(null));
+    shows(view, "Claude: Could not check status.");
+    view.rerender(page("es"));
 
     open(view, SIDEBAR.invites.es);
     shows(view, ANCHOR.outstanding.es);

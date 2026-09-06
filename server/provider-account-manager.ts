@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { unlinkSync } from "node:fs";
+import type { MemberProviderStatus } from "../shared/contract-shapes.ts";
 import { isAbsolute, resolve } from "node:path";
 import { readEnvFile } from "./persistence.ts";
 import { getUserEnvFileById, listUsers } from "./users.ts";
@@ -311,6 +312,19 @@ export class ProviderAccountManager {
       pairs.map(([provider, scope]) =>
         this.wireFor(userId, provider, scope, refresh),
       ),
+    );
+  }
+
+  // Reuse personal resolution and its cache, but expose no account metadata.
+  async memberStatuses(userId: string): Promise<MemberProviderStatus[]> {
+    return Promise.all(
+      (["claude", "codex"] as const).map(async (provider) => {
+        const wire = await this.wireFor(userId, provider, "personal", false);
+        return {
+          provider,
+          status: wire.accountStatus === "unavailable" ? "unknown" : wire.accountStatus,
+        };
+      }),
     );
   }
 

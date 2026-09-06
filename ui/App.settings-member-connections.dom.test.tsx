@@ -1,7 +1,5 @@
-// An office owner opens a member's profile from the roster and sees WHICH
-// managed variables that member has set. Names only: the values live in the
-// member's own managed env file, and GET /api/users/:username/env/names is the
-// only thing this section ever reads.
+// Owners see the member's managed variable names and personal provider status.
+// GET /api/users/:username/env/names is the only route this section reads.
 //
 // The member half of the same behaviour is here too, because "owners only" is
 // half a rule until something proves the other half: a member's own profile
@@ -31,7 +29,7 @@ setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path.startsWith("/api/me/provider-accounts")) return { accounts: [] };
-  if (path.endsWith("/env/names")) return { names: ["GH_TOKEN", "ZED_TOKEN"] };
+  if (path.endsWith("/env/names")) return { names: ["GH_TOKEN", "ZED_TOKEN"], providers: [{ provider: "claude", status: "connected" }, { provider: "codex", status: "not_connected" }] };
   return {};
 });
 afterAll(() => setApiShim(null));
@@ -88,7 +86,7 @@ async function openProfile(state: typeof initialState, name: string) {
 }
 
 describe("individual connections on a member's profile", () => {
-  it("shows an owner the member's variable names and no values", async () => {
+  it("shows an owner the member's variable names and provider status", async () => {
     const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Beth");
 
     expect(
@@ -96,6 +94,8 @@ describe("individual connections on a member's profile", () => {
     ).not.toBeNull();
     expect(view.queryByText("GH_TOKEN")).not.toBeNull();
     expect(view.queryByText("ZED_TOKEN")).not.toBeNull();
+    expect(view.queryByText("Claude: Connected")).not.toBeNull();
+    expect(view.queryByText("Codex: Not connected")).not.toBeNull();
     // The subject is BETH's file, not the owner's own.
     expect(asked).toContain("/api/users/Beth/env/names");
   });

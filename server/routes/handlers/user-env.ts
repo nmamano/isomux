@@ -18,10 +18,10 @@ type Outcome =
 
 export interface UserEnvDeps {
   get(userId: string): UserEnvRes;
-  // The variable NAMES a user has set, or null when the username is unknown.
+  // Variable names and personal provider status, or null for an unknown user.
   // Takes the username rather than a userId because the officeOwner guard on
   // userEnv.names never resolves the path param - it only asks who is calling.
-  names(username: string): string[] | null;
+  names(username: string): Promise<UserEnvNamesRes | null>;
   replace(userId: string, values: Record<string, string>): Outcome;
   getOffice(): UserEnvRes;
   replaceOffice(values: Record<string, string>): Outcome;
@@ -57,16 +57,13 @@ export function userEnvHandlers(
         return fail(500, "read_failed", "could not read the managed env file");
       }
     },
-    // Owner-only, and names only: the office owner may see WHICH variables a
-    // member has set so they can tell who is still unconfigured, but a managed
-    // env file's values stay with the member who wrote them.
-    "userEnv.names": (ctx) => {
+    // Owner-only: variable names and provider status, with no values or metadata.
+    "userEnv.names": async (ctx) => {
       const username = ctx.params.username;
       if (!username) return fail(404, "not_found");
       try {
-        const names = deps.names(username);
-        if (!names) return fail(404, "not_found");
-        const res: UserEnvNamesRes = { names };
+        const res = await deps.names(username);
+        if (!res) return fail(404, "not_found");
         return ok(res);
       } catch {
         return fail(500, "read_failed", "could not read the managed env file");

@@ -25,7 +25,6 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { apiFetch, ApiError } from "../api.ts";
@@ -155,7 +154,6 @@ export function StoragePane({
 }: {
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
-  const { isMobile } = useAppState();
   const { t } = useI18n();
   const [usage, setUsage] = useState<StorageUsageWire | null>(null);
   // null = still loading, "unavailable" = the probe failed. Both are distinct
@@ -322,30 +320,6 @@ export function StoragePane({
 
   return (
     <div style={{ marginTop: 24 }}>
-      <div
-        style={{
-          background: "var(--bg-overlay)",
-          backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 24 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 560,
-          maxWidth: isMobile ? "100%" : undefined,
-          maxHeight: isMobile ? "calc(100dvh - 48px)" : "90vh",
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
-          animation: "hudIn 0.2s ease-out",
-        }}
-      >
-        {/* The scroll lives HERE, not on the backdrop. A backdrop that centers
-            a taller-than-viewport child pushes its top edge off-screen, and no
-            amount of scrolling brings it back: scroll offsets cannot go
-            negative. Capping the panel and scrolling inside it is what the
-            other tall dialogs do (EditAgentDialog, CronjobDialog). */}
-        <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
           <h3
             style={{
               fontSize: 17,
@@ -479,8 +453,6 @@ export function StoragePane({
           )}
 
           {phase.kind === "done" && <ResultBlock result={phase.result} />}
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
+import { activatePersonalProvider, personalProviderHome } from "../provider-homes.ts";
 import { getUserByName } from "../users.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
@@ -208,8 +209,22 @@ describe("managed office env routes", () => {
 // managed-env route whose subject is not the caller, so the whole test is about
 // who is refused and about the values never appearing in a body.
 describe("managed user env names route", () => {
-  it("gives an office owner the names, refuses everyone else, and never carries a value", async () => {
-    server = await startTestServer();
+  it("gives an office owner names and personal status, refuses everyone else, and never carries metadata", async () => {
+    const probed: string[] = [];
+    server = await startTestServer({
+      startServer: {
+        createClaudeAccountClient: (env) => ({
+          start: async () => { probed.push(env!.CLAUDE_CONFIG_DIR!); },
+          read: async () => ({ connected: true, label: "private-account-label" }),
+          close: async () => {},
+        }) as never,
+        createCodexAccountClient: (env) => ({
+          start: async () => { probed.push(env!.CODEX_HOME!); },
+          read: async () => ({ connected: false, label: "private-account-label" }),
+          close: async () => {},
+        }) as never,
+      },
+    });
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Member");
     const ownerId = getUserByName(owner.username)!.id;
@@ -226,6 +241,8 @@ describe("managed user env names route", () => {
     });
     const plainAgent = mintAgentToken("names-agent", ownerId, false);
     const privilegedAgent = mintAgentToken("names-privileged", ownerId, true);
+    activatePersonalProvider(memberId, "claude");
+    activatePersonalProvider(memberId, "codex");
     const secret = "do-not-echo-this-secret";
 
     // The member fills their own managed file through the self route.
@@ -304,9 +321,27 @@ describe("managed user env names route", () => {
     });
     expect(ownerRead.body).toEqual({
       names: ["ANTHROPIC_API_KEY", "ZED_TOKEN"],
+      providers: [
+        { provider: "claude", status: "connected" },
+        { provider: "codex", status: "not_connected" },
+      ],
     });
+    // Both owner reads reuse the same personal cache. No office probe runs.
+    expect(probed.sort()).toEqual([personalProviderHome(memberId, "claude"), personalProviderHome(memberId, "codex")].sort());
     expect(ownerApiRead.body).toEqual(ownerRead.body);
     expect(JSON.stringify(ownerRead.body)).not.toContain(secret);
+    for (const auth of [
+      { session: member.rawSessionId },
+      { bearer: memberApi.token },
+      { bearer: plainAgent },
+      { bearer: privilegedAgent },
+    ]) {
+      const denied = await request(server, member.username, { suffix: "/names", ...auth });
+      expect(denied.status).toBe(403);
+      expect(denied.body).not.toHaveProperty("providers");
+      const selfRead = await request(server, member.username, auth);
+      expect(selfRead.body).not.toHaveProperty("providers");
+    }
   });
 
   it("answers an empty list for a user who has set nothing", async () => {
@@ -319,7 +354,30 @@ describe("managed user env names route", () => {
     });
     expect({ status: read.status, body: read.body }).toEqual({
       status: 200,
-      body: { names: [] },
+      body: { names: [], providers: [
+        { provider: "claude", status: "not_connected" },
+        { provider: "codex", status: "not_connected" },
+      ] },
     });
+  });
+  it("keeps names and the other provider when a personal probe fails", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Member");
+    activatePersonalProvider(getUserByName(member.username)!.id, "codex");
+    expect((await request(server, member.username, {
+      method: "PUT", session: member.rawSessionId,
+      body: { values: { ZED_TOKEN: "private-value" } },
+    })).status).toBe(204);
+    const read = await request(server, member.username, {
+      suffix: "/names", session: owner.rawSessionId,
+    });
+    expect(read).toEqual({ status: 200, body: {
+      names: ["ZED_TOKEN"],
+      providers: [
+        { provider: "claude", status: "not_connected" },
+        { provider: "codex", status: "unknown" },
+      ],
+    } });
   });
 });

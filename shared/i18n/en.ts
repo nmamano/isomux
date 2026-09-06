@@ -533,8 +533,9 @@ export const en = {
 
   "settings.memberConnections.title": "Individual Connections",
   "settings.memberConnections.hint":
-    "Variables this user set for their own agents. Names only - values stay private.",
-  "settings.memberConnections.loadFailed": "Could not load variables.",
+    "Personal provider status and variable names for this user’s agents.",
+  "settings.memberConnections.loadFailed": "Could not load connections.",
+  "settings.memberConnections.unknown": "Could not check status.",
   "settings.memberConnections.empty": "No variables.",
   // The dialogs (internal-docs/i18n-loop.md, S4).
 

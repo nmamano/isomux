@@ -2416,13 +2416,15 @@ function buildExecutorDeps(
           values: readManagedUserEnv(userId) ?? {},
         };
       },
-      // Names only, and only for a caller the route already gated as an office
-      // owner. Reads the same managed file as get(), then drops every value
-      // before it can leave this closure.
-      names: (username) => {
+      // The route has checked officeEnvOwner. Drop values and account metadata
+      // before the member's connections leave this closure.
+      names: async (username) => {
         const user = getUserByName(username);
         if (!user) return null;
-        return Object.keys(readManagedUserEnv(user.id) ?? {}).sort();
+        return {
+          names: Object.keys(readManagedUserEnv(user.id) ?? {}).sort(),
+          providers: await providerAccountManager.memberStatuses(user.id),
+        };
       },
       replace: (userId, values) => {
         const user = getUserById(userId);
