@@ -1030,6 +1030,15 @@ friendlyLine is customer copy and translates by the negotiated language,
 codes and trace ids byte-identical; ruling 2 stays for the office
 server's API errors.
 
+Ruled in S11 round 1 (2026-09-06): no explicit locale is passed to Stripe
+Checkout on either path (reservation, reinstatement): the idempotency key
+is tied to the stored generation, so a lost create response followed by a
+language switch would replay with different parameters and Stripe rejects
+it; the locale never goes into the idempotency key. Stripe's hosted page
+follows the browser's own detection; the cookie switch applies to our
+pages only (acceptance amended; a per-generation stored locale is a
+follow-up if Nil wants the Stripe page to follow the switch).
+
 Decide with reviewer: the switch's place, the catalog module layout.
 Locked: every ruling; no change to `docs/`, `site/` legal pages or the
 office server; ops pages English.
