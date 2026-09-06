@@ -764,8 +764,9 @@ move requires; never restart the server.
   used the server's system locale (en-US on this box). Conventions: server
   state that outlives a render holds a language-independent identity;
   id-to-key tables use own-property lookup (`keyFrom`). No signed-in
-  onboarding prose exists. Ruling 5's pre-sign-in promise is OUTSTANDING
-  (task 852694dc). Deliberately English: the unknown-error pass-through in
+  onboarding prose exists. Ruling 5's pre-sign-in promise was outstanding
+  here and S9 delivered it (task 852694dc). Deliberately English: the
+  unknown-error pass-through in
   `humanizeBackendFailure`, `formatSize` for the attachment prompt.
 
 ## PICKUP S8 - sweep and loop close (Worker 2 / Reviewer 2)
@@ -899,6 +900,18 @@ Decide with reviewer: where the pages' HTML template functions take the
 translator, the key layout.
 Locked: every ruling; server edits limited to `server/auth-middleware.ts`,
 `server/i18n.ts` and their tests; no UI change; never restart.
+
+- [x] S9 landed as a90619c (+ format b1dee1d). Six pre-sign-in surfaces
+  (claim, invite accept, login, invite error, identity conflict, sign-out
+  blocked), `languageFromAcceptLanguage` in `shared/languages.ts`,
+  `translatorForRequest` in `server/i18n.ts` (precedence in one function
+  over an already-resolved identity), page templates take the translator
+  first and write `<html lang>`. 40 keys per language (1,475 total).
+  Bundle +10572 bytes. Sixty rendered English pages byte-identical to
+  c6618dd (reusable check: /tmp/s9/reviewer-byte-check.ts). Ruling 5
+  delivered; task 852694dc done. Parked for Nil: the claim and
+  invite-accept intros differ by one character ("name; it'll" vs "name -
+  it'll"); proposed the semicolon on both.
 
 ## PICKUP S10 - the landing and hosted pages (Worker 2 / Reviewer 2)
 
