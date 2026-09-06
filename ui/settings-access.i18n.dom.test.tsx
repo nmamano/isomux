@@ -272,7 +272,7 @@ describe("the access and connections panes", () => {
       }),
     ).not.toBeNull();
 
-    shows(view, "Claude: No s’ha pogut comprovar l’estat.");
+    shows(view, "Claude: No s'ha pogut comprovar l'estat.");
 
     // Spanish: the open pane follows, and every fresh pane reads it too.
     view.rerender(page("es"));
