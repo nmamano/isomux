@@ -1056,3 +1056,17 @@ office server; ops pages English.
   wraps, one pre-existing diagnostic leak at services.server.ts:369.
   Follow-ups at close: a per-generation checkout locale if Nil wants the
   Stripe page to follow the switch; the leaked diagnostic.
+
+- [x] S10 landed as 2408059 (+ format 5c91fae, + two PM-direct test fixes
+  51a761b and 9e20fe0). Spanish and Catalan copies of the landing and hosted
+  pages at /es and /ca with hreflang, canonical and a footer switch; the
+  chat widget and theme toggle labels follow the page lang; the office's
+  neon sign opens the landing in the boss's language; sitemap lists the
+  new pages. Nil approved the copy; the product name "Hosted Isomux" stays
+  English; the legal note above the hosted footer in three languages. The
+  format pass rewrapped the new HTML and broke the check script's anchor
+  parser (fixed to tolerate `</a\n>`), and the chat-prompt source pin
+  moved to the prefix-stripped classification. Full ci green on 9e20fe0.
+
+LOOP CLOSED 2026-09-06: eleven slices landed; this file is retired in the
+next commit (history keeps it).
