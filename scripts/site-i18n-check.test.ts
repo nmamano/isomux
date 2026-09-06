@@ -210,7 +210,8 @@ type SwitchItem = {
 };
 
 function switchItems(block: string): SwitchItem[] {
-  return [...block.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a>/g)].map((m) => {
+  // The formatter may break the line before a closing bracket (`</a\n>`).
+  return [...block.matchAll(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/g)].map((m) => {
     const a = attributesOf(m[1]);
     return {
       href: a.href ?? "",
