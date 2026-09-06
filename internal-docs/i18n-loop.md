@@ -830,3 +830,51 @@ Decide with reviewer: the sweep's grep commands (write them in the
 report so the next loop reuses them), the orphan-key method.
 Locked: every ruling; no English wording change; no docs/ or site/ edit;
 no server change beyond deleting orphan keys' callers if any.
+
+## PICKUP S9 - the pre-sign-in office pages (Worker 1 / Reviewer 1)
+
+Goal: a visitor whose browser prefers Spanish or Catalan reads the
+first-time claim page, the invite-accept page and the login page in that
+language, with no picker (ruling 5); everyone else reads English. Ruling
+5 becomes delivered; task 852694dc closes with this slice.
+
+Mechanics:
+
+- Files: `server/auth-middleware.ts` (the three server-rendered HTML
+  pages, their titles, headings, labels, buttons, errors and hints, and
+  any inline script text they render), the shared catalogs, and the S7
+  resolver in `server/i18n.ts`, which gains the pre-identity path.
+- Negotiation: one pure function (`languageFromAcceptLanguage(header)`),
+  beside `detectBrowserLanguage` in `shared/languages.ts`: parse the
+  header with quality values, pick the highest-q language whose primary
+  subtag is supported, English when nothing matches or the header is
+  absent or malformed. Unit test on `es-ES`, `ca`, `en-GB`, `es;q=0.8,
+  ca;q=0.9` (ca), `fr`, empty, garbage. The route uses it only when no
+  identity exists; a signed-in user's stored preference still wins
+  (ruling 8: this is the same resolver's pre-identity input, not a second
+  resolver).
+- The served HTML carries `lang="es"`/`"ca"`/`"en"` and the page's
+  `<title>` is in the catalog. Pages keep working with no JavaScript.
+- Keys: `preAuth.claim.*`, `preAuth.invite.*`, `preAuth.login.*`,
+  `common.*` second-use rule. Product names, URLs and codes stay (ruling
+  11). English bytes unchanged (ruling 6).
+- Tests: the existing auth-middleware and access route tests stay green;
+  new route tests request each of the three pages with `Accept-Language`
+  set to `es`, `ca`, `en` and unset, asserting a literal anchor and the
+  `lang` attribute per case; one test proves a signed-in Spanish user on
+  the login route (if reachable) is not affected by an English header.
+- Gates: the touched server suites and `shared/languages.test.ts`,
+  eslint, `bunx tsc --noEmit` once; `build:ui` is not affected unless a
+  shared file the bundle imports changes (it does: the catalogs), so run
+  it.
+
+Acceptance: three pages in three languages by header, tests per case,
+`lang` attribute present, no picker, English bytes unchanged, resolver
+unit test green. The report lists every string of the three pages in the
+three languages (they are short) and anything a page renders that stayed
+English with its category.
+
+Decide with reviewer: where the pages' HTML template functions take the
+translator, the key layout.
+Locked: every ruling; server edits limited to `server/auth-middleware.ts`,
+`server/i18n.ts` and their tests; no UI change; never restart.
