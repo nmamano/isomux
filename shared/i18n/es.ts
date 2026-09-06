@@ -132,7 +132,7 @@ export const es: Catalog = {
 
   "settings.office.title": "Ajustes de la oficina",
   "settings.office.intro":
-    "El cartel enmarcado de la pared de la oficina abre esta página.",
+    "La rejilla de ventilación de la pared de la oficina abre esta página.",
   "settings.office.viewOnly":
     "Solo lectura. Solo los propietarios de la oficina pueden editar los ajustes de toda la oficina.",
   "settings.office.name": "Nombre de la oficina",

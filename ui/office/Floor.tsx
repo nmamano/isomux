@@ -913,19 +913,16 @@ export function WallDoors({
 
 export function Walls({
   onToggleTheme,
-  onWallPanelClick,
-  hasOfficePrompt,
+  onOpenSettings,
+  onOpenApps,
   onOpenTasks,
   onOpenCronjobs,
   taskCount = 0,
 }: {
   onToggleTheme?: () => void;
-  // The plaque. It took click coordinates when it opened a popup at the
-  // pointer; it opens the settings page now, so it takes none. Absent in embed,
-  // where the page it would open has no way back - and the style is gated on it
-  // so the plaque does not offer a pointer cursor for a click that does nothing.
-  onWallPanelClick?: () => void;
-  hasOfficePrompt?: boolean;
+  // Settings is absent in embed, where the page has no way back.
+  onOpenSettings?: () => void;
+  onOpenApps?: () => void;
   onOpenTasks?: () => void;
   onOpenCronjobs?: () => void;
   taskCount?: number;
@@ -1443,178 +1440,34 @@ export function Walls({
         </g>
       </g>
 
-      {/* Framed wall sign on left wall - formal, authoritative feel */}
+      {/* Apps screen on the left wall */}
       <g
         data-no-pan
         transform="translate(50, -75) skewY(-27)"
-        onClick={onWallPanelClick}
-        style={
-          onWallPanelClick
-            ? { cursor: "pointer", pointerEvents: "auto" }
-            : undefined
-        }
+        onClick={onOpenApps}
+        aria-label={onOpenApps ? t("common.apps") : undefined}
+        style={onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
       >
-        {/* Outer frame - dark wood/brass */}
-        <rect
-          x="-30"
-          y="-32"
-          width="60"
-          height="58"
-          rx="2"
-          fill="#3a3028"
-          stroke="#2a2018"
-          strokeWidth="1.2"
-        />
-        {/* Inner frame - thin brass inset */}
-        <rect
-          x="-27"
-          y="-29"
-          width="54"
-          height="52"
-          rx="1"
-          fill="none"
-          stroke="#8a7a60"
-          strokeWidth="0.5"
-        />
-        {/* Frame bevel - lit top and left, shaded bottom and right */}
-        <path
-          d="M-29 25 L-29 -31 L29 -31"
-          fill="none"
-          stroke="#6a5a48"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M-29 25 L29 25 L29 -31"
-          fill="none"
-          stroke="#1a120c"
-          strokeWidth="1.2"
-        />
-        {/* Cream background */}
-        <rect
-          x="-25"
-          y="-27"
-          width="50"
-          height="48"
-          rx="1"
-          fill={hasOfficePrompt ? "#f5f0e4" : "#ece8dc"}
-        />
-        {/* Title line - always visible */}
-        <line
-          x1="-14"
-          y1="-20"
-          x2="14"
-          y2="-20"
-          stroke="#333"
-          strokeWidth="1"
-          opacity="0.35"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {hasOfficePrompt ? (
-          <>
-            {/* Divider */}
-            <line
-              x1="-10"
-              y1="-16"
-              x2="10"
-              y2="-16"
-              stroke="#999"
-              strokeWidth="0.3"
-              opacity="0.3"
-            />
-            {/* Body text lines - small, illegible, typed feel */}
-            <line
-              x1="-18"
-              y1="-10"
-              x2="18"
-              y2="-10"
-              stroke="#444"
-              strokeWidth="0.6"
-              opacity="0.25"
-            />
-            <line
-              x1="-18"
-              y1="-5"
-              x2="16"
-              y2="-5"
-              stroke="#444"
-              strokeWidth="0.6"
-              opacity="0.25"
-            />
-            <line
-              x1="-18"
-              y1="0"
-              x2="17"
-              y2="0"
-              stroke="#444"
-              strokeWidth="0.6"
-              opacity="0.25"
-            />
-            <line
-              x1="-18"
-              y1="5"
-              x2="14"
-              y2="5"
-              stroke="#444"
-              strokeWidth="0.6"
-              opacity="0.25"
-            />
-            <line
-              x1="-18"
-              y1="10"
-              x2="12"
-              y2="10"
-              stroke="#444"
-              strokeWidth="0.6"
-              opacity="0.25"
-            />
-            {/* Subtle seal/stamp at bottom */}
-            <circle
-              cx="0"
-              cy="17"
-              r="4"
-              fill="none"
-              stroke="#8a6040"
-              strokeWidth="0.5"
-              opacity="0.2"
-            />
-            <circle cx="0" cy="17" r="2" fill="#8a6040" opacity="0.08" />
-          </>
-        ) : (
-          <>
-            {/* Empty state - blank sign, faint placeholder */}
-            <line
-              x1="-8"
-              y1="-4"
-              x2="8"
-              y2="-4"
-              stroke="#bbb"
-              strokeWidth="0.6"
-              opacity="0.3"
-              strokeLinecap="round"
-            />
-            <line
-              x1="-6"
-              y1="0"
-              x2="6"
-              y2="0"
-              stroke="#bbb"
-              strokeWidth="0.5"
-              opacity="0.2"
-              strokeLinecap="round"
-            />
-            <line
-              x1="-4"
-              y1="4"
-              x2="4"
-              y2="4"
-              stroke="#bbb"
-              strokeWidth="0.4"
-              opacity="0.15"
-              strokeLinecap="round"
-            />
-          </>
-        )}
+        {onOpenApps && <title>{t("common.apps")}</title>}
+        <rect x="-30" y="-32" width="60" height="58" rx="3"
+          fill="var(--wall-decor)" stroke="var(--wall-decor-stroke)" strokeWidth="1.2" />
+        <path d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
+          fill="none" stroke="#fff" strokeWidth="1" opacity="0.22" />
+        <path d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
+          fill="none" stroke="#000" strokeWidth="1.5" opacity="0.35" />
+        <rect x="-25" y="-27" width="50" height="46" rx="1.5"
+          fill="var(--bg-surface-solid)" stroke="var(--wall-decor-stroke)" strokeWidth="0.6" />
+        {/* Four tiles and a glass highlight, all SVG for mobile. */}
+        <g fill="var(--accent)" opacity="0.85">
+          <rect x="-9" y="-19" width="7" height="7" rx="1" />
+          <rect x="2" y="-19" width="7" height="7" rx="1" />
+          <rect x="-9" y="-8" width="7" height="7" rx="1" />
+          <rect x="2" y="-8" width="7" height="7" rx="1" />
+        </g>
+        <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
+        <text x="0" y="13" textAnchor="middle" fontSize="11" fontWeight="600"
+          fill="var(--text-primary)">{t("common.apps")}</text>
+        <circle cx="0" cy="22" r="0.8" fill="var(--accent)" />
       </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g
@@ -1632,15 +1485,19 @@ export function Walls({
         {onOpenCronjobs && (
           <circle cx="0" cy="0" r={R + 4} fill="transparent" />
         )}
-        <circle
-          cx="0"
-          cy="0"
-          r={R}
-          fill="var(--wall-decor)"
-          stroke="var(--wall-decor-stroke)"
-          strokeWidth="1"
-        />
-        <circle cx="0" cy="0" r={r} fill="var(--wall-decor-inner)" />
+        {/* The rear case sits behind a raised, bevelled rim. */}
+        <circle cx="2.5" cy="3.5" r={R + 1} fill="#000" opacity="0.16" />
+        <circle cx="1.5" cy="2" r={R} fill="var(--wall-decor-stroke)" />
+        <circle cx="0" cy="0" r={R} fill="var(--wall-decor)"
+          stroke="var(--wall-decor-stroke)" strokeWidth="1" />
+        <path d="M-22 7 A23 23 0 0 1 15 -17"
+          fill="none" stroke="#fff" strokeWidth="1.4" opacity="0.3" strokeLinecap="round" />
+        <path d="M-15 17 A23 23 0 0 0 22 -7"
+          fill="none" stroke="#000" strokeWidth="1.5" opacity="0.3" strokeLinecap="round" />
+        <circle cx="0" cy="0" r={r + 0.8} fill="var(--wall-decor-stroke)" />
+        <circle cx="0" cy="0.6" r={r} fill="var(--wall-decor-inner)" />
+        <path d="M-18 6 A19 19 0 0 1 12 -14"
+          fill="none" stroke="#000" strokeWidth="1" opacity="0.16" />
         {/* Hour ticks */}
         {Array.from({ length: 12 }, (_, i) => {
           const a = (i * 30 * Math.PI) / 180;
@@ -1821,11 +1678,17 @@ export function Walls({
       </g>
 
       {/* Vent - upper-east area of right wall */}
-      <g transform="translate(500, 60) skewY(27)">
+      <g
+        data-no-pan
+        transform="translate(500, 60) skewY(27)"
+        onClick={onOpenSettings}
+        aria-label={onOpenSettings ? t("common.settings") : undefined}
+        style={onOpenSettings ? { cursor: "pointer", pointerEvents: "auto" } : undefined}
+      >
+        {onOpenSettings && <title>{t("common.settings")}</title>}
+        {onOpenSettings && <rect x="-29" y="-22" width="58" height="44" fill="transparent" />}
         {/* Drop shadow, falling right and down like every other shadow in
-            the scene. The corkboard and the framed sign carry a bevel and no
-            shadow; only the vent takes both. That is deliberate, judged on
-            the frames one prop at a time (Nil, 2026-09-05). */}
+            the scene. The vent keeps its bevel and shadow. */}
         <rect
           x="-22.5"
           y="-12.5"

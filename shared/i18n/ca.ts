@@ -131,7 +131,7 @@ export const ca: Catalog = {
 
   "settings.office.title": "Configuració de l'oficina",
   "settings.office.intro":
-    "El rètol emmarcat de la paret de l'oficina obre aquesta pàgina.",
+    "La reixeta de ventilació de la paret de l'oficina obre aquesta pàgina.",
   "settings.office.viewOnly":
     "Només lectura. Només els propietaris de l'oficina poden editar la configuració de tota l'oficina.",
   "settings.office.name": "Nom de l'oficina",

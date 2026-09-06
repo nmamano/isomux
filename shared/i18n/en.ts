@@ -149,7 +149,7 @@ export const en = {
 
   "settings.office.title": "Office Settings",
   "settings.office.intro":
-    "The framed sign on the office wall opens this page.",
+    "The vent on the office wall opens this page.",
   "settings.office.viewOnly":
     "View only. Only office owners can edit office-wide settings.",
   "settings.office.name": "Office Name",

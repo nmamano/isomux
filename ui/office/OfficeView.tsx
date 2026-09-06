@@ -125,7 +125,7 @@ interface OfficeViewProps {
   // generic flow). Optional so other consumers of OfficeView aren't
   // forced to thread a handler they don't need.
   onOpenUserSettingsForUser?: (userId: string) => void;
-  // The plaque on the wall opens the settings page at the office's own row.
+  // The vent on the wall opens the settings page at the office's own row.
   onEditOfficePrompt: () => void;
   onEditRoomSettings?: (roomId: string) => void;
   onOpenThemePicker: () => void;
@@ -158,7 +158,6 @@ export function OfficeView({
     agents,
     needsAttention,
     stateChangedAt,
-    office,
     tasks,
     currentRoomId,
     rooms,
@@ -174,7 +173,6 @@ export function OfficeView({
   // Dense index of the selected room within the visible projection. Drives
   // positional door nav (prev/next neighbour); -1 when nothing is selected.
   const currentRoomIndex = rooms.findIndex((r) => r.id === currentRoomId);
-  const officePrompt = office.prompt;
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
@@ -271,7 +269,7 @@ export function OfficeView({
     },
     // One gear for every setting. The office, room, user and device buttons
     // that used to sit here are sidebar rows on the settings page now, and the
-    // plaque on the wall opens the same page.
+    // vent on the wall opens the same page.
     {
       id: "settings",
       icon: SettingsIcon,
@@ -497,8 +495,8 @@ export function OfficeView({
           >
             <Walls
               onToggleTheme={cycleTheme}
-              onWallPanelClick={embed ? undefined : onEditOfficePrompt}
-              hasOfficePrompt={!!officePrompt}
+              onOpenSettings={embed ? undefined : onEditOfficePrompt}
+              onOpenApps={embed ? undefined : onOpenApps}
               onOpenTasks={onOpenTasks}
               onOpenCronjobs={onOpenCronjobs}
               taskCount={
