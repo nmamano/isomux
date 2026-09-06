@@ -251,7 +251,7 @@ describe("the login page", () => {
     const { html: en } = await page(server, "/nope", "en");
     const { html: ca } = await page(server, "/nope", "ca");
     expect(en).toContain(
-      "<p>Open <a href=\"/\">this office's home page</a> to claim ownership.</p>",
+      '<p>Open <a href="/">this office\'s home page</a> to claim ownership.</p>',
     );
     expect(en).toContain(
       "The server's startup log spells out the exact <code>ssh -L</code> command.",
@@ -259,7 +259,7 @@ describe("the login page", () => {
     // Nothing on this branch goes through escapeHtml, so the Catalan
     // apostrophes stay as apostrophes, exactly like the English possessives.
     expect(ca).toContain(
-      '<p>Obre <a href="/">la pàgina d\'inici d\'aquesta oficina</a> per reclamar-ne la propietat.</p>',
+      "<p>Obre <a href=\"/\">la pàgina d'inici d'aquesta oficina</a> per reclamar-ne la propietat.</p>",
     );
     expect(ca).toContain("indica l'ordre <code>ssh -L</code> exacta.");
   });

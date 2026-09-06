@@ -135,7 +135,9 @@ describe("translatorForRequest - the pre-sign-in pages", () => {
     // owner's language through the userId its identity carries (ruling 2).
     const id = seed("Ana", "es");
     expect(translatorForRequest(identity("agent", id), "es").t(KEY)).toBe(EN);
-    expect(translatorForRequest(identity("cron-run", id), "ca").t(KEY)).toBe(EN);
+    expect(translatorForRequest(identity("cron-run", id), "ca").t(KEY)).toBe(
+      EN,
+    );
     expect(translatorForRequest(identity("app", id), "ca").t(KEY)).toBe(EN);
   });
 
