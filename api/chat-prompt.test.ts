@@ -43,7 +43,12 @@ describe("site chatbot page context", () => {
       join(import.meta.dir, "..", "site", "chatbot.js"),
       "utf8",
     );
-    expect(widget).toContain('window.location.pathname.startsWith("/hosted")');
+    // The language prefix (/es, /ca) comes off before the classification, so
+    // /es/hosted is the hosted page, not the landing (i18n S10).
+    expect(widget).toContain(
+      'window.location.pathname.replace(LANGUAGE_PREFIX, "")',
+    );
+    expect(widget).toContain('pagePath.startsWith("/hosted")');
     expect(widget).toMatch(/messages: messages\.map[\s\S]*\n\s*page,/u);
   });
 });
