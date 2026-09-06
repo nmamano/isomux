@@ -796,6 +796,15 @@ unlisted English literals; catalog test green with no orphan keys; demo
 screenshots in Catalan; proposed docs lines verbatim in the report;
 bundle delta reported.
 
+Ruled during the S8 plan gate (2026-09-06): eight Isomux-authored system
+log writes in `server/agent-manager.ts` (editor not found / not a file /
+binary / too large; read-file not found / not a file / too large; diff not
+a repository) are in S8 through `logWords`, with one scoped language test
+per family; the no-server-edit rule is lifted for those lines only. The
+login instructions (the fallback at agent-manager.ts:410 and the
+per-adapter `getLoginInstructions`) are out: cross-adapter scope, filed as
+a follow-up at close.
+
 Decide with reviewer: the sweep's grep commands (write them in the
 report so the next loop reuses them), the orphan-key method.
 Locked: every ruling; no English wording change; no docs/ or site/ edit;
