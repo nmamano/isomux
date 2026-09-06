@@ -40,7 +40,8 @@ export type DateShape =
   | "date"
   | "dateTime"
   | "dateTimeSeconds"
-  | "fullDate";
+  | "fullDate"
+  | "weekdayDateTime";
 
 const SHAPE_OPTIONS: Record<DateShape, Intl.DateTimeFormatOptions> = {
   clock: { hour: "2-digit", minute: "2-digit" },
@@ -62,6 +63,20 @@ const SHAPE_OPTIONS: Record<DateShape, Intl.DateTimeFormatOptions> = {
     second: "2-digit",
   },
   fullDate: { year: "numeric", month: "short", day: "numeric" },
+  // Ruling 20 (Nil): the subscription reset keeps the weekday S5 dropped when
+  // it moved onto the short date style. The only shape here that pins the
+  // clock, because the ruling asked for 24 hours and English would otherwise
+  // take the meridiem from Intl; Spanish and Catalan are already on 24.
+  // Each language keeps its own order: English is Intl's own "Sat, Aug 1,
+  // 09:00" (PM ruling, 2026-09-06).
+  weekdayDateTime: {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  },
 };
 
 // Intl formatters are expensive to build and hold no per-call state, so one

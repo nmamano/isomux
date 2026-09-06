@@ -86,6 +86,7 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { english, translatorForUserId, translatorForUsername } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
+import { formatDecimal } from "../shared/i18n/number.ts";
 import { join, basename, resolve } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
@@ -2179,18 +2180,32 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // check so a typo'd path produces a system message instead of a dead card.
     const probe = openEditorFileImpl(resolved.path);
     if (probe.kind === "not_found") {
-      addLogEntry(agentId, "system", `\`${resolved.path}\` does not exist.`);
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("commands.isomuxEdit.notFound", {
+          path: resolved.path,
+        }),
+      );
       return { ok: true };
     }
     if (probe.kind === "not_file") {
-      addLogEntry(agentId, "system", `\`${resolved.path}\` is not a file.`);
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("commands.isomuxEdit.notFile", {
+          path: resolved.path,
+        }),
+      );
       return { ok: true };
     }
     if (probe.kind === "binary") {
       addLogEntry(
         agentId,
         "system",
-        `\`${resolved.path}\` is a binary file - the editor panel only supports text.`,
+        logWords(agentId)("commands.isomuxEdit.binary", {
+          path: resolved.path,
+        }),
       );
       return { ok: true };
     }
@@ -2198,7 +2213,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addLogEntry(
         agentId,
         "system",
-        `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB - too large for the editor panel (1 MB limit).`,
+        editorTooLargeText(agentId, resolved.path, probe.size),
       );
       return { ok: true };
     }
@@ -2277,7 +2292,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     const absPath = resolved.path;
     if (!existsSync(absPath)) {
-      addLogEntry(agentId, "system", `\`${absPath}\` does not exist.`);
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("commands.isomuxEdit.notFound", { path: absPath }),
+      );
       return { ok: true };
     }
     let st;
@@ -2295,14 +2314,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: true };
     }
     if (!st.isFile()) {
-      addLogEntry(agentId, "system", `\`${absPath}\` is not a file.`);
+      addLogEntry(
+        agentId,
+        "system",
+        logWords(agentId)("commands.isomuxEdit.notFile", { path: absPath }),
+      );
       return { ok: true };
     }
     if (st.size > MAX_READ_FILE_BYTES) {
       addLogEntry(
         agentId,
         "system",
-        `\`${absPath}\` is ${(st.size / (1024 * 1024)).toFixed(1)} MB - too large to display (${MAX_READ_FILE_BYTES / (1024 * 1024)} MB limit).`,
+        readTooLargeText(agentId, absPath, st.size),
       );
       return { ok: true };
     }
@@ -2406,7 +2429,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          `\`${result.cwd}\` is not a git repository.`,
+          logWords(agentId)("commands.isomuxDiff.notRepo", {
+            path: result.cwd,
+          }),
         );
         break;
       case "git_error":
@@ -2598,13 +2623,50 @@ Once complete, it takes effect immediately for all Isomux agents.`;
    * but not the ManagedAgent, and an entry for an agent that has already gone
    * still has to say something, so an unknown id falls back to English.
    */
-  function logWords(agentId: string, username?: string): Translator["t"] {
+  function logI18n(agentId: string, username?: string): Translator {
     const managed = agents.get(agentId);
-    return (
-      managed
-        ? logTranslator(managed, username)
-        : translatorForUsername(username)
-    ).t;
+    return managed
+      ? logTranslator(managed, username)
+      : translatorForUsername(username);
+  }
+
+  function logWords(agentId: string, username?: string): Translator["t"] {
+    return logI18n(agentId, username).t;
+  }
+
+  /**
+   * The two "too large" system entries. The size is a number in the reader's
+   * language (ruling 12), so both need the translator and not only its `t`;
+   * the sentences are the ones /isomux-edit and the read-file path already
+   * showed, with the size passed in as data.
+   */
+  function editorTooLargeText(
+    agentId: string,
+    path: string,
+    bytes: number,
+  ): string {
+    const i18n = logI18n(agentId);
+    return i18n.t("commands.isomuxEdit.tooLarge", {
+      path,
+      size: `${formatDecimal(i18n.language, bytes / 1024, 1)} KB`,
+    });
+  }
+
+  function readTooLargeText(
+    agentId: string,
+    path: string,
+    bytes: number,
+  ): string {
+    const i18n = logI18n(agentId);
+    return i18n.t("systemEntries.fileTooLargeToDisplay", {
+      path,
+      size: `${formatDecimal(i18n.language, bytes / (1024 * 1024), 1)} MB`,
+      limit: formatDecimal(
+        i18n.language,
+        MAX_READ_FILE_BYTES / (1024 * 1024),
+        0,
+      ),
+    });
   }
 
   function clearPermissionPrompt(agentId: string, managed: ManagedAgent) {

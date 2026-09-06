@@ -7,7 +7,7 @@ import type {
 import { formatIdentity, isApiTokenDevice } from "../../shared/identity.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
-import { useI18n } from "../i18n.tsx";
+import { useI18n, type UiTranslator } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { SpeakButton } from "../components/SpeakButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
@@ -815,7 +815,7 @@ function UserMessage({
           fontStyle: fromNonHuman ? "italic" : "normal",
         }}
       >
-        {(username ?? "You").toUpperCase()}
+        {(username ?? t("common.you")).toUpperCase()}
       </div>
       {content && (
         <div
@@ -958,7 +958,7 @@ function EditableUserMessage({
           letterSpacing: "0.05em",
         }}
       >
-        {(username ?? "You").toUpperCase()}
+        {(username ?? t("common.you")).toUpperCase()}
       </div>
       <textarea
         ref={textareaRef}
@@ -1174,7 +1174,7 @@ function ToolCall({
   const [open, setOpen] = useState(false);
   const inputStr =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
-  const summary = extractToolSummary(name, input);
+  const summary = extractToolSummary(t, name, input);
   // Bash commands that curl the isomux API render as a structured summary
   // (method badge, route, payload fields) instead of raw shell text. The
   // expanded view still shows the raw command and output unchanged.
@@ -1331,7 +1331,7 @@ function ToolCall({
                 <div
                   style={{ color: "var(--text-ghost)", fontStyle: "italic" }}
                 >
-                  (no output)
+                  {t("cards.tool.noOutput")}
                 </div>
               )}
             </>
@@ -1748,7 +1748,11 @@ function PermissionDeniedCard({
   );
 }
 
-function extractToolSummary(toolName: string, input: unknown): string {
+function extractToolSummary(
+  t: UiTranslator["t"],
+  toolName: string,
+  input: unknown,
+): string {
   if (!input || typeof input !== "object") return "";
   const obj = input as Record<string, unknown>;
   switch (toolName) {
@@ -1765,7 +1769,7 @@ function extractToolSummary(toolName: string, input: unknown): string {
     case "Edit":
       return typeof obj.file_path === "string"
         ? obj.file_path
-        : extractChangePaths(obj.changes);
+        : extractChangePaths(t, obj.changes);
     case "Glob":
       return typeof obj.pattern === "string" ? obj.pattern : "";
     case "Grep":
@@ -1779,7 +1783,7 @@ function extractToolSummary(toolName: string, input: unknown): string {
   }
 }
 
-function extractChangePaths(changes: unknown): string {
+function extractChangePaths(t: UiTranslator["t"], changes: unknown): string {
   if (!Array.isArray(changes)) return "";
   const paths = changes
     .map((change) => {
@@ -1790,5 +1794,7 @@ function extractChangePaths(changes: unknown): string {
     .filter(Boolean);
   if (paths.length === 0) return "";
   const first = paths[0];
-  return paths.length === 1 ? first : `${first} +${paths.length - 1} more`;
+  return paths.length === 1
+    ? first
+    : t("cards.tool.morePaths", { path: first, count: paths.length - 1 });
 }

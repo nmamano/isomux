@@ -211,7 +211,7 @@ export function AgentListView({
                           flexShrink: 0,
                         }}
                       >
-                        unread
+                        {t("common.unread")}
                       </span>
                     )}
                   </div>

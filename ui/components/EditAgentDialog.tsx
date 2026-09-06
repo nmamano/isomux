@@ -1205,12 +1205,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         lineHeight: 1.4,
                       }}
                     >
-                      Switching to{" "}
-                      {ENGINE_OPTIONS.find(
-                        (option) => option.agentType === targetEngine,
-                      )?.label ?? targetEngine}{" "}
-                      starts a new conversation. The current one stays in this
-                      agent's resume history.
+                      {t("dialogs.agent.engineSwitchHint", {
+                        engine:
+                          ENGINE_OPTIONS.find(
+                            (option) => option.agentType === targetEngine,
+                          )?.label ?? targetEngine,
+                      })}
                     </p>
                   )}
                 </section>
@@ -2273,7 +2273,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         opacity: isFull ? 0.5 : 1,
                       }}
                     >
-                      {rooms[i]?.name ?? `Room ${i + 1}`} ({roomAgentCount}/8)
+                      {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })}{" "}
+                      ({roomAgentCount}/8)
                     </button>
                   );
                 })}

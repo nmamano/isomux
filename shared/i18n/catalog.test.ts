@@ -32,6 +32,22 @@ function tags(text: string): string[] {
   return [...text.matchAll(/<(\w+)>/g)].map((m) => m[1]).sort();
 }
 
+// Ruling 19: a catalog value carries no angle bracket that is not part of a
+// rich() tag pair, because rich() would read it as a tag. Two values are the
+// standing exception, in every language, and the test below names them: the
+// bytes ">1 MB" in cards.diff.reasonUntracked and "> 2 MB" in
+// cards.diff.summaryOnly are greater-than signs. A lone ">" cannot open a tag,
+// so rich() is safe, and ruling 6 freezes the English wording.
+const LONE_ANGLE_BRACKET_KEYS = [
+  "cards.diff.reasonUntracked",
+  "cards.diff.summaryOnly",
+];
+
+// A bracket that is not part of a <tag> or a </tag>.
+function hasLoneAngleBracket(text: string): boolean {
+  return text.replaceAll(/<\/?\w+>/g, "").includes(">");
+}
+
 // Every open tag closes before the next one opens, and never inside another
 // pair: the rich() parser is one level deep by design.
 function tagsAreBalancedAndFlat(text: string): boolean {
@@ -143,6 +159,19 @@ describe("the catalogs", () => {
           ? key.slice(0, -".other".length) + ".one"
           : null;
       if (pair !== null) expect(ENGLISH_KEYS, key).toContain(pair);
+    }
+  });
+
+  it("keeps the lone greater-than to the two keys ruling 19 allows", () => {
+    for (const code of [DEFAULT_LANGUAGE, ...OTHER_LANGUAGES]) {
+      const catalog = CATALOGS[code];
+      for (const key of ENGLISH_KEYS) {
+        if (LONE_ANGLE_BRACKET_KEYS.includes(key)) continue;
+        expect(
+          hasLoneAngleBracket(catalog[key as keyof typeof en]),
+          `${code} ${key}`,
+        ).toBe(false);
+      }
     }
   });
 

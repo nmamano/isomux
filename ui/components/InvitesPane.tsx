@@ -161,8 +161,8 @@ function IssueInviteForm() {
             onChange={(e) => setRole(e.target.value as UserRole)}
             style={dialogInput}
           >
-            <option value="member">member</option>
-            <option value="owner">owner</option>
+            <option value="member">{t("settings.role.member")}</option>
+            <option value="owner">{t("settings.role.owner")}</option>
           </select>
         </label>
       </div>

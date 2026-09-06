@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
+import { formatBytes } from "../../shared/i18n/number.ts";
 
 // Card emitted by POST /api/agents/:id/read-file and /preview-url. Images render
 // inline (clickable for lightbox); other media types render as a clickable file
@@ -18,7 +19,8 @@ export function FileViewCard({
   isMobile?: boolean;
   caption?: string;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
   const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
@@ -73,11 +75,7 @@ export function FileViewCard({
           {files.map((att) => {
             const src = `/api/files/${agentId}/${att.filename}`;
             const sizeStr =
-              att.size < 1024
-                ? `${att.size} B`
-                : att.size < 1024 * 1024
-                  ? `${(att.size / 1024).toFixed(1)} KB`
-                  : `${(att.size / (1024 * 1024)).toFixed(1)} MB`;
+              formatBytes(i18n.language, att.size) ?? t("common.unknownSize");
             return (
               <a
                 key={att.filename}

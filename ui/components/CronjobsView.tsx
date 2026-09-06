@@ -593,7 +593,10 @@ function CronjobsTable({
                   }}
                 >
                   {c.username && c.username !== c.createdBy
-                    ? `${c.createdBy} · for ${c.username}`
+                    ? t("schedules.createdByFor", {
+                        creator: c.createdBy,
+                        user: c.username,
+                      })
                     : c.createdBy}
                 </td>
               )}

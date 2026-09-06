@@ -753,7 +753,7 @@ export function TerminalPanel({
       }
     } catch {}
     if (!text) {
-      const fromPrompt = window.prompt("Paste:");
+      const fromPrompt = window.prompt(t("panels.terminal.pastePrompt"));
       if (fromPrompt) text = fromPrompt;
     }
     if (text) termRef.current?.paste(text);

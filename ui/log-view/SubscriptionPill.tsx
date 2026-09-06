@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { SubscriptionUsageWire } from "../../shared/types.ts";
 import { bandColor } from "./ContextBattery.tsx";
 import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
-import { absoluteTime } from "../../shared/i18n/time.ts";
+import { formatDateTime } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 
@@ -36,12 +36,12 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 // "Reading taken N ago" line in the popover.
 const STALE_READING_MS = 15 * 60 * 1000;
 
-// The reset instant is rendered by shared/i18n/time.ts (ruling 12): one
-// absolute formatter for the whole UI, in the reader's language and the
-// machine's zone - the reset matters to whoever is looking at the screen, not
-// to the server. It reads shorter than the hand-built "Sat 1 Aug, 09:00" did,
-// and it no longer names the weekday, which is what Intl's short date style
-// gives every language.
+// The reset instant is rendered by shared/i18n/time.ts (ruling 12), in the
+// reader's language and the machine's zone - the reset matters to whoever is
+// looking at the screen, not to the server. The shape is weekdayDateTime,
+// which names the weekday: ruling 20 (Nil) put it back after S5's move to the
+// short date style dropped it. Each language orders the parts its own way, so
+// English reads "Sat, Aug 1, 09:00".
 
 // "2 days 5 hours" / "3 hours 10 min" / "12 min" - rounded, never seconds.
 // Exported for tests. The translator is the first argument (ruling 18); the
@@ -71,7 +71,7 @@ export function formatTimeUntil(i18n: Translator, ms: number): string {
   return minuteText;
 }
 
-// One line per window: "Weekly: 34% used - resets Sat 1 Aug, 09:00 (in 2 days
+// One line per window: "Weekly: 34% used - resets Sat, Aug 1, 09:00 (in 2 days
 // 5 hours)". Use plain spaced hyphens, never em dashes.
 // `nowMs` is null for the hover tooltip, which renders on every re-render and
 // so must stay a pure function of the props - only the popover, whose clock
@@ -85,7 +85,7 @@ export function windowLine(
   // it is data and stays as delivered (ruling 11).
   const parts = { label: w.label, percent: Math.round(w.usedPercent) };
   if (w.resetsAtMs === null) return i18n.t("subscription.window.used", parts);
-  const at = absoluteTime(i18n.language, w.resetsAtMs);
+  const at = formatDateTime(i18n.language, w.resetsAtMs, "weekdayDateTime");
   if (nowMs === null || w.resetsAtMs <= nowMs)
     return i18n.t("subscription.window.usedResets", { ...parts, at });
   return i18n.t("subscription.window.usedResetsIn", {

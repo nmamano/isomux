@@ -17,6 +17,11 @@ export const ca: Catalog = {
   "common.memoryEditorHint":
     "Aquest editor reescriu el fitxer tal com es mostra. Fes servir una memòria per línia.",
   "common.saveFailed": "No s'ha pogut desar",
+  "common.memoryConflict":
+    "La memòria ha canviat des que has obert això: torna a obrir el diàleg per editar-ne la darrera versió.",
+  "common.memorySaveFailed": "No s'ha pogut desar la memòria",
+  "common.unread": "sense llegir",
+  "common.roomFallback": "Sala {number}",
   "common.nextConversation": "Els canvis s'apliquen a la conversa següent.",
   "common.schedule": "Programació",
   "common.discardPrompt": "Vols descartar els canvis sense desar?",
@@ -634,6 +639,8 @@ export const ca: Catalog = {
   "dialogs.agent.engineBlurb.codex": "Funciona amb el teu compte de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
     "Funciona amb els models configurats a través d'OpenCode.",
+  "dialogs.agent.engineSwitchHint":
+    "Canviar a {engine} comença una conversa nova. L'actual es queda a l'historial de sessions d'aquest agent.",
   "dialogs.agent.template": "Començar amb una plantilla",
   "dialogs.agent.templateHint":
     "Les plantilles omplen els camps de sota. Pots editar totes les propostes.",
@@ -940,6 +947,8 @@ export const ca: Catalog = {
   "cards.editRequest.open": "Obre a l'editor",
   "cards.editRequest.openHint": "Obre {path} al plafó lateral de l'editor",
   "cards.terminalCommand.copy": "Copia a la terminal",
+  "cards.tool.noOutput": "(sense sortida)",
+  "cards.tool.morePaths": "{path} +{count} més",
   "cards.terminalCommand.copyHint":
     "Obre el plafó de la terminal i escriu aquesta ordre al prompt (no s'executa sola)",
   "cards.markdown.mermaidError": "Error de Mermaid",
@@ -968,6 +977,9 @@ export const ca: Catalog = {
   "cards.diff.collapseAll": "Plega-ho tot",
   "cards.diff.expandAll": "Desplega-ho tot",
   "cards.diff.summaryOnly": "· pedaç > 2 MB · només el resum",
+  "cards.diff.headerLine": "+{additions} -{deletions} en {files}",
+  "cards.diff.fileCount.one": "{count} fitxer",
+  "cards.diff.fileCount.other": "{count} fitxers",
   "contextBattery.detail":
     "Context: {tokens} / {maxTokens} tokens utilitzats (en queda un {remaining}%).",
   "contextBattery.nudge":
@@ -1019,6 +1031,8 @@ export const ca: Catalog = {
   "logView.cite.label": "Cita",
   "logView.cite.hint": "Cita el text seleccionat al missatge",
   "logView.skills.title": "Habilitats i ordres",
+  "logView.skills.buttonLabel": "Ha",
+  "logView.uploadFailed": "Error en pujar ({status})",
   "logView.skills.filter": "Filtra habilitats i ordres...",
   "logView.skills.noMatch": "No hi ha habilitats ni ordres que coincideixin",
   "logView.skills.group.mostUsed": "Més usats",
@@ -1067,6 +1081,7 @@ export const ca: Catalog = {
   "panels.terminal.busyIssue":
     "No s'ha enviat: {process} està usant la terminal",
   "panels.terminal.paste": "Enganxa",
+  "panels.terminal.pastePrompt": "Enganxa:",
   "panels.editor.close": "Tanca l'editor",
   "panels.editor.closeTab": "Tanca la pestanya",
   "panels.editor.selectFile": "Tria un fitxer",
@@ -1146,7 +1161,22 @@ export const ca: Catalog = {
   "office.pet.species.tortoise": "Tortuga",
   "office.pet.coat": "{species} {number}",
   "office.pet.coatAria": "{species}, pelatge {number}",
-  "office.door.roomFallback": "Sala {number}",
+  "office.desk.swapBadge": "INTERCANVIA",
+  "office.status.working": "treballant",
+  "office.status.waiting": "esperant",
+  "office.status.error": "amb error",
+  "office.status.idle": "inactius",
+  "office.status.errShort": "error",
+  "office.hints.tap": "TOCA → obre",
+  "office.hints.longPress": "MANTÉN PREMUT → accions",
+  "office.hints.pinch": "PESSIGA → zoom",
+  "office.hints.dragZoomed": "ARROSSEGA (amb zoom) → desplaça",
+  "office.hints.click": "CLIC → obre l'agent",
+  "office.hints.dragSwap": "ARROSSEGA → intercanvia escriptoris o mou a la porta",
+  "office.hints.wheel": "RODA / +- → zoom",
+  "office.hints.drag": "ARROSSEGA → desplaça",
+  "office.hints.rightClick": "CLIC DRET → accions",
+  "office.hints.resetView": "0 → restableix la vista",
   "office.pendingPrompt.permission": "permís",
   "office.pendingPrompt.resume": "sessió",
   "office.pendingPrompt.model": "model",
@@ -1175,6 +1205,7 @@ export const ca: Catalog = {
   "schedules.tab.runs": "execucions",
   "schedules.tab.cronjobs": "programacions",
   "schedules.anyMoment": "en qualsevol moment",
+  "schedules.createdByFor": "{creator} · per a {user}",
   "schedules.running": "en curs…",
   "schedules.newButton": "+ Nova",
   "schedules.filterLabel": "Programació:",
@@ -1331,7 +1362,6 @@ export const ca: Catalog = {
     "Les sales que crees només les veieu, de manera predeterminada, tu i els propietaris de l'oficina (ells ho poden canviar).",
   "office.noRooms.askOwner":
     "També pots demanar a un propietari que t'afegeixi a sales ja existents.",
-  "office.unread": "sense llegir",
   "office.newAgent": "Agent nou",
   "apps.actionFailed.start": "No s'ha pogut engegar.",
   "apps.actionFailed.stop": "No s'ha pogut aturar.",
@@ -1342,7 +1372,7 @@ export const ca: Catalog = {
   "schedules.human.everyMinutes": "Cada {minutes}m",
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
-  "schedules.nextRunIn": "d’aquí a {duration}",
+  "schedules.nextRunIn": "d'aquí a {duration}",
 
   "commands.clear.description": "Esborrar l'historial de la conversa",
   "commands.context.description": "Veure l'ús de la finestra de context",
@@ -1745,6 +1775,8 @@ export const ca: Catalog = {
     "Avís: després que fallés el canvi de cwd, els fitxers de sessió no s'han pogut tornar a {previous} i ara són a {target}; reprendre-la pot fallar fins que es restaurin.",
   "systemEntries.fileOpenFailed": "No s'ha pogut obrir `{path}`: {message}",
   "systemEntries.fileReadFailed": "No s'ha pogut llegir `{path}`: {message}",
+  "systemEntries.fileTooLargeToDisplay":
+    "`{path}` ocupa {size}: massa gran per mostrar-lo (límit de {limit} MB).",
   "systemEntries.fileSaveFailed":
     "No s'ha pogut desar `{path}` per mostrar-lo.",
   "systemEntries.diffFailed": "No s'ha pogut executar git diff a `{path}`:",

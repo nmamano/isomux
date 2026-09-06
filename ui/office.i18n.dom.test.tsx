@@ -232,7 +232,7 @@ const ANCHOR = {
   // caller passes the code fragment "<1m" INTO a catalog sentence - which is
   // what keeps the angle bracket out of the catalog (ruling 19).
   nextRunSoon: {
-    ca: "d’aquí a <1m",
+    ca: "d'aquí a <1m",
     es: "en <1m",
     en: "in <1m",
   },

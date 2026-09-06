@@ -384,10 +384,10 @@ export function OfficeView({
           <div style={{ display: "flex", gap: 12 }}>
             {(
               [
-                { n: counts.working, c: "var(--green)", l: "working" },
-                { n: counts.waiting, c: "var(--purple)", l: "waiting" },
-                { n: counts.error, c: "var(--red)", l: "error" },
-                { n: counts.idle, c: "var(--text-muted)", l: "idle" },
+                { n: counts.working, c: "var(--green)", l: "office.status.working" },
+                { n: counts.waiting, c: "var(--purple)", l: "office.status.waiting" },
+                { n: counts.error, c: "var(--red)", l: "office.status.error" },
+                { n: counts.idle, c: "var(--text-muted)", l: "office.status.idle" },
               ] as const
             )
               .filter((s) => s.n > 0)
@@ -414,7 +414,7 @@ export function OfficeView({
                       boxShadow: `0 0 6px ${s.c}`,
                     }}
                   />
-                  {s.n} {s.l}
+                  {s.n} {t(s.l)}
                 </div>
               ))}
           </div>
@@ -503,7 +503,7 @@ export function OfficeView({
                   ? {
                       label:
                         roomNames[currentRoomIndex - 1] ??
-                        t("office.door.roomFallback", {
+                        t("common.roomFallback", {
                           number: currentRoomIndex,
                         }),
                       onClick: () =>
@@ -522,7 +522,7 @@ export function OfficeView({
                   ? {
                       label:
                         roomNames[currentRoomIndex + 1] ??
-                        t("office.door.roomFallback", {
+                        t("common.roomFallback", {
                           number: currentRoomIndex + 2,
                         }),
                       onClick: () =>
@@ -810,21 +810,21 @@ export function OfficeView({
           }}
         >
           {(isMobile
-            ? [
-                "TAP → open",
-                "LONG-PRESS → actions",
-                "PINCH → zoom",
-                "DRAG (zoomed) → pan",
-              ]
-            : [
-                "CLICK → open agent",
-                "DRAG → swap desks or move to door",
-                "WHEEL / +- → zoom",
-                "DRAG → pan",
-                "RIGHT-CLICK → actions",
-                "0 → reset view",
-              ]
-          ).map((h, i) => (
+            ? ([
+                "office.hints.tap",
+                "office.hints.longPress",
+                "office.hints.pinch",
+                "office.hints.dragZoomed",
+              ] as const)
+            : ([
+                "office.hints.click",
+                "office.hints.dragSwap",
+                "office.hints.wheel",
+                "office.hints.drag",
+                "office.hints.rightClick",
+                "office.hints.resetView",
+              ] as const)
+          ).map((key, i) => (
             <span
               key={i}
               style={{
@@ -834,7 +834,7 @@ export function OfficeView({
                 letterSpacing: "0.04em",
               }}
             >
-              {h}
+              {t(key)}
             </span>
           ))}
         </div>

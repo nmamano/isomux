@@ -108,6 +108,16 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
 // Side panel size constraints. Mins below differ between terminal and editor
 // because the editor's tab strip + line numbers need more horizontal room
 // before content starts wrapping uselessly.
+// The one upload failure Isomux words itself. Thrown so the catch below can
+// tell it apart from whatever the browser threw, and carrying the status
+// rather than a sentence, because the staged attachment holds it across
+// renders and a language switch has to be able to re-word it.
+class UploadStatusError extends Error {
+  constructor(readonly status: number) {
+    super(`upload failed with status ${status}`);
+  }
+}
+
 const PANEL_MIN = { terminal: 300, editor: 380 } as const;
 const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // The chat column always keeps at least this many pixels regardless of how
@@ -878,7 +888,14 @@ export function LogView({
   type StagedAttachment = Attachment & {
     id: string;
     uploading: boolean;
-    error?: string;
+    // Language-independent: the words are chosen at render time, so a language
+    // switch with a failed upload on screen re-reads it. `status` is Isomux's
+    // own "upload failed" case; `raw` is whatever the browser threw, passed
+    // through as delivered.
+    error?:
+      | { kind: "key"; key: PlainMessageKey }
+      | { kind: "status"; status: number }
+      | { kind: "raw"; text: string };
   };
   const [stagedAttachments, setStagedAttachments] = useState<
     StagedAttachment[]
@@ -1546,7 +1563,7 @@ export function LogView({
             mediaType: file.type || "application/octet-stream",
             size: file.size,
             uploading: false,
-            error: i18n.t("logView.attachTooLarge"),
+            error: { kind: "key", key: "logView.attachTooLarge" },
           },
         ]);
         continue;
@@ -1567,7 +1584,7 @@ export function LogView({
       formData.append("file", file);
       fetch(`/api/upload/${agent.id}`, { method: "POST", body: formData })
         .then((res) => {
-          if (!res.ok) throw new Error(`Upload failed (${res.status})`);
+          if (!res.ok) throw new UploadStatusError(res.status);
           return res.json();
         })
         .then((data: { attachments: Attachment[] }) => {
@@ -1581,7 +1598,16 @@ export function LogView({
         .catch((err) => {
           setStagedAttachments((prev) =>
             prev.map((s) =>
-              s.id === id ? { ...s, uploading: false, error: err.message } : s,
+              s.id === id
+                ? {
+                    ...s,
+                    uploading: false,
+                    error:
+                      err instanceof UploadStatusError
+                        ? { kind: "status", status: err.status }
+                        : { kind: "raw", text: (err as Error).message },
+                  }
+                : s,
             ),
           );
         });
@@ -2612,7 +2638,13 @@ export function LogView({
                     )}
                     {att.error && (
                       <span style={{ fontSize: isMobile ? 11 : 10 }}>
-                        {att.error}
+                        {att.error.kind === "key"
+                          ? i18n.t(att.error.key)
+                          : att.error.kind === "status"
+                            ? i18n.t("logView.uploadFailed", {
+                                status: att.error.status,
+                              })
+                            : att.error.text}
                       </span>
                     )}
                     <button
@@ -2681,9 +2713,12 @@ export function LogView({
                 // (agent-manager isSlash checks startsWith), so mid-draft
                 // insertion would produce text that never expands.
                 input.trim() === "" && (
-                  // Plain-text "Sk" on purpose: decorative Unicode glyphs get
-                  // hijacked by iOS Safari's emoji renderer (see the ▶ note in
-                  // TerminalPanel), and plain text needs no such gating.
+                  // A plain-text face on purpose: decorative Unicode glyphs
+                  // get hijacked by iOS Safari's emoji renderer (see the ▶
+                  // note in TerminalPanel), and plain text needs no such
+                  // gating. The face is a catalog value because it abbreviates
+                  // a word - "Sk" for Skills, "Ha" for Habilitats and
+                  // Habilidades - and its own tooltip is already translated.
                   <button
                     data-skills-toggle
                     onClick={() => setSkillsOpen((o) => !o)}
@@ -2710,7 +2745,7 @@ export function LogView({
                     }}
                     title={i18n.t("logView.skills.title")}
                   >
-                    Sk
+                    {i18n.t("logView.skills.buttonLabel")}
                   </button>
                 )}
               <span

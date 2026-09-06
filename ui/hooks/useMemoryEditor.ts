@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
+import { useI18n } from "../i18n.tsx";
 import { injectedMemorySize } from "../../shared/memory-size.ts";
 
 export type MemoryScope = "office" | "room" | "agent" | "boss";
@@ -35,6 +36,10 @@ export function useMemoryEditor(
   scopeId: string | null,
   enabled = true,
 ): MemoryEditor {
+  // A hook, so it reads the translator from the context like a component
+  // (ruling 18). The two messages below are Isomux's own words for the reader;
+  // a message relayed from an ApiError stays as delivered (ruling 2).
+  const { t } = useI18n();
   const [memory, setMemory] = useState("");
   const [baseline, setBaseline] = useState("");
   const [version, setVersion] = useState<string | null>(null);
@@ -99,13 +104,13 @@ export function useMemoryEditor(
         return {
           ok: false,
           conflict: true,
-          message:
-            "Memory changed since you opened this - reopen the dialog to edit the latest.",
+          message: t("common.memoryConflict"),
         };
       }
       return {
         ok: false,
-        message: e instanceof ApiError ? e.message : "Memory save failed",
+        message:
+          e instanceof ApiError ? e.message : t("common.memorySaveFailed"),
       };
     }
   }

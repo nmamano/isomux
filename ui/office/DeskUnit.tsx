@@ -198,7 +198,7 @@ export function DeskUnit({
                 boxShadow: "0 4px 18px rgba(0,0,0,0.35)",
               }}
             >
-              ⇄ SWAP
+              ⇄ {t("office.desk.swapBadge")}
             </div>
           </div>
         )}
@@ -294,7 +294,7 @@ export function DeskUnit({
                 flexShrink: 0,
               }}
             >
-              {t("office.unread")}
+              {t("common.unread")}
             </span>
           )}
           {/* Parked on a two-step prompt. Distinct from the

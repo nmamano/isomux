@@ -17,6 +17,11 @@ export const es: Catalog = {
   "common.memoryEditorHint":
     "Este editor reescribe el archivo tal como se muestra. Usa una memoria por línea.",
   "common.saveFailed": "No se pudo guardar",
+  "common.memoryConflict":
+    "La memoria cambió desde que abriste esto: vuelve a abrir el diálogo para editar la última versión.",
+  "common.memorySaveFailed": "No se pudo guardar la memoria",
+  "common.unread": "sin leer",
+  "common.roomFallback": "Sala {number}",
   "common.nextConversation":
     "Los cambios se aplican en la siguiente conversación.",
   "common.schedule": "Programación",
@@ -638,6 +643,8 @@ export const es: Catalog = {
   "dialogs.agent.engineBlurb.codex": "Funciona con tu cuenta de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
     "Funciona con los modelos configurados a través de OpenCode.",
+  "dialogs.agent.engineSwitchHint":
+    "Cambiar a {engine} empieza una conversación nueva. La actual se queda en el historial de sesiones de este agente.",
   "dialogs.agent.template": "Empezar con una plantilla",
   "dialogs.agent.templateHint":
     "Las plantillas rellenan los campos de abajo. Puedes editar todas las sugerencias.",
@@ -944,6 +951,8 @@ export const es: Catalog = {
   "cards.editRequest.open": "Abrir en el editor",
   "cards.editRequest.openHint": "Abrir {path} en el panel lateral del editor",
   "cards.terminalCommand.copy": "Copiar en la terminal",
+  "cards.tool.noOutput": "(sin salida)",
+  "cards.tool.morePaths": "{path} +{count} más",
   "cards.terminalCommand.copyHint":
     "Abre el panel de la terminal y escribe este comando en el prompt (no se ejecuta solo)",
   "cards.markdown.mermaidError": "Error de Mermaid",
@@ -971,6 +980,9 @@ export const es: Catalog = {
   "cards.diff.collapseAll": "Plegar todo",
   "cards.diff.expandAll": "Desplegar todo",
   "cards.diff.summaryOnly": "· parche > 2 MB · solo el resumen",
+  "cards.diff.headerLine": "+{additions} -{deletions} en {files}",
+  "cards.diff.fileCount.one": "{count} archivo",
+  "cards.diff.fileCount.other": "{count} archivos",
   "contextBattery.detail":
     "Contexto: {tokens} / {maxTokens} tokens usados (queda un {remaining}%).",
   "contextBattery.nudge":
@@ -1023,6 +1035,8 @@ export const es: Catalog = {
   "logView.cite.label": "Citar",
   "logView.cite.hint": "Citar el texto seleccionado en el mensaje",
   "logView.skills.title": "Habilidades y comandos",
+  "logView.skills.buttonLabel": "Ha",
+  "logView.uploadFailed": "Error al subir ({status})",
   "logView.skills.filter": "Filtrar habilidades y comandos...",
   "logView.skills.noMatch": "No hay habilidades ni comandos que coincidan",
   "logView.skills.group.mostUsed": "Más usados",
@@ -1071,6 +1085,7 @@ export const es: Catalog = {
   "panels.terminal.busyIssue":
     "No se ha enviado: {process} está usando la terminal",
   "panels.terminal.paste": "Pegar",
+  "panels.terminal.pastePrompt": "Pegar:",
   "panels.editor.close": "Cerrar el editor",
   "panels.editor.closeTab": "Cerrar la pestaña",
   "panels.editor.selectFile": "Elegir un archivo",
@@ -1150,7 +1165,22 @@ export const es: Catalog = {
   "office.pet.species.tortoise": "Tortuga",
   "office.pet.coat": "{species} {number}",
   "office.pet.coatAria": "{species}, pelaje {number}",
-  "office.door.roomFallback": "Sala {number}",
+  "office.desk.swapBadge": "INTERCAMBIAR",
+  "office.status.working": "trabajando",
+  "office.status.waiting": "esperando",
+  "office.status.error": "con error",
+  "office.status.idle": "inactivos",
+  "office.status.errShort": "error",
+  "office.hints.tap": "TOCAR → abrir",
+  "office.hints.longPress": "MANTENER PULSADO → acciones",
+  "office.hints.pinch": "PELLIZCAR → zoom",
+  "office.hints.dragZoomed": "ARRASTRAR (con zoom) → desplazar",
+  "office.hints.click": "CLIC → abrir el agente",
+  "office.hints.dragSwap": "ARRASTRAR → intercambiar escritorios o mover a la puerta",
+  "office.hints.wheel": "RUEDA / +- → zoom",
+  "office.hints.drag": "ARRASTRAR → desplazar",
+  "office.hints.rightClick": "CLIC DERECHO → acciones",
+  "office.hints.resetView": "0 → restablecer la vista",
   "office.pendingPrompt.permission": "permiso",
   "office.pendingPrompt.resume": "sesión",
   "office.pendingPrompt.model": "modelo",
@@ -1179,6 +1209,7 @@ export const es: Catalog = {
   "schedules.tab.runs": "ejecuciones",
   "schedules.tab.cronjobs": "programaciones",
   "schedules.anyMoment": "en cualquier momento",
+  "schedules.createdByFor": "{creator} · para {user}",
   "schedules.running": "en curso…",
   "schedules.newButton": "+ Nueva",
   "schedules.filterLabel": "Programación:",
@@ -1336,7 +1367,6 @@ export const es: Catalog = {
     "Las salas que creas solo las ven, de forma predeterminada, tú y los propietarios de la oficina (ellos pueden cambiarlo).",
   "office.noRooms.askOwner":
     "También puedes pedirle a un propietario que te añada a salas ya existentes.",
-  "office.unread": "sin leer",
   "office.newAgent": "Agente nuevo",
   "apps.actionFailed.start": "No se pudo arrancar.",
   "apps.actionFailed.stop": "No se pudo parar.",
@@ -1752,6 +1782,8 @@ export const es: Catalog = {
     "Aviso: tras el fallo al cambiar de cwd, los archivos de sesión no se pudieron devolver a {previous} y ahora están en {target}; retomarla puede fallar hasta que se restauren.",
   "systemEntries.fileOpenFailed": "No se pudo abrir `{path}`: {message}",
   "systemEntries.fileReadFailed": "No se pudo leer `{path}`: {message}",
+  "systemEntries.fileTooLargeToDisplay":
+    "`{path}` ocupa {size}: demasiado grande para mostrarlo (límite de {limit} MB).",
   "systemEntries.fileSaveFailed": "No se pudo guardar `{path}` para mostrarlo.",
   "systemEntries.diffFailed": "No se pudo ejecutar git diff en `{path}`:",
   "systemEntries.diffBadDir": "No se puede hacer diff de `{path}`: {message}.",

@@ -212,6 +212,35 @@ describe("formatDateTime", () => {
   });
 });
 
+// Ruling 20 (Nil): the subscription reset keeps its weekday. The instant is
+// the one the ruling names, 1 Aug 2026 at 09:00, built from local components so
+// the reading holds in any zone. The English expectation is Intl's own output
+// for "en" (PM ruling, 2026-09-06).
+describe("the weekdayDateTime shape", () => {
+  const stamp = new Date(2026, 7, 1, 9, 0).getTime();
+
+  it("names the weekday in each language, on a 24-hour clock", () => {
+    expect(formatDateTime("en", stamp, "weekdayDateTime")).toBe(
+      "Sat, Aug 1, 09:00",
+    );
+    expect(formatDateTime("es", stamp, "weekdayDateTime")).toBe(
+      "sáb, 1 ago, 09:00",
+    );
+    // Catalan's elision apostrophe here is Intl's own U+2019, as the
+    // timeUntilFine block below already pins for the relative forms.
+    expect(formatDateTime("ca", stamp, "weekdayDateTime")).toBe(
+      "ds., 1 d’ag., 09:00",
+    );
+  });
+
+  it("stays on 24 hours in the afternoon, where English would take a meridiem", () => {
+    const evening = new Date(2026, 7, 1, 21, 5).getTime();
+    expect(formatDateTime("en", evening, "weekdayDateTime")).toBe(
+      "Sat, Aug 1, 21:05",
+    );
+  });
+});
+
 // The fine countdown S6 needs for the next scheduled run. Same kinds as
 // timeUntil, one bucket more: minutes survive instead of rounding to an hour.
 describe("timeUntilFine", () => {

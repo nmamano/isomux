@@ -1,4 +1,5 @@
 import { NavActions, type NavAction } from "./NavActions.tsx";
+import { useI18n } from "../i18n.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export type RoomCounts = {
@@ -32,6 +33,7 @@ export function MobileHeader({
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -88,9 +90,9 @@ export function MobileHeader({
       <div style={{ display: "flex", gap: 8 }}>
         {(
           [
-            { n: counts.working, c: "var(--green)", label: "working" },
-            { n: counts.waiting, c: "var(--purple)", label: "waiting" },
-            { n: counts.error, c: "var(--red)", label: "err" },
+            { n: counts.working, c: "var(--green)", label: "office.status.working" },
+            { n: counts.waiting, c: "var(--purple)", label: "office.status.waiting" },
+            { n: counts.error, c: "var(--red)", label: "office.status.errShort" },
           ] as const
         )
           .filter((s) => s.n > 0)
@@ -117,7 +119,7 @@ export function MobileHeader({
                   boxShadow: `0 0 6px ${s.c}`,
                 }}
               />
-              {s.n} {s.label}
+              {s.n} {t(s.label)}
             </div>
           ))}
       </div>

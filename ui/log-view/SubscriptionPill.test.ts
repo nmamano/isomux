@@ -49,7 +49,9 @@ describe("formatTimeUntil", () => {
 // One popover row, in three languages. The row is where the language reaches
 // BOTH the words and the date: the reset instant goes through
 // shared/i18n/time.ts (ruling 12), so a locale that never left the browser's
-// default would order the date the English way for every reader.
+// default would order the date the English way for every reader. The shape is
+// weekdayDateTime (ruling 20), so every language names the weekday and reads
+// the clock on 24 hours.
 describe("windowLine", () => {
   // Built from local components and read back in the local zone, so this holds
   // wherever the machine is (same trick as shared/i18n/time.test.ts).
@@ -62,23 +64,23 @@ describe("windowLine", () => {
 
   it("words the row and orders the date the way each language does", () => {
     expect(windowLine(EN, window, null)).toBe(
-      "Weekly (Opus): 34% used - resets 1/2/26, 3:04 PM",
+      "Weekly (Opus): 34% used - resets Fri, Jan 2, 15:04",
     );
     expect(windowLine(ES, window, null)).toBe(
-      "Weekly (Opus): usado un 34% - se reinicia el 2/1/26, 15:04",
+      "Weekly (Opus): usado un 34% - se reinicia el vie, 2 ene, 15:04",
     );
     expect(windowLine(CA, window, null)).toBe(
-      "Weekly (Opus): usat un 34% - es reinicia el 2/1/26 15:04",
+      "Weekly (Opus): usat un 34% - es reinicia el dv., 2 de gen., 15:04",
     );
   });
 
   it("adds the countdown only when a clock is supplied, in the same language", () => {
     const nowMs = resetsAtMs - 2 * DAY - 5 * HOUR;
     expect(windowLine(EN, window, nowMs)).toBe(
-      "Weekly (Opus): 34% used - resets 1/2/26, 3:04 PM (in 2 days 5 hours)",
+      "Weekly (Opus): 34% used - resets Fri, Jan 2, 15:04 (in 2 days 5 hours)",
     );
     expect(windowLine(CA, window, nowMs)).toBe(
-      "Weekly (Opus): usat un 34% - es reinicia el 2/1/26 15:04 (d'aquí a 2 dies i 5 hores)",
+      "Weekly (Opus): usat un 34% - es reinicia el dv., 2 de gen., 15:04 (d'aquí a 2 dies i 5 hores)",
     );
   });
 

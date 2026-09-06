@@ -428,7 +428,7 @@ function FileRow({
 }
 
 export function DiffCard({ payload }: { payload: DiffPayload }) {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
   const [outputFormat, setOutputFormat] = useState<DiffOutputFormat>(() =>
     readPref(),
   );
@@ -482,7 +482,11 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
     ? (payload.files.find((f) => f.path === overlayPath) ?? null)
     : null;
 
-  const headerLine = `+${payload.stats.additions} -${payload.stats.deletions} across ${payload.stats.filesChanged} file${payload.stats.filesChanged === 1 ? "" : "s"}`;
+  const headerLine = t("cards.diff.headerLine", {
+    additions: payload.stats.additions,
+    deletions: payload.stats.deletions,
+    files: tn("cards.diff.fileCount", payload.stats.filesChanged),
+  });
 
   return (
     <div
