@@ -76,7 +76,9 @@ describe("the office nav bar", () => {
     // The title is the label unless the action names its own.
     for (const title of ["Tasques", "Programacions", "Apps", "Configuració"])
       expect(view.queryByTitle(title), title).not.toBeNull();
-    expect(view.queryByText("Configuració")).not.toBeNull();
+    // The vent in the scene carries the same word as its SVG title, so the
+    // label is not the only match.
+    expect(view.queryAllByText("Configuració").length).toBeGreaterThan(0);
     expect(view.queryByText("Tema")).not.toBeNull();
     expect(view.queryByTitle("Canvia el tema")).not.toBeNull();
     expect(view.queryByTitle(TASKS.en)).toBeNull();
