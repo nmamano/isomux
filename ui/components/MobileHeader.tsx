@@ -90,9 +90,21 @@ export function MobileHeader({
       <div style={{ display: "flex", gap: 8 }}>
         {(
           [
-            { n: counts.working, c: "var(--green)", label: "office.status.working" },
-            { n: counts.waiting, c: "var(--purple)", label: "office.status.waiting" },
-            { n: counts.error, c: "var(--red)", label: "office.status.errShort" },
+            {
+              n: counts.working,
+              c: "var(--green)",
+              label: "office.status.working",
+            },
+            {
+              n: counts.waiting,
+              c: "var(--purple)",
+              label: "office.status.waiting",
+            },
+            {
+              n: counts.error,
+              c: "var(--red)",
+              label: "office.status.errShort",
+            },
           ] as const
         )
           .filter((s) => s.n > 0)

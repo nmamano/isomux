@@ -384,10 +384,22 @@ export function OfficeView({
           <div style={{ display: "flex", gap: 12 }}>
             {(
               [
-                { n: counts.working, c: "var(--green)", l: "office.status.working" },
-                { n: counts.waiting, c: "var(--purple)", l: "office.status.waiting" },
+                {
+                  n: counts.working,
+                  c: "var(--green)",
+                  l: "office.status.working",
+                },
+                {
+                  n: counts.waiting,
+                  c: "var(--purple)",
+                  l: "office.status.waiting",
+                },
                 { n: counts.error, c: "var(--red)", l: "office.status.error" },
-                { n: counts.idle, c: "var(--text-muted)", l: "office.status.idle" },
+                {
+                  n: counts.idle,
+                  c: "var(--text-muted)",
+                  l: "office.status.idle",
+                },
               ] as const
             )
               .filter((s) => s.n > 0)

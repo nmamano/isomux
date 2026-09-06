@@ -1172,7 +1172,8 @@ export const ca: Catalog = {
   "office.hints.pinch": "PESSIGA → zoom",
   "office.hints.dragZoomed": "ARROSSEGA (amb zoom) → desplaça",
   "office.hints.click": "CLIC → obre l'agent",
-  "office.hints.dragSwap": "ARROSSEGA → intercanvia escriptoris o mou a la porta",
+  "office.hints.dragSwap":
+    "ARROSSEGA → intercanvia escriptoris o mou a la porta",
   "office.hints.wheel": "RODA / +- → zoom",
   "office.hints.drag": "ARROSSEGA → desplaça",
   "office.hints.rightClick": "CLIC DRET → accions",

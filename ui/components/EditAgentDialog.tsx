@@ -2273,7 +2273,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         opacity: isFull ? 0.5 : 1,
                       }}
                     >
-                      {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })}{" "}
+                      {rooms[i]?.name ??
+                        t("common.roomFallback", { number: i + 1 })}{" "}
                       ({roomAgentCount}/8)
                     </button>
                   );

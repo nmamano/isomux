@@ -1176,7 +1176,8 @@ export const es: Catalog = {
   "office.hints.pinch": "PELLIZCAR → zoom",
   "office.hints.dragZoomed": "ARRASTRAR (con zoom) → desplazar",
   "office.hints.click": "CLIC → abrir el agente",
-  "office.hints.dragSwap": "ARRASTRAR → intercambiar escritorios o mover a la puerta",
+  "office.hints.dragSwap":
+    "ARRASTRAR → intercambiar escritorios o mover a la puerta",
   "office.hints.wheel": "RUEDA / +- → zoom",
   "office.hints.drag": "ARRASTRAR → desplazar",
   "office.hints.rightClick": "CLIC DERECHO → acciones",
