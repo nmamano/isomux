@@ -697,8 +697,25 @@ report lists the before/after of any server line whose bytes changed for
 English (there should be none beyond the storage report's number and time
 formatting).
 
-Decide with reviewer: the resolver's name and home, the update-notice
-direction, key layout for commands and choices.
+Rulings during the S7 plan gate (2026-09-06): the pre-sign-in HTML pages
+in `server/auth-middleware.ts` (first-time claim, invite accept, login)
+are OUT of S7: they need Accept-Language negotiation before any identity
+exists, a mechanism decision of its own; ruling 5's pre-sign-in promise is
+therefore undelivered at loop close and S8 files the follow-up. The
+welcome agents' prompt is agent-facing and out. Corrected controls:
+`shared/update-notice.ts` has no server caller (the builder takes a
+translator, nothing moves between tiers); `humanizeSchedule` stays, its
+only caller is the cron-run system prompt (frozen agent text);
+`format-human.ts` keeps `formatSize` for the agent-facing attachment
+prompt and loses `formatRelativeTime` with the storage report; the storage
+report reuses S6's category key table. For Nil at close: server text is
+resolved at write time and broadcast, so in a multi-boss office a Spanish
+boss's `/clear` writes Spanish into a log an English boss reads; the
+durable fix is a log entry carrying `{messageKey, params}` worded by each
+client, a log-schema change beyond this loop.
+
+Decide with reviewer: the resolver's name and home, key layout for
+commands and choices.
 Locked: rulings 1, 2, 6, 7, 11, 12, 15-19; the no-server-change prohibition
 is lifted for S7 only; no UI copy changes beyond what the update notice
 move requires; never restart the server.
