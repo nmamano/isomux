@@ -893,3 +893,55 @@ Decide with reviewer: where the pages' HTML template functions take the
 translator, the key layout.
 Locked: every ruling; server edits limited to `server/auth-middleware.ts`,
 `server/i18n.ts` and their tests; no UI change; never restart.
+
+## PICKUP S10 - the landing and hosted pages (Worker 2 / Reviewer 2)
+
+Goal: a visitor reads isomux.com and isomux.com/hosted in Spanish or
+Catalan at their own paths, the three versions point at each other, and
+the office sends a boss to the copy in their language. Docs, README,
+developer API and legal pages stay English; the legal pages are the
+governing text.
+
+Mechanics:
+
+- Files: `site/index.html` (1094 lines) and `site/hosted.html` (857)
+  become `site/es/index.html`, `site/es/hosted.html`, `site/ca/index.html`,
+  `site/ca/hosted.html`: full static copies with the same markup, styles
+  and scripts, text translated, `lang` set, `<link rel="alternate"
+  hreflang>` for en, es, ca and x-default on all six pages, and a small
+  language switch (three links) in the same place on every page. The
+  English files gain only the hreflang links and the switch (ruling 6).
+- Links inside the Spanish and Catalan pages: docs and legal pages point
+  at the English pages (they stay English); the hosted page carries one
+  sentence saying the legal pages are in English and are the governing
+  text, proposed for Nil in the report and written in es and ca only
+  once he accepts the English (ruling 6 applies to the English copy).
+- `vercel.json`: `cleanUrls` serves `/es/hosted`; verify the catch-all
+  rewrite (the `/(.*)` source) does not swallow `/es/` and `/ca/`, and
+  that the sitemap generator in `scripts/build-docs.ts` lists the new
+  pages (or say why it should not).
+- The office: `ui/office/Floor.tsx` opens `https://isomux.com` in two
+  places; it opens `/es/` or `/ca/` for a boss on that language and the
+  root for English. The developer-API link in `ApiTokensPane` stays
+  English. `api/chat.ts` stays as it is.
+- Translation: this copy is Nil's voice on the public site. Register per
+  ruling 1, short and plain, product names and code untouched (ruling
+  11). The report pastes every Spanish and Catalan sentence next to its
+  English, page by page. The slice merges only on Nil's word.
+- Checks: a small script (`scripts/site-i18n-check.ts`, plain bun test)
+  proving the six pages agree on hreflang, that every relative link in
+  the es and ca pages resolves to a file under `site/` or a docs path,
+  and that the switch appears on all six; `bun run build:docs` still
+  passes; `format:check` covers whatever it covers today (verify).
+- `internal-docs/documentation.md`: sections 1 and 2 gain the rule that
+  the Spanish and Catalan copies follow the English in the same commit.
+
+Acceptance: six pages, hreflang and switch consistent, links resolve,
+the office links a Spanish or Catalan boss to their copy (DOM test on
+`Floor` or the helper that builds the URL), the check script green, the
+report carries the full bilingual copy.
+
+Decide with reviewer: where the switch sits, the URL helper's home, the
+check script's shape.
+Locked: every ruling; no docs/, README, legal or `api/chat.ts` change;
+no server change.
