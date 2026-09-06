@@ -319,7 +319,14 @@ export class ProviderAccountManager {
   async memberStatuses(userId: string): Promise<MemberProviderStatus[]> {
     return Promise.all(
       (["claude", "codex"] as const).map(async (provider) => {
-        const wire = await this.wireFor(userId, provider, "personal", false);
+        // A rejected probe maps to unknown like an unavailable one: one
+        // provider failing never drops the other provider or the names.
+        let wire: ProviderAccountWire;
+        try {
+          wire = await this.wireFor(userId, provider, "personal", false);
+        } catch {
+          return { provider, status: "unknown" as const };
+        }
         return {
           provider,
           status: wire.accountStatus === "unavailable" ? "unknown" : wire.accountStatus,

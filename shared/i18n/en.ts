@@ -533,7 +533,7 @@ export const en = {
 
   "settings.memberConnections.title": "Individual Connections",
   "settings.memberConnections.hint":
-    "Personal provider status and variable names for this user’s agents.",
+    "Personal provider status and variable names for this user's agents.",
   "settings.memberConnections.loadFailed": "Could not load connections.",
   "settings.memberConnections.unknown": "Could not check status.",
   "settings.memberConnections.empty": "No variables.",

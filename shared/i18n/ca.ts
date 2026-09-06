@@ -536,10 +536,10 @@ export const ca: Catalog = {
 
   "settings.memberConnections.title": "Connexions individuals",
   "settings.memberConnections.hint":
-    "Estat dels proveïdors personals i noms de variables per als agents d’aquesta persona.",
+    "Estat dels proveïdors personals i noms de variables per als agents d'aquesta persona.",
   "settings.memberConnections.loadFailed":
     "No s'han pogut carregar les connexions.",
-  "settings.memberConnections.unknown": "No s’ha pogut comprovar l’estat.",
+  "settings.memberConnections.unknown": "No s'ha pogut comprovar l'estat.",
   "settings.memberConnections.empty": "No hi ha variables.",
   "dialogs.textarea.expand": "Amplia {title}",
   "dialogs.textarea.escCollapse": "Esc per plegar",
