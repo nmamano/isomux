@@ -40,7 +40,12 @@ type Cronjob = import("../shared/types.ts").Cronjob;
 setApiShim(async () => ({}));
 afterAll(() => setApiShim(null));
 
-const ROOM = { id: "r1", name: "Sala Nord", prompt: null, canCloseWhenEmpty: true };
+const ROOM = {
+  id: "r1",
+  name: "Sala Nord",
+  prompt: null,
+  canCloseWhenEmpty: true,
+};
 
 // One agent, parked on a permission prompt, at desk 0 of the shown room: that
 // is what puts the nameplate badge on the floor.

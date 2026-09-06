@@ -140,49 +140,51 @@ export function PetPicker({
           return (
             <div
               key={species}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              padding: "4px 2px",
-            }}
-          >
-            <SpeciesThumb species={species} />
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {PET_PALETTES[species].map((palette, coat) => {
-                const chosen =
-                  pet !== null && pet.species === species && pet.coat === coat;
-                return (
-                  <button
-                    key={coat}
-                    type="button"
-                    // The selected coat is marked by its border colour, which
-                    // is no help to a screen reader or to anyone who cannot
-                    // separate the accent from the coat's own outline.
-                    aria-pressed={chosen}
-                    title={t("office.pet.coat", {
-                      species: speciesName,
-                      number: coat + 1,
-                    })}
-                    aria-label={t("office.pet.coatAria", {
-                      species: speciesName,
-                      number: coat + 1,
-                    })}
-                    onClick={() => onPick({ species, coat })}
-                    style={{
-                      width: 18,
-                      height: 18,
-                      borderRadius: "50%",
-                      background: palette.coat,
-                      border: "2px solid",
-                      borderColor: chosen ? "var(--accent)" : palette.mark,
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                  />
-                );
-              })}
-            </div>
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "4px 2px",
+              }}
+            >
+              <SpeciesThumb species={species} />
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {PET_PALETTES[species].map((palette, coat) => {
+                  const chosen =
+                    pet !== null &&
+                    pet.species === species &&
+                    pet.coat === coat;
+                  return (
+                    <button
+                      key={coat}
+                      type="button"
+                      // The selected coat is marked by its border colour, which
+                      // is no help to a screen reader or to anyone who cannot
+                      // separate the accent from the coat's own outline.
+                      aria-pressed={chosen}
+                      title={t("office.pet.coat", {
+                        species: speciesName,
+                        number: coat + 1,
+                      })}
+                      aria-label={t("office.pet.coatAria", {
+                        species: speciesName,
+                        number: coat + 1,
+                      })}
+                      onClick={() => onPick({ species, coat })}
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: "50%",
+                        background: palette.coat,
+                        border: "2px solid",
+                        borderColor: chosen ? "var(--accent)" : palette.mark,
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    />
+                  );
+                })}
+              </div>
             </div>
           );
         })}

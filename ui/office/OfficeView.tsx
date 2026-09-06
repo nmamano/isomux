@@ -262,7 +262,12 @@ export function OfficeView({
       label: t("common.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: t("common.apps"), onClick: onOpenApps },
+    {
+      id: "apps",
+      icon: AppsIcon,
+      label: t("common.apps"),
+      onClick: onOpenApps,
+    },
     // One gear for every setting. The office, room, user and device buttons
     // that used to sit here are sidebar rows on the settings page now, and the
     // plaque on the wall opens the same page.

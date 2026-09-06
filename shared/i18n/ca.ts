@@ -1178,7 +1178,8 @@ export const ca: Catalog = {
   "schedules.running": "en curs…",
   "schedules.newButton": "+ Nova",
   "schedules.filterLabel": "Programació:",
-  "schedules.empty": "Encara no hi ha programacions. Fes clic a \"+ Nova\" per crear-ne una.",
+  "schedules.empty":
+    'Encara no hi ha programacions. Fes clic a "+ Nova" per crear-ne una.',
   "schedules.runsEmpty": "Encara no hi ha execucions.",
   "schedules.enabledToggle": "Activada (fes clic per posar-la en pausa)",
   "schedules.pausedToggle": "En pausa (fes clic per activar-la)",
@@ -1210,21 +1211,27 @@ export const ca: Catalog = {
   "schedules.trigger.scheduled": "programada",
   "schedules.runNumber": "Execució núm. {id}",
   "schedules.promptLabel": "PROMPT",
-  "schedules.snapshot": "cwd: {cwd} · model: {model} · esforç: {effort} · permís: {permission}",
+  "schedules.snapshot":
+    "cwd: {cwd} · model: {model} · esforç: {effort} · permís: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Aquesta execució es va ometre.",
   "schedules.noEntries": "No hi ha entrades de registre.",
   "schedules.runningDots": "En curs...",
   "schedules.editingAbove": "S'està editant el missatge de dalt...",
   "schedules.followUp": "Envia un seguiment",
-  "schedules.waitToFollowUp": "Execució en curs: espera que acabi abans d'enviar un seguiment.",
-  "schedules.skippedNoSession": "Les execucions omeses no tenen cap sessió per reprendre.",
-  "schedules.noSession": "Aquesta execució no es pot reprendre (no es va establir cap sessió).",
+  "schedules.waitToFollowUp":
+    "Execució en curs: espera que acabi abans d'enviar un seguiment.",
+  "schedules.skippedNoSession":
+    "Les execucions omeses no tenen cap sessió per reprendre.",
+  "schedules.noSession":
+    "Aquesta execució no es pot reprendre (no es va establir cap sessió).",
   "common.back": "Enrere",
   "apps.openApp": "Obre l'app",
   "apps.openOnNetwork": "Obre en aquesta xarxa",
-  "apps.preview.notRunning": "Vista prèvia no disponible: l'app no està en marxa.",
-  "apps.preview.noBrowser": "Vista prèvia no disponible: el Chrome no està instal·lat.",
+  "apps.preview.notRunning":
+    "Vista prèvia no disponible: l'app no està en marxa.",
+  "apps.preview.noBrowser":
+    "Vista prèvia no disponible: el Chrome no està instal·lat.",
   "apps.preview.unreachable": "Vista prèvia no disponible: l'app no respon.",
   "apps.preview.busy": "La vista prèvia està ocupada. Torna-ho a provar.",
   "apps.preview.failed": "No s'ha pogut capturar la vista prèvia.",
@@ -1264,7 +1271,8 @@ export const ca: Catalog = {
   "apps.delete": "elimina",
   "apps.cancel": "cancel·la",
   "apps.logEmpty": "Encara no hi ha res al registre.",
-  "apps.confirmDelete": "Vols eliminar {name}? El seu directori de dades es conservarà.",
+  "apps.confirmDelete":
+    "Vols eliminar {name}? El seu directori de dades es conservarà.",
   "tasks.status.open": "Oberta",
   "tasks.status.inProgress": "En curs",
   "tasks.status.backlog": "Pendent",
@@ -1317,9 +1325,12 @@ export const ca: Catalog = {
   "tasks.globalChipTitle": "Tasca global de l'oficina",
   "tasks.createdFor": "{who} · per a {target}",
   "office.noRooms.title": "No tens cap sala assignada",
-  "office.noRooms.create": "Fes servir el <strong>+</strong> de la barra de pestanyes per crear la teva sala.",
-  "office.noRooms.visibility": "Les sales que crees només les veieu, de manera predeterminada, tu i els propietaris de l'oficina (ells ho poden canviar).",
-  "office.noRooms.askOwner": "També pots demanar a un propietari que t'afegeixi a sales ja existents.",
+  "office.noRooms.create":
+    "Fes servir el <strong>+</strong> de la barra de pestanyes per crear la teva sala.",
+  "office.noRooms.visibility":
+    "Les sales que crees només les veieu, de manera predeterminada, tu i els propietaris de l'oficina (ells ho poden canviar).",
+  "office.noRooms.askOwner":
+    "També pots demanar a un propietari que t'afegeixi a sales ja existents.",
   "office.unread": "sense llegir",
   "office.newAgent": "Agent nou",
   "apps.actionFailed.start": "No s'ha pogut engegar.",

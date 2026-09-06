@@ -32,10 +32,7 @@ type PendingNav =
 
 import { useI18n } from "../i18n.tsx";
 import { timeSince } from "../../shared/i18n/time.ts";
-import type {
-  MessageKey,
-  Translator,
-} from "../../shared/i18n/translate.ts";
+import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 const STATUS_ORDER: Record<TaskStatus, number> = {
@@ -498,7 +495,9 @@ function TaskDetailPanel({
               style={inputStyle}
             >
               <option value="open">{t("tasks.status.open")}</option>
-              <option value="in_progress">{t("tasks.status.inProgress")}</option>
+              <option value="in_progress">
+                {t("tasks.status.inProgress")}
+              </option>
               <option value="backlog">{t("tasks.status.backlog")}</option>
               <option value="done">{t("tasks.status.done")}</option>
             </select>

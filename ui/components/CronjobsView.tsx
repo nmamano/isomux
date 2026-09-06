@@ -17,10 +17,7 @@ import {
   timeUntilFine,
 } from "../../shared/i18n/time.ts";
 import { scheduleText } from "../../shared/i18n/schedule.ts";
-import type {
-  MessageKey,
-  Translator,
-} from "../../shared/i18n/translate.ts";
+import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 type Tab = "runs" | "cronjobs";
@@ -95,10 +92,7 @@ function formatDuration(
 }
 
 // Today's runs show the clock alone; older ones carry the day in front of it.
-function formatStartedAt(
-  language: SupportedLanguageCode,
-  ts: number,
-): string {
+function formatStartedAt(language: SupportedLanguageCode, ts: number): string {
   const d = new Date(ts);
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
@@ -713,12 +707,20 @@ function RunsTable({
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ ...thStyle, width: 30 }}>{t("schedules.col.status")}</th>
-            <th style={{ ...thStyle, width: 30 }}>{t("schedules.col.trigger")}</th>
+            <th style={{ ...thStyle, width: 30 }}>
+              {t("schedules.col.status")}
+            </th>
+            <th style={{ ...thStyle, width: 30 }}>
+              {t("schedules.col.trigger")}
+            </th>
             <th style={thStyle}>{t("schedules.col.schedule")}</th>
             <th style={thStyle}>{t("schedules.col.started")}</th>
             <th style={thStyle}>{t("schedules.col.preview")}</th>
-            {!isMobile && <th style={{ ...thStyle, width: 80 }}>{t("schedules.col.duration")}</th>}
+            {!isMobile && (
+              <th style={{ ...thStyle, width: 80 }}>
+                {t("schedules.col.duration")}
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>

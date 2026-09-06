@@ -71,7 +71,12 @@ export function AgentListView({
       label: t("common.schedules"),
       onClick: onOpenCronjobs,
     },
-    { id: "apps", icon: AppsIcon, label: t("common.apps"), onClick: onOpenApps },
+    {
+      id: "apps",
+      icon: AppsIcon,
+      label: t("common.apps"),
+      onClick: onOpenApps,
+    },
     // One gear for every setting, matching the floor view's bar.
     {
       id: "settings",

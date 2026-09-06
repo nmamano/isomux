@@ -29,10 +29,7 @@ import type { Translator } from "./translate.ts";
 // back in UTC as well, or a machine west of Greenwich names the day before.
 const WEEKDAY_ANCHOR_DAY = 7;
 
-const weekdayFormatters = new Map<
-  SupportedLanguageCode,
-  Intl.DateTimeFormat
->();
+const weekdayFormatters = new Map<SupportedLanguageCode, Intl.DateTimeFormat>();
 
 function weekdayFormatter(
   language: SupportedLanguageCode,

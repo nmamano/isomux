@@ -821,9 +821,7 @@ export function AppsView({
         >
           ←
         </button>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>
-          {t("common.apps")}
-        </div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{t("common.apps")}</div>
         {features.liveAppPreviews && (
           <button
             type="button"
@@ -991,7 +989,10 @@ export function AppsView({
                       fontSize: 11,
                     }}
                   >
-                    <Meta label={t("apps.meta.port")} value={String(app.port)} />
+                    <Meta
+                      label={t("apps.meta.port")}
+                      value={String(app.port)}
+                    />
                     {/* The creator opens its conversation when it is still an
                         agent of this office; otherwise it stays plain text. */}
                     <Meta
@@ -1211,14 +1212,16 @@ const VERB_LABELS: Record<
   restart: "apps.verb.restart",
 };
 
-const STATE_LABELS: Record<AppState, Extract<MessageKey, `apps.state.${string}`>> =
-  {
-    running: "apps.state.running",
-    starting: "apps.state.starting",
-    stopped: "apps.state.stopped",
-    failed: "apps.state.failed",
-    unknown: "apps.state.unknown",
-  };
+const STATE_LABELS: Record<
+  AppState,
+  Extract<MessageKey, `apps.state.${string}`>
+> = {
+  running: "apps.state.running",
+  starting: "apps.state.starting",
+  stopped: "apps.state.stopped",
+  failed: "apps.state.failed",
+  unknown: "apps.state.unknown",
+};
 
 // A verb that cannot change the app's current state renders disabled: "start"
 // on a running app reads as a bug even though systemd would no-op it. State

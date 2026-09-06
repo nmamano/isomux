@@ -1161,7 +1161,7 @@ export const en = {
   "schedules.running": "running…",
   "schedules.newButton": "+ New",
   "schedules.filterLabel": "Schedule:",
-  "schedules.empty": "No schedules yet. Click \"+ New\" to create one.",
+  "schedules.empty": 'No schedules yet. Click "+ New" to create one.',
   "schedules.runsEmpty": "No runs yet.",
   "schedules.enabledToggle": "Enabled (click to pause)",
   "schedules.pausedToggle": "Paused (click to enable)",
@@ -1193,16 +1193,19 @@ export const en = {
   "schedules.trigger.scheduled": "scheduled",
   "schedules.runNumber": "Run #{id}",
   "schedules.promptLabel": "PROMPT",
-  "schedules.snapshot": "cwd: {cwd} · model: {model} · effort: {effort} · permission: {permission}",
+  "schedules.snapshot":
+    "cwd: {cwd} · model: {model} · effort: {effort} · permission: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "This run was skipped.",
   "schedules.noEntries": "No log entries.",
   "schedules.runningDots": "Running...",
   "schedules.editingAbove": "Editing message above...",
   "schedules.followUp": "Send a follow-up",
-  "schedules.waitToFollowUp": "Run in progress - wait for it to finish before sending a follow-up.",
+  "schedules.waitToFollowUp":
+    "Run in progress - wait for it to finish before sending a follow-up.",
   "schedules.skippedNoSession": "Skipped runs have no session to resume.",
-  "schedules.noSession": "This run can't be resumed (no session was established).",
+  "schedules.noSession":
+    "This run can't be resumed (no session was established).",
   "common.back": "Back",
   "apps.openApp": "Open app",
   "apps.openOnNetwork": "Open on this network",
@@ -1300,9 +1303,12 @@ export const en = {
   "tasks.globalChipTitle": "Office-global task",
   "tasks.createdFor": "{who} · for {target}",
   "office.noRooms.title": "No rooms assigned",
-  "office.noRooms.create": "Use the <strong>+</strong> in the room tab bar to create your own room.",
-  "office.noRooms.visibility": "New rooms you create are visible only to you and the office owners by default (owners can change that).",
-  "office.noRooms.askOwner": "You can also ask an owner to add you to existing rooms.",
+  "office.noRooms.create":
+    "Use the <strong>+</strong> in the room tab bar to create your own room.",
+  "office.noRooms.visibility":
+    "New rooms you create are visible only to you and the office owners by default (owners can change that).",
+  "office.noRooms.askOwner":
+    "You can also ask an owner to add you to existing rooms.",
   "office.unread": "unread",
   "office.newAgent": "New Agent",
   "apps.actionFailed.start": "Could not start.",

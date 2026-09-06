@@ -1182,7 +1182,8 @@ export const es: Catalog = {
   "schedules.running": "en curso…",
   "schedules.newButton": "+ Nueva",
   "schedules.filterLabel": "Programación:",
-  "schedules.empty": "Aún no hay programaciones. Haz clic en \"+ Nueva\" para crear una.",
+  "schedules.empty":
+    'Aún no hay programaciones. Haz clic en "+ Nueva" para crear una.',
   "schedules.runsEmpty": "Aún no hay ejecuciones.",
   "schedules.enabledToggle": "Activada (haz clic para pausarla)",
   "schedules.pausedToggle": "En pausa (haz clic para activarla)",
@@ -1214,21 +1215,27 @@ export const es: Catalog = {
   "schedules.trigger.scheduled": "programada",
   "schedules.runNumber": "Ejecución n.º {id}",
   "schedules.promptLabel": "PROMPT",
-  "schedules.snapshot": "cwd: {cwd} · modelo: {model} · esfuerzo: {effort} · permiso: {permission}",
+  "schedules.snapshot":
+    "cwd: {cwd} · modelo: {model} · esfuerzo: {effort} · permiso: {permission}",
   "schedules.errorLine": "Error: {reason}",
   "schedules.runSkipped": "Esta ejecución se omitió.",
   "schedules.noEntries": "No hay entradas de registro.",
   "schedules.runningDots": "En curso...",
   "schedules.editingAbove": "Editando el mensaje de arriba...",
   "schedules.followUp": "Enviar un seguimiento",
-  "schedules.waitToFollowUp": "Ejecución en curso: espera a que termine antes de enviar un seguimiento.",
-  "schedules.skippedNoSession": "Las ejecuciones omitidas no tienen ninguna sesión que reanudar.",
-  "schedules.noSession": "Esta ejecución no se puede reanudar (no se estableció ninguna sesión).",
+  "schedules.waitToFollowUp":
+    "Ejecución en curso: espera a que termine antes de enviar un seguimiento.",
+  "schedules.skippedNoSession":
+    "Las ejecuciones omitidas no tienen ninguna sesión que reanudar.",
+  "schedules.noSession":
+    "Esta ejecución no se puede reanudar (no se estableció ninguna sesión).",
   "common.back": "Atrás",
   "apps.openApp": "Abrir la app",
   "apps.openOnNetwork": "Abrir en esta red",
-  "apps.preview.notRunning": "Vista previa no disponible: la app no está en marcha.",
-  "apps.preview.noBrowser": "Vista previa no disponible: Chrome no está instalado.",
+  "apps.preview.notRunning":
+    "Vista previa no disponible: la app no está en marcha.",
+  "apps.preview.noBrowser":
+    "Vista previa no disponible: Chrome no está instalado.",
   "apps.preview.unreachable": "Vista previa no disponible: la app no responde.",
   "apps.preview.busy": "La vista previa está ocupada. Inténtalo otra vez.",
   "apps.preview.failed": "No se pudo capturar la vista previa.",
@@ -1268,7 +1275,8 @@ export const es: Catalog = {
   "apps.delete": "eliminar",
   "apps.cancel": "cancelar",
   "apps.logEmpty": "Aún no hay nada en el registro.",
-  "apps.confirmDelete": "¿Eliminar {name}? Su directorio de datos se conservará.",
+  "apps.confirmDelete":
+    "¿Eliminar {name}? Su directorio de datos se conservará.",
   "tasks.status.open": "Abierta",
   "tasks.status.inProgress": "En curso",
   "tasks.status.backlog": "Pendiente",
@@ -1304,7 +1312,8 @@ export const es: Catalog = {
   "tasks.fileInTitle": "Las tareas nuevas se archivan en esta sala",
   "tasks.hintMobile": "Intro para añadir detalles",
   "tasks.hintDesktop": "Intro para añadir detalles · n para enfocar",
-  "tasks.scopeTitle": "Filtrar las tareas y elegir dónde se archivan las nuevas",
+  "tasks.scopeTitle":
+    "Filtrar las tareas y elegir dónde se archivan las nuevas",
   "tasks.allRooms": "Todas las salas",
   "tasks.filterActive": "Abiertas + en curso",
   "tasks.filterAll": "Todas",
@@ -1321,9 +1330,12 @@ export const es: Catalog = {
   "tasks.globalChipTitle": "Tarea global de la oficina",
   "tasks.createdFor": "{who} · para {target}",
   "office.noRooms.title": "No tienes ninguna sala asignada",
-  "office.noRooms.create": "Usa el <strong>+</strong> de la barra de pestañas para crear tu propia sala.",
-  "office.noRooms.visibility": "Las salas que creas solo las ven, de forma predeterminada, tú y los propietarios de la oficina (ellos pueden cambiarlo).",
-  "office.noRooms.askOwner": "También puedes pedirle a un propietario que te añada a salas ya existentes.",
+  "office.noRooms.create":
+    "Usa el <strong>+</strong> de la barra de pestañas para crear tu propia sala.",
+  "office.noRooms.visibility":
+    "Las salas que creas solo las ven, de forma predeterminada, tú y los propietarios de la oficina (ellos pueden cambiarlo).",
+  "office.noRooms.askOwner":
+    "También puedes pedirle a un propietario que te añada a salas ya existentes.",
   "office.unread": "sin leer",
   "office.newAgent": "Agente nuevo",
   "apps.actionFailed.start": "No se pudo arrancar.",

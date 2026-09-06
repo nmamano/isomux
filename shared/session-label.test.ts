@@ -48,10 +48,16 @@ describe("session resume labels", () => {
 describe("the untitled fallback", () => {
   it("uses the supplied label only when there is nothing to preview", () => {
     expect(
-      sessionResumeLabel({ topic: null, firstUserMessage: null }, "Sense títol"),
+      sessionResumeLabel(
+        { topic: null, firstUserMessage: null },
+        "Sense títol",
+      ),
     ).toBe("Sense títol");
     expect(
-      sessionResumeLabel({ topic: "Topic", firstUserMessage: null }, "Sense títol"),
+      sessionResumeLabel(
+        { topic: "Topic", firstUserMessage: null },
+        "Sense títol",
+      ),
     ).toBe("Topic");
     expect(
       sessionResumeLabel(
