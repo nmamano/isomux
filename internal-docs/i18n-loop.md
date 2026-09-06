@@ -889,6 +889,12 @@ unit test green. The report lists every string of the three pages in the
 three languages (they are short) and anything a page renders that stayed
 English with its category.
 
+Ruled at the S9 plan gate (2026-09-06): renderInviteError,
+renderInviteIdentityConflict and renderLockoutBlocked are in S9 (same
+pre-sign-in surface, same file); the signed-in login test has no target
+and is replaced by a test that a stored Spanish preference beats an
+English Accept-Language header on the identity-conflict page.
+
 Decide with reviewer: where the pages' HTML template functions take the
 translator, the key layout.
 Locked: every ruling; server edits limited to `server/auth-middleware.ts`,
@@ -940,6 +946,12 @@ Acceptance: six pages, hreflang and switch consistent, links resolve,
 the office links a Spanish or Catalan boss to their copy (DOM test on
 `Floor` or the helper that builds the URL), the check script green, the
 report carries the full bilingual copy.
+
+Ruled at the S10 plan gate (2026-09-06): the fixed client labels in
+`site/chatbot.js` and `site/theme-toggle.js` are in S10, keyed on
+`document.documentElement.lang`, English bytes preserved, `api/chat.ts`
+untouched; the Vercel rewrite precedence for `/es/` and `/ca/` is settled
+by a deployment check or provider evidence, not by a comment.
 
 Decide with reviewer: where the switch sits, the URL helper's home, the
 check script's shape.
