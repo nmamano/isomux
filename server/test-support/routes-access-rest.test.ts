@@ -2,16 +2,13 @@
 // (opIds office.{getAccess,setAccess}). Owner-only; closes 3a.4.
 //
 // What this freezes:
-//   - getAccess returns the five-field AccessSettings; owner-only (member/agent
+//   - getAccess returns the six-field AccessSettings; owner-only (member/agent
 //     403, no identity 401).
 //   - setAccess enable persists config, returns {signInUrl, restartRequired},
 //     mints the owner self-invite, and fans out a scoped invites_list (double-
 //     signal). Disable persists false/null and mints no signInUrl.
 //   - Status mapping: invalid origin 400, enable-without-origin 400, env mismatch
 //     409 (config NOT changed), owner-only 403/401.
-//   - WS parity: the legacy update_access_settings arm goes through the SAME
-//     shared core (applyAccessSettings) - returns the richer access_settings_updated
-//     and emits invites_list - so the REST extraction can't drift from the WS path.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -123,7 +120,7 @@ describe("routes/office access REST: getAccess", () => {
     expect(access.boundLoopback).toBe(false);
   });
 
-  it("owner -> 200 with all five fields; member/agent -> 403; no identity -> 401", async () => {
+  it("owner -> 200 with all six fields; member/agent -> 403; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -137,6 +134,7 @@ describe("routes/office access REST: getAccess", () => {
     });
     expect(r.status).toBe(200);
     const a = r.body as AccessSettings;
+    expect(a.hosted).toBe(false);
     expect(a.externalAccess).toBe(false); // fresh: no config, no env
     expect(a.publicOrigin).toBe(null);
     expect(a.envOriginSet).toBe(false);
@@ -319,4 +317,94 @@ describe("routes/office access REST: setAccess", () => {
       else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;
     }
   });
+});
+
+
+describe("hosted access policy", () => {
+  it.each(["hosted", "self-hosted"] as const)("rejects URL replacement, clearing, invalid URL and disable with %s marker signal", async (installKind) => {
+    const srv = await startTestServer({ startServer: { installKind } });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const origin = installKind === "hosted" ? "https://custom.example" : "https://office.isomux.app";
+    const configPath = join(STATE_ROOT, "office-config.json");
+    writeFileSync(configPath, JSON.stringify({ externalAccess: true, publicOrigin: origin }));
+    const before = readFileSync(configPath, "utf8");
+    const invitesBefore = (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body;
+    expect(((await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })).body as AccessSettings).hosted).toBe(true);
+    for (const body of [
+      { externalAccess: true, publicOrigin: "https://other.example" },
+      { externalAccess: true, publicOrigin: "" },
+      { externalAccess: true, publicOrigin: "invalid" },
+      { externalAccess: false, publicOrigin: origin },
+      { externalAccess: false, publicOrigin: "" },
+    ]) {
+      const r = await api(srv, "/api/office/access", { method: "PUT", rawSessionId: owner.rawSessionId, body });
+      expect(r.status).toBe(403);
+      expect(r.body).toMatchObject({ error: { code: "hosted_access_managed", message: "Isomux manages this office’s address; it cannot be changed here." } });
+      expect(readFileSync(configPath, "utf8")).toBe(before);
+      expect((await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body).toEqual(invitesBefore);
+    }
+    const unchanged = await api(srv, "/api/office/access", { method: "PUT", rawSessionId: owner.rawSessionId, body: { externalAccess: true, publicOrigin: `${origin}/` } });
+    expect(unchanged.status).toBe(200);
+    expect(unchanged.body).toEqual({ signInUrl: null, restartRequired: false });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+    expect((await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body).toEqual(invitesBefore);
+  });
+});
+
+
+it.each(["https://custom.example", "https://isomux.app.evil.com"])("self-hosted stored origin %s keeps URL and disable controls", async (origin) => {
+  const srv = await startTestServer({ startServer: { installKind: "self-hosted" } });
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  writeFileSync(join(STATE_ROOT, "office-config.json"), JSON.stringify({ externalAccess: true, publicOrigin: origin }));
+  expect(((await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })).body as AccessSettings).hosted).toBe(false);
+  for (const body of [{ externalAccess: true, publicOrigin: "https://replacement.example" }, { externalAccess: false, publicOrigin: "" }]) {
+    const r = await api(srv, "/api/office/access", { method: "PUT", rawSessionId: owner.rawSessionId, body });
+    expect(r.status).toBe(200);
+    expect(loadServerConfig().externalAccess).toBe(body.externalAccess);
+    expect(loadServerConfig().publicOrigin).toBe(body.publicOrigin || null);
+  }
+});
+
+
+it("hosted no-op keeps its stored signal when the environment overrides the address", async () => {
+  const srv = await startTestServer({ startServer: { installKind: "self-hosted" } });
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const configPath = join(STATE_ROOT, "office-config.json");
+  writeFileSync(configPath, JSON.stringify({ externalAccess: true, publicOrigin: "https://office.isomux.app" }));
+  const before = readFileSync(configPath, "utf8");
+  const invitesBefore = (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body;
+  const prevEnv = process.env.ISOMUX_PUBLIC_ORIGIN;
+  process.env.ISOMUX_PUBLIC_ORIGIN = "https://env.example";
+  try {
+    const access = (await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })).body as AccessSettings;
+    expect(access.hosted).toBe(true);
+    expect(access.envOrigin).toBe("https://env.example");
+    const r = await api(srv, "/api/office/access", { method: "PUT", rawSessionId: owner.rawSessionId, body: { externalAccess: true, publicOrigin: "https://ENV.example/" } });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ signInUrl: null, restartRequired: false });
+    expect(readFileSync(configPath, "utf8")).toBe(before);
+    expect((await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body).toEqual(invitesBefore);
+    expect(((await api(srv, "/api/office/access", { rawSessionId: owner.rawSessionId })).body as AccessSettings).hosted).toBe(true);
+  } finally {
+    if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
+    else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;
+  }
+});
+
+
+it("refuses enabling an already-disabled hosted office without writes or invites", async () => {
+  const srv = await startTestServer({ startServer: { installKind: "self-hosted" } });
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const configPath = join(STATE_ROOT, "office-config.json");
+  writeFileSync(configPath, JSON.stringify({ externalAccess: false, publicOrigin: "https://office.isomux.app" }));
+  const before = readFileSync(configPath, "utf8");
+  const invitesBefore = (await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body;
+  const r = await api(srv, "/api/office/access", { method: "PUT", rawSessionId: owner.rawSessionId, body: { externalAccess: true, publicOrigin: "https://office.isomux.app" } });
+  expect(r.status).toBe(403);
+  expect(readFileSync(configPath, "utf8")).toBe(before);
+  expect((await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId })).body).toEqual(invitesBefore);
 });

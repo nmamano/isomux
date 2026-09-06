@@ -3,17 +3,7 @@
 // setAccess}). Owner-only - the route table gates both with office:admin +
 // officeOwner; there is no member or scoped variant.
 //
-// Strangler EXPAND: these REST handlers + the legacy WS arms (get_access_settings
-// / update_access_settings) BOTH delegate to the SAME shared cores in the index
-// seam - computeAccessSettings() (read) and applyAccessSettings() (validate →
-// save → owner self-invite → emitInvitesList). Handlers stay pure REST mappers.
-//
-// RESPONSE shapes: getAccess returns the full AccessSettings; setAccess returns
-// the NARROW table shape { signInUrl, restartRequired }. The shared core returns
-// the richer object (externalAccess/publicOrigin/envOrigin) so the WS arm keeps
-// its bespoke access_settings_updated payload; the handler selects the REST shape.
-//
-// LEAF over the executor + shared types. Only the injected AccessDeps surface.
+// GET returns AccessSettings; PUT selects signInUrl and restartRequired.
 
 import {
   ok,
@@ -27,11 +17,11 @@ import type {
   AccessSettingsReq,
 } from "../../../shared/contract-shapes.ts";
 
-// setAccess outcome the seam shapes: ok → the narrow REST body; or a status-
-// mapped failure (400 invalid/enable-without-origin, 409 env-mismatch, 500 save).
+// The core permits only an unchanged, enabled address on a hosted office.
+// Self-hosted changes retain their validation and persistence behavior.
 type SetAccessOutcome =
   | { ok: true; signInUrl: string | null; restartRequired: boolean }
-  | { ok: false; status: HandlerErrorStatus; error: string };
+  | { ok: false; status: HandlerErrorStatus; error: string; code?: string };
 
 export interface AccessDeps {
   getAccess(): AccessSettings;
@@ -66,7 +56,7 @@ export function accessHandlers(deps: AccessDeps): Record<string, RouteHandler> {
       });
       return r.ok
         ? ok({ signInUrl: r.signInUrl, restartRequired: r.restartRequired })
-        : fail(r.status, "set_access_failed", r.error);
+        : fail(r.status, r.code ?? "set_access_failed", r.error);
     },
   };
 }

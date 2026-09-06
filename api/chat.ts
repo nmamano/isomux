@@ -85,7 +85,7 @@ Setup:
 
 ## Hosted Isomux
 Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
-Hosted customers sign in at the Hosted Isomux dashboard and open their office from there.
+Hosted customers sign in at the Hosted Isomux dashboard and open their office from there. Isomux manages the office address; Settings → Office → Access shows it read-only. Hosted customers cannot change the URL or disable external access through access settings.
 
 ## Full Feature List
 

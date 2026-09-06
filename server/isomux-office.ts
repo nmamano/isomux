@@ -1,3 +1,4 @@
+import { INSTALL_KIND, isHostedAccess, type InstallKind } from "./install-kind.ts";
 import type { Server, ServerWebSocket } from "bun";
 import type {
   ServerMessage,
@@ -909,15 +910,13 @@ async function revokeSessionForUserRecord(
   return result;
 }
 
-// Both transports (the WS get_access_settings / update_access_settings arms and
-// the REST office.getAccess / office.setAccess routes) go through these, so the
-// bind/origin policy can't drift between them.
+// Core access policy for the office.getAccess / office.setAccess routes.
 
 // Effective access policy for the owner UI. Mirrors the boot-time inference
 // exactly: an explicit cfg.externalAccess wins; otherwise external is implied by
 // a saved publicOrigin OR a VALID env origin. envOriginSet is the raw "is the
 // env var defined at all" flag (so the UI can show "set but invalid").
-function computeAccessSettings(): AccessSettings {
+function computeAccessSettings(installKind: InstallKind): AccessSettings {
   const cfg = loadServerConfig();
   const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
   const envOriginSet = envRaw.length > 0;
@@ -927,6 +926,7 @@ function computeAccessSettings(): AccessSettings {
       ? cfg.externalAccess
       : cfg.publicOrigin !== null || envOrigin !== null;
   return {
+    hosted: isHostedAccess(installKind, cfg.publicOrigin),
     externalAccess: effectiveExternal,
     publicOrigin: cfg.publicOrigin,
     envOriginSet,
@@ -937,9 +937,7 @@ function computeAccessSettings(): AccessSettings {
   };
 }
 
-// Result of an access-settings mutation. The RICHER object (externalAccess /
-// publicOrigin / envOrigin) feeds the WS access_settings_updated payload; the
-// REST handler selects just { signInUrl, restartRequired }.
+// Result of an access-settings mutation; REST selects signInUrl and restartRequired.
 type ApplyAccessResult =
   | {
       ok: true;
@@ -953,35 +951,42 @@ type ApplyAccessResult =
       ok: false;
       status: HandlerErrorStatus;
       error: string;
+      code?: string;
       envOrigin?: string;
     };
 
-// Validate → persist → (on enable) mint the owner self-invite bound to the NEW
-// origin + emitInvitesList(). The change persists immediately but the running
-// process keeps its boot-frozen bind/origin until restart (restartRequired:true).
-// Status: invalid origin / enable-without-origin → 400; an enable that conflicts
-// with a differing ISOMUX_PUBLIC_ORIGIN env (which would win after restart and
-// 403 the minted URL) → 409; save failure → 500. If the self-invite mint fails
-// AFTER the save, we log and still return ok with signInUrl:null (preserved
-// legacy behavior - the config change is what matters).
+// A hosted box never saves access settings or mints an invite here: it accepts
+// only an unchanged, already-enabled address. Self-hosted changes persist and
+// require a restart; enabling also mints an owner invite. A failed mint leaves
+// the saved settings in place and returns no sign-in URL.
 async function applyAccessSettings(
   externalAccess: boolean,
   publicOrigin: string,
   userId: string | null,
+  installKind: InstallKind,
 ): Promise<ApplyAccessResult> {
   const rawOrigin = publicOrigin.trim();
-  let origin: string | null = null;
-  if (rawOrigin) {
-    const normalized = normalizePublicOrigin(rawOrigin);
-    if (!normalized) {
+  const origin = rawOrigin ? normalizePublicOrigin(rawOrigin) : null;
+  const current = computeAccessSettings(installKind);
+  if (current.hosted) {
+    if (!current.externalAccess || !externalAccess || !origin || origin !== (current.envOrigin ?? current.publicOrigin)) {
       return {
         ok: false,
-        status: 400,
-        error:
-          "Public URL must be https://<host> or http://localhost (no path, query, or fragment).",
+        status: 403,
+        code: "hosted_access_managed",
+        error: "Isomux manages this office’s address; it cannot be changed here.",
       };
     }
-    origin = normalized;
+    return { ok: true, externalAccess: true, publicOrigin: current.publicOrigin,
+      envOrigin: current.envOrigin, signInUrl: null, restartRequired: false };
+  }
+  if (rawOrigin && !origin) {
+    return {
+      ok: false,
+      status: 400,
+      error:
+        "Public URL must be https://<host> or http://localhost (no path, query, or fragment).",
+    };
   }
   if (externalAccess && !origin) {
     return {
@@ -1822,6 +1827,7 @@ function announceAppAudienceChanges(
 // the executor stays ignorant of managers/auth internals.
 function buildExecutorDeps(
   backupStatus: () => BackupStatus = getBackupStatus,
+  installKind: InstallKind = INSTALL_KIND,
 ): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
@@ -2374,19 +2380,16 @@ function buildExecutorDeps(
     return null;
   });
 
-  // Access settings are owner-only (office:admin + officeOwner guard, no
-  // precondition). Both handlers delegate to the shared cores so the WS arms and
-  // REST stay in lockstep; setAccess fans out invites_list via the self-invite
-  // mint inside applyAccessSettings. REST selects the narrow { signInUrl,
-  // restartRequired } shape from the richer core result.
+  // Access settings are owner-only; successful enables mint an owner invite.
   register(
     accessHandlers({
-      getAccess: () => computeAccessSettings(),
+      getAccess: () => computeAccessSettings(installKind),
       setAccess: async ({ externalAccess, publicOrigin, identity }) => {
         const r = await applyAccessSettings(
           externalAccess,
           publicOrigin,
           identity.userId,
+          installKind,
         );
         return r.ok
           ? {
@@ -2394,7 +2397,7 @@ function buildExecutorDeps(
               signInUrl: r.signInUrl,
               restartRequired: r.restartRequired,
             }
-          : { ok: false, status: r.status, error: r.error };
+          : { ok: false, status: r.status, error: r.error, code: r.code };
       },
     }),
   );
@@ -5784,6 +5787,8 @@ function runBackgroundBoot(
 // enforces this with a process-global lock; a direct caller must self-manage.
 
 export interface StartServerOpts {
+  // Tests override the production install-kind marker without touching /etc.
+  installKind?: InstallKind;
   // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for
   // an ephemeral port.
   port?: number;
@@ -5931,7 +5936,7 @@ export async function startServer(
   reconcileAppTokensAtBoot();
   // Then their addresses, on the units the pass above may just have written.
   reconcileAppUrlsAtBoot();
-  executorDeps = buildExecutorDeps(opts.getBackupStatus);
+  executorDeps = buildExecutorDeps(opts.getBackupStatus, opts.installKind);
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
   // `| undefined` in the type is for unix-socket servers, which we never create.

@@ -73,7 +73,9 @@ Auth gates who can use the office once they reach it. Getting the box itself rea
 
 ## External access and public origin
 
-Post-claim, the **Access pane** under `Settings` → `Office` has an _External access_ section with:
+Hosted offices show their address read-only in the **Access pane**. Isomux manages the address; the access settings endpoint refuses URL changes and disabling external access. Self-hosted owners keep both controls.
+
+Post-claim, on a self-hosted office, the **Access pane** under `Settings` → `Office` has an _External access_ section with:
 
 - **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
 - **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://my-mac-mini.<your-tailnet>.ts.net`).

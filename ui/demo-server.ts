@@ -1518,6 +1518,7 @@ export async function demoApi(
         publicOrigin: null,
         envOriginSet: false,
         envOrigin: null,
+        hosted: false,
         boundLoopback: true,
       };
     case "PUT /api/office/access":

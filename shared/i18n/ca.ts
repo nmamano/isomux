@@ -400,6 +400,7 @@ export const ca: Catalog = {
   "settings.sessions.expiryInactivity": "Caduca per inactivitat",
   "settings.sessions.expiryLatest": "Caduca com a molt tard",
 
+  "settings.externalAccess.managed": "Isomux gestiona l’adreça d’aquesta oficina; no es pot canviar des d’aquí.",
   "settings.externalAccess.intro":
     "Controla si es pot arribar a aquesta oficina des de fora d'aquesta màquina. Els enllaços d'invitació i els dispositius que hi han entrat són a les seccions Invitacions i Sessions.",
   "settings.externalAccess.title": "Accés extern",

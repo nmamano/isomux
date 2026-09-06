@@ -45,7 +45,6 @@ export function ExternalAccessPane({
   return (
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>{t("settings.sidebar.access")}</h4>
-      <p style={hint}>{t("settings.externalAccess.intro")}</p>
       <ExternalAccessSection closeRef={closeRef} />
     </div>
   );
@@ -58,6 +57,7 @@ function ExternalAccessSection({
 }) {
   const { t, rich } = useI18n();
   const [loaded, setLoaded] = useState(false);
+  const [hosted, setHosted] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [envOriginSet, setEnvOriginSet] = useState(false);
@@ -87,6 +87,7 @@ function ExternalAccessSection({
         const nextEnabled = !!s.externalAccess;
         const nextUrl =
           typeof s.publicOrigin === "string" ? s.publicOrigin : "";
+        setHosted(s.hosted);
         setEnabled(nextEnabled);
         setUrlInput(nextUrl);
         setEnvOriginSet(!!s.envOriginSet);
@@ -215,8 +216,19 @@ function ExternalAccessSection({
     );
   }
 
+  if (hosted) {
+    return (
+      <div style={cardStyle}>
+        <div style={subLabel}>{t("settings.externalAccess.publicUrl")}</div>
+        <p>{envOrigin ?? urlInput}</p>
+        <p style={hint}>{t("settings.externalAccess.managed")}</p>
+      </div>
+    );
+  }
+
   return (
     <div style={cardStyle}>
+      <p style={hint}>{t("settings.externalAccess.intro")}</p>
       <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
         {t("settings.externalAccess.title")}
       </h5>
@@ -352,7 +364,6 @@ function ExternalAccessSection({
               code: (chunk) => <code>{chunk}</code>,
             })}
           </p>
-          <code style={codeBlockStyle}>systemctl --user restart isomux</code>
           {signInUrl && (
             <>
               <p style={{ ...hint, marginTop: 10 }}>
@@ -373,14 +384,4 @@ const restartBoxStyle: React.CSSProperties = {
   border: "1px solid var(--accent)",
   borderRadius: 6,
   background: "var(--bg-hover)",
-};
-const codeBlockStyle: React.CSSProperties = {
-  display: "block",
-  fontFamily: "'JetBrains Mono', monospace",
-  fontSize: 11,
-  padding: "4px 6px",
-  borderRadius: 4,
-  background: "var(--bg-code)",
-  color: "var(--text-primary)",
-  margin: "4px 0",
 };
