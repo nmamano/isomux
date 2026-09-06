@@ -1019,7 +1019,17 @@ control-plane suites green against pg-local; the report carries the
 emails and the policy notice verbatim in three languages and lists any
 customer-facing text left English with its category.
 
-Decide with reviewer: the stored-language migration, the switch's place,
-the catalog module layout.
+Ruled at the S11 plan gate (2026-09-06): precedence cookie, then browser
+header, then English; no customer-language migration; no emails exist
+(control-plane has no customer mailer). A language switch on the customer
+pages is in (ruling 5 was about the office's own pre-sign-in pages); ops
+pages excluded. `/` and `/signin` keep their static English shell and the
+browser translates after hydration, setting the root `lang` at that
+moment; sign-up and office pages translate on the server. `customer-error.ts`'s
+friendlyLine is customer copy and translates by the negotiated language,
+codes and trace ids byte-identical; ruling 2 stays for the office
+server's API errors.
+
+Decide with reviewer: the switch's place, the catalog module layout.
 Locked: every ruling; no change to `docs/`, `site/` legal pages or the
 office server; ops pages English.
