@@ -178,7 +178,8 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
-  const { t, rich } = useI18n();
+  const i18n = useI18n();
+  const { t, rich } = i18n;
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -349,7 +350,7 @@ export function OfficeView({
                 onClick={onOpenUpdate}
                 title={
                   updateInfo?.mode === "commit"
-                    ? buildCommitNotice(updateInfo)?.notice
+                    ? buildCommitNotice(i18n, updateInfo)?.notice
                     : undefined
                 }
                 style={{
@@ -374,8 +375,9 @@ export function OfficeView({
                   }}
                 />
                 {updateInfo?.mode === "commit"
-                  ? (buildCommitNotice(updateInfo)?.pill ?? "update available")
-                  : "new release"}
+                  ? (buildCommitNotice(i18n, updateInfo)?.pill ??
+                    t("updateNotice.pill.updateAvailable"))
+                  : t("updateNotice.pill.newRelease")}
               </span>
             )}
           </div>

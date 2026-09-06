@@ -370,14 +370,15 @@ function ReleaseBody({
 // smaller to dismiss now that this is a pane rather than an overlay.
 export function UpdatePane({ onClose }: { onClose: () => void }) {
   const { updateInfo } = useAppState();
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
 
   const release = updateInfo?.mode === "release" ? updateInfo : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
   // Null while quiet - the pill is hidden then, so this pane normally opens
   // with something to say; the guard below covers the status going quiet
   // while the pane is up.
-  const notice = commit ? buildCommitNotice(commit) : null;
+  const notice = commit ? buildCommitNotice(i18n, commit) : null;
 
   const getText = useCallback(
     () =>

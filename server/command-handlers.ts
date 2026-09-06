@@ -11,6 +11,12 @@ import type {
   SkillOrigin,
 } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
+import { translatorForUsername } from "./i18n.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+import { COMMAND_DESCRIPTION_KEYS } from "../shared/i18n/command-keys.ts";
+import { keyFrom } from "../shared/i18n/translate.ts";
+import { formatDecimal, formatNumber } from "../shared/i18n/number.ts";
+import { formatDateTime } from "../shared/i18n/time.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   MODEL_FAMILIES,
@@ -57,6 +63,11 @@ import { runAgentTurn } from "./agent-turn.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
+const DOCS_URL = "https://isomux.com/docs";
+const CRONJOB_PROMPT_USAGE = "`/isomux-cronjob-system-prompt <name-or-id>`";
+const EDIT_USAGE = "`/isomux-edit <path>`";
+const ACCESS_DOCS_URL = "https://isomux.com/docs/access-and-invites";
+
 type HandlerFn = (
   agentId: string,
   managed: ManagedAgent,
@@ -66,15 +77,15 @@ type HandlerFn = (
   device?: string,
 ) => Promise<boolean>;
 
-const RESUME_CHOICE_INSTRUCTION =
-  "\nReply with a number to resume, or anything else to cancel.";
-const SWITCH_CHOICE_INSTRUCTION =
-  "\nReply with a number to switch, or anything else to cancel.";
-
-function choiceInstruction(kind: AgentChoiceInteractionKind): string {
+// The leading newline is layout, so it stays in code; only the sentence is
+// translated (internal-docs/i18n-loop.md, S7).
+function choiceInstruction(
+  t: Translator["t"],
+  kind: AgentChoiceInteractionKind,
+): string {
   return kind === "resume"
-    ? RESUME_CHOICE_INSTRUCTION
-    : SWITCH_CHOICE_INSTRUCTION;
+    ? `\n${t("choices.resume.instruction")}`
+    : `\n${t("choices.model.instruction")}`;
 }
 
 function buildMeta(
@@ -122,12 +133,18 @@ function groupByAlias(items: AliasItem[]): AliasGroup[] {
 
 // Render one alias group as a single bullet line. Shortest name leads
 // (friendlier shorthand reads first); the rest go in parens.
-function formatAliasGroup(names: string[], description?: string): string {
+function formatAliasGroup(
+  t: Translator["t"],
+  names: string[],
+  description?: string,
+): string {
   const sorted = [...names].sort((a, b) => a.length - b.length);
   const primary = `\`/${sorted[0]}\``;
   const others = sorted.slice(1).map((n) => `\`/${n}\``);
   const head =
-    others.length > 0 ? `${primary} (or ${others.join(", ")})` : primary;
+    others.length > 0
+      ? t("commands.help.aliasGroup", { primary, others: others.join(", ") })
+      : primary;
   return description ? `  ${head} - ${description}` : `  ${head}`;
 }
 
@@ -179,10 +196,17 @@ interface HandlerDeps {
   // Login-instructions helper. Wraps agentLoginInstructions + per-backend
   // dispatch in agent-manager so the /login handler can render the same
   // explanatory text + [Copy to terminal] cards an auth-error path would.
-  emitLoginInstructionsFor: (agentId: string, managed: ManagedAgent) => void;
+  emitLoginInstructionsFor: (
+    agentId: string,
+    managed: ManagedAgent,
+    // The person who typed /login, so the explanatory text reads in their
+    // language rather than the agent owner's.
+    username?: string,
+  ) => void;
   emitLogoutAffordanceFor: (
     agentId: string,
     managed: ManagedAgent,
+    username?: string,
   ) => Promise<void>;
 
   // The typed /clear builds its session first and runs its own pending-control
@@ -241,6 +265,7 @@ interface HandlerDeps {
 export function createCommandHandling(deps: HandlerDeps) {
   const commandHandlers: Record<string, HandlerFn> = {
     async clear(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       // Build the new session BEFORE destroying pending control state and
@@ -265,7 +290,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "error",
-          `Failed to clear conversation: ${errMessage(err)}`,
+          t("commands.clear.failed", { error: errMessage(err) }),
         );
         deps.updateState(agentId, "error");
         return true;
@@ -290,13 +315,14 @@ export function createCommandHandling(deps: HandlerDeps) {
         topicStale: false,
       }))
         deps.emit(event);
-      deps.emitEphemeralLog(agentId, "system", "Conversation cleared.");
+      deps.emitEphemeralLog(agentId, "system", t("commands.clear.done"));
       deps.updateState(agentId, "idle");
       deps.persistAll();
       return true;
     },
 
     async context(agentId, managed, _args, rawText, username, device) {
+      const { t, language } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       const headerLines = (u: {
@@ -318,7 +344,12 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
         const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
         return [
-          `**${u.model}** - ${u.totalTokens.toLocaleString()} / ${u.maxTokens.toLocaleString()} tokens (${pct}%)`,
+          t("commands.context.header", {
+            model: u.model,
+            used: formatNumber(language, u.totalTokens),
+            max: formatNumber(language, u.maxTokens),
+            percent: pct,
+          }),
           `\`${bar}\``,
         ];
       };
@@ -335,10 +366,13 @@ export function createCommandHandling(deps: HandlerDeps) {
           const ageMin = Math.round(ageMs / 60_000);
           const age =
             ageMin < 1
-              ? "less than a minute ago"
+              ? t("commands.context.ageUnderMinute")
               : ageMin < 60
-                ? `${ageMin}m ago`
-                : `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
+                ? t("commands.context.ageMinutes", { minutes: ageMin })
+                : t("commands.context.ageHoursMinutes", {
+                    hours: Math.floor(ageMin / 60),
+                    minutes: ageMin % 60,
+                  });
           lines.push("", note(age));
         }
         deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -349,7 +383,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         // lifecycle note - remaining context doesn't change when the session
         // process is released).
         if (snapshotFallback()) return true;
-        deps.addLogEntry(agentId, "system", "No active session.");
+        deps.addLogEntry(agentId, "system", t("commands.context.noSession"));
         return true;
       }
       try {
@@ -357,15 +391,14 @@ export function createCommandHandling(deps: HandlerDeps) {
         if (!ctx) {
           if (
             snapshotFallback(
-              (age) =>
-                `Live measurement unavailable. Showing the last committed reading, sampled ${age}.`,
+              (age) => t("commands.context.staleUnavailable", { age }),
             )
           )
             return true;
           deps.addLogEntry(
             agentId,
             "system",
-            "Context usage not available for this session.",
+            t("commands.context.unavailable"),
           );
           return true;
         }
@@ -377,16 +410,25 @@ export function createCommandHandling(deps: HandlerDeps) {
             if (cat.tokens > 0) {
               const catPct = ((cat.tokens / ctx.maxTokens) * 100).toFixed(1);
               lines.push(
-                `  ${cat.name}: ${cat.tokens.toLocaleString()} tokens (${catPct}%)`,
+                `  ${t("commands.context.category", {
+                  name: cat.name,
+                  tokens: formatNumber(language, cat.tokens),
+                  percent: catPct,
+                })}`,
               );
             }
           }
         }
 
         if ((ctx.memoryFiles?.length ?? 0) > 0 && ctx.memoryFiles) {
-          lines.push("\n**Memory files:**");
+          lines.push(`\n${t("commands.context.memoryFiles")}`);
           for (const f of ctx.memoryFiles) {
-            lines.push(`  ${f.path} (${f.tokens.toLocaleString()} tokens)`);
+            lines.push(
+              `  ${t("commands.context.memoryFile", {
+                path: f.path,
+                tokens: formatNumber(language, f.tokens),
+              })}`,
+            );
           }
         }
 
@@ -394,9 +436,14 @@ export function createCommandHandling(deps: HandlerDeps) {
           (ctx.systemPromptSections?.length ?? 0) > 0 &&
           ctx.systemPromptSections
         ) {
-          lines.push("\n**System prompt:**");
+          lines.push(`\n${t("commands.context.systemPrompt")}`);
           for (const s of ctx.systemPromptSections) {
-            lines.push(`  ${s.name}: ${s.tokens.toLocaleString()} tokens`);
+            lines.push(
+              `  ${t("commands.context.systemPromptSection", {
+                name: s.name,
+                tokens: formatNumber(language, s.tokens),
+              })}`,
+            );
           }
         }
 
@@ -405,7 +452,10 @@ export function createCommandHandling(deps: HandlerDeps) {
             (ctx.autoCompactThreshold / ctx.maxTokens) * 100,
           );
           lines.push(
-            `\nAuto-compact at ${compactPct}% (${ctx.autoCompactThreshold.toLocaleString()} tokens)`,
+            `\n${t("commands.context.autoCompact", {
+              percent: compactPct,
+              tokens: formatNumber(language, ctx.autoCompactThreshold),
+            })}`,
           );
         }
 
@@ -413,85 +463,78 @@ export function createCommandHandling(deps: HandlerDeps) {
       } catch (err) {
         if (
           snapshotFallback(
-            (age) =>
-              `Live measurement failed. Showing the last committed reading, sampled ${age}.`,
+            (age) => t("commands.context.staleFailed", { age }),
           )
         )
           return true;
         deps.addLogEntry(
           agentId,
           "system",
-          `Failed to get context usage: ${errMessage(err)}`,
+          t("commands.context.failed", { error: errMessage(err) }),
         );
       }
       return true;
     },
 
     async help(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const lines: string[] = [];
 
-      lines.push("**Docs:** https://isomux.com/docs");
+      lines.push(t("commands.help.docs", { url: DOCS_URL }));
 
-      lines.push("\n**Tips:**");
-      lines.push(
-        "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
-      );
-      lines.push(
-        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
-      );
-      lines.push(
-        '  • Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.',
-      );
+      lines.push(`\n${t("commands.help.tips")}`);
+      lines.push(`  • ${t("commands.help.tipAgents")}`);
+      lines.push(`  • ${t("commands.help.tipQueue")}`);
+      lines.push(`  • ${t("commands.help.tipVoice")}`);
       // Reachability tips depend on whether this boot has a real public
       // origin (env/config, non-loopback bind). Without one, the office is
       // VPN/tunnel territory; with one, the phone tip is just the URL and
       // the Funnel preamble to the invite tip is moot.
       const publicOrigin = buildPublicOrigin();
       if (publicOrigin.source === "localhost") {
+        lines.push(`  • ${t("commands.help.tipPhoneVpn")}`);
         lines.push(
-          "  • Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
-        );
-        lines.push(
-          "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
+          `  • ${t("commands.help.tipInviteFunnel", { url: ACCESS_DOCS_URL })}`,
         );
       } else {
         lines.push(
-          `  • Isomux works on your phone: open ${publicOrigin.origin}.`,
+          `  • ${t("commands.help.tipPhoneOrigin", { origin: publicOrigin.origin })}`,
         );
-        lines.push(
-          "  • The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
-        );
+        lines.push(`  • ${t("commands.help.tipInvite")}`);
       }
-      lines.push(
-        "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
-      );
-      lines.push(
-        "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
-      );
+      lines.push(`  • ${t("commands.help.tipTerminal")}`);
+      lines.push(`  • ${t("commands.help.tipHooks")}`);
 
       // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
       // single line. The friendlier shorthand leads.
+      // A config command's words come from the catalog, keyed by its name; the
+      // wire carries no description for one (server/commands.ts). A name the
+      // catalog does not know is a backend-reported command, which keeps
+      // whatever description it arrived with.
       const cmdGroups = groupByAlias(
-        managed.slashCommands.map((c) => ({
-          name: c.name,
-          description: c.description,
-          aliasFor: c.aliasFor,
-        })),
+        managed.slashCommands.map((c) => {
+          const key = keyFrom(COMMAND_DESCRIPTION_KEYS, c.name);
+          return {
+            name: c.name,
+            description: key ? t(key) : c.description,
+            aliasFor: c.aliasFor,
+          };
+        }),
       );
       const cmdList = cmdGroups
-        .map((g) => formatAliasGroup(g.names, g.description))
+        .map((g) => formatAliasGroup(t, g.names, g.description))
         .join("\n");
-      lines.push(`\n**Commands:**\n${cmdList}`);
+      lines.push(`\n${t("commands.help.commands")}\n${cmdList}`);
 
       const originLabel: Record<SkillOrigin, string> = {
-        user: "User skills",
-        project: "Project skills",
-        plugin: "Plugin skills",
-        isomux: "Isomux skills",
-        claude: "Claude skills",
+        user: t("commands.help.skillsUser"),
+        project: t("commands.help.skillsProject"),
+        plugin: t("commands.help.skillsPlugin"),
+        isomux: t("commands.help.skillsIsomux"),
+        claude: t("commands.help.skillsClaude"),
       };
       const originOrder: SkillOrigin[] = [
         "isomux",
@@ -516,7 +559,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           })),
         );
         const skillLines = skillGroups
-          .map((g) => formatAliasGroup(g.names, g.description))
+          .map((g) => formatAliasGroup(t, g.names, g.description))
           .join("\n");
         lines.push(`\n**${originLabel[origin]}:**\n${skillLines}`);
       }
@@ -527,33 +570,33 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async resume(agentId, managed, _args, rawText, username, device) {
+      const { t, language } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const sessions = listAgentSessions(agentId);
       if (sessions.length === 0) {
-        deps.emitEphemeralLog(agentId, "system", "No previous sessions found.");
+        deps.emitEphemeralLog(agentId, "system", t("commands.resume.none"));
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const lines: string[] = ["Resume a past conversation:\n"];
+      const lines: string[] = [`${t("commands.resume.header")}\n`];
       const pickable: typeof sessions = [];
       for (const s of sessions.slice(0, 20)) {
-        const date = new Date(s.lastModified);
-        const dateStr = date.toLocaleString([], {
-          month: "short",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-        });
-        const rawLabel = sessionResumeLabel(s);
+        const dateStr = formatDateTime(language, s.lastModified, "monthDayTime");
+        const rawLabel = sessionResumeLabel(
+          s,
+          t("common.untitledConversation"),
+        );
         const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
-        const suffix = s.branched ? "  (branched)" : "";
+        const suffix = s.branched ? `  ${t("commands.resume.branched")}` : "";
         // cwd is a property of the session - surface it so the user sees which
         // directory each session will resume into (it can differ per session).
         // Abbreviate the home prefix to `~` to save horizontal space.
         const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
         if (s.sessionId === managed.sessionManager.sessionId) {
-          lines.push(`  ● ${label}  ${dateStr}${cwdStr}  (current)`);
+          lines.push(
+            `  ● ${label}  ${dateStr}${cwdStr}  ${t("common.current")}`,
+          );
         } else {
           lines.push(
             `  ${pickable.length + 1}. ${label}  ${dateStr}${cwdStr}${suffix}`,
@@ -562,15 +605,11 @@ export function createCommandHandling(deps: HandlerDeps) {
         }
       }
       if (pickable.length === 0) {
-        deps.emitEphemeralLog(
-          agentId,
-          "system",
-          "No other sessions to resume.",
-        );
+        deps.emitEphemeralLog(agentId, "system", t("commands.resume.noOthers"));
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const instruction = choiceInstruction("resume");
+      const instruction = choiceInstruction(t, "resume");
       lines.push(instruction);
       managed.pendingResumeSessions = pickable;
       deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
@@ -579,20 +618,24 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.openChoiceInteraction(
         agentId,
         "resume",
-        "Resume a conversation",
+        t("choices.resume.title"),
         instruction,
         pickable.map((session) => {
-          const date = new Date(session.lastModified).toLocaleString([], {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          });
+          const date = formatDateTime(
+            language,
+            session.lastModified,
+            "monthDayTime",
+          );
           const cwd = session.cwd ? ` · ${tildifyCwd(session.cwd)}` : "";
-          const branched = session.branched ? " · Branched" : "";
+          const branched = session.branched
+            ? ` · ${t("choices.resume.branched")}`
+            : "";
           return {
             value: session.sessionId,
-            label: `${session.forked ? "↳ " : ""}${sessionResumeLabel(session)}`,
+            label: `${session.forked ? "↳ " : ""}${sessionResumeLabel(
+              session,
+              t("common.untitledConversation"),
+            )}`,
             description: `${date}${cwd}${branched}`,
           };
         }),
@@ -602,20 +645,21 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async model(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       if (managed.info.agentType === "opencode") {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          "Open agent settings to select a connected OpenCode model.",
+          t("commands.model.openCodeUnsupported"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
       const currentLabel = familyDisplayLabel(managed.info.modelFamily);
       const lines: string[] = [
-        `Switch model (current: **${currentLabel}**):\n`,
+        `${t("commands.model.header", { current: currentLabel })}\n`,
       ];
       const choices = MODEL_FAMILIES.map((model) => ({
         value: model.family,
@@ -625,10 +669,10 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push(
         ...choices.map(
           (choice, index) =>
-            `  ${index + 1}. ${choice.label}${choice.current ? " (current)" : ""}`,
+            `  ${index + 1}. ${choice.label}${choice.current ? ` ${t("common.current")}` : ""}`,
         ),
       );
-      const instruction = choiceInstruction("model");
+      const instruction = choiceInstruction(t, "model");
       lines.push(instruction);
       deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
         interactionFallback: true,
@@ -636,7 +680,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.openChoiceInteraction(
         agentId,
         "model",
-        "Switch model",
+        t("choices.model.title"),
         instruction,
         choices,
       );
@@ -645,20 +689,21 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async effort(agentId, managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       if (managed.info.agentType === "opencode") {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          "OpenCode does not expose thinking effort controls.",
+          t("commands.effort.openCodeUnsupported"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const currentLabel = effortDisplayLabel(managed.info.effort);
+      const currentLabel = effortDisplayLabel(t, managed.info.effort);
       const lines: string[] = [
-        `Switch thinking effort (current: **${currentLabel}**):\n`,
+        `${t("commands.effort.header", { current: currentLabel })}\n`,
       ];
       // Backend/model-filtered list. The structured interaction carries each
       // level id, so a typed number and a card click resolve to the same value.
@@ -668,16 +713,16 @@ export function createCommandHandling(deps: HandlerDeps) {
       );
       const choices = levels.map((effort) => ({
         value: effort.level,
-        label: effortDisplayLabel(effort.level),
+        label: effortDisplayLabel(t, effort.level),
         current: effort.level === managed.info.effort,
       }));
       lines.push(
         ...choices.map(
           (choice, index) =>
-            `  ${index + 1}. ${choice.label}${choice.current ? " (current)" : ""}`,
+            `  ${index + 1}. ${choice.label}${choice.current ? ` ${t("common.current")}` : ""}`,
         ),
       );
-      const instruction = choiceInstruction("effort");
+      const instruction = choiceInstruction(t, "effort");
       lines.push(instruction);
       deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
         interactionFallback: true,
@@ -685,7 +730,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.openChoiceInteraction(
         agentId,
         "effort",
-        "Switch thinking effort",
+        t("choices.effort.title"),
         instruction,
         choices,
       );
@@ -694,6 +739,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -714,21 +760,25 @@ export function createCommandHandling(deps: HandlerDeps) {
         const roomAgents = roomMap
           .get(room)!
           .sort((a, b) => a.info.desk - b.info.desk);
-        lines.push(`**=== Room ${room + 1} ===**`);
+        lines.push(t("commands.isomuxAllHands.room", { number: room + 1 }));
         lines.push("");
 
         for (const a of roomAgents) {
-          const selfTag = a.info.id === agentId ? "  **(me)**" : "";
+          const selfTag =
+            a.info.id === agentId ? `  ${t("commands.isomuxAllHands.me")}` : "";
           const modelLabel = modelListingLabel(
             a.info.agentType,
             a.info.modelFamily,
           );
           const topic = a.info.topic;
           const hasTopic = topic && topic !== "...";
-          const header = `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;
+          const desk = t("commands.isomuxAllHands.desk", {
+            number: a.info.desk + 1,
+          });
+          const header = `**${a.info.name}** (${desk})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;
           if (hasTopic) {
             lines.push(header);
-            lines.push(`  Topic: ${topic}`);
+            lines.push(`  ${t("commands.isomuxAllHands.topic", { topic })}`);
           } else {
             lines.push(`<span style="color: var(--text-dim)">${header}</span>`);
           }
@@ -736,9 +786,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         }
       }
 
-      lines.push(
-        "Ask your agent if you'd like to know more about any agent or conversation.",
-      );
+      lines.push(t("commands.isomuxAllHands.footer"));
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
       deps.updateState(agentId, "waiting_for_response");
@@ -753,6 +801,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       username,
       device,
     ) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       // A live agent's roomId always resolves; roomById logs loud on a
@@ -803,8 +852,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         0,
       );
       const fence = "`".repeat(Math.max(3, longestRun + 1));
-      const header =
-        "**Full system prompt** *(reflects current settings; takes effect on next conversation)*";
+      const header = t("commands.isomuxSystemPrompt.header");
       deps.addLogEntry(
         agentId,
         "system",
@@ -822,6 +870,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       username,
       device,
     ) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -829,11 +878,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       const all = listCronjobs();
 
       if (!query) {
-        const lines = ["Usage: `/isomux-cronjob-system-prompt <name-or-id>`"];
+        const lines = [
+          t("commands.isomuxCronjobSystemPrompt.usage", {
+            usage: CRONJOB_PROMPT_USAGE,
+          }),
+        ];
         if (all.length === 0) {
-          lines.push("\nNo schedules are configured.");
+          lines.push(`\n${t("commands.isomuxCronjobSystemPrompt.noSchedules")}`);
         } else {
-          lines.push("\nKnown schedules:");
+          lines.push(`\n${t("commands.isomuxCronjobSystemPrompt.known")}`);
           for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);
         }
         deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -849,7 +902,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (!target) {
         if (byNameMatches.length > 1) {
           const lines = [
-            `Multiple schedules are named "${query}". Re-run with the id:`,
+            t("commands.isomuxCronjobSystemPrompt.ambiguous", { query }),
           ];
           for (const c of byNameMatches) lines.push(`  \`${c.id}\``);
           deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -857,7 +910,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            `No schedule matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list schedules.`,
+            t("commands.isomuxCronjobSystemPrompt.noMatch", { query }),
           );
         }
         deps.updateState(agentId, "waiting_for_response");
@@ -867,13 +920,17 @@ export function createCommandHandling(deps: HandlerDeps) {
       // The cronjob receives the system prompt + the configured prompt as its
       // first user message, so display both - that's the full initial input.
       const systemPrompt = buildCronjobSystemPrompt(target);
-      const combined = `${systemPrompt}\n\n----\nFirst user message:\n\n${target.prompt}`;
+      const combined = `${systemPrompt}\n\n----\n${t(
+        "commands.isomuxCronjobSystemPrompt.firstUserMessage",
+      )}\n\n${target.prompt}`;
       const longestRun = (combined.match(/`+/g) ?? []).reduce(
         (m, s) => Math.max(m, s.length),
         0,
       );
       const fence = "`".repeat(Math.max(3, longestRun + 1));
-      const header = `**System prompt + first user message for schedule "${target.name}"** *(reflects current settings; takes effect on next run)*`;
+      const header = t("commands.isomuxCronjobSystemPrompt.header", {
+        name: target.name,
+      });
       deps.addLogEntry(
         agentId,
         "system",
@@ -884,6 +941,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxEdit(agentId, managed, args, rawText, username, device) {
+      const { t, language } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -892,14 +950,17 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          `Usage: \`/isomux-edit <path>\`. Path can be relative (resolves against ${managed.info.cwd}), absolute, or \`~/...\`.`,
+          t("commands.isomuxEdit.usage", {
+            usage: EDIT_USAGE,
+            cwd: managed.info.cwd,
+          }),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
       const resolved = resolveEditorPath(rawPath, managed.info.cwd);
       if (resolved.kind === "bad_path") {
-        deps.addLogEntry(agentId, "system", `Empty path.`);
+        deps.addLogEntry(agentId, "system", t("commands.isomuxEdit.emptyPath"));
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -908,31 +969,37 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` does not exist.`,
+          t("commands.isomuxEdit.notFound", { path: resolved.path }),
         );
       } else if (probe.kind === "not_file") {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` is not a file.`,
+          t("commands.isomuxEdit.notFile", { path: resolved.path }),
         );
       } else if (probe.kind === "binary") {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` is a binary file - the editor panel only supports text.`,
+          t("commands.isomuxEdit.binary", { path: resolved.path }),
         );
       } else if (probe.kind === "too_large") {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB - too large for the editor panel (1 MB limit).`,
+          t("commands.isomuxEdit.tooLarge", {
+            path: resolved.path,
+            size: `${formatDecimal(language, probe.size / 1024, 1)} KB`,
+          }),
         );
       } else if (probe.kind === "io_error") {
         deps.addLogEntry(
           agentId,
           "system",
-          `Failed to open \`${resolved.path}\`: ${probe.message}`,
+          t("commands.isomuxEdit.ioError", {
+            path: resolved.path,
+            message: probe.message,
+          }),
         );
       } else {
         deps.addLogEntry(
@@ -951,6 +1018,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxDiff(agentId, managed, args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
@@ -959,7 +1027,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.attempted}\` is not a directory.`,
+          t("commands.isomuxDiff.notDirectory", { path: resolved.attempted }),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -970,21 +1038,23 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            `\`${result.cwd}\` is not a git repository.`,
+            t("commands.isomuxDiff.notRepo", { path: result.cwd }),
           );
           break;
         case "git_error":
           deps.addLogEntry(
             agentId,
             "system",
-            `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``,
+            `${t("commands.isomuxDiff.gitError", {
+              path: result.cwd,
+            })}\n\n\`\`\`\n${result.message}\n\`\`\``,
           );
           break;
         case "clean":
           deps.addLogEntry(
             agentId,
             "system",
-            `Working tree clean in \`${result.cwd}\` - no uncommitted changes.`,
+            t("commands.isomuxDiff.clean", { path: result.cwd }),
           );
           break;
         case "ok":
@@ -1010,7 +1080,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // authenticate." Codex emits its login card or the auto-clear short
       // text when already authed; Claude emits its
       // /login walkthrough with a `claude` terminal card.
-      deps.emitLoginInstructionsFor(agentId, managed);
+      deps.emitLoginInstructionsFor(agentId, managed, username);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
@@ -1018,23 +1088,24 @@ export function createCommandHandling(deps: HandlerDeps) {
     async logout(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      await deps.emitLogoutAffordanceFor(agentId, managed);
+      await deps.emitLogoutAffordanceFor(agentId, managed, username);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
 
     async usage(agentId, _managed, _args, rawText, username, device) {
+      const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       const usageLines = [
-        "**Subscription plan limits aren't shown here.**",
+        t("commands.usage.heading"),
         "",
-        "To check your Claude or ChatGPT subscription quota, open the embedded terminal and:",
+        t("commands.usage.intro"),
         "",
-        "- launch `claude`, then type `/usage`",
-        "- launch `~/.isomux/bin/codex`, then type `/status`",
+        `- ${t("commands.usage.claude")}`,
+        `- ${t("commands.usage.codex")}`,
         "",
-        "For office-level token spend (per-agent / per-room / per-schedule), see `/isomux-usage`.",
+        t("commands.usage.office"),
       ];
       deps.addLogEntry(agentId, "system", usageLines.join("\n"));
       deps.addLogEntry(
@@ -1059,7 +1130,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          "Codex `/status` card omitted: " + errMessage(err),
+          t("commands.usage.codexCardOmitted", { error: errMessage(err) }),
         );
       }
       if (codexWrapperReady) {
@@ -1096,6 +1167,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
 
     async isomuxStorage(agentId, _managed, _args, rawText, username, device) {
+      const i18n = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       // Same gate as GET /api/storage/usage: office:read, which every human
@@ -1107,7 +1179,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          "Storage usage is only available to signed-in office members.",
+          i18n.t("commands.isomuxStorage.forbidden"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -1136,6 +1208,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         agentId,
         "system",
         renderStorageReport(
+          i18n,
           // Per-agent detail and filesystem paths are owner-only, exactly as
           // on the route.
           user.role === "owner" ? usage : aggregateOnly(usage),
@@ -1192,7 +1265,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          `Could not queue ${rawText}: ${result.error}`,
+          translatorForUsername(username).t("commands.skill.queueFailed", {
+            command: rawText,
+            error: result.error,
+          }),
         );
       }
       return true;
@@ -1232,7 +1308,13 @@ export function createCommandHandling(deps: HandlerDeps) {
       // already cleaned up the pendingTurn deferred if session.send fell
       // before await turn. Per-site error semantics remain here.
       if (err instanceof SessionSwappedError) return true;
-      deps.addLogEntry(agentId, "error", `Skill error: ${errMessage(err)}`);
+      deps.addLogEntry(
+        agentId,
+        "error",
+        translatorForUsername(username).t("commands.skill.error", {
+          error: errMessage(err),
+        }),
+      );
       deps.updateState(agentId, "error");
     }
     return true;
@@ -1247,6 +1329,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     username?: string,
     device?: string,
   ): Promise<boolean> {
+    const { t } = translatorForUsername(username);
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
 
@@ -1276,7 +1359,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
+      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(t, cmd));
       return true;
     }
 
@@ -1311,7 +1394,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
+      deps.emitEphemeralLog(agentId, "system", unsupportedMessage(t, cmd));
       return true;
     }
 
@@ -1323,7 +1406,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     deps.emitEphemeralLog(
       agentId,
       "system",
-      `Unknown command \`/${cmd}\`. Type \`/help\` to see available commands.`,
+      t("commands.unsupported.unknownCommand", { name: cmd }),
     );
     return true;
   }

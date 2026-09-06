@@ -4,6 +4,21 @@
 // Resolution logic lives in
 // server/command-handlers.ts (handleSlashCommand).
 // Last updated: 2026-03-31 (Claude Code ~1.0.x)
+//
+// The WORDS are not here. What a command does, and the custom refusal a few of
+// them carry, live in the catalog under `commands.<name>.*` and are reached
+// through the tables in shared/i18n/command-keys.ts, so /help and the UI menu
+// can render them in the reader's language (internal-docs/i18n-loop.md, S7).
+// This file keeps the structure a command has: which handler runs it, whether
+// a skill may shadow it, whether it appears in autocomplete. Adding a command
+// here without adding its description key fails catalog.test.ts.
+
+import {
+  COMMAND_DESCRIPTION_KEYS,
+  COMMAND_MESSAGE_KEYS,
+} from "../shared/i18n/command-keys.ts";
+import { keyFrom } from "../shared/i18n/translate.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
 
 export type CommandType = "hardcoded" | "bundled-skill";
 
@@ -17,10 +32,6 @@ export type CommandConfig = {
   overridable: boolean;
   /** Key into commandHandlers (required when supported: true) */
   handler?: string;
-  /** Short description of what this command does */
-  description?: string;
-  /** Custom ephemeral message for unsupported commands (default is type-aware) */
-  message?: string;
   /**
    * Marks this entry as an alias of another command. The other command is
    * the canonical name; this one is a friendlier shorthand. /help groups
@@ -47,7 +58,7 @@ export type CommandConfig = {
 };
 
 // Shorthand for the common unsupported-hardcoded pattern
-const UNSUPPORTED_HARDCODED: Omit<CommandConfig, "message"> = {
+const UNSUPPORTED_HARDCODED: CommandConfig = {
   type: "hardcoded",
   supported: false,
   autocomplete: false,
@@ -55,12 +66,16 @@ const UNSUPPORTED_HARDCODED: Omit<CommandConfig, "message"> = {
 };
 
 // Shorthand for the common unsupported-bundled-skill pattern
-const UNSUPPORTED_BUNDLED_SKILL: Omit<CommandConfig, "message"> = {
+const UNSUPPORTED_BUNDLED_SKILL: CommandConfig = {
   type: "bundled-skill",
   supported: false,
   autocomplete: false,
   overridable: true,
 };
+
+// The literal /plugin invocation its refusal quotes. Here rather than in the
+// catalog because angle brackets in a catalog value parse as a tag pair.
+const PLUGIN_ADD_COMMAND = "/plugin add <name>";
 
 export const commands: Record<string, CommandConfig> = {
   clear: {
@@ -69,7 +84,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "clear",
-    description: "Wipe conversation history",
     autoRun: true,
   },
   context: {
@@ -78,7 +92,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "context",
-    description: "Visualize context window usage",
     autoRun: true,
   },
   help: {
@@ -87,7 +100,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "help",
-    description: "List all available commands",
     autoRun: true,
   },
   resume: {
@@ -96,7 +108,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "resume",
-    description: "Pick up a previous session",
     // Interactive picker: takes no argument text, so auto-run opens the list.
     autoRun: true,
   },
@@ -106,7 +117,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "login",
-    description: "Show how to (re-)authenticate this agent",
     autoRun: true,
   },
   logout: {
@@ -115,7 +125,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "logout",
-    description: "Manage sign-in or sign out",
     autoRun: true,
   },
   "isomux-all-hands": {
@@ -124,7 +133,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxAllHands",
-    description: "Summary of all agents and their conversations",
     autoRun: true,
   },
   "isomux-system-prompt": {
@@ -133,7 +141,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxSystemPrompt",
-    description: "Show the full system prompt this agent receives",
     autoRun: true,
   },
   "isomux-cronjob-system-prompt": {
@@ -142,7 +149,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxCronjobSystemPrompt",
-    description: "Show the system prompt a schedule receives (pass name or id)",
   },
   "isomux-diff": {
     type: "hardcoded",
@@ -150,8 +156,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxDiff",
-    description:
-      "Peek uncommitted changes in the agent's cwd (or pass a directory)",
     // No-arg diffs the cwd - a complete, useful invocation. A directory arg is
     // optional and still reachable via slash autocomplete / manual entry.
     autoRun: true,
@@ -162,8 +166,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxEdit",
-    description:
-      "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
   },
   "isomux-usage": {
     type: "hardcoded",
@@ -171,7 +173,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxUsage",
-    description: "Per-agent / per-room / per-schedule token spend",
     autoRun: true,
   },
   "isomux-storage": {
@@ -180,37 +181,29 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxStorage",
-    description: "Disk space the office is using, broken down by category",
     autoRun: true,
   },
 
   compact: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Compress context",
-    message:
-      "`/compact` is not yet supported in Isomux. Context is auto-compacted by the SDK.",
   },
   branch: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Branch conversation into new session",
   },
   fork: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Branch conversation into new session",
   },
   export: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Export conversation to file",
   },
-  plan: { ...UNSUPPORTED_HARDCODED, description: "Toggle plan mode" },
-  rename: { ...UNSUPPORTED_HARDCODED, description: "Rename current session" },
+  plan: { ...UNSUPPORTED_HARDCODED },
+  rename: { ...UNSUPPORTED_HARDCODED },
   reset: {
     type: "hardcoded",
     supported: true,
     autocomplete: false,
     overridable: false,
     handler: "clear",
-    description: "Reset conversation",
   },
   new: {
     type: "hardcoded",
@@ -218,7 +211,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: false,
     overridable: false,
     handler: "clear",
-    description: "Start new conversation",
   },
 
   model: {
@@ -227,13 +219,11 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "model",
-    description: "Switch model",
     // Interactive picker: takes no argument text, so auto-run opens the list.
     autoRun: true,
   },
   fast: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Toggle speed-optimized mode",
   },
   effort: {
     type: "hardcoded",
@@ -241,17 +231,13 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "effort",
-    description: "Set thinking effort level",
     // Interactive picker: takes no argument text, so auto-run opens the list.
     autoRun: true,
   },
-  advisor: { ...UNSUPPORTED_HARDCODED, description: "Toggle advisor mode" },
+  advisor: { ...UNSUPPORTED_HARDCODED },
 
   cost: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Token usage and cost estimate",
-    message:
-      "`/cost` is a Claude Code command for API users. Isomux uses subscription-based billing.",
   },
   usage: {
     type: "hardcoded",
@@ -259,17 +245,14 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "usage",
-    description: "Where to check subscription and office usage",
     autoRun: true,
   },
-  stats: { ...UNSUPPORTED_HARDCODED, description: "Usage patterns over time" },
+  stats: { ...UNSUPPORTED_HARDCODED },
   "extra-usage": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Extra usage options",
   },
   "rate-limit-options": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Rate limit configuration",
   },
 
   diff: {
@@ -278,8 +261,6 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxDiff",
-    description:
-      "Peek uncommitted changes in the agent's cwd (or pass a directory)",
     aliasFor: "isomux-diff",
     // Mirror the canonical isomux-diff: no-arg diffs the cwd. Set explicitly on
     // both names so the alias carries its own autoRun through the wire.
@@ -287,206 +268,165 @@ export const commands: Record<string, CommandConfig> = {
   },
   rewind: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Undo changes and revert conversation",
   },
   checkpoint: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Undo changes and revert conversation",
   },
   copy: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Copy last response to clipboard",
   },
-  files: { ...UNSUPPORTED_HARDCODED, description: "List files in context" },
+  files: { ...UNSUPPORTED_HARDCODED },
   "add-dir": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Add additional working directories",
   },
 
   btw: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Ask without polluting main context",
   },
 
-  config: { ...UNSUPPORTED_HARDCODED, description: "Open settings interface" },
+  config: { ...UNSUPPORTED_HARDCODED },
   settings: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Open settings interface",
   },
-  hooks: { ...UNSUPPORTED_HARDCODED, description: "Manage lifecycle hooks" },
+  hooks: { ...UNSUPPORTED_HARDCODED },
   permissions: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Manage tool permissions",
   },
-  keybindings: { ...UNSUPPORTED_HARDCODED, description: "Edit key bindings" },
+  keybindings: { ...UNSUPPORTED_HARDCODED },
   memory: {
     ...UNSUPPORTED_HARDCODED,
-    description: "View/edit persistent memory",
   },
   mcp: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Manage MCP server connections",
   },
-  ide: { ...UNSUPPORTED_HARDCODED, description: "Manage IDE integrations" },
-  agents: { ...UNSUPPORTED_HARDCODED, description: "Manage custom subagents" },
+  ide: { ...UNSUPPORTED_HARDCODED },
+  agents: { ...UNSUPPORTED_HARDCODED },
   skills: {
     ...UNSUPPORTED_HARDCODED,
-    description: "List all available skills",
   },
-  sandbox: { ...UNSUPPORTED_HARDCODED, description: "Manage sandbox settings" },
+  sandbox: { ...UNSUPPORTED_HARDCODED },
   "privacy-settings": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Manage privacy settings",
   },
-  theme: { ...UNSUPPORTED_HARDCODED, description: "Change color theme" },
-  color: { ...UNSUPPORTED_HARDCODED, description: "Change color theme" },
-  vim: { ...UNSUPPORTED_HARDCODED, description: "Toggle vim keybindings" },
+  theme: { ...UNSUPPORTED_HARDCODED },
+  color: { ...UNSUPPORTED_HARDCODED },
+  vim: { ...UNSUPPORTED_HARDCODED },
   "terminal-setup": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Configure terminal integration",
   },
   "reload-plugins": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Reload installed plugins",
-    message:
-      "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
   },
 
   tasks: {
     ...UNSUPPORTED_HARDCODED,
-    description: "List/manage background tasks",
   },
   bashes: {
     ...UNSUPPORTED_HARDCODED,
-    description: "List/manage background tasks",
   },
   doctor: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Check installation health",
   },
   feedback: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Report bugs to Anthropic",
   },
-  bug: { ...UNSUPPORTED_HARDCODED, description: "Report bugs to Anthropic" },
+  bug: { ...UNSUPPORTED_HARDCODED },
   "release-notes": {
     ...UNSUPPORTED_HARDCODED,
-    description: "View release notes",
   },
   heapdump: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Dump heap for debugging",
   },
-  status: { ...UNSUPPORTED_HARDCODED, description: "Show system status" },
-  tag: { ...UNSUPPORTED_HARDCODED, description: "Tag current conversation" },
+  status: { ...UNSUPPORTED_HARDCODED },
+  tag: { ...UNSUPPORTED_HARDCODED },
   init: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Initialize Claude Code in a project",
   },
   "install-github-app": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Set up Claude GitHub PR review app",
   },
-  pr_comments: { ...UNSUPPORTED_HARDCODED, description: "View PR comments" },
+  pr_comments: { ...UNSUPPORTED_HARDCODED },
 
-  desktop: { ...UNSUPPORTED_HARDCODED, description: "Open desktop app" },
-  mobile: { ...UNSUPPORTED_HARDCODED, description: "Open mobile app" },
-  chrome: { ...UNSUPPORTED_HARDCODED, description: "Open Chrome extension" },
-  session: { ...UNSUPPORTED_HARDCODED, description: "Manage sessions" },
+  desktop: { ...UNSUPPORTED_HARDCODED },
+  mobile: { ...UNSUPPORTED_HARDCODED },
+  chrome: { ...UNSUPPORTED_HARDCODED },
+  session: { ...UNSUPPORTED_HARDCODED },
   teleport: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Transfer session to another device",
   },
   "remote-env": {
     ...UNSUPPORTED_HARDCODED,
-    description: "Configure remote environment",
   },
 
   exit: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Exit Claude Code",
-    message:
-      "Use the Isomux UI to manage agents. `/exit` only works in the Claude Code CLI.",
   },
-  stickers: { ...UNSUPPORTED_HARDCODED, description: "Fun stickers" },
-  upgrade: { ...UNSUPPORTED_HARDCODED, description: "Upgrade Claude Code" },
+  stickers: { ...UNSUPPORTED_HARDCODED },
+  upgrade: { ...UNSUPPORTED_HARDCODED },
   plugin: {
     ...UNSUPPORTED_HARDCODED,
-    description: "Manage plugins",
-    message:
-      "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `/plugin add <name>` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
   },
 
   batch: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Decompose into parallel worktree agents",
   },
   "claude-api": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Load API/SDK reference for detected language",
   },
   "claude-in-chrome": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Automate Chrome browser interactions",
   },
   debug: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Diagnose session/tool issues from debug log",
   },
   "keybindings-help": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Customize keyboard shortcuts",
   },
   loop: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Run a prompt on a recurring schedule",
     // The user-visible string is fixed copy: /loop stays unsupported natively
     // and points users at isomux's own recurring-work primitives.
-    message:
-      "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
   },
   "lorem-ipsum": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Generate placeholder text",
   },
   review: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Code review for bugs, logic, and edge cases",
   },
   schedule: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Create cron-scheduled remote agents",
   },
   "security-review": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Security-focused code review",
   },
   simplify: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Code cleanup and reuse analysis",
   },
   skillify: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Capture processes as reusable skills",
   },
   stuck: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Diagnose frozen/slow sessions",
   },
   ultrareview: {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Ultra-thorough PR review",
   },
   "update-config": {
     ...UNSUPPORTED_BUNDLED_SKILL,
-    description: "Configure settings.json",
   },
 };
 
-/** All command names that should appear in autocomplete from the config. */
+/**
+ * All command names that should appear in autocomplete from the config.
+ *
+ * No description rides the wire: this list is broadcast per AGENT, not per
+ * reader, so a description resolved here would be one language for everybody.
+ * Each client words a command from the catalog by name instead. A SKILL's
+ * description is user-authored data and still travels as delivered - it is on
+ * the skills half of the same wire, not here.
+ */
 export function autocompleteCommands(): {
   name: string;
-  description?: string;
   aliasFor?: string;
   autoRun?: boolean;
 }[] {
@@ -494,23 +434,34 @@ export function autocompleteCommands(): {
     .filter(([, cfg]) => cfg.autocomplete)
     .map(([name, cfg]) => ({
       name,
-      description: cfg.description,
       ...(cfg.aliasFor ? { aliasFor: cfg.aliasFor } : {}),
       ...(cfg.autoRun ? { autoRun: true } : {}),
     }));
 }
 
-/** Unsupported message for a command, with type-aware defaults. */
-export function unsupportedMessage(name: string): string {
-  const cfg = commands[name];
-  const desc = cfg?.description ? ` (${cfg.description.toLowerCase()})` : "";
-  if (cfg?.message) return cfg.message;
-  if (!cfg) return `\`/${name}\` is not available in Isomux.`;
-  if (cfg.type === "hardcoded") {
-    return `\`/${name}\`${desc} is a Claude Code command, but it's not supported in Isomux.`;
-  }
-  if (cfg.type === "bundled-skill") {
-    return `\`/${name}\`${desc} is a Claude Code bundled skill, but it's not supported in Isomux. You can override it by creating your own skill file.`;
-  }
-  return `\`/${name}\` is not available in Isomux.`;
+/**
+ * The refusal for a command Isomux does not implement, in `t`'s language.
+ *
+ * A handful of commands carry their own wording (COMMAND_MESSAGE_KEYS); the
+ * rest get the type-aware default, which names what the command would have
+ * done. Every registry command has a description key, so the parenthetical is
+ * always filled; a name the registry never had takes the last branch.
+ *
+ * `addCommand` is supplied for every key because only /plugin's message uses
+ * it: its text shows `/plugin add <name>`, and a bare `<name>` inside a
+ * catalog value would parse as an unclosed rich-text tag (ruling 19).
+ */
+export function unsupportedMessage(t: Translator["t"], name: string): string {
+  // Own-property lookups throughout: `name` is whatever the user typed after
+  // the slash, so "constructor" and "__proto__" reach here.
+  const cfg = Object.hasOwn(commands, name) ? commands[name] : undefined;
+  const messageKey = keyFrom(COMMAND_MESSAGE_KEYS, name);
+  if (messageKey) return t(messageKey, { addCommand: PLUGIN_ADD_COMMAND });
+  const descriptionKey = keyFrom(COMMAND_DESCRIPTION_KEYS, name);
+  if (!cfg || !descriptionKey)
+    return t("commands.unsupported.notAvailable", { name });
+  const description = t(descriptionKey).toLowerCase();
+  return cfg.type === "hardcoded"
+    ? t("commands.unsupported.hardcoded", { name, description })
+    : t("commands.unsupported.bundledSkill", { name, description });
 }

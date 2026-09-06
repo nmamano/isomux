@@ -1160,7 +1160,7 @@ export const es: Catalog = {
   "contextMenu.newConversation": "Conversación nueva",
   "contextMenu.newEngineConversation": "Conversación nueva de {engine}",
   "contextMenu.resume": "Reanudar",
-  "contextMenu.current": "(actual)",
+  "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Eliminar el agente",
   "agentList.roomEmpty": "{room} está vacía",
@@ -1341,11 +1341,455 @@ export const es: Catalog = {
   "apps.actionFailed.start": "No se pudo arrancar.",
   "apps.actionFailed.stop": "No se pudo parar.",
   "apps.actionFailed.restart": "No se pudo reiniciar.",
-  "contextMenu.untitledConversation": "Conversación sin título",
+  "common.untitledConversation": "Conversación sin título",
   "schedules.human.daily": "Cada día a las {time}",
   "schedules.human.weekly": "Cada semana, {weekday} a las {time}",
   "schedules.human.everyMinutes": "Cada {minutes}m",
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
   "schedules.nextRunIn": "en {duration}",
+
+  "commands.clear.description": "Borrar el historial de la conversación",
+  "commands.context.description": "Ver el uso de la ventana de contexto",
+  "commands.help.description": "Listar todos los comandos disponibles",
+  "commands.resume.description": "Retomar una sesión anterior",
+  "commands.login.description": "Ver cómo autenticar (de nuevo) este agente",
+  "commands.logout.description": "Gestionar el inicio de sesión o cerrarla",
+  "commands.isomuxAllHands.description": "Resumen de todos los agentes y sus conversaciones",
+  "commands.isomuxSystemPrompt.description": "Ver el prompt de sistema completo que recibe este agente",
+  "commands.isomuxCronjobSystemPrompt.description": "Ver el prompt de sistema que recibe una programación (pasa el nombre o el id)",
+  "commands.isomuxDiff.description": "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
+  "commands.isomuxEdit.description": "Abrir un archivo en el panel lateral del editor (relativo al cwd, absoluto o ~/...)",
+  "commands.isomuxUsage.description": "Gasto de tokens por agente, por sala y por programación",
+  "commands.isomuxStorage.description": "Espacio en disco que usa la oficina, desglosado por categoría",
+  "commands.compact.description": "Comprimir el contexto",
+  "commands.compact.message": "`/compact` todavía no está disponible en Isomux. El SDK compacta el contexto automáticamente.",
+  "commands.branch.description": "Ramificar la conversación en una sesión nueva",
+  "commands.fork.description": "Ramificar la conversación en una sesión nueva",
+  "commands.export.description": "Exportar la conversación a un archivo",
+  "commands.plan.description": "Activar o desactivar el modo de planificación",
+  "commands.rename.description": "Renombrar la sesión actual",
+  "commands.reset.description": "Reiniciar la conversación",
+  "commands.new.description": "Empezar una conversación nueva",
+  "commands.model.description": "Cambiar de modelo",
+  "commands.fast.description": "Activar o desactivar el modo rápido",
+  "commands.effort.description": "Fijar el nivel de esfuerzo de razonamiento",
+  "commands.advisor.description": "Activar o desactivar el modo asesor",
+  "commands.cost.description": "Uso de tokens y coste estimado",
+  "commands.cost.message": "`/cost` es un comando de Claude Code para quien usa la API. Isomux factura por suscripción.",
+  "commands.usage.description": "Dónde consultar el uso de la suscripción y de la oficina",
+  "commands.stats.description": "Patrones de uso a lo largo del tiempo",
+  "commands.extraUsage.description": "Opciones de uso adicional",
+  "commands.rateLimitOptions.description": "Configuración del límite de peticiones",
+  "commands.diff.description": "Ver los cambios sin confirmar en el cwd del agente (o pasa un directorio)",
+  "commands.rewind.description": "Deshacer los cambios y revertir la conversación",
+  "commands.checkpoint.description": "Deshacer los cambios y revertir la conversación",
+  "commands.copy.description": "Copiar la última respuesta al portapapeles",
+  "commands.files.description": "Listar los archivos que hay en el contexto",
+  "commands.addDir.description": "Añadir más directorios de trabajo",
+  "commands.btw.description": "Preguntar sin ensuciar el contexto principal",
+  "commands.config.description": "Abrir la interfaz de ajustes",
+  "commands.settings.description": "Abrir la interfaz de ajustes",
+  "commands.hooks.description": "Gestionar los hooks del ciclo de vida",
+  "commands.permissions.description": "Gestionar los permisos de las herramientas",
+  "commands.keybindings.description": "Editar los atajos de teclado",
+  "commands.memory.description": "Ver o editar la memoria persistente",
+  "commands.mcp.description": "Gestionar las conexiones a servidores MCP",
+  "commands.ide.description": "Gestionar las integraciones con el IDE",
+  "commands.agents.description": "Gestionar los subagentes personalizados",
+  "commands.skills.description": "Listar todas las habilidades disponibles",
+  "commands.sandbox.description": "Gestionar los ajustes del sandbox",
+  "commands.privacySettings.description": "Gestionar los ajustes de privacidad",
+  "commands.theme.description": "Cambiar el tema de color",
+  "commands.color.description": "Cambiar el tema de color",
+  "commands.vim.description": "Activar o desactivar los atajos de vim",
+  "commands.terminalSetup.description": "Configurar la integración con el terminal",
+  "commands.reloadPlugins.description": "Recargar los plugins instalados",
+  "commands.reloadPlugins.message": "Para recargar los plugins, abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente), ejecuta `claude` y escribe `/reload-plugins`.",
+  "commands.tasks.description": "Listar o gestionar las tareas en segundo plano",
+  "commands.bashes.description": "Listar o gestionar las tareas en segundo plano",
+  "commands.doctor.description": "Comprobar el estado de la instalación",
+  "commands.feedback.description": "Informar de errores a Anthropic",
+  "commands.bug.description": "Informar de errores a Anthropic",
+  "commands.releaseNotes.description": "Ver las notas de la versión",
+  "commands.heapdump.description": "Volcar el heap para depurar",
+  "commands.status.description": "Ver el estado del sistema",
+  "commands.tag.description": "Etiquetar la conversación actual",
+  "commands.init.description": "Inicializar Claude Code en un proyecto",
+  "commands.installGithubApp.description": "Configurar la app de revisión de PR de Claude en GitHub",
+  "commands.prComments.description": "Ver los comentarios del PR",
+  "commands.desktop.description": "Abrir la app de escritorio",
+  "commands.mobile.description": "Abrir la app móvil",
+  "commands.chrome.description": "Abrir la extensión de Chrome",
+  "commands.session.description": "Gestionar las sesiones",
+  "commands.teleport.description": "Transferir la sesión a otro dispositivo",
+  "commands.remoteEnv.description": "Configurar el entorno remoto",
+  "commands.exit.description": "Salir de Claude Code",
+  "commands.exit.message": "Usa la interfaz de Isomux para gestionar los agentes. `/exit` solo funciona en la CLI de Claude Code.",
+  "commands.stickers.description": "Pegatinas divertidas",
+  "commands.upgrade.description": "Actualizar Claude Code",
+  "commands.plugin.description": "Gestionar los plugins",
+  "commands.plugin.message": "Gestionar plugins requiere la CLI de Claude Code directamente.\n\nPara gestionar los plugins:\n1. Abre el terminal integrado (haz clic en el icono de terminal del escritorio del agente)\n2. Ejecuta `claude`\n3. Escribe `/plugin` para explorar, instalar, activar o desactivar plugins\n\nComandos útiles:\n- `/plugin` - gestor interactivo de plugins (explorar, instalar, activar/desactivar)\n- `{addCommand}` - instalar un plugin por su nombre\n- `/plugin marketplace add owner/repo` - añadir un marketplace de la comunidad\n\nDespués de instalar un plugin, ejecuta `/reload-plugins` dentro de la sesión de Claude para activarlo.",
+  "commands.batch.description": "Descomponer en agentes paralelos con worktree",
+  "commands.claudeApi.description": "Cargar la referencia de la API o el SDK del lenguaje detectado",
+  "commands.claudeInChrome.description": "Automatizar interacciones con el navegador Chrome",
+  "commands.debug.description": "Diagnosticar problemas de sesión o de herramientas desde el log de depuración",
+  "commands.keybindingsHelp.description": "Personalizar los atajos de teclado",
+  "commands.loop.description": "Ejecutar un prompt de forma periódica",
+  "commands.loop.message": "no está disponible de forma nativa; mira si la página de Programaciones o los mensajes programados te sirven",
+  "commands.loremIpsum.description": "Generar texto de relleno",
+  "commands.review.description": "Revisión de código en busca de errores, lógica y casos límite",
+  "commands.schedule.description": "Crear agentes remotos programados con cron",
+  "commands.securityReview.description": "Revisión de código centrada en la seguridad",
+  "commands.simplify.description": "Limpieza de código y análisis de reutilización",
+  "commands.skillify.description": "Capturar procesos como habilidades reutilizables",
+  "commands.stuck.description": "Diagnosticar sesiones bloqueadas o lentas",
+  "commands.ultrareview.description": "Revisión de PR ultraexhaustiva",
+  "commands.updateConfig.description": "Configurar settings.json",
+  "commands.unsupported.hardcoded":
+    "`/{name}` ({description}) es un comando de Claude Code, pero no está disponible en Isomux.",
+  "commands.unsupported.bundledSkill":
+    "`/{name}` ({description}) es una habilidad incluida en Claude Code, pero no está disponible en Isomux. Puedes sustituirla creando tu propio archivo de habilidad.",
+  "commands.unsupported.notAvailable": "`/{name}` no está disponible en Isomux.",
+  "commands.unsupported.unknownCommand":
+    "Comando desconocido `/{name}`. Escribe `/help` para ver los comandos disponibles.",
+  "commands.clear.failed": "No se pudo borrar la conversación: {error}",
+  "commands.clear.done": "Conversación borrada.",
+  "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
+  "commands.context.noSession": "No hay ninguna sesión activa.",
+  "commands.context.unavailable":
+    "El uso de contexto no está disponible en esta sesión.",
+  "commands.context.staleUnavailable":
+    "No hay medición en vivo. Se muestra la última lectura registrada, tomada {age}.",
+  "commands.context.staleFailed":
+    "La medición en vivo ha fallado. Se muestra la última lectura registrada, tomada {age}.",
+  "commands.context.ageUnderMinute": "hace menos de un minuto",
+  "commands.context.ageMinutes": "hace {minutes}m",
+  "commands.context.ageHoursMinutes": "hace {hours}h {minutes}m",
+  "commands.context.category": "{name}: {tokens} tokens ({percent}%)",
+  "commands.context.memoryFiles": "**Archivos de memoria:**",
+  "commands.context.memoryFile": "{path} ({tokens} tokens)",
+  "commands.context.systemPrompt": "**Prompt de sistema:**",
+  "commands.context.systemPromptSection": "{name}: {tokens} tokens",
+  "commands.context.autoCompact":
+    "Compactación automática al {percent}% ({tokens} tokens)",
+  "commands.context.failed": "No se pudo obtener el uso de contexto: {error}",
+  "commands.help.docs": "**Documentación:** {url}",
+  "commands.help.tips": "**Consejos:**",
+  "commands.help.tipAgents":
+    "Los agentes pueden consultarse y enviarse mensajes entre ellos. Pídeselo con naturalidad o usa habilidades como `/second-opinion`, `/pair-programming`, etc.",
+  "commands.help.tipQueue":
+    "Puedes escribir mientras un agente está ocupado: los mensajes se encolan y salen cuando queda libre. Pulsa \"Enviar ahora\" o envía con Ctrl/Cmd+Enter para interrumpir y vaciar la cola al momento.",
+  "commands.help.tipVoice":
+    "Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. La puntuación dictada se escribe como puntuación: di \"question mark\", \"comma\", \"period\", \"new line\", y así.",
+  "commands.help.tipPhoneVpn":
+    "Isomux funciona en el móvil. Lo más fácil es conectarlo a la misma VPN (por ejemplo Tailscale, que es gratis) que la máquina donde se ejecuta.",
+  "commands.help.tipInviteFunnel":
+    "Cuando la oficina sea accesible desde fuera de tu VPN (por ejemplo con Tailscale Funnel; mira {url}), el propietario puede abrir Ajustes de usuario → Acceso y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
+  "commands.help.tipPhoneOrigin": "Isomux funciona en el móvil: abre {origin}.",
+  "commands.help.tipInvite":
+    "El propietario puede abrir Ajustes de usuario → Acceso y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
+  "commands.help.tipTerminal":
+    "El terminal del panel lateral va bien para casos puntuales en los que necesitas ejecutar algo a mano, como un inicio de sesión.",
+  "commands.help.tipHooks":
+    "Isomux incluye hooks de seguridad previos a cada herramienta para los agentes de Claude, que evitan comandos destructivos. Los agentes de Codex no tienen hooks equivalentes.",
+  "commands.help.commands": "**Comandos:**",
+  "commands.help.aliasGroup": "{primary} (o {others})",
+  "commands.help.skillsUser": "Habilidades de usuario",
+  "commands.help.skillsProject": "Habilidades del proyecto",
+  "commands.help.skillsPlugin": "Habilidades de plugins",
+  "commands.help.skillsIsomux": "Habilidades de Isomux",
+  "commands.help.skillsClaude": "Habilidades de Claude",
+  "commands.resume.none": "No hay sesiones anteriores.",
+  "commands.resume.header": "Retoma una conversación anterior:",
+  "commands.resume.noOthers": "No hay otras sesiones que retomar.",
+  "commands.resume.branched": "(ramificada)",
+  "commands.model.openCodeUnsupported":
+    "Abre los ajustes del agente para elegir un modelo de OpenCode conectado.",
+  "commands.model.header": "Cambiar de modelo (actual: **{current}**):",
+  "commands.effort.openCodeUnsupported":
+    "OpenCode no expone controles de esfuerzo de razonamiento.",
+  "commands.effort.header":
+    "Cambiar el esfuerzo de razonamiento (actual: **{current}**):",
+  "commands.isomuxAllHands.room": "**=== Sala {number} ===**",
+  "commands.isomuxAllHands.me": "**(yo)**",
+  "commands.isomuxAllHands.desk": "escritorio {number}",
+  "commands.isomuxAllHands.topic": "Tema: {topic}",
+  "commands.isomuxAllHands.footer":
+    "Pregunta a tu agente si quieres saber más sobre cualquier agente o conversación.",
+  "commands.isomuxSystemPrompt.header":
+    "**Prompt de sistema completo** *(refleja los ajustes actuales; se aplica en la próxima conversación)*",
+  "commands.isomuxCronjobSystemPrompt.usage": "Uso: {usage}",
+  "commands.isomuxCronjobSystemPrompt.noSchedules":
+    "No hay ninguna programación configurada.",
+  "commands.isomuxCronjobSystemPrompt.known": "Programaciones conocidas:",
+  "commands.isomuxCronjobSystemPrompt.ambiguous":
+    "Hay varias programaciones que se llaman \"{query}\". Vuelve a ejecutarlo con el id:",
+  "commands.isomuxCronjobSystemPrompt.noMatch":
+    "Ninguna programación coincide con `{query}`. Prueba `/isomux-cronjob-system-prompt` sin argumentos para listarlas.",
+  "commands.isomuxCronjobSystemPrompt.header":
+    "**Prompt de sistema y primer mensaje de usuario de la programación \"{name}\"** *(refleja los ajustes actuales; se aplica en la próxima ejecución)*",
+  "commands.isomuxCronjobSystemPrompt.firstUserMessage":
+    "Primer mensaje de usuario:",
+  "commands.isomuxEdit.usage":
+    "Uso: {usage}. La ruta puede ser relativa (se resuelve desde {cwd}), absoluta o `~/...`.",
+  "commands.isomuxEdit.emptyPath": "Ruta vacía.",
+  "commands.isomuxEdit.notFound": "`{path}` no existe.",
+  "commands.isomuxEdit.notFile": "`{path}` no es un archivo.",
+  "commands.isomuxEdit.binary":
+    "`{path}` es un archivo binario: el panel del editor solo admite texto.",
+  "commands.isomuxEdit.tooLarge":
+    "`{path}` ocupa {size}, demasiado para el panel del editor (el límite es 1 MB).",
+  "commands.isomuxEdit.ioError": "No se pudo abrir `{path}`: {message}",
+  "commands.isomuxDiff.notDirectory": "`{path}` no es un directorio.",
+  "commands.isomuxDiff.notRepo": "`{path}` no es un repositorio de git.",
+  "commands.isomuxDiff.gitError": "No se pudo ejecutar git diff en `{path}`:",
+  "commands.isomuxDiff.clean":
+    "El árbol de trabajo de `{path}` está limpio: no hay cambios sin confirmar.",
+  "commands.usage.heading":
+    "**Aquí no se muestran los límites del plan de suscripción.**",
+  "commands.usage.intro":
+    "Para consultar tu cuota de suscripción de Claude o de ChatGPT, abre el terminal integrado y:",
+  "commands.usage.claude": "ejecuta `claude` y escribe `/usage`",
+  "commands.usage.codex": "ejecuta `~/.isomux/bin/codex` y escribe `/status`",
+  "commands.usage.office":
+    "Para el gasto de tokens de la oficina (por agente, por sala y por programación), mira `/isomux-usage`.",
+  "commands.usage.codexCardOmitted":
+    "Se omite la tarjeta de `/status` de Codex: {error}",
+  "commands.isomuxStorage.forbidden":
+    "El uso de disco solo está disponible para miembros de la oficina que hayan iniciado sesión.",
+  "commands.skill.queueFailed": "No se pudo encolar {command}: {error}",
+  "commands.skill.error": "Error de la habilidad: {error}",
+  "choices.resume.title": "Retomar una conversación",
+  "choices.resume.instruction":
+    "Responde con un número para retomarla, o cualquier otra cosa para cancelar.",
+  "choices.resume.branched": "Ramificada",
+  "choices.model.title": "Cambiar de modelo",
+  "choices.model.instruction":
+    "Responde con un número para cambiar, o cualquier otra cosa para cancelar.",
+  "choices.effort.title": "Cambiar el esfuerzo de razonamiento",
+  "choices.permission.title": "Quiere usar {tool}",
+  "choices.permission.instruction":
+    "Elige una opción, o escribe cualquier otro mensaje para denegar con ese motivo.",
+  "choices.permission.reply": "Responde:",
+  "choices.permission.allowOnce": "Permitir solo esta vez",
+  "choices.permission.deny": "Denegar",
+  "choices.permission.allowPrefix":
+    "Permitir y no volver a preguntar en esta sesión por ningún comando que empiece por `{prefix}`",
+  "choices.permission.prefixHint":
+    "Responde `{replySpec}` para elegir cuánto permites, por ejemplo `{index} {example}`.",
+  "choices.permission.denyByMessage":
+    "O escribe cualquier otro mensaje para denegar con ese motivo.",
+  "systemEntries.conversationCleared": "Conversación borrada.",
+  "systemEntries.newConversation": "Conversación nueva iniciada.",
+  "systemEntries.agentStopped": "El agente se detuvo: {status}.",
+  "systemEntries.backendFailure.stoppedDuringTurn":
+    "El backend del agente se detuvo durante el turno. La conversación está guardada y se puede retomar.",
+  "systemEntries.backendFailure.sigterm":
+    "El backend del agente se terminó con SIGTERM (código de salida {code}). La causa más probable es la protección contra falta de memoria de esta máquina. La conversación está guardada y se puede retomar.",
+  "systemEntries.backendFailure.sigkill":
+    "El backend del agente se mató con SIGKILL (código de salida {code}). La causa más probable es la protección contra falta de memoria de esta máquina. La conversación está guardada y se puede retomar.",
+  "systemEntries.backendFailure.signal":
+    "El backend del agente se detuvo con la señal {signal} (código de salida {code}). La conversación está guardada y se puede retomar.",
+  "systemEntries.agentReady":
+    "El agente \"{name}\" está listo. Trabaja en {cwd}. Modo de permisos: {mode}.",
+  "systemEntries.streamError": "Error de flujo: {error}",
+  "systemEntries.startFailed": "No se pudo iniciar: {error}",
+  "systemEntries.interrupted": "Agente interrumpido.",
+  "systemEntries.wake.idle":
+    "Se retomó tu sesión (se había liberado por inactividad para ahorrar memoria).",
+  "systemEntries.wake.afterRestart":
+    "Se retomó tu sesión después de reiniciar el servidor.",
+  "systemEntries.wake.afterBackendEnded":
+    "Se retomó tu sesión después de que el backend terminara de forma inesperada.",
+  "systemEntries.wake.inFlightWarning":
+    "Puede que algún comando en curso se ejecutara a medias; comprueba sus efectos antes de reintentar.",
+  "systemEntries.wake.shutdownRejection":
+    "El resultado \"user rejected\" de aquí arriba viene del apagado, no de una persona.",
+  "systemEntries.wake.resumedBeforeFlush":
+    "Se retomó la sesión anterior antes de vaciar la cola de mensajes.",
+  "systemEntries.wake.resumedAfterUnexpectedEnd":
+    "Se retomó la sesión anterior después de que la última terminara de forma inesperada.",
+  "systemEntries.codexInterruptExited":
+    "Codex se cerró durante la interrupción; se instala una sesión nueva.",
+  "systemEntries.codexInterruptExitedWithError":
+    "Codex se cerró durante la interrupción: {error}",
+  "systemEntries.previousInterrupted": "La respuesta anterior se interrumpió.",
+  "systemEntries.interruptedPermissionDenied":
+    "Agente interrumpido; la petición de permiso pendiente se denegó.",
+  "systemEntries.interruptedPermissionRestarted":
+    "Agente interrumpido; la petición de permiso pendiente no se pudo denegar, así que se reinició el backend del agente; la conversación se conserva.",
+  "systemEntries.interruptHandlerFailed":
+    "Falló el gestor de interrupciones: {error}",
+  "systemEntries.codexInterruptFallback":
+    "Codex no atendió la interrupción a tiempo; se pasa a una sesión nueva.",
+  "systemEntries.deliveryStalled":
+    "La entrega del mensaje se ha atascado; recuperando.",
+  "systemEntries.freshSessionAfterRestoreFailure":
+    "Se inició una sesión nueva (la anterior no se pudo restaurar).",
+  "systemEntries.freshSessionBeforeFlush":
+    "Se inició una sesión nueva antes de vaciar la cola de mensajes.",
+  "systemEntries.flushStartFailed":
+    "No se pudo iniciar la sesión para vaciar la cola: {error}",
+  "systemEntries.restartingForSettings":
+    "Se reinicia la sesión para aplicar los ajustes; los mensajes en cola saldrán después del reinicio.",
+  "systemEntries.flushError": "Error al vaciar la cola: {error}",
+  "systemEntries.genericError": "Error: {error}",
+  "systemEntries.restoreOnStartupFailed":
+    "No se pudo restaurar al arrancar: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
+  "systemEntries.flushInterrupted":
+    "El vaciado de la cola se interrumpió por un cambio de sesión; se reintentará.",
+  "systemEntries.sessionStartFailed":
+    "No se pudo iniciar la sesión: {error}\nEscribe /clear para empezar de cero, o /resume para elegir otra sesión.",
+  "systemEntries.queueFailed": "No se pudo encolar el mensaje: {error}",
+  "systemEntries.queueCleared.notConfigured.one":
+    "Se descartó {count} mensaje en cola porque el backend no está configurado.",
+  "systemEntries.queueCleared.notConfigured.other":
+    "Se descartaron {count} mensajes en cola porque el backend no está configurado.",
+  "systemEntries.queueCleared.switching.one":
+    "Se descartó {count} mensaje en cola al cambiar a otra sesión.",
+  "systemEntries.queueCleared.switching.other":
+    "Se descartaron {count} mensajes en cola al cambiar a otra sesión.",
+  "systemEntries.contextCompacted": "Contexto compactado: {summary}",
+  "systemEntries.contextCompactedNoSummary": "Contexto compactado.",
+  "systemEntries.toolCallDenied": "Llamada a herramienta denegada: {tool}",
+  "systemEntries.toolCallDeniedWithReason":
+    "Llamada a herramienta denegada: {tool} ({reason})",
+  "systemEntries.inputRequest":
+    "El backend pidió una entrada interactiva que Isomux no puede mostrar de forma segura.",
+  "systemEntries.permissionRequested":
+    "Permiso solicitado para {tool}. Entrada: {input}.",
+  "systemEntries.diffEmptyCommit":
+    "`{commit}` no introdujo cambios en ningún archivo (¿commit vacío?).",
+  "systemEntries.permissionOutcome.allowPersistent":
+    "Permitir llamadas similares en esta sesión",
+  "systemEntries.permissionOutcome.allowPrefix":
+    "Permitir un prefijo de comando en esta sesión",
+  "systemEntries.permissionOutcome.denyWithReason": "Denegar con un motivo",
+  "systemEntries.permissionOutcome.denyWhenStopped": "Denegar al detenerse",
+  "systemEntries.permissionOutcome.sessionChanged":
+    "Cancelado al cambiar de sesión",
+  "systemEntries.permissionOutcome.priorSessionStopped":
+    "Cancelado mientras se detenía la sesión anterior",
+  "systemEntries.permissionOutcome.sessionEnded":
+    "Cancelado porque la sesión terminó",
+  "systemEntries.permissionOutcome.turnStopped":
+    "Cancelado al detenerse el turno",
+  "systemEntries.permissionOutcome.agentKilled":
+    "Cancelado al eliminar el agente",
+  "systemEntries.permissionOutcome.failed": "No se pudo resolver",
+  "systemEntries.permissionChoice": "Permiso elegido: {label}.",
+  "systemEntries.permissionGrantedOnce": "Permiso concedido (solo esta vez).",
+  "systemEntries.permissionGrantedPersistent":
+    "Permiso concedido (regla añadida para esta sesión).",
+  "systemEntries.permissionDenied": "Permiso denegado.",
+  "systemEntries.permissionDeniedWithReason":
+    "Permiso denegado; el motivo se ha enviado al agente.",
+  "systemEntries.permissionSessionGone":
+    "El permiso no se pudo resolver: la sesión ya no existe.",
+  "systemEntries.permissionResolveFailed":
+    "No se pudo resolver el permiso: {error}",
+  "systemEntries.resumedSession": "Sesión retomada: {label}",
+  "systemEntries.resumeFailed": "No se pudo retomar: {error}",
+  "systemEntries.resumeCancelled": "Retomada cancelada.",
+  "systemEntries.resumeCwdUnavailable":
+    "El directorio guardado de la sesión `{stored}` no está disponible ({error}); se retoma en `{previous}`.",
+  "systemEntries.alreadyUsing": "Ya está usando {label}.",
+  "systemEntries.modelSwitched":
+    "Modelo cambiado a {label}. El contexto del agente puede seguir diciendo que es otro modelo; el correcto es el de la barra superior.",
+  "systemEntries.modelCancelled": "Cambio de modelo cancelado.",
+  "systemEntries.effortSwitched":
+    "Esfuerzo de razonamiento cambiado a {label}.",
+  "systemEntries.effortCancelled": "Cambio de esfuerzo cancelado.",
+  "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
+  "systemEntries.branchFailed": "No se pudo ramificar la conversación: {error}",
+  "systemEntries.editBusy": "No se puede editar mientras el agente trabaja.",
+  "systemEntries.editNotFound": "No se puede editar: no se encuentra el mensaje.",
+  "systemEntries.editNoSession":
+    "No se puede editar: no hay ninguna sesión activa.",
+  "systemEntries.editPendingInteraction":
+    "No se puede editar este prompt mientras hay un comando interactivo pendiente. Respóndelo o cancélalo primero.",
+  "systemEntries.editNotSent":
+    "No se puede editar: este mensaje no llegó al agente y después hubo mensajes más nuevos. Envía uno nuevo.",
+  "systemEntries.editNotLocated":
+    "No se puede editar: no se encuentra el mensaje en la sesión del backend.",
+  "systemEntries.editOtherSession":
+    "Este mensaje está en otra sesión (\"{label}\"). Usa /resume para cambiar a ella y edítalo después.",
+  "systemEntries.cwdMoveBackFailed":
+    "Aviso: tras el fallo al cambiar de cwd, los archivos de sesión no se pudieron devolver a {previous} y ahora están en {target}; retomarla puede fallar hasta que se restauren.",
+  "systemEntries.fileOpenFailed": "No se pudo abrir `{path}`: {message}",
+  "systemEntries.fileReadFailed": "No se pudo leer `{path}`: {message}",
+  "systemEntries.fileSaveFailed": "No se pudo guardar `{path}` para mostrarlo.",
+  "systemEntries.diffFailed": "No se pudo ejecutar git diff en `{path}`:",
+  "systemEntries.diffBadDir": "No se puede hacer diff de `{path}`: {message}.",
+  "systemEntries.diffClean":
+    "El árbol de trabajo de `{path}` está limpio: no hay cambios sin confirmar.",
+  "systemEntries.signInRequired":
+    "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión. Inicia sesión abajo para continuar.",
+  "systemEntries.manageSignIn": "Gestiona tu sesión de {provider} abajo.",
+  "systemEntries.alreadySignedIn":
+    "Ya has iniciado sesión. Gestiona tu sesión de {provider} abajo.",
+  "systemEntries.signOutOpenCode":
+    "Cerrar sesión no está disponible en los agentes de OpenCode.",
+  "systemEntries.signOutNoScope":
+    "Cerrar sesión no está disponible porque no se pudo resolver el ámbito de esta cuenta de {provider}.",
+  "systemEntries.runInTerminal":
+    "Ejecuta `{command}` en el terminal integrado.",
+  "updateNotice.pill.updateAvailable": "hay una actualización",
+  "updateNotice.pill.newRelease": "nueva versión",
+  "updateNotice.pill.mainAhead": "main +{count}",
+  "updateNotice.title.newRelease": "Hay una versión nueva",
+  "updateNotice.title.mainAhead": "Hay commits más nuevos en main",
+  "updateNotice.running": "el commit {sha}",
+  "updateNotice.identity.noLatest": "Estás en {running}.",
+  "updateNotice.identity.current": "Estás en {running} (la última versión).",
+  "updateNotice.identity.behind": "Estás en {running}; ya está {latest}.",
+  "updateNotice.identity.aheadTagged":
+    "Estás en {running} (más nuevo que la última versión, {latest}).",
+  "updateNotice.identity.aheadUntagged":
+    "Estás en {running}, por delante de la última versión ({latest}).",
+  "updateNotice.identity.unknown":
+    "Estás en {running}. La última versión es {latest};",
+  "updateNotice.drift.beyond.one":
+    "main tiene {count} commit más allá de eso.",
+  "updateNotice.drift.beyond.other":
+    "main tiene {count} commits más allá de eso.",
+  "updateNotice.drift.newer.one": "main tiene {count} commit más nuevo.",
+  "updateNotice.drift.newer.other": "main tiene {count} commits más nuevos.",
+  "updateNotice.drift.bleedingEdge.one":
+    "main tiene {count} commit más nuevo si quieres lo último de lo último.",
+  "updateNotice.drift.bleedingEdge.other":
+    "main tiene {count} commits más nuevos si quieres lo último de lo último.",
+  "storageReport.heading": "Almacenamiento de Isomux",
+  "storageReport.totalWithOutside":
+    "**{total} en total:** {stateRoot} de estado de la oficina, más {outside} en {locations}.",
+  "storageReport.totalOnly":
+    "**{total} en total**, todo ello estado de la oficina.",
+  "storageReport.locationsJoin": " y ",
+  "storageReport.measured": "_Medido {age}._",
+  "storageReport.columnCategory": "Categoría",
+  "storageReport.columnSize": "Tamaño",
+  "storageReport.columnFiles": "Archivos",
+  "storageReport.none": "ninguno",
+  "storageReport.totalOfficeState": "Total del estado de la oficina",
+  "storageReport.total": "Total",
+  "storageReport.outsideNote":
+    "_Las copias de seguridad y las instantáneas de actualización están fuera del directorio de estado de la oficina, así que se listan después de su subtotal. \"ninguno\" significa que esa ubicación no está configurada en esta máquina._",
+  "storageReport.locations": "_Ubicaciones: {paths}._",
+  "storageReport.locationOfficeState": "estado de la oficina",
+  "storageReport.locationNotSetUp": "{label} (sin configurar)",
+  "storageReport.ownerOnly":
+    "_El desglose por agente y las rutas son solo para el propietario._",
+  "storageReport.biggestAgents": "Agentes más grandes",
+  "storageReport.columnAgent": "Agente",
+  "storageReport.columnTranscripts": "Transcripciones",
+  "storageReport.columnAttachments": "Adjuntos",
+  "storageReport.columnSessions": "Sesiones",
+  "storageReport.columnLastActivity": "Última actividad",
+  "storageReport.killed": "_(eliminado)_",
+  "storageReport.showing":
+    "_Se muestran los {shown} agentes más grandes de {total} con datos guardados._",
+  "storageReport.nothingDeleted":
+    "_Aquí no se borra nada automáticamente. Las transcripciones y los adjuntos solo se eliminan cuando el propietario lo pide._",
+  "storageReport.unknownSize": "tamaño desconocido",
 };

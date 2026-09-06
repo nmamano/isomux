@@ -2,6 +2,8 @@ import type { RoomPet } from "./pets.ts";
 
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
+import { keyFrom } from "./i18n/translate.ts";
+import type { MessageKey, Translator } from "./i18n/translate.ts";
 
 export type AgentState =
   | "idle"
@@ -157,15 +159,33 @@ export type EffortLevel =
   | "max"
   | "ultra";
 
-export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
-  { level: "minimal", label: "Minimal (Codex only)" },
-  { level: "low", label: "Low" },
-  { level: "medium", label: "Medium" },
-  { level: "high", label: "High" },
-  { level: "xhigh", label: "Extra high" },
-  { level: "max", label: "Max" },
-  { level: "ultra", label: "Ultra (Codex only)" },
+// Ids only. The words are in the catalog under common.effort.*, reached
+// through EFFORT_KEYS below, so the server's /effort and the UI's dialogs read
+// the same level the same way in the reader's language
+// (internal-docs/i18n-loop.md, S7).
+export const EFFORT_LEVELS: { level: EffortLevel }[] = [
+  { level: "minimal" },
+  { level: "low" },
+  { level: "medium" },
+  { level: "high" },
+  { level: "xhigh" },
+  { level: "max" },
+  { level: "ultra" },
 ];
+
+/** The catalog key for each level. The one id-to-key mapping in the codebase. */
+export const EFFORT_KEYS: Record<
+  EffortLevel,
+  Extract<MessageKey, `common.effort.${string}`>
+> = {
+  minimal: "common.effort.minimal",
+  low: "common.effort.low",
+  medium: "common.effort.medium",
+  high: "common.effort.high",
+  xhigh: "common.effort.xhigh",
+  max: "common.effort.max",
+  ultra: "common.effort.ultra",
+};
 
 // Shared across backends: the spawn default for new agents/cronjobs and the
 // coercion target when validateEffort rejects a value.
@@ -174,8 +194,21 @@ export const DEFAULT_EFFORT: EffortLevel = "high";
 export const OPENCODE_DEFAULT_MODEL =
   "opencode/muse-spark-1.2-contributor-free";
 
-export function effortDisplayLabel(level: EffortLevel): string {
-  return EFFORT_LEVELS.find((e) => e.level === level)?.label ?? level;
+/**
+ * The catalog's words for `level`, in `t`'s language.
+ *
+ * A backend may report a level the table does not carry ("none"): its own id is
+ * then the honest rendering, rather than a title-cased guess at English. That
+ * is why the parameter is a plain string.
+ */
+export function effortDisplayLabel(
+  t: Translator["t"],
+  // A plain string, not EffortLevel: a backend can report a level the table
+  // does not carry, and the honest rendering of that is its own id.
+  level: string,
+): string {
+  const key = keyFrom(EFFORT_KEYS, level);
+  return key ? t(key) : level;
 }
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
@@ -288,7 +321,7 @@ export function claudeFamilySupportsMaxEffort(family: string): boolean {
 export function effortLevelsFor(
   agentType: AgentBackendType,
   modelFamily: string,
-): { level: EffortLevel; label: string }[] {
+): { level: EffortLevel }[] {
   if (agentType === "codex") return EFFORT_LEVELS;
   if (agentType === "opencode") return [];
   return EFFORT_LEVELS.filter((e) => {

@@ -9,6 +9,12 @@ import {
   permissionPromptLines,
   resolvePermissionReply,
 } from "../agent-manager.ts";
+import { english } from "../i18n.ts";
+
+// These assertions are about ORDER and resolution, not wording, so they run on
+// the English translator and keep every string they always had
+// (internal-docs/i18n-loop.md, S7).
+const t = english.t;
 
 describe("permission options", () => {
   it("keeps button values identical to typed numbers for every option shape", () => {
@@ -19,8 +25,8 @@ describe("permission options", () => {
       ["Allow for session", "git"],
     ] as const;
     for (const [persistent, prefix] of shapes) {
-      const options = permissionOptions(persistent, prefix);
-      const choices = permissionInteractionChoices(persistent, prefix);
+      const options = permissionOptions(t, persistent, prefix);
+      const choices = permissionInteractionChoices(t, persistent, prefix);
       expect(choices).toHaveLength(options.length);
       for (const [index, choice] of choices.entries()) {
         const typed = String(index + 1);
@@ -37,8 +43,8 @@ describe("permission options", () => {
     allowPersistentLabel?: string,
     allowPrefixLabel?: string,
   ): Array<{ label: string; decision: string }> {
-    const options = permissionOptions(allowPersistentLabel, allowPrefixLabel);
-    const lines = permissionPromptLines({
+    const options = permissionOptions(t, allowPersistentLabel, allowPrefixLabel);
+    const lines = permissionPromptLines(t, {
       toolName: "Bash",
       allowPersistentLabel,
       allowPrefixLabel,
@@ -85,7 +91,7 @@ describe("permission options", () => {
   });
 
   it("maps the persistent three-option menu", () => {
-    const options = permissionOptions("Allow always");
+    const options = permissionOptions(t, "Allow always");
     expect(resolvePermissionReply("1", options)).toEqual({
       kind: "allow_persistent",
     });
@@ -96,7 +102,7 @@ describe("permission options", () => {
   });
 
   it("maps the OpenCode two-option menu and never allows an absent number", () => {
-    const options = permissionOptions();
+    const options = permissionOptions(t);
     expect(resolvePermissionReply("1", options)).toEqual({
       kind: "allow_once",
     });
@@ -105,12 +111,12 @@ describe("permission options", () => {
   });
 
   it("renumbers prefix replies with and without a persistent choice", () => {
-    const four = permissionOptions("Allow always", "rg --files");
+    const four = permissionOptions(t, "Allow always", "rg --files");
     expect(resolvePermissionReply("4 rg", four)).toEqual({
       kind: "allow_prefix",
       prefixText: "rg",
     });
-    const three = permissionOptions(undefined, "rg --files");
+    const three = permissionOptions(t, undefined, "rg --files");
     expect(resolvePermissionReply("3 rg", three)).toEqual({
       kind: "allow_prefix",
       prefixText: "rg",
@@ -120,10 +126,10 @@ describe("permission options", () => {
 
   it("rejects numeric near-misses for every offered menu shape", () => {
     const shapes = [
-      permissionOptions("Allow always"),
-      permissionOptions(),
-      permissionOptions("Allow always", "rg --files"),
-      permissionOptions(undefined, "rg --files"),
+      permissionOptions(t, "Allow always"),
+      permissionOptions(t),
+      permissionOptions(t, "Allow always", "rg --files"),
+      permissionOptions(t, undefined, "rg --files"),
     ];
     for (const options of shapes) {
       for (const reply of [
@@ -151,7 +157,7 @@ describe("permission options", () => {
 
   it("keeps Claude and Codex prompt bytes and starts OpenCode at one", () => {
     expect(
-      permissionPromptLines({
+      permissionPromptLines(t, {
         toolName: "Bash",
         allowPersistentLabel:
           "Allow - and don't ask again for similar calls this session",
@@ -160,7 +166,7 @@ describe("permission options", () => {
       "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for similar calls this session\n  2. Allow - just this time\n  3. Deny\n\nOr type any other message to deny with that as the reason.",
     );
     expect(
-      permissionPromptLines({
+      permissionPromptLines(t, {
         toolName: "Bash",
         allowPersistentLabel:
           "Allow - and don't ask again for this exact command this session",
@@ -170,7 +176,7 @@ describe("permission options", () => {
     ).toBe(
       "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for this exact command this session\n  2. Allow - just this time\n  3. Deny\n  4. Allow - and don't ask again this session for any command starting with `rg --files`\n     Reply `4 <prefix>` to choose how much to allow, e.g. `4 rg`.\n\nOr type any other message to deny with that as the reason.",
     );
-    expect(permissionPromptLines({ toolName: "bash" }).join("\n")).toBe(
+    expect(permissionPromptLines(t, { toolName: "bash" }).join("\n")).toBe(
       "**Wants to use bash**\n\nReply:\n  1. Allow - just this time\n  2. Deny\n\nOr type any other message to deny with that as the reason.",
     );
   });

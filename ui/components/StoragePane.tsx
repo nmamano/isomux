@@ -37,11 +37,13 @@ import {
 } from "../storage-prune-form.ts";
 import { formatBytes, formatNumber } from "../../shared/i18n/number.ts";
 import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
+import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   IN_ROOT_ORDER,
   OUT_OF_ROOT_ORDER,
+  CATEGORY_KEYS,
 } from "../../shared/storage-labels.ts";
 import type {
   StorageCategoryId,
@@ -56,27 +58,13 @@ import type {
 import type { BackupStatusWire } from "../../shared/contract-shapes.ts";
 import { dialogInput, dialogCancelBtn } from "./dialog-styles.ts";
 
-// The plain-language name of each storage category, as a catalog key. The
-// wire ids are kebab-case keys for an API; nobody reading this panel should
-// have to know that "other-state" means "the rest of ~/.isomux". The English
-// text is the same as CATEGORY_LABELS in shared/storage-labels.ts, which the
-// chat report still reads until the server strings are translated (S7 of
-// internal-docs/i18n-loop.md); the shared table stays an import-free leaf.
-type CategoryKey =
-  | Extract<MessageKey, `settings.storage.category.${string}`>
-  | "common.memory";
-const CATEGORY_KEYS: Record<StorageCategoryId, CategoryKey> = {
-  transcripts: "settings.storage.category.transcripts",
-  attachments: "settings.storage.category.attachments",
-  "session-metadata": "settings.storage.category.sessionMetadata",
-  "codex-home": "settings.storage.category.codexHome",
-  "provider-homes": "settings.storage.category.providerHomes",
-  cronjobs: "settings.storage.category.cronjobs",
-  memory: "common.memory",
-  "other-state": "settings.storage.category.otherState",
-  backups: "settings.storage.category.backups",
-  "update-snapshots": "settings.storage.category.updateSnapshots",
-};
+// The category's words, by wire id. Own-property lookup like every other key
+// table (shared/i18n/translate.ts keyFrom), so an id that is not a category
+// cannot reach t() with something inherited from Object.prototype.
+function categoryLabel(t: Translator["t"], id: StorageCategoryId): string {
+  const key = keyFrom(CATEGORY_KEYS, id);
+  return key ? t(key) : id;
+}
 
 // What can be deleted, in the picker's order. The label is the category's:
 // what each target deletes, in the words of someone who has to decide whether
@@ -412,7 +400,7 @@ export function StoragePane({
                   cursor: busy ? "not-allowed" : "pointer",
                 }}
               >
-                {t(CATEGORY_KEYS[choice])}
+                {categoryLabel(t, choice)}
               </button>
             ))}
           </div>
@@ -611,7 +599,7 @@ function CategoryRow({
   if (!cat) return null;
   return (
     <tr>
-      <td style={cell}>{t(CATEGORY_KEYS[id])}</td>
+      <td style={cell}>{categoryLabel(t, id)}</td>
       <td style={cellRight}>
         {cat.available ? size(cat.bytes) : t("settings.storage.none")}
       </td>
@@ -704,7 +692,7 @@ function PlanBlock({
   const size = (bytes: number) => sizeText(language, t, bytes);
   const count = plan.candidates.length;
   const sample = plan.candidates.slice(0, SAMPLE_ROWS);
-  const targetWord = t(CATEGORY_KEYS[plan.target]).toLowerCase();
+  const targetWord = categoryLabel(t, plan.target).toLowerCase();
 
   return (
     <div

@@ -91,8 +91,8 @@ Keep these consistent across all surfaces below.
 
 - **File:** `server/command-handlers.ts` - the `help` handler (around line 298).
 - **Audience:** Agents/users inside Isomux who type `/help` in a conversation.
-- **Content:** a docs link, usage tips, and a list of available commands/skills with short descriptions.
-- **Related:** `server/commands.ts` holds the command registry with a `description` field on every bundled command - keep those in sync.
+- **Content:** a docs link, usage tips, and a list of available commands/skills with short descriptions, rendered in the reader's language.
+- **Related:** `server/commands.ts` holds the command registry (structure only); the words for each command live in the catalogs under `shared/i18n/`, reached through `shared/i18n/command-keys.ts`. A command with no description key fails `shared/i18n/catalog.test.ts`.
 - **Update when:** a new slash command or skill is added, or existing command behavior changes.
 
 ## 6. Blog post (external repo)
@@ -164,7 +164,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
   reads before touching a deployment, and every measured claim in it carries a
   date.
 - `internal-docs/private/` - gitignored, so it lives only on the box it was written on. Business and legal facts behind hosted isomux: entity and account identifiers, API key scopes, recurring filing deadlines, and a pointer to the session transcript where each was set up. `legal-entity.md` is the entry point.
-- `server/commands.ts` - per-command `description` fields surface in the slash-command autocomplete UI.
+- `server/commands.ts` - the slash-command registry. Its per-command WORDS live in the catalogs (`shared/i18n/en.ts` and siblings) under `commands.<name>.description`, keyed by `shared/i18n/command-keys.ts`; both the autocomplete UI and `/help` read them from there in the reader's language.
 - `server/system-prompt.ts` `buildSystemPrompt()` - the system prompt injected into every spawned agent (called from `server/agent-manager.ts`). Update when the agent's role or capabilities change.
 
 ## Quick checklist when adding a user-visible feature
@@ -174,7 +174,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 3. `docs/features.md` - canonical inventory. Add/edit here whenever any user-visible feature changes.
 4. `docs/<other>.md` - touch the relevant page if the feature affects setup, access, backup, etc.
 5. `api/chat.ts` `SYSTEM_PROMPT` - the feature-list section and any relevant guideline.
-6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` - only if it adds a command or changes tips.
+6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` - only if it adds a command or changes tips. A new command also needs its `commands.<name>.description` in all three catalogs and an entry in `shared/i18n/command-keys.ts`.
 7. `nilmamano.com/blog/isomux.mdx` - only for architecture-level changes.
 8. `nilmamano.com/app/lib/highlights.ts` and `nilmamano.com/app/lib/highlight-bodies.tsx` - only if the change rises to the elevator-pitch level.
 9. `nilmamano.com/app/lib/chat-prompts.ts` - only if the one-line summary needs to change.

@@ -1,17 +1,17 @@
 // Formatting helpers for text a person reads: sizes, timestamps, and markdown
 // escaping. Shared by every surface that renders a report.
 //
-// A LEAF on purpose (imports nothing). formatSize and formatRelativeTime used
-// to live in the modules that first needed them - attachment-prompt.ts and
-// usage-report.ts - which meant the /isomux-storage report could not reuse them
-// without dragging in the persistence layer and the agent SDK behind them.
-// Formatting is not the property of any one report.
+// A LEAF on purpose (imports nothing). formatSize used to live in the module
+// that first needed it - attachment-prompt.ts - which meant a report could not
+// reuse it without dragging the agent SDK behind it. Formatting is not the
+// property of any one report.
 //
-// Lives in shared/ (moved from server/) for the same reason it left those two
-// modules: the storage panel renders in the browser the SAME measurement
-// /isomux-storage renders in chat, and ui/ imports nothing from server/. A size
-// reading "1.4 GB" in chat and "1.37 GB" in the panel is exactly the drift this
-// module exists to prevent.
+// What is left here is AGENT-FACING or structural. Every human-facing size,
+// count and timestamp moved to shared/i18n/number.ts and shared/i18n/time.ts,
+// which render in the reader's language; formatSize stays because
+// server/attachment-prompt.ts writes for an agent, which always reads English
+// (internal-docs/i18n-loop.md, S7). formatRelativeTime left with its last
+// caller, the /isomux-storage report.
 
 // Deterministic human-readable size. Binary units, one decimal above bytes.
 export function formatSize(bytes: number): string {
@@ -22,24 +22,6 @@ export function formatSize(bytes: number): string {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-// Coarse "how long ago" for report tables. Anything older than a week becomes
-// an absolute date - "23d ago" is harder to place than "Jul 8".
-export function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDays = Math.floor(diffHr / 24);
-
-  if (diffSec < 60) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  const date = new Date(timestamp);
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 // Render an untrusted string as a markdown INLINE CODE SPAN, safely.

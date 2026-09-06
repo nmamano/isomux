@@ -6,6 +6,7 @@
 import { describe, it, expect } from "bun:test";
 import { computeCommitStatus } from "../server/update-checker.ts";
 import { buildCommitNotice, type CommitNotice } from "./update-notice.ts";
+import { translatorFor } from "./i18n/translate.ts";
 
 const sha = "abc1234abc1234abc1234abc1234abc1234abc12";
 const rel = (tag: string) => ({ tag, url: null });
@@ -15,10 +16,17 @@ const onTag = (tag: string) => ({ release: tag, reachable: tag });
 const onCommit = (reachable: string | null) => ({ release: null, reachable });
 const cmp = (aheadBy: number, behindBy = 0) => ({ aheadBy, behindBy });
 
+// The matrix below is the signed-off ENGLISH, so it runs on the English
+// translator and every string stays what it was; the language block at the
+// bottom proves the same states read in Spanish and Catalan
+// (internal-docs/i18n-loop.md, S7).
+const en = translatorFor("en");
+
 function notice(
   v: { release: string | null; reachable: string | null },
   latest: { tag: string; url: string | null } | null,
   c: { aheadBy: number; behindBy: number } | "unknown",
+  i18n = en,
 ): CommitNotice | null {
   const s = computeCommitStatus(
     { release: v.release, sha },
@@ -27,7 +35,7 @@ function notice(
     c,
   );
   if (s.mode !== "commit") throw new Error("expected commit mode");
-  return buildCommitNotice(s);
+  return buildCommitNotice(i18n, s);
 }
 
 describe("commit-mode copy matrix - release exists (latest v2026.7.22)", () => {
@@ -164,6 +172,40 @@ describe("commit-mode copy - singular drift", () => {
     );
     expect(notice(onTag("v2026.7.20"), rel("v2026.7.22"), cmp(1))?.notice).toBe(
       "You're on v2026.7.20; v2026.7.22 is out. main has 1 commit beyond that.",
+    );
+  });
+});
+
+// One state per language, to prove the notice is worded by the client rather
+// than by the checker: the same UpdateStatusWire reads differently for two
+// readers. Literal strings (ruling 14).
+describe("the notice in the reader's language", () => {
+  it("words the behind-a-release state in Spanish and Catalan", () => {
+    const status = [onTag("v2026.7.1"), rel("v2026.7.22"), cmp(4, 0)] as const;
+    expect(
+      notice(status[0], status[1], status[2], translatorFor("es")),
+    ).toEqual({
+      pill: "nueva versión",
+      title: "Hay una versión nueva",
+      notice:
+        "Estás en v2026.7.1; ya está v2026.7.22. main tiene 4 commits más allá de eso.",
+    });
+    expect(
+      notice(status[0], status[1], status[2], translatorFor("ca")),
+    ).toEqual({
+      pill: "versió nova",
+      title: "Hi ha una versió nova",
+      notice:
+        "Estàs a v2026.7.1; ja hi ha v2026.7.22. main té 4 commits més enllà d'això.",
+    });
+  });
+
+  it("picks the singular form for one commit", () => {
+    expect(
+      notice(onTag("v2026.7.22"), rel("v2026.7.22"), cmp(1), translatorFor("es"))
+        ?.notice,
+    ).toBe(
+      "Estás en v2026.7.22 (la última versión). main tiene 1 commit más nuevo si quieres lo último de lo último.",
     );
   });
 });

@@ -72,6 +72,8 @@ import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 import { useI18n } from "../i18n.tsx";
+import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
+import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
 
 // Catalog keys, read at render: the header shows them in the reader's language
@@ -965,7 +967,16 @@ export function LogView({
       for (const c of agentCmds.commands) {
         // Handle both old string format and new { name, description } format
         const name = typeof c === "string" ? c : c.name;
-        const desc = typeof c === "string" ? undefined : c.description;
+        // A config command's words come from the catalog, keyed by its name:
+        // the wire carries none, because it is broadcast per agent rather than
+        // per reader (server/commands.ts). A name the catalog does not know is
+        // a backend-reported command and keeps the description it arrived with.
+        const key = keyFrom(COMMAND_DESCRIPTION_KEYS, name);
+        const desc = key
+          ? i18n.t(key)
+          : typeof c === "string"
+            ? undefined
+            : c.description;
         cmds.push(name);
         if (desc) descs.set(name, desc);
       }

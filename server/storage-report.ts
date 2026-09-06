@@ -15,21 +15,23 @@ import type {
   StorageCategoryId,
   StorageUsageWire,
 } from "../shared/contract-shapes.ts";
-// Shared with the attachment prompt and the usage report so a size and a
-// timestamp read the same everywhere in the product.
-import {
-  formatSize,
-  formatRelativeTime,
-  escapeMarkdownTableCellText,
-} from "../shared/format-human.ts";
+// Shared with the attachment prompt so an agent-facing size reads the same.
+import { escapeMarkdownTableCellText } from "../shared/format-human.ts";
 
-// Reading order and plain-language labels are shared with the owner-only
+// Sizes, counts and ages in the reader's language (ruling 12). The report and
+// the storage panel measure the same bytes, so they divide by the same 1024.
+import { formatBytes, formatNumber } from "../shared/i18n/number.ts";
+import { formatDateTime, timeSince } from "../shared/i18n/time.ts";
+import { keyFrom } from "../shared/i18n/translate.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+
+// Reading order and the category key table are shared with the owner-only
 // storage panel in office settings, so the same bytes are never called two
 // different things in chat and in the UI.
 import {
   IN_ROOT_ORDER,
   OUT_OF_ROOT_ORDER,
-  CATEGORY_LABELS as LABELS,
+  CATEGORY_KEYS,
 } from "../shared/storage-labels.ts";
 
 // Only the largest handful of agents are worth a table row; the tail is a long
@@ -54,14 +56,42 @@ export interface StorageReportOptions {
   agentLabel: (agentId: string) => AgentLabel;
 }
 
-function formatCount(n: number): string {
-  return n.toLocaleString();
+/**
+ * A size a person reads, or the catalog's words for a value that is not a size.
+ * formatBytes returns null for that case rather than inventing a reading.
+ */
+function size(i18n: Translator, bytes: number): string {
+  return (
+    formatBytes(i18n.language, bytes) ?? i18n.t("storageReport.unknownSize")
+  );
+}
+
+/**
+ * Coarse "how long ago" for the report header. Anything older than a week
+ * becomes an absolute date - "23d ago" is harder to place than "Jul 8" - which
+ * is the rule the hand-built formatter in shared/format-human.ts used before
+ * this moved onto Intl.
+ */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+function measuredAge(i18n: Translator, ts: number): string {
+  if (Date.now() - ts >= WEEK_MS)
+    return formatDateTime(i18n.language, ts, "monthDay");
+  const since = timeSince(i18n.language, ts);
+  return since.kind === "now" ? i18n.t("common.justNow") : since.text;
 }
 
 export function renderStorageReport(
+  i18n: Translator,
   usage: StorageUsageWire,
   opts: StorageReportOptions,
 ): string {
+  const { t, language } = i18n;
+  // Own-property lookup like every other key table, so a category id that is
+  // not one cannot reach t() with something inherited from Object.prototype.
+  const label = (id: StorageCategoryId) => {
+    const key = keyFrom(CATEGORY_KEYS, id);
+    return key ? t(key) : id;
+  };
   // The owner gets paths and the per-agent breakdown; everyone else got the
   // aggregateOnly() projection, whose tell is a nulled state root.
   const isOwner = usage.stateRoot !== null;
@@ -76,21 +106,30 @@ export function renderStorageReport(
   // never credits bytes to update snapshots on a machine that has none.
   const outsideLabels = OUT_OF_ROOT_ORDER.filter(
     (id) => (byId.get(id)?.bytes ?? 0) > 0,
-  ).map((id) => LABELS[id].toLowerCase());
+  ).map((id) => label(id).toLowerCase());
 
   const lines: string[] = [];
-  lines.push(`## Isomux storage`);
+  lines.push(`## ${t("storageReport.heading")}`);
   lines.push("");
   lines.push(
     outsideBytes > 0
-      ? `**${formatSize(totalBytes)} total:** ${formatSize(usage.stateRootBytes)} of office state, plus ${formatSize(outsideBytes)} in ${outsideLabels.join(" and ")}.`
-      : `**${formatSize(totalBytes)} total**, all of it office state.`,
+      ? t("storageReport.totalWithOutside", {
+          total: size(i18n, totalBytes),
+          stateRoot: size(i18n, usage.stateRootBytes),
+          outside: size(i18n, outsideBytes),
+          locations: outsideLabels.join(t("storageReport.locationsJoin")),
+        })
+      : t("storageReport.totalOnly", { total: size(i18n, totalBytes) }),
   );
   lines.push("");
-  lines.push(`_Measured ${formatRelativeTime(usage.measuredAt)}._`);
+  lines.push(
+    t("storageReport.measured", { age: measuredAge(i18n, usage.measuredAt) }),
+  );
   lines.push("");
 
-  lines.push(`| Category | Size | Files |`);
+  lines.push(
+    `| ${t("storageReport.columnCategory")} | ${t("storageReport.columnSize")} | ${t("storageReport.columnFiles")} |`,
+  );
   lines.push(`| --- | ---: | ---: |`);
   const row = (id: StorageCategoryId) => {
     const c = byId.get(id);
@@ -99,42 +138,44 @@ export function renderStorageReport(
     // phantom zero row.
     if (!c) return;
     if (!c.available) {
-      lines.push(`| ${LABELS[id]} | none | - |`);
+      lines.push(`| ${label(id)} | ${t("storageReport.none")} | - |`);
       return;
     }
     lines.push(
-      `| ${LABELS[id]} | ${formatSize(c.bytes)} | ${formatCount(c.files)} |`,
+      `| ${label(id)} | ${size(i18n, c.bytes)} | ${formatNumber(language, c.files)} |`,
     );
   };
   for (const id of IN_ROOT_ORDER) row(id);
   // The in-root categories sum to exactly stateRootBytes (other-state is
   // derived by subtraction), so this subtotal is an identity, not a re-add.
   lines.push(
-    `| **Total office state** | **${formatSize(usage.stateRootBytes)}** | |`,
+    `| **${t("storageReport.totalOfficeState")}** | **${size(i18n, usage.stateRootBytes)}** | |`,
   );
   for (const id of OUT_OF_ROOT_ORDER) row(id);
-  lines.push(`| **Total** | **${formatSize(totalBytes)}** | |`);
-  lines.push("");
   lines.push(
-    `_Backups and update snapshots sit outside the office state directory, so they are listed after its subtotal. "none" means that location isn't set up on this machine._`,
+    `| **${t("storageReport.total")}** | **${size(i18n, totalBytes)}** | |`,
   );
+  lines.push("");
+  lines.push(t("storageReport.outsideNote"));
 
   if (isOwner) {
     const paths = [
-      `office state \`${usage.stateRoot}\``,
+      `${t("storageReport.locationOfficeState")} \`${usage.stateRoot}\``,
       ...OUT_OF_ROOT_ORDER.map((id) => {
         const c = byId.get(id);
-        const label = LABELS[id].toLowerCase();
-        return c?.path ? `${label} \`${c.path}\`` : `${label} (not set up)`;
+        const name = label(id).toLowerCase();
+        return c?.path
+          ? `${name} \`${c.path}\``
+          : t("storageReport.locationNotSetUp", { label: name });
       }),
     ];
     lines.push("");
-    lines.push(`_Locations: ${paths.join(", ")}._`);
+    lines.push(t("storageReport.locations", { paths: paths.join(", ") }));
   } else {
     // Same reason the route strips this: the per-agent breakdown enumerates
     // log directories for agents in rooms the caller may not be able to see.
     lines.push("");
-    lines.push(`_The per-agent breakdown and the paths are owner-only._`);
+    lines.push(t("storageReport.ownerOnly"));
   }
 
   if (isOwner && usage.agents.length > 0) {
@@ -146,40 +187,41 @@ export function renderStorageReport(
     );
     const shown = sorted.slice(0, AGENT_ROWS);
     lines.push("");
-    lines.push(`### Biggest agents`);
+    lines.push(`### ${t("storageReport.biggestAgents")}`);
     lines.push("");
     lines.push(
-      `| Agent | Transcripts | Attachments | Sessions | Last activity |`,
+      `| ${t("storageReport.columnAgent")} | ${t("storageReport.columnTranscripts")} | ${t("storageReport.columnAttachments")} | ${t("storageReport.columnSessions")} | ${t("storageReport.columnLastActivity")} |`,
     );
     lines.push(`| --- | ---: | ---: | ---: | --- |`);
     for (const a of shown) {
       const last =
-        a.lastActivityAt === null ? "-" : formatRelativeTime(a.lastActivityAt);
-      const label = opts.agentLabel(a.agentId);
+        a.lastActivityAt === null ? "-" : measuredAge(i18n, a.lastActivityAt);
+      const agent = opts.agentLabel(a.agentId);
       // The name is escaped to literal text FIRST, then the "(killed)"
       // annotation is appended - so the only live markdown in the cell is this
       // line's own, and a name reading `Gone _(killed)_` renders as those
       // characters rather than as the report's annotation.
       const name =
-        escapeMarkdownTableCellText(label.name) +
-        (label.killed ? " _(killed)_" : "");
+        escapeMarkdownTableCellText(agent.name) +
+        (agent.killed ? ` ${t("storageReport.killed")}` : "");
       lines.push(
-        `| ${name} | ${formatSize(a.transcriptBytes)} | ${formatSize(a.attachmentBytes)} | ${formatCount(a.sessions)} | ${last} |`,
+        `| ${name} | ${size(i18n, a.transcriptBytes)} | ${size(i18n, a.attachmentBytes)} | ${formatNumber(language, a.sessions)} | ${last} |`,
       );
     }
     if (sorted.length > shown.length) {
       lines.push("");
       lines.push(
-        `_Showing the ${shown.length} largest of ${sorted.length} agents with stored data._`,
+        t("storageReport.showing", {
+          shown: formatNumber(language, shown.length),
+          total: formatNumber(language, sorted.length),
+        }),
       );
     }
   }
 
   if (isOwner) {
     lines.push("");
-    lines.push(
-      `_Nothing here is deleted automatically. Transcripts and attachments are only removed when the owner asks for it._`,
-    );
+    lines.push(t("storageReport.nothingDeleted"));
   }
 
   return lines.join("\n");

@@ -1156,7 +1156,7 @@ export const ca: Catalog = {
   "contextMenu.newConversation": "Conversa nova",
   "contextMenu.newEngineConversation": "Conversa nova de {engine}",
   "contextMenu.resume": "Reprèn",
-  "contextMenu.current": "(actual)",
+  "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Elimina l'agent",
   "agentList.roomEmpty": "{room} és buida",
@@ -1336,11 +1336,452 @@ export const ca: Catalog = {
   "apps.actionFailed.start": "No s'ha pogut engegar.",
   "apps.actionFailed.stop": "No s'ha pogut aturar.",
   "apps.actionFailed.restart": "No s'ha pogut reiniciar.",
-  "contextMenu.untitledConversation": "Conversa sense títol",
+  "common.untitledConversation": "Conversa sense títol",
   "schedules.human.daily": "Cada dia a les {time}",
   "schedules.human.weekly": "Cada setmana, {weekday} a les {time}",
   "schedules.human.everyMinutes": "Cada {minutes}m",
   "schedules.human.everyHours": "Cada {hours}h",
   "schedules.human.everyHoursMinutes": "Cada {hours}h{minutes}m",
   "schedules.nextRunIn": "d’aquí a {duration}",
+
+  "commands.clear.description": "Esborrar l'historial de la conversa",
+  "commands.context.description": "Veure l'ús de la finestra de context",
+  "commands.help.description": "Llistar totes les ordres disponibles",
+  "commands.resume.description": "Reprendre una sessió anterior",
+  "commands.login.description": "Veure com autenticar (de nou) aquest agent",
+  "commands.logout.description": "Gestionar l'inici de sessió o tancar-la",
+  "commands.isomuxAllHands.description": "Resum de tots els agents i les seves converses",
+  "commands.isomuxSystemPrompt.description": "Veure el prompt de sistema complet que rep aquest agent",
+  "commands.isomuxCronjobSystemPrompt.description": "Veure el prompt de sistema que rep una programació (passa-hi el nom o l'id)",
+  "commands.isomuxDiff.description": "Veure els canvis sense confirmar al cwd de l'agent (o passa-hi un directori)",
+  "commands.isomuxEdit.description": "Obrir un fitxer al plafó lateral de l'editor (relatiu al cwd, absolut o ~/...)",
+  "commands.isomuxUsage.description": "Despesa de tokens per agent, per sala i per programació",
+  "commands.isomuxStorage.description": "Espai de disc que fa servir l'oficina, desglossat per categoria",
+  "commands.compact.description": "Comprimir el context",
+  "commands.compact.message": "`/compact` encara no està disponible a Isomux. L'SDK compacta el context automàticament.",
+  "commands.branch.description": "Ramificar la conversa en una sessió nova",
+  "commands.fork.description": "Ramificar la conversa en una sessió nova",
+  "commands.export.description": "Exportar la conversa a un fitxer",
+  "commands.plan.description": "Activar o desactivar el mode de planificació",
+  "commands.rename.description": "Reanomenar la sessió actual",
+  "commands.reset.description": "Reiniciar la conversa",
+  "commands.new.description": "Començar una conversa nova",
+  "commands.model.description": "Canviar de model",
+  "commands.fast.description": "Activar o desactivar el mode ràpid",
+  "commands.effort.description": "Fixar el nivell d'esforç de raonament",
+  "commands.advisor.description": "Activar o desactivar el mode assessor",
+  "commands.cost.description": "Ús de tokens i cost estimat",
+  "commands.cost.message": "`/cost` és una ordre de Claude Code per a qui fa servir l'API. Isomux factura per subscripció.",
+  "commands.usage.description": "On consultar l'ús de la subscripció i de l'oficina",
+  "commands.stats.description": "Patrons d'ús al llarg del temps",
+  "commands.extraUsage.description": "Opcions d'ús addicional",
+  "commands.rateLimitOptions.description": "Configuració del límit de peticions",
+  "commands.diff.description": "Veure els canvis sense confirmar al cwd de l'agent (o passa-hi un directori)",
+  "commands.rewind.description": "Desfer els canvis i revertir la conversa",
+  "commands.checkpoint.description": "Desfer els canvis i revertir la conversa",
+  "commands.copy.description": "Copiar l'última resposta al porta-retalls",
+  "commands.files.description": "Llistar els fitxers que hi ha al context",
+  "commands.addDir.description": "Afegir més directoris de treball",
+  "commands.btw.description": "Preguntar sense embrutar el context principal",
+  "commands.config.description": "Obrir la interfície de configuració",
+  "commands.settings.description": "Obrir la interfície de configuració",
+  "commands.hooks.description": "Gestionar els hooks del cicle de vida",
+  "commands.permissions.description": "Gestionar els permisos de les eines",
+  "commands.keybindings.description": "Editar les dreceres de teclat",
+  "commands.memory.description": "Veure o editar la memòria persistent",
+  "commands.mcp.description": "Gestionar les connexions a servidors MCP",
+  "commands.ide.description": "Gestionar les integracions amb l'IDE",
+  "commands.agents.description": "Gestionar els subagents personalitzats",
+  "commands.skills.description": "Llistar totes les habilitats disponibles",
+  "commands.sandbox.description": "Gestionar la configuració del sandbox",
+  "commands.privacySettings.description": "Gestionar la configuració de privadesa",
+  "commands.theme.description": "Canviar el tema de color",
+  "commands.color.description": "Canviar el tema de color",
+  "commands.vim.description": "Activar o desactivar les dreceres de vim",
+  "commands.terminalSetup.description": "Configurar la integració amb el terminal",
+  "commands.reloadPlugins.description": "Tornar a carregar els plugins instal·lats",
+  "commands.reloadPlugins.message": "Per tornar a carregar els plugins, obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent), executa `claude` i escriu `/reload-plugins`.",
+  "commands.tasks.description": "Llistar o gestionar les tasques en segon pla",
+  "commands.bashes.description": "Llistar o gestionar les tasques en segon pla",
+  "commands.doctor.description": "Comprovar l'estat de la instal·lació",
+  "commands.feedback.description": "Informar d'errors a Anthropic",
+  "commands.bug.description": "Informar d'errors a Anthropic",
+  "commands.releaseNotes.description": "Veure les notes de la versió",
+  "commands.heapdump.description": "Bolcar el heap per depurar",
+  "commands.status.description": "Veure l'estat del sistema",
+  "commands.tag.description": "Etiquetar la conversa actual",
+  "commands.init.description": "Inicialitzar Claude Code en un projecte",
+  "commands.installGithubApp.description": "Configurar l'app de revisió de PR de Claude a GitHub",
+  "commands.prComments.description": "Veure els comentaris del PR",
+  "commands.desktop.description": "Obrir l'app d'escriptori",
+  "commands.mobile.description": "Obrir l'app mòbil",
+  "commands.chrome.description": "Obrir l'extensió de Chrome",
+  "commands.session.description": "Gestionar les sessions",
+  "commands.teleport.description": "Transferir la sessió a un altre dispositiu",
+  "commands.remoteEnv.description": "Configurar l'entorn remot",
+  "commands.exit.description": "Sortir de Claude Code",
+  "commands.exit.message": "Fes servir la interfície d'Isomux per gestionar els agents. `/exit` només funciona a la CLI de Claude Code.",
+  "commands.stickers.description": "Adhesius divertits",
+  "commands.upgrade.description": "Actualitzar Claude Code",
+  "commands.plugin.description": "Gestionar els plugins",
+  "commands.plugin.message": "Gestionar plugins requereix la CLI de Claude Code directament.\n\nPer gestionar els plugins:\n1. Obre el terminal integrat (fes clic a la icona de terminal de l'escriptori de l'agent)\n2. Executa `claude`\n3. Escriu `/plugin` per explorar, instal·lar, activar o desactivar plugins\n\nOrdres útils:\n- `/plugin` - gestor interactiu de plugins (explorar, instal·lar, activar/desactivar)\n- `{addCommand}` - instal·lar un plugin pel seu nom\n- `/plugin marketplace add owner/repo` - afegir un marketplace de la comunitat\n\nDesprés d'instal·lar un plugin, executa `/reload-plugins` dins de la sessió de Claude per activar-lo.",
+  "commands.batch.description": "Descompondre en agents paral·lels amb worktree",
+  "commands.claudeApi.description": "Carregar la referència de l'API o l'SDK del llenguatge detectat",
+  "commands.claudeInChrome.description": "Automatitzar interaccions amb el navegador Chrome",
+  "commands.debug.description": "Diagnosticar problemes de sessió o d'eines des del log de depuració",
+  "commands.keybindingsHelp.description": "Personalitzar les dreceres de teclat",
+  "commands.loop.description": "Executar un prompt de manera periòdica",
+  "commands.loop.message": "no està disponible de manera nativa; mira si la pàgina de Programacions o els missatges programats et serveixen",
+  "commands.loremIpsum.description": "Generar text de farciment",
+  "commands.review.description": "Revisió de codi a la cerca d'errors, lògica i casos límit",
+  "commands.schedule.description": "Crear agents remots programats amb cron",
+  "commands.securityReview.description": "Revisió de codi centrada en la seguretat",
+  "commands.simplify.description": "Neteja de codi i anàlisi de reutilització",
+  "commands.skillify.description": "Capturar processos com a habilitats reutilitzables",
+  "commands.stuck.description": "Diagnosticar sessions blocades o lentes",
+  "commands.ultrareview.description": "Revisió de PR ultraexhaustiva",
+  "commands.updateConfig.description": "Configurar settings.json",
+  "commands.unsupported.hardcoded":
+    "`/{name}` ({description}) és una ordre de Claude Code, però no està disponible a Isomux.",
+  "commands.unsupported.bundledSkill":
+    "`/{name}` ({description}) és una habilitat inclosa a Claude Code, però no està disponible a Isomux. Pots substituir-la creant el teu propi fitxer d'habilitat.",
+  "commands.unsupported.notAvailable": "`/{name}` no està disponible a Isomux.",
+  "commands.unsupported.unknownCommand":
+    "Ordre desconeguda `/{name}`. Escriu `/help` per veure les ordres disponibles.",
+  "commands.clear.failed": "No s'ha pogut esborrar la conversa: {error}",
+  "commands.clear.done": "Conversa esborrada.",
+  "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
+  "commands.context.noSession": "No hi ha cap sessió activa.",
+  "commands.context.unavailable":
+    "L'ús de context no està disponible en aquesta sessió.",
+  "commands.context.staleUnavailable":
+    "No hi ha mesura en directe. Es mostra l'última lectura registrada, presa {age}.",
+  "commands.context.staleFailed":
+    "La mesura en directe ha fallat. Es mostra l'última lectura registrada, presa {age}.",
+  "commands.context.ageUnderMinute": "fa menys d'un minut",
+  "commands.context.ageMinutes": "fa {minutes}m",
+  "commands.context.ageHoursMinutes": "fa {hours}h {minutes}m",
+  "commands.context.category": "{name}: {tokens} tokens ({percent}%)",
+  "commands.context.memoryFiles": "**Fitxers de memòria:**",
+  "commands.context.memoryFile": "{path} ({tokens} tokens)",
+  "commands.context.systemPrompt": "**Prompt de sistema:**",
+  "commands.context.systemPromptSection": "{name}: {tokens} tokens",
+  "commands.context.autoCompact":
+    "Compactació automàtica al {percent}% ({tokens} tokens)",
+  "commands.context.failed": "No s'ha pogut obtenir l'ús de context: {error}",
+  "commands.help.docs": "**Documentació:** {url}",
+  "commands.help.tips": "**Consells:**",
+  "commands.help.tipAgents":
+    "Els agents poden consultar-se i enviar-se missatges entre ells. Demana-ho amb naturalitat o fes servir habilitats com ara `/second-opinion`, `/pair-programming`, etc.",
+  "commands.help.tipQueue":
+    "Pots escriure mentre un agent està ocupat: els missatges es posen a la cua i surten quan queda lliure. Prem \"Envia ara\" o envia amb Ctrl/Cmd+Enter per interrompre i buidar la cua a l'instant.",
+  "commands.help.tipVoice":
+    "Fes servir el dictat per veu per escriure més ràpid. La drecera és ctrl+space. La puntuació dictada s'escriu com a puntuació: digues \"question mark\", \"comma\", \"period\", \"new line\", i així.",
+  "commands.help.tipPhoneVpn":
+    "Isomux funciona al mòbil. El més fàcil és connectar-lo a la mateixa VPN (per exemple Tailscale, que és gratuïta) que la màquina on s'executa.",
+  "commands.help.tipInviteFunnel":
+    "Quan l'oficina sigui accessible des de fora de la teva VPN (per exemple amb Tailscale Funnel; mira {url}), el propietari pot obrir Configuració d'usuari → Accés i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
+  "commands.help.tipPhoneOrigin": "Isomux funciona al mòbil: obre {origin}.",
+  "commands.help.tipInvite":
+    "El propietari pot obrir Configuració d'usuari → Accés i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
+  "commands.help.tipTerminal":
+    "El terminal del plafó lateral va bé per a casos puntuals en què has d'executar alguna cosa a mà, com ara un inici de sessió.",
+  "commands.help.tipHooks":
+    "Isomux inclou hooks de seguretat previs a cada eina per als agents de Claude, que eviten ordres destructives. Els agents de Codex no tenen hooks equivalents.",
+  "commands.help.commands": "**Ordres:**",
+  "commands.help.aliasGroup": "{primary} (o {others})",
+  "commands.help.skillsUser": "Habilitats d'usuari",
+  "commands.help.skillsProject": "Habilitats del projecte",
+  "commands.help.skillsPlugin": "Habilitats de plugins",
+  "commands.help.skillsIsomux": "Habilitats d'Isomux",
+  "commands.help.skillsClaude": "Habilitats de Claude",
+  "commands.resume.none": "No hi ha sessions anteriors.",
+  "commands.resume.header": "Reprèn una conversa anterior:",
+  "commands.resume.noOthers": "No hi ha altres sessions per reprendre.",
+  "commands.resume.branched": "(ramificada)",
+  "commands.model.openCodeUnsupported":
+    "Obre la configuració de l'agent per triar un model d'OpenCode connectat.",
+  "commands.model.header": "Canviar de model (actual: **{current}**):",
+  "commands.effort.openCodeUnsupported":
+    "OpenCode no exposa controls d'esforç de raonament.",
+  "commands.effort.header":
+    "Canviar l'esforç de raonament (actual: **{current}**):",
+  "commands.isomuxAllHands.room": "**=== Sala {number} ===**",
+  "commands.isomuxAllHands.me": "**(jo)**",
+  "commands.isomuxAllHands.desk": "escriptori {number}",
+  "commands.isomuxAllHands.topic": "Tema: {topic}",
+  "commands.isomuxAllHands.footer":
+    "Pregunta-ho al teu agent si vols saber més sobre qualsevol agent o conversa.",
+  "commands.isomuxSystemPrompt.header":
+    "**Prompt de sistema complet** *(reflecteix la configuració actual; s'aplica a la propera conversa)*",
+  "commands.isomuxCronjobSystemPrompt.usage": "Ús: {usage}",
+  "commands.isomuxCronjobSystemPrompt.noSchedules":
+    "No hi ha cap programació configurada.",
+  "commands.isomuxCronjobSystemPrompt.known": "Programacions conegudes:",
+  "commands.isomuxCronjobSystemPrompt.ambiguous":
+    "Hi ha diverses programacions que es diuen \"{query}\". Torna-ho a executar amb l'id:",
+  "commands.isomuxCronjobSystemPrompt.noMatch":
+    "Cap programació coincideix amb `{query}`. Prova `/isomux-cronjob-system-prompt` sense arguments per llistar-les.",
+  "commands.isomuxCronjobSystemPrompt.header":
+    "**Prompt de sistema i primer missatge d'usuari de la programació \"{name}\"** *(reflecteix la configuració actual; s'aplica a la propera execució)*",
+  "commands.isomuxCronjobSystemPrompt.firstUserMessage":
+    "Primer missatge d'usuari:",
+  "commands.isomuxEdit.usage":
+    "Ús: {usage}. El camí pot ser relatiu (es resol des de {cwd}), absolut o `~/...`.",
+  "commands.isomuxEdit.emptyPath": "Camí buit.",
+  "commands.isomuxEdit.notFound": "`{path}` no existeix.",
+  "commands.isomuxEdit.notFile": "`{path}` no és un fitxer.",
+  "commands.isomuxEdit.binary":
+    "`{path}` és un fitxer binari: el plafó de l'editor només admet text.",
+  "commands.isomuxEdit.tooLarge":
+    "`{path}` ocupa {size}, massa per al plafó de l'editor (el límit és 1 MB).",
+  "commands.isomuxEdit.ioError": "No s'ha pogut obrir `{path}`: {message}",
+  "commands.isomuxDiff.notDirectory": "`{path}` no és un directori.",
+  "commands.isomuxDiff.notRepo": "`{path}` no és un repositori de git.",
+  "commands.isomuxDiff.gitError": "No s'ha pogut executar git diff a `{path}`:",
+  "commands.isomuxDiff.clean":
+    "L'arbre de treball de `{path}` està net: no hi ha canvis sense confirmar.",
+  "commands.usage.heading":
+    "**Aquí no es mostren els límits del pla de subscripció.**",
+  "commands.usage.intro":
+    "Per consultar la teva quota de subscripció de Claude o de ChatGPT, obre el terminal integrat i:",
+  "commands.usage.claude": "executa `claude` i escriu `/usage`",
+  "commands.usage.codex": "executa `~/.isomux/bin/codex` i escriu `/status`",
+  "commands.usage.office":
+    "Per a la despesa de tokens de l'oficina (per agent, per sala i per programació), mira `/isomux-usage`.",
+  "commands.usage.codexCardOmitted":
+    "S'omet la targeta de `/status` de Codex: {error}",
+  "commands.isomuxStorage.forbidden":
+    "L'ús de disc només està disponible per als membres de l'oficina que hagin iniciat sessió.",
+  "commands.skill.queueFailed": "No s'ha pogut posar {command} a la cua: {error}",
+  "commands.skill.error": "Error de l'habilitat: {error}",
+  "choices.resume.title": "Reprendre una conversa",
+  "choices.resume.instruction":
+    "Respon amb un número per reprendre-la, o qualsevol altra cosa per cancel·lar.",
+  "choices.resume.branched": "Ramificada",
+  "choices.model.title": "Canviar de model",
+  "choices.model.instruction":
+    "Respon amb un número per canviar, o qualsevol altra cosa per cancel·lar.",
+  "choices.effort.title": "Canviar l'esforç de raonament",
+  "choices.permission.title": "Vol fer servir {tool}",
+  "choices.permission.instruction":
+    "Tria una opció, o escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
+  "choices.permission.reply": "Respon:",
+  "choices.permission.allowOnce": "Permet només aquesta vegada",
+  "choices.permission.deny": "Denega",
+  "choices.permission.allowPrefix":
+    "Permet i no ho tornis a preguntar en aquesta sessió per cap ordre que comenci per `{prefix}`",
+  "choices.permission.prefixHint":
+    "Respon `{replySpec}` per triar fins on ho permets, per exemple `{index} {example}`.",
+  "choices.permission.denyByMessage":
+    "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
+  "systemEntries.conversationCleared": "Conversa esborrada.",
+  "systemEntries.newConversation": "Conversa nova iniciada.",
+  "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",
+  "systemEntries.backendFailure.stoppedDuringTurn":
+    "El backend de l'agent s'ha aturat durant el torn. La conversa està desada i es pot reprendre.",
+  "systemEntries.backendFailure.sigterm":
+    "El backend de l'agent s'ha terminat amb SIGTERM (codi de sortida {code}). La causa més probable és la protecció contra manca de memòria d'aquesta màquina. La conversa està desada i es pot reprendre.",
+  "systemEntries.backendFailure.sigkill":
+    "El backend de l'agent s'ha matat amb SIGKILL (codi de sortida {code}). La causa més probable és la protecció contra manca de memòria d'aquesta màquina. La conversa està desada i es pot reprendre.",
+  "systemEntries.backendFailure.signal":
+    "El backend de l'agent s'ha aturat amb el senyal {signal} (codi de sortida {code}). La conversa està desada i es pot reprendre.",
+  "systemEntries.agentReady":
+    "L'agent \"{name}\" està a punt. Treballa a {cwd}. Mode de permisos: {mode}.",
+  "systemEntries.streamError": "Error de flux: {error}",
+  "systemEntries.startFailed": "No s'ha pogut iniciar: {error}",
+  "systemEntries.interrupted": "Agent interromput.",
+  "systemEntries.wake.idle":
+    "S'ha reprès la teva sessió (s'havia alliberat per inactivitat per estalviar memòria).",
+  "systemEntries.wake.afterRestart":
+    "S'ha reprès la teva sessió després de reiniciar el servidor.",
+  "systemEntries.wake.afterBackendEnded":
+    "S'ha reprès la teva sessió després que el backend acabés de manera inesperada.",
+  "systemEntries.wake.inFlightWarning":
+    "Pot ser que alguna ordre en curs s'executés a mitges; comprova'n els efectes abans de tornar-ho a provar.",
+  "systemEntries.wake.shutdownRejection":
+    "El resultat \"user rejected\" d'aquí sobre ve de l'aturada, no d'una persona.",
+  "systemEntries.wake.resumedBeforeFlush":
+    "S'ha reprès la sessió anterior abans de buidar la cua de missatges.",
+  "systemEntries.wake.resumedAfterUnexpectedEnd":
+    "S'ha reprès la sessió anterior després que l'última acabés de manera inesperada.",
+  "systemEntries.codexInterruptExited":
+    "Codex s'ha tancat durant la interrupció; s'instal·la una sessió nova.",
+  "systemEntries.codexInterruptExitedWithError":
+    "Codex s'ha tancat durant la interrupció: {error}",
+  "systemEntries.previousInterrupted": "La resposta anterior es va interrompre.",
+  "systemEntries.interruptedPermissionDenied":
+    "Agent interromput; la petició de permís pendent es va denegar.",
+  "systemEntries.interruptedPermissionRestarted":
+    "Agent interromput; la petició de permís pendent no es va poder denegar, així que es va reiniciar el backend de l'agent; la conversa es conserva.",
+  "systemEntries.interruptHandlerFailed":
+    "El gestor d'interrupcions ha fallat: {error}",
+  "systemEntries.codexInterruptFallback":
+    "Codex no va atendre la interrupció a temps; es passa a una sessió nova.",
+  "systemEntries.deliveryStalled":
+    "L'entrega del missatge s'ha encallat; s'està recuperant.",
+  "systemEntries.freshSessionAfterRestoreFailure":
+    "S'ha iniciat una sessió nova (l'anterior no s'ha pogut restaurar).",
+  "systemEntries.freshSessionBeforeFlush":
+    "S'ha iniciat una sessió nova abans de buidar la cua de missatges.",
+  "systemEntries.flushStartFailed":
+    "No s'ha pogut iniciar la sessió per buidar la cua: {error}",
+  "systemEntries.restartingForSettings":
+    "Es reinicia la sessió per aplicar la configuració; els missatges en cua sortiran després del reinici.",
+  "systemEntries.flushError": "Error en buidar la cua: {error}",
+  "systemEntries.genericError": "Error: {error}",
+  "systemEntries.restoreOnStartupFailed":
+    "No s'ha pogut restaurar en arrencar: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
+  "systemEntries.flushInterrupted":
+    "El buidatge de la cua s'ha interromput per un canvi de sessió; es tornarà a provar.",
+  "systemEntries.sessionStartFailed":
+    "No s'ha pogut iniciar la sessió: {error}\nEscriu /clear per començar de zero, o /resume per triar una altra sessió.",
+  "systemEntries.queueFailed": "No s'ha pogut posar el missatge a la cua: {error}",
+  "systemEntries.queueCleared.notConfigured.one":
+    "S'ha descartat {count} missatge en cua perquè el backend no està configurat.",
+  "systemEntries.queueCleared.notConfigured.other":
+    "S'han descartat {count} missatges en cua perquè el backend no està configurat.",
+  "systemEntries.queueCleared.switching.one":
+    "S'ha descartat {count} missatge en cua en canviar a una altra sessió.",
+  "systemEntries.queueCleared.switching.other":
+    "S'han descartat {count} missatges en cua en canviar a una altra sessió.",
+  "systemEntries.contextCompacted": "Context compactat: {summary}",
+  "systemEntries.contextCompactedNoSummary": "Context compactat.",
+  "systemEntries.toolCallDenied": "Crida a l'eina denegada: {tool}",
+  "systemEntries.toolCallDeniedWithReason":
+    "Crida a l'eina denegada: {tool} ({reason})",
+  "systemEntries.inputRequest":
+    "El backend ha demanat una entrada interactiva que Isomux no pot mostrar de manera segura.",
+  "systemEntries.permissionRequested":
+    "Permís sol·licitat per a {tool}. Entrada: {input}.",
+  "systemEntries.diffEmptyCommit":
+    "`{commit}` no va introduir canvis a cap fitxer (commit buit?).",
+  "systemEntries.permissionOutcome.allowPersistent":
+    "Permet crides semblants en aquesta sessió",
+  "systemEntries.permissionOutcome.allowPrefix":
+    "Permet un prefix d'ordre en aquesta sessió",
+  "systemEntries.permissionOutcome.denyWithReason": "Denega amb un motiu",
+  "systemEntries.permissionOutcome.denyWhenStopped": "Denega en aturar-se",
+  "systemEntries.permissionOutcome.sessionChanged":
+    "Cancel·lat en canviar de sessió",
+  "systemEntries.permissionOutcome.priorSessionStopped":
+    "Cancel·lat mentre s'aturava la sessió anterior",
+  "systemEntries.permissionOutcome.sessionEnded":
+    "Cancel·lat perquè la sessió va acabar",
+  "systemEntries.permissionOutcome.turnStopped":
+    "Cancel·lat en aturar-se el torn",
+  "systemEntries.permissionOutcome.agentKilled":
+    "Cancel·lat en eliminar l'agent",
+  "systemEntries.permissionOutcome.failed": "No s'ha pogut resoldre",
+  "systemEntries.permissionChoice": "Permís triat: {label}.",
+  "systemEntries.permissionGrantedOnce":
+    "Permís concedit (només aquesta vegada).",
+  "systemEntries.permissionGrantedPersistent":
+    "Permís concedit (regla afegida per a aquesta sessió).",
+  "systemEntries.permissionDenied": "Permís denegat.",
+  "systemEntries.permissionDeniedWithReason":
+    "Permís denegat; el motiu s'ha enviat a l'agent.",
+  "systemEntries.permissionSessionGone":
+    "El permís no s'ha pogut resoldre: la sessió ja no hi és.",
+  "systemEntries.permissionResolveFailed":
+    "No s'ha pogut resoldre el permís: {error}",
+  "systemEntries.resumedSession": "Sessió represa: {label}",
+  "systemEntries.resumeFailed": "No s'ha pogut reprendre: {error}",
+  "systemEntries.resumeCancelled": "Represa cancel·lada.",
+  "systemEntries.resumeCwdUnavailable":
+    "El directori desat de la sessió `{stored}` no està disponible ({error}); es reprèn a `{previous}`.",
+  "systemEntries.alreadyUsing": "Ja fa servir {label}.",
+  "systemEntries.modelSwitched":
+    "Model canviat a {label}. El context de l'agent pot continuar dient que és un altre model; el correcte és el de la barra superior.",
+  "systemEntries.modelCancelled": "Canvi de model cancel·lat.",
+  "systemEntries.effortSwitched": "Esforç de raonament canviat a {label}.",
+  "systemEntries.effortCancelled": "Canvi d'esforç cancel·lat.",
+  "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
+  "systemEntries.branchFailed": "No s'ha pogut ramificar la conversa: {error}",
+  "systemEntries.editBusy": "No es pot editar mentre l'agent treballa.",
+  "systemEntries.editNotFound": "No es pot editar: no es troba el missatge.",
+  "systemEntries.editNoSession": "No es pot editar: no hi ha cap sessió activa.",
+  "systemEntries.editPendingInteraction":
+    "No es pot editar aquest prompt mentre hi ha una ordre interactiva pendent. Respon-la o cancel·la-la primer.",
+  "systemEntries.editNotSent":
+    "No es pot editar: aquest missatge no va arribar a l'agent i després n'hi va haver de més nous. Envia'n un de nou.",
+  "systemEntries.editNotLocated":
+    "No es pot editar: no es troba el missatge a la sessió del backend.",
+  "systemEntries.editOtherSession":
+    "Aquest missatge és en una altra sessió (\"{label}\"). Fes servir /resume per canviar-hi i edita'l després.",
+  "systemEntries.cwdMoveBackFailed":
+    "Avís: després que fallés el canvi de cwd, els fitxers de sessió no s'han pogut tornar a {previous} i ara són a {target}; reprendre-la pot fallar fins que es restaurin.",
+  "systemEntries.fileOpenFailed": "No s'ha pogut obrir `{path}`: {message}",
+  "systemEntries.fileReadFailed": "No s'ha pogut llegir `{path}`: {message}",
+  "systemEntries.fileSaveFailed":
+    "No s'ha pogut desar `{path}` per mostrar-lo.",
+  "systemEntries.diffFailed": "No s'ha pogut executar git diff a `{path}`:",
+  "systemEntries.diffBadDir": "No es pot fer diff de `{path}`: {message}.",
+  "systemEntries.diffClean":
+    "L'arbre de treball de `{path}` està net: no hi ha canvis sense confirmar.",
+  "systemEntries.signInRequired":
+    "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió. Inicia sessió a sota per continuar.",
+  "systemEntries.manageSignIn": "Gestiona la teva sessió de {provider} a sota.",
+  "systemEntries.alreadySignedIn":
+    "Ja has iniciat sessió. Gestiona la teva sessió de {provider} a sota.",
+  "systemEntries.signOutOpenCode":
+    "Tancar la sessió no està disponible als agents d'OpenCode.",
+  "systemEntries.signOutNoScope":
+    "Tancar la sessió no està disponible perquè no s'ha pogut resoldre l'àmbit d'aquest compte de {provider}.",
+  "systemEntries.runInTerminal": "Executa `{command}` al terminal integrat.",
+  "updateNotice.pill.updateAvailable": "hi ha una actualització",
+  "updateNotice.pill.newRelease": "versió nova",
+  "updateNotice.pill.mainAhead": "main +{count}",
+  "updateNotice.title.newRelease": "Hi ha una versió nova",
+  "updateNotice.title.mainAhead": "Hi ha commits més nous a main",
+  "updateNotice.running": "el commit {sha}",
+  "updateNotice.identity.noLatest": "Estàs a {running}.",
+  "updateNotice.identity.current": "Estàs a {running} (l'última versió).",
+  "updateNotice.identity.behind": "Estàs a {running}; ja hi ha {latest}.",
+  "updateNotice.identity.aheadTagged":
+    "Estàs a {running} (més nou que l'última versió, {latest}).",
+  "updateNotice.identity.aheadUntagged":
+    "Estàs a {running}, per davant de l'última versió ({latest}).",
+  "updateNotice.identity.unknown":
+    "Estàs a {running}. L'última versió és {latest};",
+  "updateNotice.drift.beyond.one": "main té {count} commit més enllà d'això.",
+  "updateNotice.drift.beyond.other": "main té {count} commits més enllà d'això.",
+  "updateNotice.drift.newer.one": "main té {count} commit més nou.",
+  "updateNotice.drift.newer.other": "main té {count} commits més nous.",
+  "updateNotice.drift.bleedingEdge.one":
+    "main té {count} commit més nou si vols l'últim de l'últim.",
+  "updateNotice.drift.bleedingEdge.other":
+    "main té {count} commits més nous si vols l'últim de l'últim.",
+  "storageReport.heading": "Emmagatzematge d'Isomux",
+  "storageReport.totalWithOutside":
+    "**{total} en total:** {stateRoot} d'estat de l'oficina, més {outside} a {locations}.",
+  "storageReport.totalOnly":
+    "**{total} en total**, tot plegat estat de l'oficina.",
+  "storageReport.locationsJoin": " i ",
+  "storageReport.measured": "_Mesurat {age}._",
+  "storageReport.columnCategory": "Categoria",
+  "storageReport.columnSize": "Mida",
+  "storageReport.columnFiles": "Fitxers",
+  "storageReport.none": "cap",
+  "storageReport.totalOfficeState": "Total de l'estat de l'oficina",
+  "storageReport.total": "Total",
+  "storageReport.outsideNote":
+    "_Les còpies de seguretat i les instantànies d'actualització són fora del directori d'estat de l'oficina, així que es llisten després del seu subtotal. \"cap\" vol dir que aquesta ubicació no està configurada en aquesta màquina._",
+  "storageReport.locations": "_Ubicacions: {paths}._",
+  "storageReport.locationOfficeState": "estat de l'oficina",
+  "storageReport.locationNotSetUp": "{label} (sense configurar)",
+  "storageReport.ownerOnly":
+    "_El desglossament per agent i els camins són només per al propietari._",
+  "storageReport.biggestAgents": "Agents més grans",
+  "storageReport.columnAgent": "Agent",
+  "storageReport.columnTranscripts": "Transcripcions",
+  "storageReport.columnAttachments": "Adjunts",
+  "storageReport.columnSessions": "Sessions",
+  "storageReport.columnLastActivity": "Última activitat",
+  "storageReport.killed": "_(eliminat)_",
+  "storageReport.showing":
+    "_Es mostren els {shown} agents més grans de {total} amb dades desades._",
+  "storageReport.nothingDeleted":
+    "_Aquí no s'esborra res automàticament. Les transcripcions i els adjunts només s'eliminen quan el propietari ho demana._",
+  "storageReport.unknownSize": "mida desconeguda",
 };

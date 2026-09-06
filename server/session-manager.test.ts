@@ -16,7 +16,13 @@ import {
   type SessionManagerDeps,
 } from "./session-manager.ts";
 import { TurnSupersededError, type AgentEvent } from "./internal-types.ts";
-import { BACKEND_STOPPED_DURING_TURN } from "./backend-failure-text.ts";
+import { backendStoppedDuringTurn } from "./backend-failure-text.ts";
+import { english, translatorForLanguage } from "./i18n.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+
+// A SessionManager under test has no user records behind it, so its logWords
+// dep resolves to English - which is what these assertions have always been.
+const BACKEND_STOPPED_DURING_TURN = backendStoppedDuringTurn(english.t);
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 
@@ -47,7 +53,7 @@ interface LoggedEntry {
 
 // A recording deps object. `whenProcessed(n)` resolves once the consumer has
 // forwarded n events, so tests wait on the loop itself instead of a timer.
-function fakeDeps() {
+function fakeDeps(readerWords: { t: Translator["t"] } = english) {
   const events: AgentEvent[] = [];
   const processed: NormalizedEvent[] = [];
   const logged: LoggedEntry[] = [];
@@ -69,6 +75,7 @@ function fakeDeps() {
     updateAgent: (agentId, changes) => [
       { type: "agent_updated", agentId, changes },
     ],
+    logWords: () => readerWords.t,
     emit: (event) => events.push(event),
     isStillManaged: () => true,
     createSession: (_host, resumeSessionId) => {
@@ -196,7 +203,7 @@ describe("SessionManager.createTurnDeferred", () => {
   it("rejects a stale pending turn with TurnSupersededError and installs the new record", async () => {
     const { deps } = fakeDeps();
     const sm = new SessionManager<TestHost>("a1", deps);
-    sm.lastBackendFailure = "old failure";
+    sm.lastBackendFailure = "sigterm:143";
 
     const first = sm.createTurnDeferred();
     let captured: unknown = undefined;
@@ -267,7 +274,8 @@ describe("SessionManager consumer: stream end", () => {
         },
       },
     ]);
-    expect(sm.lastBackendFailure).toBe(BACKEND_STOPPED_DURING_TURN);
+    // The stamp is now WHAT happened, not what it said.
+    expect(sm.lastBackendFailure).toBe("stopped-during-turn");
     // Mid-turn branch: no state transition, and none of the error-path
     // diagnostics run on a clean end.
     expect(stateUpdates).toEqual([]);
@@ -425,5 +433,41 @@ describe("SessionManager.replaceWith", () => {
     expect(thrown.message).toBe("cwd is invalid");
     expect(returned).toBeUndefined();
     old.close();
+  });
+});
+
+// The visible "Stream error: " line is isomux's own framing, so it follows the
+// reader; the SUFFIX inside it is the backend's own text and does not. The raw
+// wrapper still goes to the metadata and to the auth matcher unchanged, because
+// those read the backend's wording (internal-docs/i18n-loop.md, S7).
+describe("SessionManager consumer: an unclassified stream failure", () => {
+  it("localizes the prefix, keeps the backend suffix, and leaves the diagnostics raw", async () => {
+    const { deps, logged, diagnostics } = fakeDeps(translatorForLanguage("ca"));
+    const sm = new SessionManager<TestHost>("a1", deps);
+    const h = host({ info: { state: "thinking", dormant: false } });
+    const session = fakeSession();
+    sm.installSession(h, session);
+    const consumer = consumerOf(sm);
+    const turn = sm.createTurnDeferred();
+    turn.catch(() => {});
+
+    // ECONNRESET is the pass-through case: nothing about it is classified, so
+    // the entry is the framing plus the backend's own string.
+    session.failStream(new Error("ECONNRESET"));
+    await consumer;
+
+    const entry = logged.find((e) => e.kind === "error");
+    expect(entry).toBeDefined();
+    // Localized wrapper, literal backend text.
+    expect(entry!.content).toBe("Error de flux: ECONNRESET");
+    // An unclassified failure carries no rewritten-text metadata, exactly as
+    // before.
+    expect(entry!.metadata).toBeUndefined();
+    // The auth matcher still sees the ORIGINAL bytes: it keys on the backend's
+    // own wording, so handing it a translated line would silently stop
+    // recognizing auth failures.
+    expect(diagnostics.authChecked).toContain("Stream error: ECONNRESET");
+    // The stamp is the language-independent identity, not the sentence.
+    expect(sm.lastBackendFailure).toBe("unclassified");
   });
 });

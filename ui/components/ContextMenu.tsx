@@ -188,7 +188,7 @@ export function ContextMenu({
             const isCurrent = s.sessionId === currentSessionId;
             const rawLabel = sessionResumeLabel(
               s,
-              t("contextMenu.untitledConversation"),
+              t("common.untitledConversation"),
             );
             const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
             const branchedSuffix = s.branched
@@ -199,7 +199,7 @@ export function ContextMenu({
             // without it. Selecting a row still flips the agent to that
             // session's engine.
             const displayLabel = isCurrent
-              ? `● ${label}  ${formatTime(language, s.lastModified)}  ${t("contextMenu.current")}`
+              ? `● ${label}  ${formatTime(language, s.lastModified)}  ${t("common.current")}`
               : `${label}  ${formatTime(language, s.lastModified)}${branchedSuffix}`;
             return (
               <MenuItem

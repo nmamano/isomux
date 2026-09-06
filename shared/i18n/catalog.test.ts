@@ -9,8 +9,12 @@ import { describe, expect, it } from "bun:test";
 import { CATALOGS } from "./translate.ts";
 import { en } from "./en.ts";
 import { SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE } from "../languages.ts";
-import { EFFORT_LEVELS } from "../types.ts";
-import { EFFORT_KEYS } from "../../ui/effort-label.ts";
+import { EFFORT_LEVELS, EFFORT_KEYS } from "../types.ts";
+import {
+  COMMAND_DESCRIPTION_KEYS,
+  COMMAND_MESSAGE_KEYS,
+} from "./command-keys.ts";
+import { commands } from "../../server/commands.ts";
 
 const ENGLISH_KEYS = Object.keys(en).sort();
 
@@ -152,22 +156,37 @@ describe("the catalogs", () => {
   });
 });
 
-// One English string lives in two places on purpose: EFFORT_LEVELS keeps its
-// label for the server's /effort command (a server change is S7's), while the
-// dialogs read common.effort.* through the catalog. Two copies drift unless a
-// test holds them together, so this is that test.
+// EFFORT_LEVELS carries ids only since S7 - the words are the catalog's - so
+// there is no second copy to pin. What still needs holding is COVERAGE: a level
+// the table offers with no key would render as its own id.
 describe("the effort table and the catalog", () => {
-  it("say the same English for every level", () => {
-    // String(), because the catalog's values are literal types and the table's
-    // label is a plain string: without it this compares two different types and
-    // only tsc notices, since bun test does not typecheck.
-    for (const { level, label } of EFFORT_LEVELS)
-      expect(String(en[EFFORT_KEYS[level]]), level).toBe(label);
-  });
-
   it("covers every level the table offers", () => {
     expect(Object.keys(EFFORT_KEYS).sort()).toEqual(
       EFFORT_LEVELS.map((entry) => entry.level).sort(),
     );
+  });
+});
+
+// The same coverage property for slash commands, in BOTH directions: a command
+// added to the registry without a description key would print its own key in
+// /help and in the menu, and a key left behind by a deleted command would rot
+// unnoticed (internal-docs/i18n-loop.md, S7).
+describe("the command registry and the catalog", () => {
+  it("has a description key for exactly the registry's commands", () => {
+    expect(Object.keys(COMMAND_DESCRIPTION_KEYS).sort()).toEqual(
+      Object.keys(commands).sort(),
+    );
+  });
+
+  it("points every description and message key at a real catalog entry", () => {
+    for (const key of Object.values(COMMAND_DESCRIPTION_KEYS))
+      expect(ENGLISH_KEYS, key).toContain(key);
+    for (const key of Object.values(COMMAND_MESSAGE_KEYS))
+      expect(ENGLISH_KEYS, key).toContain(key);
+  });
+
+  it("only gives a custom message to a command the registry has", () => {
+    for (const name of Object.keys(COMMAND_MESSAGE_KEYS))
+      expect(commands[name], name).toBeDefined();
   });
 });

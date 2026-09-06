@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { renderStorageReport } from "./storage-report.ts";
+import { english, translatorForLanguage } from "./i18n.ts";
 import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
 import type { StorageCategoryId } from "../shared/contract-shapes.ts";
 
@@ -75,9 +76,15 @@ function usageFixture(
 
 const labels = { agentLabel: (id: string) => ({ name: `name:${id}` }) };
 
+// Every assertion below is about the ENGLISH report - the arithmetic and the
+// owner/non-owner split - so they run on the English translator and keep the
+// bytes they always had. The language assertions live in their own block at
+// the bottom (internal-docs/i18n-loop.md, S7).
+
 describe("renderStorageReport", () => {
   it("totals the state root plus the locations outside it", () => {
     const out = renderStorageReport(
+      english,
       usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
       labels,
     );
@@ -90,7 +97,7 @@ describe("renderStorageReport", () => {
   });
 
   it("says everything is office state when nothing lives outside it", () => {
-    const out = renderStorageReport(usageFixture({ transcripts: 2 * MB }), {
+    const out = renderStorageReport(english, usageFixture({ transcripts: 2 * MB }), {
       agentLabel: () => ({ name: "x" }),
     });
     expect(out).toContain("**2.0 MB total**, all of it office state.");
@@ -100,11 +107,13 @@ describe("renderStorageReport", () => {
 
   it("names only the out-of-root locations that hold bytes", () => {
     const both = renderStorageReport(
+      english,
       usageFixture({ backups: 1 * MB, "update-snapshots": 1 * MB }),
       labels,
     );
     expect(both).toContain("in backups and update snapshots.");
     const snapshotsOnly = renderStorageReport(
+      english,
       usageFixture({ "update-snapshots": 1 * MB }),
       labels,
     );
@@ -113,6 +122,7 @@ describe("renderStorageReport", () => {
 
   it("marks an unconfigured location as none rather than zero", () => {
     const out = renderStorageReport(
+      english,
       usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
       labels,
     );
@@ -121,8 +131,8 @@ describe("renderStorageReport", () => {
   });
 
   it("gives the owner paths and the per-agent breakdown", () => {
-    const out = renderStorageReport(usageFixture({ transcripts: 1 * MB }), {
-      agentLabel: (id) =>
+    const out = renderStorageReport(english, usageFixture({ transcripts: 1 * MB }), {
+      agentLabel: (id: string) =>
         id === "agent-gone"
           ? { name: "Ghost", killed: true }
           : { name: "Live" },
@@ -140,7 +150,7 @@ describe("renderStorageReport", () => {
 
   it("withholds paths and per-agent detail from the aggregate projection", () => {
     const full = usageFixture({ transcripts: 1 * MB, backups: 2 * MB });
-    const out = renderStorageReport(aggregateOnly(full), labels);
+    const out = renderStorageReport(english, aggregateOnly(full), labels);
     expect(out).not.toContain("/srv/state");
     expect(out).not.toContain("/srv/isomux-backups");
     expect(out).not.toContain("Biggest agents");
@@ -165,7 +175,7 @@ describe("renderStorageReport", () => {
         lastActivityAt: null,
       },
     ];
-    const out = renderStorageReport(usage, {
+    const out = renderStorageReport(english, usage, {
       agentLabel: () => ({ name, ...(killed ? { killed } : {}) }),
     });
     return out
@@ -222,7 +232,7 @@ describe("renderStorageReport", () => {
       lastActivityAt: null,
     }));
     // Punctuation-free names here: this case is about the cap, not escaping.
-    const out = renderStorageReport(usage, {
+    const out = renderStorageReport(english, usage, {
       agentLabel: (id) => ({ name: id }),
     });
     expect(out).toContain(
@@ -230,5 +240,38 @@ describe("renderStorageReport", () => {
     );
     expect(out).toContain("| agent9 |");
     expect(out).not.toContain("| agent10 |");
+  });
+});
+
+// The same measurement, read by a Spanish and a Catalan user: the words, the
+// decimal mark and the thousands separator all follow the reader
+// (internal-docs/i18n-loop.md, S7, rulings 1 and 12). Literal strings, never
+// text read back through the translator (ruling 14).
+describe("renderStorageReport in the reader's language", () => {
+  it("gives a Spanish reader Spanish words and Spanish number marks", () => {
+    const out = renderStorageReport(
+      translatorForLanguage("es"),
+      usageFixture({ transcripts: 100 * MB, backups: 400 * MB }),
+      labels,
+    );
+    expect(out).toContain("## Almacenamiento de Isomux");
+    expect(out).toContain("**500,0 MB en total:**");
+    expect(out).toContain("más 400,0 MB en copias de seguridad.");
+    expect(out).toContain("| Categoría | Tamaño | Archivos |");
+    expect(out).toContain("| **Total del estado de la oficina** |");
+    // The category names are the storage panel's keys, so chat and the panel
+    // still call the same bytes the same thing.
+    expect(out).toContain("| Transcripciones de conversaciones |");
+  });
+
+  it("gives a Catalan reader Catalan", () => {
+    const out = renderStorageReport(
+      translatorForLanguage("ca"),
+      usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
+      labels,
+    );
+    expect(out).toContain("## Emmagatzematge d'Isomux");
+    expect(out).toContain("| Instantànies d'actualització | cap | - |");
+    expect(out).toContain("instantànies d'actualització (sense configurar)");
   });
 });

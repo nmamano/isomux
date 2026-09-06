@@ -154,6 +154,24 @@ export function pluralIn(
   return lookupIn(catalog, fallback, chosen, { ...params, count });
 }
 
+/**
+ * The catalog key an id-to-key TABLE holds for `id`, or undefined.
+ *
+ * Own properties only, and that is the whole point: the ids these tables are
+ * indexed by come from outside - a slash command the user typed, an effort
+ * level a backend reported - so a plain `table[id]` answers "constructor",
+ * "__proto__" or "toString" with something inherited from Object.prototype.
+ * That value is not a key, and passing it to t() reaches interpolate() with a
+ * function instead of a string. Every dynamic lookup into a key table goes
+ * through here.
+ */
+export function keyFrom<K extends MessageKey>(
+  table: Readonly<Record<string, K>>,
+  id: string,
+): K | undefined {
+  return Object.hasOwn(table, id) ? table[id] : undefined;
+}
+
 // One translator per language for the life of the page. They hold no state
 // beyond their Intl.PluralRules, so sharing is safe, and a stable identity is
 // what lets the React context skip re-renders when the language is unchanged.

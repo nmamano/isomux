@@ -15,8 +15,10 @@
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
+import type { Translator } from "../shared/i18n/translate.ts";
+import type { BackendFailureId } from "./backend-failure-text.ts";
 import {
-  BACKEND_STOPPED_DURING_TURN,
+  backendStoppedDuringTurn,
   backendFailureMeta,
   humanizeBackendFailure,
 } from "./backend-failure-text.ts";
@@ -91,6 +93,10 @@ export interface SessionManagerDeps<H extends SessionHost> {
     content: string,
     metadata?: Record<string, unknown>,
   ) => void;
+  // The translator for text written into this agent's log. A backend death has
+  // no actor, so this resolves to the agent's owner
+  // (internal-docs/i18n-loop.md, S7).
+  logWords: (agentId: string) => Translator["t"];
   // Stream-error diagnostics over manager-only state, called by the error
   // branch in this order: the pending fixed-cwd reset marker (has / delete /
   // clear the stale auto-resume state), the Claude-only process-exit hints
@@ -183,7 +189,11 @@ export class SessionManager<H extends SessionHost = SessionHost> {
   // stays quiet, and anything after that logs normally - so an unrelated later
   // error with the same text is never swallowed. Cleared at turn start too, so
   // it cannot survive into a different turn.
-  lastBackendFailure: string | null = null;
+  // WHAT the last backend death was, not what it said: the orchestrator
+  // compares this against its own classification to suppress a duplicate, and
+  // the two writers can now be reading in two different languages
+  // (internal-docs/i18n-loop.md, S7).
+  lastBackendFailure: BackendFailureId | null = null;
 
   constructor(
     private readonly agentId: string,
@@ -387,12 +397,12 @@ export class SessionManager<H extends SessionHost = SessionHost> {
           this.deps.addLogEntry(
             this.agentId,
             "error",
-            BACKEND_STOPPED_DURING_TURN,
+            backendStoppedDuringTurn(this.deps.logWords(this.agentId)),
             {
               backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
             },
           );
-          this.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
+          this.lastBackendFailure = "stopped-during-turn";
         } else {
           this.deps.logger.warn(
             `Agent ${this.agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
@@ -436,23 +446,36 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         `Agent ${this.agentId} stream error:`,
         errMessage(err),
       );
+      // TWO strings, on purpose. `errorText` keeps the original bytes: the
+      // metadata diagnostic and handleDetectedAuthError below both read it,
+      // and the auth matcher keys on the backend's own wording. `errorLine` is
+      // the same framing worded for the reader, and is the only one that
+      // reaches the chat (internal-docs/i18n-loop.md, S7). The suffix inside
+      // both is the backend's text either way - only the wrapper is ours.
       const errorText = `Stream error: ${errMessage(err)}`;
+      const errorLine = this.deps.logWords(this.agentId)(
+        "systemEntries.streamError",
+        { error: errMessage(err) },
+      );
       // Classified against the RAW backend message, not the
       // "Stream error: " wrapper - the wrapper is isomux's own framing and
       // would otherwise be pasted in front of the explanation. An UNRECOGNIZED
       // failure keeps the wrapper it has always had; only a classified one
       // replaces the whole line.
-      const failure = humanizeBackendFailure(errMessage(err));
+      const failure = humanizeBackendFailure(
+        this.deps.logWords(this.agentId),
+        errMessage(err),
+      );
       const classified = failure.raw !== undefined;
       this.deps.addLogEntry(
         this.agentId,
         "error",
-        classified ? failure.text : errorText,
+        classified ? failure.text : errorLine,
         classified
-          ? backendFailureMeta({ text: failure.text, raw: errorText })
+          ? backendFailureMeta({ ...failure, raw: errorText })
           : undefined,
       );
-      this.lastBackendFailure = classified ? failure.text : errorText;
+      this.lastBackendFailure = failure.id;
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       // The manager answers null for non-Claude agents (the diagnosis reads
       // CLAUDE_CONFIG_DIR/projects).

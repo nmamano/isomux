@@ -1139,7 +1139,7 @@ export const en = {
   "contextMenu.newConversation": "New Conversation",
   "contextMenu.newEngineConversation": "New {engine} Conversation",
   "contextMenu.resume": "Resume",
-  "contextMenu.current": "(current)",
+  "common.current": "(current)",
   "contextMenu.branched": "(branched)",
   "contextMenu.killAgent": "Kill Agent",
   "agentList.roomEmpty": "{room} is empty",
@@ -1314,13 +1314,491 @@ export const en = {
   "apps.actionFailed.start": "Could not start.",
   "apps.actionFailed.stop": "Could not stop.",
   "apps.actionFailed.restart": "Could not restart.",
-  "contextMenu.untitledConversation": "Untitled conversation",
+  "common.untitledConversation": "Untitled conversation",
   "schedules.human.daily": "Daily at {time}",
   "schedules.human.weekly": "Weekly {weekday} at {time}",
   "schedules.human.everyMinutes": "Every {minutes}m",
   "schedules.human.everyHours": "Every {hours}h",
   "schedules.human.everyHoursMinutes": "Every {hours}h{minutes}m",
   "schedules.nextRunIn": "in {duration}",
+
+  // --- S7: text the server writes for a signed-in reader -------------------
+  // Slash-command descriptions, keyed by command name through
+  // shared/i18n/command-keys.ts. The registry in server/commands.ts holds the
+  // structure (type, supported, autocomplete, handler); the words live here.
+  "commands.clear.description": "Wipe conversation history",
+  "commands.context.description": "Visualize context window usage",
+  "commands.help.description": "List all available commands",
+  "commands.resume.description": "Pick up a previous session",
+  "commands.login.description": "Show how to (re-)authenticate this agent",
+  "commands.logout.description": "Manage sign-in or sign out",
+  "commands.isomuxAllHands.description": "Summary of all agents and their conversations",
+  "commands.isomuxSystemPrompt.description": "Show the full system prompt this agent receives",
+  "commands.isomuxCronjobSystemPrompt.description": "Show the system prompt a schedule receives (pass name or id)",
+  "commands.isomuxDiff.description": "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+  "commands.isomuxEdit.description": "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
+  "commands.isomuxUsage.description": "Per-agent / per-room / per-schedule token spend",
+  "commands.isomuxStorage.description": "Disk space the office is using, broken down by category",
+  "commands.compact.description": "Compress context",
+  "commands.compact.message": "`/compact` is not yet supported in Isomux. Context is auto-compacted by the SDK.",
+  "commands.branch.description": "Branch conversation into new session",
+  "commands.fork.description": "Branch conversation into new session",
+  "commands.export.description": "Export conversation to file",
+  "commands.plan.description": "Toggle plan mode",
+  "commands.rename.description": "Rename current session",
+  "commands.reset.description": "Reset conversation",
+  "commands.new.description": "Start new conversation",
+  "commands.model.description": "Switch model",
+  "commands.fast.description": "Toggle speed-optimized mode",
+  "commands.effort.description": "Set thinking effort level",
+  "commands.advisor.description": "Toggle advisor mode",
+  "commands.cost.description": "Token usage and cost estimate",
+  "commands.cost.message": "`/cost` is a Claude Code command for API users. Isomux uses subscription-based billing.",
+  "commands.usage.description": "Where to check subscription and office usage",
+  "commands.stats.description": "Usage patterns over time",
+  "commands.extraUsage.description": "Extra usage options",
+  "commands.rateLimitOptions.description": "Rate limit configuration",
+  "commands.diff.description": "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+  "commands.rewind.description": "Undo changes and revert conversation",
+  "commands.checkpoint.description": "Undo changes and revert conversation",
+  "commands.copy.description": "Copy last response to clipboard",
+  "commands.files.description": "List files in context",
+  "commands.addDir.description": "Add additional working directories",
+  "commands.btw.description": "Ask without polluting main context",
+  "commands.config.description": "Open settings interface",
+  "commands.settings.description": "Open settings interface",
+  "commands.hooks.description": "Manage lifecycle hooks",
+  "commands.permissions.description": "Manage tool permissions",
+  "commands.keybindings.description": "Edit key bindings",
+  "commands.memory.description": "View/edit persistent memory",
+  "commands.mcp.description": "Manage MCP server connections",
+  "commands.ide.description": "Manage IDE integrations",
+  "commands.agents.description": "Manage custom subagents",
+  "commands.skills.description": "List all available skills",
+  "commands.sandbox.description": "Manage sandbox settings",
+  "commands.privacySettings.description": "Manage privacy settings",
+  "commands.theme.description": "Change color theme",
+  "commands.color.description": "Change color theme",
+  "commands.vim.description": "Toggle vim keybindings",
+  "commands.terminalSetup.description": "Configure terminal integration",
+  "commands.reloadPlugins.description": "Reload installed plugins",
+  "commands.reloadPlugins.message": "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
+  "commands.tasks.description": "List/manage background tasks",
+  "commands.bashes.description": "List/manage background tasks",
+  "commands.doctor.description": "Check installation health",
+  "commands.feedback.description": "Report bugs to Anthropic",
+  "commands.bug.description": "Report bugs to Anthropic",
+  "commands.releaseNotes.description": "View release notes",
+  "commands.heapdump.description": "Dump heap for debugging",
+  "commands.status.description": "Show system status",
+  "commands.tag.description": "Tag current conversation",
+  "commands.init.description": "Initialize Claude Code in a project",
+  "commands.installGithubApp.description": "Set up Claude GitHub PR review app",
+  "commands.prComments.description": "View PR comments",
+  "commands.desktop.description": "Open desktop app",
+  "commands.mobile.description": "Open mobile app",
+  "commands.chrome.description": "Open Chrome extension",
+  "commands.session.description": "Manage sessions",
+  "commands.teleport.description": "Transfer session to another device",
+  "commands.remoteEnv.description": "Configure remote environment",
+  "commands.exit.description": "Exit Claude Code",
+  "commands.exit.message": "Use the Isomux UI to manage agents. `/exit` only works in the Claude Code CLI.",
+  "commands.stickers.description": "Fun stickers",
+  "commands.upgrade.description": "Upgrade Claude Code",
+  "commands.plugin.description": "Manage plugins",
+  "commands.plugin.message": "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `{addCommand}` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
+  "commands.batch.description": "Decompose into parallel worktree agents",
+  "commands.claudeApi.description": "Load API/SDK reference for detected language",
+  "commands.claudeInChrome.description": "Automate Chrome browser interactions",
+  "commands.debug.description": "Diagnose session/tool issues from debug log",
+  "commands.keybindingsHelp.description": "Customize keyboard shortcuts",
+  "commands.loop.description": "Run a prompt on a recurring schedule",
+  "commands.loop.message": "not supported natively; see if the Schedules page or scheduled messages satisfy your use case",
+  "commands.loremIpsum.description": "Generate placeholder text",
+  "commands.review.description": "Code review for bugs, logic, and edge cases",
+  "commands.schedule.description": "Create cron-scheduled remote agents",
+  "commands.securityReview.description": "Security-focused code review",
+  "commands.simplify.description": "Code cleanup and reuse analysis",
+  "commands.skillify.description": "Capture processes as reusable skills",
+  "commands.stuck.description": "Diagnose frozen/slow sessions",
+  "commands.ultrareview.description": "Ultra-thorough PR review",
+  "commands.updateConfig.description": "Configure settings.json",
+
+  // The type-aware refusal for a command Isomux does not implement. Every
+  // registry command carries a description, so the parenthetical is always
+  // filled; `unknownCommand` is the branch for a name the registry never had.
+  "commands.unsupported.hardcoded":
+    "`/{name}` ({description}) is a Claude Code command, but it's not supported in Isomux.",
+  "commands.unsupported.bundledSkill":
+    "`/{name}` ({description}) is a Claude Code bundled skill, but it's not supported in Isomux. You can override it by creating your own skill file.",
+  "commands.unsupported.notAvailable": "`/{name}` is not available in Isomux.",
+  "commands.unsupported.unknownCommand":
+    "Unknown command `/{name}`. Type `/help` to see available commands.",
+
+  // /clear (also /reset, /new)
+  "commands.clear.failed": "Failed to clear conversation: {error}",
+  "commands.clear.done": "Conversation cleared.",
+
+  // /context
+  "commands.context.header": "**{model}** - {used} / {max} tokens ({percent}%)",
+  "commands.context.noSession": "No active session.",
+  "commands.context.unavailable": "Context usage not available for this session.",
+  "commands.context.staleUnavailable":
+    "Live measurement unavailable. Showing the last committed reading, sampled {age}.",
+  "commands.context.staleFailed":
+    "Live measurement failed. Showing the last committed reading, sampled {age}.",
+  "commands.context.ageUnderMinute": "less than a minute ago",
+  "commands.context.ageMinutes": "{minutes}m ago",
+  "commands.context.ageHoursMinutes": "{hours}h {minutes}m ago",
+  "commands.context.category": "{name}: {tokens} tokens ({percent}%)",
+  "commands.context.memoryFiles": "**Memory files:**",
+  "commands.context.memoryFile": "{path} ({tokens} tokens)",
+  "commands.context.systemPrompt": "**System prompt:**",
+  "commands.context.systemPromptSection": "{name}: {tokens} tokens",
+  "commands.context.autoCompact": "Auto-compact at {percent}% ({tokens} tokens)",
+  "commands.context.failed": "Failed to get context usage: {error}",
+
+  // /help. The URLs are passed in from the call site rather than written here
+  // (ruling 11), so a link change never edits three catalogs.
+  "commands.help.docs": "**Docs:** {url}",
+  "commands.help.tips": "**Tips:**",
+  "commands.help.tipAgents":
+    "Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
+  "commands.help.tipQueue":
+    "Type ahead while an agent is busy: messages queue and flush when it's idle. Hit \"Send now\" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.",
+  "commands.help.tipVoice":
+    "Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say \"question mark\", \"comma\", \"period\", \"new line\", and so on.",
+  "commands.help.tipPhoneVpn":
+    "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
+  "commands.help.tipInviteFunnel":
+    "Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see {url}), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
+  "commands.help.tipPhoneOrigin": "Isomux works on your phone: open {origin}.",
+  "commands.help.tipInvite":
+    "The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
+  "commands.help.tipTerminal":
+    "The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
+  "commands.help.tipHooks":
+    "Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
+  "commands.help.commands": "**Commands:**",
+  "commands.help.aliasGroup": "{primary} (or {others})",
+  "commands.help.skillsUser": "User skills",
+  "commands.help.skillsProject": "Project skills",
+  "commands.help.skillsPlugin": "Plugin skills",
+  "commands.help.skillsIsomux": "Isomux skills",
+  "commands.help.skillsClaude": "Claude skills",
+
+  // /resume
+  "commands.resume.none": "No previous sessions found.",
+  "commands.resume.header": "Resume a past conversation:",
+  "commands.resume.noOthers": "No other sessions to resume.",
+  "commands.resume.branched": "(branched)",
+
+  // /model
+  "commands.model.openCodeUnsupported":
+    "Open agent settings to select a connected OpenCode model.",
+  "commands.model.header": "Switch model (current: **{current}**):",
+
+  // /effort
+  "commands.effort.openCodeUnsupported":
+    "OpenCode does not expose thinking effort controls.",
+  "commands.effort.header": "Switch thinking effort (current: **{current}**):",
+
+  // /isomux-all-hands
+  "commands.isomuxAllHands.room": "**=== Room {number} ===**",
+  "commands.isomuxAllHands.me": "**(me)**",
+  "commands.isomuxAllHands.desk": "desk {number}",
+  "commands.isomuxAllHands.topic": "Topic: {topic}",
+  "commands.isomuxAllHands.footer":
+    "Ask your agent if you'd like to know more about any agent or conversation.",
+
+  // /isomux-system-prompt. The prompt itself is agent-facing and stays English.
+  "commands.isomuxSystemPrompt.header":
+    "**Full system prompt** *(reflects current settings; takes effect on next conversation)*",
+
+  // /isomux-cronjob-system-prompt
+  "commands.isomuxCronjobSystemPrompt.usage": "Usage: {usage}",
+  "commands.isomuxCronjobSystemPrompt.noSchedules":
+    "No schedules are configured.",
+  "commands.isomuxCronjobSystemPrompt.known": "Known schedules:",
+  "commands.isomuxCronjobSystemPrompt.ambiguous":
+    "Multiple schedules are named \"{query}\". Re-run with the id:",
+  "commands.isomuxCronjobSystemPrompt.noMatch":
+    "No schedule matches `{query}`. Try `/isomux-cronjob-system-prompt` with no argument to list schedules.",
+  "commands.isomuxCronjobSystemPrompt.header":
+    "**System prompt + first user message for schedule \"{name}\"** *(reflects current settings; takes effect on next run)*",
+  "commands.isomuxCronjobSystemPrompt.firstUserMessage": "First user message:",
+
+  // /isomux-edit
+  "commands.isomuxEdit.usage":
+    "Usage: {usage}. Path can be relative (resolves against {cwd}), absolute, or `~/...`.",
+  "commands.isomuxEdit.emptyPath": "Empty path.",
+  "commands.isomuxEdit.notFound": "`{path}` does not exist.",
+  "commands.isomuxEdit.notFile": "`{path}` is not a file.",
+  "commands.isomuxEdit.binary":
+    "`{path}` is a binary file - the editor panel only supports text.",
+  "commands.isomuxEdit.tooLarge":
+    "`{path}` is {size} - too large for the editor panel (1 MB limit).",
+  "commands.isomuxEdit.ioError": "Failed to open `{path}`: {message}",
+
+  // /isomux-diff (also /diff)
+  "commands.isomuxDiff.notDirectory": "`{path}` is not a directory.",
+  "commands.isomuxDiff.notRepo": "`{path}` is not a git repository.",
+  "commands.isomuxDiff.gitError": "Failed to run git diff in `{path}`:",
+  "commands.isomuxDiff.clean":
+    "Working tree clean in `{path}` - no uncommitted changes.",
+
+  // /usage
+  "commands.usage.heading": "**Subscription plan limits aren't shown here.**",
+  "commands.usage.intro":
+    "To check your Claude or ChatGPT subscription quota, open the embedded terminal and:",
+  "commands.usage.claude": "launch `claude`, then type `/usage`",
+  "commands.usage.codex": "launch `~/.isomux/bin/codex`, then type `/status`",
+  "commands.usage.office":
+    "For office-level token spend (per-agent / per-room / per-schedule), see `/isomux-usage`.",
+  "commands.usage.codexCardOmitted": "Codex `/status` card omitted: {error}",
+
+  // /isomux-storage
+  "commands.isomuxStorage.forbidden":
+    "Storage usage is only available to signed-in office members.",
+
+  // Skill dispatch (a slash command that expands to a prompt and runs a turn).
+  "commands.skill.queueFailed": "Could not queue {command}: {error}",
+  "commands.skill.error": "Skill error: {error}",
+
+  // Choice interactions, keyed by AgentChoiceInteractionKind. The choice
+  // LABELS a backend supplies (a permission's persistent-allow wording, a live
+  // model list) stay as delivered; only what Isomux writes is here.
+  "choices.resume.title": "Resume a conversation",
+  "choices.resume.instruction":
+    "Reply with a number to resume, or anything else to cancel.",
+  "choices.resume.branched": "Branched",
+  "choices.model.title": "Switch model",
+  "choices.model.instruction":
+    "Reply with a number to switch, or anything else to cancel.",
+  "choices.effort.title": "Switch thinking effort",
+  "choices.permission.title": "Wants to use {tool}",
+  "choices.permission.instruction":
+    "Choose an option, or type any other message to deny with that as the reason.",
+  "choices.permission.reply": "Reply:",
+  "choices.permission.allowOnce": "Allow - just this time",
+  "choices.permission.deny": "Deny",
+  "choices.permission.allowPrefix":
+    "Allow - and don't ask again this session for any command starting with `{prefix}`",
+  "choices.permission.prefixHint":
+    "Reply `{replySpec}` to choose how much to allow, e.g. `{index} {example}`.",
+  "choices.permission.denyByMessage":
+    "Or type any other message to deny with that as the reason.",
+
+  // Lifecycle entries the server writes into an agent's log. Most have no
+  // actor - a backend event or a route call produced them - so they are worded
+  // for the agent's owner (internal-docs/i18n-loop.md, S7).
+  "systemEntries.conversationCleared": "Conversation cleared.",
+  "systemEntries.newConversation": "New conversation started.",
+  "systemEntries.agentStopped": "Agent stopped: {status}.",
+  "systemEntries.backendFailure.stoppedDuringTurn":
+    "The agent backend stopped during the turn. The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.sigterm":
+    "The agent backend was terminated by SIGTERM (exit code {code}). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.sigkill":
+    "The agent backend was killed by SIGKILL (exit code {code}). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.signal":
+    "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
+  "systemEntries.agentReady":
+    "Agent \"{name}\" ready. Working in {cwd}. Permission mode: {mode}.",
+  "systemEntries.streamError": "Stream error: {error}",
+  "systemEntries.startFailed": "Failed to start: {error}",
+  "systemEntries.interrupted": "Agent interrupted.",
+  "systemEntries.wake.idle":
+    "Resumed your session (it was released while idle to save memory).",
+  "systemEntries.wake.afterRestart":
+    "Resumed your session after the server restarted.",
+  "systemEntries.wake.afterBackendEnded":
+    "Resumed your session after the backend ended unexpectedly.",
+  "systemEntries.wake.inFlightWarning":
+    "Any command that was in flight may have partially run; verify its effects before retrying.",
+  "systemEntries.wake.shutdownRejection":
+    "The 'user rejected' result just above is from the shutdown, not a human.",
+  "systemEntries.wake.resumedBeforeFlush":
+    "Resumed prior session before flushing queued messages.",
+  "systemEntries.wake.resumedAfterUnexpectedEnd":
+    "Resumed prior session after the previous one ended unexpectedly.",
+  "systemEntries.codexInterruptExited":
+    "Codex exited during interrupt - installing a fresh session.",
+  "systemEntries.codexInterruptExitedWithError":
+    "Codex exited during interrupt: {error}",
+  "systemEntries.previousInterrupted": "Previous response was interrupted.",
+  "systemEntries.interruptedPermissionDenied":
+    "Agent interrupted; the pending permission request was denied.",
+  "systemEntries.interruptedPermissionRestarted":
+    "Agent interrupted; the pending permission request could not be denied, so the agent's backend was restarted; the conversation is preserved.",
+  "systemEntries.interruptHandlerFailed": "Interrupt handler failed: {error}",
+  "systemEntries.codexInterruptFallback":
+    "Codex didn't honor the interrupt in time; falling back to a fresh session.",
+  "systemEntries.deliveryStalled": "Message delivery stalled; recovering.",
+  "systemEntries.freshSessionAfterRestoreFailure":
+    "Started a fresh session (previous one could not be restored).",
+  "systemEntries.freshSessionBeforeFlush":
+    "Started a fresh session before flushing queued messages.",
+  "systemEntries.flushStartFailed": "Cannot start session to flush queue: {error}",
+  "systemEntries.restartingForSettings":
+    "Restarting session to apply settings; queued messages will send after the restart.",
+  "systemEntries.flushError": "Error flushing queue: {error}",
+  "systemEntries.genericError": "Error: {error}",
+  "systemEntries.restoreOnStartupFailed":
+    "Failed to restore on startup: {error}\nType /clear to start fresh, or /resume to pick another session.",
+  "systemEntries.flushInterrupted":
+    "Queue flush interrupted by session change; will retry.",
+  "systemEntries.sessionStartFailed":
+    "Cannot start session: {error}\nType /clear to start fresh, or /resume to pick another session.",
+  "systemEntries.queueFailed": "Could not queue message: {error}",
+  "systemEntries.queueCleared.notConfigured.one":
+    "Cleared {count} queued message because the backend is not configured.",
+  "systemEntries.queueCleared.notConfigured.other":
+    "Cleared {count} queued messages because the backend is not configured.",
+  "systemEntries.queueCleared.switching.one":
+    "Cleared {count} queued message when switching to another session.",
+  "systemEntries.queueCleared.switching.other":
+    "Cleared {count} queued messages when switching to another session.",
+  "systemEntries.contextCompacted": "Context compacted: {summary}",
+  "systemEntries.contextCompactedNoSummary": "Context compacted.",
+  "systemEntries.toolCallDenied": "Tool call denied: {tool}",
+  "systemEntries.toolCallDeniedWithReason": "Tool call denied: {tool} ({reason})",
+  "systemEntries.inputRequest":
+    "The backend requested interactive input that Isomux cannot display safely.",
+  "systemEntries.permissionRequested":
+    "Permission requested for {tool}. Input: {input}.",
+  "systemEntries.diffEmptyCommit":
+    "`{commit}` introduced no file changes (empty commit?).",
+  "systemEntries.permissionOutcome.allowPersistent":
+    "Allow similar calls for this session",
+  "systemEntries.permissionOutcome.allowPrefix":
+    "Allow a command prefix for this session",
+  "systemEntries.permissionOutcome.denyWithReason": "Deny with a reason",
+  "systemEntries.permissionOutcome.denyWhenStopped": "Deny when stopped",
+  "systemEntries.permissionOutcome.sessionChanged":
+    "Canceled when the session changed",
+  "systemEntries.permissionOutcome.priorSessionStopped":
+    "Canceled while the prior session stopped",
+  "systemEntries.permissionOutcome.sessionEnded":
+    "Canceled because the session ended",
+  "systemEntries.permissionOutcome.turnStopped":
+    "Canceled when the turn stopped",
+  "systemEntries.permissionOutcome.agentKilled":
+    "Canceled when the agent was killed",
+  "systemEntries.permissionOutcome.failed": "Failed to resolve",
+  "systemEntries.permissionChoice": "Permission choice: {label}.",
+  "systemEntries.permissionGrantedOnce": "Permission granted (once).",
+  "systemEntries.permissionGrantedPersistent":
+    "Permission granted (rule added for this session).",
+  "systemEntries.permissionDenied": "Permission denied.",
+  "systemEntries.permissionDeniedWithReason":
+    "Permission denied with reason forwarded to agent.",
+  "systemEntries.permissionSessionGone":
+    "Permission could not be resolved - session is gone.",
+  "systemEntries.permissionResolveFailed": "Failed to resolve permission: {error}",
+  "systemEntries.resumedSession": "Resumed session: {label}",
+  "systemEntries.resumeFailed": "Failed to resume: {error}",
+  "systemEntries.resumeCancelled": "Resume cancelled.",
+  "systemEntries.resumeCwdUnavailable":
+    "Session's saved directory `{stored}` is unavailable ({error}); resuming in `{previous}`.",
+  "systemEntries.alreadyUsing": "Already using {label}.",
+  "systemEntries.modelSwitched":
+    "Model switched to {label}. The agent's context may still say they are a different model - the correct model is shown in the top bar.",
+  "systemEntries.modelCancelled": "Model selection cancelled.",
+  "systemEntries.effortSwitched": "Thinking effort switched to {label}.",
+  "systemEntries.effortCancelled": "Effort selection cancelled.",
+  "systemEntries.branchedFrom": "Branched from: {label}",
+  "systemEntries.branchFailed": "Failed to branch conversation: {error}",
+  "systemEntries.editBusy": "Cannot edit while agent is busy.",
+  "systemEntries.editNotFound": "Cannot edit: message not found.",
+  "systemEntries.editNoSession": "Cannot edit: no active session.",
+  "systemEntries.editPendingInteraction":
+    "Cannot edit this prompt while an interactive command is pending. Answer or cancel it first.",
+  "systemEntries.editNotSent":
+    "Cannot edit: this message wasn't sent to the agent and newer messages followed. Send a new message instead.",
+  "systemEntries.editNotLocated":
+    "Cannot edit: could not locate message in backend session.",
+  "systemEntries.editOtherSession":
+    "This message lives in a different session (\"{label}\"). Use /resume to switch to it first, then edit.",
+  "systemEntries.cwdMoveBackFailed":
+    "Warning: after the failed cwd change, session files could not be moved back to {previous} and now live in {target}; resume may fail until they are restored.",
+  "systemEntries.fileOpenFailed": "Failed to open `{path}`: {message}",
+  "systemEntries.fileReadFailed": "Failed to read `{path}`: {message}",
+  "systemEntries.fileSaveFailed": "Failed to save `{path}` for display.",
+  "systemEntries.diffFailed": "Failed to run git diff in `{path}`:",
+  "systemEntries.diffBadDir": "Cannot diff `{path}`: {message}.",
+  "systemEntries.diffClean":
+    "Working tree clean in `{path}` - no uncommitted changes.",
+  "systemEntries.signInRequired":
+    "{provider} could not run this message because it is not signed in. Sign in below to continue.",
+  "systemEntries.manageSignIn": "Manage your {provider} sign-in below.",
+  "systemEntries.alreadySignedIn":
+    "You are already signed in. Manage your {provider} sign-in below.",
+  "systemEntries.signOutOpenCode":
+    "Sign-out is not available for OpenCode agents.",
+  "systemEntries.signOutNoScope":
+    "Sign-out is not available because this {provider} account scope could not be resolved.",
+  "systemEntries.runInTerminal": "Run `{command}` in the built-in terminal.",
+
+  // The commit-mode update notice (shared/update-notice.ts). Worded by
+  // whichever client renders it, not by the update checker.
+  "updateNotice.pill.updateAvailable": "update available",
+  "updateNotice.pill.newRelease": "new release",
+  "updateNotice.pill.mainAhead": "main +{count}",
+  "updateNotice.title.newRelease": "New Release Available",
+  "updateNotice.title.mainAhead": "Newer Commits on main",
+  "updateNotice.running": "commit {sha}",
+  "updateNotice.identity.noLatest": "You're on {running}.",
+  "updateNotice.identity.current": "You're on {running} (latest release).",
+  "updateNotice.identity.behind": "You're on {running}; {latest} is out.",
+  "updateNotice.identity.aheadTagged":
+    "You're on {running} (newer than the latest release, {latest}).",
+  "updateNotice.identity.aheadUntagged":
+    "You're on {running}, past the latest release ({latest}).",
+  "updateNotice.identity.unknown":
+    "You're on {running}. The latest release is {latest};",
+  "updateNotice.drift.beyond.one": "main has {count} commit beyond that.",
+  "updateNotice.drift.beyond.other": "main has {count} commits beyond that.",
+  "updateNotice.drift.newer.one": "main has {count} newer commit.",
+  "updateNotice.drift.newer.other": "main has {count} newer commits.",
+  "updateNotice.drift.bleedingEdge.one":
+    "main has {count} newer commit if you want the bleeding edge.",
+  "updateNotice.drift.bleedingEdge.other":
+    "main has {count} newer commits if you want the bleeding edge.",
+
+  // The /isomux-storage report (server/storage-report.ts). The category names
+  // are the settings.storage.category.* keys the storage panel already reads.
+  "storageReport.heading": "Isomux storage",
+  "storageReport.totalWithOutside":
+    "**{total} total:** {stateRoot} of office state, plus {outside} in {locations}.",
+  "storageReport.totalOnly": "**{total} total**, all of it office state.",
+  "storageReport.locationsJoin": " and ",
+  "storageReport.measured": "_Measured {age}._",
+  "storageReport.columnCategory": "Category",
+  "storageReport.columnSize": "Size",
+  "storageReport.columnFiles": "Files",
+  "storageReport.none": "none",
+  "storageReport.totalOfficeState": "Total office state",
+  "storageReport.total": "Total",
+  "storageReport.outsideNote":
+    "_Backups and update snapshots sit outside the office state directory, so they are listed after its subtotal. \"none\" means that location isn't set up on this machine._",
+  "storageReport.locations": "_Locations: {paths}._",
+  "storageReport.locationOfficeState": "office state",
+  "storageReport.locationNotSetUp": "{label} (not set up)",
+  "storageReport.ownerOnly":
+    "_The per-agent breakdown and the paths are owner-only._",
+  "storageReport.biggestAgents": "Biggest agents",
+  "storageReport.columnAgent": "Agent",
+  "storageReport.columnTranscripts": "Transcripts",
+  "storageReport.columnAttachments": "Attachments",
+  "storageReport.columnSessions": "Sessions",
+  "storageReport.columnLastActivity": "Last activity",
+  "storageReport.killed": "_(killed)_",
+  "storageReport.showing":
+    "_Showing the {shown} largest of {total} agents with stored data._",
+  "storageReport.nothingDeleted":
+    "_Nothing here is deleted automatically. Transcripts and attachments are only removed when the owner asks for it._",
+  "storageReport.unknownSize": "unknown size",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;
