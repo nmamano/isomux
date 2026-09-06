@@ -1,10 +1,16 @@
-// Shared chat widget. Loaded by site/index.html (landing chatbot) and the
-// per-page docs chatbot rendered by scripts/build-docs.ts.
+// Shared chat widget. Loaded by site/index.html (landing chatbot), its Spanish
+// and Catalan copies under site/es and site/ca, and the per-page docs chatbot
+// rendered by scripts/build-docs.ts.
 //
 // Page-specific context: if `window.__docContext` is set (a string of raw
 // markdown for the current docs page), it's sent to /api/chat as
 // `pageContext`, which the API appends to the system prompt so the bot can
 // answer questions about the current docs page accurately.
+//
+// The widget's own fixed labels follow the page's `<html lang>`; any other
+// value falls back to English. The bot's answers come from /api/chat and are
+// not touched here. A starter button is both a label and the message it sends,
+// so a translated starter asks its question in that language.
 
 (function () {
   const chatSvg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
@@ -16,23 +22,83 @@
   // landing has no such variable and pageContext stays empty.
   const pageContext =
     typeof window.__docContext === "string" ? window.__docContext.trim() : "";
-  const page = window.location.pathname.startsWith("/hosted")
-    ? "hosted"
-    : "main";
+  // Which page kind /api/chat is told about. A language copy of a page lives
+  // under its own directory (site/es, site/ca), so the prefix comes off before
+  // the classification: /es/hosted is the hosted page, not the landing. Keep
+  // the codes in step with SUPPORTED_LANGUAGES in shared/languages.ts; English
+  // has no prefix.
+  const LANGUAGE_PREFIX = /^\/(?:es|ca)(?=\/|$)/;
+  const pagePath = window.location.pathname.replace(LANGUAGE_PREFIX, "");
+  const page = pagePath.startsWith("/hosted") ? "hosted" : "main";
 
-  const starters = pageContext
-    ? [
+  const LABELS = {
+    en: {
+      pageStarters: [
         "Summarize this page",
         "What's not covered here?",
         "How does this relate to the rest of Isomux?",
         "What is Isomux?",
-      ]
-    : [
+      ],
+      starters: [
         "What is Isomux?",
         "How do I get started?",
         "What features does it have?",
         "Does it work on mobile?",
-      ];
+      ],
+      pageIntro: "Ask me about this page or Isomux!",
+      intro: "Ask me anything about Isomux!",
+      header: "Ask about Isomux",
+      placeholder: "Type a message...",
+      powered: "Powered by Claude",
+      noCredits: "The chatbot has run out of credits. Please try again later!",
+      failed: "Something went wrong. Please try again.",
+    },
+    es: {
+      pageStarters: [
+        "Resume esta página",
+        "¿Qué no cubre?",
+        "¿Cómo encaja esto en el resto de Isomux?",
+        "¿Qué es Isomux?",
+      ],
+      starters: [
+        "¿Qué es Isomux?",
+        "¿Cómo empiezo?",
+        "¿Qué funciones tiene?",
+        "¿Funciona en el móvil?",
+      ],
+      pageIntro: "¡Pregúntame sobre esta página o sobre Isomux!",
+      intro: "¡Pregúntame lo que quieras sobre Isomux!",
+      header: "Pregunta sobre Isomux",
+      placeholder: "Escribe un mensaje...",
+      powered: "Funciona con Claude",
+      noCredits: "El chatbot se ha quedado sin crédito. ¡Inténtalo más tarde!",
+      failed: "Algo ha ido mal. Inténtalo otra vez.",
+    },
+    ca: {
+      pageStarters: [
+        "Resumeix aquesta pàgina",
+        "Què no cobreix?",
+        "Com encaixa això amb la resta d'Isomux?",
+        "Què és Isomux?",
+      ],
+      starters: [
+        "Què és Isomux?",
+        "Com començo?",
+        "Quines funcions té?",
+        "Funciona al mòbil?",
+      ],
+      pageIntro: "Pregunta'm sobre aquesta pàgina o sobre Isomux!",
+      intro: "Pregunta'm el que vulguis sobre Isomux!",
+      header: "Pregunta sobre Isomux",
+      placeholder: "Escriu un missatge...",
+      powered: "Funciona amb Claude",
+      noCredits: "El chatbot s'ha quedat sense crèdit. Torna-ho a provar més tard!",
+      failed: "Alguna cosa ha anat malament. Torna-ho a provar.",
+    },
+  };
+  const L = LABELS[document.documentElement.lang] || LABELS.en;
+
+  const starters = pageContext ? L.pageStarters : L.starters;
 
   let messages = [];
   let isOpen = false;
@@ -85,7 +151,7 @@
     let msgsHtml = "";
     if (messages.length === 0) {
       msgsHtml = `<div class="chat-starters">
-          <p>${pageContext ? "Ask me about this page or Isomux!" : "Ask me anything about Isomux!"}</p>
+          <p>${pageContext ? L.pageIntro : L.intro}</p>
           ${starters.map((q) => `<button class="chat-starter-btn" onclick="window.__chatSend('${q.replace(/'/g, "\\'")}')">${q}</button>`).join("")}
         </div>`;
     } else {
@@ -103,16 +169,16 @@
     container.innerHTML = `
         <div class="chat-panel">
           <div class="chat-header">
-            <div class="chat-header-left">${chatSvg} Ask about Isomux</div>
+            <div class="chat-header-left">${chatSvg} ${L.header}</div>
             <button class="chat-close" onclick="window.__chatClose()">${closeSvg}</button>
           </div>
           <div class="chat-messages" id="chat-msgs">${msgsHtml}</div>
           <div class="chat-footer">
             <form class="chat-form" onsubmit="event.preventDefault(); window.__chatSubmit()">
-              <input class="chat-input" id="chat-input" placeholder="Type a message..." ${isLoading ? "disabled" : ""} autocomplete="off" />
+              <input class="chat-input" id="chat-input" placeholder="${L.placeholder}" ${isLoading ? "disabled" : ""} autocomplete="off" />
               <button class="chat-send" type="submit" ${isLoading ? "disabled" : ""}>${sendSvg}</button>
             </form>
-            <div class="chat-powered">Powered by Claude</div>
+            <div class="chat-powered">${L.powered}</div>
           </div>
         </div>`;
 
@@ -186,8 +252,8 @@
       isLoading = false;
       const errorText =
         err.message?.includes("credit") || err.message?.includes("balance")
-          ? "The chatbot has run out of credits. Please try again later!"
-          : "Something went wrong. Please try again.";
+          ? L.noCredits
+          : L.failed;
       messages.push({
         role: "assistant",
         content: errorText,

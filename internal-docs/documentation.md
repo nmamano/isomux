@@ -22,26 +22,29 @@ Keep these consistent across all surfaces below.
   - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md` and the hosted page (section 2b).
   - `## How it works` - one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
 - **Update when:** any user-visible feature is added, removed, or meaningfully changed.
+- **Language:** English only. The README is the developer surface; the visitor-facing translations live on the landing (section 2).
 
 ## 2. Landing page (isomux.com)
 
-- **File:** `site/index.html`
+- **File:** `site/index.html`, with full Spanish and Catalan copies at `site/es/index.html` and `site/ca/index.html`.
 - **Audience:** Visitors to isomux.com.
 - **Structure:**
   - `<title>`, social meta tags (og/twitter title + description), and the hero `<p class="tagline">`: Isomux's category pitch. **Must stay in lockstep with the README headline (section 1)** and the org profile tagline (section 11). The `<title>` and social titles use the short form; the description and hero use the full line.
   - `<section id="features">` with `<ul class="coworker-list">`, and `<section id="office">` with `<ul class="office-list">` - **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
   - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with a link to `/docs/self-hosted` for always-on-server setups, and to `/hosted` for the managed version.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
-- **Update when:** headline features change. Always update both this file and the README in the same commit so they don't drift.
-- **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`).
+- **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
+- **Languages:** the English file is the source. Every edit to it is repeated in the Spanish and Catalan copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All three carry the same four `rel=alternate hreflang` links and the same three-item switch in the footer. `scripts/site-i18n-check.test.ts` holds the six pages to that.
+- **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
 
-- **File:** `site/hosted.html`
+- **File:** `site/hosted.html`, with full Spanish and Catalan copies at `site/es/hosted.html` and `site/ca/hosted.html`.
 - **Audience:** People who want isomux without running a server. Marketing page for the managed product designed in `internal-docs/hosted-isomux-design.md` and `internal-docs/control-plane-design.md`.
 - **Structure:** hero (the Discord button carries the not-live status), how it works, what you get, plans, and a Questions list whose last entry, "How private is my server?", is a folded `<details>` holding the access-boundary copy. Self-contained HTML with the landing's palette and theme handling copied in; linked from the landing's setup section and footer.
 - **Update when:** the hosted product's promises change - pricing, the access guarantee, cancellation terms, or launch status. Every claim on it traces to a ruling in the two design docs; keep it that way rather than writing new policy in the copy.
-- **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched.
+- **Languages:** same rule as section 2 - the English file is the source and the two copies follow it in the same commit. The legal pages it links stay English (section 2c) and govern in every language.
+- **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched. The chatbot's own labels (`site/chatbot.js`) and the theme toggle's (`site/theme-toggle.js`) follow the page's `<html lang>`; the bot's answers do not.
 - **Deploy note:** static, served by Vercel with `cleanUrls`, so the file is served at `/hosted`. Moves to `cloud.isomux.com` if and when the control plane ships.
 
 ## 2c. Legal pages (isomux.com/hosted-terms, isomux.com/hosted-privacy, isomux.com/hosted-refund)
@@ -52,6 +55,7 @@ Keep these consistent across all surfaces below.
 - **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law. Refunds - the first-week refund, failure-to-deliver refund, exclusions, and the request path.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
 - **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms`, `/hosted-privacy`, and `/hosted-refund` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project. The landing and hosted-page footers, `site/llms.txt`, and the generated sitemap link all three.
+- **Language:** English only, in every language of the site, and named as the governing text.
 - **Operator runbook:** `internal-docs/support-runbook.md`; update it when the refund terms, billing records, Stripe operator path, or customer portal status changes.
 
 ## 3. Site chatbot system prompt

@@ -19,6 +19,7 @@ import {
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
+import { landingUrl } from "../../shared/i18n/site-url.ts";
 
 const NEON_COLORS = [
   "#ff6ec7", // hot pink (original)
@@ -930,7 +931,7 @@ export function Walls({
   taskCount?: number;
 }) {
   const { currentRoomId, rooms } = useAppState();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
@@ -1704,7 +1705,7 @@ export function Walls({
           height="32"
           fill="transparent"
           style={{ cursor: "pointer", pointerEvents: "auto" }}
-          onClick={() => window.open("https://isomux.com", "_blank")}
+          onClick={() => window.open(landingUrl(language), "_blank")}
         />
         {/* Letters as thick strokes */}
         <g
@@ -1773,7 +1774,7 @@ export function Walls({
           height="32"
           fill="transparent"
           style={{ cursor: "pointer", pointerEvents: "auto" }}
-          onClick={() => window.open("https://isomux.com", "_blank")}
+          onClick={() => window.open(landingUrl(language), "_blank")}
         />
         <g
           fill="none"

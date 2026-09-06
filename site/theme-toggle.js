@@ -59,13 +59,25 @@
   const SUN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>`;
   const MOON_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
 
+  // The button's label follows the page's `<html lang>`; any other value falls
+  // back to English. One finished sentence per mode, never a mode word glued
+  // into a template: "dark" and "light" do not decline the same way in Spanish
+  // and Catalan as they read in English.
+  const SWITCH_LABEL = {
+    en: { dark: "Switch to dark mode", light: "Switch to light mode" },
+    es: { dark: "Cambiar al modo oscuro", light: "Cambiar al modo claro" },
+    ca: { dark: "Canviar al mode fosc", light: "Canviar al mode clar" },
+  };
+
   // Button shows the icon of the mode you'd switch TO (GitHub convention):
   // in dark mode show the sun, in light mode show the moon.
   function updateButton(btn) {
     const mode = currentMode();
     const next = mode === "light" ? "dark" : "light";
-    btn.setAttribute("aria-label", `Switch to ${next} mode`);
-    btn.setAttribute("title", `Switch to ${next} mode`);
+    const labels =
+      SWITCH_LABEL[document.documentElement.lang] || SWITCH_LABEL.en;
+    btn.setAttribute("aria-label", labels[next]);
+    btn.setAttribute("title", labels[next]);
     btn.innerHTML = mode === "light" ? MOON_SVG : SUN_SVG;
   }
 
