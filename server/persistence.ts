@@ -1,3 +1,4 @@
+import { redactLogEntry } from "./log-redaction.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
@@ -70,11 +71,31 @@ export function atomicWriteFileSync(
   renameSync(tmp, path);
 }
 
+// Returned entries are owned by persistence and must remain immutable,
+// including their nested payloads. Managers reuse them for cache, events and
+// disk backfill. A memo miss only costs another scan.
+const preparedLogEntries = new WeakSet<LogEntry>();
+
+// Failure must not drop the entry or print the failed payload/exception.
+export function prepareLogEntry(entry: LogEntry): LogEntry {
+  if (preparedLogEntries.has(entry)) return entry;
+  try {
+    const scanned = redactLogEntry(entry);
+    const out = scanned === entry ? { ...entry } : scanned;
+    preparedLogEntries.add(out);
+    return out;
+  } catch {
+    console.error("Log secret redaction failed; keeping original entry.", entry.id, entry.kind);
+    return entry;
+  }
+}
+
 export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
   // Ephemeral entries (e.g. UI-only "Conversation cleared." markers) must
   // never reach disk - guarded here as defense-in-depth so future callers
   // can't accidentally persist one by going through appendLog directly.
   if (entry.ephemeral) return;
+  entry = prepareLogEntry(entry);
   try {
     const agentDir = join(LOGS_DIR, agentId);
     mkdirSync(agentDir, { recursive: true });

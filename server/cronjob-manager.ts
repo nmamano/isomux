@@ -17,6 +17,7 @@
 // turn_completed (or error) event, finalizes the run row, and closes the
 // session. Resume/edit follow the same one-turn shape.
 
+import { prepareLogEntry } from "./persistence.ts";
 import {
   generateCronjobId,
   generateCronjobRunId,
@@ -867,7 +868,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // a correlation/ack id and the response's messageId === the persisted entry id.
     extra?: Partial<Pick<LogEntry, "id" | "diff" | "file" | "terminal">>,
   ) {
-    const entry: LogEntry = {
+    const entry = prepareLogEntry({
       id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
       agentId: active.streamId,
       timestamp: clock.now(),
@@ -876,7 +877,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(metadata ? { metadata } : {}),
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       ...(extra ?? {}),
-    };
+    });
     if (active.sessionId) {
       appendRunLog(active.jobId, active.runId, active.sessionId, entry);
       active.lastWrittenEntryId = entry.id;
@@ -1405,13 +1406,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const run = findRun(jobId, runId);
     if (!run) return;
     const sessionId = run.currentSessionId ?? run.rootSessionId;
-    const entry: LogEntry = {
+    const entry = prepareLogEntry({
       id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
       agentId: cronjobRunStreamId(runId),
       timestamp: clock.now(),
       kind: "error",
       content: message,
-    };
+    });
     appendRunLog(jobId, runId, sessionId, entry);
     eventHandler({ type: "log_entry", entry });
   }

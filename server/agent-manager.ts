@@ -47,6 +47,7 @@ import {
 import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
+  prepareLogEntry,
   loadLog,
   loadLogWithAncestors,
   loadSessionsMap,
@@ -2843,7 +2844,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     attachments?: Attachment[],
     extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
   ) {
-    const entry: LogEntry = {
+    const entry = prepareLogEntry({
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       agentId,
       timestamp: Date.now(),
@@ -2852,7 +2853,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       metadata,
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       ...(extra ?? {}),
-    };
+    });
     const cached = logCache.get(agentId) ?? [];
     cached.push(entry);
     logCache.set(agentId, cached);

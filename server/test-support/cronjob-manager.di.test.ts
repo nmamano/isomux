@@ -125,6 +125,38 @@ describe("CronjobManager DI (disk-free seam)", () => {
     expect(listCronjobs().map((c) => c.name)).toContain("BridgeJob");
   });
 
+  it("redacts scheduled-run entries before buffering, persistence and events", async () => {
+    const secret = "sk-proj-" + "R".repeat(24);
+    const safe = "sk-proj-...REDACTED";
+    const written: unknown[] = [];
+    const fake = new FakeBackend({
+      session: {
+        autoSystemInit: false,
+        onSend: (_text, _attachments, session) => session.completeTurn({ text: secret }),
+      },
+    });
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(baseDeps({
+      resolveBackend: () => fake, eventSink: sink,
+      persistence: { ...makeFakeCronPersistence(), appendRunLog: (_job, _run, _session, entry) => { written.push(entry); } },
+    }));
+    const job = mgr.addCronjob({ ...intervalInput("Redaction"), prompt: secret });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      const deadline = Date.now() + 2000;
+      while (mgr.findRun(job.id, run.id)?.status === "running" && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(JSON.stringify(written)).toContain(safe);
+      expect(JSON.stringify(written)).not.toContain(secret);
+      const streamed = events.filter((event) => event.type === "log_entry");
+      expect(JSON.stringify(streamed)).toContain(safe);
+      expect(JSON.stringify(streamed)).not.toContain(secret);
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
   it("routes cron events to the injected sink and reads back prompt state", () => {
     const { events, sink } = capture();
     const mgr = createCronjobManager(baseDeps({ eventSink: sink }));

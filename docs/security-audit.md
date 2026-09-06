@@ -176,6 +176,15 @@ also stay in the archive; user text can incidentally contain sensitive values,
 so the restore report names exclusions and does not claim the archive is free
 of secrets.
 
+New agent and scheduled-run log entries pass through built-in secret redaction
+before Isomux stores them. The scanner checks string values, including nested
+tool payloads and metadata. Each match keeps its first eight characters plus
+`...REDACTED`. Generic assignment names ignore case; provider key prefixes are
+case-sensitive. For `API_KEY=<recognized value>`, the kept prefix is `API_KEY=`.
+The scanner can mask placeholders and URL query values. It can also miss secrets;
+if scanning fails, Isomux stores the original entry and logs a diagnostic.
+Existing logs, attachments and backend-owned transcripts are unchanged.
+
 ### 5.9 State-changing HTTP Origin gate
 
 `authenticate()` (`server/auth-middleware.ts`) rejects mismatched Origin on POST/PUT/PATCH/DELETE. Modern browsers attach Origin to fetch/XHR and to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. Either defense alone suffices.
