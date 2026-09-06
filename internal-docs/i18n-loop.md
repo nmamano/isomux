@@ -957,3 +957,56 @@ Decide with reviewer: where the switch sits, the URL helper's home, the
 check script's shape.
 Locked: every ruling; no docs/, README, legal or `api/chat.ts` change;
 no server change.
+
+## PICKUP S11 - the control plane web app (lane: whichever frees first)
+
+Goal: a customer at cloud.isomux.com reads sign-in, sign-up, plan choice,
+payment hand-off, the waiting-for-your-office page and the office page
+in Spanish or Catalan when their browser prefers it, and the emails the
+control plane sends them arrive in that language. Ops pages stay English.
+
+Mechanics:
+
+- Worktree with `--web` (`scripts/worktree-setup.sh <name> --web`);
+  control-plane tests need the user unit `pg-local.service`
+  (127.0.0.1:5433); the gate is `bun run ci:web` plus the touched
+  control-plane suites.
+- `control-plane/web` cannot import `shared/i18n`: it gets its own small
+  copy of the pattern under `control-plane/web/lib/i18n/` (typed English
+  catalog, `es` and `ca` as complete records, `translatorFor`,
+  interpolation; no library, ruling 4), with the same completeness test.
+- Locale: `Accept-Language` on the server side (Next request headers,
+  reuse the S9 negotiator's logic, copied not imported), then a cookie
+  set by a language switch on the pages, then the customer's stored
+  language once one exists. Storing a language on the customer record is
+  a Postgres schema change: settle with the reviewer whether it is worth
+  it in this slice or whether the cookie carries it; the emails need a
+  stored value to be reliable, so lean to storing it if the migration is
+  small.
+- Surfaces: `app/page.tsx` and `home-view.tsx`, `app/signin`,
+  `app/signup`, `app/office` and the components they render (plan copy,
+  policy notice, office view, progress), `layout.tsx` (`lang`); the
+  Stripe checkout call passes `locale` for es and ca; the emails in
+  `control-plane/` (find every subject and body; list each). `app/ops`
+  stays English.
+- Copy: register per ruling 1; product names, plan names and prices
+  untouched (ruling 11); English bytes unchanged (ruling 6). The emails
+  and the policy notice go out under Nil's name: the report pastes them
+  verbatim in the three languages, and the slice merges only on his word
+  for those; the page chrome he reads live.
+- Tests: the existing `home-view.test.tsx` and `office-view.test.tsx`
+  stay green (English, no header); new render tests for the sign-up page
+  and the office page under `es` and `ca`; a test that the first paint
+  of the landing shell keeps its exact English bytes; one email
+  rendering test per language.
+
+Acceptance: the named pages and emails in three languages by header,
+cookie or stored value in that precedence; `bun run ci:web` green; the
+control-plane suites green against pg-local; the report carries the
+emails and the policy notice verbatim in three languages and lists any
+customer-facing text left English with its category.
+
+Decide with reviewer: the stored-language migration, the switch's place,
+the catalog module layout.
+Locked: every ruling; no change to `docs/`, `site/` legal pages or the
+office server; ops pages English.
