@@ -714,6 +714,12 @@ boss's `/clear` writes Spanish into a log an English boss reads; the
 durable fix is a log entry carrying `{messageKey, params}` worded by each
 client, a log-schema change beyond this loop.
 
+Ruled during S7 round 2 (2026-09-06): `server/backend-failure-text.ts`'s
+Isomux-authored sentences (SIGTERM, SIGKILL, signal, recovery) and
+agent-manager's "Agent stopped: {status}." fallback are in S7 and resolve
+per user; the raw classification, metadata and unknown-error pass-through
+stay byte-identical.
+
 Decide with reviewer: the resolver's name and home, key layout for
 commands and choices.
 Locked: rulings 1, 2, 6, 7, 11, 12, 15-19; the no-server-change prohibition
