@@ -92,7 +92,8 @@
       header: "Pregunta sobre Isomux",
       placeholder: "Escriu un missatge...",
       powered: "Funciona amb Claude",
-      noCredits: "El chatbot s'ha quedat sense crèdit. Torna-ho a provar més tard!",
+      noCredits:
+        "El chatbot s'ha quedat sense crèdit. Torna-ho a provar més tard!",
       failed: "Alguna cosa ha anat malament. Torna-ho a provar.",
     },
   };

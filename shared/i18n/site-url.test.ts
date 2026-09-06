@@ -2,7 +2,12 @@
 // its expectation from SITE_LANGUAGE_PATH would pass for any mapping.
 
 import { describe, expect, it } from "bun:test";
-import { SITE_ORIGIN, SITE_LANGUAGE_PATH, landingUrl, hostedUrl } from "./site-url.ts";
+import {
+  SITE_ORIGIN,
+  SITE_LANGUAGE_PATH,
+  landingUrl,
+  hostedUrl,
+} from "./site-url.ts";
 import { SUPPORTED_LANGUAGES } from "../languages.ts";
 
 describe("site urls", () => {

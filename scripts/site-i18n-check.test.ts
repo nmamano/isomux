@@ -37,12 +37,48 @@ type Row = {
 };
 
 const PAGES: Row[] = [
-  { lang: "en", family: "index", file: "index.html", url: "https://isomux.com/", self: "/" },
-  { lang: "es", family: "index", file: "es/index.html", url: "https://isomux.com/es", self: "/es" },
-  { lang: "ca", family: "index", file: "ca/index.html", url: "https://isomux.com/ca", self: "/ca" },
-  { lang: "en", family: "hosted", file: "hosted.html", url: "https://isomux.com/hosted", self: "/hosted" },
-  { lang: "es", family: "hosted", file: "es/hosted.html", url: "https://isomux.com/es/hosted", self: "/es/hosted" },
-  { lang: "ca", family: "hosted", file: "ca/hosted.html", url: "https://isomux.com/ca/hosted", self: "/ca/hosted" },
+  {
+    lang: "en",
+    family: "index",
+    file: "index.html",
+    url: "https://isomux.com/",
+    self: "/",
+  },
+  {
+    lang: "es",
+    family: "index",
+    file: "es/index.html",
+    url: "https://isomux.com/es",
+    self: "/es",
+  },
+  {
+    lang: "ca",
+    family: "index",
+    file: "ca/index.html",
+    url: "https://isomux.com/ca",
+    self: "/ca",
+  },
+  {
+    lang: "en",
+    family: "hosted",
+    file: "hosted.html",
+    url: "https://isomux.com/hosted",
+    self: "/hosted",
+  },
+  {
+    lang: "es",
+    family: "hosted",
+    file: "es/hosted.html",
+    url: "https://isomux.com/es/hosted",
+    self: "/es/hosted",
+  },
+  {
+    lang: "ca",
+    family: "hosted",
+    file: "ca/hosted.html",
+    url: "https://isomux.com/ca/hosted",
+    self: "/ca/hosted",
+  },
 ];
 
 // What each family's four alternate links must say, on all three of its pages.
