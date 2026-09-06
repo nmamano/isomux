@@ -608,3 +608,97 @@ Decide with reviewer: the number helper API, the new DOM file's anchors,
 the key layout for the scene.
 Locked: rulings 1, 6, 7, 10, 11, 14-19; no server change; no log view
 changes beyond `ContextBattery`'s number call.
+
+- [x] S6 landed as ee01e63 (+ format d6a9c96). `shared/i18n/number.ts`
+  (formatNumber, formatDecimal, formatMoneyUSD, formatBytes),
+  `shared/i18n/schedule.ts` (scheduleText, weekdayName), `time.ts` shape
+  set and timeUntilFine; no `toLocale*` left in ui/ (19 calls removed;
+  the pickup's 20 was the bd790b7 count). 1,076 English keys. Bundle
+  +30049 bytes; new DOM file 2.4 s (measured 2026-09-06). Parked for Nil:
+  `common.loading` "Loading…" and `common.loadingDots` "Loading..." both
+  exist (pre-existing inconsistency, frozen; proposed one spelling,
+  "Loading…"). Conventions learned: a module under `shared/i18n` takes a
+  translator only when its output is a catalog sentence (`schedule.ts`);
+  value formatters (`time.ts`, `number.ts`) hold no words and the caller
+  words the cases Intl has no reading for. State that outlives a render
+  (useState, memo) holds a key, not finished text; a table typed over a
+  union of keys uses `PlainMessageKey`. For S8: `cards.diff.reasonUntracked`
+  and `cards.diff.summaryOnly` carry a bare ">" (reads as greater-than,
+  cannot form a tag; letter of ruling 19); `ui/App.tsx`, `ui/store.tsx`,
+  `ui/cwd-display.ts`, `ui/roomSelection.ts` hold no user-visible prose.
+
+## PICKUP S7 - server-produced text, resolved per user (Worker 1 / Reviewer 1)
+
+Goal: a user on Catalan or Spanish reads, in their language, the text the
+server writes for them: slash-command names and descriptions in the
+command menu, slash-command responses and the system entries the server
+writes into their log ("Conversation cleared." and its siblings), the
+choice interactions (/effort, /model and the rest: title, instruction,
+choice labels and descriptions), the update notice, the storage report,
+and the welcome and onboarding text. Agents keep English. API error
+messages (`fail(...)`) stay English (ruling 2).
+
+Mechanics:
+
+- Resolution: one function on the server, per call, no global state:
+  from the request's identity to a translator. A human identity resolves
+  to that user's stored language (null means English: the browser
+  language is unknown server-side, and the UI already commits it once at
+  first sign-in, so a null here is rare); an agent identity resolves to
+  English. Find where slash commands typed in chat carry their user
+  (the socket's identity) and where HTTP handlers carry `ctx.identity`;
+  both paths go through the same function. Name it in the plan gate.
+- Catalog: the same three files under `shared/i18n`, new namespaces
+  `commands.<name>.*` (description, response keys), `systemEntries.*`,
+  `choices.<interaction>.*`, `updateNotice.*`, `storageReport.*`,
+  `welcome.*`. The catalog completeness test covers them for free.
+- `EFFORT_LEVELS` in `shared/types.ts` still carries an English label
+  because `/effort` renders it server-side (S4): `effortDisplayLabel`
+  takes a translator, the duplicate label is deleted, the catalog test's
+  pin goes with it, and the UI's `ui/effort-label.ts` stays the UI path.
+- `shared/session-label.ts`: `server/command-handlers.ts` passes the
+  user's fallback label (the parameter exists since S6).
+- `shared/types.ts` `humanizeSchedule`: `server/cronjob-manager.ts` moves
+  onto `shared/i18n/schedule.ts` (its test already holds the English
+  equal), then `humanizeSchedule` is deleted if no caller remains.
+- `shared/update-notice.ts`: settle with the reviewer whether the server
+  sends the status data and each client words it (preferred: the UI
+  already has a translator, and the server's own log line stays English)
+  or the builder takes a translator; either way `server/update-checker.ts`
+  emits no finished English for a user's screen.
+- `shared/format-human.ts`: the `/isomux-storage` report and
+  `server/attachment-prompt.ts` still use it. The report is for a user:
+  it moves to `number.ts` and `time.ts` with the report's words in the
+  catalog. The attachment prompt is agent-facing and stays.
+- Anything a server string carries that is data (paths, agent names,
+  model slugs, command names, key names) is a placeholder (ruling 11).
+- Tests: server harness tests (the `server/test-support/*` families that
+  cover commands and choices) gain: a slash-command response for a user
+  whose stored language is `es` arrives in Spanish; the same command from
+  an agent bearer arrives in English; a null-language user gets English;
+  a choice interaction for a `ca` user carries Catalan labels; the update
+  notice and the storage report each have one language assertion. UI DOM
+  tests stay green; if the update notice moves to the client,
+  `UpdatePane`'s tests follow it.
+- Docs: `internal-docs/documentation.md` names the surfaces; S8 proposes
+  the docs lines. S7 touches no docs/ file.
+
+Gates for a server slice: the touched server suites plus the whole
+`server/test-support/` family that asserts over commands and choices
+(grep the touched file names in `*.test.*`), `build:ui` (shared changes
+reach the bundle), `bunx tsc --noEmit` once, eslint. The PM runs the boot
+smoke and the restart after merge.
+
+Acceptance: every surface in the goal reads the catalog through the
+per-identity translator; agents and API errors unchanged (a test proves
+each); no finished English left in the listed server files for a known
+user (grep in the report); catalog test green; server suites green; the
+report lists the before/after of any server line whose bytes changed for
+English (there should be none beyond the storage report's number and time
+formatting).
+
+Decide with reviewer: the resolver's name and home, the update-notice
+direction, key layout for commands and choices.
+Locked: rulings 1, 2, 6, 7, 11, 12, 15-19; the no-server-change prohibition
+is lifted for S7 only; no UI copy changes beyond what the update notice
+move requires; never restart the server.
