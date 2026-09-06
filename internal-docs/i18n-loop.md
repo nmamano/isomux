@@ -1042,3 +1042,17 @@ follow-up if Nil wants the Stripe page to follow the switch).
 Decide with reviewer: the switch's place, the catalog module layout.
 Locked: every ruling; no change to `docs/`, `site/` legal pages or the
 office server; ops pages English.
+
+- [x] S11 landed as e0b5103 (+ format 915f775). Own catalogs under
+  `control-plane/web/lib/i18n/` (a copy of `shared/i18n/`; the boundary
+  test refuses imports from the office tree), 180 keys. Precedence cookie,
+  then Accept-Language, then English; no stored customer language (no
+  customer mailer exists). `/signup` and `/office` translate on the server
+  with `lang` on the region; `/` and `/signin` are prerendered and resolve
+  in the browser after hydration (a moment of English). Step kinds,
+  liveness rungs and attention classes translate from the projection's
+  ids. No `locale` to Stripe Checkout (ruled above). Deliberately English:
+  the dev sign-in form, `step.detail`, the refusals `safeCustomerReason`
+  wraps, one pre-existing diagnostic leak at services.server.ts:369.
+  Follow-ups at close: a per-generation checkout locale if Nil wants the
+  Stripe page to follow the switch; the leaked diagnostic.
