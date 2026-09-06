@@ -196,9 +196,7 @@ export function Steps({
       {steps.map((step) => (
         <li key={step.kind} data-testid={`step-${step.kind}`}>
           {fromId(i18n, "steps", step.kind, step.label)} -{" "}
-          <span data-state={step.state}>
-            {stateWord(i18n, step.state)}
-          </span>
+          <span data-state={step.state}>{stateWord(i18n, step.state)}</span>
           {step.startedAt !== null &&
             (step.elapsedMs !== null || now !== null) && (
               <StepDuration i18n={i18n} step={step} now={now} />
@@ -595,9 +593,7 @@ export function OfficeView({
       window.location.assign(data.checkoutUrl);
       return;
     }
-    setBillingProblem(
-      reasonOf(data, i18n.t("office.reinstate.failedLower")),
-    );
+    setBillingProblem(reasonOf(data, i18n.t("office.reinstate.failedLower")));
   };
 
   const act = async (path: string, action: string): Promise<boolean> => {
@@ -624,9 +620,7 @@ export function OfficeView({
       // revocation row. A failure must stay beside the control that caused it.
       if (status === 200 && data.ok === true) return;
       setHandoffPending(false);
-      setHandoffProblem(
-        reasonOf(data, i18n.t("office.handoff.failedLower")),
-      );
+      setHandoffProblem(reasonOf(data, i18n.t("office.handoff.failedLower")));
     } catch {
       setHandoffPending(false);
       setHandoffProblem(i18n.t("office.handoff.failed"));
@@ -695,21 +689,14 @@ export function OfficeView({
           <p>
             {i18n.rich("office.attention.note", {
               address: SUPPORT_EMAIL,
-              mail: (chunk) => (
-                <a href={`mailto:${SUPPORT_EMAIL}`}>{chunk}</a>
-              ),
+              mail: (chunk) => <a href={`mailto:${SUPPORT_EMAIL}`}>{chunk}</a>,
             })}
           </p>
         </section>
       )}
 
       <h2>{i18n.t("office.progressHeading")}</h2>
-      <Steps
-        i18n={i18n}
-        steps={progressSteps}
-        testid="steps"
-        now={timerNow}
-      />
+      <Steps i18n={i18n} steps={progressSteps} testid="steps" now={timerNow} />
 
       {view.otherOperations.length > 0 && (
         <>
@@ -1086,9 +1073,7 @@ function CancelPanel({
   // Service has ended: the timeline is real, and every date in it is proven.
   if (life) {
     if (life.phase === "ended") {
-      return (
-        <p data-testid="cancel-ended">{i18n.t("office.cancel.ended")}</p>
-      );
+      return <p data-testid="cancel-ended">{i18n.t("office.cancel.ended")}</p>;
     }
     if (life.phase === "reinstatement_pending" && life.retentionEnd !== null) {
       return (

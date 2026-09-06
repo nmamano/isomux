@@ -282,7 +282,11 @@ test("office without a payment action omits the policy notice", () => {
     reinstate: { allowed: false, reason: "Reinstatement is unavailable." },
   });
   const healthy = renderToStaticMarkup(
-    <OfficeView language="en" initial={baseView} instanceId={baseView.instanceId} />,
+    <OfficeView
+      language="en"
+      initial={baseView}
+      instanceId={baseView.instanceId}
+    />,
   );
   expect(refused).not.toContain("Before you pay");
   expect(healthy).not.toContain("Before you pay");
@@ -309,7 +313,11 @@ test("an unpaid reservation owns its payment continuation and guidance", () => {
 
 test("payment completes its ladder step and restart waits for provisioning", () => {
   const building = renderToStaticMarkup(
-    <OfficeView language="en" initial={baseView} instanceId={baseView.instanceId} />,
+    <OfficeView
+      language="en"
+      initial={baseView}
+      instanceId={baseView.instanceId}
+    />,
   );
   expect(building).not.toContain('data-testid="payment-guidance"');
   expect(building).toContain('data-state="done">done</span>');
@@ -385,7 +393,11 @@ test("refund terms stay visible before and after cancellation is scheduled", () 
     },
   } satisfies ProgressView;
   const offered = renderToStaticMarkup(
-    <OfficeView language="en" initial={active} instanceId={active.instanceId} />,
+    <OfficeView
+      language="en"
+      initial={active}
+      instanceId={active.instanceId}
+    />,
   );
   const scheduled = renderToStaticMarkup(
     <OfficeView

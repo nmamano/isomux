@@ -292,7 +292,12 @@ async function openReservedCheckout(args: {
   } catch (err) {
     return {
       ok: false,
-      reason: customerFailure(language, "configuration", "checkout_reserved", err),
+      reason: customerFailure(
+        language,
+        "configuration",
+        "checkout_reserved",
+        err,
+      ),
     };
   }
   const { key, mode } = runtime;
@@ -585,7 +590,12 @@ export async function reinstateOffice(
       ok: false,
       reason: safeReasons.has(prepared.reason)
         ? safeCustomerReason(language, prepared.reason)
-        : customerFailure(language, "configuration", "reinstatement", prepared.reason),
+        : customerFailure(
+            language,
+            "configuration",
+            "reinstatement",
+            prepared.reason,
+          ),
     };
   }
   if (prepared.existingSessionId) {
@@ -599,7 +609,12 @@ export async function reinstateOffice(
     } catch (err) {
       return {
         ok: false,
-        reason: customerFailure(language, "configuration", "reinstatement", err),
+        reason: customerFailure(
+          language,
+          "configuration",
+          "reinstatement",
+          err,
+        ),
       };
     }
     if (fetched.kind !== "ok")
@@ -618,7 +633,7 @@ export async function reinstateOffice(
       return {
         ok: false,
         reason: safeCustomerReason(
-        language,
+          language,
           "the prior payment is still being reconciled",
         ),
       };
@@ -761,13 +776,19 @@ export async function signUpOffice(args: {
     plan: args.plan,
     customerSshKey: args.customerSshKey,
   });
-  if (!valid.ok) return { ok: false, reason: safeCustomerReason(language, valid.reason) };
+  if (!valid.ok)
+    return { ok: false, reason: safeCustomerReason(language, valid.reason) };
 
   const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
   if (!resolved.ok)
     return {
       ok: false,
-      reason: customerFailure(language, "configuration", "payments", resolved.reason),
+      reason: customerFailure(
+        language,
+        "configuration",
+        "payments",
+        resolved.reason,
+      ),
     };
   try {
     await stripeRuntime();
@@ -807,7 +828,12 @@ export async function signUpOffice(args: {
       reason:
         reserved.reason ===
         "this deployment needs its multi-office database migration"
-          ? customerFailure(language, "configuration", "payments", reserved.reason)
+          ? customerFailure(
+              language,
+              "configuration",
+              "payments",
+              reserved.reason,
+            )
           : safeCustomerReason(language, reserved.reason),
     };
   return openReservedCheckout({ language, ...reserved });
@@ -964,7 +990,12 @@ async function billingVerb(
     if (outcome.code === "stripe_unavailable")
       return {
         ok: false,
-        reason: customerFailure(language, "transient", "billing_change", outcome.reason),
+        reason: customerFailure(
+          language,
+          "transient",
+          "billing_change",
+          outcome.reason,
+        ),
       };
     if (outcome.code === "stripe_ambiguous")
       return {

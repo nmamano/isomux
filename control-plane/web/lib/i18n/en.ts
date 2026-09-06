@@ -56,7 +56,8 @@ export const en = {
   "signup.keyCopied": "Copied",
   "signup.keyDownload": "Download private key",
   "signup.keySaved": "I saved it",
-  "signup.saveKeyReason": "Save your server administrator key before continuing.",
+  "signup.saveKeyReason":
+    "Save your server administrator key before continuing.",
   "signup.cryptoError":
     "Your browser cannot create or copy the server administrator key on this page. Open the signup page over HTTPS in a current browser and try again.",
   "signup.clipboardError":
@@ -82,7 +83,8 @@ export const en = {
   "steps.labelFirstContact": "Securing our temporary access",
   "steps.labelInstallCustomerKey": "Installing your SSH key",
   "steps.labelArmRevocation": "Setting a timer for our access to expire",
-  "steps.labelWaitForPackageManager": "Waiting for the server's package manager",
+  "steps.labelWaitForPackageManager":
+    "Waiting for the server's package manager",
   "steps.labelSetDns": "Setting your office's address",
   "steps.labelRunInstaller": "Installing isomux",
   "steps.labelVerifyHttps": "Checking your office over HTTPS",

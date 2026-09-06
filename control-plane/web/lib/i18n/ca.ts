@@ -26,8 +26,7 @@ export const ca: Catalog = {
   "home.notReady": "encara no està a punt",
   "home.viewOffice": "Vés a l'oficina",
   "home.setUpAnother": "<link>Configura una altra oficina</link>.",
-  "home.noOffice":
-    "Encara no tens cap oficina. <link>Configura'n una</link>.",
+  "home.noOffice": "Encara no tens cap oficina. <link>Configura'n una</link>.",
 
   "signIn.heading": "Inicia la sessió",
   "signIn.google": "Continua amb Google",
@@ -41,8 +40,7 @@ export const ca: Catalog = {
   "signup.planChangeNote":
     "Canviar de pla després del registre encara no està disponible.",
   "signup.couponLabel": "Codi promocional (opcional)",
-  "signup.couponHint":
-    "Si has rebut un codi promocional, introdueix-lo aquí.",
+  "signup.couponHint": "Si has rebut un codi promocional, introdueix-lo aquí.",
   "signup.keyLabel": "Desa la clau d'administrador del teu servidor",
   "signup.keyNote":
     "Aquesta clau dona accés a tot el teu servidor, no només a l'oficina d'Isomux. La necessites per instal·lar programari com a administrador i per gestionar o reparar el teu servidor. S'ha generat al teu navegador i només se't mostra a tu. Desa-la en un lloc on només tu hi tinguis accés. No en podem crear una altra més tard perquè ens bloquegem l'accés al teu servidor després de la configuració.",
@@ -79,7 +77,8 @@ export const ca: Catalog = {
   "steps.labelFirstContact": "Assegurant el nostre accés temporal",
   "steps.labelInstallCustomerKey": "Instal·lant la teva clau SSH",
   "steps.labelArmRevocation": "Programant la caducitat del nostre accés",
-  "steps.labelWaitForPackageManager": "Esperant el gestor de paquets del servidor",
+  "steps.labelWaitForPackageManager":
+    "Esperant el gestor de paquets del servidor",
   "steps.labelSetDns": "Configurant l'adreça de la teva oficina",
   "steps.labelRunInstaller": "Instal·lant isomux",
   "steps.labelVerifyHttps": "Comprovant la teva oficina per HTTPS",
@@ -88,7 +87,8 @@ export const ca: Catalog = {
   "steps.labelPowerOff": "Suspenent l'oficina",
   "steps.labelReboot": "Reiniciant el teu servidor",
   "steps.labelPowerOn": "Recuperant la teva oficina",
-  "steps.labelExpireCheckout": "Tancant un pagament de reactivació sense acabar",
+  "steps.labelExpireCheckout":
+    "Tancant un pagament de reactivació sense acabar",
   "steps.labelCancelAsset": "Cancel·lant el teu servidor amb el proveïdor",
   "steps.labelRemoveDns": "Retirant l'adreça de la teva oficina",
 
@@ -254,7 +254,8 @@ export const ca: Catalog = {
   "office.cancel.caveat":
     "Cancel·lar manté la teva oficina en marxa fins al final del període que has pagat.",
   "office.cancel.cancel": "Cancel·la la meva oficina",
-  "office.cancel.planFailedLower": "no hem pogut canviar el teu pla ara mateix.",
+  "office.cancel.planFailedLower":
+    "no hem pogut canviar el teu pla ara mateix.",
   "office.cancel.planFailed": "No hem pogut canviar el teu pla ara mateix.",
   "office.reinstate.failedLower":
     "no hem pogut obrir el pagament de reactivació.",

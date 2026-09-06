@@ -271,8 +271,7 @@ export const es: Catalog = {
   "errors.reference": "Referencia: {reference}.",
   "errors.checkoutReservedConfiguration":
     "No hemos podido abrir una página de pago. Tu nombre está reservado.",
-  "errors.paymentsConfiguration":
-    "Los pagos no están disponibles ahora mismo.",
+  "errors.paymentsConfiguration": "Los pagos no están disponibles ahora mismo.",
   "errors.checkoutReservedTransient":
     "No hemos podido abrir una página de pago ahora mismo. Tu nombre está reservado, así que vuelve a intentarlo en un momento.",
   "errors.reinstatementTransient":

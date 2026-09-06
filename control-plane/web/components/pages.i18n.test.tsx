@@ -187,7 +187,11 @@ const baseView: ProgressView = {
 describe("the office page", () => {
   test("reads Catalan and Spanish across its sections", () => {
     const ca = renderToStaticMarkup(
-      <OfficeView language="ca" initial={baseView} instanceId="instance-i18n" />,
+      <OfficeView
+        language="ca"
+        initial={baseView}
+        instanceId="instance-i18n"
+      />,
     );
     expect(ca).toContain("La teva oficina encara no està a punt.");
     expect(ca).toContain("Progrés");
@@ -202,7 +206,11 @@ describe("the office page", () => {
     expect(ca).toContain('<main lang="ca">');
 
     const es = renderToStaticMarkup(
-      <OfficeView language="es" initial={baseView} instanceId="instance-i18n" />,
+      <OfficeView
+        language="es"
+        initial={baseView}
+        instanceId="instance-i18n"
+      />,
     );
     expect(es).toContain("Tu oficina aún no está lista.");
     expect(es).toContain("Progreso");

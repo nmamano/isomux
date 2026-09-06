@@ -92,7 +92,13 @@ describe("customer payment failures", () => {
         "Vuelve a intentarlo en un momento. Referencia: PAY-0123456789.",
     );
     expect(
-      customerFailure("ca", "configuration", "checkout_reserved", "x", reference),
+      customerFailure(
+        "ca",
+        "configuration",
+        "checkout_reserved",
+        "x",
+        reference,
+      ),
     ).toBe(
       "No hem pogut obrir una pàgina de pagament. El teu nom està reservat. " +
         "Referència: PAY-0123456789.",

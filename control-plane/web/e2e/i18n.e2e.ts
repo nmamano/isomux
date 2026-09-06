@@ -111,7 +111,9 @@ async function main(): Promise<void> {
   say("# S11 browser transcript: the control plane in three languages");
   // NO CONNECTION STRING IN THE TRANSCRIPT. The one fact worth recording is
   // whether this ran against the throwaway container or a managed branch.
-  say(`target: ${TARGET_IS_LOCAL ? "local throwaway container" : "managed scratch branch"}`);
+  say(
+    `target: ${TARGET_IS_LOCAL ? "local throwaway container" : "managed scratch branch"}`,
+  );
   say("schema: a fresh scratch schema, dropped when this exits");
 
   const dsn = await freshDsn();
@@ -226,7 +228,9 @@ async function main(): Promise<void> {
 
     // ---------------------------------------------------------------- 4
     say("");
-    say("## A real mouse click on the switch changes the language and remembers");
+    say(
+      "## A real mouse click on the switch changes the language and remembers",
+    );
     const spanishButton = await page.waitForSelector(
       '[data-testid="language-es"]',
     );
@@ -234,7 +238,11 @@ async function main(): Promise<void> {
     check("the switch is on the page with a real box", !!box);
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
     const clickedLang = await settledLang(page, "es");
-    check("the root lang followed the click", clickedLang === "es", clickedLang);
+    check(
+      "the root lang followed the click",
+      clickedLang === "es",
+      clickedLang,
+    );
     const afterClick = (await page.textContent("h1")) ?? "";
     check(
       "the heading reads Spanish after the click",
@@ -254,7 +262,11 @@ async function main(): Promise<void> {
     // Spanish, on a browser whose own language is Catalan.
     await page.reload();
     const reloadedLang = await settledLang(page, "es");
-    check("the root lang survived the reload", reloadedLang === "es", reloadedLang);
+    check(
+      "the root lang survived the reload",
+      reloadedLang === "es",
+      reloadedLang,
+    );
     check(
       "a reload on a Catalan browser still reads Spanish",
       (await page.textContent("h1")) === "Iniciar sesión",
@@ -341,9 +353,7 @@ async function main(): Promise<void> {
     // ---------------------------------------------------------------- 6
     say("");
     say("## The pages in the browser, with a screenshot each");
-    await catalan.addCookies([
-      { name: "isomux_lang", value: "ca", url: BASE },
-    ]);
+    await catalan.addCookies([{ name: "isomux_lang", value: "ca", url: BASE }]);
     await page.goto(`${BASE}/signup`);
     await page.waitForSelector("h1");
     check(
@@ -439,7 +449,7 @@ async function main(): Promise<void> {
     await mixedPage.evaluate(() => {
       (window as unknown as { __s11: number }).__s11 = 1;
     });
-    await mixedPage.click('nav.page-back a');
+    await mixedPage.click("nav.page-back a");
     await mixedPage.waitForURL(`${BASE}/`, { timeout: 20_000 });
     const resetLang = await settledLang(mixedPage, "en");
     const survived = await mixedPage.evaluate(
@@ -482,7 +492,9 @@ async function main(): Promise<void> {
 
   const failures = transcript.filter((l) => l.startsWith("FAIL")).length;
   say("");
-  say(`${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`);
+  say(
+    `${failures === 0 ? "ALL CHECKS PASSED" : `${failures} CHECK(S) FAILED`}`,
+  );
 }
 
 await main();

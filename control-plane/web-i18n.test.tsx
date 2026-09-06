@@ -173,7 +173,9 @@ describe("the step ladder", () => {
         i18n={webTranslatorFor("ca")}
         testid="unknown"
         now={null}
-        steps={[step("a_kind_from_the_future", "Doing something new", "active")]}
+        steps={[
+          step("a_kind_from_the_future", "Doing something new", "active"),
+        ]}
       />,
     );
     expect(html).toContain("Doing something new");
@@ -181,7 +183,10 @@ describe("the step ladder", () => {
   });
 
   test("a running step's spoken duration is pluralized by the reader's rules", () => {
-    const spoken = (language: "en" | "es" | "ca", elapsedMs: number): string => {
+    const spoken = (
+      language: "en" | "es" | "ca",
+      elapsedMs: number,
+    ): string => {
       const html = renderToStaticMarkup(
         <Steps
           i18n={webTranslatorFor(language)}

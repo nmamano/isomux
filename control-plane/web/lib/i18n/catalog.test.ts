@@ -153,9 +153,11 @@ test("a key an id can reach takes no placeholder", () => {
       expect([language.code, key, CATALOGS[language.code][key]]).not.toContain(
         "{",
       );
-      expect([language.code, key, placeholders(CATALOGS[language.code][key])]).toEqual(
-        [language.code, key, []],
-      );
+      expect([
+        language.code,
+        key,
+        placeholders(CATALOGS[language.code][key]),
+      ]).toEqual([language.code, key, []]);
     }
   }
 });

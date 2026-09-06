@@ -118,7 +118,9 @@ export function Dashboard({
                 {/* The same chip the provisioning ladder uses, so "ready" reads
                     the same here as it does inside the office. */}
                 <span data-state={office.ready ? "done" : "active"}>
-                  {office.ready ? i18n.t("home.ready") : i18n.t("home.notReady")}
+                  {office.ready
+                    ? i18n.t("home.ready")
+                    : i18n.t("home.notReady")}
                 </span>
               </p>
               <span className="office-card-action">
