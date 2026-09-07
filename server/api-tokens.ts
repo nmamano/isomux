@@ -52,6 +52,17 @@ export interface ResolvedApiToken {
   name: string;
 }
 
+let onLogEntry: (tokenId: string, entry: ApiTokenLogEntry) => void = () => {};
+let onRevoked: (tokenId: string) => void = () => {};
+
+export function setApiTokenStreamSinks(sinks: {
+  logEntry: typeof onLogEntry;
+  revoked: typeof onRevoked;
+}): void {
+  onLogEntry = sinks.logEntry;
+  onRevoked = sinks.revoked;
+}
+
 let tokens: Map<string, StoredApiToken> | null = null;
 let hashIndex: Map<string, string> | null = null;
 let lastUsedPersistedAt = new Map<string, number>();
@@ -305,6 +316,9 @@ function commitEntry(record: StoredApiToken, entry: ApiTokenLogEntry): void {
   // Never roll back a sequence after its line reached disk. A failed counter
   // persist is repaired by the log scan at boot.
   record.lastSequence = entry.sequence;
+  // The log is durable even if the metadata write fails. Stream errors must
+  // never turn an accepted append into a failed send.
+  try { onLogEntry(record.id, entry); } catch {}
   persist();
 }
 
@@ -669,6 +683,7 @@ export async function revokeApiToken(
       hashIndex!.set(record.tokenHash, id);
       throw err;
     }
+    try { onRevoked(id); } catch {}
     return true;
   });
 }

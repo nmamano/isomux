@@ -104,6 +104,7 @@ import {
 import { join } from "path";
 import {
   authenticate,
+  resolveIdentityForRequest,
   checkOrigin,
   requestIsLoopback,
   securityHeaders,
@@ -246,6 +247,7 @@ import { viewHandlers } from "./routes/handlers/view.ts";
 import { preferencesHandlers } from "./routes/handlers/preferences.ts";
 import { apiTokenHandlers } from "./routes/handlers/api-tokens.ts";
 import {
+  setApiTokenStreamSinks,
   drainApiTokenInbox,
   loadApiTokens,
   sendApiTokenMessage,
@@ -725,7 +727,21 @@ interface OfficeWsData {
 // a field rather than a guess about which properties exist: an app-relay socket
 // carries no office session at all, and there must be no shape in which one
 // could be mistaken for the other.
-type WsData = OfficeWsData | AppRelayWsData;
+interface ApiTokenWsData {
+  kind: "api";
+  tokenId: string;
+  userId: string;
+}
+type WsData = OfficeWsData | ApiTokenWsData | AppRelayWsData;
+type EventSocket = ServerWebSocket<OfficeWsData> | ServerWebSocket<ApiTokenWsData>;
+const apiTokenSockets = new Set<ServerWebSocket<ApiTokenWsData>>();
+
+function liveTokenSocket(ws: ServerWebSocket<ApiTokenWsData>): boolean {
+  if (getUserById(ws.data.userId) && isLiveApiTokenOwnedBy(ws.data.tokenId, ws.data.userId)) return true;
+  ws.close(1008, "API token unavailable");
+  apiTokenSockets.delete(ws);
+  return false;
+}
 
 let connectionIdCounter = 0;
 function nextConnectionId(): string {
@@ -1494,7 +1510,9 @@ function buildLiveGuardDeps(): GuardDeps {
 // completeness and the 3b room-visibility projection. deliver() stamps the
 // event id as `type` and sends the
 // already-shaped payload (the core op does any per-user shaping before emit()).
-const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
+const liveEmitDeps: EmitDeps<EventSocket> = {
+  sessionsForApiToken: (tokenId) =>
+    [...apiTokenSockets].filter((ws) => ws.data.tokenId === tokenId),
   allSessions: () => [...browsers],
   ownerSessions: () =>
     [...browsers].filter((ws) => ws.data.session.role === "owner"),
@@ -1537,7 +1555,9 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
     // the migrated events.
     if (id === "agent_added") {
       const agent = (payload as { agent: AgentInfo }).agent;
-      for (const ws of recipients) {
+      for (const socket of recipients) {
+        if (socket.data.kind !== "office") continue;
+        const ws = socket as ServerWebSocket<OfficeWsData>;
         const projected = projectAgentForSession(ws.data.session, agent);
         if (projected) {
           ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
@@ -1546,7 +1566,10 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
       return;
     }
     const data = JSON.stringify({ type: id, ...(payload as object) });
-    for (const ws of recipients) ws.send(data);
+    for (const ws of recipients) {
+      if (ws.data.kind === "api" && !liveTokenSocket(ws as ServerWebSocket<ApiTokenWsData>)) continue;
+      ws.send(data);
+    }
   },
 };
 
@@ -4514,6 +4537,16 @@ function routeAgentEventToWs(
 // WS broadcast / per-recipient fanout. Extracted so startServer() wires the
 // active instances. Body left at prior indentation; prettier normalizes.
 function wireEventSinks(): void {
+  setApiTokenStreamSinks({
+    logEntry: (tokenId, entry) => liveEmit("api_token_log_entry", { tokenId, entry }, { apiTokenId: tokenId }),
+    revoked: (tokenId) => {
+      for (const ws of apiTokenSockets) {
+        if (ws.data.tokenId !== tokenId) continue;
+        ws.close(1008, "API token unavailable");
+        apiTokenSockets.delete(ws);
+      }
+    },
+  });
   agentManager.onEvent((event) => {
     // Task mutations carry the full board as a domain event, but the WS layer
     // sends only the ONE task that moved: the board is ROOM-SCOPED, so what a
@@ -4879,6 +4912,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // carries the session into ws.data so per-message handlers can attribute
         // writes without trusting client-supplied username fields.
         if (url.pathname === "/ws") {
+          // Unlike HTTP, a bad explicit bearer never falls back to cookies.
+          // Browser WebSockets cannot set this header, so it is deliberate.
+          const authorization = req.headers.get("Authorization");
+          if (authorization !== null) {
+            const identity = resolveIdentityForRequest(req, null);
+            if (identity?.scope !== "api" || !identity.apiTokenId || !identity.userId) return new Response("unauthenticated", { status: 401 });
+            if (!identity.capabilities.includes("api:drain-inbox")) return new Response("forbidden", { status: 403 });
+            const upgraded = server.upgrade(req, { data: {
+              kind: "api" as const, tokenId: identity.apiTokenId, userId: identity.userId,
+            } });
+            if (upgraded) return;
+            return new Response("WebSocket upgrade failed", { status: 400 });
+          }
           const wsCookies = readSessionCookies(req);
           const wsSession = validateSession(wsCookies.selected || null);
           emitBrowserSessionDiagnostic(
@@ -5439,6 +5485,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // `ws.data` is discriminated, but `ServerWebSocket<T>` is invariant in T,
       // so the runtime check is what makes it sound.
       open(socket) {
+        if (socket.data.kind === "api") {
+          const ws = socket as ServerWebSocket<ApiTokenWsData>;
+          if (liveTokenSocket(ws)) apiTokenSockets.add(ws);
+          return;
+        }
         if (socket.data.kind === "app") {
           socket.data.relay.attachBrowser(
             socket as ServerWebSocket<AppRelayWsData>,
@@ -5609,6 +5660,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         sendPresenceListTo(ws);
       },
       message(socket, data) {
+        if (socket.data.kind === "api") {
+          // Receive-only. Commands remain on the authenticated REST surface.
+          liveTokenSocket(socket as ServerWebSocket<ApiTokenWsData>);
+          return;
+        }
         if (socket.data.kind === "app") {
           socket.data.relay.browserMessage(
             typeof data === "string" ? data : Buffer.from(data),
@@ -5634,6 +5690,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
       },
       close(socket, code, reason) {
+        if (socket.data.kind === "api") {
+          apiTokenSockets.delete(socket as ServerWebSocket<ApiTokenWsData>);
+          return;
+        }
         if (socket.data.kind === "app") {
           socket.data.relay.browserClosed(code, reason);
           return;
@@ -5883,6 +5943,7 @@ export interface ServerHandle {
 // doesn't inherit a prior server's sockets / id counter.
 function resetServerModuleState(): void {
   browsers.clear();
+  apiTokenSockets.clear();
   connectionIdCounter = 0;
   idempotencyCache._reset();
 }
@@ -5903,6 +5964,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // the serial T1 tier; a longer-lived/concurrent harness would want an
   // agentManager.stop() that closes live sessions first (out of 0.3 scope).
   browsers.clear();
+  apiTokenSockets.clear();
   _testClearPresence();
   // Neutralize the auth.ts boot hooks so a stale closure from this boot can't
   // fire into a torn-down broadcast set between stop() and the next start();
@@ -5912,6 +5974,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnSessionsChanged(() => {});
   setOnUserRoleChanged(() => {});
   setOnOwnerCreated(async () => {});
+  setApiTokenStreamSinks({ logEntry: () => {}, revoked: () => {} });
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.
   registerProductionCronjobManagerForModuleReads(null);

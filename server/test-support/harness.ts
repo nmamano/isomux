@@ -78,7 +78,7 @@ export interface TestServer extends ServerHandle {
   // Open a real authenticated WebSocket (cookie + matching Origin).
   connectWs(
     rawSessionId: string,
-    opts?: { cookieHeader?: string },
+    opts?: { cookieHeader?: string; headers?: Record<string, string> },
   ): Promise<TestSocket>;
   // COLD-RELOAD this server WITHOUT wiping STATE_ROOT: stops the current
   // instance and re-runs the real boot path against the on-disk state this run
@@ -285,7 +285,7 @@ async function bootTestServer(
 
     async function connectWs(
       rawSessionId: string,
-      opts?: { cookieHeader?: string },
+      opts?: { cookieHeader?: string; headers?: Record<string, string> },
     ): Promise<TestSocket> {
       // Bun's WebSocket client accepts a { headers } options object so the
       // upgrade carries the auth cookie + matching Origin. The DOM lib types
@@ -298,6 +298,7 @@ async function bootTestServer(
         headers: {
           Cookie: opts?.cookieHeader ?? `${COOKIE_NAME}=${rawSessionId}`,
           Origin: buildPublicOrigin().origin,
+          ...opts?.headers,
         },
       } as unknown as string[]);
       const messages: Record<string, unknown>[] = [];

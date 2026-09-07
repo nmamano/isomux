@@ -47,16 +47,18 @@ import type {
   ProviderAccountWire,
 } from "../../shared/types.ts";
 import type {
+  ApiTokenLogEntry,
   UserPublicWire,
   UserAdminWire,
   UserSelfWire,
 } from "../../shared/contract-shapes.ts";
 
 // The fan-out lattice. The registry currently assigns from {all, owners,
-// room-ACL, recipient-scoped}; `by-user` and `none` are reserved (no current
+// room-ACL, recipient-scoped, api-token}; `by-user` and `none` are reserved (no current
 // event uses them) and a contract test pins that - so a future event must
 // declare its strategy deliberately rather than inherit a default.
 export type AudienceStrategy =
+  | "api-token"
   | "all"
   | "owners"
   | "room-ACL"
@@ -70,6 +72,7 @@ export type AudienceStrategy =
 // FAILS CLOSED when the declared input is absent - a delete/move event that
 // forgot to carry its pre-mutation room id selects NOBODY rather than leaking.
 export type ProjectionKey =
+  | { kind: "apiTokenId" }
   // Office-wide / owners / non-observable - no payload-derived subject.
   | { kind: "all" }
   | { kind: "owners" }
@@ -105,6 +108,7 @@ export interface RegistryEvent {
 // discriminant - emit stamps that). These are the post-refactor shapes; see the
 // deltas note in the file header.
 export interface EventPayloads {
+  api_token_log_entry: { tokenId: string; entry: ApiTokenLogEntry };
   log_entry: { entry: LogEntry };
   // Fence at the end of the connect-time transcript replay. Recipient-scoped
   // rather than room-ACL despite following room-ACL'd log_entry frames: it
@@ -223,6 +227,7 @@ export type EventId = keyof EventPayloads;
 // Exactly the spec's event ids + audiences. `satisfies` pins the value to
 // Record<EventId, RegistryEvent> so a missing/extra id fails to COMPILE.
 export const EVENT_REGISTRY = {
+  api_token_log_entry: { audience: "api-token", projectionKey: { kind: "apiTokenId" } },
   log_entry: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },

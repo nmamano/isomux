@@ -1,3 +1,4 @@
+import type { ApiTokenLogEntry } from "./contract-shapes.ts";
 import type { RoomPet } from "./pets.ts";
 
 import type { GhostVariant } from "./avatar.ts";
@@ -1423,6 +1424,7 @@ export type UpdateStatusWire =
 
 // Server → Browser messages
 export type ServerMessage =
+  | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
   | {
       type: "full_state";
       agents: AgentInfo[];

@@ -25,6 +25,7 @@ import type { ServerMessage } from "../../shared/types.ts";
 // The spec's event id → audience map (Server API Spec → Event registry). The
 // registry must match this EXACTLY - a drift in either direction fails here.
 const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
+  api_token_log_entry: "api-token",
   // Live agent / room stream - room-ACL
   log_entry: "room-ACL",
   // The fence at the end of ONE socket's connect-time replay: recipient-scoped
@@ -134,6 +135,9 @@ describe("event registry: audience ↔ projectionKey consistency (executable key
       const reg: RegistryEvent = EVENT_REGISTRY[id];
       const kind = reg.projectionKey.kind;
       switch (reg.audience) {
+        case "api-token":
+          expect(kind).toBe("apiTokenId");
+          break;
         case "all":
           expect(kind).toBe("all");
           break;

@@ -27,6 +27,7 @@ function makeDeps(
 ) {
   const delivered: { id: string; recipients: string[] }[] = [];
   const deps: EmitDeps<FakeSession> = {
+    sessionsForApiToken: () => [],
     allSessions: () => sessions,
     ownerSessions: () => sessions.filter((s) => s.role === "owner"),
     sessionsForUser: (uid) => sessions.filter((s) => s.userId === uid),
@@ -281,5 +282,18 @@ describe("emit: every registry event resolves without throwing", () => {
         ),
       ).not.toThrow();
     }
+  });
+});
+
+
+describe("API token audience", () => {
+  it("selects only the explicit token and fails closed without its id", () => {
+    const { deps } = fixture();
+    const tokenSocket = deps.allSessions()[0];
+    deps.sessionsForApiToken = (id) => id === "pat-1" ? [tokenSocket] : [];
+    const reg = EVENT_REGISTRY.api_token_log_entry;
+    expect(resolveRecipients(reg, {}, { apiTokenId: "pat-1" }, deps)).toEqual([tokenSocket]);
+    expect(resolveRecipients(reg, {}, { apiTokenId: "pat-2" }, deps)).toEqual([]);
+    expect(resolveRecipients(reg, { tokenId: "pat-1" }, { userId: tokenSocket.userId }, deps)).toBeNull();
   });
 });

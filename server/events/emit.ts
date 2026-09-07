@@ -40,6 +40,7 @@ import {
 export interface EmitContext {
   connectionId?: string;
   userId?: string;
+  apiTokenId?: string;
 }
 
 // The injected transport seam. `S` is an opaque session handle - emit NEVER
@@ -47,6 +48,7 @@ export interface EmitContext {
 // deliver(). Tests use a fake session record; production uses the live
 // ServerWebSocket. This keeps emit pure and the audience logic unit-testable.
 export interface EmitDeps<S> {
+  sessionsForApiToken(tokenId: string): readonly S[];
   allSessions(): readonly S[];
   ownerSessions(): readonly S[];
   sessionsForUser(userId: string): readonly S[];
@@ -140,6 +142,8 @@ export function resolveRecipients<S>(
   deps: EmitDeps<S>,
 ): readonly S[] | null {
   switch (reg.audience) {
+    case "api-token":
+      return nonEmptyString(ctx.apiTokenId) ? deps.sessionsForApiToken(ctx.apiTokenId) : null;
     case "all":
       return deps.allSessions();
     case "owners":
