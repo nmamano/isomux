@@ -524,8 +524,15 @@ describe("provider-neutral safety-policy extraction", () => {
       const original = corpus.find((entry) => entry.name === name)!;
       const command = String(original.toolInput.command);
       expect(command).toContain("cd /tmp/rev1-copy");
-      const testCase = { ...original, toolInput: { command: command.replace("cd /tmp/rev1-copy", `cd ${STATE_ROOT}`) } };
-      expect((await decide(createSafetyHooks, testCase)).denied, name).toBe(false);
+      const testCase = {
+        ...original,
+        toolInput: {
+          command: command.replace("cd /tmp/rev1-copy", `cd ${STATE_ROOT}`),
+        },
+      };
+      expect((await decide(createSafetyHooks, testCase)).denied, name).toBe(
+        false,
+      );
       expect((await decide(oldClassifier, testCase)).denied, name).toBe(true);
     }
     for (const name of expectedChanges) {

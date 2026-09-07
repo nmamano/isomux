@@ -1229,9 +1229,15 @@ function parseCommands(
 
   const endWord = () => {
     if (!cur) return;
-    if (!dropWord) words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic });
+    if (!dropWord)
+      words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic });
     else if (keepAsRedirect)
-      words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic, redirect: keepAsRedirect });
+      words.push({
+        text: cur,
+        quoted: curQuoted,
+        dynamic: curDynamic,
+        redirect: keepAsRedirect,
+      });
     dropWord = false;
     keepAsRedirect = false;
     cur = "";
@@ -1241,7 +1247,8 @@ function parseCommands(
   const endCommand = () => {
     endWord();
     if (words.length) commands.push(words);
-    if (words.length || substitutions.length) syntax?.push({ words, substitutions });
+    if (words.length || substitutions.length)
+      syntax?.push({ words, substitutions });
     words = [];
     substitutions = [];
   };
@@ -1814,8 +1821,12 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
     return inPlace
       ? [
           ...redirects,
-          ...readerPathOperands(args, SED_GRAMMAR).map((text) =>
-            args.find((word) => word.text === text) ?? { text, quoted: false },
+          ...readerPathOperands(args, SED_GRAMMAR).map(
+            (text) =>
+              args.find((word) => word.text === text) ?? {
+                text,
+                quoted: false,
+              },
           ),
         ]
       : redirects;
@@ -1897,7 +1908,8 @@ function shellWriteDecision(
   parseCommands(stripHeredocBodies(command), false, true, syntax);
   let decision: PolicyDecision | null = null;
   const unchanged = (directories: DirectorySet): DirectoryFlow => ({
-    success: directories, failure: directories,
+    success: directories,
+    failure: directories,
   });
   const checkTarget = (target: ShellWord, directories: DirectorySet) => {
     // Do not turn a shell expansion into a fictitious literal directory. This
@@ -1908,10 +1920,15 @@ function shellWriteDecision(
     }
     for (const directory of directories) {
       const resolved = resolvePath(target.text, directory);
-      if (resolved === null && (directory === UNKNOWN_DIRECTORY || isProtectedRelativeCandidate(target.text))) {
-        decision = directory === UNKNOWN_DIRECTORY
-          ? denyShellPath(target.text, Boolean(target.dynamic))
-          : denyMissingCwd("Bash", target.text);
+      if (
+        resolved === null &&
+        (directory === UNKNOWN_DIRECTORY ||
+          isProtectedRelativeCandidate(target.text))
+      ) {
+        decision =
+          directory === UNKNOWN_DIRECTORY
+            ? denyShellPath(target.text, Boolean(target.dynamic))
+            : denyMissingCwd("Bash", target.text);
         return;
       }
       if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
@@ -1934,30 +1951,45 @@ function shellWriteDecision(
       walk(substitution, directories);
     }
     const redirects = node.words.filter((word) => word.redirect === "output");
-    const candidates = commandCandidates(node.words.filter((word) => word.redirect !== "output"));
+    const candidates = commandCandidates(
+      node.words.filter((word) => word.redirect !== "output"),
+    );
     if (candidates.length === 0) {
       for (const target of redirects) checkTarget(target, directories);
     }
     let success = directories;
     for (const candidate of candidates) {
-      for (const target of writeTargets({ ...candidate, args: [...candidate.args, ...redirects] })) {
+      for (const target of writeTargets({
+        ...candidate,
+        args: [...candidate.args, ...redirects],
+      })) {
         checkTarget(target, directories);
       }
       if (candidate.name === "popd" || candidate.name === "pushd") {
         success = new Set([UNKNOWN_DIRECTORY]);
       } else if (candidate.name === "cd") {
-        const target = candidate.args.find((word) => !word.text.startsWith("-"));
+        const target = candidate.args.find(
+          (word) => !word.text.startsWith("-"),
+        );
         if (dynamicDirectoryTarget(target)) {
           success = new Set([UNKNOWN_DIRECTORY]);
         } else {
-          success = new Set([...directories].map((directory) =>
-            resolvePath(target!.text, directory) ?? UNKNOWN_DIRECTORY,
-          ));
+          success = new Set(
+            [...directories].map(
+              (directory) =>
+                resolvePath(target!.text, directory) ?? UNKNOWN_DIRECTORY,
+            ),
+          );
         }
       }
       if (depth < 4) {
         for (const payload of shellPayloads(candidate)) {
-          const nested = shellWriteDecision(payload, initialCwd, depth + 1, directories);
+          const nested = shellWriteDecision(
+            payload,
+            initialCwd,
+            depth + 1,
+            directories,
+          );
           if (nested) decision = nested;
         }
       }
@@ -1967,14 +1999,28 @@ function shellWriteDecision(
     return { success, failure: directories };
   };
 
-  const walk = (nodes: ShellSyntax[], directories: DirectorySet): DirectoryFlow => {
+  const walk = (
+    nodes: ShellSyntax[],
+    directories: DirectorySet,
+  ): DirectoryFlow => {
     type Node =
-      | { kind: "simple"; command: Extract<ShellSyntax, { words: ShellWord[] }> }
+      | {
+          kind: "simple";
+          command: Extract<ShellSyntax, { words: ShellWord[] }>;
+        }
       | { kind: "group"; body: Node; redirects: Node[] }
       | { kind: "binary"; operator: string; left: Node; right: Node }
       | { kind: "empty" };
     const empty: Node = { kind: "empty" };
-    const precedence: Record<string, number> = { ";": 1, "\n": 1, "&": 1, "&&": 2, "||": 2, "|": 3, "|&": 3 };
+    const precedence: Record<string, number> = {
+      ";": 1,
+      "\n": 1,
+      "&": 1,
+      "&&": 2,
+      "||": 2,
+      "|": 3,
+      "|&": 3,
+    };
     const values: Node[] = [];
     const operators: string[] = [];
     const starts: number[] = [];
@@ -1989,8 +2035,13 @@ function shellWriteDecision(
     const append = (node: Node) => {
       if (!needsValue) {
         const previous = values.at(-1);
-        if (previous?.kind === "group" && node.kind === "simple" &&
-          node.command.words.every((word) => word.redirect || /^\d+$/.test(word.text))) {
+        if (
+          previous?.kind === "group" &&
+          node.kind === "simple" &&
+          node.command.words.every(
+            (word) => word.redirect || /^\d+$/.test(word.text),
+          )
+        ) {
           previous.redirects.push(node);
           return;
         }
@@ -2026,32 +2077,57 @@ function shellWriteDecision(
           if (token.operator === "\n") continue;
           values.push(empty);
         }
-        while (operators.length && operators.at(-1) !== "(" &&
-          precedence[operators.at(-1)!] >= precedence[token.operator]) reduce();
+        while (
+          operators.length &&
+          operators.at(-1) !== "(" &&
+          precedence[operators.at(-1)!] >= precedence[token.operator]
+        )
+          reduce();
         operators.push(token.operator);
         needsValue = true;
       }
     }
     if (needsValue && operators.length) values.push(empty);
     while (operators.length) {
-      if (operators.at(-1) === "(") { operators.pop(); opaque = true; }
-      else reduce();
+      if (operators.at(-1) === "(") {
+        operators.pop();
+        opaque = true;
+      } else reduce();
     }
     if (values.length > 1) opaque = true;
     const hasDirectoryChange = nodes.some((node) => {
       if (!("words" in node)) return false;
       // Opaque syntax has no complete command grammar. A keyword list here
       // could hide a directory change behind an unrecognized control word.
-      return node.words.some((word) => !word.quoted && !word.redirect && ["cd", "pushd", "popd"].includes(word.text));
+      return node.words.some(
+        (word) =>
+          !word.quoted &&
+          !word.redirect &&
+          ["cd", "pushd", "popd"].includes(word.text),
+      );
     });
     let result = unchanged(directories);
     const pending: Array<() => void> = [];
-    const schedule = (node: Node, input: DirectorySet, receive: (flow: DirectoryFlow) => void) => {
+    const schedule = (
+      node: Node,
+      input: DirectorySet,
+      receive: (flow: DirectoryFlow) => void,
+    ) => {
       const finish = (flow: DirectoryFlow) => pending.push(() => receive(flow));
       pending.push(() => {
-        if (decision || input.size === 0 || node.kind === "empty") { finish(unchanged(input)); return; }
+        if (decision || input.size === 0 || node.kind === "empty") {
+          finish(unchanged(input));
+          return;
+        }
         if (node.kind === "simple") {
-          finish(simple(node.command, opaque && hasDirectoryChange ? new Set([UNKNOWN_DIRECTORY]) : input));
+          finish(
+            simple(
+              node.command,
+              opaque && hasDirectoryChange
+                ? new Set([UNKNOWN_DIRECTORY])
+                : input,
+            ),
+          );
           return;
         }
         if (node.kind === "group") {
@@ -2059,17 +2135,28 @@ function shellWriteDecision(
             // A group's redirects open in the parent, and cd in the child
             // never changes either parent status branch.
             finish(unchanged(input));
-            for (const redirect of node.redirects) schedule(redirect, input, () => {});
+            for (const redirect of node.redirects)
+              schedule(redirect, input, () => {});
           });
           return;
         }
         schedule(node.left, input, (left) => {
           switch (node.operator) {
             case "&&":
-              schedule(node.right, left.success, (right) => finish({ success: right.success, failure: unionDirectories(left.failure, right.failure) }));
+              schedule(node.right, left.success, (right) =>
+                finish({
+                  success: right.success,
+                  failure: unionDirectories(left.failure, right.failure),
+                }),
+              );
               break;
             case "||":
-              schedule(node.right, left.failure, (right) => finish({ success: unionDirectories(left.success, right.success), failure: right.failure }));
+              schedule(node.right, left.failure, (right) =>
+                finish({
+                  success: unionDirectories(left.success, right.success),
+                  failure: right.failure,
+                }),
+              );
               break;
             case "&":
               // Only the left list is a job; the right list runs in the parent.
@@ -2087,7 +2174,10 @@ function shellWriteDecision(
         });
       });
     };
-    for (const node of values) schedule(node, directories, (flow) => { result = flow; });
+    for (const node of values)
+      schedule(node, directories, (flow) => {
+        result = flow;
+      });
     while (pending.length) pending.pop()!();
     return result;
   };

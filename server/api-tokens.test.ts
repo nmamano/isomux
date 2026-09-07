@@ -255,8 +255,7 @@ async function inboxMessage(tokenId: string, text: string) {
 }
 async function readInbox(tokenId: string, ackThrough?: number) {
   const result = await drainApiTokenInbox(tokenId, undefined, ackThrough);
-  if (!result)
-    throw new Error("Expected live inbox");
+  if (!result) throw new Error("Expected live inbox");
   return result;
 }
 
@@ -328,7 +327,11 @@ describe("API token inbox cursors", () => {
 
   for (const ackMode of [true, false, null, "true", "false", 0, 1, {}, []]) {
     it(`ignores stored ackMode ${JSON.stringify(ackMode)} and retains replies`, async () => {
-      const minted = await mintApiToken({ userId: "u1", name: "Interim", expiresInDays: null });
+      const minted = await mintApiToken({
+        userId: "u1",
+        name: "Interim",
+        expiresInDays: null,
+      });
       await inboxMessage(minted.apiToken.id, "retained");
       const stored = JSON.parse(readFileSync(file, "utf-8"));
       stored[minted.apiToken.id].ackMode = ackMode;
@@ -337,16 +340,27 @@ describe("API token inbox cursors", () => {
       expect(resolveApiToken(minted.token)?.id).toBe(minted.apiToken.id);
       expect(listApiTokens("u1")[0]).not.toHaveProperty("ackMode");
       const first = await readInbox(minted.apiToken.id);
-      expect(first.messages.map((message) => message.text)).toEqual(["retained"]);
-      expect((await readInbox(minted.apiToken.id)).messages).toEqual(first.messages);
+      expect(first.messages.map((message) => message.text)).toEqual([
+        "retained",
+      ]);
+      expect((await readInbox(minted.apiToken.id)).messages).toEqual(
+        first.messages,
+      );
       expect((await readInbox(minted.apiToken.id, 1)).messages).toEqual([]);
-      expect(JSON.parse(readFileSync(file, "utf-8"))[minted.apiToken.id]).not.toHaveProperty("ackMode");
+      expect(
+        JSON.parse(readFileSync(file, "utf-8"))[minted.apiToken.id],
+      ).not.toHaveProperty("ackMode");
     });
   }
 
   it("migrates an absent counter from the maximum stored sequence before backfill", async () => {
-    const { apiToken } = await mintApiToken({ userId: "u1", name: "Migration", expiresInDays: null });
-    for (const text of ["old", "sequenced", "later old"]) await inboxMessage(apiToken.id, text);
+    const { apiToken } = await mintApiToken({
+      userId: "u1",
+      name: "Migration",
+      expiresInDays: null,
+    });
+    for (const text of ["old", "sequenced", "later old"])
+      await inboxMessage(apiToken.id, text);
     const stored = JSON.parse(readFileSync(file, "utf-8"));
     delete stored[apiToken.id].lastSequence;
     delete stored[apiToken.id].inbox[0].sequence;
@@ -355,14 +369,20 @@ describe("API token inbox cursors", () => {
     writeFileSync(file, JSON.stringify(stored));
     _testResetApiTokens();
     const migrated = await readInbox(apiToken.id);
-    expect(migrated.messages.map((message) => message.sequence)).toEqual([11, 10, 12]);
+    expect(migrated.messages.map((message) => message.sequence)).toEqual([
+      11, 10, 12,
+    ]);
     expect(migrated.highWatermark).toBe(12);
     _testResetApiTokens();
     expect((await readInbox(apiToken.id)).messages).toEqual(migrated.messages);
     await readInbox(apiToken.id, 12);
     _testResetApiTokens();
     await inboxMessage(apiToken.id, "new");
-    expect((await readInbox(apiToken.id)).messages.map((message) => message.sequence)).toEqual([13]);
+    expect(
+      (await readInbox(apiToken.id)).messages.map(
+        (message) => message.sequence,
+      ),
+    ).toEqual([13]);
   });
 
   it("redelivers after reload and deletes only through the inclusive ACK bound", async () => {
@@ -455,7 +475,11 @@ describe("API token inbox cursors", () => {
   });
 
   it("accepts zero ACKs without deleting replies and accepts inclusive ACKs on every token", async () => {
-    const { apiToken } = await mintApiToken({ userId: "u1", name: "Plain", expiresInDays: null });
+    const { apiToken } = await mintApiToken({
+      userId: "u1",
+      name: "Plain",
+      expiresInDays: null,
+    });
     await inboxMessage(apiToken.id, "kept");
     const zero = await readInbox(apiToken.id, 0);
     expect(zero.messages.map((message) => message.text)).toEqual(["kept"]);

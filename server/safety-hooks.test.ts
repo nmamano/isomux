@@ -215,7 +215,9 @@ describe("shell write-target classification", () => {
     expect((await bash("cd /tmp/c && echo 'a(b)' > out.txt")).denied).toBe(
       false,
     );
-    expect((await bash("cd ~/.isomux && echo 'a(b)' > out.txt")).denied).toBe(true);
+    expect((await bash("cd ~/.isomux && echo 'a(b)' > out.txt")).denied).toBe(
+      true,
+    );
     expect((await bash("cd /tmp/c && echo ab > out.txt")).denied).toBe(false);
   });
 });

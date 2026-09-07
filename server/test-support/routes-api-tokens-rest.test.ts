@@ -158,11 +158,16 @@ describe("personal API tokens", () => {
       { method: "POST" },
     );
     expect((await second.json()).messages).toEqual(drained.messages);
-    const acknowledged = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ackThrough: drained.messages[0].sequence }),
-    });
+    const acknowledged = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ackThrough: drained.messages[0].sequence }),
+      },
+    );
     expect((await acknowledged.json()).messages).toEqual([]);
 
     for (let i = 0; i < API_TOKEN_INBOX_CAPACITY; i++) {
@@ -523,12 +528,7 @@ describe("API token channel contract", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const userId = getUserByName(owner.username)!.id;
-    const minted = await mintThroughApi(
-      srv,
-      owner.rawSessionId,
-      "Ack",
-      null,
-    );
+    const minted = await mintThroughApi(srv, owner.rawSessionId, "Ack", null);
     expect(minted.response.status).toBe(201);
     expect(minted.body.apiToken).not.toHaveProperty("ackMode");
     const path = "/api/me/api-token-inbox/drain";
@@ -586,7 +586,9 @@ describe("API token channel contract", () => {
     ).toEqual([2, 3]);
 
     const zero = await drain({ ackThrough: 0 });
-    expect((await zero.json()).messages.map((m: { sequence: number }) => m.sequence)).toEqual([2, 3]);
+    expect(
+      (await zero.json()).messages.map((m: { sequence: number }) => m.sequence),
+    ).toEqual([2, 3]);
   });
 
   it("ignores extra ackMode fields when minting tokens", async () => {
@@ -598,16 +600,25 @@ describe("API token channel contract", () => {
         method: "POST",
         rawSessionId: owner.rawSessionId,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: "Extra field", expiresInDays: null, ackMode }),
+        body: JSON.stringify({
+          name: "Extra field",
+          expiresInDays: null,
+          ackMode,
+        }),
       });
       expect(response.status).toBe(201);
       const minted = await response.json();
       expect(minted.apiToken).not.toHaveProperty("ackMode");
-      const drained = await bearer(srv, minted.token, "/api/me/api-token-inbox/drain", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ackThrough: 0 }),
-      });
+      const drained = await bearer(
+        srv,
+        minted.token,
+        "/api/me/api-token-inbox/drain",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ackThrough: 0 }),
+        },
+      );
       expect(drained.status).toBe(200);
     }
   });
