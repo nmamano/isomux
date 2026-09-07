@@ -501,7 +501,13 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 const mutations = [
   {
     name: "opaque directory detection depends on keyword list",
-    from: 'return node.words.some((word) => !word.quoted && !word.redirect && ["cd", "pushd", "popd"].includes(word.text));',
+    // The anchors below must match the prettier-formatted source exactly.
+    from: `return node.words.some(
+        (word) =>
+          !word.quoted &&
+          !word.redirect &&
+          ["cd", "pushd", "popd"].includes(word.text),
+      );`,
     to: `const words = node.words.filter((word) => !word.redirect);
       while (words[0] && !words[0].quoted && ["{", "}", "then", "do", "else", "!"].includes(words[0].text)) words.shift();
       return commandCandidates(words).some((candidate) => ["cd", "pushd", "popd"].includes(candidate.name));`,
@@ -509,8 +515,12 @@ const mutations = [
   },
   {
     name: "opaque syntax discards cwd without cd",
-    from: "opaque && hasDirectoryChange ? new Set([UNKNOWN_DIRECTORY]) : input",
-    to: "opaque ? new Set([UNKNOWN_DIRECTORY]) : input",
+    from: `opaque && hasDirectoryChange
+                ? new Set([UNKNOWN_DIRECTORY])
+                : input,`,
+    to: `opaque
+                ? new Set([UNKNOWN_DIRECTORY])
+                : input,`,
     cases: [
       "case arm without cd keeps cwd",
       "write before case without cd keeps cwd",
