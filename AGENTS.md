@@ -12,7 +12,7 @@ For UI changes, run `bun run build:ui`. Outputs to `ui/dist/`, which the server 
 
 On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests that serve the app shell or PWA assets need the built files.
 
-Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name> [--web]`; use `--web` for control-plane/web work.
+Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name>`; it installs the control-plane/web dependencies too, which root tsc needs.
 
 If a run reports a test timeout, run the affected file alone before you
 attribute later failures in that file. As measured 2026-08-29, Bun 1.3.11,

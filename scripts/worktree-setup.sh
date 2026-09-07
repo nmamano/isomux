@@ -3,7 +3,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: scripts/worktree-setup.sh <name> [--web]" >&2
+  echo "Usage: scripts/worktree-setup.sh <name> [--web]  (--web is accepted and no longer needed)" >&2
   exit 2
 }
 
@@ -68,9 +68,9 @@ fi
 (
   cd "$worktree_path"
   bun run build:ui
-  if $with_web; then
-    bun install --frozen-lockfile --cwd control-plane/web
-  fi
+  # Root tsc reaches control-plane/web through control-plane/web-i18n.test.tsx,
+  # so every lane needs the web dependencies, not only web lanes.
+  bun install --frozen-lockfile --cwd control-plane/web
 )
 
 printf '%s\n' "$worktree_path"
