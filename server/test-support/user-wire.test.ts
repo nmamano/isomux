@@ -34,7 +34,6 @@ const SENSITIVE = [
   "hidden",
   "order",
   "notifRooms",
-  "envFile",
   "memberPrompt",
 ] as const;
 
