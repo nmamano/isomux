@@ -1,29 +1,3 @@
-export const ListIcon = (
-  <svg
-    width="14"
-    height="12"
-    viewBox="0 0 12 10"
-    fill="currentColor"
-    style={{ display: "block" }}
-  >
-    <rect y="0" width="12" height="2" rx="0.5" />
-    <rect y="4" width="12" height="2" rx="0.5" />
-    <rect y="8" width="12" height="2" rx="0.5" />
-  </svg>
-);
-
-export const IsoIcon = (
-  <svg width="14" height="14" viewBox="0 0 32 32" style={{ display: "block" }}>
-    <polygon points="16,2 30,10 16,18 2,10" fill="currentColor" opacity="0.9" />
-    <polygon points="2,10 16,18 16,30 2,22" fill="currentColor" opacity="0.5" />
-    <polygon
-      points="30,10 16,18 16,30 30,22"
-      fill="currentColor"
-      opacity="0.35"
-    />
-  </svg>
-);
-
 export const DoorIcon = (
   <svg
     width="15"

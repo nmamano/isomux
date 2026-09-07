@@ -66,8 +66,6 @@ export const en = {
   "common.apps": "Apps",
   "common.changeTheme": "Change theme",
 
-  "nav.showAgentList": "Show agent list",
-  "nav.showFloorView": "Show floor view",
 
   "preferences.intro":
     "These follow you to every device you sign in from. Settings that are about this browser in particular live under My devices.",
@@ -924,6 +922,8 @@ export const en = {
   "common.sender.agentInRoom": '{name} · agent · Room "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · schedule",
+  "cards.userMessage.expand": "Expand message",
+  "cards.userMessage.collapse": "Collapse message",
   "cards.userMessage.toRemoteBoss": "To remote boss",
   "cards.userMessage.toRemoteBossNamed": 'To remote boss "{name}"',
   "cards.userMessage.editAndBranch": "Edit & branch",
@@ -1175,10 +1175,6 @@ export const en = {
   "common.current": "(current)",
   "contextMenu.branched": "(branched)",
   "contextMenu.killAgent": "Kill Agent",
-  "agentList.roomEmpty": "{room} is empty",
-  "agentList.thisRoom": "This room",
-  "agentList.noAgents": "No agents yet",
-  "agentList.spawnHint": "Tap + to spawn one",
   "app.reconnecting": "Reconnecting…",
   "themes.dark": "Dark",
   "themes.light": "Light",

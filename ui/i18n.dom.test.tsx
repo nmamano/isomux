@@ -9,7 +9,7 @@
 // changes, which is the point.
 //
 // One file, as the slice asks: an App mount with two rerenders covers the
-// desktop bar, two more rerenders reach the labels only the phone menus carry,
+// desktop bar, one more rerender reaches the phone menu,
 // and the pane renders on its own for its labels and save states.
 
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
@@ -91,16 +91,12 @@ describe("the office nav bar", () => {
     expect(view.queryByTitle(TASKS.en)).not.toBeNull();
     expect(view.queryByTitle(TASKS.es)).toBeNull();
 
-    // Both builders of the nav actions: OfficeView's phone menu carries "Show
-    // agent list", AgentListView's carries "Show floor view".
-    view.rerender(app("ca", { isMobile: true, mobileViewMode: "office" }));
+    // The phone menu keeps the office actions without a view toggle.
+    view.rerender(app("ca", { isMobile: true }));
+    expect(view.queryByRole("button", { name: "Apropa" })).not.toBeNull();
     openOverflow(view);
-    expect(view.queryByText("Mostra la llista d'agents")).not.toBeNull();
-    expect(view.queryByText(TASKS.ca)).not.toBeNull();
-
-    view.rerender(app("ca", { isMobile: true, mobileViewMode: "list" }));
-    openOverflow(view);
-    expect(view.queryByText("Mostra la vista de planta")).not.toBeNull();
+    expect(view.queryByText("Mostra la llista d'agents")).toBeNull();
+    expect(view.queryByText("Mostra la vista de planta")).toBeNull();
     expect(view.queryByText(TASKS.ca)).not.toBeNull();
   });
 });

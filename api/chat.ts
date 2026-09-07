@@ -185,7 +185,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Mobile Support
 - Open from your phone - same server URL (whether VPN-only or public via Funnel / reverse proxy), touch-optimized UI
 - Instant sync - laptop and phone see the same state in real time over WebSocket
-- The isometric office works on mobile; there's also an agent list view as an alternative
+- The isometric office works on mobile
 - Full conversation view with readable font sizes and two-row header
 - Send & abort buttons for touch input; left/right swipe to cycle agents
 - Safe area insets for notch/home bar devices

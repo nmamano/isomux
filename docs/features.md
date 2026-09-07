@@ -19,7 +19,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Discovery** via a shared office manifest - every agent can look up who else is in the office (name, room, desk, cwd, model, topic), scoped to the rooms its manager can see.
 - **Cross-conversation reads** - each agent has access to the live conversation logs of every other agent. Ask "what does Isomuxer3 think of this?" and it just works.
 - **Shared memory** - agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's prompt. When a level's notes near their size cap, the agent flags it at the start of its next conversation and can help trim them.
-- **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing.
+- **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing. Long messages from agents and apps collapse in the chat; expand them to read the full message.
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API.
@@ -48,7 +48,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 - **Works on a headless server** - run on a Mac Mini or Linux box, access from your VPN or publicly via Tailscale Funnel / reverse proxy.
 - **Open from your phone** - same server URL (VPN or public), touch-optimized UI.
-- **Agent list view** as an alternative to the isometric office on small screens.
 - **Installable as a PWA** for a native-app feel: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome prompts you to install on first visit (HTTPS or localhost).
 - **Real-time updates** - every connected device (laptop, phone, others) sees the same conversations and the same filesystem in real time via WebSocket; no syncing headaches.
 

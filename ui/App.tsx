@@ -10,7 +10,6 @@ import {
 } from "./view-persistence.ts";
 import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
-import { AgentListView } from "./components/AgentListView.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import {
@@ -96,8 +95,6 @@ export function App({ routing = true }: { routing?: boolean }) {
     agents,
     logs,
     focusedAgentId,
-    isMobile,
-    mobileViewMode,
     drafts,
     currentRoomId,
     rooms,
@@ -508,7 +505,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
-      // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) - don't swallow the key in those cases.
+      // Ref is null when OfficeView isn't mounted (log view, etc.) - don't swallow the key in those cases.
       const vp = viewportControlsRef.current;
       if (
         vp &&
@@ -717,28 +714,6 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenTasks={() => setTasksOpen(true)}
           onSwipeLeft={swipeAgentNext}
           onSwipeRight={swipeAgentPrev}
-        />
-      ) : isMobile && mobileViewMode === "list" ? (
-        <AgentListView
-          onFocus={(agentId) => dispatch({ type: "focus", agentId })}
-          onSpawn={() => setSpawnPickerDesk(0)}
-          onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          onOpenSettings={() => openSettings(null)}
-          onEditRoomSettings={(roomId) =>
-            openSettings({ kind: "room", roomId })
-          }
-          onOpenThemePicker={() =>
-            openSettings({ kind: "section", section: "theme" })
-          }
-          onOpenTasks={() => setTasksOpen(true)}
-          onOpenCronjobs={() => setCronjobsOpen(true)}
-          onOpenApps={() => setAppsOpen(true)}
-          onOpenUpdate={() =>
-            openSettings({ kind: "section", section: "updates" })
-          }
-          onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
-          onSwipeLeft={swipeRoomNext}
-          onSwipeRight={swipeRoomPrev}
         />
       ) : (
         <OfficeView

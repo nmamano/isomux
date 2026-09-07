@@ -726,6 +726,15 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
   const [autoScroll, setAutoScroll] = useState(true);
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set());
+  const toggleMessage = useCallback((entryId: string) => {
+    setExpandedMessages((previous) => {
+      const next = new Set(previous);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  }, []);
   const speechLocale = useSpeechLocale();
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -2445,6 +2454,8 @@ export function LogView({
                   ) : (
                     <LogEntryCard
                       entry={entry}
+                      messageExpanded={expandedMessages.has(entry.id)}
+                      onToggleMessage={toggleMessage}
                       isLastInTurn={td?.isLastInTurn}
                       turnEntries={td?.turnEntries}
                       isMobile={isMobile}

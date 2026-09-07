@@ -84,7 +84,6 @@ export interface AppState {
   // key their refetch on this (CronjobRunView).
   hydrationEpoch: number;
   isMobile: boolean;
-  mobileViewMode: "list" | "office"; // which view to show on mobile
   needsAttention: Set<string>; // agentIds with unread state changes
   sessionsList: Map<
     string,
@@ -254,7 +253,6 @@ type Action =
   // server old enough not to send it (UI builds go live before a restart).
   | { type: "log_replay_complete" }
   | { type: "set_mobile"; isMobile: boolean }
-  | { type: "toggle_mobile_view" }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -692,12 +690,6 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
-    case "toggle_mobile_view": {
-      const next = state.mobileViewMode === "list" ? "office" : "list";
-      if (typeof localStorage !== "undefined")
-        localStorage.setItem("isomux-mobile-view", next);
-      return { ...state, mobileViewMode: next };
-    }
     case "office_settings_updated":
       // envFile is owner-only and no longer rides this all-audience event
       // (3b.5). PRESERVE the existing office.envFile (an owner's loaded value)
@@ -981,11 +973,6 @@ export const initialState: AppState = {
   connected: false,
   hydrationEpoch: 0,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  mobileViewMode:
-    typeof localStorage !== "undefined" &&
-    localStorage.getItem("isomux-mobile-view") === "list"
-      ? "list"
-      : "office",
   needsAttention: new Set(),
   sessionsList: new Map(),
   soundTrigger: { seq: 0, roomId: null },

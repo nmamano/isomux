@@ -50,8 +50,6 @@ export const es: Catalog = {
   "common.apps": "Apps",
   "common.changeTheme": "Cambiar el tema",
 
-  "nav.showAgentList": "Mostrar la lista de agentes",
-  "nav.showFloorView": "Mostrar la vista de planta",
 
   "preferences.intro":
     "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Mis dispositivos.",
@@ -939,6 +937,8 @@ export const es: Catalog = {
   "common.sender.agentInRoom": '{name} · agente · Sala "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programación",
+  "cards.userMessage.expand": "Expandir mensaje",
+  "cards.userMessage.collapse": "Contraer mensaje",
   "cards.userMessage.toRemoteBoss": "Al jefe remoto",
   "cards.userMessage.toRemoteBossNamed": 'Al jefe remoto "{name}"',
   "cards.userMessage.editAndBranch": "Editar y ramificar",
@@ -1198,10 +1198,6 @@ export const es: Catalog = {
   "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Eliminar el agente",
-  "agentList.roomEmpty": "{room} está vacía",
-  "agentList.thisRoom": "Esta sala",
-  "agentList.noAgents": "Aún no hay agentes",
-  "agentList.spawnHint": "Toca + para crear uno",
   "app.reconnecting": "Reconectando…",
   "themes.dark": "Oscuro",
   "themes.light": "Claro",

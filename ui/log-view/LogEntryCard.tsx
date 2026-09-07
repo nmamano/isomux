@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, useMemo, memo } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo, useId, memo } from "react";
 import type {
   LogEntry,
   Attachment,
@@ -432,8 +432,12 @@ export const LogEntryCard = memo(function LogEntryCard({
   onSubmitEdit,
   onOpenInEditor,
   onCopyToTerminal,
+  messageExpanded,
+  onToggleMessage,
 }: {
   entry: LogEntry;
+  messageExpanded?: boolean;
+  onToggleMessage?: (entryId: string) => void;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
@@ -471,6 +475,10 @@ export const LogEntryCard = memo(function LogEntryCard({
           isMobile={isMobile}
           username={senderLabel}
           fromNonHuman={!fromHuman}
+          // Collapse peer and app reports; scheduled-job messages stay fully visible.
+          collapsible={!!(entry.metadata?.sender_agent_name || entry.metadata?.sender_app_name)}
+          expanded={messageExpanded}
+          onToggle={onToggleMessage ? () => onToggleMessage(entry.id) : undefined}
           attachments={entry.attachments}
           agentId={entry.agentId}
           canEdit={canEdit && fromHuman}
@@ -766,6 +774,9 @@ function UserMessage({
   username,
   fromNonHuman,
   outgoing,
+  collapsible = false,
+  expanded = false,
+  onToggle,
   attachments,
   agentId,
   canEdit,
@@ -782,6 +793,9 @@ function UserMessage({
   // bar on the right and a small left inset - so direction is readable at a
   // glance without reading the header text.
   outgoing?: boolean;
+  collapsible?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
   attachments?: Attachment[];
   agentId?: string;
   canEdit?: boolean;
@@ -790,6 +804,22 @@ function UserMessage({
   const { t } = useI18n();
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const bodyId = useId();
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [overflows, setOverflows] = useState(false);
+  const messageFontSize = isMobile ? 15 : 13;
+  const messageLineHeight = 1.6;
+  const previewHeight = messageFontSize * messageLineHeight * 6;
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!collapsible || !body) return;
+    const measure = () => setOverflows(body.scrollHeight > previewHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    return () => observer.disconnect();
+  }, [collapsible, previewHeight, content, attachments]);
+  const collapsed = collapsible && !expanded;
   const accentColor = fromNonHuman ? "var(--text-muted)" : "var(--accent)";
   const edge = `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`;
   return (
@@ -817,13 +847,22 @@ function UserMessage({
       >
         {(username ?? t("common.you")).toUpperCase()}
       </div>
+      <div
+        id={bodyId}
+        onFocusCapture={() => {
+          // Reveal clipped attachments when a keyboard user reaches them.
+          if (collapsed && overflows) onToggle?.();
+        }}
+        style={{ maxHeight: collapsed ? previewHeight : undefined, overflow: collapsed ? "hidden" : undefined }}
+      >
+      <div ref={bodyRef}>
       {content && (
         <div
           style={{
             color: "var(--text-secondary)",
             fontFamily: "'JetBrains Mono',monospace",
-            fontSize: isMobile ? 15 : 13,
-            lineHeight: 1.6,
+            fontSize: messageFontSize,
+            lineHeight: messageLineHeight,
             whiteSpace: "pre-wrap",
             overflowWrap: "break-word",
             wordBreak: "break-word",
@@ -841,6 +880,28 @@ function UserMessage({
           setLightboxSrc={setLightboxSrc}
           hasContent={!!content}
         />
+      )}
+      </div>
+      </div>
+      {collapsible && overflows && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={onToggle}
+          style={{
+            display: "block",
+            marginTop: 6,
+            padding: isMobile ? "8px 0" : "4px 0",
+            border: "none",
+            background: "transparent",
+            color: "var(--accent)",
+            fontSize: isMobile ? 14 : 12,
+            cursor: "pointer",
+          }}
+        >
+          {t(expanded ? "cards.userMessage.collapse" : "cards.userMessage.expand")}
+        </button>
       )}
       <div
         style={{

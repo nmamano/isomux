@@ -1,5 +1,5 @@
 // S6 of the office i18n loop (internal-docs/i18n-loop.md): the office scene and
-// its labels, the task board, the apps page, the schedules page, the agent list
+// its labels, the task board, the apps page, the schedules page
 // and the numbers all render in the language the signed-in user is on.
 //
 // The oracles are literal strings (ruling 14): an expectation read back through
@@ -23,7 +23,6 @@ const { OfficeView } = await import("./office/OfficeView.tsx");
 const { TaskView } = await import("./components/TaskView.tsx");
 const { AppsView } = await import("./components/AppsView.tsx");
 const { CronjobsView } = await import("./components/CronjobsView.tsx");
-const { AgentListView } = await import("./components/AgentListView.tsx");
 const { ContextBattery } = await import("./log-view/ContextBattery.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
@@ -100,25 +99,6 @@ const officeView = (language: Language) =>
     SCENE_STATE,
   );
 
-const agentList = (language: Language) =>
-  onLanguage(
-    language,
-    createElement(AgentListView, {
-      onFocus: noop,
-      onSpawn: noop,
-      onContextMenu: noop,
-      onOpenSettings: noop,
-      onOpenThemePicker: noop,
-      onOpenTasks: noop,
-      onOpenCronjobs: noop,
-      onOpenApps: noop,
-      onOpenUpdate: noop,
-      onToggleView: noop,
-    }),
-    // No agents, so the view shows its own empty state rather than rows.
-    { rooms: [ROOM], currentRoomId: ROOM.id, hasReceivedInitialState: true },
-  );
-
 const taskView = (language: Language) =>
   onLanguage(language, createElement(TaskView, { onClose: noop }), {
     rooms: [ROOM],
@@ -192,12 +172,6 @@ const ANCHOR = {
   // The nameplate badge on an agent parked for an answer, which is the word
   // ui/pending-prompt.ts now supplies as a key.
   badge: { ca: "permís", es: "permiso", en: "permission" },
-  // The agent list, which is the mobile face of the same room.
-  noAgents: {
-    ca: "Encara no hi ha agents",
-    es: "Aún no hay agentes",
-    en: "No agents yet",
-  },
   // The task board's empty table.
   noTasks: { ca: "No hi ha tasques", es: "No hay tareas", en: "No tasks" },
   // Its quick-add field, which proves the board's chrome and not just a cell.
@@ -317,18 +291,6 @@ describe("the pages", () => {
     schedules.rerender(cronjobsView(null));
     shows(schedules, ANCHOR.noRuns.en);
     schedules.unmount();
-  });
-});
-
-describe("the agent list", () => {
-  it("reads the language on its own empty state", () => {
-    const view = render(agentList("ca"));
-    shows(view, ANCHOR.noAgents.ca);
-    view.rerender(agentList("es"));
-    shows(view, ANCHOR.noAgents.es);
-    view.rerender(agentList(null));
-    shows(view, ANCHOR.noAgents.en);
-    view.unmount();
   });
 });
 

@@ -49,8 +49,6 @@ export const ca: Catalog = {
   "common.apps": "Apps",
   "common.changeTheme": "Canvia el tema",
 
-  "nav.showAgentList": "Mostra la llista d'agents",
-  "nav.showFloorView": "Mostra la vista de planta",
 
   "preferences.intro":
     "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Els meus dispositius.",
@@ -935,6 +933,8 @@ export const ca: Catalog = {
   "common.sender.agentInRoom": '{name} · agent · Sala "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programació",
+  "cards.userMessage.expand": "Expandeix el missatge",
+  "cards.userMessage.collapse": "Contrau el missatge",
   "cards.userMessage.toRemoteBoss": "Al cap remot",
   "cards.userMessage.toRemoteBossNamed": 'Al cap remot "{name}"',
   "cards.userMessage.editAndBranch": "Edita i ramifica",
@@ -1194,10 +1194,6 @@ export const ca: Catalog = {
   "common.current": "(actual)",
   "contextMenu.branched": "(ramificada)",
   "contextMenu.killAgent": "Elimina l'agent",
-  "agentList.roomEmpty": "{room} és buida",
-  "agentList.thisRoom": "Aquesta sala",
-  "agentList.noAgents": "Encara no hi ha agents",
-  "agentList.spawnHint": "Toca + per crear-ne un",
   "app.reconnecting": "S'està reconnectant…",
   "themes.dark": "Fosc",
   "themes.light": "Clar",

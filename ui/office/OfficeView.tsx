@@ -20,7 +20,6 @@ import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
-  ListIcon,
   ClockIcon,
   AppsIcon,
   SettingsIcon,
@@ -286,16 +285,6 @@ export function OfficeView({
     },
   ];
 
-  const mobileOfficeActions: NavAction[] = [
-    ...officeActions,
-    {
-      id: "list",
-      icon: ListIcon,
-      label: t("nav.showAgentList"),
-      onClick: () => dispatch({ type: "toggle_mobile_view" }),
-    },
-  ];
-
   return (
     <div
       style={{
@@ -313,7 +302,7 @@ export function OfficeView({
       {embed ? null : isMobile ? (
         <MobileHeader
           counts={counts}
-          actions={mobileOfficeActions}
+          actions={officeActions}
           updateAvailable={updateAvailable}
           onOpenUpdate={onOpenUpdate}
         />
