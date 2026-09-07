@@ -116,7 +116,8 @@ export class ProviderAccountManager {
     > = readOfficeEnvFile,
     private readonly userEnv: (userId: string) => Record<string, string> = (
       userId,
-    ) => managedUserEnvExists(userId) ? readManagedUserEnv(userId) ?? {} : {},
+    ) =>
+      managedUserEnvExists(userId) ? (readManagedUserEnv(userId) ?? {}) : {},
     private readonly users: () => Array<{ id: string }> = listUsers,
     private readonly personalHome: typeof personalProviderHome = personalProviderHome,
     private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,

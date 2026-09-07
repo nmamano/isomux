@@ -91,7 +91,9 @@ describe("managed env migration at real boot", () => {
     expect(readManagedUserEnv(id)).toBeNull();
     expect(buildEnvForUserId(id)?.LEGACY_ONLY).toBeUndefined();
     expect(updateUserById(id, { memberPrompt: "Updated" }).ok).toBe(true);
-    expect(JSON.parse(readFileSync(usersPath, "utf8"))[id]).not.toHaveProperty("envFile");
+    expect(JSON.parse(readFileSync(usersPath, "utf8"))[id]).not.toHaveProperty(
+      "envFile",
+    );
     expect(readFileSync(legacyPath, "utf8")).toBe("LEGACY_ONLY=ignored\n");
   });
 });

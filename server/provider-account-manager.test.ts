@@ -29,19 +29,38 @@ describe("ProviderAccountManager", () => {
       return disconnectedAccountClient();
     };
     const manager = new ProviderAccountManager(
-      () => {}, client as never, undefined, (userId) => userId,
-      () => ({}), client as never, () => ({}), () => ({}),
-      undefined, () => [{ id }],
+      () => {},
+      client as never,
+      undefined,
+      (userId) => userId,
+      () => ({}),
+      client as never,
+      () => ({}),
+      () => ({}),
+      undefined,
+      () => [{ id }],
     );
     try {
-      writeManagedUserEnv(id, { CODEX_HOME: codexDir, CLAUDE_CONFIG_DIR: claudeDir });
+      writeManagedUserEnv(id, {
+        CODEX_HOME: codexDir,
+        CLAUDE_CONFIG_DIR: claudeDir,
+      });
       const accounts = await manager.list(id);
       for (const provider of ["codex", "claude"] as const) {
-        expect(accounts.find((account) => account.provider === provider && account.scope === "personal"))
-          .toMatchObject({ explicitDirectory: true, accountStatus: "not_connected" });
+        expect(
+          accounts.find(
+            (account) =>
+              account.provider === provider && account.scope === "personal",
+          ),
+        ).toMatchObject({
+          explicitDirectory: true,
+          accountStatus: "not_connected",
+        });
       }
       expect(seen.some((env) => env.CODEX_HOME === codexDir)).toBe(true);
-      expect(seen.some((env) => env.CLAUDE_CONFIG_DIR === claudeDir)).toBe(true);
+      expect(seen.some((env) => env.CLAUDE_CONFIG_DIR === claudeDir)).toBe(
+        true,
+      );
     } finally {
       removeManagedUserEnv(id);
     }
@@ -51,17 +70,29 @@ describe("ProviderAccountManager", () => {
     const id = "managed-collision-member-a";
     const otherId = "managed-collision-member-b";
     const manager = new ProviderAccountManager(
-      () => {}, disconnectedAccountClient as never, undefined, (userId) => userId,
-      () => ({}), disconnectedAccountClient as never, () => ({}), () => ({}),
-      undefined, () => [{ id }, { id: otherId }],
+      () => {},
+      disconnectedAccountClient as never,
+      undefined,
+      (userId) => userId,
+      () => ({}),
+      disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      undefined,
+      () => [{ id }, { id: otherId }],
     );
-    const values = { CODEX_HOME: "/tmp/managed-collision-codex", CLAUDE_CONFIG_DIR: "/tmp/managed-collision-claude" };
+    const values = {
+      CODEX_HOME: "/tmp/managed-collision-codex",
+      CLAUDE_CONFIG_DIR: "/tmp/managed-collision-claude",
+    };
     try {
       writeManagedUserEnv(id, values);
       writeManagedUserEnv(otherId, values);
       const accounts = await manager.list(id);
       for (const provider of ["codex", "claude"] as const) {
-        const account = accounts.find((entry) => entry.provider === provider && entry.scope === "personal");
+        const account = accounts.find(
+          (entry) => entry.provider === provider && entry.scope === "personal",
+        );
         expect(account?.accountStatus).toBe("unavailable");
         expect(account?.error).toContain("another member's");
       }

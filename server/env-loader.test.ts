@@ -118,5 +118,4 @@ describe("managed user environment", () => {
       else process.env.GH_TOKEN = prior;
     }
   });
-
 });

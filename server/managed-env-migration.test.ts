@@ -111,5 +111,4 @@ describe("managed env boot migration", () => {
     ]);
     expect(logs.join("\n")).not.toContain("secret");
   });
-
 });

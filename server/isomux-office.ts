@@ -1147,7 +1147,8 @@ function resolveAndValidateEnv(
       : selfUserId
         ? getUserById(selfUserId)
         : undefined;
-    envFile = rec && managedUserEnvExists(rec.id) ? managedUserEnvPath(rec.id) : null;
+    envFile =
+      rec && managedUserEnvExists(rec.id) ? managedUserEnvPath(rec.id) : null;
   }
   if (!envFile) return { ok: true, envFile: null };
   try {
