@@ -850,7 +850,7 @@ export const en = {
   "apiCall.env.saveUser": "Save managed environment",
   "apiCall.env.readOffice": "Read office environment",
   "apiCall.env.saveOffice": "Save office environment",
-  "apiCall.inbox.messageBoss": "Message remote boss",
+  "apiCall.inbox.messageBoss": "Sent message to external token",
   "apiCall.inbox.drain": "Drain API token inbox",
   "apiCall.memory.read": "Read memory",
   "apiCall.memory.append": "Append memory",

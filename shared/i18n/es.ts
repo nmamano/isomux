@@ -865,7 +865,7 @@ export const es: Catalog = {
   "apiCall.env.saveUser": "Guardar el entorno gestionado",
   "apiCall.env.readOffice": "Leer el entorno de la oficina",
   "apiCall.env.saveOffice": "Guardar el entorno de la oficina",
-  "apiCall.inbox.messageBoss": "Enviar un mensaje al jefe remoto",
+  "apiCall.inbox.messageBoss": "Mensaje enviado al token externo",
   "apiCall.inbox.drain": "Vaciar la bandeja del token de API",
   "apiCall.memory.read": "Leer la memoria",
   "apiCall.memory.append": "Añadir a la memoria",
