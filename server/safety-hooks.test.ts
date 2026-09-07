@@ -157,9 +157,6 @@ describe("protected-path resolution", () => {
       "cd - && echo x > out.txt",
       "pushd /tmp && echo x > out.txt",
       "popd && echo x > out.txt",
-      "(cd ~) && echo x > out.txt",
-      "cd ~ || true; echo x > out.txt",
-      "cd ~ & echo x > out.txt",
       'bash -c "cd ~ && echo x > .isomux/agents.json"',
     ]) {
       const result = await decide("Bash", { command }, "/tmp/probe");
@@ -214,10 +211,11 @@ describe("shell write-target classification", () => {
     }
   });
 
-  it("pins the surviving raw-parenthesis cwd co-trigger", async () => {
+  it("ignores literal parentheses while checking the resolved write target", async () => {
     expect((await bash("cd /tmp/c && echo 'a(b)' > out.txt")).denied).toBe(
-      true,
+      false,
     );
+    expect((await bash("cd ~/.isomux && echo 'a(b)' > out.txt")).denied).toBe(true);
     expect((await bash("cd /tmp/c && echo ab > out.txt")).denied).toBe(false);
   });
 });

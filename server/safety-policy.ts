@@ -1176,7 +1176,13 @@ type ShellWord = {
   text: string;
   quoted: boolean;
   redirect?: "input" | "output";
+  dynamic?: boolean;
 };
+
+/** Optional control-flow view; other policy checks keep their flat command list. */
+type ShellSyntax =
+  | { words: ShellWord[]; substitutions: ShellSyntax[][] }
+  | { operator: string };
 
 /** A resolved command: the program being run, and the words after it. */
 type EffectiveCommand = { name: string; args: ShellWord[] };
@@ -1210,28 +1216,34 @@ function parseCommands(
   cmd: string,
   keepInputTargets = false,
   keepOutputTargets = false,
+  syntax?: ShellSyntax[],
 ): ShellWord[][] {
   const commands: ShellWord[][] = [];
   let words: ShellWord[] = [];
   let cur = "";
   let curQuoted = false;
+  let curDynamic = false;
+  let substitutions: ShellSyntax[][] = [];
   let dropWord = false; // set after a redirection operator: its target is noise
   let keepAsRedirect: false | "input" | "output" = false;
 
   const endWord = () => {
     if (!cur) return;
-    if (!dropWord) words.push({ text: cur, quoted: curQuoted });
+    if (!dropWord) words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic });
     else if (keepAsRedirect)
-      words.push({ text: cur, quoted: curQuoted, redirect: keepAsRedirect });
+      words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic, redirect: keepAsRedirect });
     dropWord = false;
     keepAsRedirect = false;
     cur = "";
     curQuoted = false;
+    curDynamic = false;
   };
   const endCommand = () => {
     endWord();
     if (words.length) commands.push(words);
+    if (words.length || substitutions.length) syntax?.push({ words, substitutions });
     words = [];
+    substitutions = [];
   };
 
   let i = 0;
@@ -1240,13 +1252,17 @@ function parseCommands(
 
     if (ch === "$" && cmd[i + 1] === "(") {
       const end = matchParen(cmd, i + 1);
+      const nested: ShellSyntax[] = [];
       commands.push(
         ...parseCommands(
           cmd.slice(i + 2, end),
           keepInputTargets,
           keepOutputTargets,
+          syntax ? nested : undefined,
         ),
       );
+      if (syntax) substitutions.push(nested);
+      curDynamic = true;
       cur += "$()";
       i = end + 1;
       continue;
@@ -1254,13 +1270,17 @@ function parseCommands(
     if (ch === "`") {
       const end = cmd.indexOf("`", i + 1);
       const stop = end === -1 ? cmd.length : end;
+      const nested: ShellSyntax[] = [];
       commands.push(
         ...parseCommands(
           cmd.slice(i + 1, stop),
           keepInputTargets,
           keepOutputTargets,
+          syntax ? nested : undefined,
         ),
       );
+      if (syntax) substitutions.push(nested);
+      curDynamic = true;
       cur += "``";
       i = stop + 1;
       continue;
@@ -1286,13 +1306,17 @@ function parseCommands(
         }
         if (cmd[i] === "$" && cmd[i + 1] === "(") {
           const end = matchParen(cmd, i + 1);
+          const nested: ShellSyntax[] = [];
           commands.push(
             ...parseCommands(
               cmd.slice(i + 2, end),
               keepInputTargets,
               keepOutputTargets,
+              syntax ? nested : undefined,
             ),
           );
+          if (syntax) substitutions.push(nested);
+          curDynamic = true;
           cur += "$()";
           i = end + 1;
           continue;
@@ -1300,17 +1324,22 @@ function parseCommands(
         if (cmd[i] === "`") {
           const end = cmd.indexOf("`", i + 1);
           const stop = end === -1 ? cmd.length : end;
+          const nested: ShellSyntax[] = [];
           commands.push(
             ...parseCommands(
               cmd.slice(i + 1, stop),
               keepInputTargets,
               keepOutputTargets,
+              syntax ? nested : undefined,
             ),
           );
+          if (syntax) substitutions.push(nested);
+          curDynamic = true;
           cur += "``";
           i = stop + 1;
           continue;
         }
+        if (cmd[i] === "$") curDynamic = true;
         cur += cmd[i];
         i++;
       }
@@ -1351,12 +1380,21 @@ function parseCommands(
       continue;
     }
     if (ch === ";" || ch === "|" || ch === "&" || ch === "\n") {
+      // &> and &>> redirect both descriptors; their ampersand is not a job.
+      if (ch === "&" && cmd[i + 1] === ">") {
+        i++;
+        continue;
+      }
       endCommand();
-      i++;
+      const paired = (ch === "&" || ch === "|") && cmd[i + 1] === ch;
+      const pipeBoth = ch === "|" && cmd[i + 1] === "&";
+      syntax?.push({ operator: pipeBoth ? "|&" : paired ? ch + ch : ch });
+      i += paired || pipeBoth ? 2 : 1;
       continue;
     }
     if (ch === "(" || ch === ")") {
       endCommand();
+      syntax?.push({ operator: ch });
       i++;
       continue;
     }
@@ -1365,6 +1403,11 @@ function parseCommands(
       i++;
       continue;
     }
+    if (syntax && ch === "#" && !cur) {
+      while (i < cmd.length && cmd[i] !== "\n") i++;
+      continue;
+    }
+    if ("$*?[]{}".includes(ch)) curDynamic = true;
     cur += ch;
     i++;
   }
@@ -1771,10 +1814,9 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
     return inPlace
       ? [
           ...redirects,
-          ...readerPathOperands(args, SED_GRAMMAR).map((text) => ({
-            text,
-            quoted: false,
-          })),
+          ...readerPathOperands(args, SED_GRAMMAR).map((text) =>
+            args.find((word) => word.text === text) ?? { text, quoted: false },
+          ),
         ]
       : redirects;
   }
@@ -1817,8 +1859,31 @@ function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {
   return (
     !target ||
     target.text === "-" ||
+    target.dynamic ||
     target.text.includes("$") ||
     target.text.includes("``")
+  );
+}
+
+// null means the envelope omitted cwd; UNKNOWN_DIRECTORY means a shell operation
+// made it unresolvable. Keep the causes separate for the denial message.
+const UNKNOWN_DIRECTORY = Symbol("unknown shell directory");
+type ShellDirectory = string | null | typeof UNKNOWN_DIRECTORY;
+type DirectorySet = Set<ShellDirectory>;
+type DirectoryFlow = { success: DirectorySet; failure: DirectorySet };
+
+function unionDirectories(...sets: DirectorySet[]): DirectorySet {
+  return new Set(sets.flatMap((set) => [...set]));
+}
+
+function denyShellPath(filePath: string, nonLiteral: boolean): PolicyDecision {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+      (nonLiteral
+        ? `Reason: isomux could not resolve the write target because it is not a literal path.\n\n`
+        : `Reason: isomux could not resolve the relative write target after a shell directory change.\n\n`) +
+      `Bash target: ${filePath}\n\n` +
+      `Tell the user which shell target could not be resolved, and use an absolute write target.`,
   );
 }
 
@@ -1826,91 +1891,209 @@ function shellWriteDecision(
   command: string,
   initialCwd: unknown,
   depth = 0,
+  inheritedDirectories?: DirectorySet,
 ): PolicyDecision | null {
-  let effectiveCwd = policyCwd(initialCwd);
-  let directoryChangeMadeCwdUnknown = false;
-  const uncertainControl =
-    /(?:^|[;&|()\s])(?:cd|pushd|popd)(?:\s|$)/.test(command) &&
-    /\|\||(^|[^&])&([^&]|$)|[()]/.test(command);
-  if (uncertainControl) {
-    effectiveCwd = null;
-    directoryChangeMadeCwdUnknown = true;
-  }
-
-  const commandWords = parseCommands(stripHeredocBodies(command), false, true);
-  for (const words of commandWords) {
-    const redirects = words.filter((word) => word.redirect === "output");
-    const candidates = commandCandidates(
-      words.filter((word) => word.redirect !== "output"),
-    );
-    if (candidates.length === 0) {
-      for (const target of redirects) {
-        const resolved = resolvePath(target.text, effectiveCwd);
-        if (
-          resolved === null &&
-          (directoryChangeMadeCwdUnknown ||
-            isProtectedRelativeCandidate(target.text))
-        ) {
-          return denyMissingCwd("Bash", target.text);
-        }
-        if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
-          return denyMessage(
-            "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
-              "Read operations (cat, ls, grep, etc.) are permitted.",
-            command,
-          );
-        }
+  const syntax: ShellSyntax[] = [];
+  parseCommands(stripHeredocBodies(command), false, true, syntax);
+  let decision: PolicyDecision | null = null;
+  const unchanged = (directories: DirectorySet): DirectoryFlow => ({
+    success: directories, failure: directories,
+  });
+  const checkTarget = (target: ShellWord, directories: DirectorySet) => {
+    // Do not turn a shell expansion into a fictitious literal directory. This
+    // tightening is bounded to .isomux, not arbitrary variable-based targets.
+    if (target.dynamic && target.text.split("/").includes(".isomux")) {
+      decision = denyShellPath(target.text, true);
+      return;
+    }
+    for (const directory of directories) {
+      const resolved = resolvePath(target.text, directory);
+      if (resolved === null && (directory === UNKNOWN_DIRECTORY || isProtectedRelativeCandidate(target.text))) {
+        decision = directory === UNKNOWN_DIRECTORY
+          ? denyShellPath(target.text, Boolean(target.dynamic))
+          : denyMissingCwd("Bash", target.text);
+        return;
+      }
+      if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
+        decision = denyMessage(
+          "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
+            "Read operations (cat, ls, grep, etc.) are permitted.",
+          command,
+        );
+        return;
       }
     }
+  };
+
+  const simple = (
+    node: Extract<ShellSyntax, { words: ShellWord[] }>,
+    directories: DirectorySet,
+  ): DirectoryFlow => {
+    for (const substitution of node.substitutions) {
+      // Substitutions run in a child shell; their cd cannot move the parent.
+      walk(substitution, directories);
+    }
+    const redirects = node.words.filter((word) => word.redirect === "output");
+    const candidates = commandCandidates(node.words.filter((word) => word.redirect !== "output"));
+    if (candidates.length === 0) {
+      for (const target of redirects) checkTarget(target, directories);
+    }
+    let success = directories;
     for (const candidate of candidates) {
-      const commandWithRedirects = {
-        ...candidate,
-        args: [...candidate.args, ...redirects],
-      };
-      for (const target of writeTargets(commandWithRedirects)) {
-        const resolved = resolvePath(target.text, effectiveCwd);
-        if (
-          resolved === null &&
-          (directoryChangeMadeCwdUnknown ||
-            isProtectedRelativeCandidate(target.text))
-        ) {
-          return denyMissingCwd("Bash", target.text);
-        }
-        if (resolved === null) continue;
-        if (isAtOrBelowStateRoot(resolved)) {
-          return denyMessage(
-            "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
-              "Read operations (cat, ls, grep, etc.) are permitted.",
-            command,
-          );
-        }
+      for (const target of writeTargets({ ...candidate, args: [...candidate.args, ...redirects] })) {
+        checkTarget(target, directories);
       }
-
       if (candidate.name === "popd" || candidate.name === "pushd") {
-        effectiveCwd = null;
-        directoryChangeMadeCwdUnknown = true;
+        success = new Set([UNKNOWN_DIRECTORY]);
       } else if (candidate.name === "cd") {
-        const target = candidate.args.find(
-          (word) => !word.text.startsWith("-"),
-        );
-        if (uncertainControl || dynamicDirectoryTarget(target)) {
-          effectiveCwd = null;
-          directoryChangeMadeCwdUnknown = true;
+        const target = candidate.args.find((word) => !word.text.startsWith("-"));
+        if (dynamicDirectoryTarget(target)) {
+          success = new Set([UNKNOWN_DIRECTORY]);
         } else {
-          effectiveCwd = resolvePath(target!.text, effectiveCwd);
-          directoryChangeMadeCwdUnknown = effectiveCwd === null;
+          success = new Set([...directories].map((directory) =>
+            resolvePath(target!.text, directory) ?? UNKNOWN_DIRECTORY,
+          ));
         }
       }
-
       if (depth < 4) {
         for (const payload of shellPayloads(candidate)) {
-          const nested = shellWriteDecision(payload, effectiveCwd, depth + 1);
-          if (nested) return nested;
+          const nested = shellWriteDecision(payload, initialCwd, depth + 1, directories);
+          if (nested) decision = nested;
         }
       }
     }
-  }
-  return null;
+    // A failed cd leaves the old directory in place. && takes only success;
+    // || takes only failure; ; and newline must preserve both possibilities.
+    return { success, failure: directories };
+  };
+
+  const walk = (nodes: ShellSyntax[], directories: DirectorySet): DirectoryFlow => {
+    type Node =
+      | { kind: "simple"; command: Extract<ShellSyntax, { words: ShellWord[] }> }
+      | { kind: "group"; body: Node; redirects: Node[] }
+      | { kind: "binary"; operator: string; left: Node; right: Node }
+      | { kind: "empty" };
+    const empty: Node = { kind: "empty" };
+    const precedence: Record<string, number> = { ";": 1, "\n": 1, "&": 1, "&&": 2, "||": 2, "|": 3, "|&": 3 };
+    const values: Node[] = [];
+    const operators: string[] = [];
+    const starts: number[] = [];
+    let needsValue = true;
+    let opaque = false;
+    const reduce = () => {
+      const operator = operators.pop()!;
+      const right = values.pop() ?? empty;
+      const left = values.pop() ?? empty;
+      values.push({ kind: "binary", operator, left, right });
+    };
+    const append = (node: Node) => {
+      if (!needsValue) {
+        const previous = values.at(-1);
+        if (previous?.kind === "group" && node.kind === "simple" &&
+          node.command.words.every((word) => word.redirect || /^\d+$/.test(word.text))) {
+          previous.redirects.push(node);
+          return;
+        }
+        // Functions and other syntax outside this small shell grammar do not
+        // establish a trustworthy directory. Still inspect every named target.
+        opaque = true;
+        const left = values.pop() ?? empty;
+        values.push({ kind: "binary", operator: ";", left, right: node });
+      } else values.push(node);
+      needsValue = false;
+    };
+    // Build the precedence tree with stacks, so long lists and deeply nested
+    // groups use linear space instead of recursion and repeated array copies.
+    for (const token of nodes) {
+      if ("words" in token) {
+        append({ kind: "simple", command: token });
+      } else if (token.operator === "(") {
+        if (!needsValue) opaque = true;
+        operators.push("(");
+        starts.push(values.length);
+        needsValue = true;
+      } else if (token.operator === ")") {
+        if (needsValue && operators.at(-1) !== "(") values.push(empty);
+        while (operators.length && operators.at(-1) !== "(") reduce();
+        if (operators.pop() !== "(") opaque = true;
+        const start = starts.pop() ?? 0;
+        const body = values.length > start ? values.pop()! : empty;
+        needsValue = true;
+        append({ kind: "group", body, redirects: [] });
+      } else {
+        if (needsValue) {
+          // Newlines after &&, ||, or | continue the same command.
+          if (token.operator === "\n") continue;
+          values.push(empty);
+        }
+        while (operators.length && operators.at(-1) !== "(" &&
+          precedence[operators.at(-1)!] >= precedence[token.operator]) reduce();
+        operators.push(token.operator);
+        needsValue = true;
+      }
+    }
+    if (needsValue && operators.length) values.push(empty);
+    while (operators.length) {
+      if (operators.at(-1) === "(") { operators.pop(); opaque = true; }
+      else reduce();
+    }
+    if (values.length > 1) opaque = true;
+    const hasDirectoryChange = nodes.some((node) => {
+      if (!("words" in node)) return false;
+      // Opaque syntax has no complete command grammar. A keyword list here
+      // could hide a directory change behind an unrecognized control word.
+      return node.words.some((word) => !word.quoted && !word.redirect && ["cd", "pushd", "popd"].includes(word.text));
+    });
+    let result = unchanged(directories);
+    const pending: Array<() => void> = [];
+    const schedule = (node: Node, input: DirectorySet, receive: (flow: DirectoryFlow) => void) => {
+      const finish = (flow: DirectoryFlow) => pending.push(() => receive(flow));
+      pending.push(() => {
+        if (decision || input.size === 0 || node.kind === "empty") { finish(unchanged(input)); return; }
+        if (node.kind === "simple") {
+          finish(simple(node.command, opaque && hasDirectoryChange ? new Set([UNKNOWN_DIRECTORY]) : input));
+          return;
+        }
+        if (node.kind === "group") {
+          schedule(node.body, input, () => {
+            // A group's redirects open in the parent, and cd in the child
+            // never changes either parent status branch.
+            finish(unchanged(input));
+            for (const redirect of node.redirects) schedule(redirect, input, () => {});
+          });
+          return;
+        }
+        schedule(node.left, input, (left) => {
+          switch (node.operator) {
+            case "&&":
+              schedule(node.right, left.success, (right) => finish({ success: right.success, failure: unionDirectories(left.failure, right.failure) }));
+              break;
+            case "||":
+              schedule(node.right, left.failure, (right) => finish({ success: unionDirectories(left.success, right.success), failure: right.failure }));
+              break;
+            case "&":
+              // Only the left list is a job; the right list runs in the parent.
+              schedule(node.right, input, finish);
+              break;
+            case "|":
+            case "|&":
+              schedule(node.right, input, () => finish(unchanged(input)));
+              break;
+            default: {
+              const next = unionDirectories(left.success, left.failure);
+              schedule(node.right, next, finish);
+            }
+          }
+        });
+      });
+    };
+    for (const node of values) schedule(node, directories, (flow) => { result = flow; });
+    while (pending.length) pending.pop()!();
+    return result;
+  };
+
+  walk(syntax, inheritedDirectories ?? new Set([policyCwd(initialCwd)]));
+  return decision;
 }
 
 function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {

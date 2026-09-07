@@ -267,13 +267,9 @@ const corpus: Case[] = [
     "compound redirect remains denied",
     `cd /tmp && echo ok; echo x > ${join(STATE_ROOT, "agents.json")}`,
   ),
-  divergence(
-    shell(
-      "raw parenthesis cwd co-trigger remains denied",
-      "cd /tmp/c && echo 'a(b)' > out.txt",
-    ),
-    false,
-    true,
+  shell(
+    "literal parentheses no longer discard the cwd",
+    "cd /tmp/c && echo 'a(b)' > out.txt",
   ),
   shell(
     "plain literal cd and relative redirect remains allowed",
@@ -505,9 +501,6 @@ describe("provider-neutral safety-policy extraction", () => {
         .replace('  if (command.name === "perl") {', "  if (false) {"),
     );
     const expectedChanges = [
-      "quoted redirect prose now allows",
-      "compound sed program is not a write target",
-      "compound bun subcommand is not a write target",
       "protected sed read now allows",
       "protected awk read now allows",
       "protected perl read now allows",
@@ -520,6 +513,21 @@ describe("provider-neutral safety-policy extraction", () => {
       else expect(current, testCase.name).toEqual(old);
     }
     expect(changed).toEqual(expectedChanges);
+    // These exact task repros no longer acquire an unknown cwd from literal
+    // parentheses. A protected cwd makes their bogus positional targets matter
+    // without depending on that removed parser bug.
+    for (const name of [
+      "quoted redirect prose now allows",
+      "compound sed program is not a write target",
+      "compound bun subcommand is not a write target",
+    ]) {
+      const original = corpus.find((entry) => entry.name === name)!;
+      const command = String(original.toolInput.command);
+      expect(command).toContain("cd /tmp/rev1-copy");
+      const testCase = { ...original, toolInput: { command: command.replace("cd /tmp/rev1-copy", `cd ${STATE_ROOT}`) } };
+      expect((await decide(createSafetyHooks, testCase)).denied, name).toBe(false);
+      expect((await decide(oldClassifier, testCase)).denied, name).toBe(true);
+    }
     for (const name of expectedChanges) {
       const testCase = corpus.find((entry) => entry.name === name)!;
       expect((await decide(createSafetyHooks, testCase)).denied, name).toBe(
@@ -679,8 +687,8 @@ describe("provider-neutral safety-policy extraction", () => {
         "unresolved cd keeps the previous cwd",
         await mutantFactory("cwd-stale", (source) =>
           source.replace(
-            "if (uncertainControl || dynamicDirectoryTarget(target)) {\n          effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = true;",
-            "if (uncertainControl || dynamicDirectoryTarget(target)) {\n          effectiveCwd = policyCwd(initialCwd);\n          directoryChangeMadeCwdUnknown = false;",
+            "if (dynamicDirectoryTarget(target)) {\n          success = new Set([UNKNOWN_DIRECTORY]);",
+            "if (dynamicDirectoryTarget(target)) {\n          success = directories;",
           ),
         ),
         tripwires.unresolvedCd,
@@ -701,8 +709,8 @@ describe("provider-neutral safety-policy extraction", () => {
         "literal protected cd operand is not checked",
         await mutantFactory("literal-cd-skipped", (source) =>
           source.replace(
-            "effectiveCwd = resolvePath(target!.text, effectiveCwd);",
-            "effectiveCwd = policyCwd(initialCwd);",
+            "resolvePath(target!.text, directory) ?? UNKNOWN_DIRECTORY,",
+            "directory,",
           ),
         ),
         tripwires.literalProtectedCd,
@@ -711,8 +719,8 @@ describe("provider-neutral safety-policy extraction", () => {
         "dynamic cd with a relative write is allowed",
         await mutantFactory("dynamic-cd-allowed", (source) =>
           source.replace(
-            "effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = true;\n        } else {",
-            "effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = false;\n        } else {",
+            "if (dynamicDirectoryTarget(target)) {\n          success = new Set([UNKNOWN_DIRECTORY]);",
+            "if (dynamicDirectoryTarget(target)) {\n          success = new Set([null]);",
           ),
         ),
         tripwires.dynamicCd,
