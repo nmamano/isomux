@@ -3089,39 +3089,47 @@ function buildExecutorDeps(
         );
       },
       sendAsApi: (agentId, text, username, device, tokenId) =>
-        sendApiTokenMessage(tokenId, {
-          targetAgentId: agentId,
-          targetAgentName: agentManager.getAgentDisplay(agentId)?.name ?? agentId,
-          targetRoomName: agentManager.getAgentDisplay(agentId)?.roomName ?? "",
-          text,
-        }, () => new Promise((resolve) => {
-          let settled = false;
-          const settle = (result: UserSendAcceptance) => {
-            if (settled) return;
-            settled = true;
-            resolve(result);
-          };
-          void agentManager
-            .sendMessage(agentId, text, username, device, undefined, {
-              onAccepted: settle,
-            })
-            .then(() => {
-              settle({
-                ok: false,
-                status: 500,
-                code: "acceptance_missing",
-                message: "The message did not reach an acceptance decision.",
-              });
-            })
-            .catch(() => {
-              settle({
-                ok: false,
-                status: 500,
-                code: "send_failed",
-                message: "The message could not be sent.",
-              });
-            });
-        })),
+        sendApiTokenMessage(
+          tokenId,
+          {
+            targetAgentId: agentId,
+            targetAgentName:
+              agentManager.getAgentDisplay(agentId)?.name ?? agentId,
+            targetRoomName:
+              agentManager.getAgentDisplay(agentId)?.roomName ?? "",
+            text,
+          },
+          () =>
+            new Promise((resolve) => {
+              let settled = false;
+              const settle = (result: UserSendAcceptance) => {
+                if (settled) return;
+                settled = true;
+                resolve(result);
+              };
+              void agentManager
+                .sendMessage(agentId, text, username, device, undefined, {
+                  onAccepted: settle,
+                })
+                .then(() => {
+                  settle({
+                    ok: false,
+                    status: 500,
+                    code: "acceptance_missing",
+                    message:
+                      "The message did not reach an acceptance decision.",
+                  });
+                })
+                .catch(() => {
+                  settle({
+                    ok: false,
+                    status: 500,
+                    code: "send_failed",
+                    message: "The message could not be sent.",
+                  });
+                });
+            }),
+        ),
       sendAsAgent: (
         receiverId,
         senderAgentId,

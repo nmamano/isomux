@@ -33,7 +33,11 @@ export interface StorageDeps {
   applyPrune(plan: PrunePlan): PruneResult;
 }
 
-const TARGETS: readonly PruneTarget[] = ["transcripts", "attachments", "token-logs"];
+const TARGETS: readonly PruneTarget[] = [
+  "transcripts",
+  "attachments",
+  "token-logs",
+];
 
 // A prune that could reach today's files is not a retention policy, it is a
 // wipe. The floor is a guard rail, not a recommendation.

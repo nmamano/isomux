@@ -487,26 +487,43 @@ function targetRoot(target: PruneTarget, deps: PruneDeps): string {
   return target === "token-logs" ? deps.tokenLogsDir : deps.logsDir;
 }
 
-function planTokenLogs(deps: PruneDeps, policy: PrunePolicy, ledger: SkipLedger): PrunePlan {
+function planTokenLogs(
+  deps: PruneDeps,
+  policy: PrunePolicy,
+  ledger: SkipLedger,
+): PrunePlan {
   const root = targetRoot("token-logs", deps);
   const candidates: PruneCandidate[] = [];
   // Scan independently of credentials: revoked tokens retain their logs.
   let names: string[];
   try {
-    if (!lstatSync(root).isDirectory()) return finishPlan("token-logs", policy, candidates, ledger);
+    if (!lstatSync(root).isDirectory())
+      return finishPlan("token-logs", policy, candidates, ledger);
     names = readdirSync(root);
-  } catch { return finishPlan("token-logs", policy, candidates, ledger); }
+  } catch {
+    return finishPlan("token-logs", policy, candidates, ledger);
+  }
   for (const name of names) {
     if (!/^[a-f0-9]{16}\.jsonl$/.test(name)) continue;
     let stat;
-    try { stat = lstatSync(join(root, name)); } catch { continue; }
+    try {
+      stat = lstatSync(join(root, name));
+    } catch {
+      continue;
+    }
     if (!stat.isFile()) continue;
     const ageDays = (deps.now - stat.mtimeMs) / DAY_MS;
     if (ageDays < policy.olderThanDays) {
       addSkip(ledger, name, "too-recent", stat.size);
       continue;
     }
-    candidates.push({ path: name, agentId: "", bytes: stat.size, ageDays, mtimeMs: stat.mtimeMs });
+    candidates.push({
+      path: name,
+      agentId: "",
+      bytes: stat.size,
+      ageDays,
+      mtimeMs: stat.mtimeMs,
+    });
   }
   return finishPlan("token-logs", policy, candidates, ledger);
 }
@@ -521,8 +538,8 @@ function planPruneDetailed(
     target === "token-logs"
       ? planTokenLogs(deps, policy, ledger)
       : target === "transcripts"
-      ? planTranscripts(deps, policy, ledger)
-      : planAttachments(deps, policy, ledger);
+        ? planTranscripts(deps, policy, ledger)
+        : planAttachments(deps, policy, ledger);
   return { plan, sparedBy: ledger.byPath };
 }
 

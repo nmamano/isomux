@@ -2,7 +2,19 @@
 // persisted; api-tokens.json stores only SHA-256 hashes plus display metadata.
 
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
-import { appendFileSync, closeSync, createReadStream, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, truncateSync } from "fs";
+import {
+  appendFileSync,
+  closeSync,
+  createReadStream,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  statSync,
+  truncateSync,
+} from "fs";
 import { StringDecoder } from "string_decoder";
 import type { UserSendAcceptance } from "./internal-types.ts";
 import { join } from "path";
@@ -93,11 +105,15 @@ function ensureLoaded(): void {
     ) {
       throw new Error("not an object");
     }
-    const records = parsed as Record<string, Partial<StoredApiToken> & { inbox?: ApiTokenInboxMessage[] }>;
+    const records = parsed as Record<
+      string,
+      Partial<StoredApiToken> & { inbox?: ApiTokenInboxMessage[] }
+    >;
     let migrated = false;
     for (const [id, value] of Object.entries(records)) {
       if (
-        !value || value.id !== id ||
+        !value ||
+        value.id !== id ||
         !/^[a-f0-9]{16}$/.test(id) ||
         typeof value.userId !== "string" ||
         typeof value.name !== "string" ||
@@ -135,19 +151,24 @@ function ensureLoaded(): void {
       }
       let previous = 0;
       const ordered = inbox.every((message) => {
-        const valid = message.sequence !== undefined && message.sequence > previous;
+        const valid =
+          message.sequence !== undefined && message.sequence > previous;
         previous = message.sequence;
         return valid;
       });
-      if (!ordered) for (const message of inbox) message.sequence = ++lastSequence;
+      if (!ordered)
+        for (const message of inbox) message.sequence = ++lastSequence;
       // Only the small legacy inbox needs a dedupe set. This also handles a
       // crash after part of the migration appended but before persist().
       const pendingIds = new Set(inbox.map((message) => message.id));
       let logSequence = 0;
       let migrationFailed = false;
       try {
-        const hint = scanLogSync(id, (entry) => { pendingIds.delete(entry.id); });
-        if (hint.tailSequence === 0) for (const message of inbox) pendingIds.add(message.id);
+        const hint = scanLogSync(id, (entry) => {
+          pendingIds.delete(entry.id);
+        });
+        if (hint.tailSequence === 0)
+          for (const message of inbox) pendingIds.add(message.id);
         logSequence = hint.tailSequence;
         for (const message of inbox) {
           if (pendingIds.has(message.id)) {
@@ -161,7 +182,11 @@ function ensureLoaded(): void {
         migrationFailed = true;
       }
       lastSequence = Math.max(lastSequence, logSequence);
-      if (!migrationFailed && (value.inbox !== undefined || lastSequence !== value.lastSequence)) migrated = true;
+      if (
+        !migrationFailed &&
+        (value.inbox !== undefined || lastSequence !== value.lastSequence)
+      )
+        migrated = true;
       const record: StoredApiToken = {
         id,
         userId: value.userId,
@@ -181,10 +206,17 @@ function ensureLoaded(): void {
       lastUsedPersistedAt.set(id, record.lastUsedAt ?? 0);
     }
     if (migrated) {
-      try { persist(); } catch (err) { console.error("Could not save API token migration:", errMessage(err)); }
+      try {
+        persist();
+      } catch (err) {
+        console.error("Could not save API token migration:", errMessage(err));
+      }
     }
   } catch (err) {
-    if (!(err instanceof SyntaxError) && !(err instanceof Error && err.message === "not an object")) {
+    if (
+      !(err instanceof SyntaxError) &&
+      !(err instanceof Error && err.message === "not an object")
+    ) {
       storeLoadFailed = true;
       console.error("Could not load API tokens:", errMessage(err));
       return;
@@ -207,18 +239,33 @@ function logPath(id: string): string {
   return join(API_TOKEN_LOG_DIR, `${id}.jsonl`);
 }
 
-function fileHint(id: string): Pick<LogHint, "ino" | "size" | "mtimeMs" | "ctimeMs"> {
+function fileHint(
+  id: string,
+): Pick<LogHint, "ino" | "size" | "mtimeMs" | "ctimeMs"> {
   try {
     const stat = statSync(logPath(id));
-    return { ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, ctimeMs: stat.ctimeMs };
+    return {
+      ino: stat.ino,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      ctimeMs: stat.ctimeMs,
+    };
   } catch (err) {
     if ((err as { code?: string }).code !== "ENOENT") throw err;
     return { ino: 0, size: 0, mtimeMs: 0, ctimeMs: 0 };
   }
 }
 
-function sameFile(a: ReturnType<typeof fileHint>, b: ReturnType<typeof fileHint>): boolean {
-  return a.ino === b.ino && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+function sameFile(
+  a: ReturnType<typeof fileHint>,
+  b: ReturnType<typeof fileHint>,
+): boolean {
+  return (
+    a.ino === b.ino &&
+    a.size === b.size &&
+    a.mtimeMs === b.mtimeMs &&
+    a.ctimeMs === b.ctimeMs
+  );
 }
 
 function appendLog(id: string, entry: ApiTokenLogEntry): void {
@@ -240,9 +287,13 @@ function appendLog(id: string, entry: ApiTokenLogEntry): void {
 }
 
 function refreshLog(record: StoredApiToken): LogHint {
-  if (blockedLogs.has(record.id)) throw new Error("API token log recovery is unavailable");
+  if (blockedLogs.has(record.id))
+    throw new Error("API token log recovery is unavailable");
   const previous = logHints.get(record.id);
-  const hint = previous && sameFile(previous, fileHint(record.id)) ? previous : scanLogSync(record.id);
+  const hint =
+    previous && sameFile(previous, fileHint(record.id))
+      ? previous
+      : scanLogSync(record.id);
   record.lastSequence = Math.max(record.lastSequence, hint.tailSequence);
   return hint;
 }
@@ -259,9 +310,15 @@ function commitEntry(record: StoredApiToken, entry: ApiTokenLogEntry): void {
 
 function parseLogEntry(line: string, previous: number): ApiTokenLogEntry {
   const entry = JSON.parse(line) as ApiTokenLogEntry;
-  if (!entry || !Number.isSafeInteger(entry.sequence) || entry.sequence <= previous ||
-      typeof entry.id !== "string" || typeof entry.text !== "string" || typeof entry.sentAt !== "number" ||
-      (entry.direction !== "from_agent" && entry.direction !== "to_agent")) {
+  if (
+    !entry ||
+    !Number.isSafeInteger(entry.sequence) ||
+    entry.sequence <= previous ||
+    typeof entry.id !== "string" ||
+    typeof entry.text !== "string" ||
+    typeof entry.sentAt !== "number" ||
+    (entry.direction !== "from_agent" && entry.direction !== "to_agent")
+  ) {
     throw new Error("Invalid API token log entry");
   }
   return entry;
@@ -270,7 +327,10 @@ function parseLogEntry(line: string, previous: number): ApiTokenLogEntry {
 // Recover only the incomplete suffix of a short append. Complete but corrupt
 // lines quarantine this token's file, keeping its bytes for inspection while
 // allowing other credentials and the office to start.
-function scanLogSync(id: string, visit?: (entry: ApiTokenLogEntry) => void): LogHint {
+function scanLogSync(
+  id: string,
+  visit?: (entry: ApiTokenLogEntry) => void,
+): LogHint {
   let firstSequence = 0;
   let tailSequence = 0;
   let completeBytes = 0;
@@ -282,7 +342,10 @@ function scanLogSync(id: string, visit?: (entry: ApiTokenLogEntry) => void): Log
     let corrupt = false;
     try {
       let count: number;
-      while (!corrupt && (count = readSync(fd, buffer, 0, buffer.length, null)) > 0) {
+      while (
+        !corrupt &&
+        (count = readSync(fd, buffer, 0, buffer.length, null)) > 0
+      ) {
         pending += decoder.write(buffer.subarray(0, count));
         let newline: number;
         while ((newline = pending.indexOf("\n")) >= 0) {
@@ -291,14 +354,20 @@ function scanLogSync(id: string, visit?: (entry: ApiTokenLogEntry) => void): Log
           completeBytes += Buffer.byteLength(line + "\n");
           if (!line.trim()) continue;
           let entry: ApiTokenLogEntry;
-          try { entry = parseLogEntry(line, tailSequence); }
-          catch { corrupt = true; break; }
+          try {
+            entry = parseLogEntry(line, tailSequence);
+          } catch {
+            corrupt = true;
+            break;
+          }
           firstSequence ||= entry.sequence;
           tailSequence = entry.sequence;
           visit?.(entry);
         }
       }
-    } finally { closeSync(fd); }
+    } finally {
+      closeSync(fd);
+    }
     if (corrupt) {
       renameSync(logPath(id), `${logPath(id)}.corrupt-${Date.now()}`);
       console.error("Quarantined corrupt API token log:", id);
@@ -309,12 +378,20 @@ function scanLogSync(id: string, visit?: (entry: ApiTokenLogEntry) => void): Log
       console.error("Removed incomplete API token log tail:", id);
     }
   }
-  const hint: LogHint = { ...fileHint(id), firstSequence, tailSequence, cursorSequence: tailSequence, cursorOffset: fileHint(id).size };
+  const hint: LogHint = {
+    ...fileHint(id),
+    firstSequence,
+    tailSequence,
+    cursorSequence: tailSequence,
+    cursorOffset: fileHint(id).size,
+  };
   logHints.set(id, hint);
   return hint;
 }
 
-export function loadApiTokens(): void { ensureLoaded(); }
+export function loadApiTokens(): void {
+  ensureLoaded();
+}
 
 function validInboxMessage(value: unknown): value is ApiTokenInboxMessage {
   if (typeof value !== "object" || value === null || Array.isArray(value))
@@ -371,7 +448,9 @@ export async function mintApiToken(input: {
     const raw = `${RAW_PREFIX}${randomBytes(32).toString("base64url")}`;
     const tokenHash = hashOf(raw);
     let id: string;
-    do { id = randomBytes(8).toString("hex"); } while (tokens!.has(id) || existsSync(logPath(id)));
+    do {
+      id = randomBytes(8).toString("hex");
+    } while (tokens!.has(id) || existsSync(logPath(id)));
     const record: StoredApiToken = {
       id,
       userId: input.userId,
@@ -462,19 +541,37 @@ export async function enqueueApiTokenInboxMessage(input: {
 // fast reply cannot overtake the send that caused it in the token conversation.
 export async function sendApiTokenMessage(
   tokenId: string,
-  target: { targetAgentId: string; targetAgentName: string; targetRoomName: string; text: string },
+  target: {
+    targetAgentId: string;
+    targetAgentName: string;
+    targetRoomName: string;
+    text: string;
+  },
   send: () => Promise<UserSendAcceptance>,
-): Promise<Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }> {
+): Promise<
+  Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }
+> {
   return mutate(async () => {
     ensureLoaded();
     const record = tokens!.get(tokenId);
     if (!record || !isLive(record, Date.now())) {
-      return { ok: false, status: 404, code: "api_token_unavailable", message: "API token unavailable." };
+      return {
+        ok: false,
+        status: 404,
+        code: "api_token_unavailable",
+        message: "API token unavailable.",
+      };
     }
     const result = await send();
     if (!result.ok) return result;
     const id = randomBytes(8).toString("hex");
-    commitEntry(record, { ...target, direction: "to_agent", id, sentAt: Date.now(), sequence: record.lastSequence + 1 });
+    commitEntry(record, {
+      ...target,
+      direction: "to_agent",
+      id,
+      sentAt: Date.now(),
+      sequence: record.lastSequence + 1,
+    });
     return { ok: true, messageId: id };
   });
 }
@@ -493,9 +590,17 @@ export async function drainApiTokenInbox(
     let firstSequence = hint.firstSequence || record.lastSequence;
     // Sequential catch-up resumes at the last returned byte. Steady-state
     // polling starts at EOF; only a different cursor falls back to byte zero.
-    const start = after >= hint.tailSequence ? hint.size : after === hint.cursorSequence ? hint.cursorOffset : 0;
+    const start =
+      after >= hint.tailSequence
+        ? hint.size
+        : after === hint.cursorSequence
+          ? hint.cursorOffset
+          : 0;
     if (start < hint.size) {
-      const input = createReadStream(logPath(tokenId), { start, end: hint.size - 1 });
+      const input = createReadStream(logPath(tokenId), {
+        start,
+        end: hint.size - 1,
+      });
       const decoder = new StringDecoder("utf8");
       let pending = "";
       let offset = start;
@@ -524,15 +629,25 @@ export async function drainApiTokenInbox(
         const recovered = refreshLog(record);
         firstSequence = recovered.firstSequence || record.lastSequence;
         entries.length = 0;
-      } finally { input.destroy(); }
+      } finally {
+        input.destroy();
+      }
     }
     const previouslyDrainedAt = record.lastDrainedAt;
     record.lastDrainedAt = now;
-    try { persist(); } catch (err) {
+    try {
+      persist();
+    } catch (err) {
       record.lastDrainedAt = previouslyDrainedAt;
       throw err;
     }
-    return { entries, firstSequence, latestSequence: record.lastSequence, previouslyDrainedAt, drainedAt: now };
+    return {
+      entries,
+      firstSequence,
+      latestSequence: record.lastSequence,
+      previouslyDrainedAt,
+      drainedAt: now,
+    };
   });
 }
 

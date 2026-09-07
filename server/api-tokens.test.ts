@@ -218,44 +218,77 @@ async function readInbox(tokenId: string, after = 0) {
   return result;
 }
 
-const mint = () => mintApiToken({ userId: "u1", name: "Log", expiresInDays: null });
+const mint = () =>
+  mintApiToken({ userId: "u1", name: "Log", expiresInDays: null });
 const pathFor = (id: string) => join(API_TOKEN_LOG_DIR, `${id}.jsonl`);
 
 describe("API token conversation log", () => {
   it("keeps both directions in order and correlates sends across reload", async () => {
     const { apiToken } = await mint();
-    const sent = await sendApiTokenMessage(apiToken.id, {
-      targetAgentId: "a2", targetAgentName: "Second", targetRoomName: "Lab", text: "request",
-    }, async () => ({ ok: true }));
+    const sent = await sendApiTokenMessage(
+      apiToken.id,
+      {
+        targetAgentId: "a2",
+        targetAgentName: "Second",
+        targetRoomName: "Lab",
+        text: "request",
+      },
+      async () => ({ ok: true }),
+    );
     expect(sent.ok).toBe(true);
     if (!sent.ok) throw new Error("send failed");
     await inboxMessage(apiToken.id, "reply");
     const initial = await readInbox(apiToken.id);
     expect(initial.entries).toMatchObject([
-      { direction: "to_agent", id: sent.messageId, sequence: 1, targetAgentId: "a2", targetAgentName: "Second", targetRoomName: "Lab", text: "request" },
-      { direction: "from_agent", sequence: 2, senderAgentId: "a1", text: "reply" },
+      {
+        direction: "to_agent",
+        id: sent.messageId,
+        sequence: 1,
+        targetAgentId: "a2",
+        targetAgentName: "Second",
+        targetRoomName: "Lab",
+        text: "request",
+      },
+      {
+        direction: "from_agent",
+        sequence: 2,
+        senderAgentId: "a1",
+        text: "reply",
+      },
     ]);
     _testResetApiTokens();
     expect((await readInbox(apiToken.id)).entries).toEqual(initial.entries);
-    expect((await readInbox(apiToken.id, 1)).entries.map(e => e.sequence)).toEqual([2]);
+    expect(
+      (await readInbox(apiToken.id, 1)).entries.map((e) => e.sequence),
+    ).toEqual([2]);
     expect((await readInbox(apiToken.id, 2)).entries).toEqual([]);
-    expect(await readInbox(apiToken.id, 999)).toMatchObject({ entries: [], firstSequence: 1, latestSequence: 2 });
+    expect(await readInbox(apiToken.id, 999)).toMatchObject({
+      entries: [],
+      firstSequence: 1,
+      latestSequence: 2,
+    });
     expect((await readInbox(apiToken.id)).entries).toEqual(initial.entries);
   });
 
   it("pages at 500 without limiting storage; first and latest describe the entire log", async () => {
     const { apiToken } = await mint();
-    expect(await readInbox(apiToken.id)).toMatchObject({ entries: [], firstSequence: 0, latestSequence: 0 });
+    expect(await readInbox(apiToken.id)).toMatchObject({
+      entries: [],
+      firstSequence: 0,
+      latestSequence: 0,
+    });
     for (let i = 0; i < 501; i++) await inboxMessage(apiToken.id, `entry ${i}`);
     const first = await readInbox(apiToken.id);
     expect(first.entries).toHaveLength(500);
     expect(first.firstSequence).toBe(1);
     expect(first.latestSequence).toBe(501);
     const second = await readInbox(apiToken.id, 500);
-    expect(second.entries.map(e => e.sequence)).toEqual([501]);
+    expect(second.entries.map((e) => e.sequence)).toEqual([501]);
     expect(second.firstSequence).toBe(1);
     expect(second.latestSequence).toBe(501);
-    expect((await readInbox(apiToken.id, 499)).entries.map(e => e.sequence)).toEqual([500, 501]);
+    expect(
+      (await readInbox(apiToken.id, 499)).entries.map((e) => e.sequence),
+    ).toEqual([500, 501]);
   });
 
   it("appends to the same inode and keeps messages out of the token record", async () => {
@@ -281,7 +314,9 @@ describe("API token conversation log", () => {
       await inboxMessage(apiToken.id, "two");
       const entries = (await readInbox(apiToken.id)).entries;
       const stored = JSON.parse(readFileSync(file, "utf8"));
-      stored[apiToken.id].inbox = entries.map(({ direction: _direction, ...entry }) => entry);
+      stored[apiToken.id].inbox = entries.map(
+        ({ direction: _direction, ...entry }) => entry,
+      );
       stored[apiToken.id].ackMode = true;
       stored[apiToken.id].ackThrough = 900;
       if (legacy) {
@@ -293,12 +328,18 @@ describe("API token conversation log", () => {
       _testResetApiTokens();
       expect(resolveApiToken(token)?.id).toBe(apiToken.id);
       const first = await readInbox(apiToken.id);
-      expect(first.entries.map(e => [e.sequence, e.text])).toEqual([[1, "one"], [2, "two"]]);
-      expect(first.entries.every(e => e.direction === "from_agent")).toBe(true);
+      expect(first.entries.map((e) => [e.sequence, e.text])).toEqual([
+        [1, "one"],
+        [2, "two"],
+      ]);
+      expect(first.entries.every((e) => e.direction === "from_agent")).toBe(
+        true,
+      );
       _testResetApiTokens();
       expect((await readInbox(apiToken.id)).entries).toEqual(first.entries);
       const disk = JSON.parse(readFileSync(file, "utf8"))[apiToken.id];
-      for (const key of ["inbox", "ackMode", "ackThrough"]) expect(disk).not.toHaveProperty(key);
+      for (const key of ["inbox", "ackMode", "ackThrough"])
+        expect(disk).not.toHaveProperty(key);
     });
   }
 
@@ -309,13 +350,17 @@ describe("API token conversation log", () => {
     writeFileSync(file, stale);
     _testResetApiTokens();
     await inboxMessage(apiToken.id, "after crash");
-    expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([1, 2]);
+    expect(
+      (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+    ).toEqual([1, 2]);
     const stored = JSON.parse(readFileSync(file, "utf8"));
     stored[apiToken.id].lastSequence = 10;
     writeFileSync(file, JSON.stringify(stored));
     _testResetApiTokens();
     await inboxMessage(apiToken.id, "after reserved counter");
-    expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([1, 2, 11]);
+    expect(
+      (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+    ).toEqual([1, 2, 11]);
   });
 
   it("keeps the appended entry when counter persistence fails and recovers on reload", async () => {
@@ -323,27 +368,46 @@ describe("API token conversation log", () => {
     const before = readFileSync(file, "utf8");
     blockAtomicFileReplacement(file);
     try {
-      const failure = await inboxMessage(apiToken.id, "saved before counter").then(() => null, (error: unknown) => error);
+      const failure = await inboxMessage(
+        apiToken.id,
+        "saved before counter",
+      ).then(
+        () => null,
+        (error: unknown) => error,
+      );
       expect(failure).toBeInstanceOf(Error);
-      expect(JSON.parse(readFileSync(pathFor(apiToken.id), "utf8")).text).toBe("saved before counter");
+      expect(JSON.parse(readFileSync(pathFor(apiToken.id), "utf8")).text).toBe(
+        "saved before counter",
+      );
     } finally {
       rmSync(file, { recursive: true, force: true });
       writeFileSync(file, before);
     }
     _testResetApiTokens();
     await inboxMessage(apiToken.id, "next");
-    expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([1, 2]);
+    expect(
+      (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+    ).toEqual([1, 2]);
   });
 
   it("reads a pruned file as empty and starts the next file above the preserved counter", async () => {
     const { apiToken } = await mint();
     for (let i = 0; i < 3; i++) await inboxMessage(apiToken.id, "old");
     rmSync(pathFor(apiToken.id)); // the storage-prune tests exercise the owner path
-    expect(await readInbox(apiToken.id, 0)).toMatchObject({ entries: [], firstSequence: 3, latestSequence: 3 });
+    expect(await readInbox(apiToken.id, 0)).toMatchObject({
+      entries: [],
+      firstSequence: 3,
+      latestSequence: 3,
+    });
     _testResetApiTokens();
     await inboxMessage(apiToken.id, "new");
-    expect(await readInbox(apiToken.id, 0)).toMatchObject({ firstSequence: 4, latestSequence: 4 });
-    expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([4]);
+    expect(await readInbox(apiToken.id, 0)).toMatchObject({
+      firstSequence: 4,
+      latestSequence: 4,
+    });
+    expect(
+      (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+    ).toEqual([4]);
   });
 
   it("retains a revoked token log and keeps it separate from later credentials", async () => {
@@ -355,12 +419,21 @@ describe("API token conversation log", () => {
     expect(await drainApiTokenInbox(apiToken.id)).toBeNull();
     const random = crypto.randomBytes;
     let collision = true;
-    const spy = spyOn(crypto, "randomBytes").mockImplementation((size: number) => {
-      if (size === 8 && collision) { collision = false; return Buffer.from(apiToken.id, "hex"); }
-      return random(size);
-    });
+    const spy = spyOn(crypto, "randomBytes").mockImplementation(
+      (size: number) => {
+        if (size === 8 && collision) {
+          collision = false;
+          return Buffer.from(apiToken.id, "hex");
+        }
+        return random(size);
+      },
+    );
     let next;
-    try { next = await mint(); } finally { spy.mockRestore(); }
+    try {
+      next = await mint();
+    } finally {
+      spy.mockRestore();
+    }
     expect(next.apiToken.id).not.toBe(apiToken.id);
     expect(readFileSync(pathFor(apiToken.id), "utf8")).toBe(bytes);
     expect((await readInbox(next.apiToken.id)).entries).toEqual([]);
@@ -377,20 +450,36 @@ describe("API token conversation log", () => {
         _testResetApiTokens();
         expect(resolveApiToken(token)).toBeNull();
       }
-    } finally { error.mockRestore(); }
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("stamps empty reads and never records a rejected send", async () => {
     const { apiToken } = await mint();
-    const rejected = await sendApiTokenMessage(apiToken.id, {
-      targetAgentId: "a1", targetAgentName: "One", targetRoomName: "Lab", text: "rejected",
-    }, async () => ({ ok: false, status: 409, code: "busy", message: "Busy" }));
+    const rejected = await sendApiTokenMessage(
+      apiToken.id,
+      {
+        targetAgentId: "a1",
+        targetAgentName: "One",
+        targetRoomName: "Lab",
+        text: "rejected",
+      },
+      async () => ({ ok: false, status: 409, code: "busy", message: "Busy" }),
+    );
     expect(rejected.ok).toBe(false);
-    expect(await drainApiTokenInbox(apiToken.id, 10_000)).toMatchObject({ entries: [], previouslyDrainedAt: null, drainedAt: 10_000 });
-    expect(await drainApiTokenInbox(apiToken.id, 20_000)).toMatchObject({ entries: [], previouslyDrainedAt: 10_000, drainedAt: 20_000 });
+    expect(await drainApiTokenInbox(apiToken.id, 10_000)).toMatchObject({
+      entries: [],
+      previouslyDrainedAt: null,
+      drainedAt: 10_000,
+    });
+    expect(await drainApiTokenInbox(apiToken.id, 20_000)).toMatchObject({
+      entries: [],
+      previouslyDrainedAt: 10_000,
+      drainedAt: 20_000,
+    });
   });
 });
-
 
 describe("token log recovery and read offsets", () => {
   for (const reboot of [false, true]) {
@@ -400,18 +489,25 @@ describe("token log recovery and read offsets", () => {
       await inboxMessage(apiToken.id, "complete café 👋");
       const prefix = readFileSync(pathFor(apiToken.id), "utf8");
       await inboxMessage(apiToken.id, "cut this tail");
-      truncateSync(pathFor(apiToken.id), statSync(pathFor(apiToken.id)).size - 12);
+      truncateSync(
+        pathFor(apiToken.id),
+        statSync(pathFor(apiToken.id)).size - 12,
+      );
       if (reboot) _testResetApiTokens();
       expect(() => loadApiTokens()).not.toThrow();
       expect(resolveApiToken(token)?.id).toBe(apiToken.id);
       expect(listApiTokens("u1")).toHaveLength(2);
       const result = await readInbox(apiToken.id);
-      expect(result.entries.map(e => e.text)).toEqual(["complete café 👋"]);
+      expect(result.entries.map((e) => e.text)).toEqual(["complete café 👋"]);
       expect(readFileSync(pathFor(apiToken.id), "utf8")).toBe(prefix);
       expect(result.latestSequence).toBe(2);
       await inboxMessage(apiToken.id, "after recovery");
-      expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([1, 3]);
-      expect((await inboxMessage(other.apiToken.id, "unaffected")).ok).toBe(true);
+      expect(
+        (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+      ).toEqual([1, 3]);
+      expect((await inboxMessage(other.apiToken.id, "unaffected")).ok).toBe(
+        true,
+      );
     });
 
     it(`quarantines a corrupt complete line ${reboot ? "at boot" : "during polling"} without revoking credentials`, async () => {
@@ -427,34 +523,47 @@ describe("token log recovery and read offsets", () => {
       expect(read.entries).toEqual([]);
       expect(read.latestSequence).toBe(1);
       expect(resolveApiToken(token)?.id).toBe(apiToken.id);
-      expect((await readInbox(other.apiToken.id)).entries.map(e => e.text)).toEqual(["other history"]);
-      const quarantined = readdirSync(API_TOKEN_LOG_DIR).find(name => name.startsWith(`${apiToken.id}.jsonl.corrupt-`));
+      expect(
+        (await readInbox(other.apiToken.id)).entries.map((e) => e.text),
+      ).toEqual(["other history"]);
+      const quarantined = readdirSync(API_TOKEN_LOG_DIR).find((name) =>
+        name.startsWith(`${apiToken.id}.jsonl.corrupt-`),
+      );
       expect(quarantined).toBeDefined();
-      expect(readFileSync(join(API_TOKEN_LOG_DIR, quarantined!), "utf8")).toBe(damaged);
+      expect(readFileSync(join(API_TOKEN_LOG_DIR, quarantined!), "utf8")).toBe(
+        damaged,
+      );
       await inboxMessage(apiToken.id, "fresh");
-      expect((await readInbox(apiToken.id)).entries.map(e => e.sequence)).toEqual([2]);
+      expect(
+        (await readInbox(apiToken.id)).entries.map((e) => e.sequence),
+      ).toEqual([2]);
     });
   }
 
   it("seeks to the saved offset for sequential pages and never scans a steady-state poll", async () => {
     const { apiToken } = await mint();
-    for (let i = 0; i < 1002; i++) await inboxMessage(apiToken.id, `café 👋 ${i}`);
+    for (let i = 0; i < 1002; i++)
+      await inboxMessage(apiToken.id, `café 👋 ${i}`);
     _testResetApiTokens();
     loadApiTokens();
     const readSpy = spyOn(fs, "readSync");
     const create = fs.createReadStream;
     const starts: number[] = [];
-    const spy = spyOn(fs, "createReadStream").mockImplementation((path, options) => {
-      starts.push((options as { start?: number })?.start ?? 0);
-      return create(path, options);
-    });
+    const spy = spyOn(fs, "createReadStream").mockImplementation(
+      (path, options) => {
+        starts.push((options as { start?: number })?.start ?? 0);
+        return create(path, options);
+      },
+    );
     try {
       const first = await readInbox(apiToken.id);
       expect(first.entries).toHaveLength(500);
       const second = await readInbox(apiToken.id, 500);
-      expect(second.entries.map(e => e.sequence)).toEqual(Array.from({ length: 500 }, (_, i) => i + 501));
+      expect(second.entries.map((e) => e.sequence)).toEqual(
+        Array.from({ length: 500 }, (_, i) => i + 501),
+      );
       const third = await readInbox(apiToken.id, 1000);
-      expect(third.entries.map(e => e.sequence)).toEqual([1001, 1002]);
+      expect(third.entries.map((e) => e.sequence)).toEqual([1001, 1002]);
       expect(starts[0]).toBe(0);
       expect(starts[1]).toBeGreaterThan(0);
       expect(starts[2]).toBeGreaterThan(starts[1]);
@@ -462,13 +571,20 @@ describe("token log recovery and read offsets", () => {
       expect((await readInbox(apiToken.id, 1002)).entries).toEqual([]);
       expect(starts).toHaveLength(calls);
       await inboxMessage(apiToken.id, "new");
-      expect((await readInbox(apiToken.id, 1002)).entries.map(e => e.sequence)).toEqual([1003]);
+      expect(
+        (await readInbox(apiToken.id, 1002)).entries.map((e) => e.sequence),
+      ).toEqual([1003]);
       expect(starts.at(-1)).toBeGreaterThan(starts[2]);
       // A different reader/cursor falls back safely rather than skipping data.
-      expect((await readInbox(apiToken.id, 999)).entries.map(e => e.sequence)).toEqual([1000, 1001, 1002, 1003]);
+      expect(
+        (await readInbox(apiToken.id, 999)).entries.map((e) => e.sequence),
+      ).toEqual([1000, 1001, 1002, 1003]);
       expect(starts.at(-1)).toBe(0);
       expect(readSpy).not.toHaveBeenCalled();
-    } finally { spy.mockRestore(); readSpy.mockRestore(); }
+    } finally {
+      spy.mockRestore();
+      readSpy.mockRestore();
+    }
   });
 
   it("invalidates offsets when the file is replaced or pruned", async () => {
@@ -480,11 +596,22 @@ describe("token log recovery and read offsets", () => {
     const replacement = pathFor(apiToken.id) + ".replacement";
     writeFileSync(replacement, lines[1] + "\n");
     renameSync(replacement, pathFor(apiToken.id));
-    expect(await readInbox(apiToken.id, 1)).toMatchObject({ firstSequence: 2, latestSequence: 2 });
-    expect((await readInbox(apiToken.id, 1)).entries.map(e => e.sequence)).toEqual([2]);
+    expect(await readInbox(apiToken.id, 1)).toMatchObject({
+      firstSequence: 2,
+      latestSequence: 2,
+    });
+    expect(
+      (await readInbox(apiToken.id, 1)).entries.map((e) => e.sequence),
+    ).toEqual([2]);
     rmSync(pathFor(apiToken.id));
-    expect(await readInbox(apiToken.id, 1)).toMatchObject({ entries: [], firstSequence: 2, latestSequence: 2 });
+    expect(await readInbox(apiToken.id, 1)).toMatchObject({
+      entries: [],
+      firstSequence: 2,
+      latestSequence: 2,
+    });
     await inboxMessage(apiToken.id, "three");
-    expect((await readInbox(apiToken.id, 2)).entries.map(e => e.sequence)).toEqual([3]);
+    expect(
+      (await readInbox(apiToken.id, 2)).entries.map((e) => e.sequence),
+    ).toEqual([3]);
   });
 });

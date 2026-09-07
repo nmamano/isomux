@@ -6,10 +6,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import {
-  enqueueApiTokenInboxMessage,
-  mintApiToken,
-} from "../api-tokens.ts";
+import { enqueueApiTokenInboxMessage, mintApiToken } from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
@@ -245,9 +242,19 @@ describe("personal API tokens", () => {
     expect(sent.status).toBe(200);
     const accepted = await sent.json();
     expect(accepted.messageId).toMatch(/^[a-f0-9]{16}$/);
-    const log = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", { method: "POST" });
+    const log = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      { method: "POST" },
+    );
     expect((await log.json()).entries).toMatchObject([
-      { direction: "to_agent", id: accepted.messageId, targetAgentId: target.id, text: "off-office alert" },
+      {
+        direction: "to_agent",
+        id: accepted.messageId,
+        targetAgentId: target.id,
+        text: "off-office alert",
+      },
     ]);
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
       `[Boss (API token "Phone 'alerts" (${minted.body.apiToken.id}))] off-office alert`,
@@ -541,13 +548,7 @@ describe("API token channel contract", () => {
       });
     await send("one");
     await send("two");
-    for (const after of [
-      -1,
-      0.5,
-      "1",
-      null,
-      Number.MAX_SAFE_INTEGER + 1,
-    ]) {
+    for (const after of [-1, 0.5, "1", null, Number.MAX_SAFE_INTEGER + 1]) {
       const invalid = await drain({ after });
       expect(invalid.status).toBe(400);
       expect((await invalid.json()).error.code).toBe("invalid_after");
@@ -568,9 +569,7 @@ describe("API token channel contract", () => {
     expect(await replay.json()).toEqual(body);
     const fresh = await drain({});
     expect(
-      (await fresh.json()).entries.map(
-        (m: { sequence: number }) => m.sequence,
-      ),
+      (await fresh.json()).entries.map((m: { sequence: number }) => m.sequence),
     ).toEqual([1, 2, 3]);
 
     const zero = await drain({ after: 0 });
@@ -615,11 +614,21 @@ describe("API token channel contract", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const target = await spawn(srv, "Target", srv.agentManager.getRooms()[0].id, 0, owner.username, getUserByName(owner.username)!.id);
+    const target = await spawn(
+      srv,
+      "Target",
+      srv.agentManager.getRooms()[0].id,
+      0,
+      owner.username,
+      getUserByName(owner.username)!.id,
+    );
     const minted = await mintThroughApi(srv, owner.rawSessionId);
     const request = {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Idempotency-Key": "send-once" },
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": "send-once",
+      },
       body: JSON.stringify({ text: "request once" }),
     };
     const path = `/api/agents/${target.id}/messages`;
@@ -629,16 +638,42 @@ describe("API token channel contract", () => {
     const replay = await bearer(srv, minted.body.token, path, request);
     expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
     expect(await replay.json()).toEqual(sentBody);
-    const reply = await bearer(srv, mintAgentToken(target.id, getUserByName(owner.username)!.id), `/api/api-token-inboxes/${minted.body.apiToken.id}/messages`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "reply once" }),
-    });
+    const reply = await bearer(
+      srv,
+      mintAgentToken(target.id, getUserByName(owner.username)!.id),
+      `/api/api-token-inboxes/${minted.body.apiToken.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "reply once" }),
+      },
+    );
     expect(reply.status).toBe(200);
-    const read = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", { method: "POST" });
+    const read = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      { method: "POST" },
+    );
     expect((await read.json()).entries).toMatchObject([
-      { direction: "to_agent", sequence: 1, id: sentBody.messageId, targetAgentId: target.id, text: "request once" },
-      { direction: "from_agent", sequence: 2, senderAgentId: target.id, text: "reply once" },
+      {
+        direction: "to_agent",
+        sequence: 1,
+        id: sentBody.messageId,
+        targetAgentId: target.id,
+        text: "request once",
+      },
+      {
+        direction: "from_agent",
+        sequence: 2,
+        senderAgentId: target.id,
+        text: "reply once",
+      },
     ]);
-    const conflict = await bearer(srv, minted.body.token, path, { ...request, body: JSON.stringify({ text: "different" }) });
+    const conflict = await bearer(srv, minted.body.token, path, {
+      ...request,
+      body: JSON.stringify({ text: "different" }),
+    });
     expect(conflict.status).toBe(409);
   });
 

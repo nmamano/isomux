@@ -730,7 +730,6 @@ describe("applyPrune", () => {
   });
 });
 
-
 describe("token-log prune target", () => {
   it("selects old token files independently of credentials and ignores junk, directories and symlinks", () => {
     const root = tempDir();
@@ -745,11 +744,15 @@ describe("token-log prune target", () => {
     symlinkSync(outside, join(dir, "2222222222222222.jsonl"));
     const d = deps(join(root, "logs"));
     const plan = planPrune("token-logs", POLICY, d);
-    expect(plan.candidates.map(c => c.path)).toEqual([old]);
+    expect(plan.candidates.map((c) => c.path)).toEqual([old]);
     expect(plan.bytes).toBe(10);
     expect(skipCount(plan, "too-recent")).toBe(1);
     expect(existsSync(join(dir, old))).toBe(true);
-    expect(applyPrune(plan, d)).toMatchObject({ deleted: 1, bytes: 10, refused: [] });
+    expect(applyPrune(plan, d)).toMatchObject({
+      deleted: 1,
+      bytes: 10,
+      refused: [],
+    });
     expect(existsSync(outside)).toBe(true);
     expect(existsSync(join(dir, "junk.jsonl"))).toBe(true);
   });
@@ -761,12 +764,21 @@ describe("token-log prune target", () => {
     writeAged(join(dir, name), "original", 60);
     const d = deps(join(root, "logs"));
     const plan = planPrune("token-logs", POLICY, d);
-    for (const path of ["../outside.jsonl", "/outside.jsonl", "nested/../../outside.jsonl"]) {
-      const escaped = { ...plan, candidates: [{ ...plan.candidates[0], path }] };
+    for (const path of [
+      "../outside.jsonl",
+      "/outside.jsonl",
+      "nested/../../outside.jsonl",
+    ]) {
+      const escaped = {
+        ...plan,
+        candidates: [{ ...plan.candidates[0], path }],
+      };
       expect(applyPrune(escaped, d).aborted).toBeDefined();
     }
     writeAged(join(dir, name), "changed", 50);
-    expect(applyPrune(plan, d).refused).toEqual([{ path: name, reason: "modified-since-plan" }]);
+    expect(applyPrune(plan, d).refused).toEqual([
+      { path: name, reason: "modified-since-plan" },
+    ]);
     renameSync(dir, join(root, "moved"));
     symlinkSync(join(root, "moved"), dir);
     expect(planPrune("token-logs", POLICY, d).candidates).toEqual([]);
@@ -784,12 +796,14 @@ describe("token-log prune target", () => {
     symlinkSync(other, join(dir, "nested"));
     const d = deps(join(root, "logs"));
     const plan = planPrune("token-logs", POLICY, d);
-    const hostile = { ...plan, candidates: [{ ...plan.candidates[0], path: `nested/${name}` }] };
+    const hostile = {
+      ...plan,
+      candidates: [{ ...plan.candidates[0], path: `nested/${name}` }],
+    };
     expect(applyPrune(hostile, d).deleted).toBe(0);
     expect(existsSync(join(other, name))).toBe(true);
   });
 });
-
 
 it("uses the injected token-log root independently of the transcript layout", () => {
   const logsDir = join(tempDir(), "transcripts");
@@ -798,7 +812,9 @@ it("uses the injected token-log root independently of the transcript layout", ()
   writeAged(path, "custom", 50);
   const d = deps(logsDir, { tokenLogsDir });
   const plan = planPrune("token-logs", POLICY, d);
-  expect(plan.candidates.map(c => c.path)).toEqual(["0123456789abcdef.jsonl"]);
+  expect(plan.candidates.map((c) => c.path)).toEqual([
+    "0123456789abcdef.jsonl",
+  ]);
   expect(applyPrune(plan, d).deleted).toBe(1);
   expect(existsSync(path)).toBe(false);
 });

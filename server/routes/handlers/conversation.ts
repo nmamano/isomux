@@ -119,7 +119,9 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string,
     tokenId: string,
-  ): Promise<Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }>;
+  ): Promise<
+    Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }
+  >;
   // AGENT inter-agent send. Builds the structured sender server-side (blocks
   // prefix-injection / identity spoof) and enqueues; returns the discriminated
   // outcome above.
