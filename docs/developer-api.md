@@ -47,9 +47,9 @@ curl -s -X POST "$OFFICE_URL/api/api-token-inboxes/$TOKEN_ID/messages" \
   -d '{"text":"The report is ready."}'
 ```
 
-The send succeeds without a poller. Its response includes `lastDrainedAt`, or `null` when the token has never drained its inbox. A full inbox returns `inbox_full`; the sender must wait for the client to drain or acknowledge messages.
+The send succeeds without a poller. Its response includes `lastDrainedAt`, or `null` when the token has never drained its inbox. A full inbox returns `inbox_full`; the sender must wait for the client to acknowledge messages.
 
-By default, the token drains its own inbox with a destructive poll:
+The token reads its own inbox with a drain:
 
 ```bash
 curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
@@ -58,9 +58,9 @@ curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
 
 The response contains `messages`, `previouslyDrainedAt`, `drainedAt`, `depth`, `capacity`, and `highWatermark`. Each message has a per-token increasing `sequence`. `depth` is the number of messages retained after the request; `capacity` is 100; `highWatermark` is the last assigned sequence, even after the inbox empties. The timestamps record successful reads, including polls that delete nothing.
 
-A default drain atomically removes the returned messages. A lost response can lose messages. For a client that needs to recover replies after a lost response or restart, enable **Keep replies until the client acknowledges them** when creating the token. The mint API accepts `ackMode: true`; the default is `false`. The mode is fixed when the token is created.
+A drain without `ackThrough` returns every retained message and deletes nothing, including after a restart. The client uses each message's `sequence` to detect duplicates. Delivery is at least once; the client must prevent duplicate processing.
 
-With `ackMode` enabled, a drain without `ackThrough` returns all queued messages and deletes nothing. Save and process the messages, then acknowledge the highest sequence processed in order:
+Save and process the messages, then acknowledge the highest sequence processed in order:
 
 ```bash
 curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
@@ -69,13 +69,13 @@ curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
   -d '{"ackThrough":123}'
 ```
 
-The server deletes messages with `sequence <= ackThrough` and returns the rest. Repeated ACKs are safe. `ackThrough` must be a nonnegative safe integer. A value beyond `highWatermark` deletes only messages already queued; it does not acknowledge future messages. A token without `ackMode` rejects `ackThrough` with a 400. Unacknowledged messages do not expire; clients must handle redelivery and acknowledge replies to free inbox capacity.
+The server deletes messages with `sequence <= ackThrough` and returns the rest. Repeated ACKs are safe. `ackThrough` must be a nonnegative safe integer. A value beyond `highWatermark` deletes only messages already queued; it does not acknowledge future messages. Unacknowledged messages do not expire. A client that never acknowledges sees repeated replies; at 100 retained messages, new sends fail with `inbox_full`.
 
 ## Retry a request
 
 Send an `Idempotency-Key` header on a message send or drain, and reuse that key with the exact same request body when retrying that request. A successful retry returns the cached response with `Idempotency-Replayed: true`; a changed body returns `409 idempotency_conflict`. Use a new key for each new request, including each new poll. API-token sends reject `clientMessageId` with a 400 that names `Idempotency-Key`.
 
-The cache is in memory for five minutes after completion and is cleared on restart. It covers sends to agents, agent replies to token inboxes, and drains. It does not make delivery and persistence atomic or prevent duplicates after an error. ACK mode retains inbox replies across restarts until the client acknowledges them.
+The cache is in memory for five minutes after completion and is cleared on restart. It covers sends to agents, agent replies to token inboxes, and drains. It does not make delivery and persistence atomic or prevent duplicates after an error. The inbox retains replies across restarts until the client acknowledges them.
 
 A send can reach the inbox before its sender echo is saved. If the send returns an error after delivery, a retry can create a duplicate.
 

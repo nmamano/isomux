@@ -436,8 +436,6 @@ export const es: Catalog = {
     "Maneja tu oficina desde scripts y automatizaciones, y lee lo que responden tus agentes. Un token tiene tus mismas capacidades, salvo cambiar quién puede entrar en la oficina. Mira la <link>guía de la API para desarrollo</link> para todo lo que puede hacer un token.",
   "settings.apiTokens.howToUse": "Cómo se usa",
   "settings.apiTokens.namePlaceholder": "Script del portátil",
-  "settings.apiTokens.ackMode":
-    "Conservar las respuestas hasta que el cliente las confirme",
   "settings.apiTokens.expiresAfter": "Caduca al cabo de",
   "settings.apiTokens.unlimited": "Sin límite",
   "settings.apiTokens.creating": "Creando…",

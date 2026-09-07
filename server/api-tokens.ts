@@ -82,10 +82,9 @@ function ensureLoaded(): void {
         typeof value.tokenPrefix !== "string" ||
         typeof value.tokenHash !== "string" ||
         typeof value.createdAt !== "number" ||
-        (value.ackMode !== undefined && typeof value.ackMode !== "boolean") ||
-        (value.ackMode === true &&
+        (value.lastSequence !== undefined &&
           (!Number.isSafeInteger(value.lastSequence) ||
-            value.lastSequence! < 0)) ||
+            value.lastSequence < 0)) ||
         (typeof value.expiresAt !== "number" && value.expiresAt !== null)
       ) {
         console.error("Ignoring invalid API token record:", id);
@@ -125,7 +124,6 @@ function ensureLoaded(): void {
         expiresAt: value.expiresAt,
         lastUsedAt:
           typeof value.lastUsedAt === "number" ? value.lastUsedAt : null,
-        ackMode: value.ackMode === true,
         lastSequence,
         inbox,
         lastDrainedAt: lastDrainedAtValid ? value.lastDrainedAt! : null,
@@ -172,7 +170,6 @@ function persist(): void {
 
 function wire(record: StoredApiToken): ApiTokenWire {
   return {
-    ackMode: record.ackMode,
     id: record.id,
     name: record.name,
     tokenPrefix: record.tokenPrefix,
@@ -194,7 +191,6 @@ export async function mintApiToken(input: {
   userId: string;
   name: string;
   expiresInDays: number | null;
-  ackMode?: boolean;
   now?: number;
 }): Promise<{ token: string; apiToken: ApiTokenWire }> {
   return mutate(() => {
@@ -215,7 +211,6 @@ export async function mintApiToken(input: {
           ? null
           : now + input.expiresInDays * 24 * 60 * 60 * 1000,
       lastUsedAt: null,
-      ackMode: input.ackMode ?? false,
       lastSequence: 0,
       inbox: [],
       lastDrainedAt: null,
@@ -305,21 +300,17 @@ export async function drainApiTokenInbox(
   tokenId: string,
   now = Date.now(),
   ackThrough?: number,
-): Promise<ApiTokenInboxDrainRes | "ack_mode_required" | null> {
+): Promise<ApiTokenInboxDrainRes | null> {
   return mutate(() => {
     ensureLoaded();
     const record = tokens!.get(tokenId);
     if (!record || !isLive(record, now)) return null;
-    if (ackThrough !== undefined && !record.ackMode) return "ack_mode_required";
     const previousInbox = record.inbox;
-    const messages = record.ackMode
-      ? record.inbox.filter(
-          (message) =>
-            ackThrough === undefined || message.sequence > ackThrough,
-        )
-      : record.inbox;
+    const messages = record.inbox.filter(
+      (message) => ackThrough === undefined || message.sequence > ackThrough,
+    );
     const previouslyDrainedAt = record.lastDrainedAt;
-    record.inbox = record.ackMode ? messages : [];
+    record.inbox = messages;
     record.lastDrainedAt = now;
     try {
       persist();

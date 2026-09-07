@@ -464,7 +464,7 @@ describe("buildSystemPrompt - remote boss inbox", () => {
     expect(prompt).toContain("/api/api-token-inboxes/<token-id>/messages");
     expect(prompt).toContain("a send to an unavailable token fails");
     expect(prompt).toContain(
-      "if its inbox is full, do not retry until the remote boss drains it",
+      "if its inbox is full, do not retry until the remote client acknowledges messages",
     );
     expect(prompt).not.toContain("live API tokens at conversation start are");
   });

@@ -24,7 +24,6 @@ export interface ApiTokenDeps {
     userId: string;
     name: string;
     expiresInDays: number | null;
-    ackMode?: boolean;
   }): Promise<ApiTokenCreateRes>;
   revoke(userId: string, id: string): Promise<boolean>;
   sendToInbox(input: {
@@ -46,7 +45,7 @@ export interface ApiTokenDeps {
   drainInbox(
     tokenId: string,
     ackThrough?: number,
-  ): Promise<ApiTokenInboxDrainRes | "ack_mode_required" | null>;
+  ): Promise<ApiTokenInboxDrainRes | null>;
   agentDisplay(agentId: string): { name: string; roomName: string } | null;
   agentManagerUserId(agentId: string): string | null;
   echoToAgent(agentId: string, tokenName: string, text: string): void;
@@ -85,15 +84,11 @@ export function apiTokenHandlers(
           "expiresInDays must be 30, 365, or null for a token that does not expire",
         );
       }
-      if (body.ackMode !== undefined && typeof body.ackMode !== "boolean") {
-        return fail(422, "invalid_ack_mode", "ackMode must be a boolean.");
-      }
       return created(
         await deps.mint({
           userId,
           name,
           expiresInDays: body.expiresInDays,
-          ackMode: body.ackMode ?? false,
         }),
       );
     },
@@ -134,7 +129,7 @@ export function apiTokenHandlers(
           return fail(
             429,
             "inbox_full",
-            "The API token inbox is full. The client must drain or acknowledge messages.",
+            "The API token inbox is full. The client must acknowledge messages.",
           );
         }
         return fail(404, "api_token_unavailable", "API token unavailable.");
@@ -159,13 +154,6 @@ export function apiTokenHandlers(
         );
       }
       const result = await deps.drainInbox(tokenId, body.ackThrough);
-      if (result === "ack_mode_required") {
-        return fail(
-          400,
-          "ack_mode_required",
-          "ackThrough requires a token with ackMode enabled.",
-        );
-      }
       return result
         ? ok(result satisfies ApiTokenInboxDrainRes)
         : fail(404, "api_token_unavailable", "API token unavailable.");

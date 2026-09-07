@@ -1796,7 +1796,6 @@ export async function demoApi(
       const now = Date.now();
       const id = `demo-${now}`;
       const apiToken: ApiTokenWire = {
-        ackMode: b.ackMode ?? false,
         id,
         name: b.name,
         tokenPrefix: "isomux_pat_demo",

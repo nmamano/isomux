@@ -435,8 +435,6 @@ export const en = {
     "Drive your office from scripts and automations, and read the replies your agents send back. A token has your own capabilities, except changing who can get into the office. See the <link>Developer API guide</link> for everything a token can do.",
   "settings.apiTokens.howToUse": "How to use",
   "settings.apiTokens.namePlaceholder": "Laptop script",
-  "settings.apiTokens.ackMode":
-    "Keep replies until the client acknowledges them",
   "settings.apiTokens.expiresAfter": "Expires after",
   "settings.apiTokens.unlimited": "Unlimited",
   "settings.apiTokens.creating": "Creating…",

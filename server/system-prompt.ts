@@ -72,7 +72,7 @@ export function buildSystemPrompt(
     publicOrigin.source === "localhost"
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin} - use that origin for links you give bosses to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
-  const remoteBossNote = `\nA boss can also access the office remotely. When they do, their messages will look like \`[Boss (API token "Phone 'alerts" (pat-123))]\`, where the id after the closing quote is their reply handle. Respond to them at the remote location with POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages, your bearer token, and JSON {"text":"..."}; a send to an unavailable token fails, and if its inbox is full, do not retry until the remote boss drains it.\n`;
+  const remoteBossNote = `\nA boss can also access the office remotely. When they do, their messages will look like \`[Boss (API token "Phone 'alerts" (pat-123))]\`, where the id after the closing quote is their reply handle. Respond to them at the remote location with POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages, your bearer token, and JSON {"text":"..."}; a send to an unavailable token fails, and if its inbox is full, do not retry until the remote client acknowledges messages.\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.

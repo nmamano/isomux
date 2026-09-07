@@ -57,12 +57,11 @@ async function mintThroughApi(
   session: string,
   name = "Laptop",
   expiresInDays: number | null = 30,
-  ackMode = false,
 ) {
   const response = await srv.http("/api/me/api-tokens", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, expiresInDays, ackMode }),
+    body: JSON.stringify({ name, expiresInDays }),
     rawSessionId: session,
   });
   const body = (await response.json()) as ApiTokenCreateRes;
@@ -93,7 +92,7 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("personal API tokens", () => {
-  it("accepts agent replies, echoes them live, and drains at most once", async () => {
+  it("accepts agent replies, echoes them live, and retains them until acknowledged", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -158,7 +157,13 @@ describe("personal API tokens", () => {
       "/api/me/api-token-inbox/drain",
       { method: "POST" },
     );
-    expect((await second.json()).messages).toEqual([]);
+    expect((await second.json()).messages).toEqual(drained.messages);
+    const acknowledged = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ackThrough: drained.messages[0].sequence }),
+    });
+    expect((await acknowledged.json()).messages).toEqual([]);
 
     for (let i = 0; i < API_TOKEN_INBOX_CAPACITY; i++) {
       await enqueueApiTokenInboxMessage({
@@ -179,7 +184,7 @@ describe("personal API tokens", () => {
     expect((await full.json()).error).toMatchObject({
       code: "inbox_full",
       message:
-        "The API token inbox is full. The client must drain or acknowledge messages.",
+        "The API token inbox is full. The client must acknowledge messages.",
     });
 
     const tooLong = await bearer(srv, agentToken, path, {
@@ -513,7 +518,7 @@ describe("personal API tokens", () => {
 });
 
 describe("API token channel contract", () => {
-  it("mints ack mode, validates ACKs, retains replies and replays a drain", async () => {
+  it("validates ACKs on every token, retains replies and replays a drain", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -523,10 +528,9 @@ describe("API token channel contract", () => {
       owner.rawSessionId,
       "Ack",
       null,
-      true,
     );
     expect(minted.response.status).toBe(201);
-    expect(minted.body.apiToken.ackMode).toBe(true);
+    expect(minted.body.apiToken).not.toHaveProperty("ackMode");
     const path = "/api/me/api-token-inbox/drain";
     const send = (text: string) =>
       enqueueApiTokenInboxMessage({
@@ -581,30 +585,31 @@ describe("API token channel contract", () => {
       ),
     ).toEqual([2, 3]);
 
-    const legacy = await mintThroughApi(srv, owner.rawSessionId);
-    expect(legacy.body.apiToken.ackMode).toBe(false);
-    const rejected = await bearer(srv, legacy.body.token, path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ackThrough: 0 }),
-    });
-    expect(rejected.status).toBe(400);
-    expect((await rejected.json()).error).toEqual({
-      code: "ack_mode_required",
-      message: "ackThrough requires a token with ackMode enabled.",
-    });
-    const badMint = await srv.http("/api/me/api-tokens", {
-      method: "POST",
-      rawSessionId: owner.rawSessionId,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: "bad",
-        expiresInDays: null,
-        ackMode: "true",
-      }),
-    });
-    expect(badMint.status).toBe(422);
-    expect((await badMint.json()).error.code).toBe("invalid_ack_mode");
+    const zero = await drain({ ackThrough: 0 });
+    expect((await zero.json()).messages.map((m: { sequence: number }) => m.sequence)).toEqual([2, 3]);
+  });
+
+  it("ignores extra ackMode fields when minting tokens", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    for (const ackMode of [true, false, null, "true", 1, {}]) {
+      const response = await srv.http("/api/me/api-tokens", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Extra field", expiresInDays: null, ackMode }),
+      });
+      expect(response.status).toBe(201);
+      const minted = await response.json();
+      expect(minted.apiToken).not.toHaveProperty("ackMode");
+      const drained = await bearer(srv, minted.token, "/api/me/api-token-inbox/drain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ackThrough: 0 }),
+      });
+      expect(drained.status).toBe(200);
+    }
   });
 
   it("rejects clientMessageId for API token sends and names Idempotency-Key", async () => {

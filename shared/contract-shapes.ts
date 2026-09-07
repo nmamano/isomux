@@ -483,7 +483,6 @@ export type PreferencesReq = Partial<{
 export const PREFERENCE_KEYS = ["language"] as const;
 
 export interface ApiTokenWire {
-  ackMode: boolean;
   id: string;
   name: string;
   tokenPrefix: string;
@@ -493,7 +492,6 @@ export interface ApiTokenWire {
 }
 
 export interface ApiTokenCreateReq {
-  ackMode?: boolean;
   name: string;
   expiresInDays: 30 | 365 | null;
 }
