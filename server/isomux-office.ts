@@ -984,7 +984,7 @@ async function applyAccessSettings(
         status: 403,
         code: "hosted_access_managed",
         error:
-          "Isomux manages this office’s address; it cannot be changed here.",
+          "Hosted Isomux manages this office's address; it cannot be changed here.",
       };
     }
     return {

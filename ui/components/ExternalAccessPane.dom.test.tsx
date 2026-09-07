@@ -23,7 +23,7 @@ it("shows the hosted address with no URL input, toggle or save", async () => {
   expect(view.getByText("https://office.isomux.app")).toBeTruthy();
   expect(
     view.getByText(
-      "Isomux manages this office’s address; it cannot be changed here.",
+      "Hosted Isomux manages this office's address; it cannot be changed here.",
     ),
   ).toBeTruthy();
   expect(view.queryByRole("textbox")).toBeNull();

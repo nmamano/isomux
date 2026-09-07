@@ -405,7 +405,7 @@ export const en = {
   "settings.sessions.expiryLatest": "Expires at the latest",
 
   "settings.externalAccess.managed":
-    "Isomux manages this office’s address; it cannot be changed here.",
+    "Hosted Isomux manages this office's address; it cannot be changed here.",
   "settings.externalAccess.intro":
     "Control whether this office is reachable from outside the host machine. Invite links and signed-in devices live in the Invites and Sessions sections.",
   "settings.externalAccess.title": "External access",

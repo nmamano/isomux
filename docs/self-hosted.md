@@ -11,7 +11,7 @@ There are three pieces to a working setup: keep the server **running** when nobo
 
 The last section states [what Isomux protects and records](#what-each-deployment-covers) in each setup.
 
-Hosted Isomux manages the office address. Its Access pane shows the address read-only. The URL and external-access controls below apply to self-hosted offices.
+The URL cannot be changed for Hosted Isomux offices.
 
 ## VPS install
 

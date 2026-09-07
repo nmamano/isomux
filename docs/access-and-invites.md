@@ -135,8 +135,6 @@ In Settings → Office → Office-wide connections (for every agent) or Settings
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
-Office owners can open a member’s profile in Settings to see their personal Claude and Codex connection status and managed variable names. A provider whose status cannot be checked is shown as unknown. This read-only section shows no variable values or account details.
-
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 
@@ -199,4 +197,4 @@ Personal tokens have a separate API identity scope. They carry the issuing user'
 
 The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
 
-Every token retains replies until the client sends `ackThrough`. Drains return all retained replies; the client uses `sequence` to detect duplicates. Without acknowledgements, replies repeat and new sends fail with `inbox_full` at 100 retained messages. Sends and drains accept `Idempotency-Key` for retries within a five-minute in-memory cache. See the [developer API guide](/docs/developer-api) for the request and response fields.
+Sending messages and reading replies is described in the [developer API guide](/docs/developer-api).
