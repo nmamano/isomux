@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
-import { LanguageProvider } from "./i18n.tsx";
+import { LanguageProvider, useI18n } from "./i18n.tsx";
 import { DEMO_FEATURES } from "../shared/features.ts";
 import { App } from "./App.tsx";
 import { setShim } from "./ws.ts";
@@ -31,6 +31,7 @@ const isMobile =
   window.innerWidth < 600;
 
 function DemoBanner() {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -50,11 +51,7 @@ function DemoBanner() {
         color: "var(--text-dim)",
       }}
     >
-      <span>
-        {isMobile
-          ? "This is a demo. To connect real Claude, Codex, and OpenCode agents:"
-          : "This is a demo office. To connect real Claude, Codex, and OpenCode agents:"}
-      </span>
+      <span>{isMobile ? t("demo.banner.short") : t("demo.banner.long")}</span>
       <a
         href="https://isomux.com"
         style={{

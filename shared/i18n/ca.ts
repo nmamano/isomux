@@ -1919,4 +1919,10 @@ export const ca: Catalog = {
   "preAuth.signOutBlocked.heading": "Tancament de sessió bloquejat",
   "preAuth.signOutBlocked.lastOwnerSession":
     "Tancament de sessió rebutjat: aquesta és l'última sessió activa de propietari a l'oficina. Crea una altra invitació per a tu i accepta-la en un altre dispositiu abans de tornar-ho a provar.",
+  "demo.banner.short":
+    "Això és una demo. Per connectar agents reals de Claude, Codex i OpenCode:",
+  "demo.banner.long":
+    "Aquesta és una oficina de demostració. Per connectar agents reals de Claude, Codex i OpenCode:",
+  "demo.reply":
+    "Això és una demo: el teu missatge no s'ha enviat a Claude. Per fer servir Isomux de debò, segueix les instruccions d'instal·lació a [isomux.com](https://isomux.com).",
 };

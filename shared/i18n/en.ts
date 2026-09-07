@@ -1916,6 +1916,12 @@ export const en = {
   "preAuth.signOutBlocked.heading": "Sign out blocked",
   "preAuth.signOutBlocked.lastOwnerSession":
     "Sign out refused: this is the last active owner session in the office. Mint an additional invite for yourself and accept it on another device first, then retry.",
+  "demo.banner.short":
+    "This is a demo. To connect real Claude, Codex, and OpenCode agents:",
+  "demo.banner.long":
+    "This is a demo office. To connect real Claude, Codex, and OpenCode agents:",
+  "demo.reply":
+    "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

@@ -1,5 +1,8 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
+import { detectBrowserLanguage } from "../shared/languages.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import { displayLanguage } from "./preference-form.ts";
 import type {
   CronCreateReq,
   CronUpdateReq,
@@ -667,8 +670,20 @@ function seedLogs() {
   }
 }
 
-const DEMO_REPLY =
-  "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).";
+// The canned reply, in the viewer's language: the record's pick, else the
+// browser's, the same resolution the UI uses.
+function demoReply(): string {
+  const selfId = sessionContext?.userId ?? null;
+  const self = selfId
+    ? ([...users.values()].find((u) => u.id === selfId) ?? null)
+    : null;
+  return translatorFor(
+    displayLanguage(
+      self,
+      typeof navigator === "undefined" ? null : navigator.language,
+    ),
+  ).t("demo.reply");
+}
 
 // Cron jobs: maintained as plain in-memory state (not via OfficeState).
 const cronjobs: Cronjob[] = [];
@@ -947,6 +962,16 @@ function seedUsers() {
   const firstRoomId = roomIds[0] ?? null;
   const now = Date.now();
   const usedIds = new Set<string>();
+  // `?lang=es` (or `ca`) presets the demo's language: the Spanish and Catalan
+  // landing pages link and embed the demo with it, so a visitor who chose a
+  // language on the site is not bounced back to the browser's. The seeder also
+  // runs under bun test, where there is no window, so the read is guarded.
+  const presetLanguage =
+    typeof window !== "undefined"
+      ? detectBrowserLanguage(
+          new URLSearchParams(window.location.search).get("lang"),
+        )
+      : null;
   for (const { name, role } of DEMO_USERS_SEED) {
     const id = generateUserId(Array.from(usedIds));
     usedIds.add(id);
@@ -965,7 +990,7 @@ function seedUsers() {
       // visually distinct from a default classic Casper as it moves
       // between desks in the demo.
       avatarVariant: name === "Stephen" ? "stubby-arms" : "classic",
-      language: null,
+      language: presetLanguage,
     });
   }
   const ricky = users.get("ricky");
@@ -2282,7 +2307,7 @@ export async function demoApi(
         pendingReplies.delete(id);
         shimEmit({
           type: "log_entry",
-          entry: makeLogEntry(id, "text", DEMO_REPLY),
+          entry: makeLogEntry(id, "text", demoReply()),
         });
         shimEmit({
           type: "agent_updated",

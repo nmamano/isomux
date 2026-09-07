@@ -1925,4 +1925,10 @@ export const es: Catalog = {
   "preAuth.signOutBlocked.heading": "Cierre de sesión bloqueado",
   "preAuth.signOutBlocked.lastOwnerSession":
     "Cierre de sesión rechazado: esta es la última sesión activa de propietario en la oficina. Crea otra invitación para ti y acéptala en otro dispositivo antes de volver a intentarlo.",
+  "demo.banner.short":
+    "Esto es una demo. Para conectar agentes reales de Claude, Codex y OpenCode:",
+  "demo.banner.long":
+    "Esta es una oficina de demostración. Para conectar agentes reales de Claude, Codex y OpenCode:",
+  "demo.reply":
+    "Esto es una demo: tu mensaje no se ha enviado a Claude. Para usar Isomux de verdad, sigue las instrucciones de instalación en [isomux.com](https://isomux.com).",
 };
