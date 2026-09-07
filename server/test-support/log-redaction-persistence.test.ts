@@ -121,7 +121,7 @@ it("redacts the motivating systemd tool result in the actual JSONL file", () => 
   expect(raw).not.toContain(secret);
   expect(raw).not.toContain(anthropic);
   expect(JSON.parse(raw).content).toBe(
-    '[Service]\nEnvironment="OPENAI_API_KEY=...REDACTED"\nEnvironment="ANTHROPIC_API_KEY=...REDACTED"',
+    '[Service]\nEnvironment="OPENAI_API_KEY=sk-proj-...REDACTED"\nEnvironment="ANTHROPIC_API_KEY=sk-ant-a...REDACTED"',
   );
 });
 

@@ -34,13 +34,14 @@ cannot be serialized as JSON; existing writer error handling remains in place.
 
 The starting provider-prefix patterns remain case-sensitive. The generic
 api-key, secret, token and password assignment branch ignores case, per the
-2026-09-06 ruling. One regex pass selects the leftmost match. Each full match
-keeps eight characters plus `...REDACTED`.
+2026-09-06 ruling. One regex pass selects the leftmost match. A bare key keeps
+its first eight characters plus `...REDACTED`; an assignment keeps its label
+and the first eight characters of the value (Nil, 2026-09-07).
 
 For `OPENAI_API_KEY=sk-proj-<key>`, the generic branch starts first and the result
-is `OPENAI_API_KEY=...REDACTED`. The output retains the assignment label, not the
-provider prefix. A `PASSWORD=<value>` match retains `PASSWORD` and drops `=`.
-These results are intentional. Placeholders such as
+is `OPENAI_API_KEY=sk-proj-...REDACTED`: the assignment label plus the first
+eight characters of the value. A `PASSWORD=<value>` match keeps `PASSWORD=`
+and eight characters of the value. These results are intentional. Placeholders such as
 `api_key=YOUR_API_KEY_HERE_PLACEHOLDER` are accepted false positives. Long
 `token=` URL query values also match. A bearer placeholder in a curl header,
 an env name without a value, and prose about storing an api_key do not match.

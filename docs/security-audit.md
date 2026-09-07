@@ -178,10 +178,11 @@ of secrets.
 
 New agent and scheduled-run log entries pass through built-in secret redaction
 before Isomux stores them. The scanner checks string values, including nested
-tool payloads and metadata. Each match keeps its first eight characters plus
-`...REDACTED`. Generic assignment names ignore case; provider key prefixes are
-case-sensitive. For `API_KEY=<recognized value>`, the kept prefix is `API_KEY=`.
-The scanner can mask placeholders and URL query values. It can also miss secrets;
+tool payloads and metadata. A bare key keeps its first eight characters plus
+`...REDACTED`; an assignment such as `API_KEY=<value>` keeps the label and the
+first eight characters of the value. Generic assignment names ignore case;
+provider key prefixes are case-sensitive. The scanner can mask placeholders and
+URL query values. It can also miss secrets;
 if scanning fails, Isomux stores the original entry and logs a diagnostic.
 Existing logs, attachments and backend-owned transcripts are unchanged.
 

@@ -14,7 +14,14 @@ function entry(
     content,
   };
 }
-const redacted = (value: string) => value.slice(0, 8) + "...REDACTED";
+// A bare key keeps its first eight characters; an assignment keeps its label
+// and the first eight characters of the value.
+const redacted = (value: string) => {
+  const m = /^(.*?[=:]\s*['"]?)(.*)$/s.exec(value);
+  return m
+    ? m[1] + m[2].slice(0, 8) + "...REDACTED"
+    : value.slice(0, 8) + "...REDACTED";
+};
 
 describe("log secret redaction", () => {
   const secrets = [
@@ -108,20 +115,20 @@ describe("log secret redaction", () => {
       redactLogEntry(
         entry("https://example.com/?token=abcdefghijklmnop&next=docs"),
       ).content,
-    ).toBe("https://example.com/?token=ab...REDACTED&next=docs");
+    ).toBe("https://example.com/?token=abcdefgh...REDACTED&next=docs");
     expect(
       redactLogEntry(
         entry('curl https://example.com -d "api_key=YOUR_API_KEY_HERE"'),
       ).content,
-    ).toBe('curl https://example.com -d "api_key=...REDACTED"');
+    ).toBe('curl https://example.com -d "api_key=YOUR_API...REDACTED"');
     for (const name of ["DATABASE_PASSWORD", "database_password"]) {
       expect(
         redactLogEntry(entry(name + "=hunter2hunter2hunter2")).content,
-      ).toBe(name.slice(0, -8) + name.slice(-8) + "...REDACTED");
+      ).toBe(name + "=hunter2h...REDACTED");
     }
     expect(
       redactLogEntry(entry("password=correct-horse-battery-staple")).content,
-    ).toBe("password...REDACTED");
+    ).toBe("password=correct-...REDACTED");
   });
   it("copies shared and cyclic metadata without an infinite walk", () => {
     const metadata: Record<string, unknown> = { value: secrets[0] };
@@ -151,24 +158,24 @@ it("pins the PM ruling and stays stable on a second pass for every case", () => 
   const cases = [
     [
       "Environment=OPENAI_API_KEY=sk-proj-" + "A".repeat(24),
-      "Environment=OPENAI_API_KEY=...REDACTED",
+      "Environment=OPENAI_API_KEY=sk-proj-...REDACTED",
     ],
     [
       "Environment=ANTHROPIC_API_KEY=sk-ant-api03-" + "A".repeat(24),
-      "Environment=ANTHROPIC_API_KEY=...REDACTED",
+      "Environment=ANTHROPIC_API_KEY=sk-ant-a...REDACTED",
     ],
     [
       "DATABASE_PASSWORD=hunter2hunter2hunter2hunter2",
-      "DATABASE_PASSWORD...REDACTED",
+      "DATABASE_PASSWORD=hunter2h...REDACTED",
     ],
     [
       "database_password=hunter2hunter2hunter2hunter2",
-      "database_password...REDACTED",
+      "database_password=hunter2h...REDACTED",
     ],
-    ["api_key=YOUR_API_KEY_HERE_PLACEHOLDER", "api_key=...REDACTED"],
+    ["api_key=YOUR_API_KEY_HERE_PLACEHOLDER", "api_key=YOUR_API...REDACTED"],
     [
       "https://example.com/v1/things?token=abcdefghijklmnopqrstuvwx",
-      "https://example.com/v1/things?token=ab...REDACTED",
+      "https://example.com/v1/things?token=abcdefgh...REDACTED",
     ],
     ["AKIAIOSFODNN7EXAMPLE", "AKIAIOSF...REDACTED"],
     ["ghp_" + "a".repeat(36), "ghp_aaaa...REDACTED"],
