@@ -1522,7 +1522,6 @@ export function Walls({
           <circle cx="0" cy="0" r={R + 4} fill="transparent" />
         )}
         {/* The rear case sits behind a raised, bevelled rim. */}
-        <circle cx="2.5" cy="3.5" r={R + 1} fill="#000" opacity="0.16" />
         <circle cx="1.5" cy="2" r={R} fill="var(--wall-decor-stroke)" />
         <circle
           cx="0"
