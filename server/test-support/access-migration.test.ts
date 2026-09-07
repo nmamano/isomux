@@ -24,7 +24,6 @@ function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
   return {
     name: over.id,
     notifRooms: [],
-    envFile: null,
     createdAt: 0,
     role: "member",
     allowedRooms: [],

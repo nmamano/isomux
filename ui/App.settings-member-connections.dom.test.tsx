@@ -47,7 +47,6 @@ function user(over: Record<string, unknown>) {
     notifRooms: [],
     hidden: [],
     order: [],
-    envFile: null,
     memberPrompt: null,
     language: null,
     avatarColor: "#4A90D9",

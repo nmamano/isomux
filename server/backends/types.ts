@@ -525,9 +525,9 @@ export interface Backend {
   // render as a stack of cards in the order returned.
   //
   // `opts.env` carries the agent's resolved spawn env (process.env + office
-  // envFile + user envFile, in that override order). Backends that detect
+  // variables + managed personal variables, in that override order). Backends that detect
   // env-var auth (e.g. Codex's OPENAI_API_KEY) check it to avoid telling a
-  // user to "sign in" when their envFile already authenticates them.
+  // user to "sign in" when their variables already authenticate them.
   getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;

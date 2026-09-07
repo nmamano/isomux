@@ -188,10 +188,6 @@ function load(): Record<string, UserRecord> {
         // and simply ignored here - reads never break, the field is dropped on
         // the next rewrite.
         notifRooms: normalizeNotifRooms(value.notifRooms),
-        envFile:
-          typeof value.envFile === "string" && value.envFile
-            ? value.envFile
-            : null,
         createdAt:
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
@@ -267,17 +263,6 @@ export function getUser(name: string): UserRecord | undefined {
   return getUserByName(name);
 }
 
-export function getUserEnvFileById(
-  id: string | null | undefined,
-): string | null {
-  return getUserById(id)?.envFile ?? null;
-}
-
-// Compatibility wrapper. Prefer getUserEnvFileById.
-export function getUserEnvFile(name: string): string | null {
-  return getUserByName(name)?.envFile ?? null;
-}
-
 // True if any user has role "owner". Used by the bootstrap-on-empty-state
 // path to decide whether to mint a bootstrap invite on server start.
 export function hasOwner(): boolean {
@@ -336,7 +321,6 @@ export function claimUser(
     id,
     name: name.trim(),
     notifRooms: initial?.notifRooms ?? [...resolvedAllowed],
-    envFile: null,
     createdAt: Date.now(),
     role,
     // ACL allow-list. Strict string[] - no sentinel. New members
@@ -454,7 +438,6 @@ export function updateUserById(
       UserRecord,
       | "name"
       | "notifRooms"
-      | "envFile"
       | "allowedRooms"
       | "hidden"
       | "order"
@@ -493,12 +476,6 @@ export function updateUserById(
       changes.notifRooms !== undefined
         ? normalizeNotifRooms(changes.notifRooms)
         : existing.notifRooms,
-    envFile:
-      changes.envFile !== undefined
-        ? changes.envFile && String(changes.envFile).trim()
-          ? String(changes.envFile).trim()
-          : null
-        : existing.envFile,
     createdAt: existing.createdAt,
     // Role is not in the editable-via-update_user surface - it's set by
     // setUserRoleById (CLI/admin path) or by claimUser on creation.
@@ -594,7 +571,6 @@ export function updateUser(
       UserRecord,
       | "name"
       | "notifRooms"
-      | "envFile"
       | "allowedRooms"
       | "memberPrompt"
       | "avatarColor"

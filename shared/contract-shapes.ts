@@ -619,7 +619,7 @@ export interface ValidateCwdReq {
 export interface ValidateEnvReq {
   scope: "office" | "user";
   username?: string;
-  // When present, validate THIS path instead of the subject's STORED envFile -
+  // When present, validate THIS path instead of the subject's managed environment file -
   // lets the settings UI check a typed-but-unsaved path on blur. Only valid
   // with scope:"user" (rejected otherwise), and must be non-blank when
   // provided (a blank path must not silently fall back to the stored env).

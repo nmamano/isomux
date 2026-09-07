@@ -149,7 +149,6 @@ describe("usageAudienceForUser", () => {
     id: "u1",
     name: "U",
     notifRooms: [],
-    envFile: null,
     createdAt: 0,
     avatarColor: "#000000",
     avatarVariant: "classic",

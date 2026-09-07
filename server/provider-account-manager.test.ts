@@ -10,6 +10,7 @@ import {
 import { resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
+import { writeManagedUserEnv, removeManagedUserEnv } from "./user-env.ts";
 
 const disconnectedAccountClient = () => ({
   start: async () => {},
@@ -18,6 +19,64 @@ const disconnectedAccountClient = () => ({
 });
 
 describe("ProviderAccountManager", () => {
+  it("resolves managed CODEX_HOME and CLAUDE_CONFIG_DIR as explicitDirectory", async () => {
+    const id = "managed-directory-member";
+    const codexDir = resolve("/tmp/managed-member-codex");
+    const claudeDir = resolve("/tmp/managed-member-claude");
+    const seen: Array<Record<string, string | undefined>> = [];
+    const client = (env: Record<string, string | undefined>) => {
+      seen.push(env);
+      return disconnectedAccountClient();
+    };
+    const manager = new ProviderAccountManager(
+      () => {}, client as never, undefined, (userId) => userId,
+      () => ({}), client as never, () => ({}), () => ({}),
+      undefined, () => [{ id }],
+    );
+    try {
+      writeManagedUserEnv(id, { CODEX_HOME: codexDir, CLAUDE_CONFIG_DIR: claudeDir });
+      const accounts = await manager.list(id);
+      for (const provider of ["codex", "claude"] as const) {
+        expect(accounts.find((account) => account.provider === provider && account.scope === "personal"))
+          .toMatchObject({ explicitDirectory: true, accountStatus: "not_connected" });
+      }
+      expect(seen.some((env) => env.CODEX_HOME === codexDir)).toBe(true);
+      expect(seen.some((env) => env.CLAUDE_CONFIG_DIR === claudeDir)).toBe(true);
+    } finally {
+      removeManagedUserEnv(id);
+    }
+  });
+
+  it("rejects another member's managed account directory for both providers", async () => {
+    const id = "managed-collision-member-a";
+    const otherId = "managed-collision-member-b";
+    const manager = new ProviderAccountManager(
+      () => {}, disconnectedAccountClient as never, undefined, (userId) => userId,
+      () => ({}), disconnectedAccountClient as never, () => ({}), () => ({}),
+      undefined, () => [{ id }, { id: otherId }],
+    );
+    const values = { CODEX_HOME: "/tmp/managed-collision-codex", CLAUDE_CONFIG_DIR: "/tmp/managed-collision-claude" };
+    try {
+      writeManagedUserEnv(id, values);
+      writeManagedUserEnv(otherId, values);
+      const accounts = await manager.list(id);
+      for (const provider of ["codex", "claude"] as const) {
+        const account = accounts.find((entry) => entry.provider === provider && entry.scope === "personal");
+        expect(account?.accountStatus).toBe("unavailable");
+        expect(account?.error).toContain("another member's");
+      }
+    } finally {
+      removeManagedUserEnv(id);
+      removeManagedUserEnv(otherId);
+    }
+  });
+
+  it("uses empty user variables for an absent or malformed user id", () => {
+    const manager = new ProviderAccountManager(() => {});
+    expect(manager["userOnlyEnv"]("absent-managed-user")).toEqual({});
+    expect(manager["userOnlyEnv"]("../invalid-user")).toEqual({});
+  });
+
   it("projects an invalid personal target to unknown without account metadata", async () => {
     const manager = new ProviderAccountManager(
       () => {},

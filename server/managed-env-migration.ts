@@ -1,4 +1,3 @@
-import type { UserRecord } from "../shared/types.ts";
 import { statSync } from "node:fs";
 
 export function legacyEnvFileExists(path: string): boolean {
@@ -24,8 +23,6 @@ export interface LegacyEnvSubject {
 
 export interface ManagedEnvMigrationDeps {
   office: LegacyEnvSubject;
-  users: UserRecord[];
-  userSubject: (user: UserRecord) => LegacyEnvSubject;
   log: (message: string) => void;
 }
 
@@ -73,7 +70,4 @@ function migrateSubject(
 
 export function migrateManagedEnvAtBoot(deps: ManagedEnvMigrationDeps): void {
   migrateSubject(deps.office, deps.log);
-  for (const user of deps.users) {
-    migrateSubject(deps.userSubject(user), deps.log);
-  }
 }

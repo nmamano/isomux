@@ -1,5 +1,5 @@
 // Shared env file resolver. Used by agent spawn/resume AND cronjob fire/
-// resume to merge process.env with office and user env files, so the same
+// resume to merge process.env with office and managed personal variables, so the same
 // env reaches the model picker (`backends.listModels`), the actual session
 // (`createSession`), and any session-file prechecks (Codex `CODEX_HOME`).
 //
@@ -14,7 +14,7 @@
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { readEnvFile } from "./persistence.ts";
-import { getUserByName, getUserEnvFileById } from "./users.ts";
+import { getUserByName } from "./users.ts";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import {
@@ -53,8 +53,6 @@ function resolveUserEnvSource(
   userId: string | null | undefined,
 ): string | null {
   if (!userId) return null;
-  const pendingImport = getUserEnvFileById(userId);
-  if (pendingImport) throw pendingImportError(pendingImport);
   return managedUserEnvExists(userId) ? managedUserEnvPath(userId) : null;
 }
 
@@ -73,7 +71,7 @@ function pendingImportError(path: string): Error {
 // Build the spawn-time env merge for a given user identity. `userId` is
 // the stable user record id; pass null for an unowned context (agents
 // with no spawning user, cronjobs not bound to a user). Returns
-// `undefined` when no office and no user env file are configured - the
+// `undefined` when no managed variables or personal provider are active - the
 // SDK then inherits process.env as-is.
 export function buildEnvForUserId(
   userId: string | null | undefined,

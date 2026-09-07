@@ -7,7 +7,7 @@ This document covers the design for closing the cross-member credential-leak gap
 ## Terminology
 
 - **Office owner**: the user holding the office-owner role from the auth system. Has admin authority over the whole office. Typically a single human per office.
-- **Manager** (of an agent): the user who controls a specific agent. Set at spawn time and **immutable** for the agent's lifetime. Drives the agent's envFile loading and its system-prompt user section. Stored as `userId` on `AgentInfo` / `PersistedAgent`.
+- **Manager** (of an agent): the user who controls a specific agent. Set at spawn time and **immutable** for the agent's lifetime. Drives the agent's managed variable loading and its system-prompt user section. Stored as `userId` on `AgentInfo` / `PersistedAgent`.
 - **Member**: a user with the member role from the auth system. Can manage their own agents but cannot administer the office.
 - **Personal folder**: a per-user top-level directory under `~/` (the host running-user's home) that the user designates as their workspace. Used by the privacy ACL - cross-user agents are denied access to it. Opt-in; users without one have no carve-out (solo-dev default).
 
@@ -47,7 +47,7 @@ This document covers the design for closing the cross-member credential-leak gap
 
 Every agent has:
 
-- `userId: string | null` - the manager. Set at spawn from the spawning user; immutable. Drives `buildEnvForUserId` (envFile selection at spawn/resume/cronjob-fire) and appears in the agent's system prompt user section.
+- `userId: string | null` - the manager. Set at spawn from the spawning user; immutable. Drives `buildEnvForUserId` (managed variable selection at spawn/resume/cronjob-fire) and appears in the agent's system prompt user section.
 - `username: string | null` - display snapshot of the manager's name at spawn time. Goes stale on rename; not authoritative for any behavior. Kept for UI/audit purposes.
 
 Both null on legacy unowned agents that pre-date the user/device split.
@@ -56,7 +56,7 @@ The manager-as-immutable-spawn-stamp framing replaces an earlier design that exp
 
 ### Per-user `privateFolder` field
 
-Every user record has an optional `privateFolder: string | null` field, set in user settings alongside `envFile`. The field's purpose is to mark a directory as a privacy carve-out: cross-user agents (managed by anyone except this user) are denied access to anything under this folder.
+Every user record has an optional `privateFolder: string | null` field, set in user settings. The field's purpose is to mark a directory as a privacy carve-out: cross-user agents (managed by anyone except this user) are denied access to anything under this folder.
 
 **Constraint: top-level only.** The folder must be a direct child of the host running-user's home (`~/`). No nesting, no symlink-escape. Validation rules:
 
@@ -98,7 +98,7 @@ The "convergence" point: the same `forbiddenRootsForAgent(agent)` function is th
 ### What's deliberately NOT in the model
 
 - **No `visibility` flag (private/shared).** An earlier design had a per-agent visibility toggle controlling chime-in semantics. The room ACL is the right axis for social privacy (who can chat with the agent); the personal folder is the right axis for data privacy. Two orthogonal concerns; the visibility flag conflated them.
-- **No `sharedEnvFile`.** An earlier design had per-user dual envFiles to give shared agents scoped credentials. The new model: put your envFile inside your personal folder. Other users' agents can't read it. One envFile per user; one mechanism.
+- **No second personal variable set for shared agents.** Each member has one set of managed personal variables.
 - **No system-managed `~/.isomux-data/private/<userId>/`.** An earlier design lazily created per-user private dirs at a known prefix. The new model: user picks any folder under `~/`. More flexible, matches user mental models ("my work goes in `~/work`"), no magic paths.
 - **No `manager` reassignment.** An earlier design exposed `edit_agent.manager`. The new model: spawn the agent under the right user from the start; kill+respawn if the wrong user owns it.
 - **No per-room shared folder primitive.** Considered as a complementary axis (room-level shared workspace); decided against - adds a second carve-out dimension without clear demand.
@@ -115,7 +115,7 @@ The slices land in this order:
 
 3. **`forbiddenRootsForAgent` abstraction + HTTP enforcement + per-agent Claude PreToolUse refactor.** First enforcement step. Introduces the per-agent deny-list and wires it into the Claude SDK hook surface and the HTTP file-affordance endpoints (read-file / diff / edit-file; skip terminal-command). Codex SDK stays gapped at the application layer (no PreToolUse equivalent). Existing global rules in `safety-hooks.ts` (~/.isomux/ writes, sensitive basenames) stay separate from the per-agent layer.
 
-4. **envFile-inside-personal-folder warning.** Non-blocking UI nudge in UserSettingsView if the user has set both fields and the envFile isn't inside the privateFolder. Meaningful only after enforcement (slice 3) lands.
+4. **Env-file location warning (DROPPED).** Isomux chooses the managed file path, so the member has no file location to check.
 
 5. **Bwrap mount profile (Phase B / Linux).** Kernel-level enforcement of the same deny-list via mount namespaces. Closes the Codex SDK and autonomous-agent gaps that the application layer can't. Linux only; macOS would need a parallel `sandbox-exec` / SBPL backend (residual macOS gap).
 

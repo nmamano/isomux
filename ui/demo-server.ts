@@ -954,7 +954,6 @@ function seedUsers() {
       id,
       name,
       notifRooms: firstRoomId ? [firstRoomId] : [],
-      envFile: null,
       createdAt: now,
       role,
       allowedRooms: [...roomIds],
@@ -2079,7 +2078,6 @@ export async function demoApi(
     }
     const c = (body ?? {}) as {
       name?: string;
-      envFile?: string | null;
       memberPrompt?: string | null;
       avatarColor?: string;
       avatarVariant?: string;
@@ -2099,7 +2097,6 @@ export async function demoApi(
     const updated: UserRecord = {
       ...existing,
       ...(renamed && trimmedName ? { name: trimmedName } : {}),
-      ...(c.envFile !== undefined ? { envFile: c.envFile } : {}),
       ...(c.memberPrompt !== undefined
         ? {
             memberPrompt: c.memberPrompt?.trim() ? c.memberPrompt.trim() : null,

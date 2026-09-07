@@ -19,7 +19,8 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { getUserByName, updateUserById } from "../users.ts";
+import { getUserByName } from "../users.ts";
+import { managedUserEnvPath, writeManagedUserEnv } from "../user-env.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -377,12 +378,11 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
     await srv.seedOwner("Boss");
     const member = await srv.seedMember("Alice");
 
-    // Give Alice a real env file with 3 keys.
-    const envPath = join(srv.stateRoot, "alice.env");
-    writeFileSync(envPath, "A=1\nB=2\nC=3\n");
+    // Give Alice managed variables with 3 keys.
     const alice = getUserByName("Alice");
     expect(alice).toBeTruthy();
-    expect(updateUserById(alice!.id, { envFile: envPath }).ok).toBe(true);
+    writeManagedUserEnv(alice!.id, { A: "1", B: "2", C: "3" });
+    const envPath = managedUserEnvPath(alice!.id);
 
     // Omitted username -> self -> validates Alice's env (NOT a trivial ok). This
     // is the regression: before the self-resolution fix, omitted resolved nothing
@@ -404,8 +404,8 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
     expect(named.status).toBe(200);
     expect(named.body).toEqual({ ok: true, keyCount: 3 });
 
-    // A broken own env surfaces the error on the omitted path too.
-    unlinkSync(envPath);
+    // Invalid managed contents surface an error on the omitted path too.
+    writeFileSync(envPath, "not a dotenv entry\n");
     const broken = await api(srv, "/api/validate/env", {
       method: "POST",
       rawSessionId: member.rawSessionId,
@@ -425,13 +425,11 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
 
     // Stored env: 3 keys. Typed candidate: 2 keys. The response keyCount tells
     // us which one was actually validated.
-    const storedPath = join(srv.stateRoot, "alice-stored.env");
-    writeFileSync(storedPath, "A=1\nB=2\nC=3\n");
     const typedPath = join(srv.stateRoot, "alice-typed.env");
     writeFileSync(typedPath, "X=1\nY=2\n");
     const alice = getUserByName("Alice");
     expect(alice).toBeTruthy();
-    expect(updateUserById(alice!.id, { envFile: storedPath }).ok).toBe(true);
+    writeManagedUserEnv(alice!.id, { A: "1", B: "2", C: "3" });
 
     const typed = await api(srv, "/api/validate/env", {
       method: "POST",

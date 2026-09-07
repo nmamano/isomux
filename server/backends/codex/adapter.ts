@@ -108,7 +108,7 @@ import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 // [Copy to terminal] card alongside this message has the exact command.
 //
 // The terminal card targets the default `~/.isomux/codex-home/`. Users with a
-// per-user envFile `CODEX_HOME`
+// managed personal variable `CODEX_HOME`
 // (e.g. `~/.isomux-users/<name>/.codex` for billing isolation, see
 // internal-docs/isolation-design.md) need to prefix the pasted command
 // with their own `CODEX_HOME=<path>` before pressing Enter - the wrapper's
@@ -744,7 +744,7 @@ export class CodexSession implements BackendSession {
   constructor(private readonly opts: CodexSessionInitOpts) {
     // JsonRpcLiteClient.start() applies the isomux CODEX_HOME default so
     // every codex subprocess (session bootstrap + listModels + oneShot +
-    // fork + read) spawns under the same effective env. Per-user envFile
+    // fork + read) spawns under the same effective env. A managed personal
     // CODEX_HOME (see internal-docs/isolation-design.md) is honored
     // verbatim by withIsomuxCodexHome.
     const clientOpts: JsonRpcLiteClientOptions = {

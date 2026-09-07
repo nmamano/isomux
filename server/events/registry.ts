@@ -407,7 +407,7 @@ export const EVENT_REGISTRY = {
 // reviewed explicitly. A contract test asserts the registry's audience:"all"
 // set is exactly this allowlist - adding an `all` event without updating this
 // list (a deliberate, reviewed act) fails the test. Each is justified as
-// reduced office-wide metadata (no UserRecord/OfficeSettings envFile/access/
+// reduced office-wide metadata (no user access or office envFile/
 // prompt rides an `all` channel). The task board LEFT this class when it became
 // room-scoped - it is now per-recipient projected (see the `tasks` entry).
 export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([

@@ -225,6 +225,7 @@ import { STATE_ROOT } from "./config.ts";
 import {
   managedOfficeEnvExists,
   managedUserEnvExists,
+  managedUserEnvPath,
   readManagedOfficeEnv,
   readManagedUserEnv,
   writeManagedOfficeEnv,
@@ -1146,7 +1147,7 @@ function resolveAndValidateEnv(
       : selfUserId
         ? getUserById(selfUserId)
         : undefined;
-    envFile = rec?.envFile ?? null;
+    envFile = rec && managedUserEnvExists(rec.id) ? managedUserEnvPath(rec.id) : null;
   }
   if (!envFile) return { ok: true, envFile: null };
   try {
@@ -1161,7 +1162,7 @@ function resolveAndValidateEnv(
 }
 
 // backends.listModels. Resolves the per-user env stack and
-// cwd EXACTLY like a real spawn (so office/user env-file overrides are reflected),
+// cwd EXACTLY like a real spawn (so office and managed personal variable overrides are reflected),
 // lists, and maps to the wire shape. On failure, flags backend-specific auth
 // errors via detectAuthError so the UI can render login instructions.
 async function listBackendModels(input: {
@@ -5923,20 +5924,6 @@ export async function startServer(
         agentManager.setOfficeSettings(settings.prompt, null, settings.name);
       },
     },
-    users: listUsers(),
-    userSubject: (user) => ({
-      label: `user "${user.name}"`,
-      path: user.envFile,
-      legacyExists: legacyEnvFileExists,
-      managedExists: () => managedUserEnvExists(user.id),
-      readManaged: () => readManagedUserEnv(user.id),
-      readLegacy: readEnvFile,
-      writeManaged: (values) => writeManagedUserEnv(user.id, values),
-      clearLegacyPath: () => {
-        const result = updateUserById(user.id, { envFile: null });
-        if (!result.ok) throw new Error("user no longer exists");
-      },
-    }),
     log: (message) => console.error(message),
   });
   registerBootHooks();

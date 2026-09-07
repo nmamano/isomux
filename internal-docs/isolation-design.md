@@ -173,9 +173,9 @@ On first hub startup, if an existing `~/.isomux/` directory exists and `~/.isomu
 
 ## User and room layers: per-user env, per-room prompts (implemented)
 
-> Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserSettingsView.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/users.json` (per-user envFile), `~/.isomux/office-config.json` (office-level env and prompt).
+> Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserSettingsView.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/user-env/<userId>.env` (managed per-user variables), `~/.isomux/office-config.json` (office-level env and prompt).
 
-Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.username` at spawn time. Identity-bearing config (env file, including Git/GitHub and provider-auth credentials) is keyed by username. Prompt customization is keyed by room.
+Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.username` at spawn time. Isomux keys managed personal variables, including Git/GitHub and provider-auth credentials, by user id. Prompt customization is keyed by room.
 
 ### Prompt hierarchy: office → room → agent
 
@@ -226,19 +226,19 @@ merged = { ...process.env, ...officeEnv, ...userEnv }
 
 ### Env injection via SDK
 
-The Claude Agent SDK accepts an `env` option on session creation. At spawn time, isomux reads the office and user env files, merges them, and passes the result via the SDK session options. Credentials never appear in launcher scripts or any isomux-managed file.
+The Claude Agent SDK accepts an `env` option on session creation. At spawn time, isomux reads the office and user env files, merges them, and passes the result via the SDK session options. Isomux stores personal variables in managed files under `~/.isomux/user-env/`.
 
 Spawn path (`server/env-loader.ts:buildEnvFor(username)`):
 1. Read office env file (if configured), parse dotenv → `officeEnv`
-2. Read user env file for `username` (if configured), parse dotenv → `userEnv`
+2. Read the managed user env file for `username` (if present), parse dotenv → `userEnv`
 3. Merge: `{ ...process.env, ...officeEnv, ...userEnv }`
 4. Pass to the backend's `createSession({ env: mergedEnv, ... })`
 
-`buildEnvFor` is invoked at every spawn point: Claude `createSession` and `resumeSession`, Codex `createSession` and `resumeSession`, `list_backend_models`, cronjob fire, one-shot prompt. It returns `undefined` (not merged env) when no envFile is configured, so default-path users see no behavior change.
+`buildEnvFor` is invoked at every spawn point: Claude `createSession` and `resumeSession`, Codex `createSession` and `resumeSession`, `list_backend_models`, cronjob fire, one-shot prompt. It returns `undefined` (not merged env) when no managed variables or personal provider are active, so default-path users see no behavior change.
 
 ### Spawn-time failure mode
 
-If `envFile` is set but the file is missing, unreadable, or fails to parse, the spawn fails loudly with the error surfaced in the agent log. Silent fallback is the wrong default for a credentials feature: spawning without the expected identity would risk commits under the wrong user.
+If a managed file is unreadable or fails to parse, the spawn fails with the error in the agent log. Silent fallback is the wrong default for a credentials feature: spawning without the expected identity would risk commits under the wrong user.
 
 ### Effect timing
 
@@ -262,14 +262,13 @@ interface UserRecord {
   name: string;                // display name (lowercased for keying)
   defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
-  envFile: string | null;      // absolute path to dotenv file (Git, provider auth, etc.)
   createdAt: number;
 }
 ```
 
 ### Per-user provider auth (Claude / Codex)
 
-The per-user envFile is the mechanism for letting each co-tenant bill Claude/Codex against their own account, instead of sharing whatever account the host Linux user logged into. Two supported recipes per user, both as env vars in the user envFile:
+Members set personal variables in Settings → You → Individual connections. These variables can select their Claude/Codex account. The following recipes use personal variables:
 
 **Flavor A - API-key billing** (requires an Anthropic / OpenAI API account):
 
@@ -304,7 +303,7 @@ mkdir -p ~/.isomux-users/marc/.codex && chmod 700 ~/.isomux-users/marc/.codex
 CODEX_HOME=~/.isomux-users/marc/.codex ~/.isomux/bin/codex login
 ```
 
-The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** - isomux's dotenv parser does not expand `~` or `$VAR`.
+The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then enters the variables above under Individual connections, using **absolute paths** - isomux's dotenv parser does not expand `~` or `$VAR`.
 
 Direct SSH as the host user is an alternative path for users with their pubkey authorized; users without shell access can have the operator run the login command on the host while they complete OAuth in their own browser.
 
@@ -322,7 +321,7 @@ Direct SSH as the host user is an alternative path for users with their pubkey a
 
 Isomux's own session-file preflights (`server/cwd-utils.ts:claudeProjectDir`, `claudeSessionFileExists`, `moveClaudeSessionFiles`, `diagnoseProcessExit`, plus Codex's `codexSessionsDir`) honor the same env vars, so resume preflights resolve against the same directories the spawned subprocesses use.
 
-When no user envFile sets `CODEX_HOME`, isomux defaults to its own isolated `~/.isomux/codex-home/` (see `server/backends/codex/native-bin.ts`), separate from the host user's interactive `~/.codex/`. This keeps the bundled `@openai/codex` runtime dep from sharing auth/sessions/plugins with whatever version the user has installed globally. Single-user deployments thus need a one-time isomux-scoped `codex login` (emitted as a [Copy to terminal] card on the first Codex agent spawn). Multi-user envFile setups override this default per-user as documented above.
+When no personal variable sets `CODEX_HOME`, isomux defaults to its own isolated `~/.isomux/codex-home/` (see `server/backends/codex/native-bin.ts`), separate from the host user's interactive `~/.codex/`. This keeps the bundled `@openai/codex` runtime dep from sharing auth/sessions/plugins with whatever version the user has installed globally. Single-user deployments thus need a one-time isomux-scoped `codex login` (emitted as a [Copy to terminal] card on the first Codex agent spawn). Personal variable setups override this default per-user as documented above.
 
 #### What this enables and what it does not
 
@@ -345,7 +344,7 @@ Closing these gaps is the job of the process layer.
 
 ## Process layer: Linux namespaces (scoped)
 
-> Status: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice. **A specific composed design that uses namespaces as one of several layers is in `internal-docs/per-user-isolation-design.md`** (per-user isolation in a shared office: bwrap + per-agent visibility ACL + dual envFile + private/shared disk layout). That doc supersedes the recommendation below for the in-shared-office case; the analysis below remains useful for the office-layer namespace question when paired with the hub.
+> Status: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice. **A specific composed design that uses namespaces as one of several layers is in `internal-docs/per-user-isolation-design.md`** (per-user isolation in a shared office: bwrap + per-agent visibility ACL + managed personal variables + private/shared disk layout). That doc supersedes the recommendation below for the in-shared-office case; the analysis below remains useful for the office-layer namespace question when paired with the hub.
 
 Process-layer isolation puts each agent spawn into Linux namespaces so the OS enforces what the application layer cannot: filesystem visibility, PID visibility, user identity, and (optionally) network reach.
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { rmSync, writeFileSync } from "fs";
+import { readFileSync, rmSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 
 import { getUserByName, updateUserById } from "./users.ts";
@@ -24,50 +24,15 @@ afterEach(async () => {
 });
 
 describe("managed env migration at real boot", () => {
-  it("continues past poisoned office and user files and imports other users", async () => {
+  it("preserves the poisoned office import marker and surfaces a safe error", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
-    const badKey = await server.seedMember("Bad Key User");
-    const badValue = await server.seedMember("Bad Value User");
-    const valid = await server.seedMember("Valid User");
-    const badKeyId = getUserByName(badKey.username)!.id;
     const roomId = server.agentManager.getRooms()[0].id;
-    expect(
-      await server.agentManager.spawn(
-        "Persisted Pending Import Agent",
-        server.stateRoot,
-        "default",
-        0,
-        undefined,
-        roomId,
-        undefined,
-        undefined,
-        undefined,
-        badKey.username,
-        "claude",
-        undefined,
-        badKeyId,
-      ),
-    ).not.toBeNull();
     const officePath = join(server.stateRoot, "office-poison.env");
-    const badKeyPath = join(server.stateRoot, "bad-key.env");
-    const badValuePath = join(server.stateRoot, "bad-value.env");
-    const validPath = join(server.stateRoot, "valid.env");
     const secret1 = "sk-live-abcdef0123456789";
     const secret2 = "sk-live-fedcba9876543210";
     writeFileSync(officePath, `${secret1}\n=${secret2}\n`);
-    writeFileSync(badKeyPath, "MY-VAR=user-secret\n");
-    writeFileSync(badValuePath, 'KEY="user\\nsecret"\n');
-    writeFileSync(validPath, "GH_TOKEN=valid-user\n");
     server.agentManager.setOfficeSettings(null, officePath, null);
-    expect(updateUserById(badKeyId, { envFile: badKeyPath }).ok).toBe(true);
-    expect(
-      updateUserById(getUserByName(badValue.username)!.id, {
-        envFile: badValuePath,
-      }).ok,
-    ).toBe(true);
-    const validId = getUserByName(valid.username)!.id;
-    expect(updateUserById(validId, { envFile: validPath }).ok).toBe(true);
 
     const lines: string[] = [];
     const prior = console.error;
@@ -80,14 +45,8 @@ describe("managed env migration at real boot", () => {
     }
 
     expect(server.agentManager.getOfficeSettings().envFile).toBe(officePath);
-    expect(getUserByName(badKey.username)!.envFile).toBe(badKeyPath);
-    expect(getUserByName(badValue.username)!.envFile).toBe(badValuePath);
-    expect(getUserByName(valid.username)!.envFile).toBeNull();
-    expect(readManagedUserEnv(validId)).toEqual({ GH_TOKEN: "valid-user" });
     expect(lines).toEqual([
       "[managed env migration] could not import office variables; retrying on next boot",
-      '[managed env migration] could not import user "Bad Key User"; retrying on next boot',
-      '[managed env migration] could not import user "Bad Value User"; retrying on next boot',
     ]);
     expect(lines.join("\n")).not.toContain("secret");
 
@@ -114,30 +73,25 @@ describe("managed env migration at real boot", () => {
     expect(visibleError).not.toContain(secret2);
   });
 
-  it("retries an invalid import across boots and completes a valid import once", async () => {
+  it("ignores stale user envFile values across boot and drops them on the next write", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    const invalid = await server.seedMember("Invalid Import User");
-    const valid = await server.seedMember("Valid Import User");
-    const invalidPath = join(server.stateRoot, "invalid.env");
-    const validPath = join(server.stateRoot, "valid.env");
-    writeFileSync(invalidPath, "MY-VAR=1\n");
-    writeFileSync(validPath, "GH_TOKEN=valid-token\n");
-    const invalidId = getUserByName(invalid.username)!.id;
-    const validId = getUserByName(valid.username)!.id;
-    expect(updateUserById(invalidId, { envFile: invalidPath }).ok).toBe(true);
-    expect(updateUserById(validId, { envFile: validPath }).ok).toBe(true);
+    const member = await server.seedMember("Legacy User");
+    const id = getUserByName(member.username)!.id;
+    const usersPath = join(server.stateRoot, "users.json");
+    const legacyPath = join(server.stateRoot, "legacy-user.env");
+    writeFileSync(legacyPath, "LEGACY_ONLY=ignored\n");
+    const records = JSON.parse(readFileSync(usersPath, "utf8"));
+    records[id].envFile = legacyPath;
+    writeFileSync(usersPath, JSON.stringify(records));
 
     server = await server.restart();
-    expect(getUserByName(invalid.username)!.envFile).toBe(invalidPath);
-    expect(getUserByName(valid.username)!.envFile).toBeNull();
-    expect(() => buildEnvForUserId(invalidId)).toThrow(invalidPath);
-    expect(buildEnvForUserId(validId)?.GH_TOKEN).toBe("valid-token");
-
-    server = await server.restart();
-    expect(getUserByName(invalid.username)!.envFile).toBe(invalidPath);
-    expect(getUserByName(valid.username)!.envFile).toBeNull();
-    expect(() => buildEnvForUserId(invalidId)).toThrow(invalidPath);
-    expect(buildEnvForUserId(validId)?.GH_TOKEN).toBe("valid-token");
+    expect(getUserByName(member.username)).toBeDefined();
+    expect(getUserByName(member.username)).not.toHaveProperty("envFile");
+    expect(readManagedUserEnv(id)).toBeNull();
+    expect(buildEnvForUserId(id)?.LEGACY_ONLY).toBeUndefined();
+    expect(updateUserById(id, { memberPrompt: "Updated" }).ok).toBe(true);
+    expect(JSON.parse(readFileSync(usersPath, "utf8"))[id]).not.toHaveProperty("envFile");
+    expect(readFileSync(legacyPath, "utf8")).toBe("LEGACY_ONLY=ignored\n");
   });
 });

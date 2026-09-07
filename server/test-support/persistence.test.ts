@@ -188,7 +188,6 @@ describe("users persistence round-trip (Phase 1.3)", () => {
       notifRooms: ["aaaa0001"],
     });
     const upd = updateUserById(claimed.id, {
-      envFile: "/home/alice/.env",
       memberPrompt: "I am Alice the owner.",
       avatarColor: "#abcdef",
       avatarVariant: "big-eyes",

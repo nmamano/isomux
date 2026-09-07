@@ -31,7 +31,6 @@ export function selfUserRecord(
     id: SELF_ID,
     name: "Tester",
     notifRooms: [],
-    envFile: null,
     createdAt: 0,
     role: "owner",
     avatarColor: "#4a90d9",

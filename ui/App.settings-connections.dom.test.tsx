@@ -47,7 +47,6 @@ const SIGNED_IN = {
         notifRooms: [],
         hidden: [],
         order: [],
-        envFile: null,
         memberPrompt: null,
         language: null,
         avatarColor: "#4A90D9",

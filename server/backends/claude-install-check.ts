@@ -41,7 +41,7 @@ export function isClaudeCodeInstalled(env?: {
 // Two positive signals, either is enough:
 //   1. ANTHROPIC_API_KEY in the agent's effective env - env-var auth
 //      bypasses the credentials file entirely. Caller passes the agent's
-//      resolved env (process.env + office envFile + user envFile, in
+//      resolved env (process.env + office variables + managed personal variables, in
 //      override order); defaults to process.env if no env supplied.
 //   2. `<CLAUDE_CONFIG_DIR>/.credentials.json` exists, falling back to
 //      `~/.claude/.credentials.json` when CLAUDE_CONFIG_DIR is blank.

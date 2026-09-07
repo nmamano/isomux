@@ -63,7 +63,7 @@ import {
   validateCodexSandbox,
 } from "./agent-validators.ts";
 // buildEnvFor merges process.env with the office env file and the cronjob
-// owner's user env file (matches agent-manager's spawn-time env). Cron uses
+// owner's managed personal variables (matches agent-manager's spawn-time env). Cron uses
 // the same builder so a user that successfully fetches Codex models with
 // their per-user OPENAI_API_KEY / CODEX_HOME via `backends.listModels` gets
 // the same env when the cronjob actually fires. Imported from env-loader
@@ -806,7 +806,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // Resolve the run's spawn-env best-effort for auth-error hint generation.
-  // `buildEnvForUserId` throws on a broken/missing envFile, which is correct
+  // `buildEnvForUserId` throws when environment loading fails, which is correct
   // behavior for spawn/preflight but wrong here - a hint generator that fails
   // would mask the original auth error. Swallowing the error and falling back
   // to `undefined` (which the backend treats as process.env) keeps the
@@ -1677,7 +1677,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   function checkResumableSession(run: CronjobRun, leaf: string): string | null {
     // Build env once for both branches - Claude honors CLAUDE_CONFIG_DIR for
     // its project dir lookup, Codex honors CODEX_HOME for its sessions/ dir.
-    // A broken envFile is a real precheck failure: fall through to a clear
+    // An environment load error is a real precheck failure: fall through to a clear
     // error rather than silently checking the wrong directory.
     const job = cronjobs.find((c) => c.id === run.cronjobId);
     if (run.agentTypeSnapshot === "opencode" && !job) {

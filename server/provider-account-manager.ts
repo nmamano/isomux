@@ -2,8 +2,8 @@ import { homedir } from "node:os";
 import { unlinkSync } from "node:fs";
 import type { MemberProviderStatus } from "../shared/contract-shapes.ts";
 import { isAbsolute, resolve } from "node:path";
-import { readEnvFile } from "./persistence.ts";
-import { getUserEnvFileById, listUsers } from "./users.ts";
+import { managedUserEnvExists, readManagedUserEnv } from "./user-env.ts";
+import { listUsers } from "./users.ts";
 import {
   buildEnvForUserId,
   buildOfficeEnv,
@@ -116,10 +116,7 @@ export class ProviderAccountManager {
     > = readOfficeEnvFile,
     private readonly userEnv: (userId: string) => Record<string, string> = (
       userId,
-    ) => {
-      const file = getUserEnvFileById(userId);
-      return file ? readEnvFile(file) : {};
-    },
+    ) => managedUserEnvExists(userId) ? readManagedUserEnv(userId) ?? {} : {},
     private readonly users: () => Array<{ id: string }> = listUsers,
     private readonly personalHome: typeof personalProviderHome = personalProviderHome,
     private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,

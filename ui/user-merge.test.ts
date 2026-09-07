@@ -21,7 +21,6 @@ function full(name: string, over: Partial<UserRecord> = {}): UserRecord {
     avatarVariant: "classic",
     createdAt: 1,
     notifRooms: [],
-    envFile: null,
     allowedRooms: [],
     hidden: [],
     order: [],
@@ -60,7 +59,6 @@ describe("isFullUserView", () => {
       "notifRooms",
       "hidden",
       "order",
-      "envFile",
       "memberPrompt",
     ];
     for (const f of sensitive) {

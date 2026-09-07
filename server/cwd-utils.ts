@@ -70,7 +70,7 @@ export function tildifyCwd(cwd: string): string {
 // Ex: /home/nil/nilmamano.com -> -home-nil-nilmamano-com
 //
 // Honors CLAUDE_CONFIG_DIR (the same env var the Claude SDK reads) so that
-// per-user envFile setups pointing at a non-default config dir resolve to the
+// managed personal variables pointing at a non-default config dir resolve to the
 // same projects/ tree the spawned subprocess uses. Falls back to ~/.claude
 // when env is unset or omitted - preserves today's behavior for default users.
 export function claudeProjectDir(
@@ -148,7 +148,7 @@ export function claudeSessionInterruptedByShutdown(
 // a thread is archived, the user has to go through an explicit picker.
 //
 // CODEX_HOME resolution: honor env.CODEX_HOME if the caller supplied it (per-
-// user envFile billing isolation, per internal-docs/isolation-design.md),
+// user managed variables for billing isolation, per internal-docs/isolation-design.md),
 // otherwise fall back to isomux's isolated home `~/.isomux/codex-home/`.
 // Callers pass the same env they pass to the spawn (typically from
 // `buildEnvFor(...)`, which already merges process.env), so this resolves to
@@ -408,7 +408,7 @@ export function validateCwd(cwd: string): string {
 //
 // `env` lets the hint resolve session paths against the same CLAUDE_CONFIG_DIR
 // the spawn used. Error-path callers must wrap their env build in try/catch and
-// pass `undefined` on failure - a broken envFile must not mask the original
+// pass `undefined` on failure - an environment load error must not mask the original
 // backend error this function is annotating.
 export function diagnoseProcessExit(
   cwd: string,

@@ -178,7 +178,7 @@ export class JsonRpcLiteClient {
     // Apply the isomux CODEX_HOME default here (not at every adapter
     // callsite) so model/list, fork, read, one-shot, and the session bootstrap
     // all spawn with the same effective env. withIsomuxCodexHome honors a
-    // caller-set CODEX_HOME verbatim (per-user envFile billing isolation, see
+    // caller-set CODEX_HOME verbatim (per-user managed variables for billing isolation, see
     // server/backends/codex/native-bin.ts).
     try {
       this.child = spawn(bin, spawnArgs, {

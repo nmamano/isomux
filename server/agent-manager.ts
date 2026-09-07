@@ -459,12 +459,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         cardEligible: false,
         text: LOGIN_INSTRUCTIONS,
       };
-    // Resolve the merged env (process.env + office envFile + user envFile, in
+    // Resolve the merged env (process.env + office variables + managed personal variables, in
     // override order) so the backend can recognize env-var auth (e.g. Codex
-    // OPENAI_API_KEY in the user's envFile) and skip the full sign-in
-    // walkthrough at a user who's already authed. Best-effort: if the envFile
-    // is broken or missing now (e.g. user deleted it mid-session),
-    // buildEnvForUserId throws - we want the original auth-error guidance to
+    // OPENAI_API_KEY in the user's managed variables) and skip the full sign-in
+    // walkthrough at a user who's already authed. Best-effort: if loading
+    // the environment fails, buildEnvForUserId throws - we want the original auth-error guidance to
     // still surface, not have the hint generator itself fail. Fall back to
     // undefined so the backend uses process.env. Mirrors the envForHints
     // pattern elsewhere in this file.
@@ -4033,7 +4032,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // projects/ path, "session .jsonl missing" wording). Don't run it for
         // non-Claude agents - the message would be wrong and misleading.
         if (managed && managed.info.agentType === "claude") {
-          // Best-effort env build: a broken envFile must not mask the original
+          // Best-effort env build: an environment load error must not mask the original
           // backend error this hint is annotating. Resume preflights still
           // throw on broken env (deliberate); the hint generator does not.
           const hints = diagnoseProcessExit(
@@ -4454,7 +4453,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return acted;
   }
 
-  // Merge process.env with office and the agent owner's user env files.
+  // Merge process.env with office variables and the agent owner's managed personal variables.
   // User overrides office; office overrides process.env. Spawn-time failure
   // mode: if a configured env file is missing or fails to parse, throw - the
   // caller is responsible for surfacing the error to the agent log.
@@ -4496,9 +4495,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Error-path env build for diagnostic hints. Resume preflights deliberately
-  // fail loudly on a broken envFile (an agent expecting custom creds must not
+  // fail loudly on an environment load error (an agent expecting custom creds must not
   // silently fall through to host creds). Hint generators are different: they
-  // annotate an already-failed backend error, and a broken envFile here would
+  // annotate an already-failed backend error, and an environment load error here would
   // mask the real cause. Swallow and return undefined - the hint just falls back
   // to inspecting the default ~/.claude path, which is the worst-case-correct
   // behavior when we can't resolve user env.

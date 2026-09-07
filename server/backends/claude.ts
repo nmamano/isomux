@@ -1513,7 +1513,7 @@ export function createClaudeBackend(
       // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
       // a dead session - no walkthrough needed. Symmetric with Codex's
       // ALREADY_AUTHED hint. The check honors the agent's merged env so
-      // envFile-set ANTHROPIC_API_KEY counts as authed.
+      // managed ANTHROPIC_API_KEY counts as authed.
       if (isClaudeCodeAuthenticated(opts?.env)) {
         return {
           kind: "already_authed",

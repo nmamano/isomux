@@ -1,7 +1,4 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import {
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
@@ -10,7 +7,7 @@ import {
   setPersonalProviderActiveProvider,
 } from "./env-loader.ts";
 import { personalProviderHome } from "./provider-homes.ts";
-import { claimUser, updateUserById } from "./users.ts";
+import { claimUser } from "./users.ts";
 import { writeManagedOfficeEnv, writeManagedUserEnv } from "./user-env.ts";
 
 afterEach(() => {
@@ -122,17 +119,4 @@ describe("managed user environment", () => {
     }
   });
 
-  it("fails loudly while a legacy import is pending", async () => {
-    const user = claimUser("Legacy Env Flow User");
-    const root = await mkdtemp(join(tmpdir(), "isomux-custom-flow-"));
-    const custom = join(root, "custom.env");
-    await writeFile(custom, "SOURCE=custom\n");
-    expect(updateUserById(user.id, { envFile: custom }).ok).toBe(true);
-    writeManagedUserEnv(user.id, { SOURCE: "managed" });
-
-    expect(() => buildEnvForUserId(user.id)).toThrow(
-      `The env file ${custom} could not be imported into managed variables: fix it so it parses (one NAME=value per line) or delete it, then restart isomux.`,
-    );
-    await rm(root, { recursive: true, force: true });
-  });
 });

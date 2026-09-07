@@ -507,7 +507,7 @@ export interface AgentInfo {
   // The user who spawned this agent. `userId` is the stable identity
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
   // resume / cronjob-fire time) and identifies the agent's manager - the
-  // user shown in the system prompt user section and whose envFile loads
+  // user shown in the system prompt user section and whose managed variables load
   // on session recreate. Set at spawn and immutable: reassignment is not
   // exposed; the spawning user remains the manager for the agent's
   // lifetime. `username` is the matching display snapshot; goes stale
@@ -1128,7 +1128,6 @@ export interface UserRecord {
   id: string; // stable 8-char hex; the storage key in users.json
   name: string; // display case, e.g. "Nil"; case-insensitively unique
   notifRooms: NotifRoomsSetting;
-  envFile: string | null; // legacy boot-migration marker
   createdAt: number;
   role: UserRole; // app-level role; owner can invite users, revoke sessions, and set per-user room access
   // Visual identity for the live-avatars feature. avatarColor is a hex
@@ -1186,7 +1185,7 @@ export interface UserRecord {
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`
-// event or the public roster. Excludes envFile, allowedRooms, memberPrompt, and
+// event or the public roster. Excludes allowedRooms, memberPrompt, and
 // view prefs by construction, so sensitive fields can never ride an `all`
 // channel. Canonical home (next to UserRecord + the ServerMessage that
 // references it); re-exported from contract-shapes.ts so the server

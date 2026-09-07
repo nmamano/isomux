@@ -151,7 +151,8 @@ describe("routes/users REST - update (record split, Option A)", () => {
       body: { envFile: "/no/such/file/at/all.env" },
     });
     expect(staleEnv.status).toBe(200);
-    expect(getUserByName("Mia")!.envFile ?? null).toBe(null);
+    expect(getUserByName("Mia")).toBeDefined();
+    expect(getUserByName("Mia")).not.toHaveProperty("envFile");
   });
 
   it("a rename to an existing name -> 409 name_taken", async () => {
