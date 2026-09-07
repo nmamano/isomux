@@ -465,7 +465,14 @@ function UsageBlock({
   if (error) return <ErrorLine>{error}</ErrorLine>;
   if (!usage)
     return (
-      <p style={{ fontSize: 11, color: "var(--text-ghost)", marginTop: 16 }}>
+      <p
+        style={{
+          fontSize: 16,
+          fontWeight: 600,
+          color: "var(--text-secondary)",
+          marginTop: 28,
+        }}
+      >
         {t("settings.storage.measuring")}
       </p>
     );

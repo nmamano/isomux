@@ -1503,7 +1503,7 @@ export function Walls({
         >
           {t("common.apps")}
         </text>
-        <circle cx="0" cy="22" r="0.8" fill="var(--accent)" />
+        <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
       </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g
@@ -1562,8 +1562,8 @@ export function Walls({
           const a = (i * 30 * Math.PI) / 180;
           const x1 = (r - 2) * Math.sin(a);
           const y1 = -(r - 2) * Math.cos(a);
-          const x2 = (r - 5) * Math.sin(a);
-          const y2 = -(r - 5) * Math.cos(a);
+          const x2 = (r - 6) * Math.sin(a);
+          const y2 = -(r - 6) * Math.cos(a);
           return (
             <line
               key={i}
@@ -1571,8 +1571,9 @@ export function Walls({
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke="var(--wall-decor-stroke)"
-              strokeWidth={i % 3 === 0 ? 1.2 : 0.6}
+              stroke="var(--clock-hand)"
+              strokeWidth={i % 3 === 0 ? 1.8 : 1}
+              strokeLinecap="round"
             />
           );
         })}

@@ -91,7 +91,14 @@ export function UsagePane() {
       {error ? (
         <p style={{ color: "#ff6b6b", fontSize: 11 }}>{error}</p>
       ) : !usage ? (
-        <p style={{ color: "var(--text-ghost)", fontSize: 11 }}>
+        <p
+          style={{
+            fontSize: 16,
+            fontWeight: 600,
+            color: "var(--text-secondary)",
+            marginTop: 28,
+          }}
+        >
           {t("common.loading")}
         </p>
       ) : (
