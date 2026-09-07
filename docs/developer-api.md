@@ -13,6 +13,8 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 ## Message an agent from another device
 
+One token = one inbox = one conversation. The token talks to any number of agents; everything it sends and everything it receives lives in one append-only log for that token, in order, each entry with an increasing sequence number.
+
 In **Settings → You → API tokens**, create a named token with a 30-day expiry, a 365-day expiry, or no expiry. Copy the raw token when it appears; Isomux does not show it again. Set your office URL and paste the token into your shell:
 
 ```bash
@@ -34,6 +36,8 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
   -d '{"text":"Please check the latest alert."}'
 ```
 
+The send response contains `messageId`, which is also the `id` of the send entry in the token log.
+
 For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
 
 ## Receive replies from office agents
@@ -47,37 +51,40 @@ curl -s -X POST "$OFFICE_URL/api/api-token-inboxes/$TOKEN_ID/messages" \
   -d '{"text":"The report is ready."}'
 ```
 
-The send succeeds without a poller. Its response includes `lastDrainedAt`, or `null` when the token has never drained its inbox. A full inbox returns `inbox_full`; the sender must wait for the client to acknowledge messages.
+The send succeeds without a poller. Its response includes `messageId` and `lastDrainedAt`, or `null` for `lastDrainedAt` when the token has never read its log.
 
-The token reads its own inbox with a drain:
-
-```bash
-curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-The response contains `messages`, `previouslyDrainedAt`, `drainedAt`, `depth`, `capacity`, and `highWatermark`. Each message has a per-token increasing `sequence`. `depth` is the number of messages retained after the request; `capacity` is 100; `highWatermark` is the last assigned sequence, even after the inbox empties. The timestamps record successful reads, including polls that delete nothing.
-
-A drain without `ackThrough` returns every retained message and deletes nothing, including after a restart. The client uses each message's `sequence` to detect duplicates. Delivery is at least once; the client must prevent duplicate processing.
-
-Save and process the messages, then acknowledge the highest sequence processed in order:
+Until push access is available, use polling. The token reads its own conversation through the existing drain route:
 
 ```bash
 curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"ackThrough":123}'
+  -d '{"after":123}'
 ```
 
-The server deletes messages with `sequence <= ackThrough` and returns the rest. Repeated ACKs are safe. `ackThrough` must be a nonnegative safe integer. A value beyond `highWatermark` deletes only messages already queued; it does not acknowledge future messages. Unacknowledged messages do not expire. A client that never acknowledges sees repeated replies; at 100 retained messages, new sends fail with `inbox_full`.
+`after` is the last sequence the client has saved and processed; it defaults to 0 and must be a nonnegative safe integer. The response contains `entries`, `firstSequence`, `latestSequence`, `previouslyDrainedAt`, and `drainedAt`. Each read returns up to 500 entries with `sequence > after`, in sequence order. The client reads again from the last sequence it received until it reaches `latestSequence`. A cursor at or beyond `latestSequence` returns an empty `entries` array.
+
+Every entry has `direction`, `sequence`, `id`, `sentAt`, and `text`. A `to_agent` entry records the token's send with `targetAgentId`, `targetAgentName`, and `targetRoomName`; its `id` matches the send response's `messageId`. A `from_agent` entry records a reply with `senderAgentId`, `senderAgentName`, and `senderRoomName`.
+
+`latestSequence` is the last assigned sequence for the token, including entries removed by storage pruning; it is not the end of the page. `firstSequence` is the oldest sequence still in the log, or `latestSequence` when the log is empty. Both are 0 for a new token. The read timestamps keep their existing names: `drainedAt` is the current read time and `previouslyDrainedAt` is the previous read time, or `null`. These timestamps and `sentAt` are milliseconds since the Unix epoch.
+
+Reading deletes nothing. A lost response costs nothing; the client asks again with the same cursor, as long as the owner has not pruned the log. There are no acknowledgements, inbox capacity, leases, or entry expiry. The log survives restarts. Existing retained inboxes migrate into the log in stored order on startup. If a write stops partway through a final line, recovery removes that incomplete line and keeps the complete entries before it. A corrupt complete line moves that token’s log to a quarantine file; other tokens keep working.
+
+## Prune token conversations
+
+Entries leave only through owner-driven storage pruning. The storage report counts token logs under **API token conversations**. The owner can preview or apply pruning in the storage panel, or call `POST /api/storage/prune` with `{"target":"token-logs","olderThanDays":30}`. This is a dry run; add `"apply":true` to delete the selected files. `olderThanDays` must be an integer of at least 1; `keepPerAgent` is ignored for token logs.
+
+Pruning removes whole token log files by their last modification time. An active log stays in full until it has had no writes for the selected number of days. Revocation leaves the log in storage; the owner can prune it under the same rules. Pruning preserves the token's sequence counter, so later entries continue above it.
+
+A client with `after < firstSequence - 1` has missed pruned entries. An empty page with `after < latestSequence` also means entries were pruned. The client must handle that gap; reading again cannot recover deleted entries.
 
 ## Retry a request
 
 Send an `Idempotency-Key` header on a message send or drain, and reuse that key with the exact same request body when retrying that request. A successful retry returns the cached response with `Idempotency-Replayed: true`; a changed body returns `409 idempotency_conflict`. Use a new key for each new request, including each new poll. API-token sends reject `clientMessageId` with a 400 that names `Idempotency-Key`.
 
-The cache is in memory for five minutes after completion and is cleared on restart. It covers sends to agents, agent replies to token inboxes, and drains. It does not make delivery and persistence atomic or prevent duplicates after an error. The inbox retains replies across restarts until the client acknowledges them.
+The cache is in memory for five minutes after completion and is cleared on restart. It covers sends to agents, agent replies to token inboxes, and drains. It does not make delivery and persistence atomic or prevent duplicates after an error. Token logs remain until the owner prunes them.
 
-A send can reach the inbox before its sender echo is saved. If the send returns an error after delivery, a retry can create a duplicate.
+A send can reach its destination before all log writes complete. If the send returns an error after delivery, a retry can create a duplicate.
 
 ## Read and write memory
 

@@ -13,6 +13,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync, existsSync, utimesSync } from "fs";
 import { join } from "path";
+import { resetStorageUsageCache } from "../storage-usage.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -114,6 +115,7 @@ describe("routes/storage.usage REST", () => {
     const categories = b.categories as { id: string; bytes: number }[];
     expect(categories.map((c) => c.id)).toEqual([
       "transcripts",
+      "token-logs",
       "attachments",
       "session-metadata",
       "codex-home",
@@ -419,4 +421,29 @@ describe("routes/storage.prune REST", () => {
     expect(plan.skipped.some((s) => s.reason === "active-session")).toBe(true);
     expect(existsSync(path)).toBe(true);
   });
+});
+
+
+it("counts and prunes token logs only on explicit owner apply, including revoked logs", async () => {
+  const srv = await startTestServer();
+  server = srv;
+  const owner = await srv.seedOwner("Boss");
+  const dir = join(srv.stateRoot, "token-logs");
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, "0123456789abcdef.jsonl");
+  writeFileSync(file, "retained log");
+  const old = new Date(Date.now() - 40 * 86400000);
+  utimesSync(file, old, old);
+  resetStorageUsageCache();
+  const usage = await api(srv, "/api/storage/usage", { rawSessionId: owner.rawSessionId });
+  expect((usage.body!.categories as { id: string; bytes: number }[]).find(c => c.id === "token-logs")?.bytes).toBe(12);
+  const request = { method: "POST", rawSessionId: owner.rawSessionId, body: { target: "token-logs", olderThanDays: 30 } };
+  const dry = await api(srv, "/api/storage/prune", request);
+  expect(dry.status).toBe(200);
+  expect(dry.body!.applied).toBeNull();
+  expect(existsSync(file)).toBe(true);
+  const applied = await api(srv, "/api/storage/prune", { ...request, body: { ...request.body, apply: true } });
+  expect(applied.status).toBe(200);
+  expect(applied.body!.applied).toMatchObject({ deleted: 1, bytes: 12 });
+  expect(existsSync(file)).toBe(false);
 });

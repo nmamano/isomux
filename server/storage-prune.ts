@@ -44,8 +44,8 @@
 // on Dirent isFile/isDirectory (lstat-based, so a symlink is neither), the
 // attachment pass lstat-checks files/ before reading it, agent dirs must match
 // the `agent-` layout, and before each unlink apply re-checks that the parent
-// resolves under the real logs root AND that no parent component is a symlink.
-// Candidate paths are RELATIVE to the logs dir, so the fence is structural
+// resolves under the target root AND that no parent component is a symlink.
+// Candidate paths are RELATIVE to that root (logs/ or token-logs/), so the fence is structural
 // rather than a string comparison on an absolute path.
 //
 // What that does NOT do: eliminate the race. A same-user process could swap a
@@ -86,7 +86,7 @@ import type {
 // Field semantics worth restating here, next to the code that enforces them:
 //   PrunePolicy.olderThanDays  files younger than this are never candidates;
 //                              the route rejects 0 (no "delete everything").
-//   PrunePolicy.keepPerAgent   transcripts only; ignored for attachments.
+//   PrunePolicy.keepPerAgent   transcripts only; ignored for other targets.
 //   PruneCandidate.mtimeMs     captured at plan time. applyPrune refuses a file
 //                              whose mtime moved since, so a plan that raced a
 //                              live agent's write cannot delete fresh content.
@@ -99,8 +99,9 @@ export type PrunePlan = PrunePlanWire;
 export type { PruneTarget, PrunePolicy, PruneSkipReason };
 
 export interface PruneDeps {
-  // <stateRoot>/logs. The fence root: nothing outside it is ever deletable.
+  // <stateRoot>/logs. Each target selects its own fence root.
   logsDir: string;
+  tokenLogsDir: string;
   now: number;
   // Session ids currently live across the office. Session ids are UUIDs, so a
   // flat set needs no per-agent keying.
@@ -482,6 +483,34 @@ function finishPlan(
 // Plan plus the per-path spare attribution. Internal: the attribution is how
 // applyPrune explains a refusal, and it would be an unbounded response field if
 // it rode on the wire.
+function targetRoot(target: PruneTarget, deps: PruneDeps): string {
+  return target === "token-logs" ? deps.tokenLogsDir : deps.logsDir;
+}
+
+function planTokenLogs(deps: PruneDeps, policy: PrunePolicy, ledger: SkipLedger): PrunePlan {
+  const root = targetRoot("token-logs", deps);
+  const candidates: PruneCandidate[] = [];
+  // Scan independently of credentials: revoked tokens retain their logs.
+  let names: string[];
+  try {
+    if (!lstatSync(root).isDirectory()) return finishPlan("token-logs", policy, candidates, ledger);
+    names = readdirSync(root);
+  } catch { return finishPlan("token-logs", policy, candidates, ledger); }
+  for (const name of names) {
+    if (!/^[a-f0-9]{16}\.jsonl$/.test(name)) continue;
+    let stat;
+    try { stat = lstatSync(join(root, name)); } catch { continue; }
+    if (!stat.isFile()) continue;
+    const ageDays = (deps.now - stat.mtimeMs) / DAY_MS;
+    if (ageDays < policy.olderThanDays) {
+      addSkip(ledger, name, "too-recent", stat.size);
+      continue;
+    }
+    candidates.push({ path: name, agentId: "", bytes: stat.size, ageDays, mtimeMs: stat.mtimeMs });
+  }
+  return finishPlan("token-logs", policy, candidates, ledger);
+}
+
 function planPruneDetailed(
   target: PruneTarget,
   policy: PrunePolicy,
@@ -489,7 +518,9 @@ function planPruneDetailed(
 ): { plan: PrunePlan; sparedBy: Map<string, PruneSkipReason> } {
   const ledger = newLedger();
   const plan =
-    target === "transcripts"
+    target === "token-logs"
+      ? planTokenLogs(deps, policy, ledger)
+      : target === "transcripts"
       ? planTranscripts(deps, policy, ledger)
       : planAttachments(deps, policy, ledger);
   return { plan, sparedBy: ledger.byPath };
@@ -509,6 +540,7 @@ export type PruneResult = PruneResultWire;
 // Apply a plan. Re-derives every safety property from the live filesystem:
 // a plan is data, and data can be stale, hand-edited, or hostile.
 export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
+  const root = targetRoot(plan.target, deps);
   const refused: { path: string; reason: string }[] = [];
   let deleted = 0;
   let bytes = 0;
@@ -519,7 +551,7 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
   // not have, and deleting the well-formed remainder would be acting on it.
   const resolved = new Map<string, string>();
   for (const candidate of plan.candidates) {
-    const abs = resolveCandidatePath(deps.logsDir, candidate.path);
+    const abs = resolveCandidatePath(root, candidate.path);
     if (abs === null) {
       return {
         deleted: 0,
@@ -535,13 +567,14 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
   // nothing to prune and nothing safe to compare against, so abort.
   let realLogsRoot: string;
   try {
-    realLogsRoot = realpathSync(deps.logsDir);
+    if (!lstatSync(root).isDirectory()) throw new Error("not a directory");
+    realLogsRoot = realpathSync(root);
   } catch {
     return {
       deleted: 0,
       bytes: 0,
       refused: [],
-      aborted: `logs root is not resolvable: ${deps.logsDir}`,
+      aborted: `logs root is not resolvable: ${root}`,
     };
   }
 

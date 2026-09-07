@@ -267,6 +267,7 @@ export const es: Catalog = {
 
   "settings.storage.title": "Almacenamiento de la oficina",
   "settings.storage.category.transcripts": "Transcripciones de conversaciones",
+  "settings.storage.category.tokenLogs": "Conversaciones de tokens de API",
   "settings.storage.category.attachments": "Adjuntos del chat",
   "settings.storage.category.sessionMetadata": "Metadatos de sesión",
   "settings.storage.category.codexHome": "Directorio de Codex",

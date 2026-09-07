@@ -264,6 +264,7 @@ export const ca: Catalog = {
 
   "settings.storage.title": "Emmagatzematge de l'oficina",
   "settings.storage.category.transcripts": "Transcripcions de converses",
+  "settings.storage.category.tokenLogs": "Converses de tokens d’API",
   "settings.storage.category.attachments": "Adjunts del xat",
   "settings.storage.category.sessionMetadata": "Metadades de sessió",
   "settings.storage.category.codexHome": "Directori de Codex",

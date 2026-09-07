@@ -68,7 +68,7 @@ function categoryLabel(t: Translator["t"], id: StorageCategoryId): string {
 // What can be deleted, in the picker's order. The label is the category's:
 // what each target deletes, in the words of someone who has to decide whether
 // they want it gone, used in the picker and again in the confirm sentence.
-const TARGETS: readonly PruneTarget[] = ["transcripts", "attachments"];
+const TARGETS: readonly PruneTarget[] = ["transcripts", "attachments", "token-logs"];
 
 // Why the planner spared something. The wire reasons are terse enum values; a
 // person reading a preview wants the actual reason, not the enum.

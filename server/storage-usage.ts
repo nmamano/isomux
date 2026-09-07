@@ -196,6 +196,8 @@ function measureLogs(logsDir: string): LogsBreakdown {
 export function measureStorage(roots: StorageRoots): StorageUsage {
   const { stateRoot, backupDir, snapshotDir } = roots;
   const logsDir = join(stateRoot, "logs");
+  const tokenLogsDir = join(stateRoot, "token-logs");
+  const tokenLogs = measureTree(tokenLogsDir);
   const codexHome = join(stateRoot, "codex-home");
   const providerHomes = join(stateRoot, "provider-homes");
   const cronjobs = join(stateRoot, "cronjobs");
@@ -212,6 +214,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   // agents.json, tasks.json, users.json, state/, slide/, tls/, ...
   // Derived by subtraction so the categories always sum to stateRootBytes.
   const claimedBytes =
+    tokenLogs.bytes +
     logs.transcripts.bytes +
     logs.attachments.bytes +
     logs.metadata.bytes +
@@ -220,6 +223,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     cron.bytes +
     mem.bytes;
   const claimedFiles =
+    tokenLogs.files +
     logs.transcripts.files +
     logs.attachments.files +
     logs.metadata.files +
@@ -244,6 +248,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
 
   const categories: StorageCategory[] = [
     cat("transcripts", logsDir, logs.transcripts),
+    cat("token-logs", tokenLogsDir, tokenLogs),
     cat("attachments", logsDir, logs.attachments),
     cat("session-metadata", logsDir, logs.metadata),
     cat("codex-home", codexHome, codex),

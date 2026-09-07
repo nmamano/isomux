@@ -1359,6 +1359,13 @@ const DEMO_STORAGE_CATEGORIES: StorageUsageWire["categories"] = [
     files: 412,
   },
   {
+    id: "token-logs",
+    path: "~/.isomux/token-logs",
+    available: true,
+    bytes: 32768,
+    files: 2,
+  },
+  {
     id: "attachments",
     path: "~/.isomux/logs/*/files",
     available: true,

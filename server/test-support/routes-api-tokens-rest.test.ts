@@ -7,7 +7,6 @@ import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import {
-  API_TOKEN_INBOX_CAPACITY,
   enqueueApiTokenInboxMessage,
   mintApiToken,
 } from "../api-tokens.ts";
@@ -92,7 +91,7 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("personal API tokens", () => {
-  it("accepts agent replies, echoes them live, and retains them until acknowledged", async () => {
+  it("accepts agent replies, echoes them live, and retains them after reads", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -144,8 +143,8 @@ describe("personal API tokens", () => {
     expect(first.status).toBe(200);
     const drained = await first.json();
     expect(drained.previouslyDrainedAt).toBeNull();
-    expect(drained.messages).toHaveLength(1);
-    expect(drained.messages[0]).toMatchObject({
+    expect(drained.entries).toHaveLength(1);
+    expect(drained.entries[0]).toMatchObject({
       id: ack.messageId,
       text: "result ready",
       senderAgentId: sender.id,
@@ -157,40 +156,25 @@ describe("personal API tokens", () => {
       "/api/me/api-token-inbox/drain",
       { method: "POST" },
     );
-    expect((await second.json()).messages).toEqual(drained.messages);
-    const acknowledged = await bearer(
+    expect((await second.json()).entries).toEqual(drained.entries);
+    const cursorRead = await bearer(
       srv,
       minted.body.token,
       "/api/me/api-token-inbox/drain",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ackThrough: drained.messages[0].sequence }),
+        body: JSON.stringify({ after: drained.entries[0].sequence }),
       },
     );
-    expect((await acknowledged.json()).messages).toEqual([]);
+    expect((await cursorRead.json()).entries).toEqual([]);
 
-    for (let i = 0; i < API_TOKEN_INBOX_CAPACITY; i++) {
-      await enqueueApiTokenInboxMessage({
-        tokenId: minted.body.apiToken.id,
-        userId: ownerId,
-        text: `fill ${i}`,
-        senderAgentId: sender.id,
-        senderAgentName: "Worker",
-        senderRoomName: "Room 1",
-      });
-    }
-    const full = await bearer(srv, agentToken, path, {
+    const another = await bearer(srv, agentToken, path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "retry me" }),
+      body: JSON.stringify({ text: "another reply" }),
     });
-    expect(full.status).toBe(429);
-    expect((await full.json()).error).toMatchObject({
-      code: "inbox_full",
-      message:
-        "The API token inbox is full. The client must acknowledge messages.",
-    });
+    expect(another.status).toBe(200);
 
     const tooLong = await bearer(srv, agentToken, path, {
       method: "POST",
@@ -259,7 +243,12 @@ describe("personal API tokens", () => {
     );
     const sent = await sentPromise;
     expect(sent.status).toBe(200);
-    expect(await sent.json()).toEqual({ messageId: "" });
+    const accepted = await sent.json();
+    expect(accepted.messageId).toMatch(/^[a-f0-9]{16}$/);
+    const log = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", { method: "POST" });
+    expect((await log.json()).entries).toMatchObject([
+      { direction: "to_agent", id: accepted.messageId, targetAgentId: target.id, text: "off-office alert" },
+    ]);
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
       `[Boss (API token "Phone 'alerts" (${minted.body.apiToken.id}))] off-office alert`,
     );
@@ -523,7 +512,7 @@ describe("personal API tokens", () => {
 });
 
 describe("API token channel contract", () => {
-  it("validates ACKs on every token, retains replies and replays a drain", async () => {
+  it("validates cursors, retains replies and replays a drain", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -552,43 +541,42 @@ describe("API token channel contract", () => {
       });
     await send("one");
     await send("two");
-    for (const ackThrough of [
+    for (const after of [
       -1,
       0.5,
       "1",
       null,
       Number.MAX_SAFE_INTEGER + 1,
     ]) {
-      const invalid = await drain({ ackThrough });
+      const invalid = await drain({ after });
       expect(invalid.status).toBe(400);
-      expect((await invalid.json()).error.code).toBe("invalid_ack_through");
+      expect((await invalid.json()).error.code).toBe("invalid_after");
     }
     const first = await drain({});
     expect(await first.json()).toMatchObject({
-      depth: 2,
-      capacity: 100,
-      highWatermark: 2,
+      firstSequence: 1,
+      latestSequence: 2,
     });
-    const partial = await drain({ ackThrough: 1 }, "ack-one");
+    const partial = await drain({ after: 1 }, "ack-one");
     const body = await partial.json();
-    expect(body.messages.map((m: { sequence: number }) => m.sequence)).toEqual([
+    expect(body.entries.map((m: { sequence: number }) => m.sequence)).toEqual([
       2,
     ]);
     await send("three");
-    const replay = await drain({ ackThrough: 1 }, "ack-one");
+    const replay = await drain({ after: 1 }, "ack-one");
     expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
     expect(await replay.json()).toEqual(body);
     const fresh = await drain({});
     expect(
-      (await fresh.json()).messages.map(
+      (await fresh.json()).entries.map(
         (m: { sequence: number }) => m.sequence,
       ),
-    ).toEqual([2, 3]);
+    ).toEqual([1, 2, 3]);
 
-    const zero = await drain({ ackThrough: 0 });
+    const zero = await drain({ after: 0 });
     expect(
-      (await zero.json()).messages.map((m: { sequence: number }) => m.sequence),
-    ).toEqual([2, 3]);
+      (await zero.json()).entries.map((m: { sequence: number }) => m.sequence),
+    ).toEqual([1, 2, 3]);
   });
 
   it("ignores extra ackMode fields when minting tokens", async () => {
@@ -616,11 +604,42 @@ describe("API token channel contract", () => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ackThrough: 0 }),
+          body: JSON.stringify({ after: 0 }),
         },
       );
       expect(drained.status).toBe(200);
     }
+  });
+
+  it("records token sends and replies once when the send is replayed", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const target = await spawn(srv, "Target", srv.agentManager.getRooms()[0].id, 0, owner.username, getUserByName(owner.username)!.id);
+    const minted = await mintThroughApi(srv, owner.rawSessionId);
+    const request = {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "send-once" },
+      body: JSON.stringify({ text: "request once" }),
+    };
+    const path = `/api/agents/${target.id}/messages`;
+    const sent = await bearer(srv, minted.body.token, path, request);
+    expect(sent.status).toBe(200);
+    const sentBody = await sent.json();
+    const replay = await bearer(srv, minted.body.token, path, request);
+    expect(replay.headers.get("Idempotency-Replayed")).toBe("true");
+    expect(await replay.json()).toEqual(sentBody);
+    const reply = await bearer(srv, mintAgentToken(target.id, getUserByName(owner.username)!.id), `/api/api-token-inboxes/${minted.body.apiToken.id}/messages`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "reply once" }),
+    });
+    expect(reply.status).toBe(200);
+    const read = await bearer(srv, minted.body.token, "/api/me/api-token-inbox/drain", { method: "POST" });
+    expect((await read.json()).entries).toMatchObject([
+      { direction: "to_agent", sequence: 1, id: sentBody.messageId, targetAgentId: target.id, text: "request once" },
+      { direction: "from_agent", sequence: 2, senderAgentId: target.id, text: "reply once" },
+    ]);
+    const conflict = await bearer(srv, minted.body.token, path, { ...request, body: JSON.stringify({ text: "different" }) });
+    expect(conflict.status).toBe(409);
   });
 
   it("rejects clientMessageId for API token sends and names Idempotency-Key", async () => {

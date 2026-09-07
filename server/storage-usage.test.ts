@@ -54,6 +54,7 @@ function buildStateRoot(): string {
   write(join(root, "cronjobs", "job1", "runs.json"), 25);
   write(join(root, "memory", "office.md"), 5);
   write(join(root, "agents.json"), 70);
+  write(join(root, "token-logs", "0123456789abcdef.jsonl"), 90);
   return root;
 }
 
@@ -94,6 +95,7 @@ describe("measureStorage", () => {
       snapshotDir: null,
     });
     expect(bytesOf(usage, "transcripts")).toBe(700);
+    expect(bytesOf(usage, "token-logs")).toBe(90);
     expect(bytesOf(usage, "attachments")).toBe(50);
     expect(bytesOf(usage, "session-metadata")).toBe(10);
     expect(bytesOf(usage, "codex-home")).toBe(1000);
@@ -111,6 +113,7 @@ describe("measureStorage", () => {
     });
     const inRoot: StorageCategoryId[] = [
       "transcripts",
+      "token-logs",
       "attachments",
       "session-metadata",
       "codex-home",
@@ -151,7 +154,7 @@ describe("measureStorage", () => {
     expect(bytesOf(usage, "backups")).toBe(300);
     expect(bytesOf(usage, "update-snapshots")).toBe(400);
     // External categories are NOT part of the state-root total.
-    expect(usage.stateRootBytes).toBe(2110);
+    expect(usage.stateRootBytes).toBe(2200);
   });
 
   it("reports a null path for a location the box does not have", () => {

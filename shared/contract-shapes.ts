@@ -506,6 +506,7 @@ export interface ApiTokenListRes {
 }
 
 export interface ApiTokenInboxMessage {
+  direction: "from_agent";
   sequence: number;
   id: string;
   sentAt: number;
@@ -514,6 +515,19 @@ export interface ApiTokenInboxMessage {
   senderAgentName: string;
   senderRoomName: string;
 }
+
+export interface ApiTokenSentMessage {
+  direction: "to_agent";
+  sequence: number;
+  id: string;
+  sentAt: number;
+  text: string;
+  targetAgentId: string;
+  targetAgentName: string;
+  targetRoomName: string;
+}
+
+export type ApiTokenLogEntry = ApiTokenInboxMessage | ApiTokenSentMessage;
 
 export interface ApiTokenInboxSendReq {
   text: string;
@@ -525,14 +539,13 @@ export interface ApiTokenInboxSendRes {
 }
 
 export interface ApiTokenInboxDrainReq {
-  ackThrough?: number;
+  after?: number;
 }
 
 export interface ApiTokenInboxDrainRes {
-  depth: number;
-  capacity: number;
-  highWatermark: number;
-  messages: ApiTokenInboxMessage[];
+  firstSequence: number;
+  latestSequence: number;
+  entries: ApiTokenLogEntry[];
   previouslyDrainedAt: number | null;
   drainedAt: number;
 }
@@ -840,6 +853,7 @@ export type AppErrorCode =
 // Stable kebab-case ids - a response key, not an index.
 export type StorageCategoryId =
   | "transcripts"
+  | "token-logs"
   | "attachments"
   | "session-metadata"
   | "codex-home"
@@ -930,7 +944,7 @@ export interface UsageReportWire {
   };
 }
 
-export type PruneTarget = "transcripts" | "attachments";
+export type PruneTarget = "transcripts" | "attachments" | "token-logs";
 
 export interface PrunePolicy {
   olderThanDays: number;
@@ -938,9 +952,9 @@ export interface PrunePolicy {
 }
 
 export interface PruneCandidateWire {
-  // RELATIVE to the logs dir, always ("<agentId>/<session>.jsonl",
+  // RELATIVE to the target root (logs/ or token-logs/), always ("<agentId>/<session>.jsonl",
   // "<agentId>/files/<name>"). Never absolute: the apply pass joins it onto the
-  // server's own logs root and rejects anything that escapes, so a candidate
+  // server's target root and rejects anything that escapes, so a candidate
   // cannot name a path outside the fence in the first place.
   path: string;
   bytes: number;

@@ -247,6 +247,8 @@ import { preferencesHandlers } from "./routes/handlers/preferences.ts";
 import { apiTokenHandlers } from "./routes/handlers/api-tokens.ts";
 import {
   drainApiTokenInbox,
+  loadApiTokens,
+  sendApiTokenMessage,
   enqueueApiTokenInboxMessage,
   isLiveApiTokenOwnedBy,
   listApiTokens,
@@ -3086,8 +3088,13 @@ function buildExecutorDeps(
           { sendNow },
         );
       },
-      sendAsApi: (agentId, text, username, device) =>
-        new Promise((resolve) => {
+      sendAsApi: (agentId, text, username, device, tokenId) =>
+        sendApiTokenMessage(tokenId, {
+          targetAgentId: agentId,
+          targetAgentName: agentManager.getAgentDisplay(agentId)?.name ?? agentId,
+          targetRoomName: agentManager.getAgentDisplay(agentId)?.roomName ?? "",
+          text,
+        }, () => new Promise((resolve) => {
           let settled = false;
           const settle = (result: UserSendAcceptance) => {
             if (settled) return;
@@ -3114,7 +3121,7 @@ function buildExecutorDeps(
                 message: "The message could not be sent.",
               });
             });
-        }),
+        })),
       sendAsAgent: (
         receiverId,
         senderAgentId,
@@ -3556,8 +3563,8 @@ function buildExecutorDeps(
             }
           : result;
       },
-      drainInbox: (tokenId, ackThrough) =>
-        drainApiTokenInbox(tokenId, undefined, ackThrough),
+      drainInbox: (tokenId, after) =>
+        drainApiTokenInbox(tokenId, undefined, after),
       agentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
       agentManagerUserId: (agentId) =>
         agentManager.getAgent(agentId)?.userId ?? null,
@@ -3659,6 +3666,7 @@ function buildExecutorDeps(
     const queued = queuedAttachmentsByAgent();
     return {
       logsDir: join(STATE_ROOT, "logs"),
+      tokenLogsDir: join(STATE_ROOT, "token-logs"),
       now: Date.now(),
       activeSessionIds: new Set(
         agentManager
@@ -4819,6 +4827,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
   // access without exposing this socket on every interface.
   const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
 
+  loadApiTokens();
   return Bun.serve<WsData>({
     port: startOpts.port ?? PORT,
     idleTimeout: OFFICE_IDLE_TIMEOUT_SECONDS,

@@ -40,11 +40,11 @@ export interface ApiTokenDeps {
         lastDrainedAt: number | null;
         tokenName: string;
       }
-    | { ok: false; reason: "unavailable" | "full" }
+    | { ok: false; reason: "unavailable" }
   >;
   drainInbox(
     tokenId: string,
-    ackThrough?: number,
+    after?: number,
   ): Promise<ApiTokenInboxDrainRes | null>;
   agentDisplay(agentId: string): { name: string; roomName: string } | null;
   agentManagerUserId(agentId: string): string | null;
@@ -125,13 +125,6 @@ export function apiTokenHandlers(
         senderRoomName: display.roomName,
       });
       if (!result.ok) {
-        if (result.reason === "full") {
-          return fail(
-            429,
-            "inbox_full",
-            "The API token inbox is full. The client must acknowledge messages.",
-          );
-        }
         return fail(404, "api_token_unavailable", "API token unavailable.");
       }
       deps.echoToAgent(senderAgentId, result.tokenName, body.text);
@@ -144,16 +137,16 @@ export function apiTokenHandlers(
       const tokenId = ctx.identity.apiTokenId ?? "";
       const body = (ctx.body ?? {}) as ApiTokenInboxDrainReq;
       if (
-        body.ackThrough !== undefined &&
-        (!Number.isSafeInteger(body.ackThrough) || body.ackThrough < 0)
+        body.after !== undefined &&
+        (!Number.isSafeInteger(body.after) || body.after < 0)
       ) {
         return fail(
           400,
-          "invalid_ack_through",
-          "ackThrough must be a nonnegative safe integer.",
+          "invalid_after",
+          "after must be a nonnegative safe integer.",
         );
       }
-      const result = await deps.drainInbox(tokenId, body.ackThrough);
+      const result = await deps.drainInbox(tokenId, body.after);
       return result
         ? ok(result satisfies ApiTokenInboxDrainRes)
         : fail(404, "api_token_unavailable", "API token unavailable.");

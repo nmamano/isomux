@@ -21,6 +21,7 @@ function usageFixture(
 ): StorageUsage {
   const ids: StorageCategoryId[] = [
     "transcripts",
+    "token-logs",
     "attachments",
     "session-metadata",
     "codex-home",

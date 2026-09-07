@@ -273,6 +273,7 @@ export const en = {
 
   "settings.storage.title": "Office Storage",
   "settings.storage.category.transcripts": "Conversation transcripts",
+  "settings.storage.category.tokenLogs": "API token conversations",
   "settings.storage.category.attachments": "Chat attachments",
   "settings.storage.category.sessionMetadata": "Session metadata",
   "settings.storage.category.codexHome": "Codex home",
