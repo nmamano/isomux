@@ -1091,7 +1091,12 @@ describe("AgentManager DI (temp-state isolated)", () => {
       });
       const guidance =
         "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
-      const authDeadline = Date.now() + 30_000;
+      // Measured alone on 2026-09-07: 15.6 s from enqueue to guidance,
+      // including 7.1 s for real OpenCode subprocess startup. Leave room for
+      // startup and provider-error delivery while other suites use the CPU.
+      const authWaitStartedAt = Date.now();
+      const authWaitBudgetMs = 90_000;
+      const authDeadline = authWaitStartedAt + authWaitBudgetMs;
       while (
         !mgr
           .getAgentLogs(info!.id)
@@ -1100,7 +1105,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
       )
         await Bun.sleep(10);
       const logs = mgr.getAgentLogs(info!.id);
-      expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+      expect(
+        logs.some((entry) => entry.content === guidance),
+        `OpenCode subprocess guidance missing after ${Date.now() - authWaitStartedAt} ms (deadline: ${authWaitBudgetMs} ms).`,
+      ).toBe(true);
       expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
         false,
       );

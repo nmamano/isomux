@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -454,18 +454,23 @@ describe("OpenCode pinned transport", () => {
 
   it("bounds a one-shot that emits no terminal event", async () => {
     const harness = oneShotHarness([], 10);
-    const startedAt = Date.now();
-    expect(
-      await rejected(
-        harness.backend.oneShotPrompt("label", {
-          cwd: "/tmp",
-          modelFamily: "gate/free",
-          systemPrompt: "label only",
-        }),
-      ),
-    ).toHaveProperty("message", expect.stringContaining("timed out"));
-    expect(Date.now() - startedAt).toBeLessThan(150);
-    expect(harness.deletes()).toBe(1);
+    const timer = spyOn(globalThis, "setTimeout");
+    try {
+      expect(
+        await rejected(
+          harness.backend.oneShotPrompt("label", {
+            cwd: "/tmp",
+            modelFamily: "gate/free",
+            systemPrompt: "label only",
+          }),
+        ),
+      ).toHaveProperty("message", expect.stringContaining("timed out"));
+      // Check the backstop budget without depending on CPU scheduling.
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), 10);
+      expect(harness.deletes()).toBe(1);
+    } finally {
+      timer.mockRestore();
+    }
   });
 
   it("uses the shared attachment notice contract and fails empty input safe", async () => {
