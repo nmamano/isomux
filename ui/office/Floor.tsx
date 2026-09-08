@@ -206,18 +206,6 @@ export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
       viewBox={VB}
       overflow="visible"
     >
-      <defs>
-        <linearGradient id="sunray-wide" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#fff4b8" stopOpacity="0" />
-          <stop offset="0.22" stopColor="#fff4b8" stopOpacity="0.2" />
-          <stop offset="1" stopColor="#fff4b8" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="sunray-narrow" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#fff9d8" stopOpacity="0" />
-          <stop offset="0.2" stopColor="#fff9d8" stopOpacity="0.16" />
-          <stop offset="1" stopColor="#fff9d8" stopOpacity="0" />
-        </linearGradient>
-      </defs>
       {slabs}
       {tiles}
 
@@ -310,24 +298,37 @@ export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
         </g>
       )}
 
-      <g className="sunrays" aria-hidden="true">
-        <path
-          d="M-205 -5 L18 350 L-38 361 Z"
-          fill="url(#sunray-wide)"
-          opacity="0.5"
-        />
-        <path
-          d="M-205 -5 L125 344 L55 361 Z"
-          fill="url(#sunray-wide)"
-          opacity="0.55"
-        />
-        <path
-          d="M-205 -5 L232 296 L174 324 Z"
-          fill="url(#sunray-narrow)"
-          opacity="0.65"
-        />
-      </g>
+      <SunRays />
     </svg>
+  );
+}
+
+// Light-mode sun falling from the window across the floor. Drawn by whatever
+// floor is on screen - the office's and the lobby's both - so it carries its
+// own gradients. The `sunrays` class is what light mode switches on
+// (ui/styles.ts); the rays are geometry aimed at the window's sun at
+// (-205,-5), so both floors share the same numbers.
+export function SunRays() {
+  return (
+    <>
+      <defs>
+        <linearGradient id="sunray-wide" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff4b8" stopOpacity="0" />
+          <stop offset="0.22" stopColor="#fff4b8" stopOpacity="0.2" />
+          <stop offset="1" stopColor="#fff4b8" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="sunray-narrow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff9d8" stopOpacity="0" />
+          <stop offset="0.2" stopColor="#fff9d8" stopOpacity="0.16" />
+          <stop offset="1" stopColor="#fff9d8" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <g className="sunrays" aria-hidden="true">
+        <path d="M-205 -5 L18 350 L-38 361 Z" fill="url(#sunray-wide)" opacity="0.5" />
+        <path d="M-205 -5 L125 344 L55 361 Z" fill="url(#sunray-wide)" opacity="0.55" />
+        <path d="M-205 -5 L232 296 L174 324 Z" fill="url(#sunray-narrow)" opacity="0.65" />
+      </g>
+    </>
   );
 }
 
@@ -363,7 +364,7 @@ function CloudBody({ fill }: { fill: string }) {
 // reads as stacked masses of cloud rather than one lump, and it stays crisp,
 // which is the language the rest of the scene is drawn in: the sun, the moon
 // and the desks are all flat facets with hard edges.
-function Cloud({
+export function Cloud({
   x,
   y,
   scale,
@@ -1440,71 +1441,7 @@ export function Walls({
         </g>
       </g>
 
-      {/* Apps screen on the left wall */}
-      <g
-        data-no-pan
-        transform="translate(50, -75) skewY(-27)"
-        onClick={onOpenApps}
-        aria-label={onOpenApps ? t("common.apps") : undefined}
-        style={
-          onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
-        }
-      >
-        {onOpenApps && <title>{t("common.apps")}</title>}
-        <rect
-          x="-30"
-          y="-32"
-          width="60"
-          height="58"
-          rx="3"
-          fill="var(--wall-decor)"
-          stroke="var(--wall-decor-stroke)"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="1"
-          opacity="0.22"
-        />
-        <path
-          d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
-          fill="none"
-          stroke="#000"
-          strokeWidth="1.5"
-          opacity="0.35"
-        />
-        <rect
-          x="-25"
-          y="-27"
-          width="50"
-          height="46"
-          rx="1.5"
-          fill="var(--bg-surface-solid)"
-          stroke="var(--wall-decor-stroke)"
-          strokeWidth="0.6"
-        />
-        {/* Four tiles and a glass highlight, all SVG for mobile. */}
-        <g fill="var(--accent)" opacity="0.85">
-          <rect x="-9" y="-19" width="7" height="7" rx="1" />
-          <rect x="2" y="-19" width="7" height="7" rx="1" />
-          <rect x="-9" y="-8" width="7" height="7" rx="1" />
-          <rect x="2" y="-8" width="7" height="7" rx="1" />
-        </g>
-        <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
-        <text
-          x="0"
-          y="13"
-          textAnchor="middle"
-          fontSize="11"
-          fontWeight="600"
-          fill="var(--text-primary)"
-        >
-          {t("common.apps")}
-        </text>
-        <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
-      </g>
+      <AppsWallScreen onOpenApps={onOpenApps} />
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g
         data-no-pan
@@ -1823,5 +1760,76 @@ export function Walls({
         />
       </g>
     </svg>
+  );
+}
+
+// Shared by the desk room and the lobby.
+export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
+  const { t } = useI18n();
+  return (
+      <g
+        data-no-pan
+        transform="translate(50, -75) skewY(-27)"
+        onClick={onOpenApps}
+        aria-label={onOpenApps ? t("common.apps") : undefined}
+        style={
+          onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
+        }
+      >
+        {onOpenApps && <title>{t("common.apps")}</title>}
+        <rect
+          x="-30"
+          y="-32"
+          width="60"
+          height="58"
+          rx="3"
+          fill="var(--wall-decor)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="1.2"
+        />
+        <path
+          d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1"
+          opacity="0.22"
+        />
+        <path
+          d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
+          fill="none"
+          stroke="#000"
+          strokeWidth="1.5"
+          opacity="0.35"
+        />
+        <rect
+          x="-25"
+          y="-27"
+          width="50"
+          height="46"
+          rx="1.5"
+          fill="var(--bg-surface-solid)"
+          stroke="var(--wall-decor-stroke)"
+          strokeWidth="0.6"
+        />
+        {/* Four tiles and a glass highlight, all SVG for mobile. */}
+        <g fill="var(--accent)" opacity="0.85">
+          <rect x="-9" y="-19" width="7" height="7" rx="1" />
+          <rect x="2" y="-19" width="7" height="7" rx="1" />
+          <rect x="-9" y="-8" width="7" height="7" rx="1" />
+          <rect x="2" y="-8" width="7" height="7" rx="1" />
+        </g>
+        <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
+        <text
+          x="0"
+          y="13"
+          textAnchor="middle"
+          fontSize="11"
+          fontWeight="600"
+          fill="var(--text-primary)"
+        >
+          {t("common.apps")}
+        </text>
+        <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
+      </g>
   );
 }

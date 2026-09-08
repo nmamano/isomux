@@ -106,6 +106,16 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(USER_CAPABILITIES).not.toContain("self:affordance" as Capability);
   });
 
+  it("chat:members is held by USER, API and PRIVILEGED agents, and by no other set", () => {
+    const cap = "chat:members" as Capability;
+    expect(USER_CAPABILITIES).toContain(cap);
+    expect(API_CAPABILITIES).toContain(cap);
+    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(cap);
+    expect(AGENT_CAPABILITIES).not.toContain(cap);
+    expect(RUN_CAPABILITIES).not.toContain(cap);
+    expect(APP_CAPABILITIES).not.toContain(cap);
+  });
+
   it("PRIVILEGED agent set = AGENT base + the curated operator caps, and EXCLUDES the escalation caps", () => {
     // The whole baseline AGENT set is included...
     for (const c of AGENT_CAPABILITIES) {
@@ -201,6 +211,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "api:send-message",
       "api:drain-inbox",
       "office:read",
+      "chat:members",
       "agent:manage",
       "agent:converse",
       "room:manage",

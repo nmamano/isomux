@@ -20,6 +20,8 @@ import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
 } from "./backends/opencode/office-proxy-shared.ts";
+import { ISOMUX_KNOWLEDGE } from "../api/chat.ts";
+import type { UserRole } from "../shared/types.ts";
 
 const PORT = process.env.PORT || "4000";
 
@@ -78,7 +80,7 @@ Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and ad
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
 ${humanUrlNote}${hostedNote}
-How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your boss; the exact fields are id, name, desk, room (a 1-based room NUMBER, not an object - the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, permissionMode, sandbox (null for Claude agents), username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
+How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your boss, plus the office's receptionist (the lobby agent every user can reach: room null, roomName "Lobby", roomId "lobby"); the exact fields are id, name, desk, room (a 1-based room NUMBER, or null for the receptionist; the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, permissionMode, sandbox (null for Claude agents), username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 Add ?killed=1 for killed agents instead - they keep their logs. This list is scoped differently from the live one above: not the rooms your boss can access, but the agents your boss SPAWNED, whatever room they sat in. Fields are id, name, agentType, lastRoomId, lastRoomName, topic, killedAt (ms) and logDir.
   curl -s "localhost:${PORT}/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
@@ -251,6 +253,12 @@ How to manage your cronjobs (create your own; update/delete/run-now apply to job
   curl -s localhost:${PORT}/api/cron-runs -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                                       # recent runs across all jobs
   curl -s localhost:${PORT}/api/cronjobs/<id>/runs/<runId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                      # one run's transcript
 
+How to use the members chat (the office's humans-only chat on the Lobby tab; ordinary agents never see it, privileged agents post as themselves):
+  curl -s "localhost:${PORT}/api/members-chat?limit=50" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                        # newest page -> {"messages":[...],"hasMore":...}; add &before=<oldest id you hold> to page older
+  curl -s -X POST localhost:${PORT}/api/members-chat -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'   # post (Markdown, at most 4000 characters); every member sees it as sent by you, an agent
+  curl -s -X PATCH localhost:${PORT}/api/members-chat/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'   # edit one of your boss's messages in place
+  curl -s -X DELETE localhost:${PORT}/api/members-chat/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                     # delete one of your boss's messages (any message when your boss is an office owner)
+
 Bounding: these act with your spawning boss's reach, scoped by ROOM ACCESS (not by who owns what). You can touch any room your boss can access and any agent sitting in one of those rooms - even another boss's agent, as long as it shares an accessible room; an agent in a room your boss can't access returns 403. Cron mutations are limited to the jobs you own.
 
 You CANNOT (these are human-only and return 403): mint invites, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a boss to do it in the UI.`;
@@ -287,6 +295,81 @@ The box's terminal profile is shared between all agents, so CLI logins are share
   // obey. This framing shrinks the blast radius of a bad agent write.
   systemPrompt += memorySection(autoLoadedMemory);
   return systemPrompt;
+}
+
+// The receptionist's prompt. The one agent every user of the office can open,
+// room access or not, so it knows Isomux (the same knowledge the isomux.com
+// assistant has) and this office (its name, its members, the office-wide
+// instructions the owner wrote), and it knows what it cannot see. It gets no
+// affordance recipes: it reaches no room, no other agent and no board, and a
+// small free model does better without ten screens of curl. The owner's extra
+// instructions ride on top; memory renders like every agent's.
+export interface ReceptionistPromptInput {
+  agentName: string;
+  officeName: string | null;
+  members: readonly { name: string; role: UserRole }[];
+  officePrompt: string | null;
+  customInstructions: string | null;
+  autoLoadedMemory?: string | null;
+  // The office's public origin when one is configured (a real URL people
+  // open), else null.
+  publicOrigin?: string | null;
+}
+
+export function buildReceptionistSystemPrompt(
+  input: ReceptionistPromptInput,
+): string {
+  const officeName = input.officeName?.trim() || "this office";
+  const owners = input.members.filter((m) => m.role === "owner");
+  const members = input.members.filter((m) => m.role !== "owner");
+  const list = (people: readonly { name: string }[]) =>
+    people.map((p) => `"${p.name}"`).join(", ");
+  const peopleLine =
+    input.members.length === 0
+      ? "Nobody has claimed this office yet."
+      : `Owners: ${list(owners) || "none"}. Members: ${list(members) || "none"}.`;
+  const bootOrigin = buildPublicOrigin();
+  const publicOrigin =
+    input.publicOrigin !== undefined
+      ? input.publicOrigin
+      : bootOrigin.source === "localhost"
+        ? null
+        : bootOrigin.origin;
+  const hostedNote = hostedIdentityNote(INSTALL_KIND, publicOrigin ?? "");
+  let prompt = `You are "${input.agentName}", the receptionist of the Isomux office "${officeName}". You stand in the lobby, the one place every person in this office can reach, and you answer questions about Isomux and about this office. Confused people come to you; your job is to get them unstuck or to point them at the right place.
+Messages are prefixed with the person's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
+
+## Voice
+- Talk like a helpful colleague at the front desk, not a manual.
+- Be concise: 2-4 sentences is the sweet spot. If the person wants more, they will ask.
+- Answer the question asked. Do not inventory features unless asked for the inventory.
+- Never invent a feature, a room, an agent or a person. If you do not know, say so and point at the docs or at an owner.
+
+${ISOMUX_KNOWLEDGE}
+
+## This office
+- Office name: ${officeName}.
+- ${peopleLine}
+- Owners grant room access, invite people, and can reconfigure you (engine, model, instructions). A member who cannot see a room asks an owner.
+${publicOrigin ? `- The office is at ${publicOrigin}.\n` : ""}${hostedNote ? `${hostedNote.trim()}\n` : ""}
+## What you can and cannot see
+- You see this office's name, its members, the office-wide instructions below, and the office-wide memory notes. You do not see the rooms, the agents at their desks, their conversations, the task boards or any file. When someone asks about those, tell them where to look: the room tabs and desks in the office view, the corkboard for tasks, \`/help\` in any agent's chat for commands and skills, and an owner for access.
+- People can talk to you from any device; you cannot message other agents or act on their behalf.
+- Never ask for or repeat secrets (API keys, tokens, passwords). Point people to User Settings → Connections.`;
+  if (input.officePrompt)
+    prompt += `
+
+## Office Instructions
+
+${input.officePrompt}`;
+  if (input.customInstructions)
+    prompt += `
+
+## Instructions From The Owner
+
+${input.customInstructions}`;
+  prompt += memorySection(input.autoLoadedMemory);
+  return prompt;
 }
 
 export function rewriteOpenCodeOfficeCommands(prompt: string): string {

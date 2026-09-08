@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type Dispatch,
 } from "react";
-import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
+import { KILLED_AGENT_CHIP_CAP, LOBBY_ROOM_ID } from "../shared/types.ts";
 import type {
   AgentInfo,
   AgentChoiceInteraction,
@@ -34,6 +34,7 @@ import type {
   SessionWire,
   UpdateStatusWire,
   ProviderAccountWire,
+  MembersChatMessage,
 } from "../shared/types.ts";
 import {
   type UserView,
@@ -56,6 +57,14 @@ import {
   type Theme,
   type ThemeMode,
 } from "./themes.ts";
+
+export interface MembersChatState {
+  messages: MembersChatMessage[];
+  hasMore: boolean;
+  loaded: boolean;
+  readPointer: string | null;
+  unread: number;
+}
 
 export interface AppState {
   agents: AgentInfo[];
@@ -108,6 +117,16 @@ export interface AppState {
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
+  // The members chat (humans-only stream on the Lobby tab). Hydrated by a REST
+  // page fetch from the panel, kept live by the members_chat_* wire events.
+  // `loaded` drops on every full_state so a reconnect refetches; `unread` is the
+  // server's count after the caller's read pointer, bumped locally for a new
+  // message from someone else until the next markRead answer.
+  membersChat: MembersChatState;
+  // The Lobby tab is CLIENT state: no room, never in officeState or in any
+  // access list. Open when the viewer clicked it, or landed on it because they
+  // have no visible room. Selecting a room closes it.
+  lobbyOpen: boolean;
   tasksLoaded: boolean;
   // Agent-built apps. Fetched by AppsView when the tab opens (an app list costs
   // a systemd read on the server, so no session pays for a tab it never opens)
@@ -258,6 +277,23 @@ type Action =
       prompt: string | null;
       name: string | null;
     }
+  // CLIENT-LOCAL (not a ServerMessage): the members chat panel dispatches this
+  // after its REST page fetch. `prepend` is an older page landing above what the
+  // panel already holds; otherwise the page REPLACES the slice (initial load or
+  // a reconnect refetch), keeping any live message that arrived meanwhile.
+  | {
+      type: "members_chat_page";
+      messages: MembersChatMessage[];
+      hasMore: boolean;
+      readPointer: string | null;
+      unread: number;
+      prepend: boolean;
+    }
+  | { type: "set_lobby_open"; open: boolean }
+  // Wire events for the same slice (server/events/registry.ts).
+  | { type: "members_chat_message"; message: MembersChatMessage }
+  | { type: "members_chat_deleted"; id: string }
+  | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "task_upserted"; task: TaskItem }
   | { type: "task_deleted"; taskId: string }
@@ -396,6 +432,9 @@ export function reducer(state: AppState, action: Action): AppState {
           envFile: action.office.envFile ?? null,
         },
         rooms: action.rooms,
+        // Nowhere else to land: a member with no visible room opens on the
+        // lobby. Anyone with a room keeps whatever tab they had.
+        lobbyOpen: action.rooms.length === 0 ? true : state.lobbyOpen,
         killedAgents: action.killedAgents,
         interactions: action.interactions ?? [],
         currentRoomId,
@@ -417,6 +456,9 @@ export function reducer(state: AppState, action: Action): AppState {
             }
           : null,
         hydrationEpoch: state.hydrationEpoch + 1,
+        // A reconnect may have missed posts: the panel refetches when loaded
+        // drops, and the badge keeps the last known count until it answers.
+        membersChat: { ...state.membersChat, loaded: false },
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(
@@ -699,6 +741,75 @@ export function reducer(state: AppState, action: Action): AppState {
         office: { ...state.office, prompt: action.prompt, name: action.name },
       };
     // Whole-board hydration (connect, or this user's room access changed).
+    case "members_chat_page": {
+      const incoming = action.messages;
+      const ids = new Set(incoming.map((m) => m.id));
+      const kept = state.membersChat.messages.filter((m) => !ids.has(m.id));
+      // Older page: it goes above everything held. Fresh page: it is the newest
+      // slice, and anything held that it does not contain arrived live after
+      // the server built the page, so it stays below.
+      const messages = action.prepend
+        ? [...incoming, ...kept]
+        : [
+            ...incoming,
+            ...kept.filter(
+              (m) => m.id > (incoming[incoming.length - 1]?.id ?? ""),
+            ),
+          ];
+      return {
+        ...state,
+        membersChat: {
+          messages,
+          hasMore: action.prepend
+            ? action.hasMore
+            : action.hasMore || state.membersChat.hasMore,
+          loaded: true,
+          readPointer: action.readPointer,
+          unread: action.unread,
+        },
+      };
+    }
+    // A post or an in-place edit. Upsert by id: an edit replaces where it sits,
+    // a new message goes to the end. Someone else's new message bumps the
+    // local unread until the next markRead answer replaces it.
+    case "members_chat_message": {
+      const mc = state.membersChat;
+      const idx = mc.messages.findIndex((m) => m.id === action.message.id);
+      if (idx !== -1) {
+        const messages = mc.messages.slice();
+        messages[idx] = action.message;
+        return { ...state, membersChat: { ...mc, messages } };
+      }
+      const mine = action.message.userId === state.sessionContext?.userId;
+      return {
+        ...state,
+        membersChat: {
+          ...mc,
+          messages: [...mc.messages, action.message],
+          unread: mine ? mc.unread : mc.unread + 1,
+        },
+      };
+    }
+    case "members_chat_deleted": {
+      const mc = state.membersChat;
+      if (!mc.messages.some((m) => m.id === action.id)) return state;
+      return {
+        ...state,
+        membersChat: {
+          ...mc,
+          messages: mc.messages.filter((m) => m.id !== action.id),
+        },
+      };
+    }
+    case "members_chat_read":
+      return {
+        ...state,
+        membersChat: {
+          ...state.membersChat,
+          readPointer: action.readPointer,
+          unread: action.unread,
+        },
+      };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
     // One task arrived: replace it in place if we already hold it, otherwise
@@ -764,7 +875,10 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "set_current_room":
-      return { ...state, currentRoomId: action.roomId };
+      return { ...state, currentRoomId: action.roomId, lobbyOpen: false };
+    case "set_lobby_open":
+      if (state.lobbyOpen === action.open) return state;
+      return { ...state, lobbyOpen: action.open };
     case "room_created":
       // Select the new room only when nothing is currently selected (e.g. a
       // member whose visible rooms were all closed, then gains a freshly
@@ -811,6 +925,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         rooms: result.rooms,
         currentRoomId: result.currentRoomId,
+        lobbyOpen: result.rooms.length === 0 ? true : state.lobbyOpen,
       };
     }
     case "room_renamed": {
@@ -985,6 +1100,14 @@ export const initialState: AppState = {
   rooms: [],
   tasks: [],
   tasksLoaded: false,
+  membersChat: {
+    messages: [],
+    hasMore: false,
+    loaded: false,
+    readPointer: null,
+    unread: 0,
+  },
+  lobbyOpen: false,
   apps: [],
   appsLoaded: false,
   appsRevision: 0,
@@ -1150,7 +1273,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const username = getUsername();
       const me = username ? state.users.get(username.toLowerCase()) : undefined;
       const notifRooms = me?.notifRooms ?? [];
-      if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
+      // The receptionist's lobby is nobody's notification room; its turn end
+      // sounds for everyone who asked it something.
+      if (
+        state.soundTrigger.roomId === LOBBY_ROOM_ID ||
+        shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)
+      ) {
         playNotificationSound();
       }
     }

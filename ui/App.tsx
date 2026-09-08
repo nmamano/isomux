@@ -102,6 +102,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     connected,
     sessionContext,
     hasReceivedInitialState,
+    lobbyOpen,
   } = useAppState();
   const features = useFeatures();
   const roomCount = rooms.length;
@@ -190,6 +191,9 @@ export function App({ routing = true }: { routing?: boolean }) {
     if (saved.roomId && rooms.some((r) => r.id === saved.roomId)) {
       dispatch({ type: "set_current_room", roomId: saved.roomId });
     }
+    // After the room: selecting a room closes the lobby, so the lobby flag
+    // has to land last to win.
+    if (saved.lobby) dispatch({ type: "set_lobby_open", open: true });
     if (saved.agentId && agents.some((a) => a.id === saved.agentId)) {
       dispatch({ type: "focus", agentId: saved.agentId });
     }
@@ -222,6 +226,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     saveView(persistUser, {
       roomId: currentRoomId,
       agentId: focusedAgentId,
+      lobby: lobbyOpen,
       panel: usersOpen
         ? "settings"
         : tasksOpen
@@ -242,6 +247,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     cronjobsOpen,
     appsOpen,
     usersOpen,
+    lobbyOpen,
   ]);
 
   // Write drafts through to their per-composer keys (post-restore only) by
@@ -304,10 +310,13 @@ export function App({ routing = true }: { routing?: boolean }) {
   const focusedAgentState = focusedAgent?.state ?? null;
   const currentRoomName =
     rooms.find((r) => r.id === currentRoomId)?.name ?? null;
+  // On the Lobby tab the title is the office name, never "Lobby" (Nil).
   const tabLabel =
     focusedAgentName !== null
       ? agentTabLabel(focusedAgentName, focusedAgentState ?? "idle")
-      : (currentRoomName ?? office.name ?? null);
+      : lobbyOpen
+        ? (office.name ?? null)
+        : (currentRoomName ?? office.name ?? null);
   useEffect(() => {
     if (!connected) return;
     document.title = tabLabel ? `${tabLabel} | Isomux` : "Isomux";
@@ -368,7 +377,12 @@ export function App({ routing = true }: { routing?: boolean }) {
   // back to the viewer's selection otherwise. Depending on the scalar id
   // rather than the focusedAgent object identity keeps the effect quiet
   // through unrelated agent_updated noise (state/log changes).
-  const presenceRoomId = focusedAgent?.roomId ?? currentRoomId;
+  // The lobby is not a room: a viewer on the Lobby tab reports no room, so
+  // their ghost leaves the office scenes (ghosts in the lobby are parked).
+  // The receptionist is in no room either: focusing it reports null.
+  const presenceRoomId = focusedAgent?.receptionist
+    ? null
+    : (focusedAgent?.roomId ?? (lobbyOpen ? null : currentRoomId));
   useEffect(() => {
     if (!sessionContext) return;
     send({

@@ -36,6 +36,8 @@ import type { CronjobManager } from "../cronjob-manager.ts";
 import type { ManagedAgent } from "../internal-types.ts";
 import type { RoomWire, UserRecord } from "../../shared/types.ts";
 
+import { LOBBY_ROOM_ID } from "../../shared/types.ts";
+
 const ROOM_A = "aaaaaaaa";
 const ROOM_B = "bbbbbbbb";
 
@@ -186,6 +188,27 @@ describe("usageAudienceForUser", () => {
 });
 
 describe("renderUsageReport room scoping", () => {
+  it("counts receptionist spend for owners and lists it for members without room grants", () => {
+    seedUsage("receptionist", 3);
+    seedUsage("hidden", 11);
+    const agents = new Map([
+      ["receptionist", liveAgent("receptionist", "Isomux Receptionist", LOBBY_ROOM_ID)],
+      ["hidden", liveAgent("hidden", "Hidden", ROOM_B)],
+    ]);
+    const owner = buildUsageReportData(agents, ROOMS, OWNER);
+    expect(owner.total.session.costUSD).toBe(14);
+    expect(owner.total.lifetime.costUSD).toBe(14 + CRONJOB_COST);
+    const member = buildUsageReportData(agents, ROOMS, { kind: "member", roomIds: new Set() });
+    expect(member.agents.map((a) => [a.id, a.roomId, a.lifetime.costUSD])).toEqual([
+      ["receptionist", LOBBY_ROOM_ID, 3],
+    ]);
+    expect(member.rooms.map((r) => [r.id, r.deleted, r.lifetime.costUSD])).toEqual([
+      [LOBBY_ROOM_ID, false, 3],
+    ]);
+    expect(member.total.lifetime.costUSD).toBe(3);
+    expect(ROOMS.some((r) => r.id === LOBBY_ROOM_ID)).toBe(false);
+  });
+
   it("shows an owner every room, every agent, and schedules", () => {
     const report = renderUsageReport(seedOffice(), ROOMS, OWNER);
     expect(report).toContain("| Alpha | Room A |");

@@ -10,6 +10,10 @@ import { EmptySlot } from "./EmptySlot.tsx";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
 import { useGhostTransitions, type DoorCoord } from "./useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "./grid.ts";
+import { LobbyScene } from "./lobby/index.ts";
+import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
+import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
+import { MembersChatPanel } from "../members-chat/MembersChatPanel.tsx";
 import { apiFetch } from "../api.ts";
 import type {
   MoveAgentReq,
@@ -157,17 +161,48 @@ export function OfficeView({
     agents,
     needsAttention,
     stateChangedAt,
+    office,
     tasks,
     currentRoomId,
     rooms,
     isMobile,
     updateAvailable,
     updateInfo,
-    hasReceivedInitialState,
     presences,
     sessionContext,
+    lobbyOpen,
   } = useAppState();
   const roomCount = rooms.length;
+  // Employee of the Minute for the lobby plaque: the last agent to act,
+  // office-wide, with a hold so a streaming agent's restamps do not swap the
+  // face every second (ui/office/lobby/employee.ts).
+  // The receptionist stands in the lobby next to the plaque; the plaque is
+  // for the coworkers at the desks.
+  const leader = employeeOfTheMinute(
+    agents.filter((a) => !a.receptionist),
+    stateChangedAt,
+    rooms.map((r) => r.id),
+  );
+  const receptionist = agents.find((a) => a.receptionist);
+  const leaderAt = leader ? (stateChangedAt.get(leader.id) ?? 0) : 0;
+  // Render-phase derived state, the pattern GhostBody uses: the render that
+  // sees a new holder records it and React re-renders once with it.
+  const [held, setHeld] = useState<{ id: string; at: number } | null>(null);
+  const nextHolder = crownHolder(
+    held,
+    leader ? { id: leader.id, at: leaderAt } : null,
+  );
+  if (nextHolder !== (held?.id ?? null)) {
+    setHeld(
+      nextHolder
+        ? { id: nextHolder, at: stateChangedAt.get(nextHolder) ?? 0 }
+        : null,
+    );
+  }
+  const starAgent = held ? agents.find((a) => a.id === held.id) : undefined;
+  const lobbyStar = starAgent
+    ? { name: starAgent.name, outfit: starAgent.outfit }
+    : null;
   const roomNames = rooms.map((r) => r.name);
   // Dense index of the selected room within the visible projection. Drives
   // positional door nav (prev/next neighbour); -1 when nothing is selected.
@@ -176,7 +211,7 @@ export function OfficeView({
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
   const i18n = useI18n();
-  const { t, rich } = i18n;
+  const { t } = i18n;
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -423,7 +458,8 @@ export function OfficeView({
 
       {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
 
-      {/* Office scene */}
+      {/* Office scene, with the members chat beside it on the Lobby tab */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
       {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
           Room-swipe still works because that hook reads touch coordinates directly. */}
       <div
@@ -482,6 +518,45 @@ export function OfficeView({
               height: SCENE_H,
             }}
           >
+            {lobbyOpen ? (
+              <LobbyScene
+                rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
+                officeName={office.name}
+                star={lobbyStar}
+                mode={mode}
+                layout="nilo"
+                receptionist={
+                  /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
+                  receptionist ? (
+                    <ReceptionistFigure
+                      agent={receptionist}
+                      needsAttention={needsAttention.has(receptionist.id)}
+                      onClick={viewport.wrapClick(() =>
+                        dispatch({ type: "focus", agentId: receptionist.id }),
+                      )}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        onContextMenu(e.clientX, e.clientY, receptionist);
+                      }}
+                    />
+                  ) : undefined
+                  /* eslint-enable react-hooks/refs */
+                }
+                rightDoor={
+                  rooms[0]
+                    ? {
+                        label: rooms[0].name,
+                        onClick: () =>
+                          dispatch({ type: "set_current_room", roomId: rooms[0].id }),
+                      }
+                    : null
+                }
+                onToggleTheme={cycleTheme}
+                onOpenApps={embed ? undefined : onOpenApps}
+                onOpenCronjobs={onOpenCronjobs}
+              />
+            ) : (
+              <>
             <Walls
               onToggleTheme={cycleTheme}
               onOpenSettings={embed ? undefined : onEditOfficePrompt}
@@ -514,7 +589,12 @@ export function OfficeView({
                       reject: leftDoorReject,
                       passCount: leftDoorUses,
                     }
-                  : null
+                  : currentRoomIndex === 0
+                    ? {
+                        label: t("common.lobby"),
+                        onClick: () => dispatch({ type: "set_lobby_open", open: true }),
+                      }
+                    : null
               }
               rightDoor={
                 currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1
@@ -698,6 +778,8 @@ export function OfficeView({
                 onClick={onOpenUserSettingsForUser}
               />
             ))}
+              </>
+            )}
           </div>
         </div>
 
@@ -724,67 +806,16 @@ export function OfficeView({
           />
         )}
 
-        {/* Empty-state overlay for members with no visible rooms (the
-            default for new members until they create their own room or
-            an owner grants them access). The office floor/walls/desks
-            underneath still render so the scene still reads as an
-            office - the boss specifically wanted the empty-office vibe
-            as background. Gated on hasReceivedInitialState so it doesn't
-            flash during the pre-hydration window when rooms is still []. */}
-        {hasReceivedInitialState && rooms.length === 0 && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              pointerEvents: "none",
-              zIndex: 100,
-            }}
-          >
-            <div
-              style={{
-                padding: "18px 24px",
-                borderRadius: 12,
-                background: "var(--bg-overlay)",
-                backdropFilter: "blur(12px)",
-                border: "1px solid var(--border-light)",
-                textAlign: "center",
-                maxWidth: 340,
-                boxShadow: "0 8px 32px var(--shadow-heavy)",
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--text-primary)",
-                }}
-              >
-                {t("office.noRooms.title")}
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-ghost)",
-                  marginTop: 8,
-                  lineHeight: 1.5,
-                }}
-              >
-                <p style={{ margin: "0 0 8px" }}>
-                  {rich("office.noRooms.create", {
-                    strong: (chunk) => <strong>{chunk}</strong>,
-                  })}
-                </p>
-                <p style={{ margin: "0 0 8px" }}>
-                  {t("office.noRooms.visibility")}
-                </p>
-                <p style={{ margin: 0 }}>{t("office.noRooms.askOwner")}</p>
-              </div>
-            </div>
-          </div>
-        )}
+      </div>
+      {lobbyOpen && !isMobile && !embed && (
+        <MembersChatPanel
+          style={{
+            width: 380,
+            flexShrink: 0,
+            borderLeft: "1px solid var(--border)",
+          }}
+        />
+      )}
       </div>
 
       {/* Bottom HUD */}

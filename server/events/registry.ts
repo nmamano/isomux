@@ -45,6 +45,7 @@ import type {
   SkillInfo,
   UpdateStatusWire,
   ProviderAccountWire,
+  MembersChatMessage,
 } from "../../shared/types.ts";
 import type {
   ApiTokenLogEntry,
@@ -189,6 +190,11 @@ export interface EventPayloads {
   // the now-public users_list can no longer carry the caller's own grants/view.
   user_self_updated: { user: UserSelfWire; prevName?: string };
   provider_accounts_updated: { accounts: ProviderAccountWire[] };
+  // Members chat: a post or an in-place edit (upsert by id), a deletion, and the
+  // recipient's own read pointer moving on another device.
+  members_chat_message: { message: MembersChatMessage };
+  members_chat_deleted: { id: string };
+  members_chat_read: { readPointer: string | null; unread: number };
   tasks: { tasks: TaskItem[] };
   // One task created/changed and visible to this recipient; one task gone from
   // this recipient's board (deleted, or re-filed out of their rooms). Both are
@@ -360,6 +366,14 @@ export const EVENT_REGISTRY = {
   // (sendTasksTo), same model as presence_list - never a uniform `all` payload.
   // connectionId is the concrete recipient key. `tasks` is HYDRATION only now
   // (connect + room-access change); a mutation rides the two deltas below.
+  // Every browser socket is a human's; an agent never holds one, so `all` is
+  // exactly the members-chat audience.
+  members_chat_message: { audience: "all", projectionKey: { kind: "all" } },
+  members_chat_deleted: { audience: "all", projectionKey: { kind: "all" } },
+  members_chat_read: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
   tasks: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
@@ -427,6 +441,8 @@ export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([
   "cron_run_log_entry",
   "office_settings_updated",
   "update_status",
+  "members_chat_message",
+  "members_chat_deleted",
 ]);
 
 // Enumerates how the TARGET registry differs from today's ServerMessage so

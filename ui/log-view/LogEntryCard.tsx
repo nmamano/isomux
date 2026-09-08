@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo, useId, memo } from "react";
+import type { ReactNode } from "react";
 import type {
   LogEntry,
   Attachment,
@@ -170,16 +171,20 @@ function formatFileSize(bytes: number): string {
 function FileChip({
   att,
   agentId,
+  fileBase,
   isMobile,
 }: {
   att: Attachment;
   agentId: string;
+  // URL prefix the attachment is served from. Default: this agent's files
+  // route; the members chat passes its own.
+  fileBase?: string;
   isMobile?: boolean;
 }) {
   const isPdf = att.mediaType === "application/pdf";
   const icon = isPdf ? "📄" : "📎";
   const sizeStr = formatFileSize(att.size);
-  const href = `/api/files/${agentId}/${att.filename}`;
+  const href = `${fileBase ?? `/api/files/${agentId}`}/${att.filename}`;
   return (
     <a
       href={href}
@@ -223,6 +228,7 @@ function FileChip({
 function AttachmentDisplay({
   attachments,
   agentId,
+  fileBase,
   isMobile,
   lightboxSrc,
   setLightboxSrc,
@@ -230,6 +236,7 @@ function AttachmentDisplay({
 }: {
   attachments: Attachment[];
   agentId: string;
+  fileBase?: string;
   isMobile?: boolean;
   lightboxSrc: string | null;
   setLightboxSrc: (src: string | null) => void;
@@ -266,7 +273,7 @@ function AttachmentDisplay({
           }}
         >
           {images.map((att) => {
-            const src = `/api/files/${agentId}/${att.filename}`;
+            const src = `${fileBase ?? `/api/files/${agentId}`}/${att.filename}`;
             return (
               <img
                 key={att.filename}
@@ -299,6 +306,7 @@ function AttachmentDisplay({
               key={att.filename}
               att={att}
               agentId={agentId}
+              fileBase={fileBase}
               isMobile={isMobile}
             />
           ))}
@@ -768,7 +776,7 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({
+export function UserMessage({
   content,
   isMobile,
   username,
@@ -779,6 +787,10 @@ function UserMessage({
   onToggle,
   attachments,
   agentId,
+  fileBase,
+  avatar,
+  extraActions,
+  editTitle,
   canEdit,
   onEdit,
 }: {
@@ -798,6 +810,13 @@ function UserMessage({
   onToggle?: () => void;
   attachments?: Attachment[];
   agentId?: string;
+  // Members chat: attachments live under its own route, a small avatar sits
+  // before the author label, a delete control follows the edit button, and
+  // the edit is in place rather than a branch. All absent in the agent chat.
+  fileBase?: string;
+  avatar?: ReactNode;
+  extraActions?: ReactNode;
+  editTitle?: string;
   canEdit?: boolean;
   onEdit?: () => void;
 }) {
@@ -845,6 +864,7 @@ function UserMessage({
           fontStyle: fromNonHuman ? "italic" : "normal",
         }}
       >
+        {avatar}
         {(username ?? t("common.you")).toUpperCase()}
       </div>
       <div
@@ -871,10 +891,11 @@ function UserMessage({
           {content}
         </div>
       )}
-      {attachments && attachments.length > 0 && agentId && (
+      {attachments && attachments.length > 0 && (agentId || fileBase) && (
         <AttachmentDisplay
           attachments={attachments}
-          agentId={agentId}
+          agentId={agentId ?? ""}
+          fileBase={fileBase}
           isMobile={isMobile}
           lightboxSrc={lightboxSrc}
           setLightboxSrc={setLightboxSrc}
@@ -915,7 +936,7 @@ function UserMessage({
         {canEdit && onEdit && (
           <button
             onClick={onEdit}
-            title={t("cards.userMessage.editAndBranch")}
+            title={editTitle ?? t("cards.userMessage.editAndBranch")}
             style={{
               background: "transparent",
               border: "none",
@@ -938,13 +959,14 @@ function UserMessage({
             <EditIcon />
           </button>
         )}
+        {extraActions}
         <CopyButton getText={getText} />
       </div>
     </div>
   );
 }
 
-function EditableUserMessage({
+export function EditableUserMessage({
   content,
   entryId,
   isMobile,

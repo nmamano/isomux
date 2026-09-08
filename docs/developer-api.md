@@ -25,7 +25,7 @@ curl -s "$OFFICE_URL/agents" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The response lists the live agents in rooms you can access. Copy the target agent's `id`, and then send the message:
+The response lists the live agents in rooms you can access, plus the receptionist. The same manifest is available at `GET /api/agents`. An ordinary agent has a 1-based `room` number. The receptionist has `room: null`, `roomName: "Lobby"` and `roomId: "lobby"`. Copy the target agent's `id`, and then send the message:
 
 ```bash
 AGENT_ID="agent-123"
@@ -39,6 +39,19 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
 The send response contains `messageId`, which is also the `id` of the send entry in the token log.
 
 For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
+
+## Members chat
+
+Users, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
+
+- `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`. Messages are in chronological order.
+- `POST /api/members-chat` accepts `{"text":"..."}` and optional uploaded `attachments`. The server derives the author from the caller's identity.
+- `PATCH /api/members-chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
+- `DELETE /api/members-chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
+- `POST /api/members-chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
+- `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file under the same capability gate.
+
+A user and their proxies share post ownership and a read pointer. Message and delete events reach all browser sessions; read-pointer events reach only that user's sessions. Month files, read pointers and attachments live under `members-chat/` in the state root. The storage report counts them under **Other state**; storage pruning does not delete them.
 
 ## Receive replies from office agents
 

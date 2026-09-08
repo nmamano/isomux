@@ -66,6 +66,11 @@ export type Capability =
   // AGENT - a human has the chat box and an agent has agents.sendMessage, so
   // granting it anywhere else would only widen what a stolen token reaches.
   | "app:message"
+  // The members chat on the Lobby tab: humans and their proxies only. Held by
+  // USER, API and the PRIVILEGED agent set; deliberately absent from the AGENT
+  // baseline, RUN and APP sets, so an ordinary agent, a cron run or an app can
+  // neither read nor write it (Nil, 2026-09-05).
+  | "chat:members"
   // Shared by USER and AGENT - reading conversation logs (history search and
   // session retrieval, GET /api/agents/:id/logs). DELIBERATELY NOT office:read:
   // an ordinary agent token does not carry office:read, and widening that
@@ -128,6 +133,7 @@ export interface Identity {
 // missing capability.
 export const USER_CAPABILITIES: readonly Capability[] = [
   "office:read",
+  "chat:members",
   "agent:manage",
   "agent:converse",
   "agent:privilege",
@@ -199,6 +205,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   ...AGENT_CAPABILITIES,
   "agent:converse",
   "office:read",
+  "chat:members",
   "agent:manage",
   "room:manage",
   "editor:use",
@@ -274,6 +281,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "api:send-message",
   "api:drain-inbox",
   "office:read",
+  "chat:members",
   "agent:manage",
   "agent:converse",
   "room:manage",

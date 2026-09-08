@@ -75,6 +75,9 @@ export interface SavedView {
   roomId: string | null;
   agentId: string | null;
   panel: SavedPanel | null;
+  // The Lobby tab was open. Absent in payloads written before the lobby
+  // existed, which reads as false.
+  lobby: boolean;
 }
 
 // Strict field readers: `undefined` return means "malformed, reject the
@@ -109,15 +112,22 @@ export function parseSavedView(raw: string | null): SavedView | null {
     const roomId = readId(o.roomId);
     const agentId = readId(o.agentId);
     const panel = readPanel(o.panel);
+    const lobby =
+      o.lobby === undefined || o.lobby === null
+        ? false
+        : typeof o.lobby === "boolean"
+          ? o.lobby
+          : undefined;
     if (
       user === undefined ||
       roomId === undefined ||
       agentId === undefined ||
-      panel === undefined
+      panel === undefined ||
+      lobby === undefined
     ) {
       return null;
     }
-    return { user, roomId, agentId, panel };
+    return { user, roomId, agentId, panel, lobby };
   } catch {
     return null;
   }

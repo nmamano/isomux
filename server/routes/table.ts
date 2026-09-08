@@ -68,6 +68,7 @@ import type {
   ProviderDisconnectReq,
   LogEntry,
   UpdateStatusWire,
+  MembersChatMessage,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -122,6 +123,11 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
   TaskClaimReq,
+  MembersChatPageRes,
+  MembersChatPostReq,
+  MembersChatEditReq,
+  MembersChatReadReq,
+  MembersChatReadRes,
   AppLogsRes,
   AppMessageReq,
   AppRegisterReq,
@@ -621,6 +627,63 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/files/:filename",
     auth: cap("office:read", agentParam("id")),
+    emits: [],
+  }),
+
+  // Members chat: the humans-only stream on the Lobby tab. One capability,
+  // chat:members, is the whole gate - held by a cookie user, an API token and a
+  // privileged agent, never by an ordinary agent, a cron run or an app. Ownership
+  // (edit your own; delete your own, or any as an office owner) is a live check
+  // in the handler against the stored author. The two mutations fan out the
+  // all-audience members_chat_* events; markRead reaches only the caller's own
+  // sockets.
+  defineRoute<void, MembersChatPageRes>({
+    opId: "membersChat.page",
+    method: "GET",
+    path: "/api/members-chat",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<MembersChatPostReq, MembersChatMessage>({
+    opId: "membersChat.post",
+    method: "POST",
+    path: "/api/members-chat",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: ["members_chat_message"],
+  }),
+  defineRoute<MembersChatEditReq, MembersChatMessage>({
+    opId: "membersChat.edit",
+    method: "PATCH",
+    path: "/api/members-chat/:id",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: ["members_chat_message"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "membersChat.delete",
+    method: "DELETE",
+    path: "/api/members-chat/:id",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: ["members_chat_deleted"],
+  }),
+  defineRoute<MembersChatReadReq, MembersChatReadRes>({
+    opId: "membersChat.markRead",
+    method: "POST",
+    path: "/api/members-chat/read",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: ["members_chat_read"],
+  }),
+  defineRoute<unknown, { attachments: Attachment[] }>({
+    opId: "membersChat.upload",
+    method: "POST",
+    path: "/api/members-chat/uploads",
+    auth: cap("chat:members", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, unknown>({
+    opId: "membersChat.getFile",
+    method: "GET",
+    path: "/api/members-chat/files/:filename",
+    auth: cap("chat:members", operationalAuthenticated),
     emits: [],
   }),
 

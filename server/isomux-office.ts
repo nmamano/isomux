@@ -1,3 +1,5 @@
+import { ensureReceptionistWorkspace } from "./receptionist-workspace.ts";
+import { english } from "./i18n.ts";
 import {
   INSTALL_KIND,
   isHostedAccess,
@@ -73,6 +75,7 @@ import { modelFamilyMismatchError } from "./agent-validators.ts";
 import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
+  LOBBY_ROOM_ID,
   MODEL_FAMILIES,
   OPENCODE_DEFAULT_MODEL,
   type AgentOutfit,
@@ -209,6 +212,11 @@ import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
 import { usersHandlers } from "./routes/handlers/users.ts";
+import {
+  membersChatHandlers,
+  type MembersChatAuthor,
+} from "./routes/handlers/members-chat.ts";
+import { createMembersChatStore } from "./members-chat.ts";
 import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
@@ -462,6 +470,111 @@ function createManagers(startOpts: StartServerOpts): void {
 // active manager instance. Extracted so startServer() controls when they run.
 // The welcome-agent helpers below are local to this function (used only here).
 // Body left at prior indentation; prettier normalizes post-review.
+const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+
+async function welcomeOpenCodeModel(
+  username: string,
+): Promise<string | null> {
+  const user = getUserByName(username);
+  if (!user) {
+    console.warn(
+      `[bootstrap] cannot discover a free OpenCode model: owner ${username} was not found; using the preferred model`,
+    );
+    return OPENCODE_DEFAULT_MODEL;
+  }
+  const result = await resolveWelcomeOpenCodeModel(
+    async () => {
+      const discovery = await (discoverWelcomeOpenCodeModels
+        ? discoverWelcomeOpenCodeModels(user.id).then((models) => ({
+            ok: true as const,
+            models,
+          }))
+        : listBackendModels({
+            agentType: "opencode",
+            cwd: "~",
+            includeHidden: false,
+            userId: user.id,
+          }));
+      if (!discovery.ok) throw new Error(discovery.error);
+      return discovery.models;
+    },
+    OPENCODE_DEFAULT_MODEL,
+    WELCOME_MODEL_DISCOVERY_TIMEOUT_MS,
+  );
+  if (result.kind === "no_free_model") {
+    console.warn(
+      "[bootstrap] Free Welcome Agent was not spawned because OpenCode discovery returned no free model.",
+    );
+    return null;
+  }
+  if (result.kind === "discovery_failed") {
+    console.warn(
+      "[bootstrap] OpenCode model discovery failed; using the preferred free model:",
+      result.error,
+    );
+    return OPENCODE_DEFAULT_MODEL;
+  }
+  return result.model;
+}
+
+// The office's receptionist: the one agent in the lobby, reachable by every
+// user. Spawned once per office - on the first-owner claim after the welcome
+// agents, and at boot for an office that predates it - on the free OpenCode
+// model the Free Welcome Agent uses; when discovery finds no free model it still
+// spawns on the preferred model (the owner can put another engine behind it)
+// rather than leaving the lobby empty. Its token carries no user (see
+// tokenUserIdFor in agent-manager): it reaches no room.
+const RECEPTIONIST_NAME = english.t("lobby.receptionistName");
+const RECEPTIONIST_OUTFIT: AgentOutfit = {
+  hat: "none",
+  color: "#C97B4A",
+  hair: "#3B2A20",
+  hairStyle: "bun",
+  skin: "#E8B48A",
+  beard: "none",
+  accessory: "glasses",
+};
+
+async function ensureReceptionist(username: string): Promise<void> {
+  if (agentManager.getReceptionist()) return;
+  const model =
+    (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
+  try {
+    const created = await agentManager.spawn(
+      RECEPTIONIST_NAME,
+      ensureReceptionistWorkspace(),
+      "bypassPermissions",
+      undefined,
+      undefined,
+      undefined,
+      RECEPTIONIST_OUTFIT,
+      model,
+      undefined,
+      username,
+      "opencode",
+      undefined,
+      undefined,
+      true,
+    );
+    if (!created) {
+      console.warn(
+        `[bootstrap] ${RECEPTIONIST_NAME} spawn returned null (is the name taken by another agent?)`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[bootstrap] ${RECEPTIONIST_NAME} spawn threw:`, err);
+  }
+}
+
+// Boot-time half: an office that already has an owner but no receptionist
+// (installed before the feature, or its file was removed) gets one, managed by
+// the first owner on record. A fresh office waits for the claim hook.
+async function ensureReceptionistAtBoot(): Promise<void> {
+  const owner = listUsers().find((u) => u.role === "owner");
+  if (!owner) return;
+  await ensureReceptionist(owner.name);
+}
+
 function registerBootHooks(): void {
   // Inject the room snapshot provider auth.ts uses when seeding a new
   // owner's allowedRooms at invite-acceptance time. The provider closes
@@ -623,53 +736,6 @@ function registerBootHooks(): void {
     }
   }
 
-  const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
-
-  async function welcomeOpenCodeModel(
-    username: string,
-  ): Promise<string | null> {
-    const user = getUserByName(username);
-    if (!user) {
-      console.warn(
-        `[bootstrap] cannot discover a free OpenCode model: owner ${username} was not found; using the preferred model`,
-      );
-      return OPENCODE_DEFAULT_MODEL;
-    }
-    const result = await resolveWelcomeOpenCodeModel(
-      async () => {
-        const discovery = await (discoverWelcomeOpenCodeModels
-          ? discoverWelcomeOpenCodeModels(user.id).then((models) => ({
-              ok: true as const,
-              models,
-            }))
-          : listBackendModels({
-              agentType: "opencode",
-              cwd: "~",
-              includeHidden: false,
-              userId: user.id,
-            }));
-        if (!discovery.ok) throw new Error(discovery.error);
-        return discovery.models;
-      },
-      OPENCODE_DEFAULT_MODEL,
-      WELCOME_MODEL_DISCOVERY_TIMEOUT_MS,
-    );
-    if (result.kind === "no_free_model") {
-      console.warn(
-        "[bootstrap] Free Welcome Agent was not spawned because OpenCode discovery returned no free model.",
-      );
-      return null;
-    }
-    if (result.kind === "discovery_failed") {
-      console.warn(
-        "[bootstrap] OpenCode model discovery failed; using the preferred free model:",
-        result.error,
-      );
-      return OPENCODE_DEFAULT_MODEL;
-    }
-    return result.model;
-  }
-
   // Seed welcome agents on the first owner of a fresh office. Fires for
   // both the tokenless claim form (handleClaim) and the legacy bootstrap-
   // invite accept (handleAccept where isBootstrap is true). The hook only
@@ -677,7 +743,12 @@ function registerBootHooks(): void {
   // defensive in case a future call path fires it against an already-
   // populated office.
   setOnOwnerCreated(async ({ username }) => {
-    if (agentManager.getAllAgents().length > 0) return;
+    // An office that already has agents keeps them and gains only the
+    // receptionist; a fresh one gets the welcome agents first.
+    if (agentManager.getAllAgents().length > 0) {
+      await ensureReceptionist(username);
+      return;
+    }
     await spawnWelcomeAgent(
       "Claude Welcome Agent",
       "claude",
@@ -705,6 +776,7 @@ function registerBootHooks(): void {
         username,
       );
     }
+    await ensureReceptionist(username);
   });
 } // end registerBootHooks
 
@@ -1339,6 +1411,9 @@ function pushPresenceListToEachWs() {
 // ON TOP by the projection - never here - so a future re-show path can never
 // turn `hidden` into a security gate.
 function canAccess(user: UserRecord, roomId: string): boolean {
+  // The lobby is everyone's: it is the receptionist's room id, never a room,
+  // and the one place a member with no rooms can still reach.
+  if (roomId === LOBBY_ROOM_ID) return true;
   return user.role === "owner" || user.allowedRooms.includes(roomId);
 }
 
@@ -2209,6 +2284,55 @@ function buildExecutorDeps(
     }),
   );
 
+  // Members chat: the humans-only stream on the Lobby tab. The store is
+  // month-file JSONL under <STATE_ROOT>/members-chat (server/members-chat.ts);
+  // the author snapshot is token-derived here, never from the body.
+  const membersChat = createMembersChatStore(join(STATE_ROOT, "members-chat"));
+  const membersChatAuthorFor = (
+    identity: Identity,
+  ): MembersChatAuthor | null => {
+    if (!identity.userId) return null;
+    const user = getUserById(identity.userId);
+    if (!user) return null;
+    if (identity.scope === "agent" && identity.agentId) {
+      const display = agentManager.getAgentDisplay(identity.agentId);
+      if (!display) return null;
+      return { kind: "agent", userId: user.id, userName: display.name };
+    }
+    if (identity.scope === "api") {
+      return {
+        kind: "api",
+        userId: user.id,
+        userName: user.name,
+        ...(identity.apiTokenName ? { device: identity.apiTokenName } : {}),
+      };
+    }
+    return { kind: "user", userId: user.id, userName: user.name };
+  };
+  register(
+    membersChatHandlers({
+      page: (opts) => membersChat.page(opts),
+      post: (input) => membersChat.post(input),
+      edit: (id, content) => membersChat.edit(id, content),
+      delete: (id) => membersChat.delete(id),
+      get: (id) => membersChat.get(id),
+      getReadPointer: (userId) => membersChat.getReadPointer(userId),
+      setReadPointer: (userId, lastReadId) =>
+        membersChat.setReadPointer(userId, lastReadId),
+      unreadCount: (userId) => membersChat.unreadCount(userId),
+      saveAttachment: (data, mediaType, originalName) =>
+        membersChat.saveAttachment(data, mediaType, originalName),
+      attachmentPath: (filename) => membersChat.attachmentPath(filename),
+      contentTypeFor: (filename) => httpContentTypeForFilename(filename),
+      authorFor: membersChatAuthorFor,
+      isOwner: (userId) => getUserById(userId)?.role === "owner",
+      emitMessage: (message) => liveEmit("members_chat_message", { message }),
+      emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
+      emitRead: (userId, readPointer, unread) =>
+        liveEmit("members_chat_read", { readPointer, unread }, { userId }),
+    }),
+  );
+
   // Invites use recipient-scoped emit. EMIT-IN-DEP: there is
   // no auth event sink, so the seam owns mutate→emit - mint/self-mint/revoke fan
   // out emitInvitesList(), and revoke also liveEmits invite_revoked (owners). The
@@ -2829,11 +2953,14 @@ function buildExecutorDeps(
   register(
     agentsHandlers({
       kill: async (agentId) => {
+        if (agentManager.getAgent(agentId)?.receptionist)
+          return { ok: false, reason: "receptionist_locked" };
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
         await agentManager.kill(agentId);
         announceAppAudienceChanges(before);
+        return { ok: true };
       },
       abort: (agentId) => agentManager.abort(agentId),
       getAgent: (agentId) => agentManager.getAgent(agentId),
@@ -2844,6 +2971,8 @@ function buildExecutorDeps(
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.
         if (!current) return { ok: false, reason: "agent_not_found" };
+        if (current.receptionist)
+          return { ok: false, reason: "receptionist_locked" };
         // Same-room move is an idempotent no-op (the core returns no events);
         // return the unchanged agent, not a false failure.
         if (current.roomId === targetRoomId)
@@ -2962,6 +3091,21 @@ function buildExecutorDeps(
         return result;
       },
       edit: async (agentId, changes) => {
+        // The receptionist keeps its name and dedicated working directory.
+        {
+          const current = agentManager.getAgent(agentId);
+          if (
+            current?.receptionist &&
+            ((typeof changes.name === "string" && changes.name.trim() !== current.name) ||
+              (typeof changes.cwd === "string" && resolveCwd(changes.cwd.trim()) !== current.cwd))
+          ) {
+            return {
+              ok: false,
+              reason: "receptionist_locked",
+              message: english.t("lobby.identityLocked"),
+            };
+          }
+        }
         // Version guard FIRST, before any field validation - a
         // stale writer is told to re-read before hearing about a bad cwd. Only
         // blob-bearing edits carry a version (the handler enforces presence);
@@ -3167,6 +3311,16 @@ function buildExecutorDeps(
             code: "self_send",
             message: "Cannot send a message to self.",
           };
+        // The receptionist's reach is a member with no rooms: it reads no
+        // other agent and it messages none either (agent-to-agent delivery is
+        // otherwise office-wide by design).
+        if (agentManager.getAgent(senderAgentId)?.receptionist)
+          return {
+            ok: false,
+            status: 403,
+            code: "receptionist_reach",
+            message: "The receptionist does not message other agents.",
+          };
         // Server-derived structured sender (name + room) - never body-trusted -
         // blocks identity spoof + prefix-delimiter injection into the prompt.
         const senderInfo = agentManager.getAgentDisplay(senderAgentId);
@@ -3266,14 +3420,26 @@ function buildExecutorDeps(
         text,
         deliverAt,
         clientMessageId,
-      ) =>
-        scheduledMessageManager.schedule({
+      ) => {
+        // Same reach rule as sendAsAgent; a self-reminder stays allowed.
+        if (
+          receiverId !== senderAgentId &&
+          agentManager.getAgent(senderAgentId)?.receptionist
+        )
+          return {
+            ok: false,
+            status: 403,
+            code: "receptionist_reach",
+            message: "The receptionist does not message other agents.",
+          };
+        return scheduledMessageManager.schedule({
           senderAgentId,
           receiverAgentId: receiverId,
           text,
           deliverAt,
           clientMessageId,
-        }),
+        });
+      },
       listScheduledMessages: (senderAgentId) =>
         scheduledMessageManager.listBySender(senderAgentId),
       cancelScheduledMessage: (senderAgentId, scheduledId) =>
@@ -3886,6 +4052,8 @@ function projectAgentForSession(
   agent: AgentInfo,
   projection?: VisibleRoomProjection,
 ): AgentInfo | null {
+  // The receptionist reaches every session; it is in no room to project.
+  if (agent.receptionist) return agent;
   const proj = projection ?? visibleRoomProjection(session);
   // Derive the global index from the authoritative roomId. Absent from
   // the map = corrupt roomId (loud + suppress); present but globalToVisible < 0 =
@@ -5292,9 +5460,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           const accessible = user
             ? accessibleRoomIdsFor(user)
             : new Set<string>();
+          // The receptionist (room id "lobby") is listed for every identity.
           const manifest = agentManager
             .getManifest()
-            .filter((e) => accessible.has(e.roomId));
+            .filter(
+              (e) => accessible.has(e.roomId) || e.roomId === LOBBY_ROOM_ID,
+            );
           return new Response(JSON.stringify(manifest, null, 2), {
             headers: { "Content-Type": "application/json" },
           });
@@ -5832,6 +6003,11 @@ function runBackgroundBoot(
       console.log(
         `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
       );
+    }
+    try {
+      await ensureReceptionistAtBoot();
+    } catch (err) {
+      console.warn("[bootstrap] receptionist boot check failed:", err);
     }
     // One-time hygiene pass: remove any stale roomIds from users'
     // allowedRooms / notifRooms that don't match a currently-existing

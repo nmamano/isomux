@@ -11,7 +11,7 @@
 import { describe, it, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { reducer, initialState, StateCtx } from "./store.tsx";
+import { reducer, initialState, StateCtx, type AppState } from "./store.tsx";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
 import {
   ProviderSignInCard,
@@ -21,7 +21,13 @@ import { translatorFor } from "../shared/i18n/translate.ts";
 import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
 import { UpdatePane } from "./components/UpdatePane.tsx";
 import { UserSettingsView } from "./components/UserSettingsView.tsx";
-import type { AppWire, LogEntry, TaskItem } from "../shared/types.ts";
+import { RoomTabBar } from "./office/RoomTabBar.tsx";
+import type {
+  AppWire,
+  LogEntry,
+  MembersChatMessage,
+  TaskItem,
+} from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };
@@ -938,5 +944,194 @@ describe("settings page: panes and initialTarget routing", () => {
     // The renamed rows, which the old labels would silently survive.
     expect(html).toContain("Sign-in links");
     expect(html).not.toContain("My devices");
+  });
+});
+
+describe("reducer: members chat slice", () => {
+  const msg = (id: string, userId = "u-other"): MembersChatMessage => ({
+    id,
+    kind: "user",
+    userId,
+    userName: userId,
+    timestamp: 1,
+    content: id,
+    attachments: [],
+  });
+  const withMe: AppState = {
+    ...initialState,
+    sessionContext: {
+      userId: "u-me",
+      username: "Me",
+      role: "member",
+      currentSessionPrefix: "x",
+      connectionId: "c",
+    } as unknown as AppState["sessionContext"],
+  };
+
+  it("a fresh page replaces the slice but keeps a live message that arrived after it was built", () => {
+    const live = reducer(withMe, {
+      type: "members_chat_message",
+      message: msg("202609-00000009"),
+    });
+    expect(live.membersChat.unread).toBe(1);
+    const paged = reducer(live, {
+      type: "members_chat_page",
+      messages: [msg("202609-00000001"), msg("202609-00000002")],
+      hasMore: true,
+      readPointer: "202609-00000001",
+      unread: 1,
+      prepend: false,
+    });
+    expect(paged.membersChat.messages.map((m) => m.id)).toEqual([
+      "202609-00000001",
+      "202609-00000002",
+      "202609-00000009",
+    ]);
+    expect(paged.membersChat.loaded).toBe(true);
+    expect(paged.membersChat.readPointer).toBe("202609-00000001");
+  });
+
+  it("an older page goes above what is held, without duplicates", () => {
+    const base = reducer(withMe, {
+      type: "members_chat_page",
+      messages: [msg("202609-00000005"), msg("202609-00000006")],
+      hasMore: true,
+      readPointer: null,
+      unread: 2,
+      prepend: false,
+    });
+    const older = reducer(base, {
+      type: "members_chat_page",
+      messages: [msg("202608-00000001"), msg("202609-00000005")],
+      hasMore: false,
+      readPointer: null,
+      unread: 2,
+      prepend: true,
+    });
+    expect(older.membersChat.messages.map((m) => m.id)).toEqual([
+      "202608-00000001",
+      "202609-00000005",
+      "202609-00000006",
+    ]);
+    expect(older.membersChat.hasMore).toBe(false);
+  });
+
+  it("upserts an edit in place, appends a new message, and counts only others' as unread", () => {
+    const one = reducer(withMe, {
+      type: "members_chat_message",
+      message: msg("202609-00000001", "u-me"),
+    });
+    expect(one.membersChat.unread).toBe(0);
+    const two = reducer(one, {
+      type: "members_chat_message",
+      message: msg("202609-00000002"),
+    });
+    expect(two.membersChat.unread).toBe(1);
+    const edited = reducer(two, {
+      type: "members_chat_message",
+      message: { ...msg("202609-00000001", "u-me"), content: "edited" },
+    });
+    expect(edited.membersChat.messages.map((m) => m.content)).toEqual([
+      "edited",
+      "202609-00000002",
+    ]);
+    expect(edited.membersChat.unread).toBe(1);
+    const gone = reducer(edited, {
+      type: "members_chat_deleted",
+      id: "202609-00000002",
+    });
+    expect(gone.membersChat.messages.map((m) => m.id)).toEqual([
+      "202609-00000001",
+    ]);
+    expect(reducer(gone, { type: "members_chat_deleted", id: "nope" })).toBe(gone);
+    const read = reducer(gone, {
+      type: "members_chat_read",
+      readPointer: "202609-00000001",
+      unread: 0,
+    });
+    expect(read.membersChat.readPointer).toBe("202609-00000001");
+    expect(read.membersChat.unread).toBe(0);
+  });
+});
+
+describe("reducer: the Lobby tab", () => {
+  const fullState = (rooms: { id: string; name: string }[]) =>
+    ({
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: "The Demo" },
+      rooms: rooms.map((r) => ({ ...r, prompt: null })),
+      killedAgents: [],
+      interactions: [],
+    }) as unknown as Parameters<typeof reducer>[1];
+
+  it("opens on a full_state with no visible room, and stays put otherwise", () => {
+    const landed = reducer(initialState, fullState([]));
+    expect(landed.lobbyOpen).toBe(true);
+    const withRoom = reducer(initialState, fullState([{ id: "r1", name: "A" }]));
+    expect(withRoom.lobbyOpen).toBe(false);
+    const reconnect = reducer(
+      { ...withRoom, lobbyOpen: true },
+      fullState([{ id: "r1", name: "A" }]),
+    );
+    expect(reconnect.lobbyOpen).toBe(true);
+  });
+
+  it("opens the lobby when the user's last visible room closes", () => {
+    const withRoom = reducer(initialState, fullState([{ id: "r1", name: "A" }]));
+    const selected = reducer(withRoom, { type: "set_current_room", roomId: "r1" });
+    expect(selected.lobbyOpen).toBe(false);
+    const closed = reducer(selected, { type: "room_closed", roomId: "r1" });
+    expect(closed.rooms).toEqual([]);
+    expect(closed.currentRoomId).toBeNull();
+    expect(closed.lobbyOpen).toBe(true);
+  });
+
+  it("selecting a room closes it; set_lobby_open is a no-op when unchanged", () => {
+    const open = reducer(initialState, { type: "set_lobby_open", open: true });
+    expect(open.lobbyOpen).toBe(true);
+    expect(reducer(open, { type: "set_lobby_open", open: true })).toBe(open);
+    const room = reducer(open, { type: "set_current_room", roomId: "r1" });
+    expect(room.lobbyOpen).toBe(false);
+    expect(room.currentRoomId).toBe("r1");
+  });
+});
+
+describe("RoomTabBar: the Lobby tab", () => {
+  const html = (overrides: Partial<AppState>) =>
+    renderToStaticMarkup(
+      createElement(
+        StateCtx.Provider,
+        {
+          value: {
+            ...initialState,
+            rooms: [
+              { id: "r1", name: "Alpha", prompt: null, canCloseWhenEmpty: true },
+            ],
+            currentRoomId: "r1",
+            ...overrides,
+          },
+        },
+        createElement(RoomTabBar),
+      ),
+    );
+
+  it("is first, shows the unread pill, and takes the active style from the rooms", () => {
+    const quiet = html({});
+    expect(quiet.indexOf("Lobby")).toBeLessThan(quiet.indexOf("Alpha"));
+    expect(quiet).not.toContain("data-lobby-unread");
+    expect(quiet).toContain("data-active-room-tab");
+    const busy = html({
+      lobbyOpen: true,
+      membersChat: { ...initialState.membersChat, unread: 7 },
+    });
+    expect(busy).toContain("data-lobby-unread");
+    expect(busy).toContain(">7<");
+    expect(busy).not.toContain("data-active-room-tab");
+    const capped = html({
+      membersChat: { ...initialState.membersChat, unread: 100 },
+    });
+    expect(capped).toContain("99+");
   });
 });

@@ -12,6 +12,7 @@
 //
 import type { Identity } from "./index.ts";
 import type { GuardDeps } from "./guards.ts";
+import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 
 // The minimal live readers the adapter needs, as structural shapes so the
 // production managers' richer return types (AgentInfo / RoomWire / UserRecord /
@@ -70,7 +71,10 @@ export function buildProductionGuardDeps(
       // collapses to inaccessible (preserving the out-of-range → null
       // contract). Guards reason over global ids; the per-recipient room
       // projection is a wire concern, never an authz one.
-      return live.getRooms().some((r) => r.id === agent.roomId)
+      // The lobby is live by definition: it is the receptionist's room id and
+      // never a room, so the rooms list cannot vouch for it.
+      return agent.roomId === LOBBY_ROOM_ID ||
+        live.getRooms().some((r) => r.id === agent.roomId)
         ? agent.roomId
         : null;
     },

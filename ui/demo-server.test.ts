@@ -5,7 +5,11 @@ import type {
   UsageBucketWire,
   UsageReportWire,
 } from "../shared/contract-shapes.ts";
-import type { CronjobRun, LogEntry } from "../shared/types.ts";
+import type {
+  CronjobRun,
+  LogEntry,
+  MembersChatMessage,
+} from "../shared/types.ts";
 import { cronjobRunStreamId } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { DEMO_ROOM_NAMES, demoApi } from "./demo-server.ts";
@@ -39,6 +43,7 @@ describe("demo fixture data", () => {
         "Kevin",
         "Angela",
         "Kelly",
+        "Receptionist",
       ].sort(),
     );
     expect(first.rooms.map((room) => room.name)).toEqual([...DEMO_ROOM_NAMES]);
@@ -257,5 +262,35 @@ describe("demo fixture data", () => {
         ).toFixed(2),
       ),
     );
+  });
+});
+
+describe("demo members chat", () => {
+  it("serves a canned page and lands a post as the demo viewer", async () => {
+    const page = (await demoApi("GET", "/api/members-chat")) as {
+      messages: MembersChatMessage[];
+      hasMore: boolean;
+      unread: number;
+    };
+    expect(page.messages.length).toBeGreaterThan(0);
+    expect(page.hasMore).toBe(false);
+    expect(new Set(page.messages.map((m) => m.kind))).toEqual(
+      new Set(["user", "api", "agent"]),
+    );
+    const posted = (await demoApi("POST", "/api/members-chat", {
+      text: "hello from the demo",
+    })) as MembersChatMessage;
+    expect(posted.userName).toBe("Ricky");
+    const after = (await demoApi("GET", "/api/members-chat")) as {
+      messages: MembersChatMessage[];
+    };
+    expect(after.messages.at(-1)?.id).toBe(posted.id);
+    let threw = false;
+    try {
+      await demoApi("POST", "/api/members-chat", { text: "   " });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
   });
 });

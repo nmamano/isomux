@@ -174,6 +174,8 @@ export function RoomTabBar({
     totalOnlineUsers,
     sessionContext,
     isMobile,
+    lobbyOpen,
+    membersChat,
   } = useAppState();
   const { t } = useI18n();
   const selfConnectionId = sessionContext?.connectionId ?? null;
@@ -346,8 +348,71 @@ export function RoomTabBar({
           scrollPadding: "0 42px",
         }}
       >
+        {/* The Lobby tab: client state, not a room. First, never draggable,
+            never reordered. The pill carries the members chat unread count;
+            room tabs stand down while the lobby is open. */}
+        <div
+          data-lobby-tab
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            flexShrink: 0,
+            borderLeft: "2px solid transparent",
+            borderRight: "2px solid transparent",
+          }}
+        >
+          <button
+            onClick={(e) => {
+              (e.target as HTMLElement).blur();
+              dispatch({ type: "set_lobby_open", open: true });
+            }}
+            onContextMenu={(e) => e.preventDefault()}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 6,
+              border: lobbyOpen
+                ? "1px solid var(--accent)"
+                : "1px solid transparent",
+              background: lobbyOpen ? "var(--accent-bg)" : "transparent",
+              color: lobbyOpen ? "var(--accent)" : "var(--text-dim)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono',monospace",
+              letterSpacing: "0.02em",
+              outline: "none",
+              position: "relative",
+              userSelect: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            {t("common.lobby")}
+            {membersChat.unread > 0 && (
+              <span
+                data-lobby-unread
+                style={{
+                  minWidth: 16,
+                  height: 16,
+                  padding: "0 5px",
+                  borderRadius: 8,
+                  background: "var(--accent)",
+                  color: "var(--bg-base)",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: "16px",
+                  textAlign: "center",
+                }}
+              >
+                {membersChat.unread >= 100 ? "99+" : membersChat.unread}
+              </span>
+            )}
+          </button>
+        </div>
         {rooms.map((room, i) => {
-          const isActive = room.id === currentRoomId;
+          const isActive = !lobbyOpen && room.id === currentRoomId;
           const roomAgents = agents.filter((a) => a.roomId === room.id);
           const hasAttention = roomAgents.some((a) => needsAttention.has(a.id));
           const activityDotColor = roomActivityDotColor(

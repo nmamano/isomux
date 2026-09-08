@@ -23,6 +23,7 @@ ${emitThemesCss()}
 
   /* Mode-dependent visuals (independent of which specific theme is active). */
   [data-theme-mode="light"] .lamp-glow { display: none; }
+  [data-theme-mode="light"] .lobby-dark-only { display: none; }
   [data-theme-mode="light"] .window-night { display: none; }
   :root .window-day, [data-theme-mode="dark"] .window-day { display: none; }
   [data-theme-mode="light"] .window-day { display: block; }

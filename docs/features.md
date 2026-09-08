@@ -11,6 +11,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
 - **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
 - **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
+- **Every office has a receptionist** in the lobby, on a free OpenCode model, that answers questions about Isomux and about the office. An owner can put another engine or model behind it and add instructions; its name and working directory are fixed, and it cannot be killed or moved.
 
 ## Multi-agent
 
@@ -41,6 +42,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
+- **Members chat** - a humans-only chat on the Lobby tab. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, edit in place, delete, and an unread count on the tab. Members with no room access land in the lobby.
+- **The receptionist** - the one agent every member can open, room access or not. Click it in the lobby. It knows the office's name, its members and the office-wide instructions, and nothing from the rooms.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
@@ -55,6 +58,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 _The UI makes agent state spatial and glanceable, so you remember who is doing what._
 
+- **Lobby** - a warm-wood scene open to every member, with the receptionist, members chat and an Employee of the Minute portrait. Its Apps screen opens Apps; its clock opens Schedules.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
 - **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.

@@ -12,6 +12,7 @@ import {
 } from "./cronjob-persistence.ts";
 import type { ManagedAgent } from "./internal-types.ts";
 import type { RoomWire, UserRecord } from "../shared/types.ts";
+import { LOBBY_ROOM, LOBBY_ROOM_ID } from "../shared/types.ts";
 import type {
   UsageReportWire,
   CronjobUsageWire,
@@ -216,8 +217,13 @@ export function buildUsageReportData(
 ): UsageReportWire {
   const isOwner = audience.kind === "owner";
   const canSeeRoom = (roomId: string): boolean =>
-    audience.kind === "owner" || audience.roomIds.has(roomId);
-  const visibleRooms = isOwner ? rooms : rooms.filter((r) => canSeeRoom(r.id));
+    roomId === LOBBY_ROOM_ID || audience.kind === "owner" || audience.roomIds.has(roomId);
+  // The lobby has no stored room. Include its active receptionist in the same
+  // accounting path as ordinary agents, for every authenticated viewer.
+  const reportRooms = [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)
+    ? [...rooms, LOBBY_ROOM]
+    : rooms;
+  const visibleRooms = isOwner ? reportRooms : reportRooms.filter((r) => canSeeRoom(r.id));
   const roomByIdMap = new Map(visibleRooms.map((r) => [r.id, r] as const));
   const agentRows = [...agents.values()]
     .filter((a) => canSeeRoom(a.info.roomId))
@@ -227,7 +233,10 @@ export function buildUsageReportData(
         id: a.info.id,
         name: a.info.name,
         roomId: a.info.roomId,
-        roomName: roomByIdMap.get(a.info.roomId)?.name ?? "?",
+        // The receptionist stands in the lobby, which is no room.
+        roomName:
+          roomByIdMap.get(a.info.roomId)?.name ??
+          (a.info.roomId === LOBBY_ROOM_ID ? LOBBY_ROOM.name : "?"),
         session: usage.session,
         lifetime: usage.lifetime,
       };

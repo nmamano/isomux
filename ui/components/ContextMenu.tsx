@@ -217,18 +217,23 @@ export function ContextMenu({
         </>
       )}
 
-      <div
-        style={{
-          height: 1,
-          background: "var(--border-strong)",
-          margin: "3px 8px",
-        }}
-      />
-      <MenuItem
-        label={t("contextMenu.killAgent")}
-        danger
-        onClick={() => handleAction("kill")}
-      />
+      {/* The receptionist cannot be killed (the server answers 409 too). */}
+      {!agent.receptionist && (
+        <>
+          <div
+            style={{
+              height: 1,
+              background: "var(--border-strong)",
+              margin: "3px 8px",
+            }}
+          />
+          <MenuItem
+            label={t("contextMenu.killAgent")}
+            danger
+            onClick={() => handleAction("kill")}
+          />
+        </>
+      )}
     </div>
   );
 }

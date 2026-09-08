@@ -45,8 +45,10 @@ import type {
   SessionWire,
   UserRecord,
   UserRole,
+  MembersChatMessage,
 } from "../shared/types.ts";
 import {
+  LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
   cronjobRunStreamId,
@@ -67,6 +69,65 @@ const state = new OfficeState();
 let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
+
+// Members chat: the humans-only stream on the Lobby tab. A canned page seeded
+// once per session; a post from the demo viewer lands as Ricky and fans out
+// through the same wire event the real server sends.
+let demoMembersChat: MembersChatMessage[] = [];
+let demoMembersChatSeq = 0;
+
+function membersChatId(): string {
+  demoMembersChatSeq += 1;
+  return `202609-${String(demoMembersChatSeq).padStart(8, "0")}`;
+}
+
+function seedMembersChat(now: number): void {
+  const ricky = users.get("ricky");
+  const stephen = users.get("stephen");
+  if (!ricky || !stephen) return;
+  const min = 60_000;
+  demoMembersChat = [
+    {
+      id: membersChatId(),
+      kind: "user",
+      userId: stephen.id,
+      userName: stephen.name,
+      device: "Phone",
+      timestamp: now - 42 * min,
+      content: "anyone else's agents quiet this morning, or is it just mine",
+      attachments: [],
+    },
+    {
+      id: membersChatId(),
+      kind: "user",
+      userId: ricky.id,
+      userName: ricky.name,
+      device: "Laptop",
+      timestamp: now - 39 * min,
+      content: "mine are fine. the standup board finished overnight, take a look",
+      attachments: [],
+    },
+    {
+      id: membersChatId(),
+      kind: "agent",
+      userId: ricky.id,
+      userName: "Michael",
+      timestamp: now - 20 * min,
+      content: "Cost report for the week: 3 agents, 41 turns, all under budget.",
+      attachments: [],
+    },
+    {
+      id: membersChatId(),
+      kind: "api",
+      userId: stephen.id,
+      userName: stephen.name,
+      device: "Phone",
+      timestamp: now - 6 * min,
+      content: "on my way in, save me a desk",
+      attachments: [],
+    },
+  ];
+}
 const demoManagedEnv: Record<string, Record<string, string>> = {};
 let demoManagedOfficeEnv: Record<string, string> = {};
 
@@ -389,6 +450,46 @@ function seedOffice() {
       contextUsage: demoContextUsage(char.desk, char.modelFamily),
     });
   }
+  // The receptionist: the lobby's one agent, outside every room, as the real
+  // server seeds it. The embed shows a single room and no lobby.
+  if (!embedMode) {
+    const backend = DEMO_BACKEND_DEFAULTS.opencode;
+    const modelFamily = "opencode/muse-spark-1.2-contributor-free";
+    state.addExistingAgent({
+      id: "demo-receptionist",
+      name: "Receptionist",
+      desk: 0,
+      roomId: LOBBY_ROOM_ID,
+      receptionist: true,
+      cwd: "~/isomux-receptionist",
+      outfit: {
+        hat: "none",
+        color: "#C97B4A",
+        hair: "#3B2A20",
+        hairStyle: "bun",
+        skin: "#E8B48A",
+        beard: "none",
+        accessory: "glasses",
+      },
+      permissionMode: backend.permissionMode,
+      modelFamily,
+      effort: DEFAULT_EFFORT,
+      state: "idle",
+      topic: null,
+      topicStale: false,
+      customInstructions: null,
+      customInstructionsVersion: versionOf(""),
+      agentType: "opencode",
+      capabilities: backend.capabilities,
+      userId: null,
+      username: null,
+      queue: [],
+      sessionSwapping: false,
+      turnHadHumanInput: false,
+      subscriptionUsage: null,
+      contextUsage: demoContextUsage(0, modelFamily),
+    });
+  }
 }
 
 // Demo presence: a single ghost for "Stephen (phone)" that cycles
@@ -462,6 +563,7 @@ function ensureSeeded() {
   seedOffice();
   seedCronjobs();
   seedUsers();
+  seedMembersChat(Date.now());
   state.setOfficeSettings(
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
@@ -671,8 +773,9 @@ function seedLogs() {
 }
 
 // The canned reply, in the viewer's language: the record's pick, else the
-// browser's, the same resolution the UI uses.
-function demoReply(): string {
+// browser's, the same resolution the UI uses. The receptionist answers in its
+// own voice.
+function demoReply(agentId: string): string {
   const selfId = sessionContext?.userId ?? null;
   const self = selfId
     ? ([...users.values()].find((u) => u.id === selfId) ?? null)
@@ -682,7 +785,9 @@ function demoReply(): string {
       self,
       typeof navigator === "undefined" ? null : navigator.language,
     ),
-  ).t("demo.reply");
+  ).t(
+    state.getAgent(agentId)?.receptionist ? "demo.receptionistReply" : "demo.reply",
+  );
 }
 
 // Cron jobs: maintained as plain in-memory state (not via OfficeState).
@@ -1309,9 +1414,10 @@ function demoUsageReport(): UsageReportWire {
   const snapshot = state.getState();
   const agents = snapshot.agents
     .map((agent) => {
+      // The receptionist has no room: the lobby, like the real report.
       const room = snapshot.rooms.find(
         (candidate) => candidate.id === agent.roomId,
-      )!;
+      );
       const usage = DEMO_AGENT_USAGE[agent.id] ?? {
         session: EMPTY_USAGE,
         lifetime: EMPTY_USAGE,
@@ -1319,8 +1425,8 @@ function demoUsageReport(): UsageReportWire {
       return {
         id: agent.id,
         name: agent.name,
-        roomId: room.id,
-        roomName: room.name,
+        roomId: room?.id ?? agent.roomId,
+        roomName: room?.name ?? "Lobby",
         ...usage,
       };
     })
@@ -1509,12 +1615,85 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  if (
+    pathname.startsWith("/api/members-chat/") &&
+    pathname !== "/api/members-chat/read" &&
+    (method === "PATCH" || method === "DELETE")
+  ) {
+    const id = pathname.slice("/api/members-chat/".length);
+    const i = demoMembersChat.findIndex((m) => m.id === id);
+    if (i === -1) throw new ApiError(404, "not_found", "No such message.");
+    if (method === "DELETE") {
+      demoMembersChat.splice(i, 1);
+      shimEmit({ type: "members_chat_deleted", id });
+      return undefined;
+    }
+    const text = (body as { text?: unknown } | undefined)?.text;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new ApiError(400, "empty", "a message needs text or a file");
+    }
+    const edited: MembersChatMessage = {
+      ...demoMembersChat[i],
+      content: text,
+      editedAt: Date.now(),
+    };
+    demoMembersChat[i] = edited;
+    shimEmit({ type: "members_chat_message", message: edited });
+    return edited;
+  }
   if (method === "DELETE" && pathname.startsWith("/api/me/api-tokens/")) {
     const id = decodeURIComponent(pathname.slice("/api/me/api-tokens/".length));
     demoApiTokens = demoApiTokens.filter((token) => token.id !== id);
     return undefined;
   }
   switch (route) {
+    case "GET /api/members-chat":
+      return {
+        messages: [...demoMembersChat],
+        hasMore: false,
+        readPointer: demoMembersChat.at(-1)?.id ?? null,
+        unread: 0,
+      };
+    case "POST /api/members-chat": {
+      const ricky = users.get("ricky");
+      const b = (body ?? {}) as {
+        text?: unknown;
+        attachments?: unknown;
+        device?: unknown;
+      };
+      if (!ricky || typeof b.text !== "string") {
+        throw new ApiError(400, "invalid_request", "text must be a string");
+      }
+      const attachments = Array.isArray(b.attachments)
+        ? (b.attachments as MembersChatMessage["attachments"])
+        : [];
+      if (!b.text.trim() && attachments.length === 0) {
+        throw new ApiError(400, "empty", "a message needs text or a file");
+      }
+      const message: MembersChatMessage = {
+        id: membersChatId(),
+        kind: "user",
+        userId: ricky.id,
+        userName: ricky.name,
+        ...(typeof b.device === "string" && b.device ? { device: b.device } : {}),
+        timestamp: Date.now(),
+        content: b.text,
+        attachments,
+      };
+      demoMembersChat.push(message);
+      shimEmit({ type: "members_chat_message", message });
+      return message;
+    }
+    case "POST /api/members-chat/read": {
+      const lastReadId = (body as { lastReadId?: unknown } | undefined)
+        ?.lastReadId;
+      const known = demoMembersChat.some((m) => m.id === lastReadId);
+      const readPointer = known
+        ? (lastReadId as string)
+        : (demoMembersChat.at(-1)?.id ?? null);
+      shimEmit({ type: "members_chat_read", readPointer, unread: 0 });
+      return { readPointer, unread: 0 };
+    }
     // validate.cwd / validate.env - the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
     case "POST /api/validate/cwd":
@@ -2307,7 +2486,7 @@ export async function demoApi(
         pendingReplies.delete(id);
         shimEmit({
           type: "log_entry",
-          entry: makeLogEntry(id, "text", demoReply()),
+          entry: makeLogEntry(id, "text", demoReply(id)),
         });
         shimEmit({
           type: "agent_updated",

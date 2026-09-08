@@ -610,6 +610,13 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Agents - uploads / files
   "agents.upload": { caps: ["file:upload"], emits: [] },
   "agents.getFile": { caps: ["office:read"], emits: [] },
+  "membersChat.page": { caps: ["chat:members"], emits: [] },
+  "membersChat.post": { caps: ["chat:members"], emits: ["members_chat_message"] },
+  "membersChat.edit": { caps: ["chat:members"], emits: ["members_chat_message"] },
+  "membersChat.delete": { caps: ["chat:members"], emits: ["members_chat_deleted"] },
+  "membersChat.markRead": { caps: ["chat:members"], emits: ["members_chat_read"] },
+  "membersChat.upload": { caps: ["chat:members"], emits: [] },
+  "membersChat.getFile": { caps: ["chat:members"], emits: [] },
   // Rooms
   "rooms.create": { caps: ["room:manage"], emits: ["room_created"] },
   "rooms.close": {
@@ -1018,6 +1025,13 @@ const API_REACHABLE_OPIDS = [
   "agents.closeFile",
   "agents.upload",
   "agents.getFile",
+  "membersChat.page",
+  "membersChat.post",
+  "membersChat.edit",
+  "membersChat.delete",
+  "membersChat.markRead",
+  "membersChat.upload",
+  "membersChat.getFile",
   "rooms.create",
   "rooms.close",
   "rooms.rename",

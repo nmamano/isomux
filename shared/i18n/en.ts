@@ -20,6 +20,39 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
+  "lobby.receptionistName": "Receptionist",
+  "lobby.askHint": "Ask about Isomux or this office",
+  "lobby.welcome": "WELCOME",
+  "lobby.poster": "THE OFFICE",
+  "common.lobby": "Lobby",
+  "lobby.officeFallback": "the office",
+  "lobby.directory": "DIRECTORY",
+  "lobby.employeeLine1": "EMPLOYEE OF",
+  "lobby.employeeLine2": "THE MINUTE",
+  "lobby.openChat": "{name} - click to open the chat",
+  "lobby.identityLocked": "The receptionist keeps its name and working directory.",
+  "lobby.receptionistNameLocked": "The receptionist keeps its name.",
+  "membersChat.authorAgent": "{name} · agent",
+  "membersChat.authorApi": "{name} · API token",
+  "membersChat.authorApiDevice": "{name} · API token \"{device}\"",
+  "membersChat.deleteAgain": "Click again to delete",
+  "membersChat.sure": "sure?",
+  "membersChat.loadFailed": "Could not load the chat",
+  "membersChat.olderFailed": "Could not load older",
+  "membersChat.uploadFailed": "upload failed",
+  "membersChat.uploadStatus": "Upload failed ({status})",
+  "membersChat.sendFailed": "Could not send",
+  "membersChat.editFailed": "Could not edit",
+  "membersChat.deleteFailed": "Could not delete",
+  "membersChat.title": "Members chat",
+  "membersChat.online": "{count} online",
+  "membersChat.loadingOlder": "Loading older…",
+  "membersChat.loadOlder": "Load older",
+  "membersChat.empty": "Nothing here yet. Only people see this chat.",
+  "membersChat.edited": " · edited",
+  "membersChat.uploading": "uploading…",
+  "membersChat.placeholder": "Message the members…",
+
   "common.save": "Save",
   "common.saving": "Saving…",
   "common.saved": "Saved",
@@ -769,6 +802,11 @@ export const en = {
   // The API-call card (S5): what an agent's curl against the isomux API
   // did, in one line. A route's static label and the parameter-aware
   // sentence for the same call share a key when their English matches.
+  "apiCall.membersChat.read": "Read members chat",
+  "apiCall.membersChat.post": "Post to members chat",
+  "apiCall.membersChat.edit": "Edit members chat message",
+  "apiCall.membersChat.delete": "Delete members chat message",
+  "apiCall.membersChat.markRead": "Mark members chat read",
   "apiCall.tasks.list": "List tasks",
   "apiCall.tasks.create": "Create task",
   "apiCall.tasks.claim": "Claim task",
@@ -1332,13 +1370,6 @@ export const en = {
   "tasks.roomChipTitle": "Room: {room}",
   "tasks.globalChipTitle": "Office-global task",
   "tasks.createdFor": "{who} · for {target}",
-  "office.noRooms.title": "No rooms assigned",
-  "office.noRooms.create":
-    "Use the <strong>+</strong> in the room tab bar to create your own room.",
-  "office.noRooms.visibility":
-    "New rooms you create are visible only to you and the office owners by default (owners can change that).",
-  "office.noRooms.askOwner":
-    "You can also ask an owner to add you to existing rooms.",
   "office.newAgent": "New Agent",
   "apps.actionFailed.start": "Could not start.",
   "apps.actionFailed.stop": "Could not stop.",
@@ -1918,6 +1949,8 @@ export const en = {
     "This is a demo office. To connect real Claude, Codex, and OpenCode agents:",
   "demo.reply":
     "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).",
+  "demo.receptionistReply":
+    "Welcome to the lobby. In a real office I answer questions about Isomux and about this office: the docs are at [isomux.com/docs](https://isomux.com/docs), and an owner grants room access. This is a demo, so nothing was sent to a model.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

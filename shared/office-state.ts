@@ -7,7 +7,11 @@ import type {
   RoomWire,
   OfficeSettings,
 } from "./types.ts";
-import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
+import {
+  DEFAULT_AGENT_CAPABILITIES,
+  DEFAULT_EFFORT,
+  LOBBY_ROOM_ID,
+} from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
 import { DESK_COUNT, isValidDesk } from "./desks.ts";
@@ -208,51 +212,62 @@ export class OfficeState {
     // stale across renames; behavior reads should go through userId.
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
+    // The office's one receptionist: stands in the lobby (LOBBY_ROOM_ID, desk
+    // 0), outside every room, so the room check and the desk scan do not apply.
+    receptionist?: true;
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
     const nameLower = opts.name.trim().toLowerCase();
     for (const a of this.agents.values()) {
       if (a.name.toLowerCase() === nameLower) return null;
     }
 
-    // An OMITTED (undefined) roomId defaults to the canonical first room
-    // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId -
-    // including "" - is rejected: never silently coerced to rooms[0], which
-    // would hide caller mistakes (e.g. passing a display index instead of the
-    // real room id), and never stored verbatim, which would dangle. Callers
-    // disambiguate the null via a room-existence check, like moveAgent's.
-    if (
-      opts.roomId !== undefined &&
-      !this._rooms.some((r) => r.id === opts.roomId)
-    )
-      return null;
-    const targetRoomId = opts.roomId ?? this._rooms[0].id;
-    const roomAgents = [...this.agents.values()].filter(
-      (a) => a.roomId === targetRoomId,
-    );
-    const taken = new Set(roomAgents.map((a) => a.desk));
-
-    // An explicit desk that names no real slot is REJECTED, not quietly
-    // reassigned: it is a caller bug, and it previously produced an
-    // agent that existed everywhere except the office view (DeskUnit's slot
-    // lookup threw and took the whole room's render down). A desk of -1 is
-    // doubly invalid - it is also the "no free desk" sentinel below.
-    // An explicit desk that is merely TAKEN still falls through to
-    // auto-assign, which is the long-standing behavior.
-    if (opts.desk !== undefined && !isValidDesk(opts.desk)) return null;
-
+    let targetRoomId: string;
     let desk: number;
-    if (opts.desk !== undefined && !taken.has(opts.desk)) {
-      desk = opts.desk;
+    if (opts.receptionist) {
+      // One receptionist per office; a second is refused like a taken name.
+      for (const a of this.agents.values()) if (a.receptionist) return null;
+      targetRoomId = LOBBY_ROOM_ID;
+      desk = 0;
     } else {
-      desk = -1;
-      for (let i = 0; i < DESK_COUNT; i++) {
-        if (!taken.has(i)) {
-          desk = i;
-          break;
+      // An OMITTED (undefined) roomId defaults to the canonical first room
+      // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId -
+      // including "" - is rejected: never silently coerced to rooms[0], which
+      // would hide caller mistakes (e.g. passing a display index instead of the
+      // real room id), and never stored verbatim, which would dangle. Callers
+      // disambiguate the null via a room-existence check, like moveAgent's.
+      if (
+        opts.roomId !== undefined &&
+        !this._rooms.some((r) => r.id === opts.roomId)
+      )
+        return null;
+      targetRoomId = opts.roomId ?? this._rooms[0].id;
+      const roomAgents = [...this.agents.values()].filter(
+        (a) => a.roomId === targetRoomId,
+      );
+      const taken = new Set(roomAgents.map((a) => a.desk));
+
+      // An explicit desk that names no real slot is REJECTED, not quietly
+      // reassigned: it is a caller bug, and it previously produced an
+      // agent that existed everywhere except the office view (DeskUnit's slot
+      // lookup threw and took the whole room's render down). A desk of -1 is
+      // doubly invalid - it is also the "no free desk" sentinel below.
+      // An explicit desk that is merely TAKEN still falls through to
+      // auto-assign, which is the long-standing behavior.
+      if (opts.desk !== undefined && !isValidDesk(opts.desk)) return null;
+
+      if (opts.desk !== undefined && !taken.has(opts.desk)) {
+        desk = opts.desk;
+      } else {
+        desk = -1;
+        for (let i = 0; i < DESK_COUNT; i++) {
+          if (!taken.has(i)) {
+            desk = i;
+            break;
+          }
         }
       }
+      if (desk === -1) return null; // room full
     }
-    if (desk === -1) return null; // room full
 
     const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const agent: AgentInfo = {
@@ -280,6 +295,7 @@ export class OfficeState {
       // Privilege is never conferred at spawn - it is granted only via the
       // user-gated agents.setPrivileged route (so no agent can self-confer).
       privileged: false,
+      ...(opts.receptionist ? { receptionist: true as const } : {}),
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -305,6 +321,7 @@ export class OfficeState {
   kill(agentId: string): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
+    if (agent.receptionist) return []; // the receptionist cannot be killed
     this.agents.delete(agentId);
     const events: OfficeEvent[] = [
       { type: "agent_removed", agentId, roomId: agent.roomId },
@@ -331,7 +348,8 @@ export class OfficeState {
 
     const updated: Partial<AgentInfo> = {};
 
-    if (changes.name && changes.name !== agent.name) {
+    // The receptionist keeps its name (the lobby figure and the prompt name it).
+    if (changes.name && changes.name !== agent.name && !agent.receptionist) {
       const nameLower = changes.name.trim().toLowerCase();
       const duplicate = [...this.agents.values()].some(
         (a) => a.id !== agentId && a.name.toLowerCase() === nameLower,
@@ -489,6 +507,7 @@ export class OfficeState {
   moveAgent(agentId: string, targetRoomId: string): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
+    if (agent.receptionist) return []; // the receptionist stays in the lobby
     if (!this._rooms.some((r) => r.id === targetRoomId)) return [];
     if (agent.roomId === targetRoomId) return [];
 

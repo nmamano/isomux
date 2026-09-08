@@ -75,7 +75,7 @@ export type SendAsAgentResult =
     }
   | {
       ok: false;
-      status: 400 | 404 | 409 | 429 | 500;
+      status: 400 | 403 | 404 | 409 | 429 | 500;
       code: string;
       message: string;
     };

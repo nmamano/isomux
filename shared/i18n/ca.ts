@@ -5,6 +5,39 @@
 import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
+  "lobby.receptionistName": "Recepcionista",
+  "lobby.askHint": "Pregunta sobre Isomux o aquesta oficina",
+  "lobby.welcome": "BENVINGUTS",
+  "lobby.poster": "L'OFICINA",
+  "common.lobby": "Vestíbul",
+  "lobby.officeFallback": "l'oficina",
+  "lobby.directory": "DIRECTORI",
+  "lobby.employeeLine1": "EMPLEAT",
+  "lobby.employeeLine2": "DEL MINUT",
+  "lobby.openChat": "{name} - fes clic per obrir el xat",
+  "lobby.identityLocked": "El recepcionista conserva el nom i el directori de treball.",
+  "lobby.receptionistNameLocked": "El recepcionista conserva el seu nom.",
+  "membersChat.authorAgent": "{name} · agent",
+  "membersChat.authorApi": "{name} · token d'API",
+  "membersChat.authorApiDevice": "{name} · token d'API \"{device}\"",
+  "membersChat.deleteAgain": "Fes clic de nou per eliminar",
+  "membersChat.sure": "segur?",
+  "membersChat.loadFailed": "No s'ha pogut carregar el xat",
+  "membersChat.olderFailed": "No s'han pogut carregar missatges anteriors",
+  "membersChat.uploadFailed": "error en pujar",
+  "membersChat.uploadStatus": "Error en pujar ({status})",
+  "membersChat.sendFailed": "No s'ha pogut enviar",
+  "membersChat.editFailed": "No s'ha pogut editar",
+  "membersChat.deleteFailed": "No s'ha pogut eliminar",
+  "membersChat.title": "Xat de membres",
+  "membersChat.online": "{count} en línia",
+  "membersChat.loadingOlder": "Carregant missatges anteriors…",
+  "membersChat.loadOlder": "Carrega anteriors",
+  "membersChat.empty": "Encara no hi ha res. Només les persones veuen aquest xat.",
+  "membersChat.edited": " · editat",
+  "membersChat.uploading": "pujant…",
+  "membersChat.placeholder": "Escriu als membres…",
+
   "common.save": "Desa",
   "common.saving": "Desant…",
   "common.saved": "Desat",
@@ -769,6 +802,11 @@ export const ca: Catalog = {
   // The API-call card (S5): what an agent's curl against the isomux API
   // did, in one line. A route's static label and the parameter-aware
   // sentence for the same call share a key when their English matches.
+  "apiCall.membersChat.read": "Llegir el xat de membres",
+  "apiCall.membersChat.post": "Publicar al xat de membres",
+  "apiCall.membersChat.edit": "Editar un missatge del xat de membres",
+  "apiCall.membersChat.delete": "Eliminar un missatge del xat de membres",
+  "apiCall.membersChat.markRead": "Marcar el xat de membres com a llegit",
   "apiCall.tasks.list": "Llistar tasques",
   "apiCall.tasks.create": "Crear tasca",
   "apiCall.tasks.claim": "Reclamar tasca",
@@ -1356,13 +1394,6 @@ export const ca: Catalog = {
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.globalChipTitle": "Tasca global de l'oficina",
   "tasks.createdFor": "{who} · per a {target}",
-  "office.noRooms.title": "No tens cap sala assignada",
-  "office.noRooms.create":
-    "Fes servir el <strong>+</strong> de la barra de pestanyes per crear la teva sala.",
-  "office.noRooms.visibility":
-    "Les sales que crees només les veieu, de manera predeterminada, tu i els propietaris de l'oficina (ells ho poden canviar).",
-  "office.noRooms.askOwner":
-    "També pots demanar a un propietari que t'afegeixi a sales ja existents.",
   "office.newAgent": "Agent nou",
   "apps.actionFailed.start": "No s'ha pogut engegar.",
   "apps.actionFailed.stop": "No s'ha pogut aturar.",
@@ -1921,4 +1952,6 @@ export const ca: Catalog = {
     "Aquesta és una oficina de demostració. Per connectar agents reals de Claude, Codex i OpenCode:",
   "demo.reply":
     "Això és una demo: el teu missatge no s'ha enviat a Claude. Per fer servir Isomux de debò, segueix les instruccions d'instal·lació a [isomux.com](https://isomux.com).",
+  "demo.receptionistReply":
+    "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina: la documentació és a [isomux.com/docs](https://isomux.com/docs), i un propietari concedeix l'accés a les sales. Això és una demo, així que no s'ha enviat res a cap model.",
 };

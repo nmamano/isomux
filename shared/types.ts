@@ -1,4 +1,5 @@
 import type { ApiTokenLogEntry } from "./contract-shapes.ts";
+import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 
 import type { GhostVariant } from "./avatar.ts";
@@ -194,6 +195,18 @@ export const DEFAULT_EFFORT: EffortLevel = "high";
 
 export const OPENCODE_DEFAULT_MODEL =
   "opencode/muse-spark-1.2-contributor-free";
+
+// The receptionist's home. Not a room: it never appears in a room list, in a
+// user's grants or in the office state. It is the roomId of the one agent every
+// user can reach, and the name the manifest and the prompt show for it. Not an
+// 8-hex id, so it can never collide with a real room.
+export const LOBBY_ROOM_ID = "lobby";
+export const LOBBY_ROOM: RoomWire = {
+  id: LOBBY_ROOM_ID,
+  name: en["common.lobby"],
+  prompt: null,
+  canCloseWhenEmpty: false,
+};
 
 /**
  * The catalog's words for `level`, in `t`'s language.
@@ -525,6 +538,11 @@ export interface AgentInfo {
   // agents.setPrivileged route; never by an agent. Absent/false on normal
   // agents.
   privileged?: boolean;
+  // The office's receptionist: the one agent that stands in the lobby (roomId
+  // LOBBY_ROOM_ID) and reaches every user, room access or not. Locked against
+  // kill, move, rename and cwd changes; other configuration stays editable. Absent on every
+  // other agent.
+  receptionist?: true;
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
   // 9870b472) - a restart no longer empties it. Live source of truth is the
   // manager's in-memory queue; this wire copy is spliced in by getAllAgents.
@@ -585,6 +603,27 @@ export interface Attachment {
   originalName: string; // user-facing: "photo.png"
   mediaType: string; // "image/png", "application/pdf", etc.
   size: number; // bytes
+}
+
+// One message in the members chat: the office-wide, humans-only stream that
+// lives on the Lobby tab (server/members-chat.ts). userName and device are a
+// snapshot at post time, so a renamed or deleted user's old messages still
+// read correctly. editedAt is set only after an in-place edit.
+// JS string length of one members chat message, like an app message.
+export const MEMBERS_CHAT_MAX_CHARS = 4000;
+
+export interface MembersChatMessage {
+  id: string; // "YYYYMM-xxxxxxxx": the month names the file that holds it
+  // Who posted: a person in the browser, that person's API token, or one of
+  // their privileged agents. The card styles api and agent posts as machine-sent.
+  kind: "user" | "api" | "agent";
+  userId: string;
+  userName: string;
+  device?: string;
+  timestamp: number;
+  content: string;
+  attachments: Attachment[];
+  editedAt?: number;
 }
 
 // Per-file summary inside a kind:"diff" LogEntry. The server pre-computes
@@ -1514,6 +1553,12 @@ export type ServerMessage =
   // changes (both re-project from scratch). A single task mutation does NOT ride
   // this - it arrives as one of the two deltas below, which is ~1KB instead of
   // the whole board.
+  // Members chat (the humans-only stream on the Lobby tab). A message event
+  // carries a post or an in-place edit; the client upserts by id.
+  | { type: "members_chat_message"; message: MembersChatMessage }
+  | { type: "members_chat_deleted"; id: string }
+  // The recipient's own read pointer moved (from any of their devices).
+  | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }
   // One task was created or changed, and the recipient can see it. Upsert, not
   // separate created/updated: per recipient an update can be the FIRST time the

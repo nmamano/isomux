@@ -158,6 +158,12 @@ interface HandlerDeps {
   globalRoomIndexOf: (roomId: string) => number;
   roomById: (roomId: string) => RoomWire | undefined;
   getOfficeConfig: () => OfficeSettings;
+  // The receptionist's prompt builder (agent-manager owns the office reads it
+  // needs), so /isomux-system-prompt dumps what its session really runs.
+  receptionistSystemPrompt: (
+    managed: ManagedAgent,
+    autoLoadedMemory: string | null,
+  ) => string;
   logCache: Map<string, LogEntry[]>;
 
   emit: (event: AgentEvent) => void;
@@ -813,40 +819,48 @@ export function createCommandHandling(deps: HandlerDeps) {
       const ownerRecord = managed.info.username
         ? getUserByName(managed.info.username)
         : undefined;
-      const prompt = buildSystemPrompt(
-        managed.info.name,
-        managed.info.id,
-        room.name,
-        room.id,
-        officeConfig.prompt,
-        room.prompt,
-        managed.info.customInstructions,
-        managed.info.username,
-        ownerRecord?.memberPrompt ?? null,
-        managed.info.privileged ?? false,
-        memoryStore.renderForPromptMulti([
-          { scope: "office", scopeId: null, label: "Office-wide" },
-          {
-            scope: "room",
-            scopeId: managed.info.roomId,
-            label: `Room "${room.name}"`,
-          },
-          // Boss notes auto-load ONLY for this agent's manager boss (stable
-          // userId), so one boss's notes never bleed into another's context.
-          ...(managed.info.userId
-            ? [
-                {
-                  scope: "boss" as const,
-                  scopeId: managed.info.userId,
-                  label: `Boss "${managed.info.username ?? "boss"}"`,
-                },
-              ]
-            : []),
-          { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
-        ]),
-        managed.info.agentType,
-        ownerRecord?.language ?? null,
-      );
+      const prompt = managed.info.receptionist
+        ? deps.receptionistSystemPrompt(
+            managed,
+            memoryStore.renderForPromptMulti([
+              { scope: "office", scopeId: null, label: "Office-wide" },
+              { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
+            ]),
+          )
+        : buildSystemPrompt(
+            managed.info.name,
+            managed.info.id,
+            room.name,
+            room.id,
+            officeConfig.prompt,
+            room.prompt,
+            managed.info.customInstructions,
+            managed.info.username,
+            ownerRecord?.memberPrompt ?? null,
+            managed.info.privileged ?? false,
+            memoryStore.renderForPromptMulti([
+              { scope: "office", scopeId: null, label: "Office-wide" },
+              {
+                scope: "room",
+                scopeId: managed.info.roomId,
+                label: `Room "${room.name}"`,
+              },
+              // Boss notes auto-load ONLY for this agent's manager boss (stable
+              // userId), so one boss's notes never bleed into another's context.
+              ...(managed.info.userId
+                ? [
+                    {
+                      scope: "boss" as const,
+                      scopeId: managed.info.userId,
+                      label: `Boss "${managed.info.username ?? "boss"}"`,
+                    },
+                  ]
+                : []),
+              { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
+            ]),
+            managed.info.agentType,
+            ownerRecord?.language ?? null,
+          );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.
       const longestRun = (prompt.match(/`+/g) ?? []).reduce(

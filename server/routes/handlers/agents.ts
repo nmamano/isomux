@@ -76,6 +76,7 @@ export type EditResult =
         | "invalid_cwd"
         | "agent_not_found"
         | "invalid_model_family"
+        | "receptionist_locked"
         | "edit_failed";
       message: string;
     }
@@ -88,10 +89,17 @@ export type ReviveResult =
   | { ok: true; agent: AgentInfo }
   | { ok: false; error: string; field?: "name" | "desk" | "room" };
 
+// The receptionist is locked against kill, move and rename (409
+// receptionist_locked); everything else about it is editable.
+export type KillResult = { ok: true } | { ok: false; reason: "receptionist_locked" };
+const RECEPTIONIST_LOCKED =
+  "The receptionist stays in the lobby: it cannot be killed, moved or renamed.";
+
 export interface AgentsDeps {
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
   // guard already gated existence + access, so a stale id is a harmless no-op.
-  kill(agentId: string): Promise<void>;
+  // The receptionist is refused (receptionist_locked).
+  kill(agentId: string): Promise<KillResult>;
   // Stops whatever the agent is doing: cancels the in-flight turn, and denies
   // a permission prompt it is parked on. Returns the outcome rather than void:
   // an agent with no turn and no prompt has nothing to stop,
@@ -112,7 +120,11 @@ export interface AgentsDeps {
     | { ok: true; agent: AgentInfo }
     | {
         ok: false;
-        reason: "no_free_desk" | "room_not_found" | "agent_not_found";
+        reason:
+          | "no_free_desk"
+          | "room_not_found"
+          | "agent_not_found"
+          | "receptionist_locked";
       };
   swapDesks(roomId: string, deskA: number, deskB: number): void;
   setTopic(agentId: string, topic: string): void;
@@ -204,7 +216,8 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
 export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
   return {
     "agents.kill": async (ctx) => {
-      await deps.kill(ctx.params.id);
+      const r = await deps.kill(ctx.params.id);
+      if (!r.ok) return fail(409, "receptionist_locked", RECEPTIONIST_LOCKED);
       return noContent();
     },
 
@@ -243,6 +256,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       if (r.reason === "room_not_found") {
         return fail(404, "room_not_found", "Room not found");
+      }
+      if (r.reason === "receptionist_locked") {
+        return fail(409, "receptionist_locked", RECEPTIONIST_LOCKED);
       }
       return fail(404, "agent_not_found", "Agent not found");
     },
@@ -392,7 +408,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
               ? 404
               : r.reason === "invalid_model_family"
                 ? 422
-                : 400;
+                : r.reason === "receptionist_locked"
+                  ? 409
+                  : 400;
         return fail(status, r.reason, r.message);
       }
       return ok({ agent: r.agent });

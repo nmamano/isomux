@@ -5,6 +5,39 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
+  "lobby.receptionistName": "Recepcionista",
+  "lobby.askHint": "Pregunta sobre Isomux o esta oficina",
+  "lobby.welcome": "BIENVENIDOS",
+  "lobby.poster": "LA OFICINA",
+  "common.lobby": "Vestíbulo",
+  "lobby.officeFallback": "la oficina",
+  "lobby.directory": "DIRECTORIO",
+  "lobby.employeeLine1": "EMPLEADO",
+  "lobby.employeeLine2": "DEL MINUTO",
+  "lobby.openChat": "{name} - haz clic para abrir el chat",
+  "lobby.identityLocked": "El recepcionista conserva su nombre y su directorio de trabajo.",
+  "lobby.receptionistNameLocked": "El recepcionista conserva su nombre.",
+  "membersChat.authorAgent": "{name} · agente",
+  "membersChat.authorApi": "{name} · token de API",
+  "membersChat.authorApiDevice": "{name} · token de API \"{device}\"",
+  "membersChat.deleteAgain": "Haz clic de nuevo para eliminar",
+  "membersChat.sure": "¿seguro?",
+  "membersChat.loadFailed": "No se pudo cargar el chat",
+  "membersChat.olderFailed": "No se pudieron cargar mensajes anteriores",
+  "membersChat.uploadFailed": "error al subir",
+  "membersChat.uploadStatus": "Error al subir ({status})",
+  "membersChat.sendFailed": "No se pudo enviar",
+  "membersChat.editFailed": "No se pudo editar",
+  "membersChat.deleteFailed": "No se pudo eliminar",
+  "membersChat.title": "Chat de miembros",
+  "membersChat.online": "{count} en línea",
+  "membersChat.loadingOlder": "Cargando mensajes anteriores…",
+  "membersChat.loadOlder": "Cargar anteriores",
+  "membersChat.empty": "Todavía no hay nada. Solo las personas ven este chat.",
+  "membersChat.edited": " · editado",
+  "membersChat.uploading": "subiendo…",
+  "membersChat.placeholder": "Escribe a los miembros…",
+
   "common.save": "Guardar",
   "common.saving": "Guardando…",
   "common.saved": "Guardado",
@@ -773,6 +806,11 @@ export const es: Catalog = {
   // The API-call card (S5): what an agent's curl against the isomux API
   // did, in one line. A route's static label and the parameter-aware
   // sentence for the same call share a key when their English matches.
+  "apiCall.membersChat.read": "Leer el chat de miembros",
+  "apiCall.membersChat.post": "Publicar en el chat de miembros",
+  "apiCall.membersChat.edit": "Editar un mensaje del chat de miembros",
+  "apiCall.membersChat.delete": "Eliminar un mensaje del chat de miembros",
+  "apiCall.membersChat.markRead": "Marcar el chat de miembros como leído",
   "apiCall.tasks.list": "Listar tareas",
   "apiCall.tasks.create": "Crear tarea",
   "apiCall.tasks.claim": "Reclamar tarea",
@@ -1361,13 +1399,6 @@ export const es: Catalog = {
   "tasks.roomChipTitle": "Sala: {room}",
   "tasks.globalChipTitle": "Tarea global de la oficina",
   "tasks.createdFor": "{who} · para {target}",
-  "office.noRooms.title": "No tienes ninguna sala asignada",
-  "office.noRooms.create":
-    "Usa el <strong>+</strong> de la barra de pestañas para crear tu propia sala.",
-  "office.noRooms.visibility":
-    "Las salas que creas solo las ven, de forma predeterminada, tú y los propietarios de la oficina (ellos pueden cambiarlo).",
-  "office.noRooms.askOwner":
-    "También puedes pedirle a un propietario que te añada a salas ya existentes.",
   "office.newAgent": "Agente nuevo",
   "apps.actionFailed.start": "No se pudo arrancar.",
   "apps.actionFailed.stop": "No se pudo parar.",
@@ -1927,4 +1958,6 @@ export const es: Catalog = {
     "Esta es una oficina de demostración. Para conectar agentes reales de Claude, Codex y OpenCode:",
   "demo.reply":
     "Esto es una demo: tu mensaje no se ha enviado a Claude. Para usar Isomux de verdad, sigue las instrucciones de instalación en [isomux.com](https://isomux.com).",
+  "demo.receptionistReply":
+    "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina: la documentación está en [isomux.com/docs](https://isomux.com/docs), y un propietario concede el acceso a las salas. Esto es una demo, así que no se ha enviado nada a un modelo.",
 };

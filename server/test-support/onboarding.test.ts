@@ -200,7 +200,8 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     await claimOwner(server, "Boss");
 
     const agents = server.agentManager.getAllAgents();
-    expect(agents.length).toBe(3);
+    // Three welcome agents plus the receptionist (receptionist.test.ts).
+    expect(agents.length).toBe(4);
 
     const claude = agents.find((a) => a.name === CLAUDE_WELCOME);
     const codex = agents.find((a) => a.name === CODEX_WELCOME);
@@ -233,7 +234,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(codex!.dormant).toBe(true);
     expect(opencode!.dormant).toBe(true);
 
-    for (const agent of agents) {
+    for (const agent of agents.filter((a) => !a.receptionist)) {
       expect(agent.customInstructions).toContain(
         "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), Free Welcome Agent (OpenCode).",
       );
@@ -266,7 +267,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(server.agentManager.getAllAgents().map((agent) => agent.id)).toEqual(
       before,
     );
-    expect(before).toHaveLength(3);
+    expect(before).toHaveLength(4); // three welcome agents + the receptionist
     expect(
       server.agentManager
         .getAllAgents()
@@ -285,7 +286,10 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     await claimOwner(server, "Boss");
 
-    const agents = server.agentManager.getAllAgents();
+    // No welcome agents; the receptionist joins any office that gets an owner.
+    const agents = server.agentManager
+      .getAllAgents()
+      .filter((a) => !a.receptionist);
     expect(agents).toHaveLength(1);
     expect(agents[0].id).toBe(existing!.id);
     expect(agents[0].name).toBe("Existing Agent");
@@ -486,6 +490,6 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     // No crash: the office survived the broken backend (all welcome agents
     // still present, server still serving).
-    expect(server.agentManager.getAllAgents().length).toBe(3);
+    expect(server.agentManager.getAllAgents().length).toBe(4);
   });
 });

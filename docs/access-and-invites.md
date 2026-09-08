@@ -41,7 +41,7 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `Settings` → `Office` → `Invites`:
 
-- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
+- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of the lobby (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
@@ -122,6 +122,12 @@ sign out (the security audit calls this out under external-access
 "session lifetime on shared devices"). Devices used in untrusted
 environments should be revoked from the Sessions pane (or signed out
 explicitly) rather than relying on session expiry.
+
+## Lobby and members chat
+
+Every signed-in user can open the lobby and its receptionist, including a member with no room grants. The lobby is outside room grants and room display settings. The receptionist loads office-wide and its own memory, not a member’s or a room’s memory. Its bearer token has no owning user and grants no room access.
+
+The members chat is office-wide. Users, their API tokens and their privileged agents can read and post. An ordinary agent, a scheduled run and an app cannot. A user and their proxies can edit their own posts; an office owner can also delete another user’s post.
 
 ## Trust model boundaries
 

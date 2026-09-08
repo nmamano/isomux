@@ -22,6 +22,7 @@ import type {
   MemoryItem,
   OfficeSettings,
   PendingPromptKind,
+  MembersChatMessage,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -707,6 +708,41 @@ export interface MemoryAppendRes {
 // the error detail).
 export interface MemoryWriteRes {
   version: string;
+}
+
+// Members chat (humans-only stream on the Lobby tab). A page is newest-first
+// from the server's point of view and delivered oldest-first; `before` is the
+// id of the oldest message the client already holds. readPointer and unread
+// describe the CALLER's own position, so one read hydrates the panel and the
+// badge together.
+export interface MembersChatPageRes {
+  messages: MembersChatMessage[];
+  hasMore: boolean;
+  readPointer: string | null;
+  unread: number;
+}
+
+export interface MembersChatPostReq {
+  text: string;
+  // Files already uploaded through membersChat.upload; the server refuses a
+  // filename it does not hold.
+  attachments?: Attachment[];
+  // The browser's device label, a snapshot for the author line. Ignored for an
+  // API token (the token's name is the device) and for an agent.
+  device?: string;
+}
+
+export interface MembersChatEditReq {
+  text: string;
+}
+
+export interface MembersChatReadReq {
+  lastReadId: string;
+}
+
+export interface MembersChatReadRes {
+  readPointer: string | null;
+  unread: number;
 }
 
 export interface TaskClaimReq {

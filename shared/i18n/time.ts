@@ -34,6 +34,8 @@ const RELATIVE_OPTIONS: Intl.RelativeTimeFormatOptions = {
  * instead of the browser's.
  */
 export type DateShape =
+  | "clock24"
+  | "monthDayTime24"
   | "clock"
   | "monthDay"
   | "monthDayTime"
@@ -44,6 +46,8 @@ export type DateShape =
   | "weekdayDateTime";
 
 const SHAPE_OPTIONS: Record<DateShape, Intl.DateTimeFormatOptions> = {
+  clock24: { hour: "2-digit", minute: "2-digit", hour12: false },
+  monthDayTime24: { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false },
   clock: { hour: "2-digit", minute: "2-digit" },
   monthDay: { month: "short", day: "numeric" },
   monthDayTime: {

@@ -1112,7 +1112,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 margin: "2px 0 18px",
               }}
             >
-              {`${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
+              {agent!.receptionist ? t("common.lobby") : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
                 "dialogs.agent.desk",
                 { desk: agent!.desk + 1 },
               )}`}
@@ -1574,6 +1574,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   placeholder={
                     isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
                   }
+                  disabled={!!agent?.receptionist}
+                  title={
+                    agent?.receptionist
+                      ? t("lobby.receptionistNameLocked")
+                      : undefined
+                  }
                   autoFocus={isSpawn && !isMobile}
                   style={
                     nameError
@@ -1599,6 +1605,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
                     value={cwd}
+                  disabled={!!agent?.receptionist}
                     onChange={(e) => {
                       setCwd(e.target.value);
                       if (cwdError) setCwdError(null);
@@ -1609,7 +1616,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         : inputStyle
                     }
                   />
-                  {recentCwds.length > 0 && (
+                  {!agent?.receptionist && recentCwds.length > 0 && (
                     <button
                       type="button"
                       aria-expanded={showRecentCwds}

@@ -14,6 +14,7 @@ import {
   openSync,
   readSync,
   closeSync,
+  unlinkSync,
 } from "fs";
 import { createHash } from "crypto";
 import type {
@@ -707,6 +708,9 @@ export interface PersistedAgent {
   // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
   privileged?: boolean;
+  // The receptionist (AgentInfo.receptionist). Persisted in its own file,
+  // never inside a room bucket of agents.json.
+  receptionist?: true;
 }
 
 export interface PersistedUsage {
@@ -861,6 +865,40 @@ export function saveAgents(rooms: Room[]) {
   }
 }
 
+// The receptionist's own record. agents.json nests agents under rooms and the
+// receptionist has none, so it gets a file of its own: a server without the
+// feature reads an unchanged agents.json and simply has no receptionist.
+const RECEPTIONIST_FILE = join(ISOMUX_DIR, "receptionist.json");
+
+export function loadReceptionist(): PersistedAgent | null {
+  try {
+    if (!existsSync(RECEPTIONIST_FILE)) return null;
+    const parsed = JSON.parse(readFileSync(RECEPTIONIST_FILE, "utf-8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return null;
+    const agent = parsed as PersistedAgent;
+    if (typeof agent.id !== "string" || typeof agent.name !== "string")
+      return null;
+    migratePersistedAgent(agent);
+    agent.receptionist = true;
+    return agent;
+  } catch {
+    return null;
+  }
+}
+
+export function saveReceptionist(agent: PersistedAgent | null) {
+  try {
+    if (agent === null) {
+      if (existsSync(RECEPTIONIST_FILE)) unlinkSync(RECEPTIONIST_FILE);
+      return;
+    }
+    atomicWriteFileSync(RECEPTIONIST_FILE, JSON.stringify(agent, null, 2));
+  } catch (err) {
+    console.error("Failed to save the receptionist:", err);
+  }
+}
+
 // Agent manifest for discovery by other agents. The same manifest is served
 // over HTTP as GET /agents (see server/isomux-office.ts); buildManifest is the single
 // source of the entry shape so the file and the endpoint can't drift.
@@ -870,7 +908,9 @@ export interface ManifestAgentInput {
   id: string;
   name: string;
   desk: number;
-  room: number;
+  // 0-based room index, or null for the receptionist (no room; roomName is
+  // "Lobby").
+  room: number | null;
   roomName: string;
   // Stable room id - the value memory scopeIds and room-targeting routes
   // expect (the 1-based `room` number is display-only).
@@ -890,7 +930,7 @@ export function buildManifest(agents: ManifestAgentInput[]) {
     id: a.id,
     name: a.name,
     desk: a.desk,
-    room: a.room + 1, // 1-based for human readability
+    room: a.room === null ? null : a.room + 1, // 1-based for human readability
     roomName: a.roomName,
     roomId: a.roomId,
     topic: a.topic,
@@ -1449,7 +1489,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 };
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */
-function sanitizeFilename(name: string): string {
+export function sanitizeFilename(name: string): string {
   const base = name.replace(/.*[/\\]/, "");
   const clean = base.replace(/[^a-zA-Z0-9.\-_ ]/g, "_");
   return clean || "file";
