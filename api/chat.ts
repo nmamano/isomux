@@ -72,7 +72,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)
 
 ## Getting Started
-1. Install Bun (v1.2+) and Node.js 20+ (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). Codex and OpenCode ship bundled. Codex prompts for sign-in on first use. OpenCode lists Free, Pay-as-you-go, and Subscription models. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
+1. Install Bun (v1.2+) and Node.js 24 (LTS) (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). Codex and OpenCode ship bundled. Codex prompts for sign-in on first use. OpenCode lists Free, Pay-as-you-go, and Subscription models. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
 2. \`git clone https://github.com/nmamano/isomux.git && cd isomux && bun install && bun run dev\`
 3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit, then click an empty desk to pick an engine and spawn your first agent.
 

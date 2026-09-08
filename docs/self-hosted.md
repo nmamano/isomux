@@ -54,7 +54,7 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 
 Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano/isomux/blob/main/deploy/install.sh).
 
-- Installs bun, Node.js, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
+- Installs bun, Node.js, build-essential, python3, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
@@ -143,7 +143,17 @@ Then open `http://localhost:5173`.
 
 ## Your own hardware
 
-A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 20+, which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards and app screenshot previews.
+A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 24 (LTS), which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards and app screenshot previews.
+
+On Debian/Ubuntu, also install the native build tools: `sudo apt install python3 build-essential`.
+
+### Native build recovery
+
+On Linux, Bun compiles `node-pty` through a shim that fetches the latest `node-gyp`, whose Node 24 requirement is 24.15.0 or later ([node-gyp requirements](https://github.com/nodejs/node-gyp/blob/main/package.json), checked 2026-09-08).
+
+Check `bun --version`, `node --version`, and `command -v bun node python3 make g++` in the install shell. Install missing prerequisites, then run `bun install --force` from the Isomux directory to rebuild.
+
+If `node-gyp: command not found` persists, [report the error](https://github.com/nmamano/isomux/issues) with those command outputs, the Linux distribution, and the install log. Bun supplies `node-gyp`; a missing compiler produces a different error.
 
 ### Keep the server running
 

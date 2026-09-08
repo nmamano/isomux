@@ -63,7 +63,9 @@ self-hosters.
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 20+, and access to at least one supported provider.
+You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 24 (LTS), and access to at least one supported provider.
+
+On Debian/Ubuntu, also install the native build tools: `sudo apt install python3 build-essential`.
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
@@ -72,6 +74,8 @@ curl -fsSL https://bun.sh/install | bash
 Open a new shell (or `source ~/.bashrc`) after this so `bun` lands on `PATH`.
 
 The embedded terminal runs on Node.js; Bun can't replace it.
+
+If `bun install` fails while building `node-pty`, see [native build recovery](docs/self-hosted.md#native-build-recovery).
 
 ### 2. Install & Run
 
