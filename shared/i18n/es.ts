@@ -259,8 +259,7 @@ export const es: Catalog = {
     "Mantén este panel abierto hasta que se reinicie el servidor.",
   "settings.update.done":
     "La actualización ha terminado. Recarga el navegador para cargar la página actualizada.",
-  "settings.update.refreshBrowser":
-    "Recargar el navegador",
+  "settings.update.refreshBrowser": "Recargar el navegador",
   "settings.update.unchanged":
     "La página se ha vuelto a conectar, pero la versión en ejecución no ha cambiado.",
   "settings.update.unverified":

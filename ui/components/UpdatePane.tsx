@@ -1,4 +1,10 @@
-import { useEffect, useCallback, useState, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useCallback,
+  useState,
+  useRef,
+  type ReactNode,
+} from "react";
 import { useAppState } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
@@ -357,7 +363,9 @@ function ReleaseBody({
         >
           {phase === "confirm" || phase === "starting"
             ? t("common.cancel")
-            : phase === "started" ? t("common.close") : t("settings.update.gotIt")}
+            : phase === "started"
+              ? t("common.close")
+              : t("settings.update.gotIt")}
         </button>
       </div>
     </>
@@ -376,19 +384,29 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
     epoch: number;
     status: ReleaseStatus;
   } | null>(null);
-  const [result, setResult] = useState<"done" | "unchanged" | "unverified" | null>(null);
+  const [result, setResult] = useState<
+    "done" | "unchanged" | "unverified" | null
+  >(null);
 
   const latestEpoch = useRef(hydrationEpoch);
-  useEffect(() => { latestEpoch.current = hydrationEpoch; }, [hydrationEpoch]);
+  useEffect(() => {
+    latestEpoch.current = hydrationEpoch;
+  }, [hydrationEpoch]);
 
   const onStart = useCallback(() => {
     if (updateInfo?.mode !== "release") return;
     setResult(null);
-    setAttempt({ baseline: updateInfo.current.release ?? updateInfo.current.version, epoch: hydrationEpoch, status: updateInfo });
+    setAttempt({
+      baseline: updateInfo.current.release ?? updateInfo.current.version,
+      epoch: hydrationEpoch,
+      status: updateInfo,
+    });
   }, [updateInfo, hydrationEpoch]);
   const onStartError = useCallback(() => {
     // A failed launch before any reconnect returns to the confirmation step.
-    setAttempt((current) => current?.epoch === latestEpoch.current ? null : current);
+    setAttempt((current) =>
+      current?.epoch === latestEpoch.current ? null : current,
+    );
   }, []);
 
   useEffect(() => {
@@ -397,21 +415,30 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
     apiFetch<{ status: UpdateStatusWire }>("GET", "/api/office/update")
       .then(({ status }) => {
         if (cancelled) return;
-        const current = status.mode === "release"
-          ? status.current.release ?? status.current.version
-          : status.current.release ?? status.current.sha;
-        setResult(!attempt.baseline || !current ? "unverified"
-          : current !== attempt.baseline ? "done" : "unchanged");
+        const current =
+          status.mode === "release"
+            ? (status.current.release ?? status.current.version)
+            : (status.current.release ?? status.current.sha);
+        setResult(
+          !attempt.baseline || !current
+            ? "unverified"
+            : current !== attempt.baseline
+              ? "done"
+              : "unchanged",
+        );
       })
       .catch(() => {
         if (!cancelled) setResult("unverified");
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [attempt, hydrationEpoch]);
   const i18n = useI18n();
   const { t } = i18n;
 
-  const release = attempt?.status ?? (updateInfo?.mode === "release" ? updateInfo : null);
+  const release =
+    attempt?.status ?? (updateInfo?.mode === "release" ? updateInfo : null);
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
   // Null while quiet - the pill is hidden then, so this pane normally opens
   // with something to say; the guard below covers the status going quiet
@@ -446,23 +473,46 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
               color: "var(--text-primary)",
             }}
           >
-            {result ? t("settings.sidebar.updates") : release
-              ? t("settings.update.newRelease")
-              : (notice?.title ?? t("settings.update.upToDateTitle"))}
+            {result
+              ? t("settings.sidebar.updates")
+              : release
+                ? t("settings.update.newRelease")
+                : (notice?.title ?? t("settings.update.upToDateTitle"))}
           </h3>
           {!result && <CopyButton getText={getText} size={28} />}
         </div>
 
         {result ? (
           <div role="status" style={{ ...textStyle, marginTop: 16 }}>
-            <p>{t(result === "done" ? "settings.update.done" : result === "unchanged" ? "settings.update.unchanged" : "settings.update.unverified")}</p>
+            <p>
+              {t(
+                result === "done"
+                  ? "settings.update.done"
+                  : result === "unchanged"
+                    ? "settings.update.unchanged"
+                    : "settings.update.unverified",
+              )}
+            </p>
             {result === "unchanged" && <p>{t("settings.update.requested")}</p>}
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <button onClick={() => reloadBrowser()} style={buttonStyle}>{t("settings.update.refreshBrowser")}</button>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                marginTop: 20,
+              }}
+            >
+              <button onClick={() => reloadBrowser()} style={buttonStyle}>
+                {t("settings.update.refreshBrowser")}
+              </button>
             </div>
           </div>
         ) : release ? (
-          <ReleaseBody status={release} onClose={onClose} onStart={onStart} onStartError={onStartError} />
+          <ReleaseBody
+            status={release}
+            onClose={onClose}
+            onStart={onStart}
+            onStartError={onStartError}
+          />
         ) : commit && notice ? (
           <>
             <CommitBody status={commit} notice={notice} />

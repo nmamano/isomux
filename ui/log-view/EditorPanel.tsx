@@ -1048,7 +1048,8 @@ export function EditorPanel({
                   flexShrink: 0,
                 }}
               >
-                <StatusShape kind="triangle" rotate={90} />{tabs.length > 1 ? ` ${tabs.length}` : ""}
+                <StatusShape kind="triangle" rotate={90} />
+                {tabs.length > 1 ? ` ${tabs.length}` : ""}
               </span>
             </button>
           )}

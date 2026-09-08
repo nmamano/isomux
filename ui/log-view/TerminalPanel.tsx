@@ -1076,7 +1076,24 @@ export function TerminalPanel({
                   WebkitTapHighlightColor: "transparent",
                 }}
               >
-                {key.arrow ? <StatusShape kind="triangle" rotate={key.id === "up" ? -90 : key.id === "down" ? 90 : key.id === "left" ? 180 : 0} /> : key.labelKey ? t(key.labelKey) : key.label}
+                {key.arrow ? (
+                  <StatusShape
+                    kind="triangle"
+                    rotate={
+                      key.id === "up"
+                        ? -90
+                        : key.id === "down"
+                          ? 90
+                          : key.id === "left"
+                            ? 180
+                            : 0
+                    }
+                  />
+                ) : key.labelKey ? (
+                  t(key.labelKey)
+                ) : (
+                  key.label
+                )}
               </button>
             );
           })}

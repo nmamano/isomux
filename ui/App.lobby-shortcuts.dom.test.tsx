@@ -20,17 +20,29 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-for (const [key, path] of [["a", "/apps"], ["s", "/settings"]]) {
+for (const [key, path] of [
+  ["a", "/apps"],
+  ["s", "/settings"],
+]) {
   it(`${key} opens ${path} directly from the lobby`, async () => {
-    const view = render(onLanguage("en", createElement(App), {
-      lobbyOpen: true,
-      currentRoomId: "r1",
-      rooms: [{ id: "r1", name: "Isomux", prompt: null, canCloseWhenEmpty: true }],
-      hasReceivedInitialState: true, connected: true, tasksLoaded: true, appsLoaded: true,
-    }));
+    const view = render(
+      onLanguage("en", createElement(App), {
+        lobbyOpen: true,
+        currentRoomId: "r1",
+        rooms: [
+          { id: "r1", name: "Isomux", prompt: null, canCloseWhenEmpty: true },
+        ],
+        hasReceivedInitialState: true,
+        connected: true,
+        tasksLoaded: true,
+        appsLoaded: true,
+      }),
+    );
     expect(window.location.pathname).toBe("/");
     expect(view.queryByTitle("Tasks") !== null).toBe(true);
-    await act(async () => { fireEvent.keyDown(document.body, { key, bubbles: true }); });
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key, bubbles: true });
+    });
     expect(window.location.pathname).toBe(path);
     expect(view.queryByTitle("Tasks") === null).toBe(true);
   });

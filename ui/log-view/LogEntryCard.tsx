@@ -721,7 +721,8 @@ export function RawToolCallGroupCard({
             padding: "2px 8px",
           }}
         >
-          <StatusShape kind="triangle" rotate={90} /> {t("cards.toolCall.groupCount", { count: entries.length })}
+          <StatusShape kind="triangle" rotate={90} />{" "}
+          {t("cards.toolCall.groupCount", { count: entries.length })}
         </button>
         {entries.map((entry, index) => (
           <LogEntryCard
@@ -767,7 +768,9 @@ export function RawToolCallGroupCard({
           textAlign: "left",
         }}
       >
-        <span style={{ fontSize: 8 }}><StatusShape kind="triangle" /></span>
+        <span style={{ fontSize: 8 }}>
+          <StatusShape kind="triangle" />
+        </span>
         {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
         <span style={{ fontWeight: 600 }}>
           {t("cards.toolCall.groupCount", { count: entries.length })}

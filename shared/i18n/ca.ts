@@ -260,8 +260,7 @@ export const ca: Catalog = {
     "Mantén aquest panell obert fins que es reiniciï el servidor.",
   "settings.update.done":
     "L'actualització ha acabat. Recarrega el navegador per carregar la pàgina actualitzada.",
-  "settings.update.refreshBrowser":
-    "Recarrega el navegador",
+  "settings.update.refreshBrowser": "Recarrega el navegador",
   "settings.update.unchanged":
     "La pàgina s'ha tornat a connectar, però la versió en execució no ha canviat.",
   "settings.update.unverified":

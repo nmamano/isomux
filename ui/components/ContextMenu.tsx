@@ -199,9 +199,14 @@ export function ContextMenu({
             // change the choice of what to resume, and the row reads better
             // without it. Selecting a row still flips the agent to that
             // session's engine.
-            const displayLabel = isCurrent
-              ? <><StatusShape kind="dot" /> {label}  {formatTime(language, s.lastModified)}  {t("common.current")}</>
-              : `${label}  ${formatTime(language, s.lastModified)}${branchedSuffix}`;
+            const displayLabel = isCurrent ? (
+              <>
+                <StatusShape kind="dot" /> {label}{" "}
+                {formatTime(language, s.lastModified)} {t("common.current")}
+              </>
+            ) : (
+              `${label}  ${formatTime(language, s.lastModified)}${branchedSuffix}`
+            );
             return (
               <MenuItem
                 key={s.sessionId}

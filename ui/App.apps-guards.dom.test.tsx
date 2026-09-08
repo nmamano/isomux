@@ -12,13 +12,30 @@ beforeEach(() => {
   window.localStorage.clear();
   window.history.replaceState(null, "", "/");
 });
-async function press(key: string, target: EventTarget = document.body, modifiers: KeyboardEventInit = {}) {
-  const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
-  await act(async () => { target.dispatchEvent(event); });
+async function press(
+  key: string,
+  target: EventTarget = document.body,
+  modifiers: KeyboardEventInit = {},
+) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...modifiers,
+  });
+  await act(async () => {
+    target.dispatchEvent(event);
+  });
   return event;
 }
 function mount() {
-  return render(onLanguage("en", <App />, { hasReceivedInitialState: true, connected: true, appsLoaded: true }));
+  return render(
+    onLanguage("en", <App />, {
+      hasReceivedInitialState: true,
+      connected: true,
+      appsLoaded: true,
+    }),
+  );
 }
 
 it("a ignores typing, modifiers, and Settings", async () => {
@@ -33,7 +50,9 @@ it("a ignores typing, modifiers, and Settings", async () => {
     field.remove();
   }
   for (const modifier of ["metaKey", "ctrlKey", "altKey"]) {
-    expect((await press("a", document.body, { [modifier]: true })).defaultPrevented).toBe(false);
+    expect(
+      (await press("a", document.body, { [modifier]: true })).defaultPrevented,
+    ).toBe(false);
     expect(window.location.pathname).toBe("/");
   }
   await press("s");
