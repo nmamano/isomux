@@ -30,11 +30,12 @@ export const en = {
   "lobby.employeeLine1": "EMPLOYEE OF",
   "lobby.employeeLine2": "THE MINUTE",
   "lobby.openChat": "{name} - click to open the chat",
-  "lobby.identityLocked": "The receptionist keeps its name and working directory.",
+  "lobby.identityLocked":
+    "The receptionist keeps its name and working directory.",
   "lobby.receptionistNameLocked": "The receptionist keeps its name.",
   "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · API token",
-  "membersChat.authorApiDevice": "{name} · API token \"{device}\"",
+  "membersChat.authorApiDevice": '{name} · API token "{device}"',
   "membersChat.deleteAgain": "Click again to delete",
   "membersChat.sure": "sure?",
   "membersChat.loadFailed": "Could not load the chat",
@@ -98,7 +99,6 @@ export const en = {
   "common.schedules": "Schedules",
   "common.apps": "Apps",
   "common.changeTheme": "Change theme",
-
 
   "preferences.intro":
     "These follow you to every device you sign in from. Settings that are about this browser in particular live under My devices.",

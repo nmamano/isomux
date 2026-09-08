@@ -1043,7 +1043,9 @@ describe("reducer: members chat slice", () => {
     expect(gone.membersChat.messages.map((m) => m.id)).toEqual([
       "202609-00000001",
     ]);
-    expect(reducer(gone, { type: "members_chat_deleted", id: "nope" })).toBe(gone);
+    expect(reducer(gone, { type: "members_chat_deleted", id: "nope" })).toBe(
+      gone,
+    );
     const read = reducer(gone, {
       type: "members_chat_read",
       readPointer: "202609-00000001",
@@ -1069,7 +1071,10 @@ describe("reducer: the Lobby tab", () => {
   it("opens on a full_state with no visible room, and stays put otherwise", () => {
     const landed = reducer(initialState, fullState([]));
     expect(landed.lobbyOpen).toBe(true);
-    const withRoom = reducer(initialState, fullState([{ id: "r1", name: "A" }]));
+    const withRoom = reducer(
+      initialState,
+      fullState([{ id: "r1", name: "A" }]),
+    );
     expect(withRoom.lobbyOpen).toBe(false);
     const reconnect = reducer(
       { ...withRoom, lobbyOpen: true },
@@ -1079,8 +1084,14 @@ describe("reducer: the Lobby tab", () => {
   });
 
   it("opens the lobby when the user's last visible room closes", () => {
-    const withRoom = reducer(initialState, fullState([{ id: "r1", name: "A" }]));
-    const selected = reducer(withRoom, { type: "set_current_room", roomId: "r1" });
+    const withRoom = reducer(
+      initialState,
+      fullState([{ id: "r1", name: "A" }]),
+    );
+    const selected = reducer(withRoom, {
+      type: "set_current_room",
+      roomId: "r1",
+    });
     expect(selected.lobbyOpen).toBe(false);
     const closed = reducer(selected, { type: "room_closed", roomId: "r1" });
     expect(closed.rooms).toEqual([]);
@@ -1107,7 +1118,12 @@ describe("RoomTabBar: the Lobby tab", () => {
           value: {
             ...initialState,
             rooms: [
-              { id: "r1", name: "Alpha", prompt: null, canCloseWhenEmpty: true },
+              {
+                id: "r1",
+                name: "Alpha",
+                prompt: null,
+                canCloseWhenEmpty: true,
+              },
             ],
             currentRoomId: "r1",
             ...overrides,

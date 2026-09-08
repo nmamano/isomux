@@ -66,10 +66,7 @@ describe("ids and months", () => {
     postN(2);
     clock = SEP;
     postN(1);
-    expect(readdirSync(dir).sort()).toEqual([
-      "2026-08.jsonl",
-      "2026-09.jsonl",
-    ]);
+    expect(readdirSync(dir).sort()).toEqual(["2026-08.jsonl", "2026-09.jsonl"]);
   });
 });
 
@@ -292,7 +289,11 @@ describe("read pointer and unread count", () => {
 describe("attachments", () => {
   it("saves under files/, dedupes identical uploads, suffixes different ones", () => {
     const a = store.saveAttachment(Buffer.from("one"), "text/plain", "n.txt");
-    const same = store.saveAttachment(Buffer.from("one"), "text/plain", "n.txt");
+    const same = store.saveAttachment(
+      Buffer.from("one"),
+      "text/plain",
+      "n.txt",
+    );
     const other = store.saveAttachment(
       Buffer.from("two"),
       "text/plain",
@@ -301,7 +302,10 @@ describe("attachments", () => {
     expect(a?.filename).toBe("n.txt");
     expect(same?.filename).toBe("n.txt");
     expect(other?.filename).toBe("n_2.txt");
-    expect(readdirSync(join(dir, "files")).sort()).toEqual(["n.txt", "n_2.txt"]);
+    expect(readdirSync(join(dir, "files")).sort()).toEqual([
+      "n.txt",
+      "n_2.txt",
+    ]);
     expect(store.attachmentPath("n.txt")).toBe(join(dir, "files", "n.txt"));
   });
 

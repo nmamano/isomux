@@ -12,7 +12,12 @@ import { SCENE_W, SCENE_H } from "../grid.ts";
 import { LobbyScene } from "./LobbyScene.tsx";
 import { PropSheet } from "./PropSheet.tsx";
 import { LobbyEditor } from "./LobbyEditor.tsx";
-import { LOBBY_LAYOUTS, LOBBY_LAYOUT_IDS, type LobbyLayoutId, type Placement } from "./layouts.ts";
+import {
+  LOBBY_LAYOUTS,
+  LOBBY_LAYOUT_IDS,
+  type LobbyLayoutId,
+  type Placement,
+} from "./layouts.ts";
 import { GhostBody, GhostTag, SVG_HEIGHT_RATIO } from "../Ghost.tsx";
 import { VB_X, VB_Y } from "../grid.ts";
 import { floorXY } from "./geometry.ts";
@@ -48,9 +53,24 @@ try {
 // useGhostTransitions' job once the lobby tab exists; this is for scale only.
 const GHOST_SIZE = 40;
 const MOCK_GHOSTS = [
-  { variant: "classic" as const, color: "#7c9cf5", username: "Nil", device: null },
-  { variant: "nightcap" as const, color: "#f5a97c", username: "Nil", device: "Phone" },
-  { variant: "big-eyes" as const, color: "#8fd3a0", username: "Marc", device: null },
+  {
+    variant: "classic" as const,
+    color: "#7c9cf5",
+    username: "Nil",
+    device: null,
+  },
+  {
+    variant: "nightcap" as const,
+    color: "#f5a97c",
+    username: "Nil",
+    device: "Phone",
+  },
+  {
+    variant: "big-eyes" as const,
+    color: "#8fd3a0",
+    username: "Marc",
+    device: null,
+  },
 ];
 function ghostBox(a: number, b: number) {
   const { x, y } = floorXY(b, a);
@@ -69,7 +89,10 @@ function ghostAt(index: number) {
   const spot = spots[index % spots.length];
   const stack = Math.floor(index / spots.length);
   const box = ghostBox(spot.a, spot.b);
-  return { left: box.left + stack * GHOST_STACK_DX, top: box.top + stack * GHOST_STACK_DY };
+  return {
+    left: box.left + stack * GHOST_STACK_DX,
+    top: box.top + stack * GHOST_STACK_DY,
+  };
 }
 
 const variants: Record<string, string> = {};
@@ -108,7 +131,9 @@ const mockRooms = [
 
 function Preview() {
   if (edit) {
-    const initial = LOBBY_LAYOUT_IDS.includes(layout as never) ? (layout as (typeof LOBBY_LAYOUT_IDS)[number]) : LOBBY_LAYOUT_IDS[0];
+    const initial = LOBBY_LAYOUT_IDS.includes(layout as never)
+      ? (layout as (typeof LOBBY_LAYOUT_IDS)[number])
+      : LOBBY_LAYOUT_IDS[0];
     return (
       <LobbyEditor
         initialLayout={initial}
@@ -156,39 +181,39 @@ function Preview() {
         rightDoor={{ label: mockRooms[0].name, onClick: () => {} }}
       />
       {Array.from({ length: ghostCount }, (_, i) => i).map((i) => {
-          const g = MOCK_GHOSTS[i % MOCK_GHOSTS.length];
-          const box = ghostAt(i);
-          return (
-            <GhostBody
-              key={`b${i}`}
-              {...box}
-              size={GHOST_SIZE}
-              variant={g.variant}
-              color={g.color}
-              username={g.username}
-              device={g.device}
-              userId={`mock-${i}`}
-              dimmed={false}
-            />
-          );
-        })}
+        const g = MOCK_GHOSTS[i % MOCK_GHOSTS.length];
+        const box = ghostAt(i);
+        return (
+          <GhostBody
+            key={`b${i}`}
+            {...box}
+            size={GHOST_SIZE}
+            variant={g.variant}
+            color={g.color}
+            username={g.username}
+            device={g.device}
+            userId={`mock-${i}`}
+            dimmed={false}
+          />
+        );
+      })}
       {Array.from({ length: ghostCount }, (_, i) => i).map((i) => {
-          const g = MOCK_GHOSTS[i % MOCK_GHOSTS.length];
-          const box = ghostAt(i);
-          return (
-            <GhostTag
-              key={`t${i}`}
-              {...box}
-              size={GHOST_SIZE}
-              variant={g.variant}
-              color={g.color}
-              username={g.username}
-              device={g.device}
-              userId={`mock-${i}`}
-              dimmed={false}
-            />
-          );
-        })}
+        const g = MOCK_GHOSTS[i % MOCK_GHOSTS.length];
+        const box = ghostAt(i);
+        return (
+          <GhostTag
+            key={`t${i}`}
+            {...box}
+            size={GHOST_SIZE}
+            variant={g.variant}
+            color={g.color}
+            username={g.username}
+            device={g.device}
+            userId={`mock-${i}`}
+            dimmed={false}
+          />
+        );
+      })}
     </div>
   );
 }

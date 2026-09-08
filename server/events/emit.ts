@@ -143,7 +143,9 @@ export function resolveRecipients<S>(
 ): readonly S[] | null {
   switch (reg.audience) {
     case "api-token":
-      return nonEmptyString(ctx.apiTokenId) ? deps.sessionsForApiToken(ctx.apiTokenId) : null;
+      return nonEmptyString(ctx.apiTokenId)
+        ? deps.sessionsForApiToken(ctx.apiTokenId)
+        : null;
     case "all":
       return deps.allSessions();
     case "owners":

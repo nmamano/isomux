@@ -1112,10 +1112,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 margin: "2px 0 18px",
               }}
             >
-              {agent!.receptionist ? t("common.lobby") : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
-                "dialogs.agent.desk",
-                { desk: agent!.desk + 1 },
-              )}`}
+              {agent!.receptionist
+                ? t("common.lobby")
+                : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
+                    "dialogs.agent.desk",
+                    { desk: agent!.desk + 1 },
+                  )}`}
             </p>
           )}
 
@@ -1605,7 +1607,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
                     value={cwd}
-                  disabled={!!agent?.receptionist}
+                    disabled={!!agent?.receptionist}
                     onChange={(e) => {
                       setCwd(e.target.value);
                       if (cwdError) setCwdError(null);

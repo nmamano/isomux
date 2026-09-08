@@ -7,25 +7,27 @@ const ROOMS = [{ id: "r1", name: "Isomux" }];
 // Ids the lobby draws through the office's own components (Floor.tsx's sun
 // rays and doors). Everything the lobby itself defines stays `lobby-` prefixed
 // so the two scenes never collide when both are in one document.
-const SHARED_IDS = new Set(["sunray-wide", "sunray-narrow", "door-knob", "door-opening"]);
+const SHARED_IDS = new Set([
+  "sunray-wide",
+  "sunray-narrow",
+  "door-knob",
+  "door-opening",
+]);
 
 describe("LobbyScene", () => {
   {
     for (const mode of ["dark", "light"] as const) {
       it(`renders ${mode} without broken values or unprefixed ids`, () => {
         const markup = renderToStaticMarkup(
-          <LobbyScene
-            rooms={ROOMS}
-            officeName="Isomux"
-            mode={mode}
-          />,
+          <LobbyScene rooms={ROOMS} officeName="Isomux" mode={mode} />,
         );
         expect(markup).toContain("<svg");
         expect(markup).not.toContain("NaN");
         expect(markup).not.toContain("undefined");
         const ids = [...markup.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
         expect(ids.length).toBeGreaterThan(0);
-        for (const id of ids) expect(id.startsWith("lobby-") || SHARED_IDS.has(id)).toBe(true);
+        for (const id of ids)
+          expect(id.startsWith("lobby-") || SHARED_IDS.has(id)).toBe(true);
       });
     }
   }
@@ -45,14 +47,18 @@ describe("LobbyScene", () => {
       <LobbyScene rooms={ROOMS} officeName="x" mode="dark" />,
     );
     const with_ = renderToStaticMarkup(
-      <LobbyScene rooms={ROOMS} officeName="x" mode="dark" rightDoor={{ label: "Isomux", onClick: () => {} }} />,
+      <LobbyScene
+        rooms={ROOMS}
+        officeName="x"
+        mode="dark"
+        rightDoor={{ label: "Isomux", onClick: () => {} }}
+      />,
     );
     expect(without).not.toContain("door-knob");
     expect(with_).toContain("door-knob");
     expect(with_).toContain("Isomux");
   });
 });
-
 
 describe("lobby prop registry", () => {
   const ctx = {
@@ -77,7 +83,8 @@ describe("lobby prop registry", () => {
         expect(markup).not.toContain("NaN");
         expect(markup).not.toContain("undefined");
         const ids = [...markup.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
-        for (const id of ids) expect(id.startsWith("lobby-") || SHARED_IDS.has(id)).toBe(true);
+        for (const id of ids)
+          expect(id.startsWith("lobby-") || SHARED_IDS.has(id)).toBe(true);
         expect(v.height).toBeGreaterThan(0);
         if (!v.wall && family.id !== "rug") expect(v.shadow).toBeDefined();
       });
@@ -130,7 +137,8 @@ describe("lobby layouts", () => {
         expect(markup).not.toContain("NaN");
         expect(markup).not.toContain("undefined");
         const ids = [...markup.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
-        for (const x of ids) expect(x.startsWith("lobby-") || SHARED_IDS.has(x)).toBe(true);
+        for (const x of ids)
+          expect(x.startsWith("lobby-") || SHARED_IDS.has(x)).toBe(true);
         // Every placement produced a prop group.
         const groups = markup.match(/<g transform="translate\(/g) ?? [];
         expect(groups.length).toBeGreaterThanOrEqual(spec.placements.length);
@@ -174,7 +182,13 @@ describe("lobby layouts", () => {
       <LobbyScene rooms={[]} officeName="x" mode="dark" layout="fireside" />,
     );
     const b = renderToStaticMarkup(
-      <LobbyScene rooms={[]} officeName="x" mode="dark" layout="fireside" variants={{ sofa: "loveseat" }} />,
+      <LobbyScene
+        rooms={[]}
+        officeName="x"
+        mode="dark"
+        layout="fireside"
+        variants={{ sofa: "loveseat" }}
+      />,
     );
     expect(a).not.toBe(b);
     expect(b).toContain("#5c6f8a"); // the loveseat's pillow
@@ -206,7 +220,10 @@ describe("ghost spots", () => {
       // No two spots close enough to read as one place.
       for (let i = 0; i < spots.length; i++) {
         for (let j = i + 1; j < spots.length; j++) {
-          const d = Math.hypot(spots[i].a - spots[j].a, spots[i].b - spots[j].b);
+          const d = Math.hypot(
+            spots[i].a - spots[j].a,
+            spots[i].b - spots[j].b,
+          );
           expect(d).toBeGreaterThan(1);
         }
       }
@@ -217,19 +234,37 @@ describe("ghost spots", () => {
 describe("draw order", () => {
   // Two props at the same spot: the one with the higher z is drawn later, so
   // it paints over the other. Reading the markup order is the whole assertion.
-  const at = (family: string, variant: string, z?: number) => ({ family, variant, a: 5, b: 5, z });
+  const at = (family: string, variant: string, z?: number) => ({
+    family,
+    variant,
+    a: 5,
+    b: 5,
+    z,
+  });
   const order = (placements: Placement[]) => {
     const markup = renderToStaticMarkup(
-      <LobbyScene rooms={ROOMS} officeName="x" mode="dark" layout="fireside" placements={placements} />,
+      <LobbyScene
+        rooms={ROOMS}
+        officeName="x"
+        mode="dark"
+        layout="fireside"
+        placements={placements}
+      />,
     );
     return [markup.indexOf("#5c6f8a"), markup.indexOf("lobby-tr-foot")];
   };
 
   it("puts a raised prop after its neighbour", () => {
-    const [sofa, table] = order([at("sofa", "loveseat"), at("table", "round", 1)]);
+    const [sofa, table] = order([
+      at("sofa", "loveseat"),
+      at("table", "round", 1),
+    ]);
     expect(sofa).toBeGreaterThan(-1);
     expect(table).toBeGreaterThan(sofa);
-    const [sofa2, table2] = order([at("sofa", "loveseat", 1), at("table", "round")]);
+    const [sofa2, table2] = order([
+      at("sofa", "loveseat", 1),
+      at("table", "round"),
+    ]);
     expect(table2).toBeLessThan(sofa2);
   });
 });
@@ -244,7 +279,13 @@ describe("facing", () => {
   });
   const render = (p: Placement) =>
     renderToStaticMarkup(
-      <LobbyScene rooms={ROOMS} officeName="x" mode="dark" layout="fireside" placements={[p]} />,
+      <LobbyScene
+        rooms={ROOMS}
+        officeName="x"
+        mode="dark"
+        layout="fireside"
+        placements={[p]}
+      />,
     );
 
   it("mirrors for the west facings and not for the east ones", () => {
@@ -257,7 +298,8 @@ describe("facing", () => {
   it("puts the backrest in front of the seat when seen from behind", () => {
     // Painter's order is the whole point: facing away, the seat is drawn first
     // and the backrest covers it; facing the viewer, the backrest comes first.
-    const at = (markup: string, part: string) => markup.indexOf(`data-part="${part}"`);
+    const at = (markup: string, part: string) =>
+      markup.indexOf(`data-part="${part}"`);
     const front = render(seat("SE"));
     const behind = render(seat("NE"));
     expect(at(front, "back")).toBeLessThan(at(front, "seat"));
@@ -284,7 +326,9 @@ describe("how many ways a prop faces", () => {
               officeName="x"
               mode="dark"
               layout="fireside"
-              placements={[{ family: fam.id, variant: v.id, a: 5, b: 5, facing }]}
+              placements={[
+                { family: fam.id, variant: v.id, a: 5, b: 5, facing },
+              ]}
             />,
           );
         const se = render("SE");

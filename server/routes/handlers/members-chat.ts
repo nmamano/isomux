@@ -92,7 +92,11 @@ function isAttachmentShape(v: unknown): v is Attachment {
 
 function storeError(err: unknown) {
   if (err instanceof MembersChatError) {
-    return fail(400, err.code === "too_long" ? "too_long" : "empty", err.message);
+    return fail(
+      400,
+      err.code === "too_long" ? "too_long" : "empty",
+      err.message,
+    );
   }
   throw err;
 }
@@ -141,7 +145,11 @@ export function membersChatHandlers(
           // the whole reference the card renders, so an unknown one would be a
           // broken chip at best and a probe of another store at worst.
           if (!deps.attachmentPath(a.filename)) {
-            return fail(400, "unknown_attachment", `no such file: ${a.filename}`);
+            return fail(
+              400,
+              "unknown_attachment",
+              `no such file: ${a.filename}`,
+            );
           }
         }
         attachments = body.attachments.map((a) => ({

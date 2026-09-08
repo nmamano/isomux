@@ -55,7 +55,12 @@ describe("the saved spot on /", () => {
   } as unknown as typeof initialState;
 
   it("reopens the saved page on top of the office, so Back returns to it", async () => {
-    saveView("ricky", { roomId: null, agentId: null, panel: "tasks", lobby: false });
+    saveView("ricky", {
+      roomId: null,
+      agentId: null,
+      panel: "tasks",
+      lobby: false,
+    });
 
     const view = mountAt("/", { state: RESTORED });
 
@@ -73,7 +78,12 @@ describe("the saved spot on /", () => {
   });
 
   it("lets a page in the URL win over the saved panel", () => {
-    saveView("ricky", { roomId: null, agentId: null, panel: "apps", lobby: false });
+    saveView("ricky", {
+      roomId: null,
+      agentId: null,
+      panel: "apps",
+      lobby: false,
+    });
 
     const view = mountAt("/tasks", { state: RESTORED });
 

@@ -472,9 +472,7 @@ function createManagers(startOpts: StartServerOpts): void {
 // Body left at prior indentation; prettier normalizes post-review.
 const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
 
-async function welcomeOpenCodeModel(
-  username: string,
-): Promise<string | null> {
+async function welcomeOpenCodeModel(username: string): Promise<string | null> {
   const user = getUserByName(username);
   if (!user) {
     console.warn(
@@ -805,11 +803,17 @@ interface ApiTokenWsData {
   userId: string;
 }
 type WsData = OfficeWsData | ApiTokenWsData | AppRelayWsData;
-type EventSocket = ServerWebSocket<OfficeWsData> | ServerWebSocket<ApiTokenWsData>;
+type EventSocket =
+  | ServerWebSocket<OfficeWsData>
+  | ServerWebSocket<ApiTokenWsData>;
 const apiTokenSockets = new Set<ServerWebSocket<ApiTokenWsData>>();
 
 function liveTokenSocket(ws: ServerWebSocket<ApiTokenWsData>): boolean {
-  if (getUserById(ws.data.userId) && isLiveApiTokenOwnedBy(ws.data.tokenId, ws.data.userId)) return true;
+  if (
+    getUserById(ws.data.userId) &&
+    isLiveApiTokenOwnedBy(ws.data.tokenId, ws.data.userId)
+  )
+    return true;
   ws.close(1008, "API token unavailable");
   apiTokenSockets.delete(ws);
   return false;
@@ -1642,7 +1646,11 @@ const liveEmitDeps: EmitDeps<EventSocket> = {
     }
     const data = JSON.stringify({ type: id, ...(payload as object) });
     for (const ws of recipients) {
-      if (ws.data.kind === "api" && !liveTokenSocket(ws as ServerWebSocket<ApiTokenWsData>)) continue;
+      if (
+        ws.data.kind === "api" &&
+        !liveTokenSocket(ws as ServerWebSocket<ApiTokenWsData>)
+      )
+        continue;
       ws.send(data);
     }
   },
@@ -3096,8 +3104,10 @@ function buildExecutorDeps(
           const current = agentManager.getAgent(agentId);
           if (
             current?.receptionist &&
-            ((typeof changes.name === "string" && changes.name.trim() !== current.name) ||
-              (typeof changes.cwd === "string" && resolveCwd(changes.cwd.trim()) !== current.cwd))
+            ((typeof changes.name === "string" &&
+              changes.name.trim() !== current.name) ||
+              (typeof changes.cwd === "string" &&
+                resolveCwd(changes.cwd.trim()) !== current.cwd))
           ) {
             return {
               ok: false,
@@ -4706,7 +4716,12 @@ function routeAgentEventToWs(
 // active instances. Body left at prior indentation; prettier normalizes.
 function wireEventSinks(): void {
   setApiTokenStreamSinks({
-    logEntry: (tokenId, entry) => liveEmit("api_token_log_entry", { tokenId, entry }, { apiTokenId: tokenId }),
+    logEntry: (tokenId, entry) =>
+      liveEmit(
+        "api_token_log_entry",
+        { tokenId, entry },
+        { apiTokenId: tokenId },
+      ),
     revoked: (tokenId) => {
       for (const ws of apiTokenSockets) {
         if (ws.data.tokenId !== tokenId) continue;
@@ -5085,11 +5100,21 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           const authorization = req.headers.get("Authorization");
           if (authorization !== null) {
             const identity = resolveIdentityForRequest(req, null);
-            if (identity?.scope !== "api" || !identity.apiTokenId || !identity.userId) return new Response("unauthenticated", { status: 401 });
-            if (!identity.capabilities.includes("api:drain-inbox")) return new Response("forbidden", { status: 403 });
-            const upgraded = server.upgrade(req, { data: {
-              kind: "api" as const, tokenId: identity.apiTokenId, userId: identity.userId,
-            } });
+            if (
+              identity?.scope !== "api" ||
+              !identity.apiTokenId ||
+              !identity.userId
+            )
+              return new Response("unauthenticated", { status: 401 });
+            if (!identity.capabilities.includes("api:drain-inbox"))
+              return new Response("forbidden", { status: 403 });
+            const upgraded = server.upgrade(req, {
+              data: {
+                kind: "api" as const,
+                tokenId: identity.apiTokenId,
+                userId: identity.userId,
+              },
+            });
             if (upgraded) return;
             return new Response("WebSocket upgrade failed", { status: 400 });
           }

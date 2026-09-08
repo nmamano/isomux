@@ -233,7 +233,10 @@ export type EventId = keyof EventPayloads;
 // Exactly the spec's event ids + audiences. `satisfies` pins the value to
 // Record<EventId, RegistryEvent> so a missing/extra id fails to COMPILE.
 export const EVENT_REGISTRY = {
-  api_token_log_entry: { audience: "api-token", projectionKey: { kind: "apiTokenId" } },
+  api_token_log_entry: {
+    audience: "api-token",
+    projectionKey: { kind: "apiTokenId" },
+  },
   log_entry: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },

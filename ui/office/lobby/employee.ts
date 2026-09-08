@@ -22,7 +22,11 @@ export function employeeOfTheMinute<
   };
   for (const a of agents) {
     const at = stateChangedAt.get(a.id) ?? 0;
-    if (best === null || at > bestAt || (at === bestAt && rank(a) < rank(best))) {
+    if (
+      best === null ||
+      at > bestAt ||
+      (at === bestAt && rank(a) < rank(best))
+    ) {
       best = a;
       bestAt = at;
     }

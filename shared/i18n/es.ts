@@ -15,11 +15,12 @@ export const es: Catalog = {
   "lobby.employeeLine1": "EMPLEADO",
   "lobby.employeeLine2": "DEL MINUTO",
   "lobby.openChat": "{name} - haz clic para abrir el chat",
-  "lobby.identityLocked": "El recepcionista conserva su nombre y su directorio de trabajo.",
+  "lobby.identityLocked":
+    "El recepcionista conserva su nombre y su directorio de trabajo.",
   "lobby.receptionistNameLocked": "El recepcionista conserva su nombre.",
   "membersChat.authorAgent": "{name} · agente",
   "membersChat.authorApi": "{name} · token de API",
-  "membersChat.authorApiDevice": "{name} · token de API \"{device}\"",
+  "membersChat.authorApiDevice": '{name} · token de API "{device}"',
   "membersChat.deleteAgain": "Haz clic de nuevo para eliminar",
   "membersChat.sure": "¿seguro?",
   "membersChat.loadFailed": "No se pudo cargar el chat",
@@ -82,7 +83,6 @@ export const es: Catalog = {
   "common.schedules": "Programaciones",
   "common.apps": "Apps",
   "common.changeTheme": "Cambiar el tema",
-
 
   "preferences.intro":
     "Te siguen a todos los dispositivos desde los que inicias sesión. Los ajustes propios de este navegador están en Mis dispositivos.",

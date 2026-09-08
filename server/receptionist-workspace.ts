@@ -14,7 +14,9 @@ export function ensureReceptionistWorkspace(): string {
   mkdirSync(RECEPTIONIST_CWD, { recursive: true, mode: 0o700 });
   const stat = lstatSync(RECEPTIONIST_CWD);
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
-    throw new Error("Receptionist workspace must be a directory, not a symlink");
+    throw new Error(
+      "Receptionist workspace must be a directory, not a symlink",
+    );
   }
   return RECEPTIONIST_CWD;
 }

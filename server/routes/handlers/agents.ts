@@ -91,7 +91,9 @@ export type ReviveResult =
 
 // The receptionist is locked against kill, move and rename (409
 // receptionist_locked); everything else about it is editable.
-export type KillResult = { ok: true } | { ok: false; reason: "receptionist_locked" };
+export type KillResult =
+  | { ok: true }
+  | { ok: false; reason: "receptionist_locked" };
 const RECEPTIONIST_LOCKED =
   "The receptionist stays in the lobby: it cannot be killed, moved or renamed.";
 

@@ -611,10 +611,22 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.upload": { caps: ["file:upload"], emits: [] },
   "agents.getFile": { caps: ["office:read"], emits: [] },
   "membersChat.page": { caps: ["chat:members"], emits: [] },
-  "membersChat.post": { caps: ["chat:members"], emits: ["members_chat_message"] },
-  "membersChat.edit": { caps: ["chat:members"], emits: ["members_chat_message"] },
-  "membersChat.delete": { caps: ["chat:members"], emits: ["members_chat_deleted"] },
-  "membersChat.markRead": { caps: ["chat:members"], emits: ["members_chat_read"] },
+  "membersChat.post": {
+    caps: ["chat:members"],
+    emits: ["members_chat_message"],
+  },
+  "membersChat.edit": {
+    caps: ["chat:members"],
+    emits: ["members_chat_message"],
+  },
+  "membersChat.delete": {
+    caps: ["chat:members"],
+    emits: ["members_chat_deleted"],
+  },
+  "membersChat.markRead": {
+    caps: ["chat:members"],
+    emits: ["members_chat_read"],
+  },
   "membersChat.upload": { caps: ["chat:members"], emits: [] },
   "membersChat.getFile": { caps: ["chat:members"], emits: [] },
   // Rooms

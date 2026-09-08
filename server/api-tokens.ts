@@ -318,7 +318,9 @@ function commitEntry(record: StoredApiToken, entry: ApiTokenLogEntry): void {
   record.lastSequence = entry.sequence;
   // The log is durable even if the metadata write fails. Stream errors must
   // never turn an accepted append into a failed send.
-  try { onLogEntry(record.id, entry); } catch {}
+  try {
+    onLogEntry(record.id, entry);
+  } catch {}
   persist();
 }
 
@@ -683,7 +685,9 @@ export async function revokeApiToken(
       hashIndex!.set(record.tokenHash, id);
       throw err;
     }
-    try { onRevoked(id); } catch {}
+    try {
+      onRevoked(id);
+    } catch {}
     return true;
   });
 }

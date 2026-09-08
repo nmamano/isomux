@@ -116,21 +116,27 @@ describe("describeMembersChatAuthor", () => {
       label: "Nil (Phone)",
       nonHuman: false,
     });
-    expect(describeMembersChatAuthor(fromToken, translatorFor("en").t)).toEqual({
-      label: 'Nil · API token "Laptop"',
-      nonHuman: true,
-    });
-    expect(describeMembersChatAuthor(fromAgent, translatorFor("en").t)).toEqual({
-      label: "Isomux PM · agent",
-      nonHuman: true,
-    });
+    expect(describeMembersChatAuthor(fromToken, translatorFor("en").t)).toEqual(
+      {
+        label: 'Nil · API token "Laptop"',
+        nonHuman: true,
+      },
+    );
+    expect(describeMembersChatAuthor(fromAgent, translatorFor("en").t)).toEqual(
+      {
+        label: "Isomux PM · agent",
+        nonHuman: true,
+      },
+    );
   });
 });
 
 describe("formatWhen", () => {
   it("shows the clock today, the date this year, the year before that", () => {
     const now = new Date(2026, 8, 5, 15, 0).getTime();
-    expect(formatWhen("en", new Date(2026, 8, 5, 9, 7).getTime(), now)).toBe("09:07");
+    expect(formatWhen("en", new Date(2026, 8, 5, 9, 7).getTime(), now)).toBe(
+      "09:07",
+    );
     expect(formatWhen("en", new Date(2026, 1, 3, 9, 7).getTime(), now)).toBe(
       "Feb 3, 09:07",
     );

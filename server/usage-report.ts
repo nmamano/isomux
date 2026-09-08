@@ -217,13 +217,19 @@ export function buildUsageReportData(
 ): UsageReportWire {
   const isOwner = audience.kind === "owner";
   const canSeeRoom = (roomId: string): boolean =>
-    roomId === LOBBY_ROOM_ID || audience.kind === "owner" || audience.roomIds.has(roomId);
+    roomId === LOBBY_ROOM_ID ||
+    audience.kind === "owner" ||
+    audience.roomIds.has(roomId);
   // The lobby has no stored room. Include its active receptionist in the same
   // accounting path as ordinary agents, for every authenticated viewer.
-  const reportRooms = [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)
+  const reportRooms = [...agents.values()].some(
+    (a) => a.info.roomId === LOBBY_ROOM_ID,
+  )
     ? [...rooms, LOBBY_ROOM]
     : rooms;
-  const visibleRooms = isOwner ? reportRooms : reportRooms.filter((r) => canSeeRoom(r.id));
+  const visibleRooms = isOwner
+    ? reportRooms
+    : reportRooms.filter((r) => canSeeRoom(r.id));
   const roomByIdMap = new Map(visibleRooms.map((r) => [r.id, r] as const));
   const agentRows = [...agents.values()]
     .filter((a) => canSeeRoom(a.info.roomId))

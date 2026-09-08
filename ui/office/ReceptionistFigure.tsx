@@ -39,7 +39,9 @@ export function ReceptionistFigure({
   const { t } = useI18n();
   const dot = STATE_COLORS[agent.state] ?? "var(--text-muted)";
   const style = styleForModel(agent.modelFamily);
-  const badge = needsAttention ? Math.max(46, t("common.unread").length * 5.8 + 12) : 0;
+  const badge = needsAttention
+    ? Math.max(46, t("common.unread").length * 5.8 + 12)
+    : 0;
   const width = Math.round(agent.name.length * 6.4) + 30 + badge;
   const left = -width / 2;
   return (

@@ -726,7 +726,9 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
   const [autoScroll, setAutoScroll] = useState(true);
-  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(() => new Set());
+  const [expandedMessages, setExpandedMessages] = useState<Set<string>>(
+    () => new Set(),
+  );
   const toggleMessage = useCallback((entryId: string) => {
     setExpandedMessages((previous) => {
       const next = new Set(previous);

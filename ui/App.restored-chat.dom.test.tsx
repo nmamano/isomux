@@ -103,7 +103,12 @@ describe("a cold link over a restored chat", () => {
   };
 
   function bootWithSavedAgent(): View {
-    saveView("ricky", { roomId: "r1", agentId: "a1", panel: "apps", lobby: false });
+    saveView("ricky", {
+      roomId: "r1",
+      agentId: "a1",
+      panel: "apps",
+      lobby: false,
+    });
     window.history.replaceState(null, "", "/tasks");
     setShim(
       () => {},

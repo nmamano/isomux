@@ -1,7 +1,12 @@
 import type { ThemeMode } from "../../themes.ts";
 import { ContactShadow, ShadowDefs, iso, poly, wallTransform } from "./iso.tsx";
 import { lobbyColors } from "./palette.ts";
-import { LOBBY_PROPS, PropDefs, type PropStar, type PropVariant } from "./props.tsx";
+import {
+  LOBBY_PROPS,
+  PropDefs,
+  type PropStar,
+  type PropVariant,
+} from "./props.tsx";
 import type { DirectoryRoom } from "./props-decor.tsx";
 
 // Contact sheet: every prop variant in its own cell, on a patch of floor (or
@@ -57,7 +62,14 @@ function Cell({
         <PropDefs />
         <defs>
           <clipPath id="lobby-sheet-floor">
-            <path d={poly([[-50, -50, 0], [50, -50, 0], [50, 50, 0], [-50, 50, 0]])} />
+            <path
+              d={poly([
+                [-50, -50, 0],
+                [50, -50, 0],
+                [50, 50, 0],
+                [-50, 50, 0],
+              ])}
+            />
           </clipPath>
         </defs>
         {variant.wall ? (
@@ -68,7 +80,13 @@ function Cell({
               fill={c.wallLeftBot}
             />
             <g transform="translate(0 -14)">
-              <C rooms={rooms} officeName={officeName} wall={wall} star={star} back="far" />
+              <C
+                rooms={rooms}
+                officeName={officeName}
+                wall={wall}
+                star={star}
+                back="far"
+              />
             </g>
           </g>
         ) : (
@@ -77,7 +95,13 @@ function Cell({
             {variant.shadow && (
               <ContactShadow rx={variant.shadow.rx} ry={variant.shadow.ry} />
             )}
-            <C rooms={rooms} officeName={officeName} wall={wall} star={star} back="far" />
+            <C
+              rooms={rooms}
+              officeName={officeName}
+              wall={wall}
+              star={star}
+              back="far"
+            />
           </g>
         )}
         <circle cx={iso(0, 0, 0)[0]} cy={iso(0, 0, 0)[1]} r="0" />
@@ -92,7 +116,9 @@ function Cell({
       >
         <span style={{ color: "var(--text-dim)" }}>{family} · </span>
         {variant.label}
-        <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{variant.id}</div>
+        <div style={{ fontSize: 9, color: "var(--text-dim)" }}>
+          {variant.id}
+        </div>
       </div>
     </div>
   );

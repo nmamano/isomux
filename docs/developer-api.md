@@ -71,13 +71,25 @@ Connect to the office’s existing `/ws` WebSocket with an `Authorization: Beare
 The socket is receive-only. Send messages through REST. Each new send or reply produces one event:
 
 ```json
-{"type":"api_token_log_entry","tokenId":"pat-123","entry":{"sequence":124,"id":"message-123","text":"The report is ready.","direction":"from_agent","senderAgentId":"agent-123","senderAgentName":"Worker","senderRoomName":"Isomux","sentAt":1788810481060}}
+{
+  "type": "api_token_log_entry",
+  "tokenId": "pat-123",
+  "entry": {
+    "sequence": 124,
+    "id": "message-123",
+    "text": "The report is ready.",
+    "direction": "from_agent",
+    "senderAgentId": "agent-123",
+    "senderAgentName": "Worker",
+    "senderRoomName": "Isomux",
+    "sentAt": 1788810481060
+  }
+}
 ```
 
 `entry` is the same object returned by the cursor read below. The socket receives only entries for its authenticated token, including when the owner has other tokens. It receives no browser state, general office activity, or other tokens’ entries. Client frames are ignored. An invalid bearer fails authentication even if the request also has a valid browser cookie. Revocation closes connected sockets; the server also checks token expiry and owner existence before each delivery.
 
 A connection gives no replay. Connect first and buffer live events, read from the last saved cursor until the cursor read reaches `latestSequence`, and then merge the buffered entries in sequence order and remove duplicates by `sequence`. Save the cursor after processing each entry. Repeat this process after a disconnect. The cursor read is also available to clients that use polling:
-
 
 ```bash
 curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \

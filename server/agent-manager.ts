@@ -110,7 +110,10 @@ import {
   humanizeBackendFailure,
   type BackendFailureText,
 } from "./backend-failure-text.ts";
-import { buildSystemPrompt, buildReceptionistSystemPrompt } from "./system-prompt.ts";
+import {
+  buildSystemPrompt,
+  buildReceptionistSystemPrompt,
+} from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
@@ -1789,9 +1792,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     lazy?: boolean;
   }): { sessionOk: boolean; sessionError: string | null } {
     const p = opts.persisted;
-    const restoredCwd = opts.roomIdOverride === LOBBY_ROOM_ID
-      ? ensureReceptionistWorkspace()
-      : p.cwd;
+    const restoredCwd =
+      opts.roomIdOverride === LOBBY_ROOM_ID
+        ? ensureReceptionistWorkspace()
+        : p.cwd;
     const agentType = p.agentType ?? "claude";
     const userId = resolveAgentUserId(p);
     // Canonicalize persisted values without making one malformed agent stop the
@@ -1853,7 +1857,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       );
     }
     const roomId =
-      opts.roomIdOverride ?? containerRoom?.id ?? officeState.rooms[0]?.id ?? "";
+      opts.roomIdOverride ??
+      containerRoom?.id ??
+      officeState.rooms[0]?.id ??
+      "";
     const info: AgentInfo = {
       id: p.id,
       name: p.name,
@@ -4835,7 +4842,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // surface analogously). Keeping the policies symmetric across backends means
     // a user can put an agent at a desk before configuring its backend, and the
     // welcome-agent seed gets one Claude and one Codex desk on every fresh install.
-    const resolvedCwd = receptionist ? ensureReceptionistWorkspace() : resolveCwd(cwd);
+    const resolvedCwd = receptionist
+      ? ensureReceptionistWorkspace()
+      : resolveCwd(cwd);
 
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
@@ -7660,7 +7669,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const storedCwd = getSessionCwd(agentId, sessionId);
     // Historical session metadata must not undo the receptionist's cwd pin.
     if (managed.info.receptionist) {
-      return { prevCwd, switched: false, storedCwdInvalid: !!storedCwd && storedCwd !== prevCwd };
+      return {
+        prevCwd,
+        switched: false,
+        storedCwdInvalid: !!storedCwd && storedCwd !== prevCwd,
+      };
     }
     if (!storedCwd || storedCwd === prevCwd)
       return { prevCwd, switched: false, storedCwdInvalid: false };

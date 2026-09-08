@@ -324,9 +324,21 @@ export function SunRays() {
         </linearGradient>
       </defs>
       <g className="sunrays" aria-hidden="true">
-        <path d="M-205 -5 L18 350 L-38 361 Z" fill="url(#sunray-wide)" opacity="0.5" />
-        <path d="M-205 -5 L125 344 L55 361 Z" fill="url(#sunray-wide)" opacity="0.55" />
-        <path d="M-205 -5 L232 296 L174 324 Z" fill="url(#sunray-narrow)" opacity="0.65" />
+        <path
+          d="M-205 -5 L18 350 L-38 361 Z"
+          fill="url(#sunray-wide)"
+          opacity="0.5"
+        />
+        <path
+          d="M-205 -5 L125 344 L55 361 Z"
+          fill="url(#sunray-wide)"
+          opacity="0.55"
+        />
+        <path
+          d="M-205 -5 L232 296 L174 324 Z"
+          fill="url(#sunray-narrow)"
+          opacity="0.65"
+        />
       </g>
     </>
   );
@@ -1767,69 +1779,69 @@ export function Walls({
 export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
   const { t } = useI18n();
   return (
-      <g
-        data-no-pan
-        transform="translate(50, -75) skewY(-27)"
-        onClick={onOpenApps}
-        aria-label={onOpenApps ? t("common.apps") : undefined}
-        style={
-          onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
-        }
-      >
-        {onOpenApps && <title>{t("common.apps")}</title>}
-        <rect
-          x="-30"
-          y="-32"
-          width="60"
-          height="58"
-          rx="3"
-          fill="var(--wall-decor)"
-          stroke="var(--wall-decor-stroke)"
-          strokeWidth="1.2"
-        />
-        <path
-          d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
-          fill="none"
-          stroke="#fff"
-          strokeWidth="1"
-          opacity="0.22"
-        />
-        <path
-          d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
-          fill="none"
-          stroke="#000"
-          strokeWidth="1.5"
-          opacity="0.35"
-        />
-        <rect
-          x="-25"
-          y="-27"
-          width="50"
-          height="46"
-          rx="1.5"
-          fill="var(--bg-surface-solid)"
-          stroke="var(--wall-decor-stroke)"
-          strokeWidth="0.6"
-        />
-        {/* Four tiles and a glass highlight, all SVG for mobile. */}
-        <g fill="var(--accent)" opacity="0.85">
-          <rect x="-9" y="-19" width="7" height="7" rx="1" />
-          <rect x="2" y="-19" width="7" height="7" rx="1" />
-          <rect x="-9" y="-8" width="7" height="7" rx="1" />
-          <rect x="2" y="-8" width="7" height="7" rx="1" />
-        </g>
-        <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
-        <text
-          x="0"
-          y="13"
-          textAnchor="middle"
-          fontSize="11"
-          fontWeight="600"
-          fill="var(--text-primary)"
-        >
-          {t("common.apps")}
-        </text>
-        <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
+    <g
+      data-no-pan
+      transform="translate(50, -75) skewY(-27)"
+      onClick={onOpenApps}
+      aria-label={onOpenApps ? t("common.apps") : undefined}
+      style={
+        onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
+      }
+    >
+      {onOpenApps && <title>{t("common.apps")}</title>}
+      <rect
+        x="-30"
+        y="-32"
+        width="60"
+        height="58"
+        rx="3"
+        fill="var(--wall-decor)"
+        stroke="var(--wall-decor-stroke)"
+        strokeWidth="1.2"
+      />
+      <path
+        d="M-29 24 L-29 -29 Q-29 -31 -27 -31 L27 -31"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="1"
+        opacity="0.22"
+      />
+      <path
+        d="M-29 25 L27 25 Q29 25 29 23 L29 -29"
+        fill="none"
+        stroke="#000"
+        strokeWidth="1.5"
+        opacity="0.35"
+      />
+      <rect
+        x="-25"
+        y="-27"
+        width="50"
+        height="46"
+        rx="1.5"
+        fill="var(--bg-surface-solid)"
+        stroke="var(--wall-decor-stroke)"
+        strokeWidth="0.6"
+      />
+      {/* Four tiles and a glass highlight, all SVG for mobile. */}
+      <g fill="var(--accent)" opacity="0.85">
+        <rect x="-9" y="-19" width="7" height="7" rx="1" />
+        <rect x="2" y="-19" width="7" height="7" rx="1" />
+        <rect x="-9" y="-8" width="7" height="7" rx="1" />
+        <rect x="2" y="-8" width="7" height="7" rx="1" />
       </g>
+      <path d="M-24 -26 H24 L-24 -5 Z" fill="#fff" opacity="0.045" />
+      <text
+        x="0"
+        y="13"
+        textAnchor="middle"
+        fontSize="11"
+        fontWeight="600"
+        fill="var(--text-primary)"
+      >
+        {t("common.apps")}
+      </text>
+      <circle cx="0" cy="22" r="0.8" fill="var(--text-dim)" />
+    </g>
   );
 }

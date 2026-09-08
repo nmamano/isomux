@@ -47,237 +47,237 @@ export interface LayoutSpec {
 export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
   // Saved profile copied without rounding its coordinates.
   nilo: {
-  "id": "nilo",
-  "label": "nilo",
-  "blurb": "Nil's saved lobby layout.",
-  "receptionist": {
-    "a": 3.0752409282483546,
-    "b": 0.437621427837171
+    id: "nilo",
+    label: "nilo",
+    blurb: "Nil's saved lobby layout.",
+    receptionist: {
+      a: 3.0752409282483546,
+      b: 0.437621427837171,
+    },
+    ghostSpots: [
+      {
+        a: 0.15,
+        b: 4.35,
+        what: "blue sofa, left seat",
+      },
+      {
+        a: 1.25,
+        b: 4.35,
+        what: "blue sofa, right seat",
+      },
+      {
+        a: 7.36,
+        b: 5.35,
+        what: "armchair by the tripod lamp",
+      },
+      {
+        a: 5.58,
+        b: 7.3,
+        what: "armchair facing SW",
+      },
+      {
+        a: 9.12,
+        b: 7.2,
+        what: "armchair facing NW",
+      },
+      {
+        a: 6.7,
+        b: 9.15,
+        what: "chesterfield, left seat",
+      },
+      {
+        a: 7.9,
+        b: 9.15,
+        what: "chesterfield, right seat",
+      },
+      {
+        a: 1.35,
+        b: 1.35,
+        what: "at the fish tank, under the cat",
+      },
+      {
+        a: 1.25,
+        b: 8.85,
+        what: "in front of the bookshelf",
+      },
+      {
+        a: 1.4,
+        b: 6.55,
+        what: "at the record player",
+      },
+    ],
+    placements: [
+      {
+        family: "wallart",
+        variant: "bunting",
+        a: 5.7824565686677625,
+        b: 0,
+        wall: "right",
+        h: 177.9259490966797,
+      },
+      {
+        family: "rug",
+        variant: "rect",
+        a: 4.439374743009868,
+        b: 2.3200760690789473,
+        scale: 1.05,
+      },
+      {
+        family: "shelf",
+        variant: "credenza",
+        a: 0.4020448383532077,
+        b: 6.672318468595807,
+        flip: true,
+        scale: 1.15,
+      },
+      {
+        family: "counter",
+        variant: "counter",
+        a: 4.465497789884868,
+        b: 1.7617932771381581,
+      },
+      {
+        family: "tank",
+        variant: "stand",
+        a: 0.4266087582236842,
+        b: 0.8064324629934219,
+        flip: true,
+        scale: 1.15,
+      },
+      {
+        family: "cat",
+        variant: "sitting",
+        a: -1.545809133429276,
+        b: -1.6015605725740127,
+        scale: 0.75,
+        z: 5.5,
+      },
+      {
+        family: "sofa",
+        variant: "boxy",
+        a: 0.6818719161184215,
+        b: 4.014033588610198,
+        flip: true,
+        scale: 1,
+      },
+      {
+        family: "table",
+        variant: "glass",
+        a: 2.4736861379523045,
+        b: 4.25341218647204,
+        scale: 1.1,
+        flip: true,
+      },
+      {
+        family: "lamp",
+        variant: "arc",
+        a: 0.5292393734580602,
+        b: 1.9996103387129938,
+        scale: 0.85,
+      },
+      {
+        family: "plant",
+        variant: "corner",
+        a: 1.5693947239925983,
+        b: 0.49512521844161306,
+        scale: 0.85,
+      },
+      {
+        family: "cat",
+        variant: "curled",
+        a: 0.04288426449424243,
+        b: 3.450291844418175,
+        flip: true,
+        scale: 0.9,
+        z: 3.5,
+      },
+      {
+        family: "directory",
+        variant: "board",
+        a: 7.157894736842105,
+        b: 0,
+        wall: "right",
+        h: 59.9259033203125,
+        scale: 0.8,
+      },
+      {
+        family: "plaque",
+        variant: "framed",
+        a: 0,
+        b: 3.9157894736842107,
+        wall: "left",
+        h: 103.5,
+      },
+      {
+        family: "rug",
+        variant: "oval",
+        a: 3.2,
+        b: 7.726315789473685,
+        scale: 1.1,
+      },
+      {
+        family: "rug",
+        variant: "round",
+        a: 7.378947368421053,
+        b: 6.91578947368421,
+        scale: 1.65,
+      },
+      {
+        family: "armchair",
+        variant: "club",
+        a: 7.3578947368421055,
+        b: 5.08421052631579,
+      },
+      {
+        family: "armchair",
+        variant: "club",
+        a: 5.578947368421052,
+        b: 7,
+        facing: "SW",
+      },
+      {
+        family: "armchair",
+        variant: "club",
+        a: 9.115789473684211,
+        b: 6.905263157894737,
+        facing: "NW",
+      },
+      {
+        family: "lamp",
+        variant: "tripod",
+        a: 8.65263157894737,
+        b: 5.389473684210526,
+      },
+      {
+        family: "table",
+        variant: "round",
+        a: 7.347368421052631,
+        b: 6.905263157894737,
+      },
+      {
+        family: "shelf",
+        variant: "tall",
+        a: 0.23157894736842088,
+        b: 9.010526315789475,
+        facing: "SW",
+      },
+      {
+        family: "sofa",
+        variant: "chesterfield",
+        a: 7.336842105263158,
+        b: 9.4,
+        facing: "NE",
+      },
+      {
+        family: "plant",
+        variant: "monstera",
+        a: -0.5473684210526313,
+        b: 6.252631578947367,
+        scale: 0.35,
+        z: 5,
+      },
+    ],
   },
-  "ghostSpots": [
-    {
-      "a": 0.15,
-      "b": 4.35,
-      "what": "blue sofa, left seat"
-    },
-    {
-      "a": 1.25,
-      "b": 4.35,
-      "what": "blue sofa, right seat"
-    },
-    {
-      "a": 7.36,
-      "b": 5.35,
-      "what": "armchair by the tripod lamp"
-    },
-    {
-      "a": 5.58,
-      "b": 7.3,
-      "what": "armchair facing SW"
-    },
-    {
-      "a": 9.12,
-      "b": 7.2,
-      "what": "armchair facing NW"
-    },
-    {
-      "a": 6.7,
-      "b": 9.15,
-      "what": "chesterfield, left seat"
-    },
-    {
-      "a": 7.9,
-      "b": 9.15,
-      "what": "chesterfield, right seat"
-    },
-    {
-      "a": 1.35,
-      "b": 1.35,
-      "what": "at the fish tank, under the cat"
-    },
-    {
-      "a": 1.25,
-      "b": 8.85,
-      "what": "in front of the bookshelf"
-    },
-    {
-      "a": 1.4,
-      "b": 6.55,
-      "what": "at the record player"
-    }
-  ],
-  "placements": [
-    {
-      "family": "wallart",
-      "variant": "bunting",
-      "a": 5.7824565686677625,
-      "b": 0,
-      "wall": "right",
-      "h": 177.9259490966797
-    },
-    {
-      "family": "rug",
-      "variant": "rect",
-      "a": 4.439374743009868,
-      "b": 2.3200760690789473,
-      "scale": 1.05
-    },
-    {
-      "family": "shelf",
-      "variant": "credenza",
-      "a": 0.4020448383532077,
-      "b": 6.672318468595807,
-      "flip": true,
-      "scale": 1.15
-    },
-    {
-      "family": "counter",
-      "variant": "counter",
-      "a": 4.465497789884868,
-      "b": 1.7617932771381581
-    },
-    {
-      "family": "tank",
-      "variant": "stand",
-      "a": 0.4266087582236842,
-      "b": 0.8064324629934219,
-      "flip": true,
-      "scale": 1.15
-    },
-    {
-      "family": "cat",
-      "variant": "sitting",
-      "a": -1.545809133429276,
-      "b": -1.6015605725740127,
-      "scale": 0.75,
-      "z": 5.5
-    },
-    {
-      "family": "sofa",
-      "variant": "boxy",
-      "a": 0.6818719161184215,
-      "b": 4.014033588610198,
-      "flip": true,
-      "scale": 1
-    },
-    {
-      "family": "table",
-      "variant": "glass",
-      "a": 2.4736861379523045,
-      "b": 4.25341218647204,
-      "scale": 1.1,
-      "flip": true
-    },
-    {
-      "family": "lamp",
-      "variant": "arc",
-      "a": 0.5292393734580602,
-      "b": 1.9996103387129938,
-      "scale": 0.85
-    },
-    {
-      "family": "plant",
-      "variant": "corner",
-      "a": 1.5693947239925983,
-      "b": 0.49512521844161306,
-      "scale": 0.85
-    },
-    {
-      "family": "cat",
-      "variant": "curled",
-      "a": 0.04288426449424243,
-      "b": 3.450291844418175,
-      "flip": true,
-      "scale": 0.9,
-      "z": 3.5
-    },
-    {
-      "family": "directory",
-      "variant": "board",
-      "a": 7.157894736842105,
-      "b": 0,
-      "wall": "right",
-      "h": 59.9259033203125,
-      "scale": 0.8
-    },
-    {
-      "family": "plaque",
-      "variant": "framed",
-      "a": 0,
-      "b": 3.9157894736842107,
-      "wall": "left",
-      "h": 103.5
-    },
-    {
-      "family": "rug",
-      "variant": "oval",
-      "a": 3.2,
-      "b": 7.726315789473685,
-      "scale": 1.1
-    },
-    {
-      "family": "rug",
-      "variant": "round",
-      "a": 7.378947368421053,
-      "b": 6.91578947368421,
-      "scale": 1.65
-    },
-    {
-      "family": "armchair",
-      "variant": "club",
-      "a": 7.3578947368421055,
-      "b": 5.08421052631579
-    },
-    {
-      "family": "armchair",
-      "variant": "club",
-      "a": 5.578947368421052,
-      "b": 7,
-      "facing": "SW"
-    },
-    {
-      "family": "armchair",
-      "variant": "club",
-      "a": 9.115789473684211,
-      "b": 6.905263157894737,
-      "facing": "NW"
-    },
-    {
-      "family": "lamp",
-      "variant": "tripod",
-      "a": 8.65263157894737,
-      "b": 5.389473684210526
-    },
-    {
-      "family": "table",
-      "variant": "round",
-      "a": 7.347368421052631,
-      "b": 6.905263157894737
-    },
-    {
-      "family": "shelf",
-      "variant": "tall",
-      "a": 0.23157894736842088,
-      "b": 9.010526315789475,
-      "facing": "SW"
-    },
-    {
-      "family": "sofa",
-      "variant": "chesterfield",
-      "a": 7.336842105263158,
-      "b": 9.4,
-      "facing": "NE"
-    },
-    {
-      "family": "plant",
-      "variant": "monstera",
-      "a": -0.5473684210526313,
-      "b": 6.252631578947367,
-      "scale": 0.35,
-      "z": 5
-    }
-  ]
-},
   fireside: {
     id: "fireside",
     label: "Fireside",
@@ -294,9 +294,30 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
       { a: 1.7, b: 6.4 }, // near the bookcase end of the room
     ],
     placements: [
-      { family: "wallart", variant: "bunting", a: 0, b: 2.2, wall: "left", h: 140 },
-      { family: "directory", variant: "board", a: 7.2, b: 0, wall: "right", h: 56 },
-      { family: "plaque", variant: "framed", a: 5.4, b: 0, wall: "right", h: 78 },
+      {
+        family: "wallart",
+        variant: "bunting",
+        a: 0,
+        b: 2.2,
+        wall: "left",
+        h: 140,
+      },
+      {
+        family: "directory",
+        variant: "board",
+        a: 7.2,
+        b: 0,
+        wall: "right",
+        h: 56,
+      },
+      {
+        family: "plaque",
+        variant: "framed",
+        a: 5.4,
+        b: 0,
+        wall: "right",
+        h: 78,
+      },
       { family: "rug", variant: "rect", a: 5.4, b: 5.6, scale: 1.1 },
       { family: "plant", variant: "corner", a: 0.75, b: 0.75 },
       { family: "shelf", variant: "tall", a: 0.4, b: 3.2, flip: true },
@@ -325,9 +346,30 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
       { a: 7.8, b: 3.4 }, // near the directory sign
     ],
     placements: [
-      { family: "wallart", variant: "poster", a: 0, b: 2.3, wall: "left", h: 70 },
-      { family: "wallart", variant: "bunting", a: 5.0, b: 0, wall: "right", h: 118 },
-      { family: "plaque", variant: "framed", a: 7.6, b: 0, wall: "right", h: 80 },
+      {
+        family: "wallart",
+        variant: "poster",
+        a: 0,
+        b: 2.3,
+        wall: "left",
+        h: 70,
+      },
+      {
+        family: "wallart",
+        variant: "bunting",
+        a: 5.0,
+        b: 0,
+        wall: "right",
+        h: 118,
+      },
+      {
+        family: "plaque",
+        variant: "framed",
+        a: 7.6,
+        b: 0,
+        wall: "right",
+        h: 80,
+      },
       { family: "rug", variant: "round", a: 5.0, b: 5.8, scale: 1.15 },
       { family: "shelf", variant: "credenza", a: 0.45, b: 2.3, flip: true },
       { family: "counter", variant: "counter", a: 3.6, b: 0.6 },
@@ -344,7 +386,8 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
   nook: {
     id: "nook",
     label: "Reading nook",
-    blurb: "Loveseat under the window, egg chairs, stone fireplace, bookshelves.",
+    blurb:
+      "Loveseat under the window, egg chairs, stone fireplace, bookshelves.",
     receptionist: { a: 3.4, b: 1.2 },
     ghostSpots: [
       { a: 1.6, b: 6.2 }, // at the loveseat, by the window
@@ -355,9 +398,30 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
       { a: 8.0, b: 4.0 }, // reading the directory
     ],
     placements: [
-      { family: "wallart", variant: "bunting", a: 4.9, b: 0, wall: "right", h: 128 },
-      { family: "directory", variant: "board", a: 7.3, b: 0, wall: "right", h: 56 },
-      { family: "plaque", variant: "framed", a: 5.5, b: 0, wall: "right", h: 78 },
+      {
+        family: "wallart",
+        variant: "bunting",
+        a: 4.9,
+        b: 0,
+        wall: "right",
+        h: 128,
+      },
+      {
+        family: "directory",
+        variant: "board",
+        a: 7.3,
+        b: 0,
+        wall: "right",
+        h: 56,
+      },
+      {
+        family: "plaque",
+        variant: "framed",
+        a: 5.5,
+        b: 0,
+        wall: "right",
+        h: 78,
+      },
       { family: "rug", variant: "oval", a: 5.2, b: 7.4, scale: 1.05 },
       { family: "plant", variant: "corner", a: 0.75, b: 0.75 },
       { family: "shelf", variant: "tall", a: 0.4, b: 1.9, flip: true },

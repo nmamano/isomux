@@ -167,8 +167,13 @@ describe("members chat REST: post, page, fan-out", () => {
     const owner = await server.seedOwner("Nil");
     expect((await post(server, owner.rawSessionId, "   ")).status).toBe(400);
     expect(
-      (await post(server, owner.rawSessionId, "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1)))
-        .status,
+      (
+        await post(
+          server,
+          owner.rawSessionId,
+          "x".repeat(MEMBERS_CHAT_MAX_CHARS + 1),
+        )
+      ).status,
     ).toBe(400);
     const withDevice = await api(server, "/api/members-chat", {
       method: "POST",
@@ -302,7 +307,12 @@ describe("members chat REST: attachments", () => {
     const owner = await server.seedOwner("Nil");
     const member = await server.seedMember("Pau");
 
-    const up = await upload(server, owner.rawSessionId, "notes.txt", "hi there");
+    const up = await upload(
+      server,
+      owner.rawSessionId,
+      "notes.txt",
+      "hi there",
+    );
     expect(up.status).toBe(200);
     const { attachments } = (await up.json()) as {
       attachments: MembersChatMessage["attachments"];
@@ -316,7 +326,9 @@ describe("members chat REST: attachments", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(posted.status).toBe(201);
-    expect((posted.body as MembersChatMessage).attachments).toEqual(attachments);
+    expect((posted.body as MembersChatMessage).attachments).toEqual(
+      attachments,
+    );
 
     // Any member can fetch the bytes.
     const got = await server.http(
@@ -332,9 +344,7 @@ describe("members chat REST: attachments", () => {
       method: "POST",
       body: {
         text: "see file",
-        attachments: [
-          { ...attachments[0], filename: "not-uploaded.txt" },
-        ],
+        attachments: [{ ...attachments[0], filename: "not-uploaded.txt" }],
       },
       rawSessionId: owner.rawSessionId,
     });
@@ -357,9 +367,9 @@ describe("members chat REST: who may enter", () => {
     const bot = await spawnAgent(server, "Bot");
     const plain = mintAgentToken(bot.id, ownerId);
     for (const bearer of [plain, mintRunToken("job-1", "run-1", ownerId)]) {
-      expect(
-        (await api(server, "/api/members-chat", { bearer })).status,
-      ).toBe(403);
+      expect((await api(server, "/api/members-chat", { bearer })).status).toBe(
+        403,
+      );
       expect(
         (
           await api(server, "/api/members-chat", {
@@ -373,7 +383,9 @@ describe("members chat REST: who may enter", () => {
     // Nothing landed.
     const owner = await server.seedMember("Pau");
     const empty = (
-      await api(server, "/api/members-chat", { rawSessionId: owner.rawSessionId })
+      await api(server, "/api/members-chat", {
+        rawSessionId: owner.rawSessionId,
+      })
     ).body as MembersChatPageRes;
     expect(empty.messages).toEqual([]);
 
@@ -434,7 +446,11 @@ describe("members chat REST: who may enter", () => {
     const agentToken = mintAgentToken(bot.id, ownerId);
     const reg = await api(server, "/api/apps", {
       method: "POST",
-      body: { name: "lobbyapp", command: "bun run serve.ts", cwd: server.stateRoot },
+      body: {
+        name: "lobbyapp",
+        command: "bun run serve.ts",
+        cwd: server.stateRoot,
+      },
       bearer: agentToken,
     });
     expect(reg.status).toBe(201);

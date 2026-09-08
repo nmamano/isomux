@@ -15,11 +15,12 @@ export const ca: Catalog = {
   "lobby.employeeLine1": "EMPLEAT",
   "lobby.employeeLine2": "DEL MINUT",
   "lobby.openChat": "{name} - fes clic per obrir el xat",
-  "lobby.identityLocked": "El recepcionista conserva el nom i el directori de treball.",
+  "lobby.identityLocked":
+    "El recepcionista conserva el nom i el directori de treball.",
   "lobby.receptionistNameLocked": "El recepcionista conserva el seu nom.",
   "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · token d'API",
-  "membersChat.authorApiDevice": "{name} · token d'API \"{device}\"",
+  "membersChat.authorApiDevice": '{name} · token d\'API "{device}"',
   "membersChat.deleteAgain": "Fes clic de nou per eliminar",
   "membersChat.sure": "segur?",
   "membersChat.loadFailed": "No s'ha pogut carregar el xat",
@@ -33,7 +34,8 @@ export const ca: Catalog = {
   "membersChat.online": "{count} en línia",
   "membersChat.loadingOlder": "Carregant missatges anteriors…",
   "membersChat.loadOlder": "Carrega anteriors",
-  "membersChat.empty": "Encara no hi ha res. Només les persones veuen aquest xat.",
+  "membersChat.empty":
+    "Encara no hi ha res. Només les persones veuen aquest xat.",
   "membersChat.edited": " · editat",
   "membersChat.uploading": "pujant…",
   "membersChat.placeholder": "Escriu als membres…",
@@ -81,7 +83,6 @@ export const ca: Catalog = {
   "common.schedules": "Programacions",
   "common.apps": "Apps",
   "common.changeTheme": "Canvia el tema",
-
 
   "preferences.intro":
     "Et segueixen a tots els dispositius des dels quals inicies la sessió. La configuració específica d'aquest navegador és a Els meus dispositius.",

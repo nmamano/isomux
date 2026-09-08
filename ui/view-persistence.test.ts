@@ -64,7 +64,7 @@ describe("parseSavedView (strict)", () => {
       roomId: "room-1",
       agentId: "agent-abc",
       panel: "tasks",
-    lobby: false,
+      lobby: false,
     });
   });
 
@@ -78,14 +78,20 @@ describe("parseSavedView (strict)", () => {
           panel: null,
         }),
       ),
-    ).toEqual({ user: "nil", roomId: null, agentId: null, panel: null, lobby: false });
+    ).toEqual({
+      user: "nil",
+      roomId: null,
+      agentId: null,
+      panel: null,
+      lobby: false,
+    });
     // Missing fields are the same legitimate null (forward-compatible).
     expect(parseSavedView(JSON.stringify({ user: "nil" }))).toEqual({
       user: "nil",
       roomId: null,
       agentId: null,
       panel: null,
-    lobby: false,
+      lobby: false,
     });
   });
 
@@ -138,20 +144,28 @@ describe("parseSavedView (strict)", () => {
 describe("saved view: owner-checked load/save", () => {
   it("round-trips for the same user, case-insensitively", () => {
     const s = fakeStorage();
-    saveView("Nil", { roomId: "r1", agentId: "a1", panel: null, lobby: false }, s);
+    saveView(
+      "Nil",
+      { roomId: "r1", agentId: "a1", panel: null, lobby: false },
+      s,
+    );
     expect(loadSavedView("nil", s)).toEqual({
       user: "nil",
       roomId: "r1",
       agentId: "a1",
       panel: null,
-    lobby: false,
+      lobby: false,
     });
     expect(loadSavedView("NIL", s)).not.toBeNull();
   });
 
   it("rejects another user's saved view", () => {
     const s = fakeStorage();
-    saveView("alice", { roomId: "r1", agentId: "a1", panel: "tasks", lobby: false }, s);
+    saveView(
+      "alice",
+      { roomId: "r1", agentId: "a1", panel: "tasks", lobby: false },
+      s,
+    );
     expect(loadSavedView("bob", s)).toBeNull();
   });
 
@@ -181,7 +195,11 @@ describe("saved view: owner-checked load/save", () => {
     ).not.toThrow();
     expect(loadSavedView("nil", null)).toBeNull();
     expect(() =>
-      saveView("nil", { roomId: null, agentId: null, panel: null, lobby: false }, null),
+      saveView(
+        "nil",
+        { roomId: null, agentId: null, panel: null, lobby: false },
+        null,
+      ),
     ).not.toThrow();
   });
 });
@@ -292,7 +310,7 @@ describe("saved view: the settings panel rename", () => {
       roomId: "room-1",
       agentId: "agent-1",
       panel: "users",
-    lobby: false,
+      lobby: false,
     });
   });
 
@@ -346,7 +364,12 @@ describe("saved view: the lobby flag", () => {
     expect(loadSavedView("nil", storage)?.lobby).toBe(true);
     expect(
       parseSavedView(
-        JSON.stringify({ user: "nil", roomId: null, agentId: null, panel: null }),
+        JSON.stringify({
+          user: "nil",
+          roomId: null,
+          agentId: null,
+          panel: null,
+        }),
       )?.lobby,
     ).toBe(false);
     expect(

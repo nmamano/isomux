@@ -47,7 +47,13 @@ export type DateShape =
 
 const SHAPE_OPTIONS: Record<DateShape, Intl.DateTimeFormatOptions> = {
   clock24: { hour: "2-digit", minute: "2-digit", hour12: false },
-  monthDayTime24: { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false },
+  monthDayTime24: {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  },
   clock: { hour: "2-digit", minute: "2-digit" },
   monthDay: { month: "short", day: "numeric" },
   monthDayTime: {

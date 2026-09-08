@@ -460,286 +460,296 @@ export function OfficeView({
 
       {/* Office scene, with the members chat beside it on the Lobby tab */}
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
-      {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
+        {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
           Room-swipe still works because that hook reads touch coordinates directly. */}
-      <div
-        ref={attachContainer}
-        style={{
-          flex: 1,
-          position: "relative",
-          overflow: "hidden",
-          touchAction: "none",
-        }}
-      >
-        {/* Ambient gradients */}
         <div
+          ref={attachContainer}
           style={{
-            position: "absolute",
-            inset: 0,
-            background:
-              "radial-gradient(ellipse at 50% 30%, var(--ambient-1) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, var(--ambient-2) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, var(--ambient-3) 0%, transparent 35%)",
-            pointerEvents: "none",
-          }}
-        />
-
-        {/* Viewport layer - zoom/pan transform applies here, wrapping the centered scene */}
-        <div
-          // viewport.setScene is a stable callback from useViewport.
-          // eslint-disable-next-line react-hooks/refs
-          ref={viewport.setScene}
-          style={{
-            position: "absolute",
-            inset: 0,
-            transformOrigin: "0 0",
+            flex: 1,
+            position: "relative",
+            overflow: "hidden",
+            touchAction: "none",
           }}
         >
-          {/* Centered scene container - static centering transform */}
+          {/* Ambient gradients */}
           <div
-            // viewport.setContent: same stable-callback pattern as setScene above.
-            // eslint-disable-next-line react-hooks/refs
-            ref={viewport.setContent}
             style={{
               position: "absolute",
-              left: "50%",
-              top: embed
-                ? isMobile
-                  ? "55%"
-                  : "64%"
-                : isMobile
-                  ? "45%"
-                  : "50%",
-              transform: embed
-                ? `translate(-50%, -50%) scale(${isMobile ? mobileScale * 0.85 : 0.9})`
-                : isMobile
-                  ? `translate(-50%, -50%) scale(${mobileScale})`
-                  : "translate(-50%, -50%)",
-              transformOrigin: "center center",
-              width: SCENE_W,
-              height: SCENE_H,
+              inset: 0,
+              background:
+                "radial-gradient(ellipse at 50% 30%, var(--ambient-1) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, var(--ambient-2) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, var(--ambient-3) 0%, transparent 35%)",
+              pointerEvents: "none",
+            }}
+          />
+
+          {/* Viewport layer - zoom/pan transform applies here, wrapping the centered scene */}
+          <div
+            // viewport.setScene is a stable callback from useViewport.
+            // eslint-disable-next-line react-hooks/refs
+            ref={viewport.setScene}
+            style={{
+              position: "absolute",
+              inset: 0,
+              transformOrigin: "0 0",
             }}
           >
-            {lobbyOpen ? (
-              <LobbyScene
-                rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
-                officeName={office.name}
-                star={lobbyStar}
-                mode={mode}
-                layout="nilo"
-                receptionist={
-                  /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
-                  receptionist ? (
-                    <ReceptionistFigure
-                      agent={receptionist}
-                      needsAttention={needsAttention.has(receptionist.id)}
+            {/* Centered scene container - static centering transform */}
+            <div
+              // viewport.setContent: same stable-callback pattern as setScene above.
+              // eslint-disable-next-line react-hooks/refs
+              ref={viewport.setContent}
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: embed
+                  ? isMobile
+                    ? "55%"
+                    : "64%"
+                  : isMobile
+                    ? "45%"
+                    : "50%",
+                transform: embed
+                  ? `translate(-50%, -50%) scale(${isMobile ? mobileScale * 0.85 : 0.9})`
+                  : isMobile
+                    ? `translate(-50%, -50%) scale(${mobileScale})`
+                    : "translate(-50%, -50%)",
+                transformOrigin: "center center",
+                width: SCENE_W,
+                height: SCENE_H,
+              }}
+            >
+              {lobbyOpen ? (
+                <LobbyScene
+                  rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
+                  officeName={office.name}
+                  star={lobbyStar}
+                  mode={mode}
+                  layout="nilo"
+                  receptionist={
+                    /* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */
+                    receptionist ? (
+                      <ReceptionistFigure
+                        agent={receptionist}
+                        needsAttention={needsAttention.has(receptionist.id)}
+                        onClick={viewport.wrapClick(() =>
+                          dispatch({ type: "focus", agentId: receptionist.id }),
+                        )}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          onContextMenu(e.clientX, e.clientY, receptionist);
+                        }}
+                      />
+                    ) : undefined
+                    /* eslint-enable react-hooks/refs */
+                  }
+                  rightDoor={
+                    rooms[0]
+                      ? {
+                          label: rooms[0].name,
+                          onClick: () =>
+                            dispatch({
+                              type: "set_current_room",
+                              roomId: rooms[0].id,
+                            }),
+                        }
+                      : null
+                  }
+                  onToggleTheme={cycleTheme}
+                  onOpenApps={embed ? undefined : onOpenApps}
+                  onOpenCronjobs={onOpenCronjobs}
+                />
+              ) : (
+                <>
+                  <Walls
+                    onToggleTheme={cycleTheme}
+                    onOpenSettings={embed ? undefined : onEditOfficePrompt}
+                    onOpenApps={embed ? undefined : onOpenApps}
+                    onOpenTasks={onOpenTasks}
+                    onOpenCronjobs={onOpenCronjobs}
+                    taskCount={
+                      tasks.filter(
+                        (t) => t.status !== "done" && t.status !== "backlog",
+                      ).length
+                    }
+                  />
+                  <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />
+                  <GroundShadows />
+                  <WallDoors
+                    leftDoor={
+                      currentRoomIndex > 0
+                        ? {
+                            label:
+                              roomNames[currentRoomIndex - 1] ??
+                              t("common.roomFallback", {
+                                number: currentRoomIndex,
+                              }),
+                            onClick: () =>
+                              dispatch({
+                                type: "set_current_room",
+                                roomId: rooms[currentRoomIndex - 1].id,
+                              }),
+                            dragOver: leftDoorDragOver,
+                            reject: leftDoorReject,
+                            passCount: leftDoorUses,
+                          }
+                        : currentRoomIndex === 0
+                          ? {
+                              label: t("common.lobby"),
+                              onClick: () =>
+                                dispatch({
+                                  type: "set_lobby_open",
+                                  open: true,
+                                }),
+                            }
+                          : null
+                    }
+                    rightDoor={
+                      currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1
+                        ? {
+                            label:
+                              roomNames[currentRoomIndex + 1] ??
+                              t("common.roomFallback", {
+                                number: currentRoomIndex + 2,
+                              }),
+                            onClick: () =>
+                              dispatch({
+                                type: "set_current_room",
+                                roomId: rooms[currentRoomIndex + 1].id,
+                              }),
+                            dragOver: rightDoorDragOver,
+                            reject: rightDoorReject,
+                            passCount: rightDoorUses,
+                          }
+                        : null
+                    }
+                  />
+                  <RoomProps />
+                  <Seasonal />
+                  {currentRoomIndex > 0 && (
+                    <DoorDropZone
+                      side="left"
+                      // viewport.wrapClick is a stable callback that wraps a click
+                      // handler to suppress clicks during pan-drag.
+                      // eslint-disable-next-line react-hooks/refs
                       onClick={viewport.wrapClick(() =>
-                        dispatch({ type: "focus", agentId: receptionist.id }),
-                      )}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        onContextMenu(e.clientX, e.clientY, receptionist);
-                      }}
-                    />
-                  ) : undefined
-                  /* eslint-enable react-hooks/refs */
-                }
-                rightDoor={
-                  rooms[0]
-                    ? {
-                        label: rooms[0].name,
-                        onClick: () =>
-                          dispatch({ type: "set_current_room", roomId: rooms[0].id }),
-                      }
-                    : null
-                }
-                onToggleTheme={cycleTheme}
-                onOpenApps={embed ? undefined : onOpenApps}
-                onOpenCronjobs={onOpenCronjobs}
-              />
-            ) : (
-              <>
-            <Walls
-              onToggleTheme={cycleTheme}
-              onOpenSettings={embed ? undefined : onEditOfficePrompt}
-              onOpenApps={embed ? undefined : onOpenApps}
-              onOpenTasks={onOpenTasks}
-              onOpenCronjobs={onOpenCronjobs}
-              taskCount={
-                tasks.filter(
-                  (t) => t.status !== "done" && t.status !== "backlog",
-                ).length
-              }
-            />
-            <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />
-            <GroundShadows />
-            <WallDoors
-              leftDoor={
-                currentRoomIndex > 0
-                  ? {
-                      label:
-                        roomNames[currentRoomIndex - 1] ??
-                        t("common.roomFallback", {
-                          number: currentRoomIndex,
-                        }),
-                      onClick: () =>
                         dispatch({
                           type: "set_current_room",
                           roomId: rooms[currentRoomIndex - 1].id,
                         }),
-                      dragOver: leftDoorDragOver,
-                      reject: leftDoorReject,
-                      passCount: leftDoorUses,
-                    }
-                  : currentRoomIndex === 0
-                    ? {
-                        label: t("common.lobby"),
-                        onClick: () => dispatch({ type: "set_lobby_open", open: true }),
-                      }
-                    : null
-              }
-              rightDoor={
-                currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1
-                  ? {
-                      label:
-                        roomNames[currentRoomIndex + 1] ??
-                        t("common.roomFallback", {
-                          number: currentRoomIndex + 2,
-                        }),
-                      onClick: () =>
-                        dispatch({
-                          type: "set_current_room",
-                          roomId: rooms[currentRoomIndex + 1].id,
-                        }),
-                      dragOver: rightDoorDragOver,
-                      reject: rightDoorReject,
-                      passCount: rightDoorUses,
-                    }
-                  : null
-              }
-            />
-            <RoomProps />
-            <Seasonal />
-            {currentRoomIndex > 0 && (
-              <DoorDropZone
-                side="left"
-                // viewport.wrapClick is a stable callback that wraps a click
-                // handler to suppress clicks during pan-drag.
-                // eslint-disable-next-line react-hooks/refs
-                onClick={viewport.wrapClick(() =>
-                  dispatch({
-                    type: "set_current_room",
-                    roomId: rooms[currentRoomIndex - 1].id,
-                  }),
-                )}
-                onDragOverChange={(over) => setLeftDoorDragOver(over)}
-                onDrop={(deskIndex) => {
-                  const a = roomAgents.find((a) => a.desk === deskIndex);
-                  if (!a) {
-                    setLeftDoorReject(true);
-                    setTimeout(() => setLeftDoorReject(false), 400);
-                    return false;
-                  }
-                  const targetRoomId = rooms[currentRoomIndex - 1]?.id;
-                  if (
-                    !targetRoomId ||
-                    agents.filter((x) => x.roomId === targetRoomId).length >=
-                      DESK_COUNT
-                  ) {
-                    setLeftDoorReject(true);
-                    setTimeout(() => setLeftDoorReject(false), 400);
-                    return false;
-                  }
-                  apiFetch("POST", `/api/agents/${a.id}/move`, {
-                    targetRoomId,
-                  } satisfies MoveAgentReq).catch(() => {});
-                  return true;
-                }}
-              />
-            )}
-            {currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1 && (
-              <DoorDropZone
-                side="right"
-                // viewport.wrapClick: same stable-callback pattern as left door.
-                // eslint-disable-next-line react-hooks/refs
-                onClick={viewport.wrapClick(() =>
-                  dispatch({
-                    type: "set_current_room",
-                    roomId: rooms[currentRoomIndex + 1].id,
-                  }),
-                )}
-                onDragOverChange={(over) => setRightDoorDragOver(over)}
-                onDrop={(deskIndex) => {
-                  const a = roomAgents.find((a) => a.desk === deskIndex);
-                  if (!a) {
-                    setRightDoorReject(true);
-                    setTimeout(() => setRightDoorReject(false), 400);
-                    return false;
-                  }
-                  const targetRoomId = rooms[currentRoomIndex + 1]?.id;
-                  if (
-                    !targetRoomId ||
-                    agents.filter((x) => x.roomId === targetRoomId).length >=
-                      DESK_COUNT
-                  ) {
-                    setRightDoorReject(true);
-                    setTimeout(() => setRightDoorReject(false), 400);
-                    return false;
-                  }
-                  apiFetch("POST", `/api/agents/${a.id}/move`, {
-                    targetRoomId,
-                  } satisfies MoveAgentReq).catch(() => {});
-                  return true;
-                }}
-              />
-            )}
-            {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
-            {Array.from({ length: DESK_COUNT }, (_, i) => {
-              const agent = roomAgents.find((a) => a.desk === i);
-              if (agent) {
-                return (
-                  <DeskUnit
-                    key={agent.id}
-                    agent={agent}
-                    onClick={viewport.wrapClick(() =>
-                      dispatch({ type: "focus", agentId: agent.id }),
+                      )}
+                      onDragOverChange={(over) => setLeftDoorDragOver(over)}
+                      onDrop={(deskIndex) => {
+                        const a = roomAgents.find((a) => a.desk === deskIndex);
+                        if (!a) {
+                          setLeftDoorReject(true);
+                          setTimeout(() => setLeftDoorReject(false), 400);
+                          return false;
+                        }
+                        const targetRoomId = rooms[currentRoomIndex - 1]?.id;
+                        if (
+                          !targetRoomId ||
+                          agents.filter((x) => x.roomId === targetRoomId)
+                            .length >= DESK_COUNT
+                        ) {
+                          setLeftDoorReject(true);
+                          setTimeout(() => setLeftDoorReject(false), 400);
+                          return false;
+                        }
+                        apiFetch("POST", `/api/agents/${a.id}/move`, {
+                          targetRoomId,
+                        } satisfies MoveAgentReq).catch(() => {});
+                        return true;
+                      }}
+                    />
+                  )}
+                  {currentRoomIndex >= 0 &&
+                    currentRoomIndex < roomCount - 1 && (
+                      <DoorDropZone
+                        side="right"
+                        // viewport.wrapClick: same stable-callback pattern as left door.
+                        // eslint-disable-next-line react-hooks/refs
+                        onClick={viewport.wrapClick(() =>
+                          dispatch({
+                            type: "set_current_room",
+                            roomId: rooms[currentRoomIndex + 1].id,
+                          }),
+                        )}
+                        onDragOverChange={(over) => setRightDoorDragOver(over)}
+                        onDrop={(deskIndex) => {
+                          const a = roomAgents.find(
+                            (a) => a.desk === deskIndex,
+                          );
+                          if (!a) {
+                            setRightDoorReject(true);
+                            setTimeout(() => setRightDoorReject(false), 400);
+                            return false;
+                          }
+                          const targetRoomId = rooms[currentRoomIndex + 1]?.id;
+                          if (
+                            !targetRoomId ||
+                            agents.filter((x) => x.roomId === targetRoomId)
+                              .length >= DESK_COUNT
+                          ) {
+                            setRightDoorReject(true);
+                            setTimeout(() => setRightDoorReject(false), 400);
+                            return false;
+                          }
+                          apiFetch("POST", `/api/agents/${a.id}/move`, {
+                            targetRoomId,
+                          } satisfies MoveAgentReq).catch(() => {});
+                          return true;
+                        }}
+                      />
                     )}
-                    onContextMenu={(e) =>
-                      onContextMenu(e.clientX, e.clientY, agent)
+                  {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
+                  {Array.from({ length: DESK_COUNT }, (_, i) => {
+                    const agent = roomAgents.find((a) => a.desk === i);
+                    if (agent) {
+                      return (
+                        <DeskUnit
+                          key={agent.id}
+                          agent={agent}
+                          onClick={viewport.wrapClick(() =>
+                            dispatch({ type: "focus", agentId: agent.id }),
+                          )}
+                          onContextMenu={(e) =>
+                            onContextMenu(e.clientX, e.clientY, agent)
+                          }
+                          needsAttention={needsAttention.has(agent.id)}
+                          onSwap={(a, b) => {
+                            const rid = currentRoomId;
+                            if (rid)
+                              apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
+                                deskA: a,
+                                deskB: b,
+                              } satisfies SwapDesksReq).catch(() => {});
+                          }}
+                          stateChangedAt={stateChangedAt.get(agent.id)}
+                        />
+                      );
                     }
-                    needsAttention={needsAttention.has(agent.id)}
-                    onSwap={(a, b) => {
-                      const rid = currentRoomId;
-                      if (rid)
-                        apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
-                          deskA: a,
-                          deskB: b,
-                        } satisfies SwapDesksReq).catch(() => {});
-                    }}
-                    stateChangedAt={stateChangedAt.get(agent.id)}
-                  />
-                );
-              }
-              return (
-                <EmptySlot
-                  key={`empty-${i}`}
-                  deskIndex={i}
-                  onClick={viewport.wrapClick(() => onSpawn(i))}
-                  onSwap={(a, b) => {
-                    const rid = currentRoomId;
-                    if (rid)
-                      apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
-                        deskA: a,
-                        deskB: b,
-                      } satisfies SwapDesksReq).catch(() => {});
-                  }}
-                />
-              );
-            })}
-            {/* eslint-enable react-hooks/refs */}
-            {/* Live-avatars: floating ghost per active presence whose
+                    return (
+                      <EmptySlot
+                        key={`empty-${i}`}
+                        deskIndex={i}
+                        onClick={viewport.wrapClick(() => onSpawn(i))}
+                        onSwap={(a, b) => {
+                          const rid = currentRoomId;
+                          if (rid)
+                            apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
+                              deskA: a,
+                              deskB: b,
+                            } satisfies SwapDesksReq).catch(() => {});
+                        }}
+                      />
+                    );
+                  })}
+                  {/* eslint-enable react-hooks/refs */}
+                  {/* Live-avatars: floating ghost per active presence whose
                 currentRoomId matches the viewer's currentRoomId. Rendered
                 last (and with high z-index) so they sit above desks,
                 walls, and props per Q20 in the design memo. */}
-            {/* Two layers, two stable per-connection keys per layer. The
+                  {/* Two layers, two stable per-connection keys per layer. The
                 body and tag layers are independent React siblings, each
                 iterating placements in connectionId order. Body/tag never
                 interleave in the DOM, so a new arrival's body insertion
@@ -748,74 +758,73 @@ export function OfficeView({
                 no existing ghost's DOM node moves when an unrelated anchor
                 changes - which keeps CSS transitions intact and prevents
                 browsers from re-attach-restarting any inline animations. */}
-            {ghostPlacements.map((p) => (
-              <GhostBody
-                key={p.presence.connectionId}
-                left={p.left}
-                top={p.top}
-                size={GHOST_SIZE}
-                variant={p.presence.avatarVariant}
-                color={p.presence.avatarColor}
-                username={p.presence.username}
-                device={p.presence.device}
-                userId={p.presence.userId}
-                dimmed={p.dimmed}
-                onClick={onOpenUserSettingsForUser}
-              />
-            ))}
-            {ghostPlacements.map((p) => (
-              <GhostTag
-                key={p.presence.connectionId}
-                left={p.left}
-                top={p.top}
-                size={GHOST_SIZE}
-                variant={p.presence.avatarVariant}
-                color={p.presence.avatarColor}
-                username={p.presence.username}
-                device={p.presence.device}
-                userId={p.presence.userId}
-                dimmed={p.dimmed}
-                onClick={onOpenUserSettingsForUser}
-              />
-            ))}
-              </>
-            )}
+                  {ghostPlacements.map((p) => (
+                    <GhostBody
+                      key={p.presence.connectionId}
+                      left={p.left}
+                      top={p.top}
+                      size={GHOST_SIZE}
+                      variant={p.presence.avatarVariant}
+                      color={p.presence.avatarColor}
+                      username={p.presence.username}
+                      device={p.presence.device}
+                      userId={p.presence.userId}
+                      dimmed={p.dimmed}
+                      onClick={onOpenUserSettingsForUser}
+                    />
+                  ))}
+                  {ghostPlacements.map((p) => (
+                    <GhostTag
+                      key={p.presence.connectionId}
+                      left={p.left}
+                      top={p.top}
+                      size={GHOST_SIZE}
+                      variant={p.presence.avatarVariant}
+                      color={p.presence.avatarColor}
+                      username={p.presence.username}
+                      device={p.presence.device}
+                      userId={p.presence.userId}
+                      dimmed={p.dimmed}
+                      onClick={onOpenUserSettingsForUser}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
           </div>
+
+          {/* Zoom controls */}
+          {!embed && (
+            /* eslint-disable react-hooks/refs -- stable callbacks from useViewport */
+            <ZoomControls
+              onZoomIn={viewport.zoomIn}
+              onZoomOut={viewport.zoomOut}
+              onReset={viewport.resetView}
+            />
+            /* eslint-enable react-hooks/refs */
+          )}
+
+          {/* Vignette */}
+          {!embed && (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                boxShadow: "inset 0 0 120px var(--vignette)",
+              }}
+            />
+          )}
         </div>
-
-        {/* Zoom controls */}
-        {!embed && (
-          /* eslint-disable react-hooks/refs -- stable callbacks from useViewport */
-          <ZoomControls
-            onZoomIn={viewport.zoomIn}
-            onZoomOut={viewport.zoomOut}
-            onReset={viewport.resetView}
-          />
-          /* eslint-enable react-hooks/refs */
-        )}
-
-        {/* Vignette */}
-        {!embed && (
-          <div
+        {lobbyOpen && !isMobile && !embed && (
+          <MembersChatPanel
             style={{
-              position: "absolute",
-              inset: 0,
-              pointerEvents: "none",
-              boxShadow: "inset 0 0 120px var(--vignette)",
+              width: 380,
+              flexShrink: 0,
+              borderLeft: "1px solid var(--border)",
             }}
           />
         )}
-
-      </div>
-      {lobbyOpen && !isMobile && !embed && (
-        <MembersChatPanel
-          style={{
-            width: 380,
-            flexShrink: 0,
-            borderLeft: "1px solid var(--border)",
-          }}
-        />
-      )}
       </div>
 
       {/* Bottom HUD */}

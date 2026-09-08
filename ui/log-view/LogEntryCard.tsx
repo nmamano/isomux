@@ -1,4 +1,12 @@
-import { useState, useCallback, useRef, useEffect, useMemo, useId, memo } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  useMemo,
+  useId,
+  memo,
+} from "react";
 import type { ReactNode } from "react";
 import type {
   LogEntry,
@@ -484,9 +492,16 @@ export const LogEntryCard = memo(function LogEntryCard({
           username={senderLabel}
           fromNonHuman={!fromHuman}
           // Collapse peer and app reports; scheduled-job messages stay fully visible.
-          collapsible={!!(entry.metadata?.sender_agent_name || entry.metadata?.sender_app_name)}
+          collapsible={
+            !!(
+              entry.metadata?.sender_agent_name ||
+              entry.metadata?.sender_app_name
+            )
+          }
           expanded={messageExpanded}
-          onToggle={onToggleMessage ? () => onToggleMessage(entry.id) : undefined}
+          onToggle={
+            onToggleMessage ? () => onToggleMessage(entry.id) : undefined
+          }
           attachments={entry.attachments}
           agentId={entry.agentId}
           canEdit={canEdit && fromHuman}
@@ -873,36 +888,39 @@ export function UserMessage({
           // Reveal clipped attachments when a keyboard user reaches them.
           if (collapsed && overflows) onToggle?.();
         }}
-        style={{ maxHeight: collapsed ? previewHeight : undefined, overflow: collapsed ? "hidden" : undefined }}
+        style={{
+          maxHeight: collapsed ? previewHeight : undefined,
+          overflow: collapsed ? "hidden" : undefined,
+        }}
       >
-      <div ref={bodyRef}>
-      {content && (
-        <div
-          style={{
-            color: "var(--text-secondary)",
-            fontFamily: "'JetBrains Mono',monospace",
-            fontSize: messageFontSize,
-            lineHeight: messageLineHeight,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "break-word",
-            wordBreak: "break-word",
-          }}
-        >
-          {content}
+        <div ref={bodyRef}>
+          {content && (
+            <div
+              style={{
+                color: "var(--text-secondary)",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: messageFontSize,
+                lineHeight: messageLineHeight,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "break-word",
+                wordBreak: "break-word",
+              }}
+            >
+              {content}
+            </div>
+          )}
+          {attachments && attachments.length > 0 && (agentId || fileBase) && (
+            <AttachmentDisplay
+              attachments={attachments}
+              agentId={agentId ?? ""}
+              fileBase={fileBase}
+              isMobile={isMobile}
+              lightboxSrc={lightboxSrc}
+              setLightboxSrc={setLightboxSrc}
+              hasContent={!!content}
+            />
+          )}
         </div>
-      )}
-      {attachments && attachments.length > 0 && (agentId || fileBase) && (
-        <AttachmentDisplay
-          attachments={attachments}
-          agentId={agentId ?? ""}
-          fileBase={fileBase}
-          isMobile={isMobile}
-          lightboxSrc={lightboxSrc}
-          setLightboxSrc={setLightboxSrc}
-          hasContent={!!content}
-        />
-      )}
-      </div>
       </div>
       {collapsible && overflows && (
         <button
@@ -921,7 +939,11 @@ export function UserMessage({
             cursor: "pointer",
           }}
         >
-          {t(expanded ? "cards.userMessage.collapse" : "cards.userMessage.expand")}
+          {t(
+            expanded
+              ? "cards.userMessage.collapse"
+              : "cards.userMessage.expand",
+          )}
         </button>
       )}
       <div

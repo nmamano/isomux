@@ -19,7 +19,11 @@ mkdirSync(outDir, { recursive: true });
 
 const shots = [
   { name: "lobby-dark", mode: "dark", viewport: { width: 1280, height: 800 } },
-  { name: "lobby-light", mode: "light", viewport: { width: 1280, height: 800 } },
+  {
+    name: "lobby-light",
+    mode: "light",
+    viewport: { width: 1280, height: 800 },
+  },
   {
     name: "lobby-mobile-dark",
     mode: "dark",

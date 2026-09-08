@@ -28,7 +28,13 @@ export interface SeatSpec {
 }
 
 /** Every sofa and armchair: a plinth, a shell standing on it, and a seat. */
-function UpholsteredPiece({ spec, back = "far" }: { spec: SeatSpec; back?: Back }) {
+function UpholsteredPiece({
+  spec,
+  back = "far",
+}: {
+  spec: SeatSpec;
+  back?: Back;
+}) {
   const { w, d, seatZ, shellH, armW, backD, color: c, seats } = spec;
   const fb = back === "far" ? 1 : -1;
   const armA = w / 2 - armW / 2;
@@ -37,27 +43,51 @@ function UpholsteredPiece({ spec, back = "far" }: { spec: SeatSpec; back?: Back 
   // so a reader of the DOM can see which way a piece is turned.
   const backRest = (
     <g key="back" data-part="back">
-      <IsoBox w={w} d={backD} h={shell} b={fb * (-d / 2 + backD / 2)} z={seatZ} color={c} />
+      <IsoBox
+        w={w}
+        d={backD}
+        h={shell}
+        b={fb * (-d / 2 + backD / 2)}
+        z={seatZ}
+        color={c}
+      />
     </g>
   );
   const arms = [-armA, armA].map((a) => (
-    <IsoBox key={`arm${a}`} w={armW} d={d - backD} h={shell} a={a} b={fb * (backD / 2)} z={seatZ} color={c} />
+    <IsoBox
+      key={`arm${a}`}
+      w={armW}
+      d={d - backD}
+      h={shell}
+      a={a}
+      b={fb * (backD / 2)}
+      z={seatZ}
+      color={c}
+    />
   ));
   const deck = (
     <g key="seat" data-part="seat">
       <SeatDeck
-      key="deck"
-      n={seats}
-      w={w - 2 * armW}
-      d={d - backD}
-      b={fb * (backD / 2)}
-      z={seatZ}
-      color={shade(c, 1.07)}
+        key="deck"
+        n={seats}
+        w={w - 2 * armW}
+        d={d - backD}
+        b={fb * (backD / 2)}
+        z={seatZ}
+        color={shade(c, 1.07)}
       />
     </g>
   );
   const pillows = (spec.pillows ?? []).map(([a, col, tilt, pw], i) => (
-    <Pillow key={`p${i}`} a={a} b={fb * -2} z={seatZ + 7} color={col} tilt={tilt} w={pw} />
+    <Pillow
+      key={`p${i}`}
+      a={a}
+      b={fb * -2}
+      z={seatZ + 7}
+      color={col}
+      tilt={tilt}
+      w={pw}
+    />
   ));
   return (
     <g>
@@ -136,7 +166,15 @@ function SeatDeck({
     <g>
       {/* One box, not three: three cushions each carry their own side faces,
           and the end one's face lands in the arm's plane as a stray sliver. */}
-      <IsoBox w={w} d={d} h={h} b={b} z={z} color={color} stroke={shade(color, 0.62)} />
+      <IsoBox
+        w={w}
+        d={d}
+        h={h}
+        b={b}
+        z={z}
+        color={color}
+        stroke={shade(color, 0.62)}
+      />
       {seams}
       {creases}
     </g>
@@ -282,7 +320,9 @@ export function SofaChesterfield({ back }: { back?: "far" | "near" }) {
               const j = Math.floor(k / 5);
               const a = -w / 2 + armW + 6 + i * ((w - 2 * armW - 12) / 4);
               const [x, y] = iso(a, fb * (-d / 2 + backD), seatZ + 8 + j * 8);
-              return <circle key={k} cx={x} cy={y} r={1.1} fill={shade(c, 0.6)} />;
+              return (
+                <circle key={k} cx={x} cy={y} r={1.1} fill={shade(c, 0.6)} />
+              );
             })}
           </>
         ),
@@ -291,7 +331,9 @@ export function SofaChesterfield({ back }: { back?: "far" | "near" }) {
           <>
             {Array.from({ length: 9 }, (_, i) => {
               const [x, y] = iso(-w / 2 + 5 + i * 10, fb * (d / 2), seatZ);
-              return <circle key={i} cx={x} cy={y + 1.4} r={0.7} fill="#d6b45a" />;
+              return (
+                <circle key={i} cx={x} cy={y + 1.4} r={0.7} fill="#d6b45a" />
+              );
             })}
           </>
         ),
@@ -305,7 +347,16 @@ export function ArmchairClub({ back }: { back?: "far" | "near" }) {
   return (
     <UpholsteredPiece
       back={back}
-      spec={{ w: 36, d: 32, seatZ: 13, shellH: 31, armW: 8, backD: 9, color: c, seats: 1 }}
+      spec={{
+        w: 36,
+        d: 32,
+        seatZ: 13,
+        shellH: 31,
+        armW: 8,
+        backD: 9,
+        color: c,
+        seats: 1,
+      }}
     />
   );
 }

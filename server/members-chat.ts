@@ -302,7 +302,9 @@ export function createMembersChatStore(
     return existing;
   }
 
-  function page(opts: { before?: string; limit?: number } = {}): MembersChatPage {
+  function page(
+    opts: { before?: string; limit?: number } = {},
+  ): MembersChatPage {
     const limit = Math.max(
       1,
       Math.min(MEMBERS_CHAT_MAX_PAGE, opts.limit ?? MEMBERS_CHAT_DEFAULT_PAGE),
@@ -337,7 +339,9 @@ export function createMembersChatStore(
       const parsed = JSON.parse(readFileSync(readsFile, "utf-8")) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const out: Record<string, string> = {};
-        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        for (const [k, v] of Object.entries(
+          parsed as Record<string, unknown>,
+        )) {
           if (typeof v === "string") out[k] = v;
         }
         return out;

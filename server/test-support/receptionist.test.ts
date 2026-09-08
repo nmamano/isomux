@@ -120,9 +120,9 @@ describe("receptionist: lifecycle", () => {
     expect(r.modelFamily).toBe("opencode/muse-spark-1.2-contributor-free");
     expect(r.username).toBe("Boss");
     // No room list contains the lobby.
-    expect(srv.agentManager.getRooms().some((x) => x.id === LOBBY_ROOM_ID)).toBe(
-      false,
-    );
+    expect(
+      srv.agentManager.getRooms().some((x) => x.id === LOBBY_ROOM_ID),
+    ).toBe(false);
     // Its record lives in its own file, never in agents.json.
     const stateRoot = srv.stateRoot;
     expect(existsSync(join(stateRoot, "receptionist.json"))).toBe(true);
@@ -142,12 +142,9 @@ describe("receptionist: lifecycle", () => {
     record.cwd = "~";
     writeFileSync(recordPath, JSON.stringify(record));
 
-
     srv = await srv.restart();
     server = srv;
-    const after = srv.agentManager
-      .getAllAgents()
-      .filter((a) => a.receptionist);
+    const after = srv.agentManager.getAllAgents().filter((a) => a.receptionist);
     expect(after.length).toBe(1);
     expect(after[0].id).toBe(before.id);
     expect(after[0].cwd).toBe(before.cwd);
@@ -173,7 +170,11 @@ describe("receptionist: lifecycle", () => {
   it("an office that already had agents keeps them and gains only the receptionist on claim", async () => {
     const srv = await startTestServer();
     server = srv;
-    const existing = await srv.agentManager.spawn("Existing Agent", "~", "auto");
+    const existing = await srv.agentManager.spawn(
+      "Existing Agent",
+      "~",
+      "auto",
+    );
     expect(existing).not.toBeNull();
     await claimOwner(srv, "Boss");
     const names = srv.agentManager.getAllAgents().map((a) => a.name);
@@ -347,17 +348,18 @@ describe("receptionist: reach of a member with no rooms", () => {
     expect(
       sock.messages.some(
         (m) =>
-          (m as { entry?: { agentId?: string } }).entry?.agentId ===
-          welcome.id,
+          (m as { entry?: { agentId?: string } }).entry?.agentId === welcome.id,
       ),
     ).toBe(false);
 
     // Its session ran the receptionist prompt: this office, no recipes.
     const session = srv.fakeBackend.sessionForAgent(r.id)!;
     expect(session.opts.systemPrompt).toContain(
-      'the receptionist of the Isomux office',
+      "the receptionist of the Isomux office",
     );
-    expect(session.opts.systemPrompt).toContain('Owners: "Boss". Members: "Mia".');
+    expect(session.opts.systemPrompt).toContain(
+      'Owners: "Boss". Members: "Mia".',
+    );
     expect(session.opts.systemPrompt).not.toContain("ISOMUX_AGENT_TOKEN");
     expect(session.opts.systemPrompt).not.toContain("http://isomux");
 
@@ -387,7 +389,9 @@ describe("receptionist: reach of a member with no rooms", () => {
     await claimOwner(srv, "Boss");
     const r = receptionistOf(srv);
     const member = await srv.seedMember("Mia");
-    const res = await srv.http("/agents", { rawSessionId: member.rawSessionId });
+    const res = await srv.http("/agents", {
+      rawSessionId: member.rawSessionId,
+    });
     expect(res.status).toBe(200);
     const manifest = (await res.json()) as Array<{
       id: string;
@@ -441,10 +445,15 @@ describe("receptionist: reach of its own token", () => {
     expect(instructions.status).toBe(403);
     // Agent-to-agent delivery is office-wide by design; the receptionist is the
     // one sender it is closed to, now and scheduled. A self-reminder stays open.
-    const message = await api(srv, "POST", `/api/agents/${welcome.id}/messages`, {
-      bearer,
-      body: { text: "psst" },
-    });
+    const message = await api(
+      srv,
+      "POST",
+      `/api/agents/${welcome.id}/messages`,
+      {
+        bearer,
+        body: { text: "psst" },
+      },
+    );
     expect(message.status).toBe(403);
     expect(errCode(message.body)).toBe("receptionist_reach");
     const later = new Date(Date.now() + 60_000).toISOString();

@@ -62,7 +62,10 @@ try {
     if (shot.chat) {
       await figure.click();
       await page.locator("textarea").first().waitFor({ timeout: 15000 });
-      await page.locator("textarea").first().fill("Where do I get room access?");
+      await page
+        .locator("textarea")
+        .first()
+        .fill("Where do I get room access?");
       await page.keyboard.press("Enter");
       await page.waitForTimeout(1500);
     }

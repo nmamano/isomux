@@ -23,7 +23,10 @@ import type { Attachment, MembersChatMessage } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { formatNumber } from "../../shared/i18n/number.ts";
-import type { Translator, PlainMessageKey } from "../../shared/i18n/translate.ts";
+import type {
+  Translator,
+  PlainMessageKey,
+} from "../../shared/i18n/translate.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import { ApiError } from "../api.ts";
 import { MEMBERS_CHAT_MAX_CHARS } from "../../shared/types.ts";
@@ -44,14 +47,26 @@ const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
 // "Nil (Phone)"; an API token and an agent read as machine-sent, the way the
 // agent chat styles them, so nobody scrolling back takes a script's line for a
 // boss's.
-export function describeMembersChatAuthor(m: MembersChatMessage, t: Translator["t"]): {
+export function describeMembersChatAuthor(
+  m: MembersChatMessage,
+  t: Translator["t"],
+): {
   label: string;
   nonHuman: boolean;
 } {
-  if (m.kind === "agent") return { label: t("membersChat.authorAgent", { name: m.userName }), nonHuman: true };
+  if (m.kind === "agent")
+    return {
+      label: t("membersChat.authorAgent", { name: m.userName }),
+      nonHuman: true,
+    };
   if (m.kind === "api") {
     return {
-      label: m.device ? t("membersChat.authorApiDevice", { name: m.userName, device: m.device }) : t("membersChat.authorApi", { name: m.userName }),
+      label: m.device
+        ? t("membersChat.authorApiDevice", {
+            name: m.userName,
+            device: m.device,
+          })
+        : t("membersChat.authorApi", { name: m.userName }),
       nonHuman: true,
     };
   }
@@ -62,14 +77,26 @@ export function describeMembersChatAuthor(m: MembersChatMessage, t: Translator["
 }
 
 // "14:02" today, "Sep 5, 14:02" this year, "Sep 5 2025" before that.
-export function formatWhen(language: SupportedLanguageCode, ts: number, now = Date.now()): string {
+export function formatWhen(
+  language: SupportedLanguageCode,
+  ts: number,
+  now = Date.now(),
+): string {
   const d = new Date(ts);
   const n = new Date(now);
   const sameDay =
     d.getFullYear() === n.getFullYear() &&
     d.getMonth() === n.getMonth() &&
     d.getDate() === n.getDate();
-  return formatDateTime(language, ts, sameDay ? "clock24" : d.getFullYear() === n.getFullYear() ? "monthDayTime24" : "fullDate");
+  return formatDateTime(
+    language,
+    ts,
+    sameDay
+      ? "clock24"
+      : d.getFullYear() === n.getFullYear()
+        ? "monthDayTime24"
+        : "fullDate",
+  );
 }
 
 interface Staged {
@@ -234,7 +261,9 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
           if (el2) el2.scrollTop = el2.scrollHeight - prevHeight + prevTop;
         });
       })
-      .catch((err: unknown) => setError(chatError(err, "membersChat.olderFailed")))
+      .catch((err: unknown) =>
+        setError(chatError(err, "membersChat.olderFailed")),
+      )
       .finally(() => setLoadingOlder(false));
   }, [loadingOlder, hasMore, messages, dispatch]);
 
@@ -286,14 +315,20 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         .upload([file])
         .then(([att]) => {
           setStaged((prev) =>
-            prev.map((s) => (s.id === id ? { ...s, ...att, uploading: false } : s)),
+            prev.map((s) =>
+              s.id === id ? { ...s, ...att, uploading: false } : s,
+            ),
           );
         })
         .catch((err: unknown) => {
           setStaged((prev) =>
             prev.map((s) =>
               s.id === id
-                ? { ...s, uploading: false, error: chatError(err, "membersChat.uploadFailed") }
+                ? {
+                    ...s,
+                    uploading: false,
+                    error: chatError(err, "membersChat.uploadFailed"),
+                  }
                 : s,
             ),
           );
@@ -349,7 +384,9 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         stickToBottom.current = true;
         if (textareaRef.current) textareaRef.current.style.height = "auto";
       })
-      .catch((err: unknown) => setError(chatError(err, "membersChat.sendFailed")))
+      .catch((err: unknown) =>
+        setError(chatError(err, "membersChat.sendFailed")),
+      )
       .finally(() => setSending(false));
   }
 
@@ -360,14 +397,18 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         dispatch({ type: "members_chat_message", message: m });
         setEditingId(null);
       })
-      .catch((err: unknown) => setError(chatError(err, "membersChat.editFailed")));
+      .catch((err: unknown) =>
+        setError(chatError(err, "membersChat.editFailed")),
+      );
   }
 
   function remove(id: string) {
     chatApi
       .remove(id)
       .then(() => dispatch({ type: "members_chat_deleted", id }))
-      .catch((err: unknown) => setError(chatError(err, "membersChat.deleteFailed")));
+      .catch((err: unknown) =>
+        setError(chatError(err, "membersChat.deleteFailed")),
+      );
   }
 
   const online = onlineUserIds
@@ -425,9 +466,15 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         </span>
         <span
           data-online-count
-          style={{ fontSize: 11, color: "var(--text-ghost)", marginLeft: "auto" }}
+          style={{
+            fontSize: 11,
+            color: "var(--text-ghost)",
+            marginLeft: "auto",
+          }}
         >
-          {t("membersChat.online", { count: formatNumber(language, totalOnlineUsers) })}
+          {t("membersChat.online", {
+            count: formatNumber(language, totalOnlineUsers),
+          })}
         </span>
         <span style={{ display: "inline-flex", alignItems: "center" }}>
           {online.slice(0, 8).map((u, i) => (
@@ -533,7 +580,9 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
               >
                 <GhostGraphic
                   variant={user?.avatarVariant ?? "classic"}
-                  color={user?.avatarColor ?? defaultGhostColorForUserId(m.userId)}
+                  color={
+                    user?.avatarColor ?? defaultGhostColorForUserId(m.userId)
+                  }
                   size={11}
                   animated={false}
                   shadow={false}
@@ -555,7 +604,9 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
               canEdit={mine}
               onEdit={() => setEditingId(m.id)}
               extraActions={
-                canDelete ? <DeleteControl onConfirm={() => remove(m.id)} /> : null
+                canDelete ? (
+                  <DeleteControl onConfirm={() => remove(m.id)} />
+                ) : null
               }
             />
           );
@@ -597,7 +648,14 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
           </div>
         )}
         {staged.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 6,
+              marginBottom: 8,
+            }}
+          >
             {staged.map((att) => (
               <div
                 key={att.id}
@@ -631,10 +689,14 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
                   {att.originalName}
                 </span>
                 {att.uploading && (
-                  <span style={{ color: "var(--text-ghost)" }}>{t("membersChat.uploading")}</span>
+                  <span style={{ color: "var(--text-ghost)" }}>
+                    {t("membersChat.uploading")}
+                  </span>
                 )}
                 {att.error && (
-                  <span style={{ fontSize: isMobile ? 11 : 10 }}>{errorText(att.error, t)}</span>
+                  <span style={{ fontSize: isMobile ? 11 : 10 }}>
+                    {errorText(att.error, t)}
+                  </span>
                 )}
                 <button
                   onClick={() =>
@@ -740,7 +802,8 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
                       : "var(--text-ghost)",
                 }}
               >
-                {formatNumber(language, input.length)}/{formatNumber(language, MEMBERS_CHAT_MAX_CHARS)}
+                {formatNumber(language, input.length)}/
+                {formatNumber(language, MEMBERS_CHAT_MAX_CHARS)}
               </span>
             )}
           </div>
@@ -771,18 +834,27 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
   );
 }
 
-type ChatError = { key: Extract<PlainMessageKey, `membersChat.${string}`>; message: string; status?: number };
+type ChatError = {
+  key: Extract<PlainMessageKey, `membersChat.${string}`>;
+  message: string;
+  status?: number;
+};
 
 function chatError(err: unknown, key: ChatError["key"]): ChatError {
   return {
     key,
     message: err instanceof Error ? err.message : "",
-    ...(err instanceof ApiError && err.code === "upload_failed" ? { status: err.status } : {}),
+    ...(err instanceof ApiError && err.code === "upload_failed"
+      ? { status: err.status }
+      : {}),
   };
 }
 
 function errorText(error: ChatError, t: Translator["t"]): string {
   const fallback = t(error.key);
-  const message = error.status === undefined ? error.message : t("membersChat.uploadStatus", { status: error.status });
+  const message =
+    error.status === undefined
+      ? error.message
+      : t("membersChat.uploadStatus", { status: error.status });
   return message ? `${fallback}: ${message}` : fallback;
 }

@@ -487,7 +487,9 @@ describe("buildReceptionistSystemPrompt", () => {
 
   it("names the office, its people, the office instructions, the extras and the memory", () => {
     const p = buildReceptionistSystemPrompt(base);
-    expect(p).toContain('You are "Receptionist", the receptionist of the Isomux office "Acme"');
+    expect(p).toContain(
+      'You are "Receptionist", the receptionist of the Isomux office "Acme"',
+    );
     expect(p).toContain('Owners: "Nil". Members: "Mia".');
     expect(p).toContain("## Office Instructions\n\nWe ship on Fridays.");
     expect(p).toContain("## Instructions From The Owner\n\nGreet in Catalan.");

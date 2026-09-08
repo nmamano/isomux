@@ -104,7 +104,8 @@ function seedMembersChat(now: number): void {
       userName: ricky.name,
       device: "Laptop",
       timestamp: now - 39 * min,
-      content: "mine are fine. the standup board finished overnight, take a look",
+      content:
+        "mine are fine. the standup board finished overnight, take a look",
       attachments: [],
     },
     {
@@ -113,7 +114,8 @@ function seedMembersChat(now: number): void {
       userId: ricky.id,
       userName: "Michael",
       timestamp: now - 20 * min,
-      content: "Cost report for the week: 3 agents, 41 turns, all under budget.",
+      content:
+        "Cost report for the week: 3 agents, 41 turns, all under budget.",
       attachments: [],
     },
     {
@@ -786,7 +788,9 @@ function demoReply(agentId: string): string {
       typeof navigator === "undefined" ? null : navigator.language,
     ),
   ).t(
-    state.getAgent(agentId)?.receptionist ? "demo.receptionistReply" : "demo.reply",
+    state.getAgent(agentId)?.receptionist
+      ? "demo.receptionistReply"
+      : "demo.reply",
   );
 }
 
@@ -1675,7 +1679,9 @@ export async function demoApi(
         kind: "user",
         userId: ricky.id,
         userName: ricky.name,
-        ...(typeof b.device === "string" && b.device ? { device: b.device } : {}),
+        ...(typeof b.device === "string" && b.device
+          ? { device: b.device }
+          : {}),
         timestamp: Date.now(),
         content: b.text,
         attachments,

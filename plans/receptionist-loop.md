@@ -4,7 +4,7 @@ Re-read this file at the start of every iteration. Conversations compact; this f
 
 Owner: Nil. Runner: Nil's Direct Helper. No reviewer (self-review checklist per slice; a reviewer pass before merge is parked for Nil).
 Worktree: ~/nil/isomux-worktrees/lobby (branch `lobby`; this loop starts at b01bb5d, 2026-09-05, on top of the lobby scene loop and the members chat loop).
-Sibling loops in the same worktree: plans/lobby-loop.md (the SCENE, Nil's other session) and plans/members-chat-loop.md (complete). This loop never edits ui/office/lobby/* except the ONE placement hook named in slice 3.
+Sibling loops in the same worktree: plans/lobby-loop.md (the SCENE, Nil's other session) and plans/members-chat-loop.md (complete). This loop never edits ui/office/lobby/\* except the ONE placement hook named in slice 3.
 
 ## North star
 
@@ -15,6 +15,7 @@ Nil's spec (2026-09-05): a receptionist agent on a free OpenCode model, with a s
 ## Design (decided 2026-09-05; cite the files)
 
 Identity and projection:
+
 - `LOBBY_ROOM_ID = "lobby"` and `LOBBY_ROOM` (`{ id: "lobby", name: "Lobby", prompt: null }`) in shared/types.ts. Not an 8-hex id, so it never collides with a room. The lobby stays OUT of officeState.rooms, allowedRooms, notifRooms and every room list; it exists only as the receptionist's roomId.
 - AgentInfo gains `receptionist?: true` (shared/types.ts); PersistedAgent carries it too. One receptionist per office, name "Receptionist", desk 0, roomId "lobby".
 - Access: `canAccess(user, LOBBY_ROOM_ID)` is true for every user (server/isomux-office.ts). That one predicate makes roomAllowedForSession, sessionsForRoomAccess (event fan-out), hasRoomAccessForUser (route guards via agentParam) and agentVisibleForSession reach every session. `projectAgentForSession` passes the receptionist through before the room-index lookup. The emit seam's roomIdForAgent and guard-deps roomIdForAgent accept "lobby" as live.
@@ -22,10 +23,12 @@ Identity and projection:
 - Manifest (GET /agents and agents-summary.json): the receptionist is listed for every identity with `room: null`, `roomName: "Lobby"`, `roomId: "lobby"`.
 
 Reach of the receptionist's OWN token (the safe default, widening parked for Nil):
+
 - Its bearer token is minted with `userId: null` (server/identity/tokens.ts mintAgentToken), so guard-deps hasRoomAccess and accessibleRoomIdsForIdentity give it NO room: no other agent's logs or instructions, no room task boards (office-global tasks only), no killed-agent logs, no apps, no boss memory. Its AgentInfo.userId stays the owner's (env, manager display, provider accounts). Its prompt loads office + agent memory only (never room or boss scopes). Its system prompt carries no curl recipes.
 - Filesystem reach is the box's, like any agent: out of scope here, noted in the report.
 
 Lifecycle:
+
 - Persisted in `<STATE_ROOT>/receptionist.json` (one PersistedAgent + lastSessionId), never inside agents.json (which nests agents under rooms; a self-hoster downgrading keeps a clean agents.json). Loaded after rooms at boot through restoreOrReviveAgent with an explicit roomId override.
 - Ensured twice: on the first-owner hook after the welcome agents (server/isomux-office.ts setOnOwnerCreated) and at boot when an owner exists and no receptionist was restored (existing offices, this office included). Model: the free OpenCode discovery used for the Free Welcome Agent; no free model -> OPENCODE_DEFAULT_MODEL with a warning, never absent.
 - Locked: kill (409 receptionist_locked), move (409), rename (409), spawn into "lobby" (404 room_not_found). Editable: engine, model, effort, permission mode, sandbox, cwd, outfit, custom instructions ("extra instructions" on top of the base prompt), privileged flag (owner-only route as today; harmless with a null-user token).
@@ -40,9 +43,10 @@ Scene (slice 3): each layout in ui/office/lobby/layouts.ts gains a `receptionist
 plan (PICKUP block) -> implement -> commit -> gates on the committed hash -> self-review checklist -> tick the checkbox -> author the next PICKUP.
 
 Self-review checklist:
+
 1. Every gate log opens with the committed hash and ends with exit=0.
 2. No file in ~/nil/isomux (main) or another worktree touched.
-3. ui/office/lobby/* untouched except layouts.ts (the slot) and LobbyScene.tsx (the prop) in slice 3.
+3. ui/office/lobby/\* untouched except layouts.ts (the slot) and LobbyScene.tsx (the prop) in slice 3.
 4. Every grant and every denial the design names is pinned by a harness test, not asserted in prose.
 5. A scripted edit was grepped before anything depended on it.
 6. UI slices: screenshots exist for dark and light and were LOOKED AT (Read the PNG).
@@ -70,7 +74,7 @@ Safety hook: every write target in a shell command must be an ABSOLUTE path; inv
 
 - Never edit files in ~/nil/isomux (main) or in any other worktree.
 - Never restart the isomux server. Never push. Never merge. Never run prettier.
-- Never edit ui/office/lobby/* beyond the slot in layouts.ts and the `receptionist` prop in LobbyScene.tsx.
+- Never edit ui/office/lobby/\* beyond the slot in layouts.ts and the `receptionist` prop in LobbyScene.tsx.
 - Never store a lobby in officeState.rooms or in any user's allowedRooms / notifRooms.
 - Never let the receptionist's token reach a room: every read it could leak (other agents' logs, room tasks, room memory, killed logs) has a test pinning the denial.
 - Never let the receptionist be killed, moved, renamed or spawned twice; a test pins each.
@@ -115,14 +119,15 @@ Safety hook: every write target in a shell command must be an ABSOLUTE path; inv
 Baseline: b01bb5d + the commit that adds this file.
 Goal: the receptionist exists on every office with an owner, reaches every session, is locked against kill/move/rename, and its own token reaches no room - all over the real HTTP and WS surface.
 Mechanics:
+
 - shared/types.ts: `LOBBY_ROOM_ID`, `LOBBY_ROOM`, `AgentInfo.receptionist?: true`. server/persistence.ts: `PersistedAgent.receptionist?: true`; `RECEPTIONIST_FILE = join(ISOMUX_DIR, "receptionist.json")`, `loadReceptionist(): PersistedAgent | null`, `saveReceptionist(p | null)`.
 - shared/office-state.ts spawn: `receptionist?: true` in opts -> skip the room check and desk scan, roomId LOBBY_ROOM_ID, desk 0, flag stamped; a second receptionist returns null. kill/moveAgent return [] for the receptionist; editAgent ignores `name` for it.
 - agent-manager: `spawnReceptionist({ cwd, modelFamily, permissionMode, outfit, userId, username })` (reuses spawn's body via a shared internal `spawnWith(opts)`; spawn keeps its positional signature); restoreAgents reads receptionist.json after the room loop (restoreOrReviveAgent gains `roomIdOverride`); persistAll writes it separately and never into a room bucket; roomById("lobby") returns LOBBY_ROOM; memoryRefsFor for the receptionist = office + agent; `mintAgentToken(id, receptionist ? null : userId, ...)` at the three mint sites; manifestEntries: room null + roomName "Lobby" (ManifestAgentInput.room: number | null; buildManifest keeps `+1` only for numbers); kill() returns without effect for the receptionist; `getReceptionist()`.
 - isomux-office: canAccess lobby; projectAgentForSession pass-through; emit roomIdForAgent + guard-deps roomIdForAgent accept lobby; GET /agents filter includes lobby entries; `ensureReceptionist(ownerUsername)` (free-model discovery as the welcome agent, default model fallback) called from the owner hook after the welcome agents and at boot after restoreAgents when an owner exists; REST deps: kill/move/edit(name) -> `{ ok: false, reason: "receptionist_locked" }` mapped to 409 in the handlers.
 - Presence: a `currentRoomId` of "lobby" from a client sanitizes to null (it already does: the rooms membership check).
 - Tests in server/test-support/receptionist.test.ts (harness): claim -> four agents, the receptionist roomId lobby, flag, token userId null; restart -> still one, from receptionist.json; boot with an owner and no file -> spawned; zero-room member: full_state carries it, log_entry from its turn reaches the member's socket, POST message 201/202, GET its logs 200, GET another agent's logs 403; owner: DELETE 409, POST move 409, PATCH name 409, PATCH modelFamily 200, spawn roomId lobby 404, DELETE /api/rooms/lobby 404, swap-desks lobby 404; the receptionist's token: GET /agents lists only itself with room null, GET another agent's logs 403, GET /api/tasks shows global tasks only; a user spawn named "Receptionist" -> 409 name_taken. Update onboarding.test.ts counts (3 -> 4 where the claim runs) and any manifest test that counts entries.
-Acceptance: scoped tests exit=0 on the committed hash; build:ui and eslint green.
-Locked: the constants, the flag, the file name, the 409 code `receptionist_locked` (slices 2-4 depend on them).
+  Acceptance: scoped tests exit=0 on the committed hash; build:ui and eslint green.
+  Locked: the constants, the flag, the file name, the 409 code `receptionist_locked` (slices 2-4 depend on them).
 
 ## SLICE-2 PICKUP (authored after slice 1 committed)
 
@@ -130,13 +135,14 @@ What slice 1 taught: agent-to-agent delivery is office-wide by design (messageSe
 
 Goal: the receptionist speaks from a purpose-built prompt: Isomux knowledge, this office, its limits, the owner's extras - and no affordance recipes.
 Mechanics:
+
 - api/chat.ts: split SYSTEM_PROMPT into the site voice header and an exported `ISOMUX_KNOWLEDGE` (from "## What is Isomux?" through the Guidelines); SYSTEM_PROMPT stays byte-identical as their concatenation (api/chat-prompt.test.ts pins the composition).
 - server/system-prompt.ts: `buildReceptionistSystemPrompt(input)` with input { agentName, officeName, members: {name, role}[], officePrompt, customInstructions, autoLoadedMemory, publicOrigin }: identity and voice (in the office, not on the website), ISOMUX_KNOWLEDGE, "This office" (name, members and roles, the office-wide instructions), what it cannot see and where to send people (an owner for room access, /help, the docs, Discord), the no-secrets rule, the owner's extra instructions, memorySection. No curl, no bearer token, no OpenCode rewrite.
 - agent-manager createSession: branch on managed.info.receptionist (members from listUsers()); command-handlers /isomux-system-prompt: same branch through a new CommandDeps member `receptionistSystemPrompt(managed)`.
 - The ordinary prompt's manifest sentence gains one clause: the receptionist is listed with room null and roomName "Lobby".
 - Tests: system-prompt.test.ts (office name, member names, office prompt, extras, memory, the knowledge marker, no ISOMUX_AGENT_TOKEN, no curl, no room prompt), api/chat-prompt.test.ts (composition), receptionist.test.ts (the fake backend's createSession received a prompt naming the office and no bearer token).
-Acceptance: scoped tests exit=0 on the committed hash; build:ui and eslint green.
-Locked: the function name and input shape (slice 4's docs cite them).
+  Acceptance: scoped tests exit=0 on the committed hash; build:ui and eslint green.
+  Locked: the function name and input shape (slice 4's docs cite them).
 
 ## SLICE-3 PICKUP (authored after slice 2 committed)
 
@@ -144,6 +150,7 @@ What slice 2 taught: the shared knowledge mentions "curl cards" as a feature, so
 
 Goal: the receptionist stands by the counter in the lobby, a click opens its chat like any agent, a phone lists it above the members chat, the dialogs respect the locks, and the demo shows it - all seen in screenshots.
 Mechanics:
+
 - ui/office/lobby/layouts.ts: `LayoutSpec.receptionist: { a, b }` - lounge (3.6, 0.1) behind the counter (painter's order puts the counter over its legs), fireside (7.9, 0.9) by the directory board, nook (7.8, 0.9). ui/office/lobby/LobbyScene.tsx: `LobbySceneProps.receptionist?: ReactNode`; LobbyProps draws it as one more floor item at that slot (ContactShadow rx 14 ry 7, then the node translated to floorXY). Nothing else in ui/office/lobby changes.
 - ui/office/ReceptionistFigure.tsx (new, outside the scene): `<g style={{ pointerEvents: "auto", cursor: "pointer" }} onClick onContextMenu>` holding the Character (ui/office/Character.tsx, its feet at viewBox y 60, so translate(-26 -60)) and an SVG nametag pill above the head (name, state dot, unread badge). Static-markup test.
 - ui/office/OfficeView.tsx: find the receptionist in `agents`; pass the figure to LobbyScene with `viewport.wrapClick(() => dispatch focus)` and the context-menu callback; exclude it from employeeOfTheMinute.
@@ -151,9 +158,9 @@ Mechanics:
 - ui/App.tsx: presence reports no room while the receptionist is focused. ui/store.tsx: the turn-end sound fires for the lobby regardless of notifRooms.
 - ui/components/ContextMenu.tsx: no Kill entry for the receptionist. ui/components/EditAgentDialog.tsx: name input locked with a hint, the desk line reads "Lobby".
 - ui/demo-server.ts: seed a receptionist (roomId LOBBY_ROOM_ID, receptionist true, opencode, desk 0) outside the embed; a receptionist-specific canned reply.
-- Shots: scripts/receptionist-shots.sh + .mjs (model: scripts/members-chat-shots.*): the Lobby tab dark and light at 1280x800, the receptionist chat after a click, and the 390x844 mobile list; PNGs in /tmp/recep-shots/slice-3/, copied to ~/nil/lobby-gallery/receptionist/.
+- Shots: scripts/receptionist-shots.sh + .mjs (model: scripts/members-chat-shots.\*): the Lobby tab dark and light at 1280x800, the receptionist chat after a click, and the 390x844 mobile list; PNGs in /tmp/recep-shots/slice-3/, copied to ~/nil/lobby-gallery/receptionist/.
 - Tests: LobbyScene.test.tsx (every layout has a slot inside the floor; a passed node renders in the lounge markup), ReceptionistFigure.test.tsx, ui/demo-server.test.ts (the seeded receptionist), ui/store.test.ts if the sound rule moves into the reducer.
-Acceptance: build:ui, build:demo, scoped tests (ui/office, ui/store.test.ts, ui/demo-server.test.ts, ui/components), eslint on touched files, all exit=0 on the committed hash; PNGs looked at.
+  Acceptance: build:ui, build:demo, scoped tests (ui/office, ui/store.test.ts, ui/demo-server.test.ts, ui/components), eslint on touched files, all exit=0 on the committed hash; PNGs looked at.
 
 ## SLICE-4 PICKUP (authored after slice 3 committed)
 
