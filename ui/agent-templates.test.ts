@@ -85,12 +85,12 @@ function model(
 }
 
 describe("agent template catalog", () => {
-  it("contains Nil's exact 12 templates in the approved order", () => {
+  it("contains the receptionist profile and the existing templates in order", () => {
     expect(
       AGENT_TEMPLATES.map((template) => english.t(template.labelKey)),
-    ).toEqual(EXPECTED_LABELS);
+    ).toEqual(["Isomux Receptionist", ...EXPECTED_LABELS]);
     expect(new Set(AGENT_TEMPLATES.map((template) => template.key)).size).toBe(
-      12,
+      13,
     );
   });
 
@@ -106,11 +106,11 @@ describe("agent template catalog", () => {
           ],
         ]),
       ),
-    ).toEqual(EXPECTED_TEMPLATE_SETTINGS);
+    ).toEqual({ "Isomux Receptionist": ["work", "medium", "medium"], ...EXPECTED_TEMPLATE_SETTINGS });
   });
 
   it("composes every prompt from the shared software workflow clauses", () => {
-    for (const template of AGENT_TEMPLATES) {
+    for (const template of AGENT_TEMPLATES.filter((t) => t.key !== "isomux-receptionist")) {
       expect(english.t(template.descriptionKey).length).toBeGreaterThan(0);
       expect(template.customInstructions).toContain(FIRST_TURN_CLAUSE);
       expect(template.customInstructions).toContain(SOFTWARE_TOOL_CLAUSE);
@@ -119,7 +119,7 @@ describe("agent template catalog", () => {
   });
 
   it("uses only valid fixed outfit values", () => {
-    for (const template of AGENT_TEMPLATES) {
+    for (const template of AGENT_TEMPLATES.filter((t) => t.key !== "isomux-receptionist")) {
       expect(SHIRT_COLORS).toContain(template.outfit.color);
       expect(HAIR_COLORS).toContain(template.outfit.hair);
       expect(HAIR_STYLES).toContain(template.outfit.hairStyle);

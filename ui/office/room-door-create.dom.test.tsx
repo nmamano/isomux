@@ -3,6 +3,8 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
+const { OfficeState } = await import("../../shared/office-state.ts");
+const { LOBBY_ROOM } = await import("../../shared/types.ts");
 const { mount, room, act, fireEvent, shimEmit, fullState, setReply } = fixture;
 fixture.setupRoomDoorTests();
 
@@ -27,17 +29,25 @@ for (const broadcastFirst of [true, false]) {
   });
 }
 
-it("creates the first room from the zero-room lobby and retains selection after member full_state", async () => {
-  const view = mount([]);
+it("creates a protected first ordinary room from the canonical lobby and retains selection", async () => {
+  const state = new OfficeState({rooms: [LOBBY_ROOM]});
+  const view = mount([LOBBY_ROOM]);
+  setReply(async () => {
+    state.createRoom();
+    return {room: state.ordinaryRooms[0]};
+  });
   expect(fixture.snapshot.lobbyOpen).toBe(true);
   await act(async () => fireEvent.click(view.getByRole("button", { hidden: true, name: "New room" })));
   await act(async () => fireEvent.click(view.getByRole("button", { hidden: true, name: "Open room" })));
-  expect(fixture.snapshot.currentRoomId).toBe("created");
-  expect(fixture.snapshot.rooms).toHaveLength(1);
+  const created = state.ordinaryRooms[0];
+  expect(created.canCloseWhenEmpty).toBe(false);
+  expect(state.rooms.find((r) => r.id === "lobby")?.canCloseWhenEmpty).toBe(false);
+  expect(fixture.snapshot.currentRoomId).toBe(created.id);
+  expect(fixture.snapshot.rooms).toHaveLength(2);
   expect(fixture.snapshot.lobbyOpen).toBe(false);
-  await act(async () => fullState([room("created", "Room 2")]));
-  expect(fixture.snapshot.currentRoomId).toBe("created");
+  await act(async () => fullState([...state.rooms]));
+  expect(fixture.snapshot.currentRoomId).toBe(created.id);
   expect(fixture.snapshot.lobbyOpen).toBe(false);
-  expect(fixture.snapshot.rooms).toHaveLength(1);
+  expect(fixture.snapshot.rooms).toHaveLength(2);
 });
 

@@ -53,6 +53,7 @@ export interface AccessSettings {
 // TaskItem / Cronjob, so the request alias and the entity stay in lockstep.
 
 export interface SpawnReq {
+  profileKey?: string;
   name: string;
   cwd: string;
   roomId: string;

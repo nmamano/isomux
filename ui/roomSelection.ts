@@ -1,3 +1,4 @@
+import { ordinaryRooms } from "../shared/types.ts";
 import type { RoomWire } from "../shared/types.ts";
 
 // Pure room-selection helpers for the client store. Kept dependency-free
@@ -16,6 +17,7 @@ export function resolveSelectedRoomId(
   current: string | null,
   preferred: string | null = null,
 ): string | null {
+  rooms = ordinaryRooms(rooms);
   if (preferred && rooms.some((r) => r.id === preferred)) return preferred;
   if (current && rooms.some((r) => r.id === current)) return current;
   return rooms[0]?.id ?? null;

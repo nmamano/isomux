@@ -1,11 +1,5 @@
-// The receptionist: the one agent in the lobby, reachable by every user of the
-// office - a member with no rooms included - and locked against kill, move and
-// rename. Its own token reaches no room. Pinned over the real HTTP + WS surface.
-//
-// Seam: startTestServer(). Zero LLM.
-
-import { describe, it, expect, afterEach } from "bun:test";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "fs";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import {
   startTestServer,
@@ -13,7 +7,10 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { RECEPTIONIST_CWD } from "../receptionist-workspace.ts";
+import { homedir } from "os";
+import { ISOMUX_KNOWLEDGE } from "../../api/chat.ts";
+import { OfficeState } from "../../shared/office-state.ts";
+import { LOBBY_ROOM } from "../../shared/types.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -86,7 +83,7 @@ const errCode = (body: unknown) =>
   (body as { error?: { code?: string } } | null)?.error?.code;
 
 function receptionistOf(srv: TestServer): AgentInfo {
-  const r = srv.agentManager.getReceptionist();
+  const r = srv.agentManager.getAllAgents().find((a) => a.roomId === LOBBY_ROOM_ID);
   expect(r).toBeDefined();
   return r as AgentInfo;
 }
@@ -100,394 +97,259 @@ async function connectAndSettle(
   return sock;
 }
 
-describe("receptionist: lifecycle", () => {
-  it("spawns on the first-owner claim after the welcome agents, in the lobby, on the free OpenCode model", async () => {
-    const srv = await startTestServer();
-    server = srv;
+describe("receptionist profile and lobby", () => {
+  it("claim creates three welcome agents and one ordinary lobby agent; preclaim has none", async () => {
+    const srv = server = await startTestServer();
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
+    expect(srv.agentManager.getRooms().some((r) => r.type === "lobby")).toBe(false);
     await claimOwner(srv, "Boss");
-
-    const agents = srv.agentManager.getAllAgents();
-    expect(agents.length).toBe(4);
+    expect(srv.agentManager.getAllAgents().map((a) => a.name).sort()).toEqual(["Claude Welcome Agent", "Codex Welcome Agent", "Free Welcome Agent", "Receptionist"]);
     const r = receptionistOf(srv);
-    expect(r.name).toBe("Receptionist");
-    expect(r.receptionist).toBe(true);
-    expect(r.roomId).toBe(LOBBY_ROOM_ID);
-    expect(r.desk).toBe(0);
-    expect(r.cwd).toBe(RECEPTIONIST_CWD);
-    expect(existsSync(r.cwd)).toBe(true);
-    expect(readdirSync(r.cwd)).toEqual([]);
-    expect(r.agentType).toBe("opencode");
-    expect(r.modelFamily).toBe("opencode/muse-spark-1.2-contributor-free");
+    expect(r.cwd).toBe(homedir());
+    expect(r.permissionMode).toBe("bypassPermissions");
     expect(r.username).toBe("Boss");
-    // No room list contains the lobby.
-    expect(
-      srv.agentManager.getRooms().some((x) => x.id === LOBBY_ROOM_ID),
-    ).toBe(false);
-    // Its record lives in its own file, never in agents.json.
-    const stateRoot = srv.stateRoot;
-    expect(existsSync(join(stateRoot, "receptionist.json"))).toBe(true);
-    expect(readFileSync(join(stateRoot, "agents.json"), "utf8")).not.toContain(
-      "Receptionist",
-    );
+    expect(r.userId).toBeTruthy();
+    expect(r.customInstructions).toContain(ISOMUX_KNOWLEDGE);
+    expect(r.customInstructions).toContain('Owners: "Boss". Members: none.');
+    expect("receptionist" in r).toBe(false);
+    expect(srv.agentManager.getOrdinaryRooms()[0].canCloseWhenEmpty).toBe(false);
+    expect(srv.agentManager.getRooms().find((r) => r.type === "lobby")?.canCloseWhenEmpty).toBe(false);
+    const rooms = JSON.parse(readFileSync(join(srv.stateRoot, "agents.json"), "utf8"));
+    expect(rooms.find((r: {type?: string}) => r.type === "lobby").agents[0].id).toBe(r.id);
+    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(false);
   });
 
-  it("restarts as the same agent, still exactly one", async () => {
-    let srv = await startTestServer();
-    server = srv;
+  for (const failure of ["null", "throw"] as const) {
+    it(`retries a ${failure} default spawn after restart without losing welcome agents`, async () => {
+      let srv = server = await startTestServer();
+      const spawn = spyOn(srv.agentManager, "spawn");
+      if (failure === "null") spawn.mockResolvedValueOnce(null);
+      else spawn.mockRejectedValueOnce(new Error("seed failed once"));
+      try { await claimOwner(srv, "Boss"); } finally { spawn.mockRestore(); }
+      expect(srv.agentManager.getAllAgents().map((a) => a.name).sort()).toEqual(["Claude Welcome Agent", "Codex Welcome Agent", "Free Welcome Agent"]);
+      const pending = JSON.parse(readFileSync(join(srv.stateRoot, "agents.json"), "utf8"));
+      expect(pending.find((r: {id: string}) => r.id === "lobby").defaultAgentPending).toBe(true);
+      srv = server = await srv.restart();
+      expect(receptionistOf(srv).username).toBe("Boss");
+      expect(srv.agentManager.getAllAgents()).toHaveLength(4);
+      const complete = JSON.parse(readFileSync(join(srv.stateRoot, "agents.json"), "utf8"));
+      expect(complete.find((r: {id: string}) => r.id === "lobby").defaultAgentPending).toBeUndefined();
+    });
+  }
+
+  it("settles a pending seed that already has an occupant before a later move", async () => {
+    let srv = server = await startTestServer();
     await claimOwner(srv, "Boss");
-    const before = receptionistOf(srv);
-    // Old versions persisted the home directory; boot must replace it.
-    const recordPath = join(srv.stateRoot, "receptionist.json");
-    const record = JSON.parse(readFileSync(recordPath, "utf8"));
-    record.cwd = "~";
-    writeFileSync(recordPath, JSON.stringify(record));
-
-    srv = await srv.restart();
-    server = srv;
-    const after = srv.agentManager.getAllAgents().filter((a) => a.receptionist);
-    expect(after.length).toBe(1);
-    expect(after[0].id).toBe(before.id);
-    expect(after[0].cwd).toBe(before.cwd);
-    expect(after[0].cwd).toBe(RECEPTIONIST_CWD);
-    expect(after[0].roomId).toBe(LOBBY_ROOM_ID);
-    expect(srv.agentManager.getAllAgents().length).toBe(4);
+    const r = receptionistOf(srv);
+    const file = join(srv.stateRoot, "agents.json");
+    const rooms = JSON.parse(readFileSync(file, "utf8"));
+    rooms.find((room: {id: string}) => room.id === "lobby").defaultAgentPending = true;
+    writeFileSync(file, JSON.stringify(rooms));
+    srv = server = await srv.restart();
+    expect(receptionistOf(srv).id).toBe(r.id);
+    expect(srv.agentManager.lobbySeedIsPending()).toBe(false);
+    expect(srv.agentManager.moveAgent(r.id, srv.agentManager.getOrdinaryRooms()[0].id)).toBe(true);
+    srv = server = await srv.restart();
+    expect(srv.agentManager.getAllAgents().some((agent) => agent.roomId === "lobby")).toBe(false);
   });
 
-  it("an office with an owner but no receptionist gets one at boot", async () => {
-    let srv = await startTestServer();
-    server = srv;
-    // seedOwner skips the owner-created hook: an office from before the feature.
+  it("uses a discovered free model for both receptionist and Free Welcome Agent", async () => {
+    const srv = server = await startTestServer({startServer: {
+      discoverWelcomeOpenCodeModels: async () => [{id: "opencode/available-free", label: "Available", isFree: true, supportedEfforts: []}],
+    }});
+    await claimOwner(srv, "Boss");
+    expect(receptionistOf(srv).modelFamily).toBe("opencode/available-free");
+    expect(srv.agentManager.getAllAgents().find((a) => a.name === "Free Welcome Agent")?.modelFamily).toBe("opencode/available-free");
+  });
+
+  it("keeps lobby access at the id boundary before the canonical room exists", async () => {
+    const srv = server = await startTestServer();
     await srv.seedOwner("Boss");
-    expect(srv.agentManager.getReceptionist()).toBeUndefined();
-
-    srv = await srv.restart();
-    server = srv;
-    const r = receptionistOf(srv);
-    expect(r.roomId).toBe(LOBBY_ROOM_ID);
-    expect(r.username).toBe("Boss");
+    const member = await srv.seedMember("Mia");
+    expect(srv.agentManager.getRooms().some((room) => room.id === "lobby")).toBe(false);
+    const response = await api(srv, "DELETE", "/api/rooms/lobby", {rawSessionId: member.rawSessionId});
+    expect(response.status).toBe(404);
+    expect(errCode(response.body)).toBe("room_not_found");
   });
 
-  it("an office that already had agents keeps them and gains only the receptionist on claim", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const existing = await srv.agentManager.spawn(
-      "Existing Agent",
-      "~",
-      "auto",
-    );
-    expect(existing).not.toBeNull();
-    await claimOwner(srv, "Boss");
-    const names = srv.agentManager.getAllAgents().map((a) => a.name);
-    expect(names.sort()).toEqual(["Existing Agent", "Receptionist"]);
+  it("protects the first ordinary room even with lobby-first storage", () => {
+    const state = new OfficeState({ rooms: [LOBBY_ROOM, { id: "ordinary", name: "Room 1", prompt: null }] });
+    expect(state.rooms.map((r) => r.canCloseWhenEmpty)).toEqual([false, false]);
+    expect(state.closeRoom("ordinary")).toEqual([]);
+    expect(state.closeRoom("lobby")).toEqual([]);
   });
 
-  it("a user cannot take the receptionist's name", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const cookie = await claimOwner(srv, "Boss");
-    const room = srv.agentManager.getRooms()[0].id;
-    const res = await api(srv, "POST", "/api/agents", {
-      rawSessionId: cookie,
-      body: { name: "receptionist", cwd: "~", roomId: room, desk: 5 },
-    });
-    expect(res.status).toBe(409);
-    expect(errCode(res.body)).toBe("name_taken");
-  });
-});
-
-describe("receptionist: locks", () => {
-  it("kill, move, rename and cwd changes are refused with 409 receptionist_locked; the rest is editable", async () => {
-    const srv = await startTestServer();
-    server = srv;
+  it("allows name/cwd edits, move out and in, kill and revive; persists empty lobby", async () => {
+    let srv = server = await startTestServer();
     const cookie = await claimOwner(srv, "Boss");
     const r = receptionistOf(srv);
-    const room = srv.agentManager.getRooms()[0].id;
-
-    const kill = await api(srv, "DELETE", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-    });
-    expect(kill.status).toBe(409);
-    expect(errCode(kill.body)).toBe("receptionist_locked");
-    expect(srv.agentManager.getReceptionist()?.id).toBe(r.id);
-
-    const move = await api(srv, "POST", `/api/agents/${r.id}/move`, {
-      rawSessionId: cookie,
-      body: { targetRoomId: room },
-    });
-    expect(move.status).toBe(409);
-    expect(errCode(move.body)).toBe("receptionist_locked");
-    expect(srv.agentManager.getAgent(r.id)?.roomId).toBe(LOBBY_ROOM_ID);
-
-    const rename = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-      body: { name: "Concierge" },
-    });
-    expect(rename.status).toBe(409);
-    expect(errCode(rename.body)).toBe("receptionist_locked");
-    expect(srv.agentManager.getAgent(r.id)?.name).toBe("Receptionist");
-
-    const changeCwd = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-      body: { cwd: "~" },
-    });
-    expect(changeCwd.status).toBe(409);
-    expect(errCode(changeCwd.body)).toBe("receptionist_locked");
-    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(RECEPTIONIST_CWD);
-
-    // Same name echoed back is not a rename.
-    const same = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-      body: { name: "Receptionist", effort: "low" },
-    });
-    expect(same.status).toBe(200);
-
-    // The model is the owner's to pick.
-    const model = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-      body: { modelFamily: "opencode/kimi-k3" },
-    });
-    expect(model.status).toBe(200);
-    expect(srv.agentManager.getAgent(r.id)?.modelFamily).toBe(
-      "opencode/kimi-k3",
-    );
-
-    // Extra instructions on top of its base prompt.
-    const read = await api(srv, "GET", `/api/agents/${r.id}/instructions`, {
-      rawSessionId: cookie,
-    });
-    expect(read.status).toBe(200);
-    const version = (read.body as { customInstructionsVersion: string })
-      .customInstructionsVersion;
-    const extra = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: cookie,
-      body: {
-        customInstructions: "Greet in Catalan.",
-        customInstructionsVersion: version,
-      },
-    });
-    expect(extra.status).toBe(200);
-    expect(srv.agentManager.getAgent(r.id)?.customInstructions).toBe(
-      "Greet in Catalan.",
-    );
-
-    // The core itself refuses too (defense in depth behind the REST dep).
-    await srv.agentManager.kill(r.id);
-    expect(srv.agentManager.getReceptionist()?.id).toBe(r.id);
-    expect(srv.agentManager.moveAgent(r.id, room)).toBe(false);
-  });
-
-  it("the lobby id is not a room: spawn, close and swap-desks answer 404", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const cookie = await claimOwner(srv, "Boss");
-
-    const spawn = await api(srv, "POST", "/api/agents", {
-      rawSessionId: cookie,
-      body: { name: "Intruder", cwd: "~", roomId: LOBBY_ROOM_ID, desk: 1 },
-    });
-    expect(spawn.status).toBe(404);
-    expect(errCode(spawn.body)).toBe("room_not_found");
-
-    const close = await api(srv, "DELETE", `/api/rooms/${LOBBY_ROOM_ID}`, {
-      rawSessionId: cookie,
-    });
-    expect(close.status).toBe(404);
-
-    const swap = await api(
-      srv,
-      "POST",
-      `/api/rooms/${LOBBY_ROOM_ID}/swap-desks`,
-      { rawSessionId: cookie, body: { deskA: 0, deskB: 1 } },
-    );
-    // The core finds no such room and no agent moves; the receptionist stays
-    // at desk 0 either way.
-    expect([204, 404]).toContain(swap.status);
-    expect(srv.agentManager.getReceptionist()?.desk).toBe(0);
-  });
-});
-
-describe("receptionist: reach of a member with no rooms", () => {
-  it("sees it in full_state, receives its turn, can message it and read its logs, and nothing else", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await claimOwner(srv, "Boss");
-    const r = receptionistOf(srv);
-    const welcome = srv.agentManager
-      .getAllAgents()
-      .find((a) => a.name === "Claude Welcome Agent")!;
-    const member = await srv.seedMember("Mia"); // allowedRooms: []
-
-    const sock = await connectAndSettle(srv, member.rawSessionId);
-    const full = sock.messages.find(
-      (m) => (m as { type?: string }).type === "full_state",
-    ) as { agents: AgentInfo[]; rooms: unknown[] };
-    expect(full.rooms).toEqual([]);
-    expect(full.agents.map((a) => a.id)).toEqual([r.id]);
-    expect(full.agents[0].receptionist).toBe(true);
-
-    // Messaging it starts a turn whose entries reach the member's socket.
-    const sent = await api(srv, "POST", `/api/agents/${r.id}/messages`, {
-      rawSessionId: member.rawSessionId,
-      body: { text: "Where do I find the docs?" },
-    });
-    expect(sent.status).toBe(200);
-    await waitUntil(
-      () =>
-        sock.messages.some(
-          (m) =>
-            (m as { type?: string; entry?: { agentId: string; kind: string } })
-              .type === "log_entry" &&
-            (m as { entry: { agentId: string; kind: string } }).entry
-              .agentId === r.id &&
-            (m as { entry: { kind: string } }).entry.kind === "text",
-        ),
-      5000,
-      "receptionist reply on the member socket",
-    );
-    // Nothing from the welcome agent ever reaches this socket.
-    expect(
-      sock.messages.some(
-        (m) =>
-          (m as { entry?: { agentId?: string } }).entry?.agentId === welcome.id,
-      ),
-    ).toBe(false);
-
-    // Its session ran the receptionist prompt: this office, no recipes.
-    const session = srv.fakeBackend.sessionForAgent(r.id)!;
-    expect(session.opts.systemPrompt).toContain(
-      "the receptionist of the Isomux office",
-    );
-    expect(session.opts.systemPrompt).toContain(
-      'Owners: "Boss". Members: "Mia".',
-    );
-    expect(session.opts.systemPrompt).not.toContain("ISOMUX_AGENT_TOKEN");
-    expect(session.opts.systemPrompt).not.toContain("http://isomux");
-
-    const own = await api(srv, "GET", `/api/agents/${r.id}/logs`, {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(own.status).toBe(200);
-    const other = await api(srv, "GET", `/api/agents/${welcome.id}/logs`, {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(other.status).toBe(403);
-
-    // The member cannot reconfigure it (agent:manage is a user capability, but
-    // the room-access guard is the lobby, so this is allowed for any member) -
-    // pin the current answer so a change here is deliberate.
-    const edit = await api(srv, "PATCH", `/api/agents/${r.id}`, {
-      rawSessionId: member.rawSessionId,
-      body: { effort: "low" },
-    });
+    const room = srv.agentManager.getOrdinaryRooms()[0].id;
+    const edit = await api(srv, "PATCH", `/api/agents/${r.id}`, { rawSessionId: cookie, body: { name: "Concierge", cwd: srv.stateRoot } });
     expect(edit.status).toBe(200);
-    sock.close();
+    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.stateRoot);
+    expect((await api(srv, "POST", `/api/agents/${r.id}/move`, { rawSessionId: cookie, body: { targetRoomId: room } })).status).toBe(200);
+    const other = srv.agentManager.getAllAgents().find((a) => a.id !== r.id)!;
+    expect(srv.agentManager.moveAgent(other.id, "lobby")).toBe(true);
+    expect(srv.agentManager.moveAgent(r.id, "lobby")).toBe(false);
+    expect(srv.agentManager.moveAgent(other.id, room)).toBe(true);
+    expect(srv.agentManager.moveAgent(r.id, "lobby")).toBe(true);
+    expect(srv.agentManager.getAgent(r.id)?.desk).toBe(0);
+    expect((await api(srv, "DELETE", `/api/agents/${r.id}`, { rawSessionId: cookie })).status).toBe(204);
+    expect(srv.agentManager.getAgent(r.id)).toBeUndefined();
+    srv = server = await srv.restart();
+    expect(srv.agentManager.getAllAgents().some((a) => a.roomId === "lobby")).toBe(false);
+    const revived = await srv.agentManager.revive(r.id, "lobby", 0);
+    expect(revived.ok).toBe(true);
+    expect(srv.agentManager.getAgent(r.id)?.name).toBe("Concierge");
+    expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.stateRoot);
   });
 
-  it("the manifest lists it for every identity with room null and roomName Lobby", async () => {
-    const srv = await startTestServer();
-    server = srv;
+  it("restores a legacy receptionist once and preserves owner instruction bytes", async () => {
+    let srv = server = await startTestServer();
+    await claimOwner(srv, "Boss");
+    const r = receptionistOf(srv);
+    const file = join(srv.stateRoot, "agents.json");
+    const rooms = JSON.parse(readFileSync(file, "utf8"));
+    const legacy = rooms.find((x: {type?: string}) => x.type === "lobby").agents[0];
+    const extra = "  Greet in Catalan.\nKeep this spacing.  ";
+    legacy.customInstructions = extra;
+    legacy.cwd = "/missing/isomux-receptionist";
+    legacy.receptionist = true;
+    writeFileSync(join(srv.stateRoot, "receptionist.json"), JSON.stringify(legacy));
+    writeFileSync(file, JSON.stringify(rooms.filter((x: {type?: string}) => x.type !== "lobby")));
+    srv = server = await srv.restart();
+    const after = receptionistOf(srv);
+    expect(after.id).toBe(r.id);
+    expect(after.cwd).toBe(homedir());
+    expect(after.customInstructions).toContain(ISOMUX_KNOWLEDGE);
+    expect(after.customInstructions?.endsWith(extra)).toBe(true);
+    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(false);
+    const text = after.customInstructions;
+    srv = server = await srv.restart();
+    expect(receptionistOf(srv).customInstructions).toBe(text);
+  });
+
+  it("keeps legacy input when writing the canonical agent file fails", async () => {
+    let srv = server = await startTestServer();
+    await claimOwner(srv, "Boss");
+    const file = join(srv.stateRoot, "agents.json");
+    const rooms = JSON.parse(readFileSync(file, "utf8"));
+    const legacy = rooms.find((x: {type?: string}) => x.type === "lobby").agents[0];
+    writeFileSync(join(srv.stateRoot, "receptionist.json"), JSON.stringify(legacy));
+    unlinkSync(file);
+    mkdirSync(file);
+    srv = server = await srv.restart();
+    expect(receptionistOf(srv).id).toBe(legacy.id);
+    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(true);
+  });
+
+  it("keeps a legacy record when the canonical lobby is occupied", async () => {
+    let srv = server = await startTestServer();
+    await claimOwner(srv, "Boss");
+    const r = receptionistOf(srv);
+    const file = join(srv.stateRoot, "receptionist.json");
+    writeFileSync(file, JSON.stringify({ ...r, id: "legacy-other", receptionist: true }));
+    srv = server = await srv.restart();
+    expect(receptionistOf(srv).id).toBe(r.id);
+    expect(srv.agentManager.getAgent("legacy-other")).toBeUndefined();
+    expect(existsSync(file)).toBe(true);
+  });
+
+  it("seeds an upgraded office with an owner and no lobby at boot", async () => {
+    let srv = server = await startTestServer();
+    await srv.seedOwner("Boss");
+    srv = server = await srv.restart();
+    expect(receptionistOf(srv).username).toBe("Boss");
+  });
+
+  it("renders a validated profile at spawn and enforces the target desk range", async () => {
+    const srv = server = await startTestServer();
+    const cookie = await claimOwner(srv, "Boss");
+    const room = srv.agentManager.getOrdinaryRooms()[0].id;
+    const body = { name: "Fresh Receptionist", cwd: "~", roomId: room, desk: 4, permissionMode: "bypassPermissions", profileKey: "isomux-receptionist", customInstructions: "My edited voice." };
+    const result = await api(srv, "POST", "/api/agents", { rawSessionId: cookie, body });
+    expect(result.status).toBe(201);
+    const agent = (result.body as {agent: AgentInfo}).agent;
+    expect(agent.customInstructions?.startsWith("My edited voice.")).toBe(true);
+    expect(agent.customInstructions).toContain(ISOMUX_KNOWLEDGE);
+    const badProfile = await api(srv, "POST", "/api/agents", { rawSessionId: cookie, body: { ...body, name: "Invalid", profileKey: "unknown" } });
+    expect(errCode(badProfile.body)).toBe("invalid_request");
+    for (const desk of [-1, 1, 7, 0.5]) {
+      const badDesk = await api(srv, "POST", "/api/agents", { rawSessionId: cookie, body: { ...body, name: "Invalid", roomId: "lobby", desk } });
+      expect(badDesk.status).toBe(422);
+      expect(JSON.stringify(badDesk.body)).toContain("0 to 0");
+    }
+    const swap = await api(srv, "POST", "/api/rooms/lobby/swap-desks", { rawSessionId: cookie, body: {deskA: 0, deskB: 1} });
+    expect(swap.status).toBe(422);
+  });
+
+  it("shows the current lobby occupant to a member, and keeps ordinary grants separate", async () => {
+    const srv = server = await startTestServer();
     await claimOwner(srv, "Boss");
     const r = receptionistOf(srv);
     const member = await srv.seedMember("Mia");
-    const res = await srv.http("/agents", {
-      rawSessionId: member.rawSessionId,
-    });
-    expect(res.status).toBe(200);
-    const manifest = (await res.json()) as Array<{
-      id: string;
-      room: number | null;
-      roomName: string;
-      roomId: string;
-    }>;
-    expect(manifest.map((e) => e.id)).toEqual([r.id]);
-    expect(manifest[0].room).toBeNull();
-    expect(manifest[0].roomName).toBe("Lobby");
-    expect(manifest[0].roomId).toBe(LOBBY_ROOM_ID);
-    // The file mirrors the endpoint's shape.
-    const file = JSON.parse(
-      readFileSync(join(srv.stateRoot, "agents-summary.json"), "utf8"),
-    ) as Array<{ id: string; room: number | null }>;
-    expect(file.find((e) => e.id === r.id)?.room).toBeNull();
-    expect(file.filter((e) => e.room !== null).length).toBe(3);
+    const sock = await connectAndSettle(srv, member.rawSessionId);
+    const full = sock.messages.find((m) => (m as {type?: string}).type === "full_state") as { agents: AgentInfo[]; rooms: {id: string}[] };
+    expect(full.rooms.map((r) => r.id)).toEqual(["lobby"]);
+    expect(full.agents.map((a) => a.id)).toEqual([r.id]);
+    const manifest = await api(srv, "GET", "/agents", { rawSessionId: member.rawSessionId });
+    expect((manifest.body as {room: number | null; roomId: string}[])[0]).toMatchObject({room: null, roomId: "lobby"});
+    const sent = await api(srv, "POST", `/api/agents/${r.id}/messages`, { rawSessionId: member.rawSessionId, body: {text: "Help"} });
+    expect(sent.status).toBe(200);
+    await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
+    const prompt = srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt;
+    expect(prompt).toContain(ISOMUX_KNOWLEDGE);
+    expect(prompt).toContain('Owners: "Boss". Members: none.');
+    expect(prompt).toContain("curl");
+    expect(prompt).not.toContain("What you can and cannot see");
+    expect((await api(srv, "POST", "/api/tasks", {rawSessionId: member.rawSessionId, body: {title: "Lobby task", roomId: "lobby"}})).status).toBe(404);
+    expect((await api(srv, "GET", "/api/memory?scope=room&scopeId=lobby", {rawSessionId: member.rawSessionId})).status).toBe(404);
+    sock.close();
   });
-});
 
-describe("receptionist: reach of its own token", () => {
-  it("carries no user: sees only itself, reads no other agent, global tasks only", async () => {
-    const srv = await startTestServer();
-    server = srv;
+  it("omits lobby room memory in session prompts and the system-prompt command", async () => {
+    const srv = server = await startTestServer();
     const cookie = await claimOwner(srv, "Boss");
     const r = receptionistOf(srv);
-    const welcome = srv.agentManager
-      .getAllAgents()
-      .find((a) => a.name === "Claude Welcome Agent")!;
-    const room = srv.agentManager.getRooms()[0].id;
+    const memoryDir = join(srv.stateRoot, "memory", "rooms");
+    mkdirSync(memoryDir, {recursive: true});
+    writeFileSync(join(memoryDir, "lobby.md"), "LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+    await srv.agentManager.newConversation(r.id);
+    expect((await api(srv, "POST", `/api/agents/${r.id}/messages`, {rawSessionId: cookie, body: {text: "Hello"}})).status).toBe(200);
+    await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
+    expect(srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+    expect((await api(srv, "POST", `/api/agents/${r.id}/messages`, {rawSessionId: cookie, body: {text: "/isomux-system-prompt"}})).status).toBe(200);
+    await waitUntil(() => srv.agentManager.getAgentLogs(r.id).some((entry) => entry.content.includes("## Your Manager")));
+    expect(srv.agentManager.getAgentLogs(r.id).map((entry) => entry.content).join("\n")).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+  });
+
+  it("uses the first owner's normal token reach for rooms, agents, tasks and messages", async () => {
+    const srv = server = await startTestServer();
+    const cookie = await claimOwner(srv, "Boss");
+    const r = receptionistOf(srv);
+    const saved = await api(srv, "POST", "/api/memory", {rawSessionId: cookie, body: {scope: "boss", scopeId: r.userId, text: "Boss memory marker for receptionist profile."}});
+    expect(saved.status).toBe(201);
+    await srv.agentManager.newConversation(r.id);
+    expect((await api(srv, "POST", `/api/agents/${r.id}/messages`, {rawSessionId: cookie, body: {text: "Hello"}})).status).toBe(200);
+    await waitUntil(() => !!srv.fakeBackend.sessionForAgent(r.id));
+    expect(srv.fakeBackend.sessionForAgent(r.id)!.opts.systemPrompt).toContain("Boss memory marker for receptionist profile.");
     const bearer = getAgentTokenRaw(r.id)!;
-    expect(bearer).toBeTruthy();
-
-    const manifest = await srv.http("/agents", {
-      headers: { Authorization: `Bearer ${bearer}` },
-    });
-    expect(manifest.status).toBe(200);
-    const entries = (await manifest.json()) as Array<{ id: string }>;
-    expect(entries.map((e) => e.id)).toEqual([r.id]);
-
-    const logs = await api(srv, "GET", `/api/agents/${welcome.id}/logs`, {
-      bearer,
-    });
-    expect(logs.status).toBe(403);
-    const instructions = await api(
-      srv,
-      "GET",
-      `/api/agents/${welcome.id}/instructions`,
-      { bearer },
-    );
-    expect(instructions.status).toBe(403);
-    // Agent-to-agent delivery is office-wide by design; the receptionist is the
-    // one sender it is closed to, now and scheduled. A self-reminder stays open.
-    const message = await api(
-      srv,
-      "POST",
-      `/api/agents/${welcome.id}/messages`,
-      {
-        bearer,
-        body: { text: "psst" },
-      },
-    );
-    expect(message.status).toBe(403);
-    expect(errCode(message.body)).toBe("receptionist_reach");
-    const later = new Date(Date.now() + 60_000).toISOString();
-    const scheduled = await api(
-      srv,
-      "POST",
-      `/api/agents/${welcome.id}/messages`,
-      { bearer, body: { text: "psst", deliverAt: later } },
-    );
-    expect(scheduled.status).toBe(403);
-    const reminder = await api(srv, "POST", `/api/agents/${r.id}/messages`, {
-      bearer,
-      body: { text: "wake up", deliverAt: later },
-    });
-    expect(reminder.status).toBe(200);
-
-    // Tasks: the owner files one in a room and one office-global; the
-    // receptionist sees the global one only.
-    const inRoom = await api(srv, "POST", "/api/tasks", {
-      rawSessionId: cookie,
-      body: { title: "room task", roomId: room },
-    });
-    expect(inRoom.status).toBe(201);
-    const global = await api(srv, "POST", "/api/tasks", {
-      rawSessionId: cookie,
-      body: { title: "global task", roomId: "" },
-    });
-    expect(global.status).toBe(201);
-    const list = await api(srv, "GET", "/api/tasks", { bearer });
-    expect(list.status).toBe(200);
-    const titles = (list.body as Array<{ title: string }>).map((t) => t.title);
-    expect(titles).toEqual(["global task"]);
-
-    // The live guard adapter agrees: the receptionist resolves to the lobby.
-    expect(srv.guardDeps.roomIdForAgent(r.id)).toBe(LOBBY_ROOM_ID);
+    const other = srv.agentManager.getAllAgents().find((a) => a.id !== r.id)!;
+    const manifest = await api(srv, "GET", "/agents", {bearer});
+    expect((manifest.body as unknown[]).length).toBe(4);
+    expect((await api(srv, "GET", `/api/agents/${other.id}/instructions`, {bearer})).status).toBe(200);
+    expect((await api(srv, "POST", `/api/agents/${other.id}/messages`, {bearer, body: {text: "Hello"}})).status).toBe(200);
+    expect((await api(srv, "POST", `/api/agents/${other.id}/messages`, {bearer, body: {text: "Later", deliverAt: new Date(Date.now()+60000).toISOString()}})).status).toBe(200);
+    const room = srv.agentManager.getOrdinaryRooms()[0].id;
+    expect((await api(srv, "POST", "/api/tasks", {rawSessionId: cookie, body: {title: "Room task", roomId: room}})).status).toBe(201);
+    const implicit = await api(srv, "POST", "/api/tasks", {bearer, body: {title: "Default lobby task"}});
+    expect(implicit.status).toBe(201);
+    expect((implicit.body as {roomId?: string}).roomId).toBeUndefined();
+    const humanList = await api(srv, "GET", "/api/tasks", {rawSessionId: cookie});
+    expect(humanList.status).toBe(200);
+    expect((humanList.body as {title: string}[]).map((task) => task.title)).toContain("Default lobby task");
+    expect((await api(srv, "POST", "/api/tasks", {bearer, body: {title: "Invalid lobby scope", roomId: "lobby"}})).status).toBe(404);
+    const list = await api(srv, "GET", "/api/tasks", {bearer});
+    expect((list.body as {title: string}[]).map((t) => t.title)).toContain("Room task");
   });
 });

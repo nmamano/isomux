@@ -455,6 +455,7 @@ function seedOffice() {
   // The receptionist: the lobby's one agent, outside every room, as the real
   // server seeds it. The embed shows a single room and no lobby.
   if (!embedMode) {
+    state.ensureLobby();
     const backend = DEMO_BACKEND_DEFAULTS.opencode;
     const modelFamily = "opencode/muse-spark-1.2-contributor-free";
     state.addExistingAgent({
@@ -462,8 +463,7 @@ function seedOffice() {
       name: "Receptionist",
       desk: 0,
       roomId: LOBBY_ROOM_ID,
-      receptionist: true,
-      cwd: "~/isomux-receptionist",
+      cwd: "~",
       outfit: {
         hat: "none",
         color: "#C97B4A",
@@ -788,7 +788,7 @@ function demoReply(agentId: string): string {
       typeof navigator === "undefined" ? null : navigator.language,
     ),
   ).t(
-    state.getAgent(agentId)?.receptionist
+    state.getAgent(agentId)?.roomId === LOBBY_ROOM_ID
       ? "demo.receptionistReply"
       : "demo.reply",
   );

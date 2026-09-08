@@ -36,7 +36,7 @@ import type { CronjobManager } from "../cronjob-manager.ts";
 import type { ManagedAgent } from "../internal-types.ts";
 import type { RoomWire, UserRecord } from "../../shared/types.ts";
 
-import { LOBBY_ROOM_ID } from "../../shared/types.ts";
+import { LOBBY_ROOM_ID, LOBBY_ROOM } from "../../shared/types.ts";
 
 const ROOM_A = "aaaaaaaa";
 const ROOM_B = "bbbbbbbb";
@@ -198,10 +198,10 @@ describe("renderUsageReport room scoping", () => {
       ],
       ["hidden", liveAgent("hidden", "Hidden", ROOM_B)],
     ]);
-    const owner = buildUsageReportData(agents, ROOMS, OWNER);
+    const owner = buildUsageReportData(agents, [...ROOMS, LOBBY_ROOM], OWNER);
     expect(owner.total.session.costUSD).toBe(14);
     expect(owner.total.lifetime.costUSD).toBe(14 + CRONJOB_COST);
-    const member = buildUsageReportData(agents, ROOMS, {
+    const member = buildUsageReportData(agents, [...ROOMS, LOBBY_ROOM], {
       kind: "member",
       roomIds: new Set(),
     });

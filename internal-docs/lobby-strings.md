@@ -1,3 +1,12 @@
+> Superseded behavior, 2026-09-08: the receptionist is now an ordinary agent
+> created from the Isomux Receptionist profile. Name, cwd, kill, move, prompt and
+> token use the normal paths. Its initial cwd is ~; the old directory is left
+> on disk. The first owner is its boss. Knowledge and office guidance render at
+> spawn into custom instructions. The canonical lobby room has one slot and
+> persists in agents.json. Any agent can occupy it; an empty lobby stays empty
+> across restarts. The former locks, restricted token, dedicated prompt and
+> directory claims below describe the previous implementation only.
+
 # Lobby copy inventory
 
 Catalog text, 2026-09-08. Placeholders remain literal; dynamic names and errors are data. Internal editor copy is excluded.

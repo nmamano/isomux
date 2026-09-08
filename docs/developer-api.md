@@ -25,7 +25,7 @@ curl -s "$OFFICE_URL/agents" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The response lists the live agents in rooms you can access, plus the receptionist (`roomId: "lobby"`). Copy the target agent's `id`, and then send the message:
+The response lists the live agents in rooms you can access, plus the lobby agent (`room: null`, `roomName: "Lobby"`, `roomId: "lobby"`). Copy the target agent's `id`, and then send the message:
 
 ```bash
 AGENT_ID="agent-123"

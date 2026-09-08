@@ -11,10 +11,12 @@ import {
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
   LOBBY_ROOM_ID,
+  LOBBY_ROOM,
+  ordinaryRooms,
 } from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
-import { DESK_COUNT, isValidDesk } from "./desks.ts";
+import { roomSlotCount, isValidDesk } from "./desks.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -109,16 +111,26 @@ export class OfficeState {
 
   constructor(initial?: { rooms?: RoomInput[]; office?: OfficeSettings }) {
     if (initial?.rooms && initial.rooms.length > 0)
-      this._rooms = initial.rooms.map((r, i) => ({
-        ...r,
-        canCloseWhenEmpty: i > 0, // derived: only index 0 is protected
-      }));
+      this.setRooms(initial.rooms);
     if (initial?.office) this._office = { ...initial.office };
   }
 
   get rooms() {
     return this._rooms;
   }
+  get ordinaryRooms() {
+    return ordinaryRooms(this._rooms);
+  }
+
+  ensureLobby(): RoomWire {
+    const existing = this._rooms.find((r) => r.id === LOBBY_ROOM_ID);
+    if (existing) return existing;
+    const room = { ...LOBBY_ROOM };
+    this._rooms.push(room);
+    this.emitEvents([{ type: "room_created", room }]);
+    return room;
+  }
+
   get office() {
     return this._office;
   }
@@ -167,7 +179,7 @@ export class OfficeState {
   setRooms(rooms: RoomInput[]) {
     this._rooms =
       rooms.length > 0
-        ? rooms.map((r, i) => ({ ...r, canCloseWhenEmpty: i > 0 }))
+        ? rooms.map((r) => ({ ...r, canCloseWhenEmpty: r.type !== "lobby" && r.id !== ordinaryRooms(rooms)[0]?.id }))
         : [
             {
               id: generateRoomId(),
@@ -212,9 +224,6 @@ export class OfficeState {
     // stale across renames; behavior reads should go through userId.
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
-    // The office's one receptionist: stands in the lobby (LOBBY_ROOM_ID, desk
-    // 0), outside every room, so the room check and the desk scan do not apply.
-    receptionist?: true;
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
     const nameLower = opts.name.trim().toLowerCase();
     for (const a of this.agents.values()) {
@@ -223,12 +232,7 @@ export class OfficeState {
 
     let targetRoomId: string;
     let desk: number;
-    if (opts.receptionist) {
-      // One receptionist per office; a second is refused like a taken name.
-      for (const a of this.agents.values()) if (a.receptionist) return null;
-      targetRoomId = LOBBY_ROOM_ID;
-      desk = 0;
-    } else {
+    {
       // An OMITTED (undefined) roomId defaults to the canonical first room
       // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId -
       // including "" - is rejected: never silently coerced to rooms[0], which
@@ -240,7 +244,9 @@ export class OfficeState {
         !this._rooms.some((r) => r.id === opts.roomId)
       )
         return null;
-      targetRoomId = opts.roomId ?? this._rooms[0].id;
+      targetRoomId = opts.roomId ?? this.ordinaryRooms[0]?.id;
+      if (!targetRoomId) return null;
+      const targetRoom = this._rooms.find((r) => r.id === targetRoomId);
       const roomAgents = [...this.agents.values()].filter(
         (a) => a.roomId === targetRoomId,
       );
@@ -253,13 +259,13 @@ export class OfficeState {
       // doubly invalid - it is also the "no free desk" sentinel below.
       // An explicit desk that is merely TAKEN still falls through to
       // auto-assign, which is the long-standing behavior.
-      if (opts.desk !== undefined && !isValidDesk(opts.desk)) return null;
+      if (opts.desk !== undefined && !isValidDesk(opts.desk, targetRoom)) return null;
 
       if (opts.desk !== undefined && !taken.has(opts.desk)) {
         desk = opts.desk;
       } else {
         desk = -1;
-        for (let i = 0; i < DESK_COUNT; i++) {
+        for (let i = 0; i < roomSlotCount(targetRoom); i++) {
           if (!taken.has(i)) {
             desk = i;
             break;
@@ -295,7 +301,6 @@ export class OfficeState {
       // Privilege is never conferred at spawn - it is granted only via the
       // user-gated agents.setPrivileged route (so no agent can self-confer).
       privileged: false,
-      ...(opts.receptionist ? { receptionist: true as const } : {}),
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -321,7 +326,6 @@ export class OfficeState {
   kill(agentId: string): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
-    if (agent.receptionist) return []; // the receptionist cannot be killed
     this.agents.delete(agentId);
     const events: OfficeEvent[] = [
       { type: "agent_removed", agentId, roomId: agent.roomId },
@@ -348,8 +352,7 @@ export class OfficeState {
 
     const updated: Partial<AgentInfo> = {};
 
-    // The receptionist keeps its name (the lobby figure and the prompt name it).
-    if (changes.name && changes.name !== agent.name && !agent.receptionist) {
+    if (changes.name && changes.name !== agent.name) {
       const nameLower = changes.name.trim().toLowerCase();
       const duplicate = [...this.agents.values()].some(
         (a) => a.id !== agentId && a.name.toLowerCase() === nameLower,
@@ -419,7 +422,8 @@ export class OfficeState {
   }
 
   swapDesks(deskA: number, deskB: number, roomId: string): OfficeEvent[] {
-    if (deskA === deskB || !isValidDesk(deskA) || !isValidDesk(deskB))
+    const room = this._rooms.find((r) => r.id === roomId);
+    if (deskA === deskB || !isValidDesk(deskA, room) || !isValidDesk(deskB, room))
       return [];
     if (!this._rooms.some((r) => r.id === roomId)) return [];
 
@@ -455,15 +459,15 @@ export class OfficeState {
 
   createRoom(name?: string): OfficeEvent[] {
     const existingIds = this._rooms.map((r) => r.id);
-    const displayName = (name || `Room ${this._rooms.length + 1}`)
+    const displayName = (name || `Room ${this.ordinaryRooms.length + 1}`)
       .trim()
       .slice(0, 40);
     const room: RoomWire = {
       id: generateRoomId(existingIds),
       name: displayName,
       prompt: null,
-      // Appended after the protected first room, so always closeable-when-empty.
-      canCloseWhenEmpty: true,
+      // The first ordinary room stays protected even when the lobby came first.
+      canCloseWhenEmpty: this.ordinaryRooms.length > 0,
     };
     this._rooms.push(room);
     const events: OfficeEvent[] = [{ type: "room_created", room }];
@@ -473,7 +477,7 @@ export class OfficeState {
 
   closeRoom(roomId: string): OfficeEvent[] {
     const room = this._rooms.findIndex((r) => r.id === roomId);
-    if (room <= 0) return []; // index 0 is the protected canonical first room
+    if (room < 0 || !this._rooms[room].canCloseWhenEmpty) return [];
     const roomAgents = [...this.agents.values()].filter(
       (a) => a.roomId === roomId,
     );
@@ -507,17 +511,17 @@ export class OfficeState {
   moveAgent(agentId: string, targetRoomId: string): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
-    if (agent.receptionist) return []; // the receptionist stays in the lobby
     if (!this._rooms.some((r) => r.id === targetRoomId)) return [];
     if (agent.roomId === targetRoomId) return [];
 
     const targetAgents = [...this.agents.values()].filter(
       (a) => a.roomId === targetRoomId,
     );
-    if (targetAgents.length >= DESK_COUNT) return [];
+    const targetRoom = this._rooms.find((r) => r.id === targetRoomId);
+    if (targetAgents.length >= roomSlotCount(targetRoom)) return [];
     const taken = new Set(targetAgents.map((a) => a.desk));
     let newDesk = -1;
-    for (let i = 0; i < DESK_COUNT; i++) {
+    for (let i = 0; i < roomSlotCount(targetRoom); i++) {
       if (!taken.has(i)) {
         newDesk = i;
         break;

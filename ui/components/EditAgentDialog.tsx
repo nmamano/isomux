@@ -1,3 +1,4 @@
+import { RECEPTIONIST_PROFILE_KEY } from "../../shared/receptionist-profile.ts";
 import { useEffect, useRef, useState } from "react";
 import type {
   AgentBackendType,
@@ -18,7 +19,7 @@ import {
   claudeFamilySupportsAutoPermission,
   familyDisplayLabel,
 } from "../../shared/types.ts";
-import { DESK_COUNT } from "../../shared/desks.ts";
+import { roomSlotCount } from "../../shared/desks.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -476,6 +477,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       backendModels,
       modelsError !== null,
     );
+    if (template.key === RECEPTIONIST_PROFILE_KEY) { setCwd("~"); setPermissionMode("bypassPermissions"); }
     setName(values.name);
     setCustomInstructions(values.customInstructions);
     setOutfit(values.outfit);
@@ -483,7 +485,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     if (!deferModel) {
       setModelFamily(values.modelFamily);
       setEffort(values.effort);
-      setPermissionMode(values.permissionMode);
+      setPermissionMode(template.key === RECEPTIONIST_PROFILE_KEY ? "bypassPermissions" : values.permissionMode);
     }
   }
 
@@ -868,6 +870,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         desk: props.deskIndex,
         permissionMode,
         outfit,
+        profileKey: selectedTemplateKey ?? undefined,
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
         effort,
@@ -1112,7 +1115,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 margin: "2px 0 18px",
               }}
             >
-              {agent!.receptionist
+              {agent!.roomId === "lobby"
                 ? t("common.lobby")
                 : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}${t(
                     "dialogs.agent.desk",
@@ -1576,12 +1579,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   placeholder={
                     isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
                   }
-                  disabled={!!agent?.receptionist}
-                  title={
-                    agent?.receptionist
-                      ? t("lobby.receptionistNameLocked")
-                      : undefined
-                  }
                   autoFocus={isSpawn && !isMobile}
                   style={
                     nameError
@@ -1607,7 +1604,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <div style={{ display: "flex", gap: 6 }}>
                   <input
                     value={cwd}
-                    disabled={!!agent?.receptionist}
                     onChange={(e) => {
                       setCwd(e.target.value);
                       if (cwdError) setCwdError(null);
@@ -1618,7 +1614,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         : inputStyle
                     }
                   />
-                  {!agent?.receptionist && recentCwds.length > 0 && (
+                  {recentCwds.length > 0 && (
                     <button
                       type="button"
                       aria-expanded={showRecentCwds}
@@ -2251,7 +2247,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   const roomAgentCount = agents.filter(
                     (a) => a.roomId === rooms[i]?.id,
                   ).length;
-                  const isFull = roomAgentCount >= DESK_COUNT;
+                  const isFull = roomAgentCount >= roomSlotCount(rooms[i]);
                   return (
                     <button
                       key={i}

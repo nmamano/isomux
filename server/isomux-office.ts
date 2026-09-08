@@ -1,4 +1,5 @@
-import { ensureReceptionistWorkspace } from "./receptionist-workspace.ts";
+import { renderReceptionistProfile } from "./receptionist-profile.ts";
+import { RECEPTIONIST_PROFILE_KEY, RECEPTIONIST_OUTFIT } from "../shared/receptionist-profile.ts";
 import { english } from "./i18n.ts";
 import {
   INSTALL_KIND,
@@ -517,36 +518,26 @@ async function welcomeOpenCodeModel(username: string): Promise<string | null> {
   return result.model;
 }
 
-// The office's receptionist: the one agent in the lobby, reachable by every
-// user. Spawned once per office - on the first-owner claim after the welcome
-// agents, and at boot for an office that predates it - on the free OpenCode
-// model the Free Welcome Agent uses; when discovery finds no free model it still
-// spawns on the preferred model (the owner can put another engine behind it)
-// rather than leaving the lobby empty. Its token carries no user (see
-// tokenUserIdFor in agent-manager): it reaches no room.
+// A default profile is seeded only when the office first gains a lobby.
 const RECEPTIONIST_NAME = english.t("lobby.receptionistName");
-const RECEPTIONIST_OUTFIT: AgentOutfit = {
-  hat: "none",
-  color: "#C97B4A",
-  hair: "#3B2A20",
-  hairStyle: "bun",
-  skin: "#E8B48A",
-  beard: "none",
-  accessory: "glasses",
-};
 
 async function ensureReceptionist(username: string): Promise<void> {
-  if (agentManager.getReceptionist()) return;
-  const model =
-    (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
+  const lobby = agentManager.getRooms().find((room) => room.id === LOBBY_ROOM_ID);
+  if (lobby && !agentManager.lobbySeedIsPending()) return;
+  if (agentManager.getAllAgents().some((agent) => agent.roomId === LOBBY_ROOM_ID)) {
+    agentManager.completeLobbySeed();
+    return;
+  }
+  agentManager.ensureLobby(true);
   try {
+    const model = (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
     const created = await agentManager.spawn(
       RECEPTIONIST_NAME,
-      ensureReceptionistWorkspace(),
+      "~",
       "bypassPermissions",
-      undefined,
-      undefined,
-      undefined,
+      0,
+      renderReceptionistProfile({ officeName: agentManager.getOfficeSettings().name, members: listUsers(), publicOrigin: buildPublicOrigin().source === "localhost" ? null : buildPublicOrigin().origin }),
+      LOBBY_ROOM_ID,
       RECEPTIONIST_OUTFIT,
       model,
       undefined,
@@ -554,11 +545,12 @@ async function ensureReceptionist(username: string): Promise<void> {
       "opencode",
       undefined,
       undefined,
-      true,
     );
-    if (!created) {
+    if (created) {
+      agentManager.completeLobbySeed();
+    } else {
       console.warn(
-        `[bootstrap] ${RECEPTIONIST_NAME} spawn returned null (is the name taken by another agent?)`,
+        `[bootstrap] ${RECEPTIONIST_NAME} spawn returned null; the next boot will retry.`,
       );
     }
   } catch (err) {
@@ -580,7 +572,7 @@ function registerBootHooks(): void {
   // owner's allowedRooms at invite-acceptance time. The provider closes
   // over agentManager.getRooms() rather than auth.ts importing
   // agent-manager directly - keeps the dependency graph one-way.
-  setRoomsSnapshotProvider(() => agentManager.getRooms().map((r) => r.id));
+  setRoomsSnapshotProvider(() => agentManager.getOrdinaryRooms().map((r) => r.id));
 
   // When an invite is consumed (typically via HTTP POST /auth/accept,
   // which never touches the WS dispatch loop), fan out an updated
@@ -743,10 +735,10 @@ function registerBootHooks(): void {
   // defensive in case a future call path fires it against an already-
   // populated office.
   setOnOwnerCreated(async ({ username }) => {
-    // An office that already has agents keeps them and gains only the
-    // receptionist; a fresh one gets the welcome agents first.
-    if (agentManager.getAllAgents().length > 0) {
-      await ensureReceptionist(username);
+    const hadAgents = agentManager.getAllAgents().length > 0;
+    await ensureReceptionist(username);
+    // Branch on the pre-spawn snapshot so the lobby does not suppress welcome agents.
+    if (hadAgents) {
       return;
     }
     await spawnWelcomeAgent(
@@ -776,7 +768,6 @@ function registerBootHooks(): void {
         username,
       );
     }
-    await ensureReceptionist(username);
   });
 } // end registerBootHooks
 
@@ -1438,9 +1429,8 @@ function pushPresenceListToEachWs() {
 // ON TOP by the projection - never here - so a future re-show path can never
 // turn `hidden` into a security gate.
 function canAccess(user: UserRecord, roomId: string): boolean {
-  // The lobby is everyone's: it is the receptionist's room id, never a room,
-  // and the one place a member with no rooms can still reach.
-  if (roomId === LOBBY_ROOM_ID) return true;
+  // Lobby access is universal; task scopes and room memory use ordinary rooms.
+  if (roomId === LOBBY_ROOM_ID || agentManager.roomById(roomId)?.type === "lobby") return true;
   return user.role === "owner" || user.allowedRooms.includes(roomId);
 }
 
@@ -1476,7 +1466,7 @@ function accessibleRoomIdsFor(
   allowedRoomsOverride?: readonly string[],
 ): Set<string> {
   if (user.role === "owner") {
-    return new Set(agentManager.getRooms().map((r) => r.id));
+    return new Set(agentManager.getOrdinaryRooms().map((r) => r.id));
   }
   return new Set(allowedRoomsOverride ?? user.allowedRooms);
 }
@@ -1495,7 +1485,7 @@ function migrateOwnersToRuleBasedAccess(): void {
   // are seeded synchronously by createManagers, so getRooms() is valid here),
   // delegate the per-owner decision to the PURE planner (unit-tested over the
   // full case matrix in access-migration.test.ts), and apply each mutation.
-  const liveRoomIds = agentManager.getRooms().map((r) => r.id);
+  const liveRoomIds = agentManager.getOrdinaryRooms().map((r) => r.id);
   for (const plan of planOwnerAccessMigration(listUsers(), liveRoomIds)) {
     const r = updateUserById(plan.id, {
       hidden: plan.hidden,
@@ -1820,7 +1810,7 @@ function defaultCreateRoomIdForIdentity(
     const agent = agentManager
       .getAllAgents()
       .find((a) => a.id === identity.agentId);
-    if (agent?.roomId) return agent.roomId;
+    if (agent?.roomId && agentManager.getOrdinaryRooms().some((room) => room.id === agent.roomId)) return agent.roomId;
   }
   return undefined;
 }
@@ -2171,7 +2161,7 @@ function buildExecutorDeps(
       isSafeScopeId,
       // EXISTENCE only - no access gate (permissive model).
       roomExists: (roomId) =>
-        agentManager.getRooms().some((r) => r.id === roomId),
+        agentManager.getOrdinaryRooms().some((r) => r.id === roomId),
       agentExists: (agentId) => agentManager.getAgentDisplay(agentId) != null,
       userExists: (userId) => getUserById(userId) != null,
     }),
@@ -2984,8 +2974,6 @@ function buildExecutorDeps(
   register(
     agentsHandlers({
       kill: async (agentId) => {
-        if (agentManager.getAgent(agentId)?.receptionist)
-          return { ok: false, reason: "receptionist_locked" };
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,
         );
@@ -3002,8 +2990,6 @@ function buildExecutorDeps(
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.
         if (!current) return { ok: false, reason: "agent_not_found" };
-        if (current.receptionist)
-          return { ok: false, reason: "receptionist_locked" };
         // Same-room move is an idempotent no-op (the core returns no events);
         // return the unchanged agent, not a false failure.
         if (current.roomId === targetRoomId)
@@ -3023,6 +3009,7 @@ function buildExecutorDeps(
       },
       // agent-manager.swapDesks is (deskA, deskB, roomId); the dep takes
       // (roomId, deskA, deskB) so the handler reads room from the path param.
+      roomForDesks: (roomId) => agentManager.getRooms().find((r) => r.id === roomId),
       swapDesks: (roomId, deskA, deskB) =>
         agentManager.swapDesks(deskA, deskB, roomId),
       setTopic: (agentId, topic) => agentManager.setTopic(agentId, topic),
@@ -3065,7 +3052,9 @@ function buildExecutorDeps(
               ? input.permissionMode
               : (input.permissionMode ?? "default"),
             input.desk,
-            input.customInstructions,
+            input.profileKey === RECEPTIONIST_PROFILE_KEY
+              ? renderReceptionistProfile({ officeName: agentManager.getOfficeSettings().name, members: listUsers(), instructions: input.customInstructions, publicOrigin: buildPublicOrigin().source === "localhost" ? null : buildPublicOrigin().origin })
+              : input.customInstructions,
             input.roomId,
             input.outfit,
             input.modelFamily,
@@ -3122,23 +3111,6 @@ function buildExecutorDeps(
         return result;
       },
       edit: async (agentId, changes) => {
-        // The receptionist keeps its name and dedicated working directory.
-        {
-          const current = agentManager.getAgent(agentId);
-          if (
-            current?.receptionist &&
-            ((typeof changes.name === "string" &&
-              changes.name.trim() !== current.name) ||
-              (typeof changes.cwd === "string" &&
-                resolveCwd(changes.cwd.trim()) !== current.cwd))
-          ) {
-            return {
-              ok: false,
-              reason: "receptionist_locked",
-              message: english.t("lobby.identityLocked"),
-            };
-          }
-        }
         // Version guard FIRST, before any field validation - a
         // stale writer is told to re-read before hearing about a bad cwd. Only
         // blob-bearing edits carry a version (the handler enforces presence);
@@ -3344,16 +3316,6 @@ function buildExecutorDeps(
             code: "self_send",
             message: "Cannot send a message to self.",
           };
-        // The receptionist's reach is a member with no rooms: it reads no
-        // other agent and it messages none either (agent-to-agent delivery is
-        // otherwise office-wide by design).
-        if (agentManager.getAgent(senderAgentId)?.receptionist)
-          return {
-            ok: false,
-            status: 403,
-            code: "receptionist_reach",
-            message: "The receptionist does not message other agents.",
-          };
         // Server-derived structured sender (name + room) - never body-trusted -
         // blocks identity spoof + prefix-delimiter injection into the prompt.
         const senderInfo = agentManager.getAgentDisplay(senderAgentId);
@@ -3454,17 +3416,6 @@ function buildExecutorDeps(
         deliverAt,
         clientMessageId,
       ) => {
-        // Same reach rule as sendAsAgent; a self-reminder stays allowed.
-        if (
-          receiverId !== senderAgentId &&
-          agentManager.getAgent(senderAgentId)?.receptionist
-        )
-          return {
-            ok: false,
-            status: 403,
-            code: "receptionist_reach",
-            message: "The receptionist does not message other agents.",
-          };
         return scheduledMessageManager.schedule({
           senderAgentId,
           receiverAgentId: receiverId,
@@ -3745,7 +3696,7 @@ function buildExecutorDeps(
         if (!user) return null;
         const accessible = accessibleRoomIdsFor(user);
         return agentManager
-          .getRooms()
+          .getOrdinaryRooms()
           .filter((r) => accessible.has(r.id))
           .map((r) => ({ id: r.id, name: r.name }));
       },
@@ -4055,13 +4006,15 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   const visibleGlobal: number[] = [];
   for (let i = 0; i < all.length; i++) {
     if (!roomAllowedForSession(session, all[i].id)) continue; // access gate
-    if (hidden.has(all[i].id)) continue; // view filter (not security)
+    if (all[i].type !== "lobby" && hidden.has(all[i].id)) continue; // view filter (not security)
     visibleGlobal.push(i);
   }
   // Stable sort: explicit-order rank first (listed rooms, in listed order),
   // office order (the original global index) as the tiebreak for everything
   // unlisted. Rank +Infinity for unlisted rooms keeps them in office order.
   visibleGlobal.sort((a, b) => {
+    const lobbyRank = Number(all[b].type === "lobby") - Number(all[a].type === "lobby");
+    if (lobbyRank) return lobbyRank;
     const ra = orderRank.has(all[a].id) ? orderRank.get(all[a].id)! : Infinity;
     const rb = orderRank.has(all[b].id) ? orderRank.get(all[b].id)! : Infinity;
     return ra !== rb ? ra - rb : a - b;
@@ -4085,8 +4038,7 @@ function projectAgentForSession(
   agent: AgentInfo,
   projection?: VisibleRoomProjection,
 ): AgentInfo | null {
-  // The receptionist reaches every session; it is in no room to project.
-  if (agent.receptionist) return agent;
+  // Visibility follows the current room, including the canonical lobby.
   const proj = projection ?? visibleRoomProjection(session);
   // Derive the global index from the authoritative roomId. Absent from
   // the map = corrupt roomId (loud + suppress); present but globalToVisible < 0 =
@@ -4469,7 +4421,7 @@ function applyPreferencesChange(
 function pushAllRoomsListToOwners() {
   const data = JSON.stringify({
     type: "all_rooms_list",
-    rooms: agentManager.getRooms(),
+    rooms: agentManager.getOrdinaryRooms(),
   });
   for (const ws of browsers) {
     if (ws.data.session.role === "owner") {
@@ -5519,7 +5471,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           const manifest = agentManager
             .getManifest()
             .filter(
-              (e) => accessible.has(e.roomId) || e.roomId === LOBBY_ROOM_ID,
+              (e) => accessible.has(e.roomId) || agentManager.roomById(e.roomId)?.type === "lobby",
             );
           return new Response(JSON.stringify(manifest, null, 2), {
             headers: { "Content-Type": "application/json" },
@@ -5832,7 +5784,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           ws.send(
             JSON.stringify({
               type: "all_rooms_list",
-              rooms: agentManager.getRooms(),
+              rooms: agentManager.getOrdinaryRooms(),
             }),
           );
         }
@@ -6069,7 +6021,7 @@ function runBackgroundBoot(
     // room. Catches references left behind by close_room calls from
     // earlier versions that didn't prune user records inline. Cheap
     // no-op once a deployment has converged.
-    const validIds = agentManager.getRooms().map((r) => r.id);
+    const validIds = agentManager.getOrdinaryRooms().map((r) => r.id);
     const pruned = pruneStaleRoomRefs(validIds);
     if (pruned > 0) {
       console.log(

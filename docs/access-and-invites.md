@@ -125,7 +125,7 @@ explicitly) rather than relying on session expiry.
 
 ## Lobby and members chat
 
-Every member can open the lobby. The members chat is office-wide.
+Every member can open the lobby. The members chat is office-wide. The first owner manages the default receptionist, which is an ordinary agent with that owner’s access.
 
 ## Trust model boundaries
 

@@ -1,7 +1,7 @@
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
-import { LOBBY_ROOM_ID } from "../../shared/types.ts";
-import { useState, useEffect, useCallback } from "react";
+import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
@@ -171,7 +171,7 @@ export function OfficeView({
     office,
     tasks,
     currentRoomId,
-    rooms,
+    rooms: allRooms,
     isMobile,
     updateAvailable,
     updateInfo,
@@ -181,6 +181,7 @@ export function OfficeView({
   } = useAppState();
   const [newRoomOpen, setNewRoomOpen] = useState(false);
   const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
+  const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const roomCount = rooms.length;
   // Employee of the Minute for the lobby plaque: the last agent to act,
   // office-wide, with a hold so a streaming agent's restamps do not swap the
@@ -188,11 +189,11 @@ export function OfficeView({
   // The receptionist stands in the lobby next to the plaque; the plaque is
   // for the coworkers at the desks.
   const leader = employeeOfTheMinute(
-    agents.filter((a) => !a.receptionist),
+    agents.filter((a) => a.roomId !== "lobby"),
     stateChangedAt,
     rooms.map((r) => r.id),
   );
-  const receptionist = agents.find((a) => a.receptionist);
+  const receptionist = agents.find((a) => a.roomId === "lobby");
   const leaderAt = leader ? (stateChangedAt.get(leader.id) ?? 0) : 0;
   // Render-phase derived state, the pattern GhostBody uses: the render that
   // sees a new holder records it and React re-renders once with it.

@@ -1,5 +1,6 @@
 import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
 import { LobbyChat } from "../members-chat/LobbyChat.tsx";
+import { ordinaryRooms } from "../../shared/types.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
@@ -174,7 +175,7 @@ export function RoomTabBar({
   const {
     agents,
     currentRoomId,
-    rooms,
+    rooms: allRooms,
     needsAttention,
     presences,
     totalOnlineUsers,
@@ -186,6 +187,7 @@ export function RoomTabBar({
   const { embed } = useFeatures();
   const mobileChatEntry = isMobile && lobbyOpen && !embed;
   const selfConnectionId = sessionContext?.connectionId ?? null;
+  const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const roomCount = rooms.length;
   const dispatch = useDispatch();
   const [dragFrom, setDragFrom] = useState<number | null>(null);

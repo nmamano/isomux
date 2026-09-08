@@ -33,8 +33,8 @@ export function RoomPane({
   const { t } = useI18n();
   const room = rooms.find((r) => r.id === roomId);
   // Protection is server-authoritative and carried explicitly on the wire:
-  // room.canCloseWhenEmpty is false ONLY for the protected canonical first room
-  // (derived from canonical room order, independent of this viewer's order), so
+  // room.canCloseWhenEmpty protects the lobby and the first ordinary room
+  // (derived from ordinary room order, independent of this viewer's order), so
   // it's correct even under a custom room order. Emptiness stays a client-side
   // reactive check; the server stays authoritative on the close.
   const canDeleteRoom =
@@ -53,7 +53,8 @@ export function RoomPane({
   const [baselinePrompt, setBaselinePrompt] = useState("");
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
-  const mem = useMemoryEditor("room", roomId, true);
+  const hasRoomMemory = room != null && room.type !== "lobby";
+  const mem = useMemoryEditor("room", roomId, hasRoomMemory);
   // The settings PUT is version-guarded (optimistic concurrency, mirroring the
   // memory editor): GET on open, send the version back on save; a 409 means
   // another writer saved since - stay on the pane and say so. The token
@@ -217,6 +218,7 @@ export function RoomPane({
           {t("settings.room.intro")}
         </p>
 
+        {room.type !== "lobby" && (<>
         <label
           style={{
             display: "block",
@@ -235,6 +237,8 @@ export function RoomPane({
           placeholder={t("settings.room.namePlaceholder")}
           style={inputStyle}
         />
+
+        </>)}
 
         <label
           style={{
@@ -272,6 +276,7 @@ export function RoomPane({
           {t("settings.room.promptNote")}
         </p>
 
+        {hasRoomMemory && (<>
         <label
           style={{
             display: "block",
@@ -313,6 +318,7 @@ export function RoomPane({
         >
           {t("common.memoryEditorHint")}
         </p>
+        </>)}
 
         {error && (
           <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>

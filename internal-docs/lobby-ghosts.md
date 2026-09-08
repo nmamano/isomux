@@ -11,7 +11,7 @@ without a seat assignment, so those ghosts use the overflow line.
 
 `presence_update` reports `currentRoomId: "lobby"` on the lobby tab and while
 viewing the receptionist. The sanitizer and per-viewer projection handle this
-synthetic room explicitly. A change to ordinary room grants preserves lobby
+lobby room explicitly. A change to ordinary room grants preserves lobby
 presence. Receptionist focus does not change the seat.
 
 `assignLobbySpot` and `planLobbyMoves` are pure and accept time and a random

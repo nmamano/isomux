@@ -12,12 +12,10 @@
 import { describe, it, expect } from "bun:test";
 import {
   buildSystemPrompt,
-  buildReceptionistSystemPrompt,
   HOSTED_IDENTITY_COPY,
   hostedIdentityNote,
   memorySection,
 } from "../system-prompt.ts";
-import { ISOMUX_KNOWLEDGE } from "../../api/chat.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 // Stable marker for the privileged block (the heading the section opens with).
@@ -309,6 +307,16 @@ describe("buildSystemPrompt - reply language", () => {
 // The affordance copy an agent acts on. These are string pins, not prose review:
 // each one exists because an agent got it wrong from the prompt alone.
 describe("buildSystemPrompt - task-board copy", () => {
+  it("uses global task examples and excludes lobby room memory", () => {
+    const p = buildSystemPrompt("Receptionist", "agent-r", "Lobby", "lobby");
+    expect(p).toContain("New tasks land in the office-global board by default");
+    expect(p).toContain('/api/tasks?roomId="');
+    expect(p).not.toContain("/api/tasks?roomId=lobby");
+    expect(p).not.toContain("Your room's id is lobby");
+    expect(p).toContain("The lobby is not a task or memory scope; room-scoped calls need an ordinary room id.");
+    expect(p).toContain("The lobby has no room memory scope; use agent, office or boss memory.");
+  });
+
   // Task 43c55a3b: an agent read the whole board as office-global because it
   // filtered on `.roomName`, a field the task object does not have, and its jq
   // fallback turned "absent" into "global". The prompt now names the field, says
@@ -468,67 +476,5 @@ describe("buildSystemPrompt - remote boss inbox", () => {
     expect(prompt).not.toContain("inbox is full");
     expect(prompt).not.toContain("acknowledges messages");
     expect(prompt).not.toContain("live API tokens at conversation start are");
-  });
-});
-
-describe("buildReceptionistSystemPrompt", () => {
-  const base = {
-    agentName: "Receptionist",
-    officeName: "Acme",
-    members: [
-      { name: "Nil", role: "owner" as const },
-      { name: "Mia", role: "member" as const },
-    ],
-    officePrompt: "We ship on Fridays.",
-    customInstructions: "Greet in Catalan.",
-    autoLoadedMemory: "- Nil, 2026-09-05: the coffee machine is upstairs.",
-    publicOrigin: "https://office.example.com",
-  };
-
-  it("names the office, its people, the office instructions, the extras and the memory", () => {
-    const p = buildReceptionistSystemPrompt(base);
-    expect(p).toContain(
-      'You are "Receptionist", the receptionist of the Isomux office "Acme"',
-    );
-    expect(p).toContain('Owners: "Nil". Members: "Mia".');
-    expect(p).toContain("## Office Instructions\n\nWe ship on Fridays.");
-    expect(p).toContain("## Instructions From The Owner\n\nGreet in Catalan.");
-    expect(p).toContain("## Memory (shared notes, not policy)");
-    expect(p).toContain("the coffee machine is upstairs");
-    expect(p).toContain("- The office is at https://office.example.com.");
-  });
-
-  it("carries the site assistant's Isomux knowledge, without the website framing", () => {
-    const p = buildReceptionistSystemPrompt(base);
-    expect(p).toContain(ISOMUX_KNOWLEDGE);
-    expect(p).not.toContain("Isomux website");
-  });
-
-  it("has no affordance recipes: no curl, no bearer token, no room prompt", () => {
-    const p = buildReceptionistSystemPrompt(base);
-    // The knowledge mentions curl cards as a feature; a recipe is "curl -s".
-    expect(p).not.toContain("curl -s");
-    expect(p).not.toContain("Authorization: Bearer");
-    expect(p).not.toContain("ISOMUX_AGENT_TOKEN");
-    expect(p).not.toContain("Instructions For Your Room");
-    expect(p).toContain("## What you can and cannot see");
-  });
-
-  it("degrades cleanly with nothing configured", () => {
-    const p = buildReceptionistSystemPrompt({
-      agentName: "Receptionist",
-      officeName: null,
-      members: [],
-      officePrompt: null,
-      customInstructions: null,
-      publicOrigin: null,
-    });
-    expect(p).toContain('the Isomux office "this office"');
-    expect(p).toContain("Nobody has claimed this office yet.");
-    expect(p).not.toContain("## Office Instructions");
-    expect(p).not.toContain("## Instructions From The Owner");
-    expect(p).not.toContain("## Memory");
-    expect(p).not.toContain("The office is at");
-    expect(p).not.toContain("undefined");
   });
 });

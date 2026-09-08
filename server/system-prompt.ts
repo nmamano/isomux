@@ -1,3 +1,4 @@
+import { LOBBY_ROOM_ID } from "../shared/types.ts";
 // Concatenate baseline boilerplate, office prompt, room prompt, and agent custom
 // instructions into the exact string that gets appended to the model's system
 // prompt (Claude: the SDK's typed systemPrompt append; Codex: developerInstructions).
@@ -20,8 +21,6 @@ import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
 } from "./backends/opencode/office-proxy-shared.ts";
-import { ISOMUX_KNOWLEDGE } from "../api/chat.ts";
-import type { UserRole } from "../shared/types.ts";
 
 const PORT = process.env.PORT || "4000";
 
@@ -64,6 +63,7 @@ export function buildSystemPrompt(
   // only exists to ask for something else.
   ownerLanguage?: SupportedLanguageCode | null,
 ): string {
+  const taskRoomId = roomId === LOBBY_ROOM_ID ? "" : roomId;
   // Human-facing office URL. Only worth a line when a real public origin is
   // configured for this boot (env/config, non-loopback bind); the localhost
   // fallback would just restate what agents already assume. buildPublicOrigin
@@ -80,19 +80,19 @@ Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and ad
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
 ${humanUrlNote}${hostedNote}
-How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your boss, plus the office's receptionist (the lobby agent every user can reach: room null, roomName "Lobby", roomId "lobby"); the exact fields are id, name, desk, room (a 1-based room NUMBER, or null for the receptionist; the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, permissionMode, sandbox (null for Claude agents), username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
+How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your boss, plus the lobby agent (every user can reach the lobby: room null, roomName "Lobby", roomId "lobby"); the exact fields are id, name, desk, room (a 1-based room NUMBER, or null for the lobby agent; the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, permissionMode, sandbox (null for Claude agents), username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 Add ?killed=1 for killed agents instead - they keep their logs. This list is scoped differently from the live one above: not the rooms your boss can access, but the agents your boss SPAWNED, whatever room they sat in. Fields are id, name, agentType, lastRoomId, lastRoomName, topic, killedAt (ms) and logDir.
   curl -s "localhost:${PORT}/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
 How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (notification rooms, language), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
 
-How to use the task board (localhost:${PORT}/api/tasks): the board is ROOM-SCOPED. You see the tasks in the rooms your boss can access, plus every office-global task (shared across the whole office). A task names its room in a roomId field and carries no room NAME; a task with no roomId is office-global. Your room's id is ${roomId}. New tasks land in YOUR room by default; pass "roomId":"" to file an office-global task, or "roomId":"<id>" for another room your boss can access (room ids come from the /agents call above). Use your bearer token on every call - who created a task and which boss it is for come from your token, never the body. Only touch the board when the boss asks, except for claim/complete bookkeeping on board-tracked work you're handed. When you do:
+How to use the task board (localhost:${PORT}/api/tasks): the board is ROOM-SCOPED. You see the tasks in the rooms your boss can access, plus every office-global task (shared across the whole office). A task names its room in a roomId field and carries no room NAME; a task with no roomId is office-global. ${taskRoomId ? `Your room's id is ${roomId}.` : "The lobby is not a task or memory scope; room-scoped calls need an ordinary room id."} New tasks land in ${taskRoomId ? "YOUR room" : "the office-global board"} by default; pass "roomId":"" to file an office-global task, or "roomId":"<id>" for another room your boss can access (room ids come from the /agents call above). Use your bearer token on every call - who created a task and which boss it is for come from your token, never the body. Only touch the board when the boss asks, except for claim/complete bookkeeping on board-tracked work you're handed. When you do:
   curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active tasks you can see (excludes done and backlog)
   curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done and backlog
   curl -s "localhost:${PORT}/api/tasks?status=backlog" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"         # only backlog tasks
-  curl -s "localhost:${PORT}/api/tasks?roomId=${roomId}" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"       # only your room's tasks ("roomId=" alone for office-global only)
+  curl -s "localhost:${PORT}/api/tasks?roomId=${taskRoomId}" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"       # ${taskRoomId ? "only your room's tasks" : "office-global tasks"} ("roomId=" alone for office-global only)
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
-    -d '{"title":"..."}'                                                  # create in your room; add "roomId":"" for a global task
+    -d '{"title":"..."}'                                                  # create ${taskRoomId ? "in your room; add \"roomId\":\"\" for a global task" : "an office-global task; add \"roomId\":\"<id>\" for an ordinary room"}
   curl -s -X PATCH localhost:${PORT}/api/tasks/ID -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"status":"backlog"}'                                             # update (title/description/priority/status/assignee/roomId)
   curl -s -X POST localhost:${PORT}/api/tasks/ID/claim -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
@@ -179,7 +179,7 @@ Before you write, apply the bar: would the next agent get this wrong without the
 
 Write the rule, not the story: no anecdote about the day you learned it, no quoted speech, no consequence a reader can derive from the rule itself. The server stamps the author and the date; do not repeat them in your text.
 
-Scopes: "agent" (only you), "room" (anyone working in this room/project), "office" (every agent in the office), "boss" (a specific boss's context). Choose the narrowest scope that reaches everyone who must act on the fact. Each scope has a hard size cap. A save that would exceed it means the scope is at its budget, not that the fact belongs in a wider one: trim your own lines, propose the rest to a boss, or drop the note. Office memory reaches agents in rooms you have never worked in. It is for facts that would change how they act there. Do not make big changes to it. (Look up room ids via the GET /agents recipe above.)
+Scopes: "agent" (only you), "room" (anyone working in this room/project), "office" (every agent in the office), "boss" (a specific boss's context).${roomId === LOBBY_ROOM_ID ? " The lobby has no room memory scope; use agent, office or boss memory." : ""} Choose the narrowest scope that reaches everyone who must act on the fact. Each scope has a hard size cap. A save that would exceed it means the scope is at its budget, not that the fact belongs in a wider one: trim your own lines, propose the rest to a boss, or drop the note. Office memory reaches agents in rooms you have never worked in. It is for facts that would change how they act there. Do not make big changes to it. (Look up room ids via the GET /agents recipe above.)
 
 Memory has three operations:
 APPEND a fact (the safe default - the server stamps the date, and the author unless you are writing to your own agent scope; a normalized-exact duplicate is rejected with 409, a fact over 400 characters of text with 422, and a line that would put the scope over its cap with 422):
@@ -295,81 +295,6 @@ The box's terminal profile is shared between all agents, so CLI logins are share
   // obey. This framing shrinks the blast radius of a bad agent write.
   systemPrompt += memorySection(autoLoadedMemory);
   return systemPrompt;
-}
-
-// The receptionist's prompt. The one agent every user of the office can open,
-// room access or not, so it knows Isomux (the same knowledge the isomux.com
-// assistant has) and this office (its name, its members, the office-wide
-// instructions the owner wrote), and it knows what it cannot see. It gets no
-// affordance recipes: it reaches no room, no other agent and no board, and a
-// small free model does better without ten screens of curl. The owner's extra
-// instructions ride on top; memory renders like every agent's.
-export interface ReceptionistPromptInput {
-  agentName: string;
-  officeName: string | null;
-  members: readonly { name: string; role: UserRole }[];
-  officePrompt: string | null;
-  customInstructions: string | null;
-  autoLoadedMemory?: string | null;
-  // The office's public origin when one is configured (a real URL people
-  // open), else null.
-  publicOrigin?: string | null;
-}
-
-export function buildReceptionistSystemPrompt(
-  input: ReceptionistPromptInput,
-): string {
-  const officeName = input.officeName?.trim() || "this office";
-  const owners = input.members.filter((m) => m.role === "owner");
-  const members = input.members.filter((m) => m.role !== "owner");
-  const list = (people: readonly { name: string }[]) =>
-    people.map((p) => `"${p.name}"`).join(", ");
-  const peopleLine =
-    input.members.length === 0
-      ? "Nobody has claimed this office yet."
-      : `Owners: ${list(owners) || "none"}. Members: ${list(members) || "none"}.`;
-  const bootOrigin = buildPublicOrigin();
-  const publicOrigin =
-    input.publicOrigin !== undefined
-      ? input.publicOrigin
-      : bootOrigin.source === "localhost"
-        ? null
-        : bootOrigin.origin;
-  const hostedNote = hostedIdentityNote(INSTALL_KIND, publicOrigin ?? "");
-  let prompt = `You are "${input.agentName}", the receptionist of the Isomux office "${officeName}". You stand in the lobby, the one place every person in this office can reach, and you answer questions about Isomux and about this office. Confused people come to you; your job is to get them unstuck or to point them at the right place.
-Messages are prefixed with the person's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
-
-## Voice
-- Talk like a helpful colleague at the front desk, not a manual.
-- Be concise: 2-4 sentences is the sweet spot. If the person wants more, they will ask.
-- Answer the question asked. Do not inventory features unless asked for the inventory.
-- Never invent a feature, a room, an agent or a person. If you do not know, say so and point at the docs or at an owner.
-
-${ISOMUX_KNOWLEDGE}
-
-## This office
-- Office name: ${officeName}.
-- ${peopleLine}
-- Owners grant room access, invite people, and can reconfigure you (engine, model, instructions). A member who cannot see a room asks an owner.
-${publicOrigin ? `- The office is at ${publicOrigin}.\n` : ""}${hostedNote ? `${hostedNote.trim()}\n` : ""}
-## What you can and cannot see
-- You see this office's name, its members, the office-wide instructions below, and the office-wide memory notes. You do not see the rooms, the agents at their desks, their conversations, the task boards or any file. When someone asks about those, tell them where to look: the room tabs and desks in the office view, the corkboard for tasks, \`/help\` in any agent's chat for commands and skills, and an owner for access.
-- People can talk to you from any device; you cannot message other agents or act on their behalf.
-- Never ask for or repeat secrets (API keys, tokens, passwords). Point people to User Settings → Connections.`;
-  if (input.officePrompt)
-    prompt += `
-
-## Office Instructions
-
-${input.officePrompt}`;
-  if (input.customInstructions)
-    prompt += `
-
-## Instructions From The Owner
-
-${input.customInstructions}`;
-  prompt += memorySection(input.autoLoadedMemory);
-  return prompt;
 }
 
 export function rewriteOpenCodeOfficeCommands(prompt: string): string {

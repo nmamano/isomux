@@ -1,4 +1,4 @@
-import { ensureReceptionistWorkspace } from "./receptionist-workspace.ts";
+import { renderReceptionistProfile } from "./receptionist-profile.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type {
   AgentBackendType,
@@ -112,7 +112,6 @@ import {
 } from "./backend-failure-text.ts";
 import {
   buildSystemPrompt,
-  buildReceptionistSystemPrompt,
 } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
@@ -385,6 +384,7 @@ export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
   const initialLoadedAgents = deps.initialRooms;
+  let lobbySeedPending = initialLoadedAgents.some((room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true);
 
   // Wire the turn runner to agent-manager's module-private pieces. Called once
   // at boot from server/isomux-office.ts.
@@ -856,6 +856,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     persistAll();
   });
 
+  function getOrdinaryRooms(): RoomWire[] {
+    return officeState.ordinaryRooms.map((r) => ({ ...r }));
+  }
+
   function getRooms(): RoomWire[] {
     return officeState.rooms.map((r) => ({ ...r }));
   }
@@ -988,8 +992,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Returns undefined on miss (globalRoomIndexOf already logged loud); callers
   // keep their existing `if (!room)` fallback / suppression.
   function roomById(roomId: string): RoomWire | undefined {
-    // The receptionist's room: a fixed record, never in officeState.rooms.
-    if (roomId === LOBBY_ROOM_ID) return LOBBY_ROOM;
     const idx = globalRoomIndexOf(roomId);
     return idx < 0 ? undefined : officeState.rooms[idx];
   }
@@ -1470,20 +1472,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Shared entry builder for the on-disk manifest (agents-summary.json) and
   // the GET /agents discovery endpoint - one source so they can't drift.
   function manifestEntries() {
-    const rooms = officeState.rooms;
+    const rooms = officeState.ordinaryRooms;
     return [...agents.values()].map((a) => {
       // The manifest's `room` number (and its room name) is a
       // derived display field, recomputed from the authoritative roomId.
-      // The receptionist has no room: room null, roomName "Lobby".
-      const roomIdx = a.info.receptionist
-        ? -1
-        : globalRoomIndexOf(a.info.roomId);
+      // Lobby occupants keep the manifest room:null wire contract.
+      const lobby = roomById(a.info.roomId)?.type === "lobby";
+      const roomIdx = rooms.findIndex((r) => r.id === a.info.roomId);
       return {
         id: a.info.id,
         name: a.info.name,
         desk: a.info.desk,
-        room: a.info.receptionist ? null : roomIdx,
-        roomName: a.info.receptionist
+        room: lobby ? null : roomIdx,
+        roomName: lobby
           ? LOBBY_ROOM.name
           : (rooms[roomIdx]?.name ?? `Room ${roomIdx + 1}`),
         roomId: a.info.roomId,
@@ -1588,7 +1589,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       username: a.info.username,
       roomId: a.info.roomId,
       privileged: a.info.privileged ?? false,
-      ...(a.info.receptionist ? { receptionist: true as const } : {}),
     };
   }
 
@@ -1599,16 +1599,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       name: r.name,
       prompt: r.prompt,
       pet: r.pet ?? null,
+      type: r.type,
+      ...(r.id === LOBBY_ROOM_ID && lobbySeedPending ? { defaultAgentPending: true as const } : {}),
       agents: [] as PersistedAgent[],
     }));
-    let receptionist: PersistedAgent | null = null;
     for (const a of agents.values()) {
-      // The receptionist lives outside every room: its own file, never a room
-      // bucket, so agents.json stays readable by a server without the feature.
-      if (a.info.receptionist) {
-        receptionist = persistedAgentOf(a);
-        continue;
-      }
       // Bucket into the persisted rooms array by the roomId-derived
       // global index (AgentInfo no longer carries a dense room field).
       const roomIdx = globalRoomIndexOf(a.info.roomId);
@@ -1616,10 +1611,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         persistedRooms[roomIdx].agents.push(persistedAgentOf(a));
       }
     }
-    saveAgents(persistedRooms);
-    saveReceptionist(receptionist);
+    const saved = saveAgents(persistedRooms);
     updateManifest();
     updateAgentHistory();
+    return saved;
   }
 
   // Snapshot live agents into history. Loop only iterates the live `agents`
@@ -1630,8 +1625,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function updateAgentHistory() {
     const history: AgentHistory = loadAgentHistory();
     for (const a of agents.values()) {
-      // The receptionist is never killed or revived, so it has no history.
-      if (a.info.receptionist) continue;
       const room = roomById(a.info.roomId);
       if (!room) continue;
       history[a.info.id] = {
@@ -1792,10 +1785,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     lazy?: boolean;
   }): { sessionOk: boolean; sessionError: string | null } {
     const p = opts.persisted;
-    const restoredCwd =
-      opts.roomIdOverride === LOBBY_ROOM_ID
-        ? ensureReceptionistWorkspace()
-        : p.cwd;
+    const restoredCwd = p.cwd;
     const agentType = p.agentType ?? "claude";
     const userId = resolveAgentUserId(p);
     // Canonicalize persisted values without making one malformed agent stop the
@@ -1894,7 +1884,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       userId,
       username: p.username ?? null,
       privileged: p.privileged ?? false,
-      ...(p.receptionist ? { receptionist: true as const } : {}),
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -2155,22 +2144,39 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         });
       }
     }
-    // The receptionist restores from its own file, after every room, with the
-    // lobby as its room id.
+    // Import the legacy standalone record once. Keep it until the ordinary
+    // room write succeeds; an occupied lobby is a conflict, never overwritten.
     const receptionist = loadReceptionist();
-    if (receptionist) {
-      restoreOrReviveAgent({
-        persisted: receptionist,
-        roomIdx: -1,
-        roomIdOverride: LOBBY_ROOM_ID,
-        emitAgentAdded: false,
-        lazy: true,
-      });
+    let migratedReceptionist = false;
+    const firstOwner = listUsers().find((u) => u.role === "owner");
+    if (receptionist && firstOwner) {
+      officeState.ensureLobby();
+      if (agents.has(receptionist.id) || [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)) {
+        console.warn("[migration] Occupied lobby; keeping receptionist.json for recovery.");
+      } else {
+        const instructions = renderReceptionistProfile({
+          officeName: officeState.office.name,
+          members: listUsers(),
+        });
+        receptionist.customInstructions = instructions + (receptionist.customInstructions ? `\n\n${receptionist.customInstructions}` : "");
+        receptionist.userId = firstOwner.id;
+        receptionist.username = firstOwner.name;
+        receptionist.cwd = resolveCwd("~");
+        delete receptionist.receptionist;
+        restoreOrReviveAgent({
+          persisted: receptionist,
+          roomIdx: globalRoomIndexOf(LOBBY_ROOM_ID),
+          emitAgentAdded: false,
+          lazy: true,
+        });
+        migratedReceptionist = true;
+      }
     }
     // Round-trip migrations back to disk in case the load step filled in new
     // fields (room ids, prompt/envFile defaults) that weren't present before.
     // Must run AFTER agents are populated or persistAll writes empty rooms.
-    persistAll();
+    const saved = persistAll();
+    if (saved && migratedReceptionist) saveReceptionist(null);
     officeState.setTasksDirect(loadTasks());
     officeStatePersistenceEnabled = true;
     // Durable-queue hygiene: drop records for agents that no
@@ -2218,19 +2224,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return agents.get(agentId)?.info;
   }
 
-  // The office's receptionist, if it has been spawned.
-  function getReceptionist(): AgentInfo | undefined {
-    for (const a of agents.values()) if (a.info.receptionist) return a.info;
-    return undefined;
-  }
-
-  // The userId a bearer token carries. The receptionist's token carries none:
-  // a token's user is what room-reach and owner-match guards key on, and the
-  // receptionist reaches no room and no boss-owned surface (its AgentInfo keeps
-  // the owner as manager for env and display). Widening its reach is one line
-  // here.
   function tokenUserIdFor(info: AgentInfo): string | null {
-    return info.receptionist ? null : info.userId;
+    return info.userId;
   }
 
   // Run the same path-resolution as /isomux-edit and emit an `edit-request` log
@@ -4649,21 +4644,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function memoryRefsFor(managed: ManagedAgent): MemoryScopeRef[] | null {
     const room = roomById(managed.info.roomId);
     if (!room) return null;
-    if (managed.info.receptionist) {
-      // Office notes and its own: no room, and never a boss's notes, which are
-      // about one person while the receptionist talks to everyone.
-      return [
-        { scope: "office", scopeId: null, label: "Office-wide" },
-        { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
-      ];
-    }
     return [
       { scope: "office", scopeId: null, label: "Office-wide" },
-      {
-        scope: "room",
+      ...(room.type === "lobby" ? [] : [{
+        scope: "room" as const,
         scopeId: managed.info.roomId,
         label: `Room "${room.name}"`,
-      },
+      }]),
       // Boss notes auto-load ONLY for this agent's manager boss (stable
       // userId), so one boss's notes never bleed into another's context.
       ...(managed.info.userId
@@ -4691,23 +4678,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.memoryNoticeFired || !refs
         ? null
         : formatMemoryNotice(memoryStore.measureForPromptMulti(refs));
-  }
-
-  // The receptionist's prompt: the office's name, members and office-wide
-  // instructions, on top of the shared Isomux knowledge. Shared by
-  // createSession and /isomux-system-prompt so the dump is what runs.
-  function receptionistSystemPrompt(
-    managed: ManagedAgent,
-    autoLoadedMemory: string | null,
-  ): string {
-    return buildReceptionistSystemPrompt({
-      agentName: managed.info.name,
-      officeName: officeState.office.name,
-      members: listUsers().map((u) => ({ name: u.name, role: u.role })),
-      officePrompt: officeState.office.prompt,
-      customInstructions: managed.info.customInstructions,
-      autoLoadedMemory,
-    });
   }
 
   function createSession(
@@ -4766,12 +4736,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // to agree on which scopes load, so they read the same list.
     const memoryRefs = memoryRefsFor(managed) ?? [];
     armMemoryNotice(managed, memoryRefs);
-    const systemPrompt = managed.info.receptionist
-      ? receptionistSystemPrompt(
-          managed,
-          memoryStore.renderForPromptMulti(memoryRefs),
-        )
-      : buildSystemPrompt(
+    const systemPrompt = buildSystemPrompt(
           managed.info.name,
           managed.info.id,
           room.name,
@@ -4833,8 +4798,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // call sites; resolved from `username` if null and the snapshot still
     // matches a known user.
     userId?: string | null,
-    // The office's receptionist (one per office; lobby, desk 0, locked).
-    receptionist?: true,
   ): Promise<AgentInfo | null> {
     // Spawn is always allowed even if the backend CLI is missing - the failure
     // surfaces as a chat-visible error on first message (codex client's
@@ -4842,9 +4805,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // surface analogously). Keeping the policies symmetric across backends means
     // a user can put an agent at a desk before configuring its backend, and the
     // welcome-agent seed gets one Claude and one Codex desk on every fresh install.
-    const resolvedCwd = receptionist
-      ? ensureReceptionistWorkspace()
-      : resolveCwd(cwd);
+    const resolvedCwd = resolveCwd(cwd);
 
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
@@ -4894,7 +4855,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           userId ?? (username ? (getUserByName(username)?.id ?? null) : null),
         username,
         capabilities: getBackend(agentType).capabilities,
-        receptionist,
       });
     } finally {
       officeStatePersistenceEnabled = true;
@@ -5042,7 +5002,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     globalRoomIndexOf,
     roomById,
     getOfficeConfig: () => officeState.office,
-    receptionistSystemPrompt,
     logCache,
     emit,
     addLogEntry,
@@ -7236,8 +7195,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function kill(agentId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    // The receptionist cannot be killed (the REST dep answers 409 before this).
-    if (managed.info.receptionist) return;
     // Stamp the history entry with killedAt + final state BEFORE removing
     // the agent from the live map. After deletion, updateAgentHistory skips
     // this entry (loop is over live agents only), so this write is the
@@ -7379,7 +7336,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         .filter((a) => a.roomId === roomId)
         .map((a) => a.desk),
     );
-    if (!isValidDesk(desk) || taken.has(desk)) {
+    if (!isValidDesk(desk, officeState.rooms[roomIdx]) || taken.has(desk)) {
       return {
         ok: false,
         error: "That desk is no longer free.",
@@ -7667,14 +7624,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): { prevCwd: string; switched: boolean; storedCwdInvalid: boolean } {
     const prevCwd = managed.info.cwd;
     const storedCwd = getSessionCwd(agentId, sessionId);
-    // Historical session metadata must not undo the receptionist's cwd pin.
-    if (managed.info.receptionist) {
-      return {
-        prevCwd,
-        switched: false,
-        storedCwdInvalid: !!storedCwd && storedCwd !== prevCwd,
-      };
-    }
     if (!storedCwd || storedCwd === prevCwd)
       return { prevCwd, switched: false, storedCwdInvalid: false };
     try {
@@ -8640,7 +8589,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getKilledAgentSummariesForManager,
     killedAgentManagerUserId,
     restoreAgents,
-    getReceptionist,
+    ensureLobby: (seedDefaultAgent = false) => {
+      lobbySeedPending ||= seedDefaultAgent;
+      const room = officeState.ensureLobby();
+      persistAll();
+      return room;
+    },
+    lobbySeedIsPending: () => lobbySeedPending,
+    completeLobbySeed: () => {
+      lobbySeedPending = false;
+      persistAll();
+    },
+    getOrdinaryRooms,
     demoteToLazy,
     sweepIdleAgents,
     sweepStuckFlushes,
@@ -8717,6 +8677,7 @@ export function createProductionAgentManager(overrides?: {
             name: r.name,
             prompt: r.prompt,
             pet: r.pet ?? null,
+            type: r.type,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],
     office: {

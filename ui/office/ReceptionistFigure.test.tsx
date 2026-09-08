@@ -9,7 +9,6 @@ const AGENT = {
   name: "Receptionist",
   desk: 0,
   roomId: LOBBY_ROOM_ID,
-  receptionist: true,
   state: "idle",
   modelFamily: "opencode/muse-spark-1.2-contributor-free",
   agentType: "opencode",

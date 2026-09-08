@@ -38,13 +38,14 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { AbortResult } from "../../internal-types.ts";
 import type { AgentInfo } from "../../../shared/types.ts";
-import { DESK_COUNT, isValidDesk } from "../../../shared/desks.ts";
+import { roomSlotCount, isValidDesk } from "../../../shared/desks.ts";
 
 // A desk outside the room's grid names no slot to draw the agent at, so both
 // spawn and revive reject it here rather than letting it reach the core. Spawn
 // used to create a real but unrenderable agent that broke the
 // office view for the whole room; revive reported it as an occupied desk).
-const DESK_RANGE_MESSAGE = `desk must be a whole number from 0 to ${DESK_COUNT - 1}`;
+const deskRangeMessage = (room?: Pick<import("../../../shared/types.ts").RoomWire, "type">) => `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`;
+import { AGENT_TEMPLATES } from "../../../shared/agent-templates.ts";
 import type {
   SpawnReq,
   EditAgentReq,
@@ -76,7 +77,6 @@ export type EditResult =
         | "invalid_cwd"
         | "agent_not_found"
         | "invalid_model_family"
-        | "receptionist_locked"
         | "edit_failed";
       message: string;
     }
@@ -89,18 +89,12 @@ export type ReviveResult =
   | { ok: true; agent: AgentInfo }
   | { ok: false; error: string; field?: "name" | "desk" | "room" };
 
-// The receptionist is locked against kill, move and rename (409
-// receptionist_locked); everything else about it is editable.
-export type KillResult =
-  | { ok: true }
-  | { ok: false; reason: "receptionist_locked" };
-const RECEPTIONIST_LOCKED =
-  "The receptionist stays in the lobby: it cannot be killed, moved or renamed.";
+export type KillResult = { ok: true };
 
 export interface AgentsDeps {
+  roomForDesks?(roomId: string): Pick<import("../../../shared/types.ts").RoomWire, "type"> | undefined;
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
   // guard already gated existence + access, so a stale id is a harmless no-op.
-  // The receptionist is refused (receptionist_locked).
   kill(agentId: string): Promise<KillResult>;
   // Stops whatever the agent is doing: cancels the in-flight turn, and denies
   // a permission prompt it is parked on. Returns the outcome rather than void:
@@ -125,8 +119,7 @@ export interface AgentsDeps {
         reason:
           | "no_free_desk"
           | "room_not_found"
-          | "agent_not_found"
-          | "receptionist_locked";
+          | "agent_not_found";
       };
   swapDesks(roomId: string, deskA: number, deskB: number): void;
   setTopic(agentId: string, topic: string): void;
@@ -150,6 +143,7 @@ export interface AgentsDeps {
     roomId: string;
     desk: number;
     permissionMode?: AgentInfo["permissionMode"];
+    profileKey?: string;
     customInstructions?: string;
     outfit?: AgentInfo["outfit"];
     modelFamily?: string;
@@ -218,8 +212,7 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
 export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
   return {
     "agents.kill": async (ctx) => {
-      const r = await deps.kill(ctx.params.id);
-      if (!r.ok) return fail(409, "receptionist_locked", RECEPTIONIST_LOCKED);
+      await deps.kill(ctx.params.id);
       return noContent();
     },
 
@@ -259,9 +252,6 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (r.reason === "room_not_found") {
         return fail(404, "room_not_found", "Room not found");
       }
-      if (r.reason === "receptionist_locked") {
-        return fail(409, "receptionist_locked", RECEPTIONIST_LOCKED);
-      }
       return fail(404, "agent_not_found", "Agent not found");
     },
 
@@ -273,6 +263,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.deskA !== "number" || typeof b.deskB !== "number") {
         return fail(422, "invalid_desks", "deskA and deskB are required");
       }
+      const room = deps.roomForDesks?.(ctx.params.roomId);
+      if (!isValidDesk(b.deskA, room) || !isValidDesk(b.deskB, room)) return fail(422, "invalid_desks", deskRangeMessage(room));
       deps.swapDesks(ctx.params.roomId, b.deskA, b.deskB);
       return noContent();
     },
@@ -308,12 +300,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.desk !== "number") {
         return fail(422, "invalid_desk", "desk is required");
       }
-      if (!isValidDesk(b.desk)) {
-        return fail(422, "invalid_desk", DESK_RANGE_MESSAGE);
+      if (!isValidDesk(b.desk, deps.roomForDesks?.(b.roomId))) {
+        return fail(422, "invalid_desk", deskRangeMessage(deps.roomForDesks?.(b.roomId)));
       }
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
+      if (b.profileKey !== undefined && (typeof b.profileKey !== "string" || !AGENT_TEMPLATES.some((profile) => profile.key === b.profileKey))) return fail(422, "invalid_request", "malformed agent field");
       const { username } = deps.attributionFor(ctx.identity);
       const r = await deps.spawn({
         name: b.name,
@@ -321,6 +314,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         roomId: b.roomId,
         desk: b.desk,
         permissionMode: b.permissionMode,
+        profileKey: b.profileKey,
         customInstructions: b.customInstructions,
         outfit: b.outfit,
         modelFamily: b.modelFamily,
@@ -354,8 +348,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // Same range check as spawn: without it an off-grid desk reached the core
       // and came back as 409 desk_taken, telling the boss a desk was occupied
       // when it doesn't exist.
-      if (!isValidDesk(b.desk)) {
-        return fail(422, "invalid_desk", DESK_RANGE_MESSAGE);
+      if (!isValidDesk(b.desk, deps.roomForDesks?.(b.roomId))) {
+        return fail(422, "invalid_desk", deskRangeMessage(deps.roomForDesks?.(b.roomId)));
       }
       const r = await deps.revive(ctx.params.id, b.roomId, b.desk);
       if (r.ok) return ok({ agent: r.agent });
@@ -410,9 +404,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
               ? 404
               : r.reason === "invalid_model_family"
                 ? 422
-                : r.reason === "receptionist_locked"
-                  ? 409
-                  : 400;
+                : 400;
         return fail(status, r.reason, r.message);
       }
       return ok({ agent: r.agent });

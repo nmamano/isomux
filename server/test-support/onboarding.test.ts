@@ -234,7 +234,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(codex!.dormant).toBe(true);
     expect(opencode!.dormant).toBe(true);
 
-    for (const agent of agents.filter((a) => !a.receptionist)) {
+    for (const agent of agents.filter((a) => a.roomId !== "lobby")) {
       expect(agent.customInstructions).toContain(
         "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), Free Welcome Agent (OpenCode).",
       );
@@ -289,7 +289,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     // No welcome agents; the receptionist joins any office that gets an owner.
     const agents = server.agentManager
       .getAllAgents()
-      .filter((a) => !a.receptionist);
+      .filter((a) => a.roomId !== "lobby");
     expect(agents).toHaveLength(1);
     expect(agents[0].id).toBe(existing!.id);
     expect(agents[0].name).toBe("Existing Agent");

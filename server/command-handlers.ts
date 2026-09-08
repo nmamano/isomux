@@ -158,12 +158,6 @@ interface HandlerDeps {
   globalRoomIndexOf: (roomId: string) => number;
   roomById: (roomId: string) => RoomWire | undefined;
   getOfficeConfig: () => OfficeSettings;
-  // The receptionist's prompt builder (agent-manager owns the office reads it
-  // needs), so /isomux-system-prompt dumps what its session really runs.
-  receptionistSystemPrompt: (
-    managed: ManagedAgent,
-    autoLoadedMemory: string | null,
-  ) => string;
   logCache: Map<string, LogEntry[]>;
 
   emit: (event: AgentEvent) => void;
@@ -819,15 +813,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       const ownerRecord = managed.info.username
         ? getUserByName(managed.info.username)
         : undefined;
-      const prompt = managed.info.receptionist
-        ? deps.receptionistSystemPrompt(
-            managed,
-            memoryStore.renderForPromptMulti([
-              { scope: "office", scopeId: null, label: "Office-wide" },
-              { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
-            ]),
-          )
-        : buildSystemPrompt(
+      const prompt = buildSystemPrompt(
             managed.info.name,
             managed.info.id,
             room.name,
@@ -840,11 +826,11 @@ export function createCommandHandling(deps: HandlerDeps) {
             managed.info.privileged ?? false,
             memoryStore.renderForPromptMulti([
               { scope: "office", scopeId: null, label: "Office-wide" },
-              {
-                scope: "room",
+              ...(room.type === "lobby" ? [] : [{
+                scope: "room" as const,
                 scopeId: managed.info.roomId,
                 label: `Room "${room.name}"`,
-              },
+              }]),
               // Boss notes auto-load ONLY for this agent's manager boss (stable
               // userId), so one boss's notes never bleed into another's context.
               ...(managed.info.userId

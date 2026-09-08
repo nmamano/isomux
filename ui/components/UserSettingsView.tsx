@@ -1,3 +1,4 @@
+import { ordinaryRooms } from "../../shared/types.ts";
 // The full-page Settings surface (master-detail), replacing the old crowded modal
 // (UserManagementModal). Entered and exited like the Tasks page: rendered in
 // App's main view switch, closed via the header back arrow, ESC, or the
@@ -1072,7 +1073,7 @@ function UserEditPanel({
   // own view, and so the Notifications list reflects every room the
   // target user might actually see. Members fall back to their
   // projected `rooms` (which already match what they can see).
-  const editorRooms = allRooms.length > 0 ? allRooms : rooms;
+  const editorRooms = ordinaryRooms(allRooms.length > 0 ? allRooms : rooms);
   const [name, setName] = useState(user.name);
   const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(
     user.notifRooms,

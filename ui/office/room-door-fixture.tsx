@@ -8,7 +8,7 @@ const { setApiShim } = await import("../api.ts");
 const { setShim, shimEmit, connect } = await import("../ws.ts");
 const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 
-export const room = (id: string, name = id) => ({ id, name, prompt: null, canCloseWhenEmpty: true });
+export const room = (id: string, name = id): import("../../shared/types.ts").RoomWire => ({ id, name, prompt: null, canCloseWhenEmpty: true });
 const noop = () => {};
 export let snapshot: ReturnType<typeof useAppState>;
 export let dispatch: ReturnType<typeof useDispatch>;

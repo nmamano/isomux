@@ -1,3 +1,5 @@
+import type { RoomType } from "./types.ts";
+
 // The desk grid every room is laid out on: 8 slots, 2 columns x 4 rows.
 //
 // The row/col pairs only mean something to the UI renderer, but the LENGTH of
@@ -22,6 +24,10 @@ export const DESK_COUNT = DESK_SLOTS.length;
 // negative indices are rejected explicitly: -1 doubles as OfficeState's
 // "no free desk" sentinel, and any out-of-range index names a desk that has no
 // place to be drawn.
-export function isValidDesk(desk: number): boolean {
-  return Number.isInteger(desk) && desk >= 0 && desk < DESK_COUNT;
+export function roomSlotCount(room?: { type?: RoomType }): number {
+  return room?.type === "lobby" ? 1 : DESK_COUNT;
+}
+
+export function isValidDesk(desk: number, room?: { type?: RoomType }): boolean {
+  return Number.isInteger(desk) && desk >= 0 && desk < roomSlotCount(room);
 }

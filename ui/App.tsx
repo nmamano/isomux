@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { ordinaryRooms } from "../shared/types.ts";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useAppState, useDispatch, useFeatures } from "./store.tsx";
 import { send } from "./ws.ts";
 import {
@@ -98,7 +99,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     focusedAgentId,
     drafts,
     currentRoomId,
-    rooms,
+    rooms: allRooms,
     office,
     connected,
     sessionContext,
@@ -106,6 +107,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     lobbyOpen,
   } = useAppState();
   const features = useFeatures();
+  const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const roomCount = rooms.length;
   const dispatch = useDispatch();
   // Clicking an empty slot opens the complete spawn form. Engine is one of its

@@ -708,8 +708,7 @@ export interface PersistedAgent {
   // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
   privileged?: boolean;
-  // The receptionist (AgentInfo.receptionist). Persisted in its own file,
-  // never inside a room bucket of agents.json.
+  // Legacy standalone record marker. Active agents no longer carry this.
   receptionist?: true;
 }
 
@@ -738,6 +737,9 @@ function migratePersistedAgent(
 }
 
 export interface Room {
+  type?: "office" | "lobby";
+  // Bootstrap retry marker, removed after the default lobby agent is present.
+  defaultAgentPending?: true;
   id: string; // stable 8-char hex
   name: string; // display name
   prompt: string | null; // room-level prompt
@@ -860,14 +862,14 @@ export function loadAgents(): Room[] {
 export function saveAgents(rooms: Room[]) {
   try {
     atomicWriteFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
+    return true;
   } catch (err) {
     console.error("Failed to save agents:", err);
+    return false;
   }
 }
 
-// The receptionist's own record. agents.json nests agents under rooms and the
-// receptionist has none, so it gets a file of its own: a server without the
-// feature reads an unchanged agents.json and simply has no receptionist.
+// Legacy migration input. Remove it only after a successful ordinary room save.
 const RECEPTIONIST_FILE = join(ISOMUX_DIR, "receptionist.json");
 
 export function loadReceptionist(): PersistedAgent | null {
@@ -908,7 +910,7 @@ export interface ManifestAgentInput {
   id: string;
   name: string;
   desk: number;
-  // 0-based room index, or null for the receptionist (no room; roomName is
+  // 0-based ordinary room index, or null for a lobby agent (roomName is
   // "Lobby").
   room: number | null;
   roomName: string;

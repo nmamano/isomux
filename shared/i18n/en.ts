@@ -21,6 +21,8 @@
 
 export const en = {
   "lobby.moveHere": "Move here",
+  "templates.receptionist.label": "Isomux Receptionist",
+  "templates.receptionist.description": "Help with Isomux and this office.",
   "lobby.receptionistName": "Receptionist",
   "lobby.askHint": "Ask about Isomux or this office",
   "lobby.welcome": "WELCOME",
@@ -31,9 +33,6 @@ export const en = {
   "lobby.employeeLine1": "EMPLOYEE OF",
   "lobby.employeeLine2": "THE MINUTE",
   "lobby.openChat": "{name} - click to open the chat",
-  "lobby.identityLocked":
-    "The receptionist keeps its name and working directory.",
-  "lobby.receptionistNameLocked": "The receptionist keeps its name.",
   "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · API token",
   "membersChat.authorApiDevice": '{name} · API token "{device}"',

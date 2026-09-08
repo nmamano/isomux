@@ -400,7 +400,7 @@ describe("lobby presence", () => {
     const cookie = claim.headers.get("set-cookie")!.match(/isomux_session=([^;]+)/)![1];
     const sock = await connectSettled(server, cookie);
     const cid = connectionIdOf(sock);
-    const receptionist = server.agentManager.getAllAgents().find((a) => a.receptionist)!;
+    const receptionist = server.agentManager.getAllAgents().find((a) => a.roomId === "lobby")!;
     expect(receptionist).toBeDefined();
     sock.send({ type: "presence_update", currentRoomId: "lobby", focusedAgentId: receptionist.id, viewMode: "log" });
     const first = await waitForMessageWhere(sock, (m) => m.type === "presence_list" && presenceEntry(m, cid)?.currentRoomId === "lobby");

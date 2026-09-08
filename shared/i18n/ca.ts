@@ -6,6 +6,8 @@ import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
   "lobby.moveHere": "Mou-te aquí",
+  "templates.receptionist.label": "Recepcionista d’Isomux",
+  "templates.receptionist.description": "Ajuda amb Isomux i aquesta oficina.",
   "lobby.receptionistName": "Recepcionista",
   "lobby.askHint": "Pregunta sobre Isomux o aquesta oficina",
   "lobby.welcome": "BENVINGUTS",
@@ -16,9 +18,6 @@ export const ca: Catalog = {
   "lobby.employeeLine1": "EMPLEAT",
   "lobby.employeeLine2": "DEL MINUT",
   "lobby.openChat": "{name} - fes clic per obrir el xat",
-  "lobby.identityLocked":
-    "El recepcionista conserva el nom i el directori de treball.",
-  "lobby.receptionistNameLocked": "El recepcionista conserva el seu nom.",
   "membersChat.authorAgent": "{name} · agent",
   "membersChat.authorApi": "{name} · token d'API",
   "membersChat.authorApiDevice": '{name} · token d\'API "{device}"',

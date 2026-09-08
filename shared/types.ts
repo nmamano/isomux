@@ -196,10 +196,7 @@ export const DEFAULT_EFFORT: EffortLevel = "high";
 export const OPENCODE_DEFAULT_MODEL =
   "opencode/muse-spark-1.2-contributor-free";
 
-// The receptionist's home. Not a room: it never appears in a room list, in a
-// user's grants or in the office state. It is the roomId of the one agent every
-// user can reach, and the name the manifest and the prompt show for it. Not an
-// 8-hex id, so it can never collide with a real room.
+// The fixed lobby room has one agent slot and is visible to every member.
 export const LOBBY_ROOM_ID = "lobby";
 // Stable lobby seat identities; geometry stays in the scene layout.
 export const LOBBY_SPOT_IDS = [
@@ -209,6 +206,7 @@ export const LOBBY_SPOT_IDS = [
 ] as const;
 export const LOBBY_ROOM: RoomWire = {
   id: LOBBY_ROOM_ID,
+  type: "lobby",
   name: en["common.lobby"],
   prompt: null,
   canCloseWhenEmpty: false,
@@ -544,11 +542,7 @@ export interface AgentInfo {
   // agents.setPrivileged route; never by an agent. Absent/false on normal
   // agents.
   privileged?: boolean;
-  // The office's receptionist: the one agent that stands in the lobby (roomId
-  // LOBBY_ROOM_ID) and reaches every user, room access or not. Locked against
-  // kill, move, rename and cwd changes; other configuration stays editable. Absent on every
-  // other agent.
-  receptionist?: true;
+
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
   // 9870b472) - a restart no longer empties it. Live source of truth is the
   // manager's in-memory queue; this wire copy is spliced in by getAllAgents.
@@ -1135,17 +1129,19 @@ export interface KilledAgentSummary {
 // allowedRooms at creation time. Members other than the creator are
 // not auto-added; an owner has to grant them through the Allowed
 // Rooms editor.
+export type RoomType = "office" | "lobby";
+
+export function ordinaryRooms<T extends { type?: RoomType }>(rooms: readonly T[]): T[] {
+  return rooms.filter((room) => room.type !== "lobby");
+}
+
 export interface RoomWire {
+  type?: RoomType; // absent on older records means office
   id: string; // 8-char hex, stable
   name: string; // display name
   prompt: string | null;
-  // Derived close-affordance capability. false ONLY for the
-  // protected canonical first room (room-order index 0); true for every other
-  // room. NOT an occupancy signal - the client ANDs it with its own reactive
-  // emptiness check, and the server stays authoritative on close (closeRoom
-  // rejects index 0 and non-empty rooms). Derived from canonical room order by
-  // OfficeState whenever rooms are materialized; never persisted (re-derived on
-  // load), so it cannot drift from the canonical order.
+  // Derived from ordinary room order: the first office room and every lobby
+  // are protected. Other rooms can close only when empty. Never persisted.
   canCloseWhenEmpty: boolean;
   // The pet this room keeps. Optional, and absent means exactly what null
   // means: nobody has chosen, so the room draws DEFAULT_ROOM_PET. Optional

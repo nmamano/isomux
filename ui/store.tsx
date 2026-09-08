@@ -10,7 +10,7 @@ import {
   type ReactNode,
   type Dispatch,
 } from "react";
-import { KILLED_AGENT_CHIP_CAP, LOBBY_ROOM_ID } from "../shared/types.ts";
+import { KILLED_AGENT_CHIP_CAP, LOBBY_ROOM_ID, ordinaryRooms } from "../shared/types.ts";
 import type {
   AgentInfo,
   AgentChoiceInteraction,
@@ -434,7 +434,7 @@ export function reducer(state: AppState, action: Action): AppState {
         rooms: action.rooms,
         // Nowhere else to land: a member with no visible room opens on the
         // lobby. Anyone with a room keeps whatever tab they had.
-        lobbyOpen: action.rooms.length === 0 ? true : state.lobbyOpen,
+        lobbyOpen: ordinaryRooms(action.rooms).length === 0 ? true : state.lobbyOpen,
         killedAgents: action.killedAgents,
         interactions: action.interactions ?? [],
         currentRoomId,
@@ -928,7 +928,7 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         rooms: result.rooms,
         currentRoomId: result.currentRoomId,
-        lobbyOpen: result.rooms.length === 0 ? true : state.lobbyOpen,
+        lobbyOpen: ordinaryRooms(result.rooms).length === 0 ? true : state.lobbyOpen,
       };
     }
     case "room_renamed": {
