@@ -264,7 +264,19 @@ export const en = {
   "settings.update.tip":
     "Tip: click the copy button to copy this notice to clipboard, then ask any agent to take care of it.",
   "settings.update.requested":
-    "Update requested. The server will restart shortly and this page will reconnect. If nothing happens after a few minutes, check the updater's status file on the server.",
+    "If nothing happens after a few minutes, check the updater's status file on the server.",
+  "settings.update.waiting":
+    "Keep this pane open until the server restarts.",
+  "settings.update.done":
+    "The update is done. Refresh the browser to load the updated page.",
+  "settings.update.refreshBrowser":
+    "Refresh browser",
+  "settings.update.unchanged":
+    "The page reconnected, but the running version has not changed.",
+  "settings.update.unverified":
+    "The page reconnected, but the running version could not be checked.",
+  "settings.update.stepRefresh":
+    "Refresh the browser after the server restarts.",
   "settings.update.runningOn": "You are on <code>{version}</code>",
   "settings.update.unknownVersion": "an unknown version",
   "settings.update.latestRelease":

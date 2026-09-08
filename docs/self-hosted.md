@@ -109,7 +109,7 @@ When a new release is out, the office header shows a "new release" notice. The o
 isomux-update v2026.7.19
 ```
 
-Either way, the update installs any system dependencies the new release needs, rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, the updater rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
+Either way, the update installs any system dependencies the new release needs, rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, the updater rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`. The Updates pane asks the owner to keep it open until the server restarts, checks the running version after reconnecting, and offers a browser refresh.
 
 ### App hostnames
 

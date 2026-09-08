@@ -254,7 +254,19 @@ export const es: Catalog = {
   "settings.update.tip":
     "Consejo: pulsa el botón de copiar para copiar este aviso al portapapeles y luego pide a cualquier agente que se encargue.",
   "settings.update.requested":
-    "Actualización solicitada. El servidor se reiniciará en breve y esta página se volverá a conectar. Si no pasa nada tras unos minutos, revisa el archivo de estado del actualizador en el servidor.",
+    "Si no pasa nada tras unos minutos, revisa el archivo de estado del actualizador en el servidor.",
+  "settings.update.waiting":
+    "Mantén este panel abierto hasta que se reinicie el servidor.",
+  "settings.update.done":
+    "La actualización ha terminado. Recarga el navegador para cargar la página actualizada.",
+  "settings.update.refreshBrowser":
+    "Recargar el navegador",
+  "settings.update.unchanged":
+    "La página se ha vuelto a conectar, pero la versión en ejecución no ha cambiado.",
+  "settings.update.unverified":
+    "La página se ha vuelto a conectar, pero no se ha podido comprobar la versión en ejecución.",
+  "settings.update.stepRefresh":
+    "Recarga el navegador después de que se reinicie el servidor.",
   "settings.update.runningOn": "Estás en <code>{version}</code>",
   "settings.update.unknownVersion": "una versión desconocida",
   "settings.update.latestRelease":
