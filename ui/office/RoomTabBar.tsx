@@ -1,5 +1,7 @@
+import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
+import { LobbyChat } from "../members-chat/LobbyChat.tsx";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
@@ -162,8 +164,12 @@ function TotalOnlineChip({ count }: { count: number }) {
 // SECOND copy from its own state, so the office had two of them.
 export function RoomTabBar({
   onOpenRoomSettings,
+  membersChatLoadFailed = false,
+  onRetryMembersChat,
 }: {
   onOpenRoomSettings?: (roomId: string) => void;
+  membersChatLoadFailed?: boolean;
+  onRetryMembersChat?: () => void;
 }) {
   const {
     agents,
@@ -175,9 +181,10 @@ export function RoomTabBar({
     sessionContext,
     isMobile,
     lobbyOpen,
-    membersChat,
   } = useAppState();
   const { t } = useI18n();
+  const { embed } = useFeatures();
+  const mobileChatEntry = isMobile && lobbyOpen && !embed;
   const selfConnectionId = sessionContext?.connectionId ?? null;
   const roomCount = rooms.length;
   const dispatch = useDispatch();
@@ -242,7 +249,7 @@ export function RoomTabBar({
   // counts shifting tab widths.
   useEffect(() => {
     updateOverflow();
-  }, [rooms, agents, presences, totalOnlineUsers, updateOverflow]);
+  }, [rooms, agents, presences, totalOnlineUsers, mobileChatEntry, updateOverflow]);
 
   // Keep the active tab visible: on mount (deep room in a long list) and
   // whenever the current room changes (e.g. selected via a partially
@@ -349,7 +356,7 @@ export function RoomTabBar({
         }}
       >
         {/* The Lobby tab: client state, not a room. First, never draggable,
-            never reordered. The pill carries the members chat unread count;
+            never reordered. The dot carries members chat attention;
             room tabs stand down while the lobby is open. */}
         <div
           data-lobby-tab
@@ -390,27 +397,11 @@ export function RoomTabBar({
             }}
           >
             {t("common.lobby")}
-            {membersChat.unread > 0 && (
-              <span
-                data-lobby-unread
-                style={{
-                  minWidth: 16,
-                  height: 16,
-                  padding: "0 5px",
-                  borderRadius: 8,
-                  background: "var(--accent)",
-                  color: "var(--bg-base)",
-                  fontSize: 9,
-                  fontWeight: 700,
-                  lineHeight: "16px",
-                  textAlign: "center",
-                }}
-              >
-                {membersChat.unread >= 100 ? "99+" : membersChat.unread}
-              </span>
-            )}
+            {!mobileChatEntry && <MembersChatUnread />}
           </button>
         </div>
+        {/* The mobile lobby owns this entry; its chat uses a portal to fill the screen. */}
+        {mobileChatEntry && <LobbyChat loadFailed={membersChatLoadFailed} onRetry={onRetryMembersChat} />}
         {rooms.map((room, i) => {
           const isActive = !lobbyOpen && room.id === currentRoomId;
           const roomAgents = agents.filter((a) => a.roomId === room.id);

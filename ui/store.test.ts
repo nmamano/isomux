@@ -1133,7 +1133,7 @@ describe("RoomTabBar: the Lobby tab", () => {
       ),
     );
 
-  it("is first, shows the unread pill, and takes the active style from the rooms", () => {
+  it("is first, shows the unread dot, and takes the active style from the rooms", () => {
     const quiet = html({});
     expect(quiet.indexOf("Lobby")).toBeLessThan(quiet.indexOf("Alpha"));
     expect(quiet).not.toContain("data-lobby-unread");
@@ -1143,11 +1143,11 @@ describe("RoomTabBar: the Lobby tab", () => {
       membersChat: { ...initialState.membersChat, unread: 7 },
     });
     expect(busy).toContain("data-lobby-unread");
-    expect(busy).toContain(">7<");
+    expect(busy).toContain('aria-label="Unread messages: 7"');
     expect(busy).not.toContain("data-active-room-tab");
     const capped = html({
       membersChat: { ...initialState.membersChat, unread: 100 },
     });
-    expect(capped).toContain("99+");
+    expect(capped).toContain('aria-label="Unread messages: 100"');
   });
 });

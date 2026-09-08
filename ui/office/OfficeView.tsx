@@ -1,3 +1,4 @@
+import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
@@ -216,6 +217,7 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
+  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } = useMembersChatHydration(!embed);
   const i18n = useI18n();
   const { t } = i18n;
   const newRoomDoor = embed ? null : {
@@ -467,7 +469,7 @@ export function OfficeView({
         </div>
       )}
 
-      {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
+      {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} membersChatLoadFailed={membersChatLoadFailed} onRetryMembersChat={retryMembersChat} />}
 
       {/* Chat overlays the scene without changing the viewport's fit or origin.
           It stays outside the gesture container so chat scrolling and text
@@ -832,6 +834,8 @@ export function OfficeView({
         </div>
         {lobbyOpen && !isMobile && !embed && (
           <MembersChatPanel
+            loadFailed={membersChatLoadFailed}
+            onRetry={retryMembersChat}
             style={{
               position: "absolute",
               top: 0,

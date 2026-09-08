@@ -37,9 +37,8 @@ import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
 import * as chatApi from "./api.ts";
-import { MEMBERS_CHAT_FILES_BASE } from "./api.ts";
+import { MEMBERS_CHAT_FILES_BASE, MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT } from "./api.ts";
 
-const PAGE_LIMIT = 100;
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
 
@@ -174,7 +173,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
-export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
+export function MembersChatPanel({ style, onClose, onRetry, loadFailed = false }: { style?: React.CSSProperties; onClose?: () => void; onRetry?: () => void; loadFailed?: boolean }) {
   const { t, language } = useI18n();
   const {
     membersChat,
@@ -182,7 +181,6 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
     users,
     onlineUserIds,
     totalOnlineUsers,
-    hydrationEpoch,
     isMobile,
   } = useAppState();
   const dispatch = useDispatch();
@@ -208,7 +206,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const stickToBottom = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
   const dragCounter = useRef(0);
 
   const isTouchPrimary = useMemo(
@@ -218,31 +216,12 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
     [],
   );
 
-  // Hydrate: the first page on mount, and again after every reconnect (a
-  // full_state drops `loaded`).
-  useEffect(() => {
-    if (loaded) return;
-    let cancelled = false;
-    chatApi
-      .fetchPage({ limit: PAGE_LIMIT })
-      .then((page) => {
-        if (cancelled) return;
-        dispatch({ type: "members_chat_page", ...page, prepend: false });
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(chatError(err, "membersChat.loadFailed"));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loaded, hydrationEpoch, dispatch]);
-
   // Keep the newest message in view unless the reader scrolled up.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !stickToBottom.current) return;
+    if (!el || !atBottom) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [messages, atBottom]);
 
   const loadOlder = useCallback(() => {
     if (loadingOlder || !hasMore || messages.length === 0) return;
@@ -270,8 +249,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
-    stickToBottom.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
     if (el.scrollTop < 40) loadOlder();
   }
 
@@ -286,7 +264,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
   useEffect(() => {
-    if (!loaded || !newestId || newestId === readPointer) return;
+    if (!loaded || !atBottom || !newestId || newestId <= (readPointer ?? "")) return;
     if (document.visibilityState !== "visible") return;
     const t = setTimeout(() => {
       chatApi
@@ -295,7 +273,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         .catch(() => {});
     }, 500);
     return () => clearTimeout(t);
-  }, [loaded, newestId, readPointer, visibilityTick, dispatch]);
+  }, [loaded, atBottom, newestId, readPointer, visibilityTick, dispatch]);
 
   function addFiles(files: FileList | File[] | null) {
     if (!files) return;
@@ -381,7 +359,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
         dispatch({ type: "members_chat_message", message: m });
         setInput("");
         setStaged([]);
-        stickToBottom.current = true;
+        setAtBottom(true);
         if (textareaRef.current) textareaRef.current.style.height = "auto";
       })
       .catch((err: unknown) =>
@@ -452,6 +430,9 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
           flexShrink: 0,
         }}
       >
+        {onClose && <button onClick={onClose} style={{ minHeight: 44, padding: "0 12px",
+          border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-code)",
+          color: "var(--text-primary)", cursor: "pointer" }}>{t("common.back")}</button>}
         <span
           style={{
             fontSize: 11,
@@ -477,7 +458,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
           })}
         </span>
         <span style={{ display: "inline-flex", alignItems: "center" }}>
-          {online.slice(0, 8).map((u, i) => (
+          {online.slice(0, isMobile ? 3 : 8).map((u, i) => (
             <span
               key={u.id}
               title={u.name}
@@ -635,7 +616,7 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
           style={{ display: "none" }}
           onChange={(e) => addFiles(e.target.files)}
         />
-        {error && (
+        {(error || loadFailed) && (
           <div
             role="alert"
             style={{
@@ -644,7 +625,10 @@ export function MembersChatPanel({ style }: { style?: React.CSSProperties }) {
               fontSize: isMobile ? 12 : 11,
             }}
           >
-            {errorText(error, t)}
+            {error ? errorText(error, t) : t("membersChat.loadFailed")}
+            {loadFailed && onRetry && <button onClick={onRetry} style={{ marginLeft: 8, padding: "8px 12px",
+              background: "var(--bg-code)", color: "var(--text-primary)", border: "1px solid var(--border)",
+              borderRadius: 6, cursor: "pointer" }}>{t("membersChat.retry")}</button>}
           </div>
         )}
         {staged.length > 0 && (

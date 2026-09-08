@@ -14,6 +14,8 @@ import type {
 // `${base}/${filename}`).
 export const MEMBERS_CHAT_FILES_BASE = "/api/members-chat/files";
 
+export const MEMBERS_CHAT_PAGE_LIMIT = 100;
+
 export function fetchPage(opts: {
   before?: string;
   limit?: number;

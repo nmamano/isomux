@@ -366,3 +366,10 @@ Pending ordinary Checkout recovery is pinned in `checkout-poll.test.ts`: open
 deferral, fetched expiry, paid linkage and provisioning, no synthetic event
 evidence, no poll-created dunning episode, complete-but-unpaid gating, and
 per-candidate failure isolation.
+
+Members chat mobile navigation and unread hydration are covered by
+`ui/members-chat/navigation.dom.test.tsx`; `read.dom.test.tsx` in the same
+folder covers the visible-tab and at-bottom read rule on both widths.
+`mobile.i18n.dom.test.tsx` checks the entry, unread label and Back in English,
+Spanish and Catalan. The hydration hook runs from OfficeView, so its scoped
+checks include the App render tests as well as the office and chat tests.
