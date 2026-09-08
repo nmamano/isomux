@@ -22,7 +22,6 @@
 import { LOBBY_ROOM_ID, LOBBY_SPOT_IDS } from "../shared/types.ts";
 import {
   assignLobbySpot,
-  planLobbyMoves,
   pickLobbySpot,
   type LobbyAssignment,
 } from "./lobby-presence.ts";
@@ -46,7 +45,6 @@ export interface PresenceState {
   viewMode: "office" | "log" | "away";
   lastSeenAt: number;
   lobbySpotId?: string | null;
-  lobbyMoveAt?: number;
 }
 
 const presences = new Map<string, PresenceState>();
@@ -74,20 +72,18 @@ export function setPresence(
       state = {
         ...state,
         lobbySpotId: existing.lobbySpotId,
-        lobbyMoveAt: existing.lobbyMoveAt,
       };
     } else if (state.lobbySpotId === undefined) {
       const next = assignLobbySpot(
         lobbyAssignments(),
         LOBBY_SPOT_IDS,
         state.connectionId,
-        state.lastSeenAt,
         random,
       );
       state = { ...state, ...next };
     }
   } else {
-    state = { ...state, lobbySpotId: undefined, lobbyMoveAt: undefined };
+    state = { ...state, lobbySpotId: undefined };
   }
   presences.set(state.connectionId, state);
   if (!existing) return true;
@@ -175,7 +171,6 @@ function lobbyAssignments(): LobbyAssignment[] {
     .map((p) => ({
       connectionId: p.connectionId,
       lobbySpotId: p.lobbySpotId ?? null,
-      lobbyMoveAt: p.lobbyMoveAt ?? 0,
     }));
 }
 
@@ -188,20 +183,9 @@ function applyLobbyAssignments(rows: LobbyAssignment[]): boolean {
   return changed;
 }
 
-export function moveLobbyPresences(
-  now = Date.now(),
-  random = Math.random,
-): boolean {
-  return applyLobbyAssignments(
-    planLobbyMoves(lobbyAssignments(), LOBBY_SPOT_IDS, now, random),
-  );
-}
-
 export function moveLobbyPresence(
   connectionId: string,
   spotId: string,
-  now = Date.now(),
-  random = Math.random,
 ): boolean {
   return applyLobbyAssignments(
     pickLobbySpot(
@@ -209,8 +193,6 @@ export function moveLobbyPresence(
       LOBBY_SPOT_IDS,
       connectionId,
       spotId,
-      now,
-      random,
     ),
   );
 }

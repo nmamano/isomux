@@ -27,7 +27,6 @@ import type {
 import {
   listAllPresence,
   moveLobbyPresence,
-  moveLobbyPresences,
   refreshPresenceForUser,
   removePresence,
   setPresence,
@@ -1398,25 +1397,7 @@ function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   );
 }
 
-let lobbyMoveTimer: ReturnType<typeof setInterval> | null = null;
-function stopLobbyMoveTimer() {
-  if (lobbyMoveTimer !== null) clearInterval(lobbyMoveTimer);
-  lobbyMoveTimer = null;
-}
-
-function syncLobbyMoveTimer() {
-  if (!listAllPresence().some((p) => p.currentRoomId === LOBBY_ROOM_ID)) {
-    stopLobbyMoveTimer();
-  } else if (lobbyMoveTimer === null) {
-    lobbyMoveTimer = setInterval(() => {
-      if (moveLobbyPresences()) pushPresenceListToEachWs();
-    }, 1000);
-    lobbyMoveTimer.unref?.();
-  }
-}
-
 function pushPresenceListToEachWs() {
-  syncLobbyMoveTimer();
   for (const ws of browsers) {
     sendPresenceListTo(ws);
   }
@@ -6191,7 +6172,6 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   browsers.clear();
   apiTokenSockets.clear();
   _testClearPresence();
-  stopLobbyMoveTimer();
   // Neutralize the auth.ts boot hooks so a stale closure from this boot can't
   // fire into a torn-down broadcast set between stop() and the next start();
   // the next startServer() re-registers them against the new instance.

@@ -14,14 +14,11 @@ viewing the receptionist. The sanitizer and per-viewer projection handle this
 lobby room explicitly. A change to ordinary room grants preserves lobby
 presence. Receptionist focus does not change the seat.
 
-`assignLobbySpot` and `planLobbyMoves` are pure and accept time and a random
-source. Entry selects a random free spot while leaving enough seats for older
-waiting connections; it does not compute or discard moves for other ghosts. Repeated presence updates retain the spot and deadline.
-A single server timer checks once per second while lobby connections exist.
-Each successful move starts a new 15–25 second dwell. The tick assigns in
-sequence against updated occupancy, so due ghosts cannot claim the same spot.
-The timer broadcasts only when a spot changes. It stops when the last lobby
-connection leaves and on server shutdown; it does not keep a process alive.
+`assignLobbySpot` is pure and accepts a random source. Each entry selects a
+random free spot without moving other ghosts. Repeated presence updates and
+receptionist focus retain the seat. Leaving clears the seat; re-entry makes
+a new random selection and can select the same seat again. There is no lobby
+movement timer or dwell deadline.
 
 A browser sends `{ type: "lobby_move", spotId }` for a free-seat click.
 The server gets the mover from the authenticated socket, accepts the first
@@ -29,7 +26,7 @@ request for a free spot, and refuses taken or unknown spots without a change.
 A connection outside the lobby cannot move a lobby ghost. The browser does
 not move optimistically. Taken spots have no seat button; clicking a ghost
 still opens user settings. Free-seat buttons stay 44×44 and clickable at
-rest; their ring appears only on pointer hover or keyboard focus. A successful click resets the automatic deadline.
+rest; their ring appears only on pointer hover or keyboard focus.
 
 The lobby shows self and other connections with the same style, per the PM's
 ruling. Ordinary rooms keep hiding self. Bodies and tags retain their connection
@@ -39,12 +36,11 @@ the ordinary room constants and wraps upward at four columns with fixed
 spacing. A named 110 px right margin keeps the lineup clear of zoom controls. Overflow
 beyond the second row stacks on that last row. Overflow has no name chips;
 the body retains its native name tooltip and user-settings click. Positions
-depend on each connection’s line index, never the total viewer count. The pure tick
-promotes the earliest still-waiting connection in presence insertion order
-before seated ghosts can take a newly free spot. Randomness selects its seat,
-not its queue position. The visual lineup sorts by connection id, so its
-order is not the server promotion order. With all ten
-spots occupied, seated ghosts wait until a spot becomes free.
+depend on each connection’s line index, never the total viewer count. Overflow viewers stay in the overflow block until they click a free seat or
+leave and re-enter. The server does not promote them automatically or reserve
+empty seats for them. The visual lineup sorts by connection id. With all ten
+spots occupied, new entries stay in overflow.
+
 
 ## Verification
 
@@ -65,7 +61,7 @@ use the server's configured localhost origin, which differs from the harness's
 
 No pre-lane test assertion is removed or replaced. New tests include a
 negative unknown-room claim, taken and unknown-seat requests, an off-lobby
-move, pre-deadline stability, full occupancy, overflow promotion, and ordinary
+move, entry stability, full occupancy, overflow click movement, and ordinary
 room self hiding.
 
 ## Review mutants
@@ -80,14 +76,11 @@ its failure oracle; the reviewer runs them on the review commit.
   The same socket test's `hasBoth` waiter fails; ordinary-room tests still pass.
 - C3 movement notification: delete `|| existing.lobbySpotId !== state.lobbySpotId`
   from `setPresence`'s return expression (including its preceding OR).
-  `expect(moveLobbyPresences(30000, () => 0)).toBe(true)` fails. The socket
-  `broadcasts a due timer move` test also times out at its `moved` waiter.
+  The spot-only change assertion in `setPresence accepts entry randomness and
+  returns true for a spot-only change` fails.
 - C4 access clamp: delete `next.currentRoomId !== LOBBY_ROOM_ID &&`.
   `expect(getPresence("a")!.currentRoomId).toBe(LOBBY_ROOM_ID)` fails after
   the grant refresh (the preceding changed=false assertion also fails).
-- C5/C7 collision: delete `if (spot) occupied.add(spot);`.
-  `expect(next.map((p) => p.lobbySpotId)).toEqual(["four", "one", "three"])`
-  fails in `moves due ghosts in sequence`.
 - Click ownership: replace `p.connectionId === connectionId` in
   `pickLobbySpot` with `true`. `expect(next[1]).toBe(before[1])` fails in
   `a click changes only the caller`.
@@ -112,7 +105,7 @@ New UI label, including accessible name and native tooltip:
 that `docs/features.md` stays unchanged because this is ghost behavior, and
 approved this addition in `api/chat.ts` only:
 
-> In the lobby, everyone sees their own ghost too. Ghosts move between free spots; click a free spot to move there.
+> In the lobby, everyone sees their own ghost too. Each visitor gets a random free spot; click a free spot to move there.
 
 No new HTTP route, deployment setting, slash command, storage format, headline
 feature, or public website API was added. Other indexed doc surfaces keep
@@ -125,10 +118,11 @@ that constraint; the reviewed fish-tank screenshot confirms its back seat.
 
 ## Round 2 review coverage
 
-- Entry test: a forced random source chooses a known seat; the pure entry
-  function leaves older waiting rows and their seat capacity intact.
-- Promotion order: with two waiting rows and one free seat, the earliest row
-  gets the seat. The newer row stays in overflow.
+- Entry tests use fixed random values to select both available seats while
+  leaving existing and overflow rows unchanged. The presence-map test leaves
+  and re-enters with fixed random values to prove a new selection.
+- A socket test spies on interval registration after boot and connection:
+  lobby entry starts no interval and retains receptionist focus.
 - `setPresence` returns true when only `lobbySpotId` changes, and false on an
   exact repeat.
 - The presence-map case now enters 18 connections. The geometry test checks
@@ -139,10 +133,9 @@ that constraint; the reviewed fish-tank screenshot confirms its back seat.
   hook. Delete `&& p.connectionId !== ownConnectionId` from its filter:
   `expect(result.current.placements.map((p) => p.presence.connectionId)).toEqual(["peer"])`
   fails with an added self entry. The lobby-self case still passes.
-- Entry mutant: replace `free.length > waiting` with `free.length > 0` in
-  `assignLobbySpot`. The first equality in `assigns an entry with injected
-  randomness without moving or dropping waiting rows` fails (seat instead
-  of null). The function does not use a deadline sentinel or array position.
+- Entry mutant: replace the random free-seat index with zero. The assignment
+  set equality in `assigns a random free entry seat without moving existing
+  or overflow rows` fails.
 - Overflow mutant: replace `(overflow % columns)` with `overflow` in
   `LobbyGhosts`. `expect(p.left + 40).toBeLessThanOrEqual(950)` fails in
   `wraps 18 viewers within the scene`.
@@ -213,3 +206,22 @@ on the second row. This is intended; the server still tracks each connection.
 A chain of nearby occupied seats raises a tag 24 px per link. A future layout
 with a larger seat cluster can therefore place a tag more than one level
 above its natural anchor.
+
+## Entry-only movement follow-up (2026-09-08)
+
+Task `9607f41b`, lane `ghost-no-shuffle`, removes automatic movement per Nil.
+Removed tests:
+
+- `moves due ghosts in sequence into distinct free spots, leaving other deadlines alone`
+- `keeps a full lobby stable, promotes overflow first, and uses the supplied random source`
+
+Replaced tests:
+
+- `assigns an entry with injected randomness without moving or dropping waiting rows`
+  now checks all free entry seats without an automatic-promotion reservation.
+- `broadcasts a due timer move and preserves receptionist focus in the lobby`
+  now checks no interval starts on entry and retains the focus assertion.
+
+The full-occupancy presence test retains ten unique seats and overflow checks;
+its promotion assertion now requires a click. The grant-change test retains
+its movement notification assertion through a click.

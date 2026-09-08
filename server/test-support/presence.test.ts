@@ -13,7 +13,7 @@
 // wait when asserting an omission / a no-op-on-the-id change) settle without
 // arbitrary sleeps.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   startTestServer,
   type TestServer,
@@ -417,8 +417,7 @@ describe("lobby presence", () => {
     expect(getPresence(bid)!.lobbySpotId).toBeUndefined();
   });
 
-  it("broadcasts a due timer move and preserves receptionist focus in the lobby", async () => {
-    const { getPresence, setPresence } = await import("../presence.ts");
+  it("starts no interval on lobby entry and preserves receptionist focus", async () => {
     server = await startTestServer();
     const claim = await server.http("/auth/claim", {
       method: "POST",
@@ -436,29 +435,24 @@ describe("lobby presence", () => {
       .getAllAgents()
       .find((a) => a.roomId === "lobby")!;
     expect(receptionist).toBeDefined();
-    sock.send({
-      type: "presence_update",
-      currentRoomId: "lobby",
-      focusedAgentId: receptionist.id,
-      viewMode: "log",
-    });
-    const first = await waitForMessageWhere(
-      sock,
-      (m) =>
-        m.type === "presence_list" &&
-        presenceEntry(m, cid)?.currentRoomId === "lobby",
-    );
-    expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
-    const before = getPresence(cid)!;
-    setPresence({ ...before, lobbyMoveAt: 0 });
-    const moved = await waitForMessageWhere(
-      sock,
-      (m) =>
-        m.type === "presence_list" &&
-        !!presenceEntry(m, cid) &&
-        presenceEntry(m, cid)!.lobbySpotId !== before.lobbySpotId,
-    );
-    expect(presenceEntry(moved, cid)!.lobbySpotId).not.toBe(before.lobbySpotId);
-    expect(presenceEntry(moved, cid)!.focusedAgentId).toBe(receptionist.id);
+    const interval = spyOn(globalThis, "setInterval");
+    try {
+      sock.send({
+        type: "presence_update",
+        currentRoomId: "lobby",
+        focusedAgentId: receptionist.id,
+        viewMode: "log",
+      });
+      const first = await waitForMessageWhere(
+        sock,
+        (m) =>
+          m.type === "presence_list" &&
+          presenceEntry(m, cid)?.currentRoomId === "lobby",
+      );
+      expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
+      expect(interval).not.toHaveBeenCalled();
+    } finally {
+      interval.mockRestore();
+    }
   });
 });
