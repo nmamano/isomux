@@ -1,7 +1,8 @@
-import type { PresenceInfo } from "../../../shared/types.ts";
-import { LobbyGhosts } from "./LobbyGhosts.tsx";
+import { LOBBY_ROOM_ID, type PresenceInfo } from "../../../shared/types.ts";
+import { LobbyGhosts, lobbyGhostPlacements } from "./LobbyGhosts.tsx";
 import { useI18n } from "../../i18n.tsx";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useGhostTransitions, LEFT_DOOR_COORD, RIGHT_DOOR_COORD } from "../useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "../grid.ts";
 import { Cloud, SunRays, WallDoors, AppsWallScreen } from "../Floor.tsx";
 import type { ThemeMode } from "../../themes.ts";
@@ -49,6 +50,7 @@ export interface LobbyRoomRef {
 export interface LobbySceneProps {
   rooms: LobbyRoomRef[];
   presences?: PresenceInfo[];
+  ownConnectionId?: string | null;
   onMoveGhost?: (spotId: string) => void;
   onOpenUser?: (userId: string) => void;
   officeName: string | null;
@@ -77,6 +79,7 @@ export interface LobbySceneProps {
 export function LobbyScene({
   rooms,
   presences = [],
+  ownConnectionId = null,
   onMoveGhost,
   onOpenUser,
   officeName,
@@ -95,6 +98,15 @@ export function LobbyScene({
   const { t } = useI18n();
   const c = lobbyColors(mode);
   const base = layout === "empty" ? null : LOBBY_LAYOUTS[layout];
+  const naturalGhostPlacements = useMemo(
+    () => lobbyGhostPlacements(presences, base?.ghostSpots ?? []),
+    [presences, base],
+  );
+  const { placements: ghostPlacements, rightDoorUses } = useGhostTransitions(
+    presences, [], LOBBY_ROOM_ID, rooms, ownConnectionId,
+    LEFT_DOOR_COORD, RIGHT_DOOR_COORD,
+    naturalGhostPlacements,
+  );
   const spec =
     placements || receptionistAt
       ? {
@@ -111,7 +123,7 @@ export function LobbyScene({
         onOpenCronjobs={onOpenCronjobs}
       />
       <LobbyFloor c={c} />
-      {rightDoor && <WallDoors rightDoor={rightDoor} />}
+      {rightDoor && <WallDoors rightDoor={{ ...rightDoor, passCount: rightDoorUses }} />}
       {spec && (
         <LobbyProps
           placements={spec.placements}
@@ -128,6 +140,8 @@ export function LobbyScene({
         />
       )}
       <LobbyGhosts
+        placements={ghostPlacements}
+        naturalPlacements={naturalGhostPlacements}
         presences={presences}
         spots={base?.ghostSpots ?? []}
         onMove={onMoveGhost}

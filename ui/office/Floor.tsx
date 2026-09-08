@@ -672,6 +672,11 @@ function doorOpenTransform(side: DoorSide): string {
 // Open fast, hold while the ghost crosses, fall shut slower. The ghost
 // slide it accompanies is 220ms, so the panel is wide open by the time
 // the ghost reaches the doorway.
+const DOOR_FOCUS_CSS = `
+.isomux-wall-door:focus:not(:focus-visible) { outline: none; }
+.isomux-wall-door:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+`;
+
 const DOOR_AJAR_CSS = (["left", "right"] as const)
   .map(
     (side) => `
@@ -722,6 +727,8 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
       role="button"
       tabIndex={0}
       aria-label={door.label}
+      className="isomux-wall-door"
+      onMouseDown={(event) => event.preventDefault()}
       onClick={door.onClick}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -731,7 +738,7 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
       }}
       style={{ cursor: "pointer", pointerEvents: "auto" }}
     >
-      <style>{DOOR_AJAR_CSS}</style>
+      <style>{DOOR_FOCUS_CSS + DOOR_AJAR_CSS}</style>
       <g transform={`translate(${origin.x}, ${origin.y})`}>
         {/* The room on the other side: this room's own wall and floor
             colours, then a shadow over both, so the opening stays in the

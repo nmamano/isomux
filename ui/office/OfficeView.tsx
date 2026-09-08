@@ -13,7 +13,7 @@ import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
-import { useGhostTransitions, type DoorCoord } from "./useGhostTransitions.ts";
+import { useGhostTransitions, LEFT_DOOR_COORD, RIGHT_DOOR_COORD } from "./useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
@@ -45,14 +45,6 @@ import { buildCommitNotice } from "../../shared/update-notice.ts";
 // (52×68) so it reads as "small floating watcher" against the desks.
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
-
-// Pixel coords (scene-container space) where ghosts park when sliding
-// to/from a door on a room switch. Roughly centered horizontally on the
-// DoorDropZone (left zone x ∈ [0,85]; right zone x ∈ [SCENE_W-85, SCENE_W])
-// with the ghost-box top placed so the body sits in front of the door
-// threshold. Module-level so the hook's effect deps stay stable.
-const LEFT_DOOR_COORD: DoorCoord = { left: 25, top: 270 };
-const RIGHT_DOOR_COORD: DoorCoord = { left: SCENE_W - 65, top: 270 };
 
 export const LOBBY_CHAT_WIDTH = 380;
 
@@ -295,7 +287,7 @@ export function OfficeView({
   } = useGhostTransitions(
     presences,
     roomAgents,
-    currentRoomId,
+    lobbyOpen ? LOBBY_ROOM_ID : currentRoomId,
     rooms,
     sessionContext?.connectionId ?? null,
     LEFT_DOOR_COORD,
@@ -557,6 +549,7 @@ export function OfficeView({
             >
               {lobbyOpen ? (
                 <LobbyScene
+                  ownConnectionId={sessionContext?.connectionId ?? null}
                   presences={presences}
                   onMoveGhost={
                     sessionContext &&
@@ -644,6 +637,7 @@ export function OfficeView({
                         : currentRoomIndex === 0
                           ? {
                               label: t("common.lobby"),
+                              passCount: leftDoorUses,
                               onClick: () =>
                                 dispatch({
                                   type: "set_lobby_open",

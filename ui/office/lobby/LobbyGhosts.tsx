@@ -6,6 +6,7 @@ import { floorXY } from "./geometry.ts";
 import type { LayoutSpec } from "./layouts.ts";
 
 import {
+  type GhostPlacement,
   GHOST_LOBBY_BASE_X,
   GHOST_LOBBY_BASE_Y,
   GHOST_LOBBY_GAP,
@@ -87,6 +88,7 @@ export function lobbyGhostPlacements(
     if (!point) overflow++;
     return {
       presence,
+      dimmed: presence.viewMode === "away",
       ...position,
       tagTop: spot?.id ? tagTops.get(spot.id) : undefined,
     };
@@ -96,17 +98,22 @@ export function lobbyGhostPlacements(
 export function LobbyGhosts({
   presences,
   spots,
+  placements: animatedPlacements,
+  naturalPlacements,
   onMove,
   onOpenUser,
 }: {
   presences: PresenceInfo[];
+  placements?: GhostPlacement[];
+  naturalPlacements?: GhostPlacement[];
   spots: LayoutSpec["ghostSpots"];
   onMove?: (spotId: string) => void;
   onOpenUser?: (userId: string) => void;
 }) {
   const { t } = useI18n();
-  const placements = lobbyGhostPlacements(presences, spots);
-  const occupied = new Set(placements.map((p) => p.presence.lobbySpotId));
+  const natural = naturalPlacements ?? lobbyGhostPlacements(presences, spots);
+  const placements = animatedPlacements ?? natural;
+  const occupied = new Set(natural.map((p) => p.presence.lobbySpotId));
   return (
     <>
       <style>{`.lobby-ghost-spot { border: 1px dashed transparent; } .lobby-ghost-spot:hover, .lobby-ghost-spot:focus-visible { border-color: var(--text-dim); }`}</style>

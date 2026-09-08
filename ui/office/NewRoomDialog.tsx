@@ -12,6 +12,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
   const [pending, setPending] = useState(false);
   const [failed, setFailed] = useState(false);
   const submitting = useRef(false);
+  const opened = useRef(false);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -35,7 +36,8 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      if (previous instanceof HTMLElement || previous instanceof SVGElement)
+      if (!opened.current &&
+          (previous instanceof HTMLElement || previous instanceof SVGElement))
         previous.focus();
     };
   }, [onClose]);
@@ -53,6 +55,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
       );
       // The HTTP response can precede the owner's broadcast or the member's
       // projected full_state. Install the room before selecting it.
+      opened.current = true;
       dispatch({ type: "room_created", room });
       dispatch({ type: "set_current_room", roomId: room.id });
       onClose();

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
+import { LOBBY_ROOM_ID, type AgentInfo, type PresenceInfo, type RoomWire } from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
-import { deskPixelPos } from "./grid.ts";
+import { SCENE_W, deskPixelPos } from "./grid.ts";
 
 // "Outside SE wall" lobby coordinates. Until the desk repositioning lands,
 // idle ghosts cannot fit on the floor; they line up here, past the SE wall.
@@ -33,11 +33,16 @@ export interface DoorCoord {
   top: number;
 }
 
+// Shared scene coordinates at the door thresholds, for office and lobby ghosts.
+export const LEFT_DOOR_COORD: DoorCoord = { left: 25, top: 270 };
+export const RIGHT_DOOR_COORD: DoorCoord = { left: SCENE_W - 65, top: 270 };
+
 export interface GhostPlacement {
   presence: PresenceInfo;
   left: number;
   top: number;
   dimmed: boolean;
+  tagTop?: number;
 }
 
 // Placements plus a use counter per door. The counters only ever go up,
@@ -165,14 +170,16 @@ function computeNaturalPlacements(
 //     crossing in or out of the recipient's visible projection),
 //   - either room id is missing from the visible `rooms` list (no direction),
 //   - we've never seen this presence before (initial mount of its entry).
-export function useGhostTransitions(
+export function useGhostTransitions<Room extends Pick<RoomWire, "id">>(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],
   currentRoomId: string | null,
-  rooms: RoomWire[],
+  rooms: Room[],
   ownConnectionId: string | null,
   leftDoor: DoorCoord,
   rightDoor: DoorCoord,
+  // Lobby seats keep their own layout; only door motion is shared.
+  naturalOverride?: GhostPlacement[],
 ): GhostTransitions {
   const [entering, setEntering] = useState<Map<string, DoorCoord>>(
     () => new Map(),
@@ -198,7 +205,8 @@ export function useGhostTransitions(
   // in this session's visible set, so the door animation is skipped.
   const roomIndexById = useMemo(() => {
     const m = new Map<string, number>();
-    rooms.forEach((r, i) => m.set(r.id, i));
+    rooms.filter((r) => r.id !== LOBBY_ROOM_ID).forEach((r, i) => m.set(r.id, i));
+    m.set(LOBBY_ROOM_ID, -1);
     return m;
   }, [rooms]);
 
@@ -406,13 +414,13 @@ export function useGhostTransitions(
   // relies on to keep inline CSS transitions from re-attach-restarting.
   const naturalPlacements = useMemo(
     () =>
-      computeNaturalPlacements(
+      naturalOverride ?? computeNaturalPlacements(
         presences,
         roomAgents,
         currentRoomId,
         ownConnectionId,
       ),
-    [presences, roomAgents, currentRoomId, ownConnectionId],
+    [presences, roomAgents, currentRoomId, ownConnectionId, naturalOverride],
   );
 
   const placements = useMemo(() => {
@@ -422,7 +430,8 @@ export function useGhostTransitions(
       byCid.set(
         p.presence.connectionId,
         override !== undefined
-          ? { ...p, left: override.left, top: override.top }
+          ? { ...p, left: override.left, top: override.top,
+              tagTop: p.tagTop === undefined ? undefined : p.tagTop + override.top - p.top }
           : p,
       );
     }

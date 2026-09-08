@@ -127,7 +127,13 @@ const { App } = await import("./App.tsx");
    first evaluated; the next DOM file registers a new window, and `screen` then
    queries the old one. The symptom is a query error that prints an empty
    `<body />`.
-4. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
+4. Compare DOM-node absence and identity as booleans, such as
+   `expect(node === null).toBe(true)`, so failures print a small value.
+   Measured 2026-09-08 with Bun 1.3.11 and happy-dom 20.14.0: an unexpected
+   SVG node passed to `toBeNull()` stalled after rendering and hit a 12 s
+   process timeout. The same fixture with a boolean assertion failed normally
+   in 2.54 s. Keep mutation runs inside a memory limit and process deadline.
+5. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
    throwing `afterAll` fails the run). The clock starts at
    `setUpDomTestFile()`, so it measures the file and not bun's startup: the App
    file reads 2251 ms in-file and about 3 s as a whole invocation.
@@ -327,7 +333,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Hierarchical system prompts | T0 | prompt assembly office/room/agent layering | - |
 | Custom commands | T1 | slash_commands surfaced to client | - |
 | Collaborate in conversations (multi-user) | T1 | multi-socket mixed human/agent queue | - |
-| Live presence (ghosts) | T1 | presence harness: connectionId map, recipient indices | - |
+| Live presence (ghosts) | T1 | presence harness: connectionId map, recipient indices; `ui/office/lobby-door-{swing,self}.dom.test.tsx`: seen lobby/first-room crossings and own-connection exclusion | - |
 | Invite-link access | T1 | `auth-invites.test.ts` (TTL ladder, `replacePriorForUsername` blast radius, non-consuming peek, mint/accept refusal matrices, concurrent accept, bootstrap sweep) + `auth-wall.test.ts` (the two-step flow over HTTP) | - |
 | Session lifetime + revocation | T1 | `auth-sessions.test.ts` (both expiry clocks, refresh clamp, orphan sweep, notify-then-close on revoke/logout/evict, lockout arithmetic, prefix-collision refusal, lockout-check ordering) + `auth-wall.test.ts` (expired/revoked cookies at the HTTP and WS gates) | - |
 | sessions.json userId migration | T1 | `auth-session-migration.test.ts` over a real cold reload: case-insensitive resolve, orphan eviction, fail-closed undated rows, write-back sticks | - |
