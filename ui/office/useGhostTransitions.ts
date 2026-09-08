@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LOBBY_ROOM_ID, type AgentInfo, type PresenceInfo, type RoomWire } from "../../shared/types.ts";
+import {
+  LOBBY_ROOM_ID,
+  type AgentInfo,
+  type PresenceInfo,
+  type RoomWire,
+} from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import { SCENE_W, deskPixelPos } from "./grid.ts";
 
@@ -205,7 +210,9 @@ export function useGhostTransitions<Room extends Pick<RoomWire, "id">>(
   // in this session's visible set, so the door animation is skipped.
   const roomIndexById = useMemo(() => {
     const m = new Map<string, number>();
-    rooms.filter((r) => r.id !== LOBBY_ROOM_ID).forEach((r, i) => m.set(r.id, i));
+    rooms
+      .filter((r) => r.id !== LOBBY_ROOM_ID)
+      .forEach((r, i) => m.set(r.id, i));
     m.set(LOBBY_ROOM_ID, -1);
     return m;
   }, [rooms]);
@@ -414,7 +421,8 @@ export function useGhostTransitions<Room extends Pick<RoomWire, "id">>(
   // relies on to keep inline CSS transitions from re-attach-restarting.
   const naturalPlacements = useMemo(
     () =>
-      naturalOverride ?? computeNaturalPlacements(
+      naturalOverride ??
+      computeNaturalPlacements(
         presences,
         roomAgents,
         currentRoomId,
@@ -430,8 +438,15 @@ export function useGhostTransitions<Room extends Pick<RoomWire, "id">>(
       byCid.set(
         p.presence.connectionId,
         override !== undefined
-          ? { ...p, left: override.left, top: override.top,
-              tagTop: p.tagTop === undefined ? undefined : p.tagTop + override.top - p.top }
+          ? {
+              ...p,
+              left: override.left,
+              top: override.top,
+              tagTop:
+                p.tagTop === undefined
+                  ? undefined
+                  : p.tagTop + override.top - p.top,
+            }
           : p,
       );
     }

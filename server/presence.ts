@@ -188,11 +188,6 @@ export function moveLobbyPresence(
   spotId: string,
 ): boolean {
   return applyLobbyAssignments(
-    pickLobbySpot(
-      lobbyAssignments(),
-      LOBBY_SPOT_IDS,
-      connectionId,
-      spotId,
-    ),
+    pickLobbySpot(lobbyAssignments(), LOBBY_SPOT_IDS, connectionId, spotId),
   );
 }

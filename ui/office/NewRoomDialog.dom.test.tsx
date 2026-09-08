@@ -91,15 +91,24 @@ it("supports keyboard cancellation and blocks repeated confirmation while pendin
 it("restores opener focus on cancel but leaves it behind after creating a room", async () => {
   const opener = document.createElement("button");
   document.body.append(opener);
-  const room = { id: "created", name: "Room 2", prompt: null, canCloseWhenEmpty: true };
+  const room = {
+    id: "created",
+    name: "Room 2",
+    prompt: null,
+    canCloseWhenEmpty: true,
+  };
   setApiShim(async () => ({ room }));
   try {
     opener.focus();
-    const cancelled = render(<NewRoomDialog onClose={() => cancelled.unmount()} />);
+    const cancelled = render(
+      <NewRoomDialog onClose={() => cancelled.unmount()} />,
+    );
     fireEvent.click(cancelled.getByRole("button", { name: "Cancel" }));
     expect(document.activeElement).toBe(opener);
     const created = render(<NewRoomDialog onClose={() => created.unmount()} />);
-    await act(async () => fireEvent.click(created.getByRole("button", { name: "Open room" })));
+    await act(async () =>
+      fireEvent.click(created.getByRole("button", { name: "Open room" })),
+    );
     expect(document.activeElement).not.toBe(opener);
     expect(document.activeElement).toBe(document.body);
   } finally {

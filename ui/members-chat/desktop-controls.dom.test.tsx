@@ -20,24 +20,50 @@ beforeEach(() => {
   reads.length = 0;
   window.history.replaceState(null, "", "/");
 });
-function lobby(id: string | null = null, mobile = false, language: "en" | "es" | "ca" = "en") {
-  return onLanguage(language, createElement(OfficeView, {
-    onSpawn: noop, onContextMenu: noop, onOpenSettings: noop,
-    onEditOfficePrompt: noop, onOpenThemePicker: noop, onOpenTasks: noop,
-    onOpenCronjobs: noop, onOpenApps: noop, onOpenUpdate: noop,
-  }), {
-    lobbyOpen: true,
-    isMobile: mobile,
-    hasReceivedInitialState: true,
-    connected: true,
-    membersChat: {
-      loaded: true,
-      messages: id ? [{ id, kind: "user", userId: "other", userName: "Sam", content: id, attachments: [], timestamp: 1 }] : [],
-      hasMore: false,
-      unread: id ? 1 : 0,
-      readPointer: null,
+function lobby(
+  id: string | null = null,
+  mobile = false,
+  language: "en" | "es" | "ca" = "en",
+) {
+  return onLanguage(
+    language,
+    createElement(OfficeView, {
+      onSpawn: noop,
+      onContextMenu: noop,
+      onOpenSettings: noop,
+      onEditOfficePrompt: noop,
+      onOpenThemePicker: noop,
+      onOpenTasks: noop,
+      onOpenCronjobs: noop,
+      onOpenApps: noop,
+      onOpenUpdate: noop,
+    }),
+    {
+      lobbyOpen: true,
+      isMobile: mobile,
+      hasReceivedInitialState: true,
+      connected: true,
+      membersChat: {
+        loaded: true,
+        messages: id
+          ? [
+              {
+                id,
+                kind: "user",
+                userId: "other",
+                userName: "Sam",
+                content: id,
+                attachments: [],
+                timestamp: 1,
+              },
+            ]
+          : [],
+        hasMore: false,
+        unread: id ? 1 : 0,
+        readPointer: null,
+      },
     },
-  });
+  );
 }
 it("ignores the hidden desktop preference on phones", () => {
   localStorage.setItem(key, "true");
@@ -49,7 +75,10 @@ it("ignores the hidden desktop preference on phones", () => {
   expect(view.queryByRole("dialog")).toBeNull();
   expect(localStorage.getItem(key)).toBe("true");
 });
-for (const [language, hide, show] of [["es", "Ocultar chat", "Chat de miembros"], ["ca", "Amaga el xat", "Xat de membres"]] as const) {
+for (const [language, hide, show] of [
+  ["es", "Ocultar chat", "Chat de miembros"],
+  ["ca", "Amaga el xat", "Xat de membres"],
+] as const) {
   it(`translates the desktop controls in ${language}`, () => {
     const view = render(lobby(null, false, language));
     fireEvent.click(view.getByRole("button", { name: hide }));

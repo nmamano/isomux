@@ -19,33 +19,64 @@ beforeEach(() => {
   reads.length = 0;
   window.history.replaceState(null, "", "/");
 });
-function lobby(id: string | null = null, mobile = false, language: "en" | "es" | "ca" = "en") {
-  return onLanguage(language, createElement(OfficeView, {
-    onSpawn: noop, onContextMenu: noop, onOpenSettings: noop,
-    onEditOfficePrompt: noop, onOpenThemePicker: noop, onOpenTasks: noop,
-    onOpenCronjobs: noop, onOpenApps: noop, onOpenUpdate: noop,
-  }), {
-    lobbyOpen: true,
-    isMobile: mobile,
-    hasReceivedInitialState: true,
-    connected: true,
-    membersChat: {
-      loaded: true,
-      messages: id ? [{ id, kind: "user", userId: "other", userName: "Sam", content: id, attachments: [], timestamp: 1 }] : [],
-      hasMore: false,
-      unread: id ? 1 : 0,
-      readPointer: null,
+function lobby(
+  id: string | null = null,
+  mobile = false,
+  language: "en" | "es" | "ca" = "en",
+) {
+  return onLanguage(
+    language,
+    createElement(OfficeView, {
+      onSpawn: noop,
+      onContextMenu: noop,
+      onOpenSettings: noop,
+      onEditOfficePrompt: noop,
+      onOpenThemePicker: noop,
+      onOpenTasks: noop,
+      onOpenCronjobs: noop,
+      onOpenApps: noop,
+      onOpenUpdate: noop,
+    }),
+    {
+      lobbyOpen: true,
+      isMobile: mobile,
+      hasReceivedInitialState: true,
+      connected: true,
+      membersChat: {
+        loaded: true,
+        messages: id
+          ? [
+              {
+                id,
+                kind: "user",
+                userId: "other",
+                userName: "Sam",
+                content: id,
+                attachments: [],
+                timestamp: 1,
+              },
+            ]
+          : [],
+        hasMore: false,
+        unread: id ? 1 : 0,
+        readPointer: null,
+      },
     },
-  });
+  );
 }
-const settleRead = () => act(async () => {
-  await new Promise((resolve) => setTimeout(resolve, 550));
-});
+const settleRead = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 550));
+  });
 it("keeps incoming unread visible while hidden and marks the same message read only after show", async () => {
   const view = render(lobby());
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
   view.rerender(lobby("02"));
-  expect(view.getByRole("button", { name: /Lobby/ }).querySelector("[data-lobby-unread]")).not.toBeNull();
+  expect(
+    view
+      .getByRole("button", { name: /Lobby/ })
+      .querySelector("[data-lobby-unread]"),
+  ).not.toBeNull();
   expect(view.getByRole("img", { name: "Unread message: 1" })).not.toBeNull();
   await settleRead();
   expect(reads).toEqual([]);

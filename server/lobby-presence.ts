@@ -33,8 +33,6 @@ export function pickLobbySpot(
   )
     return [...presences];
   return presences.map((p) =>
-    p.connectionId === connectionId
-      ? { ...p, lobbySpotId: spotId }
-      : p,
+    p.connectionId === connectionId ? { ...p, lobbySpotId: spotId } : p,
   );
 }

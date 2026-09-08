@@ -44,8 +44,10 @@ export function setDevice(label: string | null): void {
 
 export function getMembersChatHidden(): boolean {
   try {
-    return typeof localStorage !== "undefined" &&
-      localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN) === "true";
+    return (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN) === "true"
+    );
   } catch {
     return false;
   }

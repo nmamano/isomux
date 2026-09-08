@@ -1,9 +1,5 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
-import {
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-} from "fs";
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import {
   startTestServer,

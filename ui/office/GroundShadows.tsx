@@ -37,7 +37,6 @@ const CAT_BED = { cx: 120, cy: 470, rx: 36, ry: 19, dim: 1 };
 // tiles, so the bed's weight reads heavy under it (Nil, 2026-09-05).
 const PLANT = { cx: -245, cy: 242, rx: 25, ry: 12.5, dim: 0.55 };
 
-
 function Blob({
   cx,
   cy,

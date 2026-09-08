@@ -670,10 +670,7 @@ export function RoomProps() {
 
   return (
     <>
-      <PropsScene
-        pet={pet}
-        onPetClick={(x, y) => setPicker({ x, y })}
-      />
+      <PropsScene pet={pet} onPetClick={(x, y) => setPicker({ x, y })} />
       {picker && (
         <PetPicker
           x={picker.x}
@@ -711,7 +708,6 @@ const PropsScene = memo(function PropsScene({
       <g transform="translate(-245, 212) scale(1.5)">
         <CornerPlant />
       </g>
-
 
       {/* Sleepy office pet - south corner of office */}
       <PetCorner pet={pet} onClick={onPetClick} />

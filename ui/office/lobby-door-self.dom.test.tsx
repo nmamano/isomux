@@ -7,25 +7,44 @@ const { LOBBY_SPOT_IDS } = await import("../../shared/types.ts");
 const { mount, act, shimEmit } = fixture;
 fixture.setupRoomDoorTests();
 
-function presence(currentRoomId: string | null, connectionId = "peer"):
-  import("../../shared/types.ts").PresenceInfo {
+function presence(
+  currentRoomId: string | null,
+  connectionId = "peer",
+): import("../../shared/types.ts").PresenceInfo {
   return {
-    connectionId, userId: connectionId, username: connectionId,
-    currentRoomId, lobbySpotId: LOBBY_SPOT_IDS[0],
-    focusedAgentId: null, viewMode: "office", device: null,
-    avatarColor: "#7c9cf5", avatarVariant: "classic",
+    connectionId,
+    userId: connectionId,
+    username: connectionId,
+    currentRoomId,
+    lobbySpotId: LOBBY_SPOT_IDS[0],
+    focusedAgentId: null,
+    viewMode: "office",
+    device: null,
+    avatarColor: "#7c9cf5",
+    avatarVariant: "classic",
   };
 }
 function update(currentRoomId: string | null, connectionId = "peer") {
-  act(() => shimEmit({ type: "presence_list", entries: [presence(currentRoomId, connectionId)], totalOnlineUsers: 1, onlineUserIds: [connectionId] }));
+  act(() =>
+    shimEmit({
+      type: "presence_list",
+      entries: [presence(currentRoomId, connectionId)],
+      totalOnlineUsers: 1,
+      onlineUserIds: [connectionId],
+    }),
+  );
 }
 function door(container: HTMLElement, lobby: boolean) {
-  const node = container.querySelector(`svg g[aria-label="${lobby ? "first" : "Lobby"}"]`);
+  const node = container.querySelector(
+    `svg g[aria-label="${lobby ? "first" : "Lobby"}"]`,
+  );
   expect(node).not.toBeNull();
   return node!;
 }
 function swing(node: Element) {
-  return node.querySelector<SVGElement>('g[style*="animation: isomuxDoorAjar"]');
+  return node.querySelector<SVGElement>(
+    'g[style*="animation: isomuxDoorAjar"]',
+  );
 }
 
 for (const lobby of [true, false]) {
@@ -33,10 +52,16 @@ for (const lobby of [true, false]) {
     const view = mount();
     await act(async () => {});
     act(() => {
-      shimEmit({ type: "session_context", context: {
-        userId: "self", username: "self", role: "owner",
-        currentSessionPrefix: "session", connectionId: "self",
-      } });
+      shimEmit({
+        type: "session_context",
+        context: {
+          userId: "self",
+          username: "self",
+          role: "owner",
+          currentSessionPrefix: "session",
+          connectionId: "self",
+        },
+      });
       fixture.dispatch({ type: "set_lobby_open", open: !lobby });
     });
     update(lobby ? "first" : "lobby", "self");
@@ -52,7 +77,8 @@ for (const lobby of [true, false]) {
     quiet.push(swing(doorNode) === null); // Appearing from outside the projection.
     const beforePeer = swing(doorNode);
     update(lobby ? "first" : "lobby");
-    const peerSwung = swing(doorNode) !== null && swing(doorNode) !== beforePeer;
+    const peerSwung =
+      swing(doorNode) !== null && swing(doorNode) !== beforePeer;
     // Check the enabling event before reporting a self-exclusion failure.
     expect(peerSwung).toBe(true);
     expect(quiet).toEqual([true, true, true, true]);

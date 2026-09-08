@@ -36,8 +36,10 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      if (!opened.current &&
-          (previous instanceof HTMLElement || previous instanceof SVGElement))
+      if (
+        !opened.current &&
+        (previous instanceof HTMLElement || previous instanceof SVGElement)
+      )
         previous.focus();
     };
   }, [onClose]);

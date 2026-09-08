@@ -1,4 +1,7 @@
-import { getMembersChatHidden, setMembersChatHidden } from "../device-settings.ts";
+import {
+  getMembersChatHidden,
+  setMembersChatHidden,
+} from "../device-settings.ts";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
@@ -13,7 +16,11 @@ import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
-import { useGhostTransitions, LEFT_DOOR_COORD, RIGHT_DOOR_COORD } from "./useGhostTransitions.ts";
+import {
+  useGhostTransitions,
+  LEFT_DOOR_COORD,
+  RIGHT_DOOR_COORD,
+} from "./useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
@@ -479,7 +486,11 @@ export function OfficeView({
           onOpenRoomSettings={onEditRoomSettings}
           membersChatLoadFailed={membersChatLoadFailed}
           onRetryMembersChat={retryMembersChat}
-          onShowMembersChat={lobbyOpen && !isMobile && chatHidden ? () => changeChatHidden(false) : undefined}
+          onShowMembersChat={
+            lobbyOpen && !isMobile && chatHidden
+              ? () => changeChatHidden(false)
+              : undefined
+          }
         />
       )}
 

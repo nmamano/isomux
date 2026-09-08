@@ -20,28 +20,55 @@ beforeEach(() => {
   reads.length = 0;
   window.history.replaceState(null, "", "/");
 });
-function lobby(id: string | null = null, mobile = false, language: "en" | "es" | "ca" = "en") {
-  return onLanguage(language, createElement(OfficeView, {
-    onSpawn: noop, onContextMenu: noop, onOpenSettings: noop,
-    onEditOfficePrompt: noop, onOpenThemePicker: noop, onOpenTasks: noop,
-    onOpenCronjobs: noop, onOpenApps: noop, onOpenUpdate: noop,
-  }), {
-    lobbyOpen: true,
-    isMobile: mobile,
-    hasReceivedInitialState: true,
-    connected: true,
-    membersChat: {
-      loaded: true,
-      messages: id ? [{ id, kind: "user", userId: "other", userName: "Sam", content: id, attachments: [], timestamp: 1 }] : [],
-      hasMore: false,
-      unread: id ? 1 : 0,
-      readPointer: null,
+function lobby(
+  id: string | null = null,
+  mobile = false,
+  language: "en" | "es" | "ca" = "en",
+) {
+  return onLanguage(
+    language,
+    createElement(OfficeView, {
+      onSpawn: noop,
+      onContextMenu: noop,
+      onOpenSettings: noop,
+      onEditOfficePrompt: noop,
+      onOpenThemePicker: noop,
+      onOpenTasks: noop,
+      onOpenCronjobs: noop,
+      onOpenApps: noop,
+      onOpenUpdate: noop,
+    }),
+    {
+      lobbyOpen: true,
+      isMobile: mobile,
+      hasReceivedInitialState: true,
+      connected: true,
+      membersChat: {
+        loaded: true,
+        messages: id
+          ? [
+              {
+                id,
+                kind: "user",
+                userId: "other",
+                userName: "Sam",
+                content: id,
+                attachments: [],
+                timestamp: 1,
+              },
+            ]
+          : [],
+        hasMore: false,
+        unread: id ? 1 : 0,
+        readPointer: null,
+      },
     },
-  });
+  );
 }
 it("defaults to visible and remembers hiding the desktop chat", () => {
   let view = render(lobby());
-  const zoom = () => view.getByRole("button", { name: "Zoom in" }).parentElement!;
+  const zoom = () =>
+    view.getByRole("button", { name: "Zoom in" }).parentElement!;
   expect(zoom().style.right).toBe("392px");
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
   expect(view.queryByPlaceholderText("Message the members…")).toBeNull();
@@ -54,7 +81,8 @@ it("defaults to visible and remembers hiding the desktop chat", () => {
 it("remembers showing the desktop chat again", () => {
   localStorage.setItem(key, "true");
   let view = render(lobby());
-  const zoom = () => view.getByRole("button", { name: "Zoom in" }).parentElement!;
+  const zoom = () =>
+    view.getByRole("button", { name: "Zoom in" }).parentElement!;
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));
   expect(view.getByPlaceholderText("Message the members…")).not.toBeNull();
   expect(zoom().style.right).toBe("392px");

@@ -1,8 +1,5 @@
 import { afterEach, expect, it } from "bun:test";
-import {
-  assignLobbySpot,
-  pickLobbySpot,
-} from "./lobby-presence.ts";
+import { assignLobbySpot, pickLobbySpot } from "./lobby-presence.ts";
 import {
   _testClearPresence,
   getPresence,
@@ -14,20 +11,15 @@ import {
 import { LOBBY_ROOM_ID, LOBBY_SPOT_IDS } from "../shared/types.ts";
 
 const lobbySpotIds: readonly string[] = LOBBY_SPOT_IDS;
-const row = (
-  connectionId: string,
-  lobbySpotId: string | null,
-) => ({ connectionId, lobbySpotId });
+const row = (connectionId: string, lobbySpotId: string | null) => ({
+  connectionId,
+  lobbySpotId,
+});
 afterEach(_testClearPresence);
 
 it("a click changes only the caller and refuses taken, unknown, and absent callers", () => {
   const before = [row("a", "one"), row("b", "two")];
-  const next = pickLobbySpot(
-    before,
-    ["one", "two", "three"],
-    "a",
-    "three",
-  );
+  const next = pickLobbySpot(before, ["one", "two", "three"], "a", "three");
   expect(next[0]).toEqual(row("a", "three"));
   expect(next[1]).toBe(before[1]);
   for (const [caller, spot] of [
@@ -36,12 +28,7 @@ it("a click changes only the caller and refuses taken, unknown, and absent calle
     ["missing", "three"],
   ]) {
     expect(
-      pickLobbySpot(
-        before,
-        ["one", "two", "three"],
-        caller,
-        spot,
-      ),
+      pickLobbySpot(before, ["one", "two", "three"], caller, spot),
     ).toEqual(before);
   }
 });
@@ -117,11 +104,15 @@ it("assigns ten different seats on entry, queues overflow, and clears seats on e
 
 it("assigns a random free entry seat without moving existing or overflow rows", () => {
   const before = [row("seated", "one"), row("waiting", null)];
-  const choices = [0, 0.99].map((random) =>
-    assignLobbySpot(before, ["one", "two", "three"], "new", () => random).lobbySpotId,
+  const choices = [0, 0.99].map(
+    (random) =>
+      assignLobbySpot(before, ["one", "two", "three"], "new", () => random)
+        .lobbySpotId,
   );
   expect(choices).toEqual(["two", "three"]);
-  expect(assignLobbySpot(before, ["one"], "new", () => 0)).toEqual(row("new", null));
+  expect(assignLobbySpot(before, ["one"], "new", () => 0)).toEqual(
+    row("new", null),
+  );
   expect(before).toEqual([row("seated", "one"), row("waiting", null)]);
 });
 
