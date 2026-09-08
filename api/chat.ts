@@ -150,7 +150,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Browser preview cards: agents can screenshot a web page (like the dev server they're working on) straight into the chat. Needs a Chrome-family browser installed on the server (runs headless, no display needed); everything else works without one.
-- Embedded terminal for direct shell access per agent. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
+- Embedded terminal for direct shell access per agent. The terminal inherits the agent owner's office-wide and individual connections. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching - edit a past message to fork the conversation from that point, preserving the original
 - Right-click context menu - resume past sessions, edit agent, kill
