@@ -85,10 +85,12 @@ export function ZoomControls({
   onZoomIn,
   onZoomOut,
   onReset,
+  rightInset = 0,
 }: {
   onZoomIn: () => void;
   onZoomOut: () => void;
   onReset: () => void;
+  rightInset?: number;
 }) {
   const { t } = useI18n();
   return (
@@ -97,7 +99,7 @@ export function ZoomControls({
       style={{
         position: "absolute",
         bottom: 12,
-        right: 12,
+        right: 12 + rightInset,
         display: "flex",
         flexDirection: "column",
         gap: 4,

@@ -182,6 +182,8 @@ behaviour that needs the browser's own machinery - history and popstate, focus,
 portals. Anything that can be stated as a pure function stays a plain unit
 test.
 
+`ui/App.lobby-landing.dom.test.tsx` covers first-visit Lobby landing and saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` covers the task shortcut scope from Lobby and a room tab.
+
 The `ui/App.*.dom.test.tsx` files also document a useful seam: `App` mounts
 bare, with no provider tree and no fake store. `StateCtx`, `DispatchCtx` and
 `FeaturesCtx` all carry defaults, and it is `StoreProvider` - not `App` - that

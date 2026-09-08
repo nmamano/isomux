@@ -149,7 +149,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // validated against what actually still exists - a killed agent, a closed
   // room, or lost access silently falls back to the normal default view (the
   // first visible room, which full_state already selected; the restore only
-  // overrides it when the saved room is still valid). Gated off in the demo
+  // overrides it when the saved room is still valid). Without a saved view,
+  // every member starts on the lobby. Gated off in the demo
   // (llmConnected=false),
   // where restoring a previous visitor's spot would break the scripted
   // landing-page experience. `restored` is state (not a ref) on purpose: the
@@ -184,7 +185,10 @@ export function App({ routing = true }: { routing?: boolean }) {
     }
     pruneUserDrafts(persistUser, liveAgentIds);
     const saved = loadSavedView(persistUser);
-    if (!saved) return;
+    if (!saved) {
+      dispatch({ type: "set_lobby_open", open: true });
+      return;
+    }
     // Room and agent restore independently on purpose: agents can be moved
     // across rooms, and the view selection deliberately doesn't follow the
     // focused agent (matches live behavior in the presence effect below).

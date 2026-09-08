@@ -327,15 +327,15 @@ export function CatCurled() {
       />
       {/* Tail wrapped around the front */}
       <path
-        d="M12 -1 Q16 4 6 5 Q-6 6 -10 2"
+        d="M12 -3 C20 6 0 10 -9 4 Q-12 1 -8 0"
         fill="none"
-        stroke={coat}
+        stroke={shade(coat, 0.82)}
         strokeWidth="3.5"
         strokeLinecap="round"
       >
         <animate
           attributeName="d"
-          values="M12 -1 Q16 4 6 5 Q-6 6 -10 2;M12 -1 Q17 5 6 5.5 Q-6 6 -11 1;M12 -1 Q16 4 6 5 Q-6 6 -10 2"
+          values="M12 -3 C20 6 0 10 -9 4 Q-12 1 -8 0;M12 -3 C20 6 0 10 -9 4 Q-12 1 -8 -1;M12 -3 C20 6 0 10 -9 4 Q-12 1 -8 0"
           dur="4s"
           repeatCount="indefinite"
         />

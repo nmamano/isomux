@@ -50,6 +50,8 @@ const GHOST_SIZE = 40;
 const LEFT_DOOR_COORD: DoorCoord = { left: 25, top: 270 };
 const RIGHT_DOOR_COORD: DoorCoord = { left: SCENE_W - 65, top: 270 };
 
+export const LOBBY_CHAT_WIDTH = 380;
+
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
   side,
@@ -467,8 +469,10 @@ export function OfficeView({
 
       {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
 
-      {/* Office scene, with the members chat beside it on the Lobby tab */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+      {/* Chat overlays the scene without changing the viewport's fit or origin.
+          It stays outside the gesture container so chat scrolling and text
+          selection cannot pan or zoom the scene. */}
+      <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
         {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
           Room-swipe still works because that hook reads touch coordinates directly. */}
         <div
@@ -809,6 +813,7 @@ export function OfficeView({
               onZoomIn={viewport.zoomIn}
               onZoomOut={viewport.zoomOut}
               onReset={viewport.resetView}
+              rightInset={lobbyOpen && !isMobile ? LOBBY_CHAT_WIDTH : 0}
             />
             /* eslint-enable react-hooks/refs */
           )}
@@ -828,8 +833,12 @@ export function OfficeView({
         {lobbyOpen && !isMobile && !embed && (
           <MembersChatPanel
             style={{
-              width: 380,
-              flexShrink: 0,
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 1,
+              width: LOBBY_CHAT_WIDTH,
               borderLeft: "1px solid var(--border)",
             }}
           />

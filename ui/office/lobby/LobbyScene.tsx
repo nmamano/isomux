@@ -288,6 +288,13 @@ function LobbyWalls({
         tabIndex={onToggleTheme ? 0 : undefined}
         aria-label={onToggleTheme ? t("common.changeTheme") : undefined}
         onClick={onToggleTheme}
+        onMouseDown={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggleTheme?.();
+          }
+        }}
         style={
           onToggleTheme
             ? { cursor: "pointer", pointerEvents: "auto" }

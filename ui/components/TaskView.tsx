@@ -710,7 +710,7 @@ export function TaskView({
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { tasks, tasksLoaded, agents, isMobile, rooms, currentRoomId } =
+  const { tasks, tasksLoaded, agents, isMobile, rooms, currentRoomId, lobbyOpen } =
     useAppState();
   const { t, language, rich } = useI18n();
   const [search, setSearch] = useState("");
@@ -722,7 +722,7 @@ export function TaskView({
   // tab. It filters the list and, whenever it names a filing target, also drives
   // creation. "All rooms" needs one explicit target because it cannot own a task.
   const [roomScope, setRoomScope] = useState<string>(() =>
-    currentRoomId && rooms.some((r) => r.id === currentRoomId)
+    !lobbyOpen && currentRoomId && rooms.some((r) => r.id === currentRoomId)
       ? currentRoomId
       : "all",
   );

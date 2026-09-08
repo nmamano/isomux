@@ -1847,6 +1847,7 @@ export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
         fontSize="11"
         fontWeight="600"
         fill="var(--text-primary)"
+        style={{ userSelect: "none" }}
       >
         {t("common.apps")}
       </text>
