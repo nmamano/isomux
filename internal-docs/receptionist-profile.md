@@ -33,7 +33,7 @@ session prompts and the system-prompt command, matching the API scope rule.
 The notification-sound exclusion stays keyed to `LOBBY_ROOM_ID`. Any agent
 moved into that slot produces no turn-end notification sound.
 
-## Creation and migration
+## Creation and retry
 
 The first-owner claim snapshots whether agents already exist, creates the
 receptionist, and then seeds the three welcome agents only for a fresh office.
@@ -46,13 +46,6 @@ stays empty after a kill or move. Before the first spawn, the lobby bucket store
 `defaultAgentPending: true`. A null or thrown spawn leaves this marker for the
 next boot to retry. A successful spawn clears it. If an agent already occupies
 a pending lobby, boot clears the marker without spawning a second agent.
-
-Legacy `receptionist.json` is imported into the lobby bucket. The migration
-keeps the agent's id and settings, sets the first owner as boss and cwd to
-home, and prepends the rendered profile to the owner's existing instruction
-bytes. It deletes the legacy file only after the ordinary agent save succeeds.
-An occupied lobby or an already-restored matching id keeps the legacy file and
-logs a conflict. The old `~/isomux-receptionist` directory remains untouched.
 
 Older servers read the new lobby bucket in `agents.json` as an ordinary room.
 
@@ -84,7 +77,7 @@ The owner can create a fresh agent from the profile to get the current text.
 ## Replaced test assertions
 
 - `receptionist.test.ts`: locked kill/move/name/cwd and the dedicated-directory
-  assertions are replaced by editable lifecycle, one-slot, home-cwd, migration
+  assertions are replaced by editable lifecycle, one-slot, home-cwd
   and restart tests. The no-user token/global-tasks-only assertions are replaced
   by normal first-owner reach and boss-memory assertions. Empty `full_state.rooms`
   becomes a typed Lobby record. No-lobby spawn/close/swap assertions become

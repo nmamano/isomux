@@ -14,7 +14,6 @@ import {
   openSync,
   readSync,
   closeSync,
-  unlinkSync,
 } from "fs";
 import { createHash } from "crypto";
 import type {
@@ -708,8 +707,6 @@ export interface PersistedAgent {
   // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
   privileged?: boolean;
-  // Legacy standalone record marker. Active agents no longer carry this.
-  receptionist?: true;
 }
 
 export interface PersistedUsage {
@@ -862,42 +859,8 @@ export function loadAgents(): Room[] {
 export function saveAgents(rooms: Room[]) {
   try {
     atomicWriteFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
-    return true;
   } catch (err) {
     console.error("Failed to save agents:", err);
-    return false;
-  }
-}
-
-// Legacy migration input. Remove it only after a successful ordinary room save.
-const RECEPTIONIST_FILE = join(ISOMUX_DIR, "receptionist.json");
-
-export function loadReceptionist(): PersistedAgent | null {
-  try {
-    if (!existsSync(RECEPTIONIST_FILE)) return null;
-    const parsed = JSON.parse(readFileSync(RECEPTIONIST_FILE, "utf-8"));
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      return null;
-    const agent = parsed as PersistedAgent;
-    if (typeof agent.id !== "string" || typeof agent.name !== "string")
-      return null;
-    migratePersistedAgent(agent);
-    agent.receptionist = true;
-    return agent;
-  } catch {
-    return null;
-  }
-}
-
-export function saveReceptionist(agent: PersistedAgent | null) {
-  try {
-    if (agent === null) {
-      if (existsSync(RECEPTIONIST_FILE)) unlinkSync(RECEPTIONIST_FILE);
-      return;
-    }
-    atomicWriteFileSync(RECEPTIONIST_FILE, JSON.stringify(agent, null, 2));
-  } catch (err) {
-    console.error("Failed to save the receptionist:", err);
   }
 }
 

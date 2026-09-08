@@ -1,10 +1,8 @@
 import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
-  existsSync,
   readFileSync,
   writeFileSync,
   mkdirSync,
-  unlinkSync,
 } from "fs";
 import { join } from "path";
 import {
@@ -145,7 +143,6 @@ describe("receptionist profile and lobby", () => {
     expect(
       rooms.find((r: { type?: string }) => r.type === "lobby").agents[0].id,
     ).toBe(r.id);
-    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(false);
   });
 
   for (const failure of ["null", "throw"] as const) {
@@ -300,73 +297,6 @@ describe("receptionist profile and lobby", () => {
     expect(revived.ok).toBe(true);
     expect(srv.agentManager.getAgent(r.id)?.name).toBe("Concierge");
     expect(srv.agentManager.getAgent(r.id)?.cwd).toBe(srv.stateRoot);
-  });
-
-  it("restores a legacy receptionist once and preserves owner instruction bytes", async () => {
-    let srv = (server = await startTestServer());
-    await claimOwner(srv, "Boss");
-    const r = receptionistOf(srv);
-    const file = join(srv.stateRoot, "agents.json");
-    const rooms = JSON.parse(readFileSync(file, "utf8"));
-    const legacy = rooms.find((x: { type?: string }) => x.type === "lobby")
-      .agents[0];
-    const extra = "  Greet in Catalan.\nKeep this spacing.  ";
-    legacy.customInstructions = extra;
-    legacy.cwd = "/missing/isomux-receptionist";
-    legacy.receptionist = true;
-    writeFileSync(
-      join(srv.stateRoot, "receptionist.json"),
-      JSON.stringify(legacy),
-    );
-    writeFileSync(
-      file,
-      JSON.stringify(
-        rooms.filter((x: { type?: string }) => x.type !== "lobby"),
-      ),
-    );
-    srv = server = await srv.restart();
-    const after = receptionistOf(srv);
-    expect(after.id).toBe(r.id);
-    expect(after.cwd).toBe(homedir());
-    expect(after.customInstructions).toContain(ISOMUX_KNOWLEDGE);
-    expect(after.customInstructions?.endsWith(extra)).toBe(true);
-    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(false);
-    const text = after.customInstructions;
-    srv = server = await srv.restart();
-    expect(receptionistOf(srv).customInstructions).toBe(text);
-  });
-
-  it("keeps legacy input when writing the canonical agent file fails", async () => {
-    let srv = (server = await startTestServer());
-    await claimOwner(srv, "Boss");
-    const file = join(srv.stateRoot, "agents.json");
-    const rooms = JSON.parse(readFileSync(file, "utf8"));
-    const legacy = rooms.find((x: { type?: string }) => x.type === "lobby")
-      .agents[0];
-    writeFileSync(
-      join(srv.stateRoot, "receptionist.json"),
-      JSON.stringify(legacy),
-    );
-    unlinkSync(file);
-    mkdirSync(file);
-    srv = server = await srv.restart();
-    expect(receptionistOf(srv).id).toBe(legacy.id);
-    expect(existsSync(join(srv.stateRoot, "receptionist.json"))).toBe(true);
-  });
-
-  it("keeps a legacy record when the canonical lobby is occupied", async () => {
-    let srv = (server = await startTestServer());
-    await claimOwner(srv, "Boss");
-    const r = receptionistOf(srv);
-    const file = join(srv.stateRoot, "receptionist.json");
-    writeFileSync(
-      file,
-      JSON.stringify({ ...r, id: "legacy-other", receptionist: true }),
-    );
-    srv = server = await srv.restart();
-    expect(receptionistOf(srv).id).toBe(r.id);
-    expect(srv.agentManager.getAgent("legacy-other")).toBeUndefined();
-    expect(existsSync(file)).toBe(true);
   });
 
   it("seeds an upgraded office with an owner and no lobby at boot", async () => {

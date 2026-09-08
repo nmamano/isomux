@@ -1,4 +1,3 @@
-import { renderReceptionistProfile } from "./receptionist-profile.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type {
   AgentBackendType,
@@ -80,8 +79,6 @@ import {
   saveAgentHistory,
   loadMessageQueuesRaw,
   saveMessageQueues,
-  loadReceptionist,
-  saveReceptionist,
   saveFile as savePersistedFile,
   type PersistedAgent,
   type Room,
@@ -197,7 +194,7 @@ import {
   revokeAgentToken,
   getAgentTokenRaw,
 } from "./identity/tokens.ts";
-import { getUserByName, listUsers } from "./users.ts";
+import { getUserByName } from "./users.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
 // share them. UI shouldn't send mismatched values, but a stale tab or hand-
 // crafted client could; each validator falls back to a safe default when the
@@ -1613,10 +1610,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         persistedRooms[roomIdx].agents.push(persistedAgentOf(a));
       }
     }
-    const saved = saveAgents(persistedRooms);
+    saveAgents(persistedRooms);
     updateManifest();
     updateAgentHistory();
-    return saved;
   }
 
   // Snapshot live agents into history. Loop only iterates the live `agents`
@@ -2146,48 +2142,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         });
       }
     }
-    // Import the legacy standalone record once. Keep it until the ordinary
-    // room write succeeds; an occupied lobby is a conflict, never overwritten.
-    const receptionist = loadReceptionist();
-    let migratedReceptionist = false;
-    const firstOwner = listUsers().find((u) => u.role === "owner");
-    if (receptionist && firstOwner) {
-      officeState.ensureLobby();
-      if (
-        agents.has(receptionist.id) ||
-        [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)
-      ) {
-        console.warn(
-          "[migration] Occupied lobby; keeping receptionist.json for recovery.",
-        );
-      } else {
-        const instructions = renderReceptionistProfile({
-          officeName: officeState.office.name,
-          members: listUsers(),
-        });
-        receptionist.customInstructions =
-          instructions +
-          (receptionist.customInstructions
-            ? `\n\n${receptionist.customInstructions}`
-            : "");
-        receptionist.userId = firstOwner.id;
-        receptionist.username = firstOwner.name;
-        receptionist.cwd = resolveCwd("~");
-        delete receptionist.receptionist;
-        restoreOrReviveAgent({
-          persisted: receptionist,
-          roomIdx: globalRoomIndexOf(LOBBY_ROOM_ID),
-          emitAgentAdded: false,
-          lazy: true,
-        });
-        migratedReceptionist = true;
-      }
-    }
     // Round-trip migrations back to disk in case the load step filled in new
     // fields (room ids, prompt/envFile defaults) that weren't present before.
     // Must run AFTER agents are populated or persistAll writes empty rooms.
-    const saved = persistAll();
-    if (saved && migratedReceptionist) saveReceptionist(null);
+    persistAll();
     officeState.setTasksDirect(loadTasks());
     officeStatePersistenceEnabled = true;
     // Durable-queue hygiene: drop records for agents that no
