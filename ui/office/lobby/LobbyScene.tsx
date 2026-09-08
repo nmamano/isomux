@@ -1,3 +1,5 @@
+import type { PresenceInfo } from "../../../shared/types.ts";
+import { LobbyGhosts } from "./LobbyGhosts.tsx";
 import { useI18n } from "../../i18n.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import { SCENE_W, SCENE_H } from "../grid.ts";
@@ -46,6 +48,9 @@ export interface LobbyRoomRef {
 
 export interface LobbySceneProps {
   rooms: LobbyRoomRef[];
+  presences?: PresenceInfo[];
+  onMoveGhost?: (spotId: string) => void;
+  onOpenUser?: (userId: string) => void;
   officeName: string | null;
   mode: ThemeMode;
   layout?: LobbyLayoutId | "empty";
@@ -71,6 +76,9 @@ export interface LobbySceneProps {
 
 export function LobbyScene({
   rooms,
+  presences = [],
+  onMoveGhost,
+  onOpenUser,
   officeName,
   star = null,
   mode,
@@ -119,6 +127,7 @@ export function LobbyScene({
           }
         />
       )}
+      <LobbyGhosts presences={presences} spots={base?.ghostSpots ?? []} onMove={onMoveGhost} onOpenUser={onOpenUser} />
     </>
   );
 }

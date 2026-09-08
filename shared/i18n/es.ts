@@ -5,6 +5,7 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
+  "lobby.moveHere": "Moverse aquí",
   "lobby.receptionistName": "Recepcionista",
   "lobby.askHint": "Pregunta sobre Isomux o esta oficina",
   "lobby.welcome": "BIENVENIDOS",

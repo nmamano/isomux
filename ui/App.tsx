@@ -27,7 +27,7 @@ import { useSelfUser } from "./hooks/useSelfUser.ts";
 import { apiFetch } from "./api.ts";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
-import type { AgentInfo } from "../shared/types.ts";
+import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import { pageForPath, pathForPage, type Page } from "./routes.ts";
 
@@ -381,12 +381,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // back to the viewer's selection otherwise. Depending on the scalar id
   // rather than the focusedAgent object identity keeps the effect quiet
   // through unrelated agent_updated noise (state/log changes).
-  // The lobby is not a room: a viewer on the Lobby tab reports no room, so
-  // their ghost leaves the office scenes (ghosts in the lobby are parked).
-  // The receptionist is in no room either: focusing it reports null.
-  const presenceRoomId = focusedAgent?.receptionist
-    ? null
-    : (focusedAgent?.roomId ?? (lobbyOpen ? null : currentRoomId));
+  const presenceRoomId = focusedAgent?.roomId ?? (lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
   useEffect(() => {
     if (!sessionContext) return;
     send({

@@ -187,7 +187,7 @@ export interface AppState {
   // whose currentRoomId matches state.currentRoomId (rooms render
   // independently). Self entry (matching state.sessionContext.
   // connectionId, per-WS not per-cookie) is hidden client-side
-  // unconditionally - the boss never sees their own avatar. The
+  // in ordinary rooms; the lobby shows self too. The
   // server still sends it so OTHER tabs/devices of the same user
   // remain visible as their own ghosts (each with its own
   // connectionId).

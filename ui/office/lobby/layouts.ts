@@ -39,9 +39,10 @@ export interface LayoutSpec {
   // Where the receptionist stands (floor tile units). The scene draws whatever
   // the mount passes for it at this spot, in painter's order with the props.
   receptionist: { a: number; b: number };
-  // Saved positions for the ghost follow-up. No live consumer yet: rendering,
-  // placement and movement ship together (PM ruling, 2026-09-08).
-  ghostSpots: Array<{ a: number; b: number; what?: string }>;
+  // Stable ids connect the live nilo spots to server presence assignments.
+  // The other presets are internal previews and have no live server seats.
+  // No prop may stand between a ghost spot and the viewer: ghosts draw after all props.
+  ghostSpots: Array<{ id?: string; a: number; b: number; what?: string }>;
 }
 
 export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
@@ -56,51 +57,61 @@ export const LOBBY_LAYOUTS: Record<LobbyLayoutId, LayoutSpec> = {
     },
     ghostSpots: [
       {
+        id: "blue-sofa-left",
         a: 0.15,
         b: 4.35,
         what: "blue sofa, left seat",
       },
       {
+        id: "blue-sofa-right",
         a: 1.25,
         b: 4.35,
         what: "blue sofa, right seat",
       },
       {
+        id: "tripod-armchair",
         a: 7.36,
         b: 5.35,
         what: "armchair by the tripod lamp",
       },
       {
+        id: "sw-armchair",
         a: 5.58,
         b: 7.3,
         what: "armchair facing SW",
       },
       {
+        id: "nw-armchair",
         a: 9.12,
         b: 7.2,
         what: "armchair facing NW",
       },
       {
+        id: "chesterfield-left",
         a: 6.7,
         b: 9.15,
         what: "chesterfield, left seat",
       },
       {
+        id: "chesterfield-right",
         a: 7.9,
         b: 9.15,
         what: "chesterfield, right seat",
       },
       {
+        id: "fish-tank",
         a: 1.35,
         b: 1.35,
         what: "at the fish tank, under the cat",
       },
       {
+        id: "bookshelf",
         a: 1.25,
         b: 8.85,
         what: "in front of the bookshelf",
       },
       {
+        id: "record-player",
         a: 1.4,
         b: 6.55,
         what: "at the record player",

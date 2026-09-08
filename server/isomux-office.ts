@@ -22,6 +22,8 @@ import type {
 } from "../shared/types.ts";
 import {
   listAllPresence,
+  moveLobbyPresence,
+  moveLobbyPresences,
   refreshPresenceForUser,
   removePresence,
   setPresence,
@@ -1334,9 +1336,11 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
     // Per-recipient visibility filter: drop ghosts whose room this session
     // can't see - unknown id, or globalToVisible < 0. Reuses the projection's
     // global roomId→index map rather than a second inline index.
-    const globalIdx = projection.globalRoomIdToIndex.get(p.currentRoomId);
-    if (globalIdx === undefined) continue;
-    if (projection.globalToVisible[globalIdx] < 0) continue;
+    if (p.currentRoomId !== LOBBY_ROOM_ID) {
+      const globalIdx = projection.globalRoomIdToIndex.get(p.currentRoomId);
+      if (globalIdx === undefined) continue;
+      if (projection.globalToVisible[globalIdx] < 0) continue;
+    }
     out.push({
       connectionId: p.connectionId,
       userId: p.userId,
@@ -1345,6 +1349,7 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
       avatarColor: p.avatarColor,
       avatarVariant: p.avatarVariant,
       currentRoomId: p.currentRoomId,
+      ...(p.currentRoomId === LOBBY_ROOM_ID ? { lobbySpotId: p.lobbySpotId ?? null } : {}),
       focusedAgentId: p.focusedAgentId,
       viewMode: p.viewMode,
     });
@@ -1383,7 +1388,25 @@ function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   );
 }
 
+let lobbyMoveTimer: ReturnType<typeof setInterval> | null = null;
+function stopLobbyMoveTimer() {
+  if (lobbyMoveTimer !== null) clearInterval(lobbyMoveTimer);
+  lobbyMoveTimer = null;
+}
+
+function syncLobbyMoveTimer() {
+  if (!listAllPresence().some((p) => p.currentRoomId === LOBBY_ROOM_ID)) {
+    stopLobbyMoveTimer();
+  } else if (lobbyMoveTimer === null) {
+    lobbyMoveTimer = setInterval(() => {
+      if (moveLobbyPresences()) pushPresenceListToEachWs();
+    }, 1000);
+    lobbyMoveTimer.unref?.();
+  }
+}
+
 function pushPresenceListToEachWs() {
+  syncLobbyMoveTimer();
   for (const ws of browsers) {
     sendPresenceListTo(ws);
   }
@@ -4830,6 +4853,12 @@ async function handleInboundMessage(
       case "ping":
         ws.send(JSON.stringify({ type: "pong" }));
         break;
+      case "lobby_move": {
+        if (typeof cmd.spotId === "string" && moveLobbyPresence(ws.data.connectionId, cmd.spotId)) {
+          pushPresenceListToEachWs();
+        }
+        break;
+      }
       case "presence_update": {
         // Live-avatars: the sender tells us where its ghost should appear, as a
         // stable global room id. Validate it DIRECTLY - it must name a LIVE room
@@ -4851,7 +4880,8 @@ async function handleInboundMessage(
         const roomId =
           cmd.currentRoomId !== null &&
           canAccess(user, cmd.currentRoomId) &&
-          agentManager.getRooms().some((r) => r.id === cmd.currentRoomId)
+          (cmd.currentRoomId === LOBBY_ROOM_ID ||
+            agentManager.getRooms().some((r) => r.id === cmd.currentRoomId))
             ? cmd.currentRoomId
             : null;
         // Clamp focusedAgentId: must reference a real agent whose room
@@ -6167,6 +6197,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   browsers.clear();
   apiTokenSockets.clear();
   _testClearPresence();
+  stopLobbyMoveTimer();
   // Neutralize the auth.ts boot hooks so a stale closure from this boot can't
   // fire into a torn-down broadcast set between stop() and the next start();
   // the next startServer() re-registers them against the new instance.

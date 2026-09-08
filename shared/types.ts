@@ -201,6 +201,12 @@ export const OPENCODE_DEFAULT_MODEL =
 // user can reach, and the name the manifest and the prompt show for it. Not an
 // 8-hex id, so it can never collide with a real room.
 export const LOBBY_ROOM_ID = "lobby";
+// Stable lobby seat identities; geometry stays in the scene layout.
+export const LOBBY_SPOT_IDS = [
+  "blue-sofa-left", "blue-sofa-right", "tripod-armchair", "sw-armchair",
+  "nw-armchair", "chesterfield-left", "chesterfield-right", "fish-tank",
+  "bookshelf", "record-player",
+] as const;
 export const LOBBY_ROOM: RoomWire = {
   id: LOBBY_ROOM_ID,
   name: en["common.lobby"],
@@ -1308,6 +1314,8 @@ export interface PresenceInfo {
   // the session has not yet sent its first presence_update or is off-scene.
   // The stable room id replaced the dense per-recipient `currentRoom` index.
   currentRoomId: string | null;
+  // Absent on older servers; null means waiting beside the lobby floor.
+  lobbySpotId?: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
 }
@@ -1662,6 +1670,7 @@ export type ClientCommand =
       // sends an undefined / empty payload; server stores null.
       device?: string | null;
     }
+  | { type: "lobby_move"; spotId: string }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

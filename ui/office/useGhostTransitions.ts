@@ -7,9 +7,9 @@ import { deskPixelPos } from "./grid.ts";
 // idle ghosts cannot fit on the floor; they line up here, past the SE wall.
 // Adjacent ghosts step right by `GHOST_LOBBY_GAP` so the name tags don't
 // collide.
-const GHOST_LOBBY_BASE_X = 600;
-const GHOST_LOBBY_BASE_Y = 590;
-const GHOST_LOBBY_GAP = 52;
+export const GHOST_LOBBY_BASE_X = 600;
+export const GHOST_LOBBY_BASE_Y = 590;
+export const GHOST_LOBBY_GAP = 52;
 
 // Stack offsets for multiple bosses focused on the same agent. Small
 // diagonal step so the second/third ghost peeks out from behind the
@@ -69,10 +69,8 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
 // Anchor membership only determines coordinates and intra-group stack rank,
 // never iteration order.
 //
-// The recipient's own ghost is filtered out entirely - a boss never sees
-// their own avatar (only other devices / other users render). If the boss
-// is the only device connected, no ghost renders; other tabs/devices of
-// the same user appear as their own ghosts via their own connectionId.
+// Ordinary rooms hide the viewer's own ghost; other devices remain visible.
+// The lobby uses LobbyGhosts instead and shows the viewer's own ghost too.
 function computeNaturalPlacements(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],

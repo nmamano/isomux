@@ -337,3 +337,78 @@ describe("presence - onlineUserIds roster aggregate (users-page follow-up 8e882c
     expect(after.totalOnlineUsers).toBe(1);
   });
 });
+
+describe("lobby presence", () => {
+  it("shows lobby occupants across viewers, moves only the caller, and rejects stale picks", async () => {
+    const { LOBBY_SPOT_IDS } = await import("../../shared/types.ts");
+    const lobbySpotIds: readonly string[] = LOBBY_SPOT_IDS;
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const a = await connectSettled(server, owner.rawSessionId);
+    const b = await connectSettled(server, member.rawSessionId);
+    const aid = connectionIdOf(a), bid = connectionIdOf(b);
+    presenceUpdate(a, "lobby");
+    presenceUpdate(b, "lobby");
+    const hasBoth = (m: Msg) => m.type === "presence_list" && !!presenceEntry(m, aid) && !!presenceEntry(m, bid);
+    const av = await waitForMessageWhere(a, hasBoth);
+    const bv = await waitForMessageWhere(b, hasBoth);
+    expect(av.entries).toEqual(bv.entries);
+    const ap = presenceEntry(av, aid)!, bp = presenceEntry(av, bid)!;
+    expect(ap.currentRoomId).toBe("lobby");
+    expect(bp.currentRoomId).toBe("lobby");
+    expect(lobbySpotIds).toContain(ap.lobbySpotId!);
+    expect(lobbySpotIds).toContain(bp.lobbySpotId!);
+    expect(ap.lobbySpotId).not.toBe(bp.lobbySpotId);
+    const free = LOBBY_SPOT_IDS.find((s) => s !== ap.lobbySpotId && s !== bp.lobbySpotId)!;
+    a.send({ type: "lobby_move", spotId: free });
+    const moved = await waitForMessageWhere(b, (m) => m.type === "presence_list" && presenceEntry(m, aid)?.lobbySpotId === free);
+    expect(presenceEntry(moved, bid)).toEqual(bp);
+    // Ping fences socket command processing; a refusal must emit no move.
+    const fence = async (sock: TestSocket) => {
+      bag(sock).splice(0);
+      sock.send({ type: "ping" });
+      await sock.waitFor("pong");
+    };
+    await fence(b);
+    b.send({ type: "lobby_move", spotId: free });
+    b.send({ type: "lobby_move", spotId: "unknown-seat" });
+    b.send({ type: "ping" });
+    await waitForMessageWhere(b, (m) => m.type === "pong" && bag(b).filter((x) => x.type === "pong").length === 2);
+    expect(bag(b).filter((m) => m.type === "presence_list")).toHaveLength(0);
+    const { getPresence } = await import("../presence.ts");
+    expect(getPresence(bid)!.lobbySpotId).toBe(bp.lobbySpotId);
+    expect(getPresence(aid)!.lobbySpotId).toBe(free);
+    // A grant edit must keep the lobby; an unknown room must still sanitize.
+    await setAccess(server, owner.rawSessionId, member.username, []);
+    expect(getPresence(bid)!.currentRoomId).toBe("lobby");
+    presenceUpdate(b, "unknown-room");
+    b.send({ type: "ping" });
+    await waitForMessageWhere(b, () => getPresence(bid)?.currentRoomId === null);
+    expect(getPresence(bid)!.currentRoomId).toBeNull();
+    b.send({ type: "lobby_move", spotId: ap.lobbySpotId! });
+    b.send({ type: "ping" });
+    await waitForMessageWhere(b, (m) => m.type === "pong" && bag(b).filter((x) => x.type === "pong").length >= 4);
+    expect(getPresence(bid)!.lobbySpotId).toBeUndefined();
+  });
+
+  it("broadcasts a due timer move and preserves receptionist focus in the lobby", async () => {
+    const { getPresence, setPresence } = await import("../presence.ts");
+    server = await startTestServer();
+    const claim = await server.http("/auth/claim", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "name=Boss", redirect: "manual" });
+    expect(claim.status).toBe(302);
+    const cookie = claim.headers.get("set-cookie")!.match(/isomux_session=([^;]+)/)![1];
+    const sock = await connectSettled(server, cookie);
+    const cid = connectionIdOf(sock);
+    const receptionist = server.agentManager.getAllAgents().find((a) => a.receptionist)!;
+    expect(receptionist).toBeDefined();
+    sock.send({ type: "presence_update", currentRoomId: "lobby", focusedAgentId: receptionist.id, viewMode: "log" });
+    const first = await waitForMessageWhere(sock, (m) => m.type === "presence_list" && presenceEntry(m, cid)?.currentRoomId === "lobby");
+    expect(presenceEntry(first, cid)!.focusedAgentId).toBe(receptionist.id);
+    const before = getPresence(cid)!;
+    setPresence({ ...before, lobbyMoveAt: 0 });
+    const moved = await waitForMessageWhere(sock, (m) => m.type === "presence_list" && !!presenceEntry(m, cid) && presenceEntry(m, cid)!.lobbySpotId !== before.lobbySpotId);
+    expect(presenceEntry(moved, cid)!.lobbySpotId).not.toBe(before.lobbySpotId);
+    expect(presenceEntry(moved, cid)!.focusedAgentId).toBe(receptionist.id);
+  });
+});

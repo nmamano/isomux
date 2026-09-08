@@ -1,4 +1,6 @@
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
+import { send } from "../ws.ts";
+import { LOBBY_ROOM_ID } from "../../shared/types.ts";
 import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
@@ -535,6 +537,10 @@ export function OfficeView({
             >
               {lobbyOpen ? (
                 <LobbyScene
+                  presences={presences}
+                  onMoveGhost={sessionContext && presences.some((p) => p.connectionId === sessionContext.connectionId && p.currentRoomId === LOBBY_ROOM_ID)
+                    ? (spotId) => send({ type: "lobby_move", spotId }) : undefined}
+                  onOpenUser={onOpenUserSettingsForUser}
                   rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
                   officeName={office.name}
                   star={lobbyStar}

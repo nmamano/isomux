@@ -19,6 +19,8 @@
 // State is NOT persisted. A server restart wipes the map; clients re-send
 // presence_update on their reconnect path (no server-side rehydrate).
 
+import { LOBBY_ROOM_ID, LOBBY_SPOT_IDS } from "../shared/types.ts";
+import { assignLobbySpot, planLobbyMoves, pickLobbySpot, type LobbyAssignment } from "./lobby-presence.ts";
 import type { GhostVariant } from "../shared/avatar.ts";
 
 export interface PresenceState {
@@ -38,6 +40,8 @@ export interface PresenceState {
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
   lastSeenAt: number;
+  lobbySpotId?: string | null;
+  lobbyMoveAt?: number;
 }
 
 const presences = new Map<string, PresenceState>();
@@ -52,8 +56,18 @@ export function _testClearPresence(): void {
 // (so callers can avoid a no-op broadcast on a repeated identical
 // update - e.g. focus-change handlers that fire from multiple effect
 // dependencies on the same dispatch).
-export function setPresence(state: PresenceState): boolean {
+export function setPresence(state: PresenceState, random = Math.random): boolean {
   const existing = presences.get(state.connectionId);
+  if (state.currentRoomId === LOBBY_ROOM_ID) {
+    if (existing?.currentRoomId === LOBBY_ROOM_ID && state.lobbySpotId === undefined) {
+      state = { ...state, lobbySpotId: existing.lobbySpotId, lobbyMoveAt: existing.lobbyMoveAt };
+    } else if (state.lobbySpotId === undefined) {
+      const next = assignLobbySpot(lobbyAssignments(), LOBBY_SPOT_IDS, state.connectionId, state.lastSeenAt, random);
+      state = { ...state, ...next };
+    }
+  } else {
+    state = { ...state, lobbySpotId: undefined, lobbyMoveAt: undefined };
+  }
   presences.set(state.connectionId, state);
   if (!existing) return true;
   return (
@@ -63,7 +77,8 @@ export function setPresence(state: PresenceState): boolean {
     existing.avatarVariant !== state.avatarVariant ||
     existing.currentRoomId !== state.currentRoomId ||
     existing.focusedAgentId !== state.focusedAgentId ||
-    existing.viewMode !== state.viewMode
+    existing.viewMode !== state.viewMode ||
+    existing.lobbySpotId !== state.lobbySpotId
   );
 }
 
@@ -120,6 +135,7 @@ export function refreshPresenceForUser(
     if (
       allowedRoomIds !== undefined &&
       next.currentRoomId !== null &&
+      next.currentRoomId !== LOBBY_ROOM_ID &&
       !allowedRoomIds.has(next.currentRoomId)
     ) {
       next = { ...next, currentRoomId: null, lastSeenAt: Date.now() };
@@ -130,4 +146,27 @@ export function refreshPresenceForUser(
     }
   }
   return changed;
+}
+
+function lobbyAssignments(): LobbyAssignment[] {
+  return listAllPresence().filter((p) => p.currentRoomId === LOBBY_ROOM_ID).map((p) => ({
+    connectionId: p.connectionId, lobbySpotId: p.lobbySpotId ?? null, lobbyMoveAt: p.lobbyMoveAt ?? 0,
+  }));
+}
+
+function applyLobbyAssignments(rows: LobbyAssignment[]): boolean {
+  let changed = false;
+  for (const row of rows) {
+    const current = presences.get(row.connectionId)!;
+    if (setPresence({ ...current, ...row })) changed = true;
+  }
+  return changed;
+}
+
+export function moveLobbyPresences(now = Date.now(), random = Math.random): boolean {
+  return applyLobbyAssignments(planLobbyMoves(lobbyAssignments(), LOBBY_SPOT_IDS, now, random));
+}
+
+export function moveLobbyPresence(connectionId: string, spotId: string, now = Date.now(), random = Math.random): boolean {
+  return applyLobbyAssignments(pickLobbySpot(lobbyAssignments(), LOBBY_SPOT_IDS, connectionId, spotId, now, random));
 }

@@ -20,6 +20,7 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
+  "lobby.moveHere": "Move here",
   "lobby.receptionistName": "Receptionist",
   "lobby.askHint": "Ask about Isomux or this office",
   "lobby.welcome": "WELCOME",
