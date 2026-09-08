@@ -207,7 +207,13 @@ describe("members chat REST: edit and delete ownership", () => {
     expect(edited.status).toBe(200);
     expect((edited.body as MembersChatMessage).content).toBe("final");
     expect((edited.body as MembersChatMessage).editedAt).toBeGreaterThan(0);
-    await ownerWs.waitFor("members_chat_message");
+    // The owner's socket also receives the two posts above as
+    // members_chat_message events, so wait for the edit itself, not for the
+    // next event of that type.
+    for (let i = 0; i < 4; i++) {
+      if (messagesOf(ownerWs).some((m) => m.content === "final")) break;
+      await ownerWs.waitFor("members_chat_message");
+    }
     expect(messagesOf(ownerWs).some((m) => m.content === "final")).toBe(true);
 
     // Member edits the owner's: 403. Member deletes the owner's: 403.
