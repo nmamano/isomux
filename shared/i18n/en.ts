@@ -1950,7 +1950,7 @@ export const en = {
   "demo.reply":
     "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
-    "Welcome to the lobby. In a real office I answer questions about Isomux and about this office: the docs are at [isomux.com/docs](https://isomux.com/docs), and an owner grants room access. This is a demo, so nothing was sent to a model.",
+    "Welcome to the lobby. In a real office I answer questions about Isomux and about this office. This is a demo, so nothing was sent to a model.",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

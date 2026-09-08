@@ -1954,5 +1954,5 @@ export const ca: Catalog = {
   "demo.reply":
     "Això és una demo: el teu missatge no s'ha enviat a Claude. Per fer servir Isomux de debò, segueix les instruccions d'instal·lació a [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
-    "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina: la documentació és a [isomux.com/docs](https://isomux.com/docs), i un propietari concedeix l'accés a les sales. Això és una demo, així que no s'ha enviat res a cap model.",
+    "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina. Això és una demo, així que no s'ha enviat res a cap model.",
 };

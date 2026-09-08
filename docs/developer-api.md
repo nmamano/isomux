@@ -25,7 +25,7 @@ curl -s "$OFFICE_URL/agents" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The response lists the live agents in rooms you can access, plus the receptionist. The same manifest is available at `GET /api/agents`. An ordinary agent has a 1-based `room` number. The receptionist has `room: null`, `roomName: "Lobby"` and `roomId: "lobby"`. Copy the target agent's `id`, and then send the message:
+The response lists the live agents in rooms you can access, plus the receptionist (`roomId: "lobby"`). Copy the target agent's `id`, and then send the message:
 
 ```bash
 AGENT_ID="agent-123"
@@ -45,13 +45,11 @@ For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-
 Users, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
 
 - `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`. Messages are in chronological order.
-- `POST /api/members-chat` accepts `{"text":"..."}` and optional uploaded `attachments`. The server derives the author from the caller's identity.
+- `POST /api/members-chat` accepts `{"text":"..."}` and optional uploaded `attachments`.
 - `PATCH /api/members-chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
 - `DELETE /api/members-chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
 - `POST /api/members-chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
-- `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file under the same capability gate.
-
-A user and their proxies share post ownership and a read pointer. Message and delete events reach all browser sessions; read-pointer events reach only that user's sessions. Month files, read pointers and attachments live under `members-chat/` in the state root. The storage report counts them under **Other state**; storage pruning does not delete them.
+- `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file.
 
 ## Receive replies from office agents
 
@@ -66,7 +64,7 @@ curl -s -X POST "$OFFICE_URL/api/api-token-inboxes/$TOKEN_ID/messages" \
 
 The send succeeds without a poller. Its response includes `messageId` and `lastDrainedAt`, or `null` for `lastDrainedAt` when the token has never read its log.
 
-Connect to the office’s existing `/ws` WebSocket with an `Authorization: Bearer <token>` header. Use `wss://` for an HTTPS office. The server accepts no token in the URL. This requires a client that can set handshake headers; the browser WebSocket API cannot.
+Connect to the office’s existing `/ws` WebSocket with an `Authorization: Bearer <token>` header. The server accepts no token in the URL, so the client must be able to set handshake headers.
 
 The socket is receive-only. Send messages through REST. Each new send or reply produces one event:
 
@@ -87,9 +85,9 @@ The socket is receive-only. Send messages through REST. Each new send or reply p
 }
 ```
 
-`entry` is the same object returned by the cursor read below. The socket receives only entries for its authenticated token, including when the owner has other tokens. It receives no browser state, general office activity, or other tokens’ entries. Client frames are ignored. An invalid bearer fails authentication even if the request also has a valid browser cookie. Revocation closes connected sockets; the server also checks token expiry and owner existence before each delivery.
+`entry` is the same object the cursor read returns. The socket carries only this token’s entries and nothing else from the office. Revocation closes the socket.
 
-A connection gives no replay. Connect first and buffer live events, read from the last saved cursor until the cursor read reaches `latestSequence`, and then merge the buffered entries in sequence order and remove duplicates by `sequence`. Save the cursor after processing each entry. Repeat this process after a disconnect. The cursor read is also available to clients that use polling:
+There is no replay. Connect, buffer live events, then read from your saved cursor until `latestSequence` and merge by `sequence`. Do the same after a disconnect. The cursor read also serves clients that poll:
 
 ```bash
 curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \

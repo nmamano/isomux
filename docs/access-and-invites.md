@@ -41,7 +41,7 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `Settings` → `Office` → `Invites`:
 
-- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of the lobby (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
+- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
@@ -125,9 +125,7 @@ explicitly) rather than relying on session expiry.
 
 ## Lobby and members chat
 
-Every signed-in user can open the lobby and its receptionist, including a member with no room grants. The lobby is outside room grants and room display settings. The receptionist loads office-wide and its own memory, not a member’s or a room’s memory. Its bearer token has no owning user and grants no room access.
-
-The members chat is office-wide. Users, their API tokens and their privileged agents can read and post. An ordinary agent, a scheduled run and an app cannot. A user and their proxies can edit their own posts; an office owner can also delete another user’s post.
+Every member can open the lobby. The members chat is office-wide.
 
 ## Trust model boundaries
 
@@ -199,7 +197,7 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 
 A signed-in user can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
-Personal tokens have a separate API identity scope. They carry the issuing user's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They can list live and killed agents, drive agents, and receive their conversation entries through the office WebSocket and recover entries by cursor. The token socket is receive-only and carries only that token’s log entries. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
+Personal tokens have a separate API identity scope. They carry the issuing user's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
 The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
 

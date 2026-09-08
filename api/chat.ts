@@ -98,7 +98,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ## Full Feature List
 
 ### Office View
-- Lobby: a warm-wood scene open to every member, with the receptionist, members chat and an Employee of the Minute portrait. Its Apps screen opens Apps; its clock opens Schedules.
+- Lobby: a room always open to every member, where members without access to any room land. It has the receptionist, the members chat, an Employee of the Minute portrait, an Apps screen that opens Apps and a clock that opens Schedules.
 - Isometric office with 8 desks - see all your agents at a glance
 - Multiple rooms - click doors to switch rooms, each room has 8 desks, no hard limit on total agents
 - Tab/Shift+Tab cycles between agents within a room; rooms keep things organized (e.g., main project agents in room 1, side projects in room 2)
@@ -111,8 +111,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Drag agents between desks to rearrange
 - Color themes: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
 - Live user presence: other connected people (and the user's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from User Settings. The name tag above each ghost shows username and device. Clicking a ghost opens that user's settings.
-- Members chat: a humans-only chat on the Lobby tab. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, edit in place, delete, and an unread count on the tab. Members with no room access land in the lobby.
-- Receptionist: every office has one in the lobby, on a free OpenCode model, that answers questions about Isomux and about the office for every member, room access or not. An owner can change its engine, model and instructions; it cannot be killed, moved or renamed, and it sees nothing from the rooms.
+- Members chat: a humans-only chat on the Lobby. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, edit in place, delete, and an unread count on the tab.
+- Receptionist: an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model, that helps new members settle into the office. It is an ordinary agent spawned from the Isomux Receptionist profile: an owner can change its engine, model and instructions, and spawning a fresh agent from that profile restores the default.
 - User roster: owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 
 ### Skeuomorphic Details

@@ -11,7 +11,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
 - **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
 - **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
-- **Every office has a receptionist** in the lobby, on a free OpenCode model, that answers questions about Isomux and about the office. An owner can put another engine or model behind it and add instructions; its name and working directory are fixed, and it cannot be killed or moved.
 
 ## Multi-agent
 
@@ -20,7 +19,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Discovery** via a shared office manifest - every agent can look up who else is in the office (name, room, desk, cwd, model, topic), scoped to the rooms its manager can see.
 - **Cross-conversation reads** - each agent has access to the live conversation logs of every other agent. Ask "what does Isomuxer3 think of this?" and it just works.
 - **Shared memory** - agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's prompt. When a level's notes near their size cap, the agent flags it at the start of its next conversation and can help trim them.
-- **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing. Long messages from agents and apps collapse in the chat; expand them to read the full message.
+- **Agent-to-agent messages** - agents can message other agents directly, choosing between steering and queueing.
 - **Scheduled messages** - an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
 - **Mixed queue** - messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Room-scoped task board** - humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room, or to an office-wide global board shared across everyone; you see the tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API.
@@ -42,8 +41,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
-- **Members chat** - a humans-only chat on the Lobby tab. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, edit in place, delete, and an unread count on the tab. Members with no room access land in the lobby.
-- **The receptionist** - the one agent every member can open, room access or not. Click it in the lobby. It knows the office's name, its members and the office-wide instructions, and nothing from the rooms.
+- **Members chat** - a humans-only chat on the Lobby.
+- **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
@@ -58,7 +57,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 
 _The UI makes agent state spatial and glanceable, so you remember who is doing what._
 
-- **Lobby** - a warm-wood scene open to every member, with the receptionist, members chat and an Employee of the Minute portrait. Its Apps screen opens Apps; its clock opens Schedules.
+- **Lobby** - a room always open to every member; it's where members without access to any room land. It also has a Receptionist agent and a members chat.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
 - **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.
@@ -146,7 +145,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Secret leak prevention** - Isomux masks recognized secret patterns before they reach the logs or the chat.
 - **Managed environment variables** - keep API tokens and other secrets out of prompts: edit office-wide variables in Settings → Office → Office-wide connections and personal ones in Settings → You → Individual connections, and Isomux stores them in private files under `~/.isomux/`. Personal values override office-wide values. Other per-user variables work the same way, for example, each member can set `GH_TOKEN` so their agents use their own GitHub credentials. Values are not embedded in prompts or conversation logs.
 - **Office address** - self-hosted owners can set the public URL and external access in Settings → Office → Access. Hosted offices show the Isomux-managed address read-only.
-- **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket. The cursor log recovers entries after a disconnect. The raw token is shown once; you can review its approximate last authenticated request and revoke it at any time.
+- **Personal API tokens** - drive the office from an external tool and receive the token’s sends and replies through the office WebSocket.
 - **Survives a memory spike** - the office biases the out-of-memory kill toward the runaway agent or build, not itself. [One root command](self-hosted.md#running-out-of-memory) adds box-wide protection and keeps SSH reachable. Linux only.
 - **Daily local backups:** Isomux keeps seven daily office backups.
 - **Disk-usage breakdown and manual pruning** - `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. Office owners also get a panel under Office Settings to see a breakdown of isomux disk storage and manage it. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.

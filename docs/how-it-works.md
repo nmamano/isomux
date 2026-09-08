@@ -6,10 +6,8 @@ Under the hood, Isomux runs as a **single Bun process** that manages persistent 
 
 A **WebSocket layer** keeps every connected device - and every connected user - in sync in real time. Open the same URL on your laptop, phone, and a friend's browser: all three see the same office, same conversations, same messages as they land.
 
-**Agent identities** are saved to the local file system and persist across server restarts. The receptionist uses the same session manager as desk agents; its record is stored separately in `receptionist.json`. The members chat stores messages in month files under `members-chat/`.
+**Agent identities** are saved to the local file system and persist across server restarts.
 
 Isomux uses each backend's own login state: Claude and Codex reuse their CLI sign-ins, and OpenCode reads API keys from your Connections variables.
 
 For a deeper dive, see the [Design and Architecture blog post](https://nilmamano.com/blog/isomux).
-
-The receptionist uses `~/isomux-receptionist`, which Isomux creates before its first spawn. The directory survives restarts; the receptionist's name and working directory are fixed.

@@ -1959,5 +1959,5 @@ export const es: Catalog = {
   "demo.reply":
     "Esto es una demo: tu mensaje no se ha enviado a Claude. Para usar Isomux de verdad, sigue las instrucciones de instalación en [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
-    "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina: la documentación está en [isomux.com/docs](https://isomux.com/docs), y un propietario concede el acceso a las salas. Esto es una demo, así que no se ha enviado nada a un modelo.",
+    "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina. Esto es una demo, así que no se ha enviado nada a un modelo.",
 };
