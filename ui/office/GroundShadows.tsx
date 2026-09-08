@@ -1,8 +1,8 @@
-import { useAppState, useTheme } from "../store.tsx";
+import { useTheme } from "../store.tsx";
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 
 // Contact shadows for the props that stand on the floor: the pet bed, the
-// potted plant and the water cooler.
+// potted plant.
 //
 // Each shadow sits CENTRED under its prop and carries no light direction.
 // The window on the left wall is the scene's key light, so a shadow offset
@@ -37,10 +37,6 @@ const CAT_BED = { cx: 120, cy: 470, rx: 36, ry: 19, dim: 1 };
 // tiles, so the bed's weight reads heavy under it (Nil, 2026-09-05).
 const PLANT = { cx: -245, cy: 242, rx: 25, ry: 12.5, dim: 0.55 };
 
-// The water cooler sits at translate(540,225) scale(1.5) and only in the last
-// room; its base plate runs from local y 30 to 34 and is 14 wide. Same
-// narrow-base-under-a-wide-shadow case as the plant.
-const COOLER = { cx: 540, cy: 276, rx: 22, ry: 11, dim: 0.55 };
 
 function Blob({
   cx,
@@ -68,9 +64,7 @@ function Blob({
 }
 
 export function GroundShadows() {
-  const { currentRoomId, rooms } = useAppState();
   const { mode } = useTheme();
-  const isLastRoom = rooms[rooms.length - 1]?.id === currentRoomId;
 
   // A near-black floor swallows a shadow, so the dark theme carries the
   // stronger one; the light theme seats the props at less.
@@ -110,7 +104,6 @@ export function GroundShadows() {
       <g clipPath="url(#gs-floor)">
         <Blob {...CAT_BED} />
         <Blob {...PLANT} />
-        {isLastRoom && <Blob {...COOLER} />}
       </g>
     </svg>
   );

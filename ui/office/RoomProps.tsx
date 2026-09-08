@@ -652,7 +652,6 @@ export function PetCorner({
 export function RoomProps() {
   const { currentRoomId, rooms } = useAppState();
   const room = rooms.find((r) => r.id === currentRoomId);
-  const isLastRoom = rooms[rooms.length - 1]?.id === currentRoomId;
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
   const pet = room?.pet ?? null;
 
@@ -673,7 +672,6 @@ export function RoomProps() {
     <>
       <PropsScene
         pet={pet}
-        isLastRoom={isLastRoom}
         onPetClick={(x, y) => setPicker({ x, y })}
       />
       {picker && (
@@ -695,11 +693,9 @@ export function RoomProps() {
 // the prop SVG.
 const PropsScene = memo(function PropsScene({
   pet,
-  isLastRoom,
   onPetClick,
 }: {
   pet: RoomPet | null;
-  isLastRoom: boolean;
   onPetClick: (x: number, y: number) => void;
 }) {
   return (
@@ -716,51 +712,6 @@ const PropsScene = memo(function PropsScene({
         <CornerPlant />
       </g>
 
-      {/* Water cooler - near right wall, only in last room (no right door) */}
-      {isLastRoom && (
-        <g transform="translate(540, 225) scale(1.5)">
-          {/* Water jug (behind body) */}
-          <rect
-            x="-5"
-            y="-12"
-            width="10"
-            height="14"
-            rx="2"
-            fill="var(--room-prop-accent)"
-          />
-          <ellipse
-            cx="0"
-            cy="-12"
-            rx="6"
-            ry="2"
-            fill="var(--room-prop-accent)"
-            opacity="0.8"
-          />
-          {/* Body */}
-          <rect
-            x="-9"
-            y="0"
-            width="18"
-            height="30"
-            rx="2"
-            fill="var(--room-prop-body)"
-            stroke="var(--border-subtle)"
-            strokeWidth="0.5"
-          />
-          {/* Tap buttons */}
-          <circle cx="-3" cy="18" r="2" fill="#5a9ada" />
-          <circle cx="3" cy="18" r="2" fill="#e87090" />
-          {/* Base */}
-          <rect
-            x="-7"
-            y="30"
-            width="14"
-            height="4"
-            rx="1"
-            fill="var(--room-prop-base)"
-          />
-        </g>
-      )}
 
       {/* Sleepy office pet - south corner of office */}
       <PetCorner pet={pet} onClick={onPetClick} />
