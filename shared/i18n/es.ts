@@ -33,6 +33,7 @@ export const es: Catalog = {
   "membersChat.unreadCount.one": "Mensaje sin leer: {count}",
   "membersChat.unreadCount.other": "Mensajes sin leer: {count}",
   "membersChat.retry": "Reintentar",
+  "membersChat.hide": "Ocultar chat",
   "membersChat.title": "Chat de miembros",
   "membersChat.online": "{count} en línea",
   "membersChat.loadingOlder": "Cargando mensajes anteriores…",

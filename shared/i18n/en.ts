@@ -48,6 +48,7 @@ export const en = {
   "membersChat.unreadCount.one": "Unread message: {count}",
   "membersChat.unreadCount.other": "Unread messages: {count}",
   "membersChat.retry": "Try again",
+  "membersChat.hide": "Hide chat",
   "membersChat.title": "Members chat",
   "membersChat.online": "{count} online",
   "membersChat.loadingOlder": "Loading older…",

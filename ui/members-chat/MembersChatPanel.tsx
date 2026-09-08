@@ -179,11 +179,13 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
 export function MembersChatPanel({
   style,
   onClose,
+  onHide,
   onRetry,
   loadFailed = false,
 }: {
   style?: React.CSSProperties;
   onClose?: () => void;
+  onHide?: () => void;
   onRetry?: () => void;
   loadFailed?: boolean;
 }) {
@@ -501,6 +503,23 @@ export function MembersChatPanel({
             </span>
           ))}
         </span>
+        {onHide && (
+          <button
+            onClick={onHide}
+            style={{
+              flexShrink: 0,
+              padding: "4px 8px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg-code)",
+              color: "var(--text-primary)",
+              fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            {t("membersChat.hide")}
+          </button>
+        )}
       </div>
 
       <div

@@ -167,10 +167,12 @@ export function RoomTabBar({
   onOpenRoomSettings,
   membersChatLoadFailed = false,
   onRetryMembersChat,
+  onShowMembersChat,
 }: {
   onOpenRoomSettings?: (roomId: string) => void;
   membersChatLoadFailed?: boolean;
   onRetryMembersChat?: () => void;
+  onShowMembersChat?: () => void;
 }) {
   const {
     agents,
@@ -409,6 +411,25 @@ export function RoomTabBar({
             {!mobileChatEntry && <MembersChatUnread />}
           </button>
         </div>
+        {onShowMembersChat && (
+          <button
+            onClick={onShowMembersChat}
+            style={{
+              flexShrink: 0,
+              padding: "4px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg-code)",
+              color: "var(--text-primary)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono',monospace",
+            }}
+          >
+            {t("membersChat.title")}
+          </button>
+        )}
         {/* The mobile lobby owns this entry; its chat uses a portal to fill the screen. */}
         {mobileChatEntry && (
           <LobbyChat

@@ -33,6 +33,7 @@ export const ca: Catalog = {
   "membersChat.unreadCount.one": "Missatge sense llegir: {count}",
   "membersChat.unreadCount.other": "Missatges sense llegir: {count}",
   "membersChat.retry": "Torna-ho a provar",
+  "membersChat.hide": "Amaga el xat",
   "membersChat.title": "Xat de membres",
   "membersChat.online": "{count} en línia",
   "membersChat.loadingOlder": "Carregant missatges anteriors…",

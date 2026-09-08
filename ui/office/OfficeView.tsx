@@ -1,3 +1,4 @@
+import { getMembersChatHidden, setMembersChatHidden } from "../device-settings.ts";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
@@ -222,6 +223,12 @@ export function OfficeView({
   const { embed } = useFeatures();
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(!embed);
+  const [chatHidden, setChatHidden] = useState(getMembersChatHidden);
+  const desktopChatVisible = lobbyOpen && !isMobile && !embed && !chatHidden;
+  function changeChatHidden(hidden: boolean) {
+    setChatHidden(hidden);
+    setMembersChatHidden(hidden);
+  }
   const i18n = useI18n();
   const { t } = i18n;
   const newRoomDoor = embed
@@ -480,6 +487,7 @@ export function OfficeView({
           onOpenRoomSettings={onEditRoomSettings}
           membersChatLoadFailed={membersChatLoadFailed}
           onRetryMembersChat={retryMembersChat}
+          onShowMembersChat={lobbyOpen && !isMobile && chatHidden ? () => changeChatHidden(false) : undefined}
         />
       )}
 
@@ -843,7 +851,7 @@ export function OfficeView({
               onZoomIn={viewport.zoomIn}
               onZoomOut={viewport.zoomOut}
               onReset={viewport.resetView}
-              rightInset={lobbyOpen && !isMobile ? LOBBY_CHAT_WIDTH : 0}
+              rightInset={desktopChatVisible ? LOBBY_CHAT_WIDTH : 0}
             />
             /* eslint-enable react-hooks/refs */
           )}
@@ -860,8 +868,9 @@ export function OfficeView({
             />
           )}
         </div>
-        {lobbyOpen && !isMobile && !embed && (
+        {desktopChatVisible && (
           <MembersChatPanel
+            onHide={() => changeChatHidden(true)}
             loadFailed={membersChatLoadFailed}
             onRetry={retryMembersChat}
             style={{

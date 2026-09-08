@@ -11,6 +11,7 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
+const KEY_MEMBERS_CHAT_HIDDEN = "isomux-members-chat-hidden";
 const KEY_APP_PREVIEWS = "isomux-app-previews";
 const KEY_APP_PREVIEW_OPENS = "isomux-app-preview-opens";
 // Keep aligned with APP_SESSION_TTL_MS in server/app-auth.ts. A preview cannot
@@ -39,6 +40,22 @@ export function setDevice(label: string | null): void {
   if (typeof localStorage === "undefined") return;
   if (label && label.trim()) localStorage.setItem(KEY_DEVICE, label.trim());
   else localStorage.removeItem(KEY_DEVICE);
+}
+
+export function getMembersChatHidden(): boolean {
+  try {
+    return typeof localStorage !== "undefined" &&
+      localStorage.getItem(KEY_MEMBERS_CHAT_HIDDEN) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setMembersChatHidden(hidden: boolean): void {
+  try {
+    if (typeof localStorage !== "undefined")
+      localStorage.setItem(KEY_MEMBERS_CHAT_HIDDEN, String(hidden));
+  } catch {}
 }
 
 // App previews are on unless this device opts out. A cold, serialized fill
