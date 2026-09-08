@@ -1,3 +1,4 @@
+import { StatusShape } from "./StatusShape.tsx";
 import { useEffect, useMemo, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
@@ -28,9 +29,9 @@ const TAB_LABEL: Record<Tab, Extract<MessageKey, `schedules.tab.${string}`>> = {
   cronjobs: "schedules.tab.cronjobs",
 };
 
-const STATUS_ICON: Record<CronjobRunStatus, string> = {
-  running: "●",
-  completed: "✓",
+const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
+  running: <StatusShape kind="dot" />,
+  completed: <StatusShape kind="check" />,
   failed: "✗",
   timed_out: "⏱",
   skipped: "⊘",
@@ -529,7 +530,7 @@ function CronjobsTable({
                         verticalAlign: "middle",
                       }}
                     >
-                      ● {t("schedules.inFlight")}
+                      <StatusShape kind="dot" /> {t("schedules.inFlight")}
                       {inFlight > 1 ? ` ×${inFlight}` : ""}
                     </span>
                   );
@@ -762,7 +763,7 @@ function RunsTable({
                 }}
                 title={r.trigger}
               >
-                {r.trigger === "manual" ? "▶" : "⏲"}
+                {r.trigger === "manual" ? <StatusShape kind="triangle" /> : "⏲"}
               </td>
               <td style={{ padding: cellPad, fontSize: 12, fontWeight: 600 }}>
                 {r.cronjobName}

@@ -1,3 +1,4 @@
+import { StatusShape } from "./StatusShape.tsx";
 import { useTheme } from "../store.tsx";
 import { THEMES, type Theme } from "../themes.ts";
 import { sectionHeader, hint } from "./access-shared.tsx";
@@ -78,7 +79,7 @@ function ThemeRow({
       <span style={{ flex: 1 }}>{t(theme.displayNameKey)}</span>
       {selected && (
         <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>
-          ✓
+          <StatusShape kind="check" />
         </span>
       )}
     </button>

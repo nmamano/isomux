@@ -1,3 +1,4 @@
+import { StatusShape } from "../components/StatusShape.tsx";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
 import {
@@ -1047,7 +1048,7 @@ export function EditorPanel({
                   flexShrink: 0,
                 }}
               >
-                {tabs.length > 1 ? `▼ ${tabs.length}` : "▼"}
+                <StatusShape kind="triangle" rotate={90} />{tabs.length > 1 ? ` ${tabs.length}` : ""}
               </span>
             </button>
           )}

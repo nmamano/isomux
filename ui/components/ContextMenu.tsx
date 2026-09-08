@@ -1,3 +1,4 @@
+import { StatusShape } from "./StatusShape.tsx";
 import { useRef, useEffect } from "react";
 import type {
   AgentInfo,
@@ -199,7 +200,7 @@ export function ContextMenu({
             // without it. Selecting a row still flips the agent to that
             // session's engine.
             const displayLabel = isCurrent
-              ? `● ${label}  ${formatTime(language, s.lastModified)}  ${t("common.current")}`
+              ? <><StatusShape kind="dot" /> {label}  {formatTime(language, s.lastModified)}  {t("common.current")}</>
               : `${label}  ${formatTime(language, s.lastModified)}${branchedSuffix}`;
             return (
               <MenuItem
@@ -241,7 +242,7 @@ function MenuItem({
   dimmed,
   onClick,
 }: {
-  label: string;
+  label: React.ReactNode;
   danger?: boolean;
   small?: boolean;
   disabled?: boolean;

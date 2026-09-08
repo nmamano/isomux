@@ -1,3 +1,4 @@
+import { StatusShape } from "../components/StatusShape.tsx";
 import { useEffect, useRef, useCallback, useState, forwardRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -252,8 +253,7 @@ const MobileInputProxy = forwardRef<
   );
 });
 
-// Filled triangles render at consistent widths in iOS's fallback font; the
-// thin Unicode arrows (↑↓←→) come out narrower on left/right than up/down.
+// Draw the arrow keys at a consistent size on mobile browsers.
 const SOFT_KEYS: SoftKey[] = [
   { id: "esc", label: "Esc", data: ESC },
   { id: "tab", label: "Tab", data: TAB },
@@ -1047,6 +1047,7 @@ export function TerminalPanel({
             return (
               <button
                 key={key.id}
+                aria-label={key.arrow ? key.label : undefined}
                 // touchstart + mousedown both preventDefault to keep focus on
                 // xterm's helper textarea - Safari's simulated mousedown can
                 // arrive too late to block focus shift on touch devices, so
@@ -1075,7 +1076,7 @@ export function TerminalPanel({
                   WebkitTapHighlightColor: "transparent",
                 }}
               >
-                {key.labelKey ? t(key.labelKey) : key.label}
+                {key.arrow ? <StatusShape kind="triangle" rotate={key.id === "up" ? -90 : key.id === "down" ? 90 : key.id === "left" ? 180 : 0} /> : key.labelKey ? t(key.labelKey) : key.label}
               </button>
             );
           })}

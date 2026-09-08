@@ -1,3 +1,4 @@
+import { StatusShape } from "./StatusShape.tsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
@@ -687,7 +688,7 @@ export function CronjobRunView({
                 }}
                 title={t("common.send")}
               >
-                ▲
+                <StatusShape kind="triangle" rotate={-90} />
               </button>
             )}
           </div>

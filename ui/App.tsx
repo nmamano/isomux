@@ -507,6 +507,26 @@ export function App({ routing = true }: { routing?: boolean }) {
         e.preventDefault();
         setTasksOpen((v) => !v);
       }
+      // Apps has no unsaved edits. Toggle it with the page's own close action.
+      if (
+        !isInput &&
+        e.key === "a" &&
+        !usersOpen &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        e.preventDefault();
+        // "t" can leave appsOpen true underneath Tasks, so appsOpen alone
+        // does not mean Apps is on screen. The Schedules check is defensive
+        // symmetry with page priority; no current UI path sets both flags.
+        if (appsOpen && !tasksOpen && !cronjobsOpen) goHome();
+        else {
+          setTasksOpen(false);
+          setCronjobsOpen(false);
+          setAppsOpen(true);
+        }
+      }
       // "s": open the Settings page from anywhere, the same way "t" reaches
       // the task board. It only OPENS - pressing it again does not close the
       // page, because leaving that way would skip its unsaved-edits check.
@@ -613,6 +633,9 @@ export function App({ routing = true }: { routing?: boolean }) {
     currentRoomId,
     roomCount,
     usersOpen,
+    appsOpen,
+    tasksOpen,
+    cronjobsOpen,
     openSettings,
   ]);
 

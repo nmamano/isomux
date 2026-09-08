@@ -102,7 +102,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ### Navigation and shortcuts
 
-- **t** opens the task board and **s** opens Settings, from anywhere.
+- **t** opens the task board, **a** opens Apps, and **s** opens Settings, from anywhere.
 - **Number keys 1–8** jump to agents from office view.
 - **Tab / Shift+Tab** cycle between agents in chat view.
 - **Escape** returns to office.

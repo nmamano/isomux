@@ -1,3 +1,4 @@
+import { StatusShape } from "../components/StatusShape.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffFileSummary, DiffPayload } from "../../shared/types.ts";
 import { DiffRenderer, type DiffOutputFormat } from "./DiffRenderer.tsx";
@@ -380,7 +381,7 @@ function FileRow({
               flexShrink: 0,
             }}
           >
-            &#9654;
+            <StatusShape kind="triangle" />
           </span>
         ) : (
           <span

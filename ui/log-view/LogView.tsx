@@ -1,3 +1,4 @@
+import { StatusShape } from "../components/StatusShape.tsx";
 import {
   useState,
   useRef,
@@ -2727,8 +2728,8 @@ export function LogView({
                 // insertion would produce text that never expands.
                 input.trim() === "" && (
                   // A plain-text face on purpose: decorative Unicode glyphs
-                  // get hijacked by iOS Safari's emoji renderer (see the ▶
-                  // note in TerminalPanel), and plain text needs no such
+                  // get hijacked by iOS Safari's emoji renderer (see
+                  // StatusShape), and plain text needs no such
                   // gating. The face is a catalog value because it abbreviates
                   // a word - "Sk" for Skills, "Ha" for Habilitats and
                   // Habilidades - and its own tooltip is already translated.
@@ -3262,7 +3263,7 @@ export function LogView({
                       isBusy ? "logView.composer.queue" : "common.send",
                     )}
                   >
-                    ▲
+                    <StatusShape kind="triangle" rotate={-90} />
                   </button>
                 ))}
             </div>

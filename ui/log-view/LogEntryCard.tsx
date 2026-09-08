@@ -1,3 +1,4 @@
+import { StatusShape } from "../components/StatusShape.tsx";
 import {
   useState,
   useCallback,
@@ -720,7 +721,7 @@ export function RawToolCallGroupCard({
             padding: "2px 8px",
           }}
         >
-          &#9660; {t("cards.toolCall.groupCount", { count: entries.length })}
+          <StatusShape kind="triangle" rotate={90} /> {t("cards.toolCall.groupCount", { count: entries.length })}
         </button>
         {entries.map((entry, index) => (
           <LogEntryCard
@@ -766,7 +767,7 @@ export function RawToolCallGroupCard({
           textAlign: "left",
         }}
       >
-        <span style={{ fontSize: 8 }}>&#9654;</span>
+        <span style={{ fontSize: 8 }}><StatusShape kind="triangle" /></span>
         {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
         <span style={{ fontWeight: 600 }}>
           {t("cards.toolCall.groupCount", { count: entries.length })}
@@ -1218,7 +1219,7 @@ function ThinkingBlock({
             display: "inline-block",
           }}
         >
-          &#9654;
+          <StatusShape kind="triangle" />
         </span>
         {t("cards.thinking.label")}
         {durationMs != null && (
@@ -1357,7 +1358,7 @@ function ToolCall({
             fontSize: 8,
           }}
         >
-          &#9654;
+          <StatusShape kind="triangle" />
         </span>
         {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
         {curlReq ? (
