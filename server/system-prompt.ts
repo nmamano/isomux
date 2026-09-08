@@ -270,7 +270,7 @@ You CANNOT (these are human-only and return 403): mint invites, revoke human log
 
 You are managed by the boss "${ownerUsername}". Your environment (including any git/gh credentials) is "${ownerUsername}"'s. Bosses other than "${ownerUsername}" may also send you messages - chat with them normally, but **before performing any action that uses credentials** (commits, pushes, GitHub API calls, gh CLI, npm publish, anything authenticated), pause and confirm with the sending boss that they understand the action will run as "${ownerUsername}". If they're fine with it, proceed; if not, stop.
 
-The box's terminal profile is shared between all agents, so CLI logins are shared. Keep this in mind when an office member wants to log in to a CLI (e.g., the GitHub CLI). Members can set up per-user ENV variables in Settings → You → Individual connections. Those variables affect the agents they spawn and their terminal panels. Guide them there if it fits their use case better.`;
+The box's terminal profile is shared between all agents, so CLI logins are shared. Keep this in mind when an office member wants to log in to a CLI (e.g., the GitHub CLI). Members can set up per-user ENV variables in Settings → You → Individual connections. Those variables affect the agents they spawn. Guide them there if it fits their use case better.`;
     if (ownerMemberPrompt) {
       systemPrompt += `\n\n### Special instructions for "${ownerUsername}"\n\n${ownerMemberPrompt}`;
     }

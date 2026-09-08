@@ -99,7 +99,6 @@ type SidecarMessage =
 export interface TerminalDeps {
   getAgent: (agentId: string) => ManagedAgent | undefined;
   emit: (event: TerminalEvent) => void;
-  buildEnvForUserId: (userId: string | null | undefined) => Record<string, string | undefined> | undefined;
 }
 
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
@@ -114,19 +113,10 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
 
   if (managed.ptySidecar) return true;
 
-  let managedEnv: Record<string, string | undefined> | undefined;
-  try {
-    managedEnv = deps.buildEnvForUserId(managed.info.userId);
-  } catch (error) {
-    console.warn(`[terminal] cannot open PTY for ${agentId}:`, error);
-    deps.emit({ type: "terminal_exit", agentId, exitCode: 1 });
-    return false;
-  }
-
   const shell = process.env.SHELL || "/bin/bash";
   const home = homedir();
   const ptyEnv: Record<string, string> = {
-    ...((managedEnv ?? process.env) as Record<string, string>),
+    ...(process.env as Record<string, string>),
     TERM: "xterm-256color",
     SHELL: shell,
     HOME: home,

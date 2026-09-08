@@ -8374,7 +8374,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   const terminalDeps: TerminalDeps = {
-    buildEnvForUserId,
     getAgent: (agentId) => agents.get(agentId),
     emit: (event) => emit(event),
   };
