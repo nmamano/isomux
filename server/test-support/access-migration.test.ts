@@ -143,7 +143,7 @@ describe("owner-access migration at boot (real persisted state)", () => {
     // seeded after boot), a no-op - exactly today's harness gap this test fills.
     server = await startTestServer();
     const owner = await server.seedOwner("Boss"); // seeded grants=[] (post-3b)
-    const r1 = server.agentManager.getRooms()[0].id; // default "Room 1"
+    const r1 = server.agentManager.getOrdinaryRooms()[0].id; // default "Room 1"
     const r2 = server.agentManager.createRoom("R2");
     const r3 = server.agentManager.createRoom("R3");
 
@@ -161,7 +161,7 @@ describe("owner-access migration at boot (real persisted state)", () => {
     // call-site placement (after rooms load) - if the migration ran before
     // rooms loaded, the complement would be empty and r3 would not be hidden.
     server = await server.restart();
-    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
+    expect(server.agentManager.getOrdinaryRooms().map((r) => r.id)).toEqual([
       r1,
       r2,
       r3,
