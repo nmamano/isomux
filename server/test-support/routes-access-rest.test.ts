@@ -365,7 +365,7 @@ describe("hosted access policy", () => {
           error: {
             code: "hosted_access_managed",
             message:
-              "Hosted Isomux manages this office's address; it cannot be changed here.",
+              "Hosted Isomux manages this office's address; it cannot be changed.",
           },
         });
         expect(readFileSync(configPath, "utf8")).toBe(before);

@@ -437,7 +437,7 @@ export const es: Catalog = {
   "settings.sessions.expiryLatest": "Caduca como muy tarde",
 
   "settings.externalAccess.managed":
-    "Hosted Isomux gestiona la dirección de esta oficina; no se puede cambiar desde aquí.",
+    "Hosted Isomux gestiona la dirección de esta oficina; no se puede cambiar.",
   "settings.externalAccess.intro":
     "Controla si se puede llegar a esta oficina desde fuera de esta máquina. Los enlaces de invitación y los dispositivos que han entrado están en las secciones Invitaciones y Sesiones.",
   "settings.externalAccess.title": "Acceso externo",
