@@ -1,7 +1,8 @@
 # Headless-Chrome UI verification recipes
 
-Consolidated from Isomux room memory, 2026-08-22. The repo has no DOM test
-harness, so UI changes are verified with headless Chrome. Five proven recipes.
+Consolidated from Isomux room memory, 2026-08-22. DOM render tests (see
+internal-docs/testing-guide.md) cover wiring; what a surface looks like is
+verified with headless Chrome. Five proven recipes.
 
 ## Demo-bundle route
 
