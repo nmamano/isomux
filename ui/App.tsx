@@ -336,7 +336,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     (direction: "next" | "prev") => {
       const target = swipeTarget(rooms, currentRoomId, lobbyOpen, direction);
       if (!target) return;
-      if (target.kind === "lobby") dispatch({ type: "set_lobby_open", open: true });
+      if (target.kind === "lobby")
+        dispatch({ type: "set_lobby_open", open: true });
       else dispatch({ type: "set_current_room", roomId: target.roomId });
     },
     [dispatch, rooms, currentRoomId, lobbyOpen],
@@ -385,7 +386,8 @@ export function App({ routing = true }: { routing?: boolean }) {
   // back to the viewer's selection otherwise. Depending on the scalar id
   // rather than the focusedAgent object identity keeps the effect quiet
   // through unrelated agent_updated noise (state/log changes).
-  const presenceRoomId = focusedAgent?.roomId ?? (lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
+  const presenceRoomId =
+    focusedAgent?.roomId ?? (lobbyOpen ? LOBBY_ROOM_ID : currentRoomId);
   useEffect(() => {
     if (!sessionContext) return;
     send({

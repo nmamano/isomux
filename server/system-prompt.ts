@@ -92,7 +92,7 @@ How to use the task board (localhost:${PORT}/api/tasks): the board is ROOM-SCOPE
   curl -s "localhost:${PORT}/api/tasks?status=backlog" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"         # only backlog tasks
   curl -s "localhost:${PORT}/api/tasks?roomId=${taskRoomId}" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"       # ${taskRoomId ? "only your room's tasks" : "office-global tasks"} ("roomId=" alone for office-global only)
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
-    -d '{"title":"..."}'                                                  # create ${taskRoomId ? "in your room; add \"roomId\":\"\" for a global task" : "an office-global task; add \"roomId\":\"<id>\" for an ordinary room"}
+    -d '{"title":"..."}'                                                  # create ${taskRoomId ? 'in your room; add "roomId":"" for a global task' : 'an office-global task; add "roomId":"<id>" for an ordinary room'}
   curl -s -X PATCH localhost:${PORT}/api/tasks/ID -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"status":"backlog"}'                                             # update (title/description/priority/status/assignee/roomId)
   curl -s -X POST localhost:${PORT}/api/tasks/ID/claim -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\

@@ -8,7 +8,11 @@ export function renderReceptionistProfile(input: {
   publicOrigin?: string | null;
   instructions?: string;
 }): string {
-  const people = (role: UserRole) => input.members.filter((m) => m.role === role).map((m) => JSON.stringify(m.name)).join(", ") || "none";
+  const people = (role: UserRole) =>
+    input.members
+      .filter((m) => m.role === role)
+      .map((m) => JSON.stringify(m.name))
+      .join(", ") || "none";
   return `${input.instructions ?? RECEPTIONIST_INSTRUCTIONS}
 
 ${ISOMUX_KNOWLEDGE}

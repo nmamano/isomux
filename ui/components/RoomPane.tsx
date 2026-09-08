@@ -218,27 +218,28 @@ export function RoomPane({
           {t("settings.room.intro")}
         </p>
 
-        {room.type !== "lobby" && (<>
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 18,
-            marginBottom: 5,
-          }}
-        >
-          {t("common.name")}
-        </label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={t("settings.room.namePlaceholder")}
-          style={inputStyle}
-        />
-
-        </>)}
+        {room.type !== "lobby" && (
+          <>
+            <label
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 18,
+                marginBottom: 5,
+              }}
+            >
+              {t("common.name")}
+            </label>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("settings.room.namePlaceholder")}
+              style={inputStyle}
+            />
+          </>
+        )}
 
         <label
           style={{
@@ -276,49 +277,51 @@ export function RoomPane({
           {t("settings.room.promptNote")}
         </p>
 
-        {hasRoomMemory && (<>
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
-          {t("common.memory")}{" "}
-          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            {t("settings.room.memoryHint", {
-              size: mem.size,
-              cap: mem.cap ?? "…",
-            })}
-          </span>
-        </label>
-        <ExpandableTextarea
-          title={t("settings.room.memoryTitle", { room: room.name })}
-          hint={t("common.memoryEditorHint")}
-          value={mem.memory}
-          onChange={mem.setMemory}
-          placeholder={
-            mem.loaded
-              ? t("settings.room.memoryPlaceholder")
-              : t("common.loadingMemory")
-          }
-          rows={6}
-          readOnly={!mem.loaded}
-          style={{ ...inputStyle, resize: "vertical" }}
-        />
-        <p
-          style={{
-            fontSize: 10,
-            color: "var(--text-ghost)",
-            margin: "3px 0 0",
-          }}
-        >
-          {t("common.memoryEditorHint")}
-        </p>
-        </>)}
+        {hasRoomMemory && (
+          <>
+            <label
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 14,
+                marginBottom: 5,
+              }}
+            >
+              {t("common.memory")}{" "}
+              <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                {t("settings.room.memoryHint", {
+                  size: mem.size,
+                  cap: mem.cap ?? "…",
+                })}
+              </span>
+            </label>
+            <ExpandableTextarea
+              title={t("settings.room.memoryTitle", { room: room.name })}
+              hint={t("common.memoryEditorHint")}
+              value={mem.memory}
+              onChange={mem.setMemory}
+              placeholder={
+                mem.loaded
+                  ? t("settings.room.memoryPlaceholder")
+                  : t("common.loadingMemory")
+              }
+              rows={6}
+              readOnly={!mem.loaded}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              {t("common.memoryEditorHint")}
+            </p>
+          </>
+        )}
 
         {error && (
           <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>

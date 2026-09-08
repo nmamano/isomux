@@ -220,13 +220,16 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
-  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } = useMembersChatHydration(!embed);
+  const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
+    useMembersChatHydration(!embed);
   const i18n = useI18n();
   const { t } = i18n;
-  const newRoomDoor = embed ? null : {
-    label: t("office.newRoom.door"),
-    onClick: () => setNewRoomOpen(true),
-  };
+  const newRoomDoor = embed
+    ? null
+    : {
+        label: t("office.newRoom.door"),
+        onClick: () => setNewRoomOpen(true),
+      };
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -472,12 +475,20 @@ export function OfficeView({
         </div>
       )}
 
-      {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} membersChatLoadFailed={membersChatLoadFailed} onRetryMembersChat={retryMembersChat} />}
+      {!embed && (
+        <RoomTabBar
+          onOpenRoomSettings={onEditRoomSettings}
+          membersChatLoadFailed={membersChatLoadFailed}
+          onRetryMembersChat={retryMembersChat}
+        />
+      )}
 
       {/* Chat overlays the scene without changing the viewport's fit or origin.
           It stays outside the gesture container so chat scrolling and text
           selection cannot pan or zoom the scene. */}
-      <div style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}>
+      <div
+        style={{ flex: 1, display: "flex", minHeight: 0, position: "relative" }}
+      >
         {/* touch-action: none keeps iOS from turning one-finger drags into page scroll.
           Room-swipe still works because that hook reads touch coordinates directly. */}
         <div
@@ -539,8 +550,16 @@ export function OfficeView({
               {lobbyOpen ? (
                 <LobbyScene
                   presences={presences}
-                  onMoveGhost={sessionContext && presences.some((p) => p.connectionId === sessionContext.connectionId && p.currentRoomId === LOBBY_ROOM_ID)
-                    ? (spotId) => send({ type: "lobby_move", spotId }) : undefined}
+                  onMoveGhost={
+                    sessionContext &&
+                    presences.some(
+                      (p) =>
+                        p.connectionId === sessionContext.connectionId &&
+                        p.currentRoomId === LOBBY_ROOM_ID,
+                    )
+                      ? (spotId) => send({ type: "lobby_move", spotId })
+                      : undefined
+                  }
                   onOpenUser={onOpenUserSettingsForUser}
                   rooms={rooms.map((r) => ({ id: r.id, name: r.name }))}
                   officeName={office.name}
@@ -642,7 +661,9 @@ export function OfficeView({
                             reject: rightDoorReject,
                             passCount: rightDoorUses,
                           }
-                        : currentRoomIndex === roomCount - 1 ? newRoomDoor : null
+                        : currentRoomIndex === roomCount - 1
+                          ? newRoomDoor
+                          : null
                     }
                   />
                   <RoomProps />

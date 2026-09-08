@@ -200,9 +200,16 @@ export const OPENCODE_DEFAULT_MODEL =
 export const LOBBY_ROOM_ID = "lobby";
 // Stable lobby seat identities; geometry stays in the scene layout.
 export const LOBBY_SPOT_IDS = [
-  "blue-sofa-left", "blue-sofa-right", "tripod-armchair", "sw-armchair",
-  "nw-armchair", "chesterfield-left", "chesterfield-right", "fish-tank",
-  "bookshelf", "record-player",
+  "blue-sofa-left",
+  "blue-sofa-right",
+  "tripod-armchair",
+  "sw-armchair",
+  "nw-armchair",
+  "chesterfield-left",
+  "chesterfield-right",
+  "fish-tank",
+  "bookshelf",
+  "record-player",
 ] as const;
 export const LOBBY_ROOM: RoomWire = {
   id: LOBBY_ROOM_ID,
@@ -1131,7 +1138,9 @@ export interface KilledAgentSummary {
 // Rooms editor.
 export type RoomType = "office" | "lobby";
 
-export function ordinaryRooms<T extends { type?: RoomType }>(rooms: readonly T[]): T[] {
+export function ordinaryRooms<T extends { type?: RoomType }>(
+  rooms: readonly T[],
+): T[] {
   return rooms.filter((room) => room.type !== "lobby");
 }
 

@@ -37,7 +37,10 @@ import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
 import * as chatApi from "./api.ts";
-import { MEMBERS_CHAT_FILES_BASE, MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT } from "./api.ts";
+import {
+  MEMBERS_CHAT_FILES_BASE,
+  MEMBERS_CHAT_PAGE_LIMIT as PAGE_LIMIT,
+} from "./api.ts";
 
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
@@ -173,7 +176,17 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
-export function MembersChatPanel({ style, onClose, onRetry, loadFailed = false }: { style?: React.CSSProperties; onClose?: () => void; onRetry?: () => void; loadFailed?: boolean }) {
+export function MembersChatPanel({
+  style,
+  onClose,
+  onRetry,
+  loadFailed = false,
+}: {
+  style?: React.CSSProperties;
+  onClose?: () => void;
+  onRetry?: () => void;
+  loadFailed?: boolean;
+}) {
   const { t, language } = useI18n();
   const {
     membersChat,
@@ -264,7 +277,8 @@ export function MembersChatPanel({ style, onClose, onRetry, loadFailed = false }
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
   useEffect(() => {
-    if (!loaded || !atBottom || !newestId || newestId <= (readPointer ?? "")) return;
+    if (!loaded || !atBottom || !newestId || newestId <= (readPointer ?? ""))
+      return;
     if (document.visibilityState !== "visible") return;
     const t = setTimeout(() => {
       chatApi
@@ -430,9 +444,22 @@ export function MembersChatPanel({ style, onClose, onRetry, loadFailed = false }
           flexShrink: 0,
         }}
       >
-        {onClose && <button onClick={onClose} style={{ minHeight: 44, padding: "0 12px",
-          border: "1px solid var(--border)", borderRadius: 6, background: "var(--bg-code)",
-          color: "var(--text-primary)", cursor: "pointer" }}>{t("common.back")}</button>}
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              minHeight: 44,
+              padding: "0 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "var(--bg-code)",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+            }}
+          >
+            {t("common.back")}
+          </button>
+        )}
         <span
           style={{
             fontSize: 11,
@@ -626,9 +653,22 @@ export function MembersChatPanel({ style, onClose, onRetry, loadFailed = false }
             }}
           >
             {error ? errorText(error, t) : t("membersChat.loadFailed")}
-            {loadFailed && onRetry && <button onClick={onRetry} style={{ marginLeft: 8, padding: "8px 12px",
-              background: "var(--bg-code)", color: "var(--text-primary)", border: "1px solid var(--border)",
-              borderRadius: 6, cursor: "pointer" }}>{t("membersChat.retry")}</button>}
+            {loadFailed && onRetry && (
+              <button
+                onClick={onRetry}
+                style={{
+                  marginLeft: 8,
+                  padding: "8px 12px",
+                  background: "var(--bg-code)",
+                  color: "var(--text-primary)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                }}
+              >
+                {t("membersChat.retry")}
+              </button>
+            )}
           </div>
         )}
         {staged.length > 0 && (

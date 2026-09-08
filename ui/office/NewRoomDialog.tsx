@@ -27,14 +27,16 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
       if (event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
-        if (document.activeElement === cancelRef.current) confirmRef.current?.focus();
+        if (document.activeElement === cancelRef.current)
+          confirmRef.current?.focus();
         else cancelRef.current?.focus();
       }
     }
     window.addEventListener("keydown", onKey, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      if (previous instanceof HTMLElement || previous instanceof SVGElement) previous.focus();
+      if (previous instanceof HTMLElement || previous instanceof SVGElement)
+        previous.focus();
     };
   }, [onClose]);
 
@@ -44,7 +46,11 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
     setPending(true);
     setFailed(false);
     try {
-      const { room } = await apiFetch<{ room: RoomWire }>("POST", "/api/rooms", {});
+      const { room } = await apiFetch<{ room: RoomWire }>(
+        "POST",
+        "/api/rooms",
+        {},
+      );
       // The HTTP response can precede the owner's broadcast or the member's
       // projected full_state. Install the room before selecting it.
       dispatch({ type: "room_created", room });
@@ -61,19 +67,71 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
   return createPortal(
     <div
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !submitting.current) onClose();
+        if (event.target === event.currentTarget && !submitting.current)
+          onClose();
       }}
-      style={{ position: "fixed", inset: 0, zIndex: 900, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", justifyContent: "center" }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 900,
+        background: "rgba(0,0,0,0.55)",
+        backdropFilter: "blur(10px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
     >
-      <div role="dialog" aria-modal="true" aria-labelledby="new-room-title" aria-busy={pending}
-        style={{ background: "var(--bg-overlay)", border: "1px solid var(--border-light)", borderRadius: 16, padding: "24px 28px", width: 340, maxWidth: "calc(100% - 32px)", boxShadow: "0 20px 60px var(--shadow-heavy)", color: "var(--text-primary)" }}>
-        <h3 id="new-room-title" style={{ margin: 0, fontSize: 17 }}>{t("office.newRoom.title")}</h3>
-        {failed && <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>{t("office.newRoom.failed")}</p>}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 24 }}>
-          <button ref={cancelRef} style={dialogCancelBtn} disabled={pending} onClick={onClose}>{t("common.cancel")}</button>
-          <button ref={confirmRef} style={dialogSaveBtn} disabled={pending} onClick={() => void openRoom()}>{t("office.newRoom.confirm")}</button>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-room-title"
+        aria-busy={pending}
+        style={{
+          background: "var(--bg-overlay)",
+          border: "1px solid var(--border-light)",
+          borderRadius: 16,
+          padding: "24px 28px",
+          width: 340,
+          maxWidth: "calc(100% - 32px)",
+          boxShadow: "0 20px 60px var(--shadow-heavy)",
+          color: "var(--text-primary)",
+        }}
+      >
+        <h3 id="new-room-title" style={{ margin: 0, fontSize: 17 }}>
+          {t("office.newRoom.title")}
+        </h3>
+        {failed && (
+          <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+            {t("office.newRoom.failed")}
+          </p>
+        )}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            marginTop: 24,
+          }}
+        >
+          <button
+            ref={cancelRef}
+            style={dialogCancelBtn}
+            disabled={pending}
+            onClick={onClose}
+          >
+            {t("common.cancel")}
+          </button>
+          <button
+            ref={confirmRef}
+            style={dialogSaveBtn}
+            disabled={pending}
+            onClick={() => void openRoom()}
+          >
+            {t("office.newRoom.confirm")}
+          </button>
         </div>
       </div>
-    </div>, document.body,
+    </div>,
+    document.body,
   );
 }

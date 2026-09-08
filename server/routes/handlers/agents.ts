@@ -44,7 +44,9 @@ import { roomSlotCount, isValidDesk } from "../../../shared/desks.ts";
 // spawn and revive reject it here rather than letting it reach the core. Spawn
 // used to create a real but unrenderable agent that broke the
 // office view for the whole room; revive reported it as an occupied desk).
-const deskRangeMessage = (room?: Pick<import("../../../shared/types.ts").RoomWire, "type">) => `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`;
+const deskRangeMessage = (
+  room?: Pick<import("../../../shared/types.ts").RoomWire, "type">,
+) => `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`;
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates.ts";
 import type {
   SpawnReq,
@@ -92,7 +94,9 @@ export type ReviveResult =
 export type KillResult = { ok: true };
 
 export interface AgentsDeps {
-  roomForDesks?(roomId: string): Pick<import("../../../shared/types.ts").RoomWire, "type"> | undefined;
+  roomForDesks?(
+    roomId: string,
+  ): Pick<import("../../../shared/types.ts").RoomWire, "type"> | undefined;
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
   // guard already gated existence + access, so a stale id is a harmless no-op.
   kill(agentId: string): Promise<KillResult>;
@@ -116,10 +120,7 @@ export interface AgentsDeps {
     | { ok: true; agent: AgentInfo }
     | {
         ok: false;
-        reason:
-          | "no_free_desk"
-          | "room_not_found"
-          | "agent_not_found";
+        reason: "no_free_desk" | "room_not_found" | "agent_not_found";
       };
   swapDesks(roomId: string, deskA: number, deskB: number): void;
   setTopic(agentId: string, topic: string): void;
@@ -264,7 +265,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(422, "invalid_desks", "deskA and deskB are required");
       }
       const room = deps.roomForDesks?.(ctx.params.roomId);
-      if (!isValidDesk(b.deskA, room) || !isValidDesk(b.deskB, room)) return fail(422, "invalid_desks", deskRangeMessage(room));
+      if (!isValidDesk(b.deskA, room) || !isValidDesk(b.deskB, room))
+        return fail(422, "invalid_desks", deskRangeMessage(room));
       deps.swapDesks(ctx.params.roomId, b.deskA, b.deskB);
       return noContent();
     },
@@ -301,12 +303,21 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(422, "invalid_desk", "desk is required");
       }
       if (!isValidDesk(b.desk, deps.roomForDesks?.(b.roomId))) {
-        return fail(422, "invalid_desk", deskRangeMessage(deps.roomForDesks?.(b.roomId)));
+        return fail(
+          422,
+          "invalid_desk",
+          deskRangeMessage(deps.roomForDesks?.(b.roomId)),
+        );
       }
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
-      if (b.profileKey !== undefined && (typeof b.profileKey !== "string" || !AGENT_TEMPLATES.some((profile) => profile.key === b.profileKey))) return fail(422, "invalid_request", "malformed agent field");
+      if (
+        b.profileKey !== undefined &&
+        (typeof b.profileKey !== "string" ||
+          !AGENT_TEMPLATES.some((profile) => profile.key === b.profileKey))
+      )
+        return fail(422, "invalid_request", "malformed agent field");
       const { username } = deps.attributionFor(ctx.identity);
       const r = await deps.spawn({
         name: b.name,
@@ -349,7 +360,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       // and came back as 409 desk_taken, telling the boss a desk was occupied
       // when it doesn't exist.
       if (!isValidDesk(b.desk, deps.roomForDesks?.(b.roomId))) {
-        return fail(422, "invalid_desk", deskRangeMessage(deps.roomForDesks?.(b.roomId)));
+        return fail(
+          422,
+          "invalid_desk",
+          deskRangeMessage(deps.roomForDesks?.(b.roomId)),
+        );
       }
       const r = await deps.revive(ctx.params.id, b.roomId, b.desk);
       if (r.ok) return ok({ agent: r.agent });

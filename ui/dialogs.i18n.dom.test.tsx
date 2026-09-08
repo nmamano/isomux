@@ -238,13 +238,15 @@ describe("the schedule dialogs", () => {
   });
 });
 
-
 describe("the new room dialog", () => {
   it("reads its title in Catalan, Spanish and English", () => {
     for (const language of ["ca", "es", null] as const) {
-      const view = render(onLanguage(language,
-        createElement(NewRoomDialog, { onClose: () => {} }),
-      ));
+      const view = render(
+        onLanguage(
+          language,
+          createElement(NewRoomDialog, { onClose: () => {} }),
+        ),
+      );
       shows(view, ANCHOR.newRoomTitle[language ?? "en"]);
       view.unmount();
     }

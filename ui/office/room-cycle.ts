@@ -16,6 +16,11 @@ export function swipeTarget(
     return { kind: "room", roomId: direction === "next" ? first.id : last.id };
   }
   const idx = rooms.findIndex((r) => r.id === currentRoomId);
-  const neighbour = direction === "next" ? rooms[idx + 1] : idx > 0 ? rooms[idx - 1] : undefined;
+  const neighbour =
+    direction === "next"
+      ? rooms[idx + 1]
+      : idx > 0
+        ? rooms[idx - 1]
+        : undefined;
   return neighbour ? { kind: "room", roomId: neighbour.id } : { kind: "lobby" };
 }

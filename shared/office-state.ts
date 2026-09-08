@@ -179,7 +179,11 @@ export class OfficeState {
   setRooms(rooms: RoomInput[]) {
     this._rooms =
       rooms.length > 0
-        ? rooms.map((r) => ({ ...r, canCloseWhenEmpty: r.type !== "lobby" && r.id !== ordinaryRooms(rooms)[0]?.id }))
+        ? rooms.map((r) => ({
+            ...r,
+            canCloseWhenEmpty:
+              r.type !== "lobby" && r.id !== ordinaryRooms(rooms)[0]?.id,
+          }))
         : [
             {
               id: generateRoomId(),
@@ -259,7 +263,8 @@ export class OfficeState {
       // doubly invalid - it is also the "no free desk" sentinel below.
       // An explicit desk that is merely TAKEN still falls through to
       // auto-assign, which is the long-standing behavior.
-      if (opts.desk !== undefined && !isValidDesk(opts.desk, targetRoom)) return null;
+      if (opts.desk !== undefined && !isValidDesk(opts.desk, targetRoom))
+        return null;
 
       if (opts.desk !== undefined && !taken.has(opts.desk)) {
         desk = opts.desk;
@@ -423,7 +428,11 @@ export class OfficeState {
 
   swapDesks(deskA: number, deskB: number, roomId: string): OfficeEvent[] {
     const room = this._rooms.find((r) => r.id === roomId);
-    if (deskA === deskB || !isValidDesk(deskA, room) || !isValidDesk(deskB, room))
+    if (
+      deskA === deskB ||
+      !isValidDesk(deskA, room) ||
+      !isValidDesk(deskB, room)
+    )
       return [];
     if (!this._rooms.some((r) => r.id === roomId)) return [];
 

@@ -359,7 +359,9 @@ export function Character({
 
   const wrap = (children: React.ReactNode, anim?: React.CSSProperties) => (
     <svg
-      width={Math.round((CHARACTER_GEOMETRY.width / CHARACTER_GEOMETRY.height) * height)}
+      width={Math.round(
+        (CHARACTER_GEOMETRY.width / CHARACTER_GEOMETRY.height) * height,
+      )}
       height={height}
       viewBox={`0 0 ${CHARACTER_GEOMETRY.width} ${CHARACTER_GEOMETRY.height}`}
       overflow="visible"
@@ -529,8 +531,22 @@ export function Character({
             !
           </text>
         </g>
-        <rect x={18} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
-        <rect x={28} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
+        <rect
+          x={18}
+          y={CHARACTER_GEOMETRY.feetY - 10}
+          width={6}
+          height={10}
+          fill="#444"
+          rx={2}
+        />
+        <rect
+          x={28}
+          y={CHARACTER_GEOMETRY.feetY - 10}
+          width={6}
+          height={10}
+          fill="#444"
+          rx={2}
+        />
       </>,
       { animation: "errShake 0.4s ease-in-out infinite" },
     );
@@ -570,8 +586,22 @@ export function Character({
             repeatCount="indefinite"
           />
         </g>
-        <rect x={18} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
-        <rect x={28} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
+        <rect
+          x={18}
+          y={CHARACTER_GEOMETRY.feetY - 10}
+          width={6}
+          height={10}
+          fill="#444"
+          rx={2}
+        />
+        <rect
+          x={28}
+          y={CHARACTER_GEOMETRY.feetY - 10}
+          width={6}
+          height={10}
+          fill="#444"
+          rx={2}
+        />
       </>,
       { animation: "waitBounce 2s ease-in-out infinite" },
     );
@@ -608,8 +638,22 @@ export function Character({
       <circle cx={hCx - 4} cy={hCy + 1} r={1.5} fill="#333" />
       <circle cx={hCx + 4} cy={hCy + 1} r={1.5} fill="#333" />
       <Beard type={beard} color={hair} headCx={hCx} headCy={hCy} />
-      <rect x={18} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
-      <rect x={28} y={CHARACTER_GEOMETRY.feetY - 10} width={6} height={10} fill="#444" rx={2} />
+      <rect
+        x={18}
+        y={CHARACTER_GEOMETRY.feetY - 10}
+        width={6}
+        height={10}
+        fill="#444"
+        rx={2}
+      />
+      <rect
+        x={28}
+        y={CHARACTER_GEOMETRY.feetY - 10}
+        width={6}
+        height={10}
+        fill="#444"
+        rx={2}
+      />
     </>,
   );
 }

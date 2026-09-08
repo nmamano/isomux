@@ -313,8 +313,12 @@ describe("buildSystemPrompt - task-board copy", () => {
     expect(p).toContain('/api/tasks?roomId="');
     expect(p).not.toContain("/api/tasks?roomId=lobby");
     expect(p).not.toContain("Your room's id is lobby");
-    expect(p).toContain("The lobby is not a task or memory scope; room-scoped calls need an ordinary room id.");
-    expect(p).toContain("The lobby has no room memory scope; use agent, office or boss memory.");
+    expect(p).toContain(
+      "The lobby is not a task or memory scope; room-scoped calls need an ordinary room id.",
+    );
+    expect(p).toContain(
+      "The lobby has no room memory scope; use agent, office or boss memory.",
+    );
   });
 
   // Task 43c55a3b: an agent read the whole board as office-global because it

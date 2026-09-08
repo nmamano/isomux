@@ -31,7 +31,9 @@ describe("ReceptionistFigure", () => {
       </svg>,
     );
     expect(markup).toContain('data-receptionist="agent-r"');
-    const anchor = markup.match(/transform="translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)"/);
+    const anchor = markup.match(
+      /transform="translate\(([-\d.]+) ([-\d.]+)\) scale\(([-\d.]+)\)"/,
+    );
     expect(anchor).not.toBeNull();
     const [tx, ty, sc] = anchor!.slice(1).map(Number);
     expect(tx + (CHARACTER_GEOMETRY.width / 2) * sc).toBeCloseTo(0, 5);

@@ -127,7 +127,12 @@ export function LobbyScene({
           }
         />
       )}
-      <LobbyGhosts presences={presences} spots={base?.ghostSpots ?? []} onMove={onMoveGhost} onOpenUser={onOpenUser} />
+      <LobbyGhosts
+        presences={presences}
+        spots={base?.ghostSpots ?? []}
+        onMove={onMoveGhost}
+        onOpenUser={onOpenUser}
+      />
     </>
   );
 }

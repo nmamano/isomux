@@ -251,7 +251,14 @@ export function RoomTabBar({
   // counts shifting tab widths.
   useEffect(() => {
     updateOverflow();
-  }, [rooms, agents, presences, totalOnlineUsers, mobileChatEntry, updateOverflow]);
+  }, [
+    rooms,
+    agents,
+    presences,
+    totalOnlineUsers,
+    mobileChatEntry,
+    updateOverflow,
+  ]);
 
   // Keep the active tab visible: on mount (deep room in a long list) and
   // whenever the current room changes (e.g. selected via a partially
@@ -403,7 +410,12 @@ export function RoomTabBar({
           </button>
         </div>
         {/* The mobile lobby owns this entry; its chat uses a portal to fill the screen. */}
-        {mobileChatEntry && <LobbyChat loadFailed={membersChatLoadFailed} onRetry={onRetryMembersChat} />}
+        {mobileChatEntry && (
+          <LobbyChat
+            loadFailed={membersChatLoadFailed}
+            onRetry={onRetryMembersChat}
+          />
+        )}
         {rooms.map((room, i) => {
           const isActive = !lobbyOpen && room.id === currentRoomId;
           const roomAgents = agents.filter((a) => a.roomId === room.id);

@@ -229,7 +229,6 @@ export function ContextMenu({
         danger
         onClick={() => handleAction("kill")}
       />
-
     </div>
   );
 }

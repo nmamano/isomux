@@ -24,7 +24,8 @@ export function assignLobbySpot(
   const waiting = presences.filter((p) => p.lobbySpotId === null).length;
   return {
     connectionId,
-    lobbySpotId: free.length > waiting ? free[Math.floor(random() * free.length)] : null,
+    lobbySpotId:
+      free.length > waiting ? free[Math.floor(random() * free.length)] : null,
     lobbyMoveAt: lobbyDwell(now, random),
   };
 }
@@ -35,22 +36,33 @@ export function planLobbyMoves(
   now: number,
   random: () => number,
 ): LobbyAssignment[] {
-  const occupied = new Set(presences.flatMap((p) => p.lobbySpotId ? [p.lobbySpotId] : []));
+  const occupied = new Set(
+    presences.flatMap((p) => (p.lobbySpotId ? [p.lobbySpotId] : [])),
+  );
   // Promote waiting connections in map insertion order (earliest still waiting
   // first), before seated ghosts can claim a free spot.
   const result = new Map<string, LobbyAssignment>();
-  for (const p of [...presences.filter((p) => p.lobbySpotId === null), ...presences.filter((p) => p.lobbySpotId !== null)]) {
+  for (const p of [
+    ...presences.filter((p) => p.lobbySpotId === null),
+    ...presences.filter((p) => p.lobbySpotId !== null),
+  ]) {
     if (p.lobbySpotId !== null && p.lobbyMoveAt > now) {
       result.set(p.connectionId, p);
       continue;
     }
     const free = spotIds.filter((id) => !occupied.has(id));
-    const spot = free.length ? free[Math.floor(random() * free.length)] : p.lobbySpotId;
+    const spot = free.length
+      ? free[Math.floor(random() * free.length)]
+      : p.lobbySpotId;
     if (spot !== p.lobbySpotId) {
       if (p.lobbySpotId) occupied.delete(p.lobbySpotId);
       if (spot) occupied.add(spot);
     }
-    result.set(p.connectionId, { ...p, lobbySpotId: spot, lobbyMoveAt: lobbyDwell(now, random) });
+    result.set(p.connectionId, {
+      ...p,
+      lobbySpotId: spot,
+      lobbyMoveAt: lobbyDwell(now, random),
+    });
   }
   return presences.map((p) => result.get(p.connectionId)!);
 }
@@ -63,8 +75,14 @@ export function pickLobbySpot(
   now: number,
   random: () => number,
 ): LobbyAssignment[] {
-  if (!spotIds.includes(spotId) || presences.some((p) => p.lobbySpotId === spotId)) return [...presences];
-  return presences.map((p) => p.connectionId === connectionId
-    ? { ...p, lobbySpotId: spotId, lobbyMoveAt: lobbyDwell(now, random) }
-    : p);
+  if (
+    !spotIds.includes(spotId) ||
+    presences.some((p) => p.lobbySpotId === spotId)
+  )
+    return [...presences];
+  return presences.map((p) =>
+    p.connectionId === connectionId
+      ? { ...p, lobbySpotId: spotId, lobbyMoveAt: lobbyDwell(now, random) }
+      : p,
+  );
 }

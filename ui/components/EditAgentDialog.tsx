@@ -477,7 +477,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       backendModels,
       modelsError !== null,
     );
-    if (template.key === RECEPTIONIST_PROFILE_KEY) { setCwd("~"); setPermissionMode("bypassPermissions"); }
+    if (template.key === RECEPTIONIST_PROFILE_KEY) {
+      setCwd("~");
+      setPermissionMode("bypassPermissions");
+    }
     setName(values.name);
     setCustomInstructions(values.customInstructions);
     setOutfit(values.outfit);
@@ -485,7 +488,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     if (!deferModel) {
       setModelFamily(values.modelFamily);
       setEffort(values.effort);
-      setPermissionMode(template.key === RECEPTIONIST_PROFILE_KEY ? "bypassPermissions" : values.permissionMode);
+      setPermissionMode(
+        template.key === RECEPTIONIST_PROFILE_KEY
+          ? "bypassPermissions"
+          : values.permissionMode,
+      );
     }
   }
 

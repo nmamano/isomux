@@ -106,11 +106,16 @@ describe("agent template catalog", () => {
           ],
         ]),
       ),
-    ).toEqual({ "Isomux Receptionist": ["work", "medium", "medium"], ...EXPECTED_TEMPLATE_SETTINGS });
+    ).toEqual({
+      "Isomux Receptionist": ["work", "medium", "medium"],
+      ...EXPECTED_TEMPLATE_SETTINGS,
+    });
   });
 
   it("composes every prompt from the shared software workflow clauses", () => {
-    for (const template of AGENT_TEMPLATES.filter((t) => t.key !== "isomux-receptionist")) {
+    for (const template of AGENT_TEMPLATES.filter(
+      (t) => t.key !== "isomux-receptionist",
+    )) {
       expect(english.t(template.descriptionKey).length).toBeGreaterThan(0);
       expect(template.customInstructions).toContain(FIRST_TURN_CLAUSE);
       expect(template.customInstructions).toContain(SOFTWARE_TOOL_CLAUSE);
@@ -119,7 +124,9 @@ describe("agent template catalog", () => {
   });
 
   it("uses only valid fixed outfit values", () => {
-    for (const template of AGENT_TEMPLATES.filter((t) => t.key !== "isomux-receptionist")) {
+    for (const template of AGENT_TEMPLATES.filter(
+      (t) => t.key !== "isomux-receptionist",
+    )) {
       expect(SHIRT_COLORS).toContain(template.outfit.color);
       expect(HAIR_COLORS).toContain(template.outfit.hair);
       expect(HAIR_STYLES).toContain(template.outfit.hairStyle);

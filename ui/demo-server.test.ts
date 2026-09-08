@@ -46,7 +46,10 @@ describe("demo fixture data", () => {
         "Receptionist",
       ].sort(),
     );
-    expect(first.rooms.map((room) => room.name)).toEqual([...DEMO_ROOM_NAMES, "Lobby"]);
+    expect(first.rooms.map((room) => room.name)).toEqual([
+      ...DEMO_ROOM_NAMES,
+      "Lobby",
+    ]);
     expect(first.agents.map((row) => row.lifetime.costUSD)).toEqual(
       [...first.agents]
         .map((row) => row.lifetime.costUSD)

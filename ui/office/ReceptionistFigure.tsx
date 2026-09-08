@@ -68,37 +68,60 @@ export function ReceptionistFigure({
         height={40}
         style={{ pointerEvents: "none" }}
       >
-        <div style={{
-          height: "100%",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-        }}>
-        <div style={{
-          pointerEvents: "auto",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "3px 10px 3px 7px",
-          borderRadius: 20,
-          background: style.bg,
-          border: `1px solid ${style.border}`,
-          whiteSpace: "nowrap",
-          userSelect: "none",
-        }}>
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: dot }} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)" }}>
-            {agent.name}
-          </span>
-          {needsAttention && (
-            <span style={{
-              padding: "1px 4px", borderRadius: 7, background: "var(--purple)",
-              fontSize: 9, fontWeight: 700, color: "#fff",
-            }}>
-              {t("common.unread")}
+        <div
+          style={{
+            height: "100%",
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+          }}
+        >
+          <div
+            style={{
+              pointerEvents: "auto",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "3px 10px 3px 7px",
+              borderRadius: 20,
+              background: style.bg,
+              border: `1px solid ${style.border}`,
+              whiteSpace: "nowrap",
+              userSelect: "none",
+            }}
+          >
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: dot,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-primary)",
+              }}
+            >
+              {agent.name}
             </span>
-          )}
-        </div>
+            {needsAttention && (
+              <span
+                style={{
+                  padding: "1px 4px",
+                  borderRadius: 7,
+                  background: "var(--purple)",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: "#fff",
+                }}
+              >
+                {t("common.unread")}
+              </span>
+            )}
+          </div>
         </div>
       </foreignObject>
     </g>

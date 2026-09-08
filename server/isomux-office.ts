@@ -1,5 +1,8 @@
 import { renderReceptionistProfile } from "./receptionist-profile.ts";
-import { RECEPTIONIST_PROFILE_KEY, RECEPTIONIST_OUTFIT } from "../shared/receptionist-profile.ts";
+import {
+  RECEPTIONIST_PROFILE_KEY,
+  RECEPTIONIST_OUTFIT,
+} from "../shared/receptionist-profile.ts";
 import { english } from "./i18n.ts";
 import {
   INSTALL_KIND,
@@ -522,21 +525,33 @@ async function welcomeOpenCodeModel(username: string): Promise<string | null> {
 const RECEPTIONIST_NAME = english.t("lobby.receptionistName");
 
 async function ensureReceptionist(username: string): Promise<void> {
-  const lobby = agentManager.getRooms().find((room) => room.id === LOBBY_ROOM_ID);
+  const lobby = agentManager
+    .getRooms()
+    .find((room) => room.id === LOBBY_ROOM_ID);
   if (lobby && !agentManager.lobbySeedIsPending()) return;
-  if (agentManager.getAllAgents().some((agent) => agent.roomId === LOBBY_ROOM_ID)) {
+  if (
+    agentManager.getAllAgents().some((agent) => agent.roomId === LOBBY_ROOM_ID)
+  ) {
     agentManager.completeLobbySeed();
     return;
   }
   agentManager.ensureLobby(true);
   try {
-    const model = (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
+    const model =
+      (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
     const created = await agentManager.spawn(
       RECEPTIONIST_NAME,
       "~",
       "bypassPermissions",
       0,
-      renderReceptionistProfile({ officeName: agentManager.getOfficeSettings().name, members: listUsers(), publicOrigin: buildPublicOrigin().source === "localhost" ? null : buildPublicOrigin().origin }),
+      renderReceptionistProfile({
+        officeName: agentManager.getOfficeSettings().name,
+        members: listUsers(),
+        publicOrigin:
+          buildPublicOrigin().source === "localhost"
+            ? null
+            : buildPublicOrigin().origin,
+      }),
       LOBBY_ROOM_ID,
       RECEPTIONIST_OUTFIT,
       model,
@@ -572,7 +587,9 @@ function registerBootHooks(): void {
   // owner's allowedRooms at invite-acceptance time. The provider closes
   // over agentManager.getRooms() rather than auth.ts importing
   // agent-manager directly - keeps the dependency graph one-way.
-  setRoomsSnapshotProvider(() => agentManager.getOrdinaryRooms().map((r) => r.id));
+  setRoomsSnapshotProvider(() =>
+    agentManager.getOrdinaryRooms().map((r) => r.id),
+  );
 
   // When an invite is consumed (typically via HTTP POST /auth/accept,
   // which never touches the WS dispatch loop), fan out an updated
@@ -1340,7 +1357,9 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
       avatarColor: p.avatarColor,
       avatarVariant: p.avatarVariant,
       currentRoomId: p.currentRoomId,
-      ...(p.currentRoomId === LOBBY_ROOM_ID ? { lobbySpotId: p.lobbySpotId ?? null } : {}),
+      ...(p.currentRoomId === LOBBY_ROOM_ID
+        ? { lobbySpotId: p.lobbySpotId ?? null }
+        : {}),
       focusedAgentId: p.focusedAgentId,
       viewMode: p.viewMode,
     });
@@ -1430,7 +1449,11 @@ function pushPresenceListToEachWs() {
 // turn `hidden` into a security gate.
 function canAccess(user: UserRecord, roomId: string): boolean {
   // Lobby access is universal; task scopes and room memory use ordinary rooms.
-  if (roomId === LOBBY_ROOM_ID || agentManager.roomById(roomId)?.type === "lobby") return true;
+  if (
+    roomId === LOBBY_ROOM_ID ||
+    agentManager.roomById(roomId)?.type === "lobby"
+  )
+    return true;
   return user.role === "owner" || user.allowedRooms.includes(roomId);
 }
 
@@ -1810,7 +1833,11 @@ function defaultCreateRoomIdForIdentity(
     const agent = agentManager
       .getAllAgents()
       .find((a) => a.id === identity.agentId);
-    if (agent?.roomId && agentManager.getOrdinaryRooms().some((room) => room.id === agent.roomId)) return agent.roomId;
+    if (
+      agent?.roomId &&
+      agentManager.getOrdinaryRooms().some((room) => room.id === agent.roomId)
+    )
+      return agent.roomId;
   }
   return undefined;
 }
@@ -3009,7 +3036,8 @@ function buildExecutorDeps(
       },
       // agent-manager.swapDesks is (deskA, deskB, roomId); the dep takes
       // (roomId, deskA, deskB) so the handler reads room from the path param.
-      roomForDesks: (roomId) => agentManager.getRooms().find((r) => r.id === roomId),
+      roomForDesks: (roomId) =>
+        agentManager.getRooms().find((r) => r.id === roomId),
       swapDesks: (roomId, deskA, deskB) =>
         agentManager.swapDesks(deskA, deskB, roomId),
       setTopic: (agentId, topic) => agentManager.setTopic(agentId, topic),
@@ -3053,7 +3081,15 @@ function buildExecutorDeps(
               : (input.permissionMode ?? "default"),
             input.desk,
             input.profileKey === RECEPTIONIST_PROFILE_KEY
-              ? renderReceptionistProfile({ officeName: agentManager.getOfficeSettings().name, members: listUsers(), instructions: input.customInstructions, publicOrigin: buildPublicOrigin().source === "localhost" ? null : buildPublicOrigin().origin })
+              ? renderReceptionistProfile({
+                  officeName: agentManager.getOfficeSettings().name,
+                  members: listUsers(),
+                  instructions: input.customInstructions,
+                  publicOrigin:
+                    buildPublicOrigin().source === "localhost"
+                      ? null
+                      : buildPublicOrigin().origin,
+                })
               : input.customInstructions,
             input.roomId,
             input.outfit,
@@ -4013,7 +4049,8 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   // office order (the original global index) as the tiebreak for everything
   // unlisted. Rank +Infinity for unlisted rooms keeps them in office order.
   visibleGlobal.sort((a, b) => {
-    const lobbyRank = Number(all[b].type === "lobby") - Number(all[a].type === "lobby");
+    const lobbyRank =
+      Number(all[b].type === "lobby") - Number(all[a].type === "lobby");
     if (lobbyRank) return lobbyRank;
     const ra = orderRank.has(all[a].id) ? orderRank.get(all[a].id)! : Infinity;
     const rb = orderRank.has(all[b].id) ? orderRank.get(all[b].id)! : Infinity;
@@ -4806,7 +4843,10 @@ async function handleInboundMessage(
         ws.send(JSON.stringify({ type: "pong" }));
         break;
       case "lobby_move": {
-        if (typeof cmd.spotId === "string" && moveLobbyPresence(ws.data.connectionId, cmd.spotId)) {
+        if (
+          typeof cmd.spotId === "string" &&
+          moveLobbyPresence(ws.data.connectionId, cmd.spotId)
+        ) {
           pushPresenceListToEachWs();
         }
         break;
@@ -5471,7 +5511,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           const manifest = agentManager
             .getManifest()
             .filter(
-              (e) => accessible.has(e.roomId) || agentManager.roomById(e.roomId)?.type === "lobby",
+              (e) =>
+                accessible.has(e.roomId) ||
+                agentManager.roomById(e.roomId)?.type === "lobby",
             );
           return new Response(JSON.stringify(manifest, null, 2), {
             headers: { "Content-Type": "application/json" },

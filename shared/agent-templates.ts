@@ -1,4 +1,8 @@
-import { RECEPTIONIST_PROFILE_KEY, RECEPTIONIST_INSTRUCTIONS, RECEPTIONIST_OUTFIT } from "./receptionist-profile.ts";
+import {
+  RECEPTIONIST_PROFILE_KEY,
+  RECEPTIONIST_INSTRUCTIONS,
+  RECEPTIONIST_OUTFIT,
+} from "./receptionist-profile.ts";
 import type {
   AgentBackendType,
   AgentOutfit,
@@ -94,7 +98,12 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     descriptionKey: "templates.receptionist.description",
     customInstructions: RECEPTIONIST_INSTRUCTIONS,
     outfit: RECEPTIONIST_OUTFIT,
-    recommendations: recommendation(["sonnet", "opus"], "medium", CODEX_BALANCED, "medium"),
+    recommendations: recommendation(
+      ["sonnet", "opus"],
+      "medium",
+      CODEX_BALANCED,
+      "medium",
+    ),
   },
   {
     key: "money-planner",
@@ -532,10 +541,13 @@ export function templateEngineValues(
   );
   return {
     ...model,
-    permissionMode: template.key === RECEPTIONIST_PROFILE_KEY ? "bypassPermissions" : resolveTemplatePermission(
-      engine,
-      model.modelFamily,
-      current.permissionMode,
-    ),
+    permissionMode:
+      template.key === RECEPTIONIST_PROFILE_KEY
+        ? "bypassPermissions"
+        : resolveTemplatePermission(
+            engine,
+            model.modelFamily,
+            current.permissionMode,
+          ),
   };
 }

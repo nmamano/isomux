@@ -12,6 +12,11 @@ export const RECEPTIONIST_INSTRUCTIONS = `Help people use Isomux and this office
 Never ask for or repeat secrets (API keys, tokens, passwords). Point people to User Settings → Connections.`;
 
 export const RECEPTIONIST_OUTFIT: AgentOutfit = {
-  hat: "none", color: "#C97B4A", hair: "#3B2A20", hairStyle: "bun",
-  skin: "#E8B48A", beard: "none", accessory: "glasses",
+  hat: "none",
+  color: "#C97B4A",
+  hair: "#3B2A20",
+  hairStyle: "bun",
+  skin: "#E8B48A",
+  beard: "none",
+  accessory: "glasses",
 };

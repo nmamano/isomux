@@ -710,8 +710,15 @@ export function TaskView({
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { tasks, tasksLoaded, agents, isMobile, rooms, currentRoomId, lobbyOpen } =
-    useAppState();
+  const {
+    tasks,
+    tasksLoaded,
+    agents,
+    isMobile,
+    rooms,
+    currentRoomId,
+    lobbyOpen,
+  } = useAppState();
   const { t, language, rich } = useI18n();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<

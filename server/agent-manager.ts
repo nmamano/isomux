@@ -110,9 +110,7 @@ import {
   humanizeBackendFailure,
   type BackendFailureText,
 } from "./backend-failure-text.ts";
-import {
-  buildSystemPrompt,
-} from "./system-prompt.ts";
+import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
@@ -384,7 +382,9 @@ export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
   const initialLoadedAgents = deps.initialRooms;
-  let lobbySeedPending = initialLoadedAgents.some((room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true);
+  let lobbySeedPending = initialLoadedAgents.some(
+    (room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true,
+  );
 
   // Wire the turn runner to agent-manager's module-private pieces. Called once
   // at boot from server/isomux-office.ts.
@@ -1600,7 +1600,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       prompt: r.prompt,
       pet: r.pet ?? null,
       type: r.type,
-      ...(r.id === LOBBY_ROOM_ID && lobbySeedPending ? { defaultAgentPending: true as const } : {}),
+      ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
+        ? { defaultAgentPending: true as const }
+        : {}),
       agents: [] as PersistedAgent[],
     }));
     for (const a of agents.values()) {
@@ -2151,14 +2153,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const firstOwner = listUsers().find((u) => u.role === "owner");
     if (receptionist && firstOwner) {
       officeState.ensureLobby();
-      if (agents.has(receptionist.id) || [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)) {
-        console.warn("[migration] Occupied lobby; keeping receptionist.json for recovery.");
+      if (
+        agents.has(receptionist.id) ||
+        [...agents.values()].some((a) => a.info.roomId === LOBBY_ROOM_ID)
+      ) {
+        console.warn(
+          "[migration] Occupied lobby; keeping receptionist.json for recovery.",
+        );
       } else {
         const instructions = renderReceptionistProfile({
           officeName: officeState.office.name,
           members: listUsers(),
         });
-        receptionist.customInstructions = instructions + (receptionist.customInstructions ? `\n\n${receptionist.customInstructions}` : "");
+        receptionist.customInstructions =
+          instructions +
+          (receptionist.customInstructions
+            ? `\n\n${receptionist.customInstructions}`
+            : "");
         receptionist.userId = firstOwner.id;
         receptionist.username = firstOwner.name;
         receptionist.cwd = resolveCwd("~");
@@ -4646,11 +4657,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!room) return null;
     return [
       { scope: "office", scopeId: null, label: "Office-wide" },
-      ...(room.type === "lobby" ? [] : [{
-        scope: "room" as const,
-        scopeId: managed.info.roomId,
-        label: `Room "${room.name}"`,
-      }]),
+      ...(room.type === "lobby"
+        ? []
+        : [
+            {
+              scope: "room" as const,
+              scopeId: managed.info.roomId,
+              label: `Room "${room.name}"`,
+            },
+          ]),
       // Boss notes auto-load ONLY for this agent's manager boss (stable
       // userId), so one boss's notes never bleed into another's context.
       ...(managed.info.userId
@@ -4737,20 +4752,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const memoryRefs = memoryRefsFor(managed) ?? [];
     armMemoryNotice(managed, memoryRefs);
     const systemPrompt = buildSystemPrompt(
-          managed.info.name,
-          managed.info.id,
-          room.name,
-          room.id,
-          officeState.office.prompt,
-          room.prompt,
-          managed.info.customInstructions,
-          managed.info.username,
-          ownerRecord?.memberPrompt ?? null,
-          managed.info.privileged ?? false,
-          memoryStore.renderForPromptMulti(memoryRefs),
-          managed.info.agentType,
-          ownerRecord?.language ?? null,
-        );
+      managed.info.name,
+      managed.info.id,
+      room.name,
+      room.id,
+      officeState.office.prompt,
+      room.prompt,
+      managed.info.customInstructions,
+      managed.info.username,
+      ownerRecord?.memberPrompt ?? null,
+      managed.info.privileged ?? false,
+      memoryStore.renderForPromptMulti(memoryRefs),
+      managed.info.agentType,
+      ownerRecord?.language ?? null,
+    );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's
       // counter starts from zero. Roll the current-run usage into the
