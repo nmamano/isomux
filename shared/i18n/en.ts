@@ -1167,6 +1167,10 @@ export const en = {
   "cards.fileView.viewedFile": "Viewed {file} (click to show)",
   "cards.fileView.viewedImages":
     "Viewed {count} attached images (click to show)",
+  "office.newRoom.door": "New room",
+  "office.newRoom.title": "Open new room?",
+  "office.newRoom.confirm": "Open room",
+  "office.newRoom.failed": "Could not open the room. Try again.",
   "office.tabs.scrollLeft": "Scroll rooms left",
   "office.tabs.scrollRight": "Scroll rooms right",
   "office.tabs.roomSettings": "Double-click for room settings",

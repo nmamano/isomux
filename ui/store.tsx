@@ -886,7 +886,10 @@ export function reducer(state: AppState, action: Action): AppState {
       // room is already selected, creating another doesn't switch to it.
       return {
         ...state,
-        rooms: [...state.rooms, action.room],
+        // The create response and live broadcast can arrive in either order.
+        rooms: state.rooms.some((room) => room.id === action.room.id)
+          ? state.rooms
+          : [...state.rooms, action.room],
         currentRoomId: state.currentRoomId ?? action.room.id,
       };
     case "update_status": {

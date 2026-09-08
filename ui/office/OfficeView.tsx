@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
+import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
 import { Seasonal } from "./Seasonal.tsx";
@@ -84,6 +85,7 @@ function DoorDropZone({
   return (
     <div
       data-no-pan
+      data-door-drop={side}
       style={{
         ...style,
         cursor: "pointer",
@@ -172,6 +174,8 @@ export function OfficeView({
     sessionContext,
     lobbyOpen,
   } = useAppState();
+  const [newRoomOpen, setNewRoomOpen] = useState(false);
+  const closeNewRoom = useCallback(() => setNewRoomOpen(false), []);
   const roomCount = rooms.length;
   // Employee of the Minute for the lobby plaque: the last agent to act,
   // office-wide, with a hold so a streaming agent's restamps do not swap the
@@ -212,6 +216,10 @@ export function OfficeView({
   const { embed } = useFeatures();
   const i18n = useI18n();
   const { t } = i18n;
+  const newRoomDoor = embed ? null : {
+    label: t("office.newRoom.door"),
+    onClick: () => setNewRoomOpen(true),
+  };
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
@@ -333,6 +341,7 @@ export function OfficeView({
         color: "var(--text-primary)",
       }}
     >
+      {newRoomOpen && <NewRoomDialog onClose={closeNewRoom} />}
       {/* Top HUD bar */}
       {embed ? null : isMobile ? (
         <MobileHeader
@@ -552,7 +561,7 @@ export function OfficeView({
                               roomId: rooms[0].id,
                             }),
                         }
-                      : null
+                      : newRoomDoor
                   }
                   onToggleTheme={cycleTheme}
                   onOpenApps={embed ? undefined : onOpenApps}
@@ -620,7 +629,7 @@ export function OfficeView({
                             reject: rightDoorReject,
                             passCount: rightDoorUses,
                           }
-                        : null
+                        : currentRoomIndex === roomCount - 1 ? newRoomDoor : null
                     }
                   />
                   <RoomProps />

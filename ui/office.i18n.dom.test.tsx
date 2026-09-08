@@ -161,6 +161,7 @@ const battery = (language: Language) =>
 
 // One anchor per surface, each a string only that surface shows.
 const ANCHOR = {
+  newRoomDoor: { ca: "Sala nova", es: "Nueva sala", en: "New room" },
   // The room tab bar's add-room control.
   newRoom: {
     ca: "Crea una sala nova",
@@ -242,18 +243,21 @@ describe("the office scene", () => {
   it("reads Catalan on ca, then Spanish, then the English of a user who never chose", () => {
     const view = render(officeView("ca"));
     titled(view, ANCHOR.newRoom.ca);
+    shows(view, ANCHOR.newRoomDoor.ca);
     titled(view, ANCHOR.zoomIn.ca);
     shows(view, ANCHOR.badge.ca);
     expect(view.queryByText(ANCHOR.badge.en)).toBeNull();
 
     view.rerender(officeView("es"));
     titled(view, ANCHOR.newRoom.es);
+    shows(view, ANCHOR.newRoomDoor.es);
     titled(view, ANCHOR.zoomIn.es);
     shows(view, ANCHOR.badge.es);
     expect(view.queryByText(ANCHOR.badge.ca)).toBeNull();
 
     view.rerender(officeView(null));
     titled(view, ANCHOR.newRoom.en);
+    shows(view, ANCHOR.newRoomDoor.en);
     titled(view, ANCHOR.zoomIn.en);
     shows(view, ANCHOR.badge.en);
     view.unmount();

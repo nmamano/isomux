@@ -1189,6 +1189,10 @@ export const es: Catalog = {
   "cards.fileView.viewedFile": "Ha visto {file} (haz clic para mostrarlo)",
   "cards.fileView.viewedImages":
     "Ha visto {count} imágenes adjuntas (haz clic para mostrarlas)",
+  "office.newRoom.door": "Nueva sala",
+  "office.newRoom.title": "¿Abrir una nueva sala?",
+  "office.newRoom.confirm": "Abrir sala",
+  "office.newRoom.failed": "No se ha podido abrir la sala. Inténtalo de nuevo.",
   "office.tabs.scrollLeft": "Desplazar las salas a la izquierda",
   "office.tabs.scrollRight": "Desplazar las salas a la derecha",
   "office.tabs.roomSettings": "Haz doble clic para la configuración de la sala",

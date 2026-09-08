@@ -21,6 +21,7 @@ const { EditAgentDialog } = await import("./components/EditAgentDialog.tsx");
 const { CronjobDialog } = await import("./components/CronjobDialog.tsx");
 const { CronjobsPromptDialog } =
   await import("./components/CronjobsPromptDialog.tsx");
+const { NewRoomDialog } = await import("./office/NewRoomDialog.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -73,6 +74,11 @@ const schedulePromptDialog = (language: Language) =>
 
 // One anchor per section, each a string only that section shows.
 const ANCHOR = {
+  newRoomTitle: {
+    ca: "Obrir una sala nova?",
+    es: "¿Abrir una nueva sala?",
+    en: "Open new room?",
+  },
   // The agent dialog's own heading.
   spawnTitle: {
     ca: "Crear un agent nou",
@@ -229,5 +235,18 @@ describe("the schedule dialogs", () => {
     shows(prompt, ANCHOR.schedulePromptTitle.es);
     prompt.rerender(schedulePromptDialog(null));
     shows(prompt, ANCHOR.schedulePromptTitle.en);
+  });
+});
+
+
+describe("the new room dialog", () => {
+  it("reads its title in Catalan, Spanish and English", () => {
+    for (const language of ["ca", "es", null] as const) {
+      const view = render(onLanguage(language,
+        createElement(NewRoomDialog, { onClose: () => {} }),
+      ));
+      shows(view, ANCHOR.newRoomTitle[language ?? "en"]);
+      view.unmount();
+    }
   });
 });

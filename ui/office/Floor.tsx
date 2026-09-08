@@ -719,7 +719,16 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
   return (
     <g
       data-no-pan
+      role="button"
+      tabIndex={0}
+      aria-label={door.label}
       onClick={door.onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          door.onClick();
+        }
+      }}
       style={{ cursor: "pointer", pointerEvents: "auto" }}
     >
       <style>{DOOR_AJAR_CSS}</style>
