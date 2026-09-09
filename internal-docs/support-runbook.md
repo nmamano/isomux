@@ -25,8 +25,11 @@ Do not act only on an office name, Stripe receipt, or forwarded message.
 The production database is the local record of account ownership and service
 work. Stripe is the authority for payments, invoices, subscription state, and
 refund state. Use the operator-owned production database connection or Neon SQL
-Editor for database checks. Do not copy credentials into a ticket, support
-message, command line, or transcript.
+Editor for database checks. From the office box, the hardened reader is
+`control-plane/exercises/neon-api.ts` with `targetFor(PRODUCTION_BRANCH)`: it
+builds the connection string in process from `~/nil/secrets/control-plane-neon.env`
+and prints nothing, so an agent never hand-rolls an env reader. Do not copy
+credentials into a ticket, support message, command line, or transcript.
 
 ## Decide refund eligibility
 
