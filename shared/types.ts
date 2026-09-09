@@ -42,7 +42,14 @@ export interface AgentChoiceInteraction {
 }
 
 export interface AgentOutfit {
-  costume?: "none" | "doctor" | "police" | "firefighter" | "chef" | "construction" | "astronaut";
+  costume?:
+    | "none"
+    | "doctor"
+    | "police"
+    | "firefighter"
+    | "chef"
+    | "construction"
+    | "astronaut";
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
   color: string; // shirt color hex
   hair: string; // hair color hex
@@ -1578,7 +1585,11 @@ export type ServerMessage =
   // Members chat (the humans-only stream on the Lobby tab). A message event
   // carries a post or an in-place update. updateOnly replaces held messages
   // without appending an unloaded message or raising unread.
-  | { type: "members_chat_message"; message: MembersChatMessage; updateOnly?: boolean }
+  | {
+      type: "members_chat_message";
+      message: MembersChatMessage;
+      updateOnly?: boolean;
+    }
   | { type: "members_chat_deleted"; id: string }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }

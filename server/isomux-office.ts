@@ -435,11 +435,20 @@ function createManagers(startOpts: StartServerOpts): void {
     createProductionAgentManager({
       resolveBackend: startOpts.resolveBackend,
       listProviderAccounts: async (userId, options) => {
-        const accounts = await providerAccountManager.list(userId, options?.refresh, options);
+        const accounts = await providerAccountManager.list(
+          userId,
+          options?.refresh,
+          options,
+        );
         if (options && !options.signal.aborted) {
           // Never start an unrelated provider just to publish a full snapshot.
           const snapshot = providerAccountManager.cachedList(userId, accounts);
-          if (snapshot) liveEmit("provider_accounts_updated", { accounts: snapshot }, { userId });
+          if (snapshot)
+            liveEmit(
+              "provider_accounts_updated",
+              { accounts: snapshot },
+              { userId },
+            );
         }
         return accounts;
       },
@@ -2351,7 +2360,8 @@ function buildExecutorDeps(
       page: (opts) => membersChat.page(opts),
       post: (input) => membersChat.post(input),
       edit: (id, content) => membersChat.edit(id, content),
-      setThumbsUp: (id, reactor, active) => membersChat.setThumbsUp(id, reactor, active),
+      setThumbsUp: (id, reactor, active) =>
+        membersChat.setThumbsUp(id, reactor, active),
       delete: (id) => membersChat.delete(id),
       get: (id) => membersChat.get(id),
       getReadPointer: (userId) => membersChat.getReadPointer(userId),
@@ -2364,7 +2374,11 @@ function buildExecutorDeps(
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       authorFor: membersChatAuthorFor,
       isOwner: (userId) => getUserById(userId)?.role === "owner",
-      emitMessage: (message, updateOnly) => liveEmit("members_chat_message", { message, ...(updateOnly ? { updateOnly } : {}) }),
+      emitMessage: (message, updateOnly) =>
+        liveEmit("members_chat_message", {
+          message,
+          ...(updateOnly ? { updateOnly } : {}),
+        }),
       emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
       emitRead: (userId, readPointer, unread) =>
         liveEmit("members_chat_read", { readPointer, unread }, { userId }),

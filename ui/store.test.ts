@@ -969,15 +969,34 @@ describe("reducer: members chat slice", () => {
   };
 
   it("updates held messages only while normal arrivals still raise unread", () => {
-    const first = reducer(withMe, { type: "members_chat_message", message: msg("held") });
-    const update = { ...msg("held"), thumbsUp: [{ kind: "agent" as const, userId: "u-me", userName: "Worker" }] };
-    const replaced = reducer(first, { type: "members_chat_message", message: update, updateOnly: true });
+    const first = reducer(withMe, {
+      type: "members_chat_message",
+      message: msg("held"),
+    });
+    const update = {
+      ...msg("held"),
+      thumbsUp: [
+        { kind: "agent" as const, userId: "u-me", userName: "Worker" },
+      ],
+    };
+    const replaced = reducer(first, {
+      type: "members_chat_message",
+      message: update,
+      updateOnly: true,
+    });
     expect(replaced.membersChat.messages).toEqual([update]);
     expect(replaced.membersChat.unread).toBe(1);
-    const ignored = reducer(replaced, { type: "members_chat_message", message: msg("unheld"), updateOnly: true });
+    const ignored = reducer(replaced, {
+      type: "members_chat_message",
+      message: msg("unheld"),
+      updateOnly: true,
+    });
     expect(ignored.membersChat.messages).toEqual([update]);
     expect(ignored.membersChat.unread).toBe(1);
-    const arrived = reducer(ignored, { type: "members_chat_message", message: msg("new") });
+    const arrived = reducer(ignored, {
+      type: "members_chat_message",
+      message: msg("new"),
+    });
     expect(arrived.membersChat.messages).toEqual([update, msg("new")]);
     expect(arrived.membersChat.unread).toBe(2);
   });
@@ -1008,13 +1027,23 @@ describe("reducer: members chat slice", () => {
   it("replaces request-time cache but retains a lower-ID arrival during a fresh fetch", () => {
     const old = msg("202609-ffffffff");
     const liveMessage = msg("202609-00000001");
-    const state = { ...withMe, membersChat: { ...withMe.membersChat, messages: [old, liveMessage] } };
+    const state = {
+      ...withMe,
+      membersChat: { ...withMe.membersChat, messages: [old, liveMessage] },
+    };
     const result = reducer(state, {
-      type: "members_chat_page", prepend: false,
+      type: "members_chat_page",
+      prepend: false,
       messages: [msg("202609-eeeeeeee")],
-      heldAtRequest: [old.id], hasMore: true, readPointer: null, unread: 1,
+      heldAtRequest: [old.id],
+      hasMore: true,
+      readPointer: null,
+      unread: 1,
     });
-    expect(result.membersChat.messages.map((message) => message.id)).toEqual(["202609-eeeeeeee", "202609-00000001"]);
+    expect(result.membersChat.messages.map((message) => message.id)).toEqual([
+      "202609-eeeeeeee",
+      "202609-00000001",
+    ]);
   });
 
   it("an older page goes above what is held, without duplicates", () => {

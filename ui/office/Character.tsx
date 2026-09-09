@@ -384,9 +384,16 @@ export function Character({
         <CostumeBody costume={costume} seated />
         <ellipse cx={hCx} cy={hCy} rx={10} ry={9} fill={skin} />
         <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
-        {costume === "none" || costume === "doctor"
-          ? <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />
-          : <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />}
+        {costume === "none" || costume === "doctor" ? (
+          <Hat
+            type={outfit.hat}
+            color={outfit.color}
+            headCx={hCx}
+            headCy={hCy}
+          />
+        ) : (
+          <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />
+        )}
         <Accessory type={outfit.accessory} headCx={hCx} headCy={hCy} />
         <line
           x1={hCx - 6}
@@ -512,9 +519,16 @@ export function Character({
         />
         <ellipse cx={hCx} cy={hCy} rx={10} ry={10} fill={skin} />
         <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
-        {costume === "none" || costume === "doctor"
-          ? <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />
-          : <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />}
+        {costume === "none" || costume === "doctor" ? (
+          <Hat
+            type={outfit.hat}
+            color={outfit.color}
+            headCx={hCx}
+            headCy={hCy}
+          />
+        ) : (
+          <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />
+        )}
         <g stroke="#c33" strokeWidth={1.5} strokeLinecap="round">
           <line x1={hCx - 6} y1={hCy - 3} x2={hCx - 3} y2={hCy + 1} />
           <line x1={hCx - 3} y1={hCy - 3} x2={hCx - 6} y2={hCy + 1} />
@@ -571,9 +585,16 @@ export function Character({
         <CostumeBody costume={costume} seated={false} />
         <ellipse cx={hCx} cy={hCy} rx={10} ry={10} fill={skin} />
         <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
-        {costume === "none" || costume === "doctor"
-          ? <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />
-          : <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />}
+        {costume === "none" || costume === "doctor" ? (
+          <Hat
+            type={outfit.hat}
+            color={outfit.color}
+            headCx={hCx}
+            headCy={hCy}
+          />
+        ) : (
+          <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />
+        )}
         <Accessory type={outfit.accessory} headCx={hCx} headCy={hCy} />
         <circle cx={hCx - 4} cy={hCy + 1} r={1.8} fill="#333" />
         <circle cx={hCx + 4} cy={hCy + 1} r={1.8} fill="#333" />
@@ -626,7 +647,7 @@ export function Character({
   return wrap(
     <>
       <rect x={16} y={36} width={20} height={16} fill={bc} rx={3} />
-        <CostumeBody costume={costume} seated={false} />
+      <CostumeBody costume={costume} seated={false} />
       <g>
         <rect x={7} y={42} width={8} height={4} fill={skin} rx={2}>
           <animate
@@ -647,9 +668,11 @@ export function Character({
       </g>
       <ellipse cx={hCx} cy={hCy} rx={10} ry={10} fill={skin} />
       <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
-      {costume === "none" || costume === "doctor"
-          ? <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />
-          : <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />}
+      {costume === "none" || costume === "doctor" ? (
+        <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />
+      ) : (
+        <CostumeHead costume={costume} headCx={hCx} headCy={hCy} />
+      )}
       <Accessory type={outfit.accessory} headCx={hCx} headCy={hCy} />
       <circle cx={hCx - 4} cy={hCy + 1} r={1.5} fill="#333" />
       <circle cx={hCx + 4} cy={hCy + 1} r={1.5} fill="#333" />

@@ -285,11 +285,19 @@ describe("demo members chat", () => {
     })) as MembersChatMessage;
     expect(posted.userName).toBe("Ricky");
     const reactionPath = `/api/members-chat/${posted.id}/thumbs-up`;
-    const reacted = await demoApi("PUT", reactionPath, { active: true }) as MembersChatMessage;
-    expect(reacted.thumbsUp).toEqual([{ kind: "user", userId: posted.userId, userName: "Ricky" }]);
-    const repeated = await demoApi("PUT", reactionPath, { active: true }) as MembersChatMessage;
+    const reacted = (await demoApi("PUT", reactionPath, {
+      active: true,
+    })) as MembersChatMessage;
+    expect(reacted.thumbsUp).toEqual([
+      { kind: "user", userId: posted.userId, userName: "Ricky" },
+    ]);
+    const repeated = (await demoApi("PUT", reactionPath, {
+      active: true,
+    })) as MembersChatMessage;
     expect(repeated.thumbsUp).toEqual(reacted.thumbsUp);
-    const removed = await demoApi("PUT", reactionPath, { active: false }) as MembersChatMessage;
+    const removed = (await demoApi("PUT", reactionPath, {
+      active: false,
+    })) as MembersChatMessage;
     expect(removed.thumbsUp).toEqual([]);
 
     const after = (await demoApi("GET", "/api/members-chat")) as {

@@ -68,15 +68,22 @@ function lobby(
 it("loads the saved choice and persists both showing and hiding the desktop chat", () => {
   localStorage.setItem(key, "true");
   const view = render(lobby());
-  const zoom = () => view.getByRole("button", { name: "Zoom in" }).parentElement!;
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(true);
+  const zoom = () =>
+    view.getByRole("button", { name: "Zoom in" }).parentElement!;
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
+    true,
+  );
   expect(zoom().style.right).toBe("12px");
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));
-  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(true);
+  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
+    true,
+  );
   expect(localStorage.getItem(key)).toBe("false");
   expect(zoom().style.right).toBe("532px");
   fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
-  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(true);
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
+    true,
+  );
   expect(localStorage.getItem(key)).toBe("true");
   expect(zoom().style.right).toBe("12px");
 });

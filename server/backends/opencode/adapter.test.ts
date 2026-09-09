@@ -151,7 +151,11 @@ describe("OpenCode pinned transport", () => {
     let captures = 0;
     // 1cc892ff: only the one-shot budget is virtual. Transport timers with
     // other delays and Bun.sleep (SSE delivery/cleanup) retain their real clocks.
-    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((fn: Bun.TimerHandler, ms?: number, ...args: unknown[]) => {
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((
+      fn: Bun.TimerHandler,
+      ms?: number,
+      ...args: unknown[]
+    ) => {
       if (ms !== delayMs) return realSetTimeout(fn, ms, ...args);
       captures++;
       callback = () => fn(...args);
@@ -203,9 +207,13 @@ describe("OpenCode pinned transport", () => {
       receivedPermissionReply = resolve;
     });
     let deliverFrames!: () => void;
-    const frameDelivery = new Promise<void>((resolve) => { deliverFrames = resolve; });
+    const frameDelivery = new Promise<void>((resolve) => {
+      deliverFrames = resolve;
+    });
     let requestedEvents!: () => void;
-    const eventsRequested = new Promise<void>((resolve) => { requestedEvents = resolve; });
+    const eventsRequested = new Promise<void>((resolve) => {
+      requestedEvents = resolve;
+    });
     let deletes = 0;
     const server = Bun.serve({
       hostname: "127.0.0.1",
@@ -462,26 +470,31 @@ describe("OpenCode pinned transport", () => {
   it("denies unattended one-shot tool requests before the timeout backstop", async () => {
     const timeoutMs = 100;
     const clock = controlledBackstop(timeoutMs);
-    const harness = oneShotHarness([
-      {
-        type: "permission.asked",
-        properties: {
-          sessionID: "one-shot-session",
-          id: "permission-1",
-          metadata: {},
+    const harness = oneShotHarness(
+      [
+        {
+          type: "permission.asked",
+          properties: {
+            sessionID: "one-shot-session",
+            id: "permission-1",
+            metadata: {},
+          },
         },
-      },
-      {
-        type: "session.idle",
-        properties: { sessionID: "one-shot-session" },
-      },
-    ], timeoutMs, false, true);
+        {
+          type: "session.idle",
+          properties: { sessionID: "one-shot-session" },
+        },
+      ],
+      timeoutMs,
+      false,
+      true,
+    );
     const result = rejected(
-        harness.backend.oneShotPrompt("label", {
-          cwd: "/tmp",
-          modelFamily: "gate/free",
-          systemPrompt: "label only",
-        }),
+      harness.backend.oneShotPrompt("label", {
+        cwd: "/tmp",
+        modelFamily: "gate/free",
+        systemPrompt: "label only",
+      }),
     );
     await harness.eventsRequested;
     harness.deliverFrames();
@@ -506,15 +519,18 @@ describe("OpenCode pinned transport", () => {
   it("fails unattended one-shot questions instead of waiting", async () => {
     const timeoutMs = 100;
     const clock = controlledBackstop(timeoutMs);
-    const harness = oneShotHarness([
-      {
-        type: "question.asked",
-        properties: {
-          sessionID: "one-shot-session",
-          id: "question-1",
+    const harness = oneShotHarness(
+      [
+        {
+          type: "question.asked",
+          properties: {
+            sessionID: "one-shot-session",
+            id: "question-1",
+          },
         },
-      },
-    ], timeoutMs);
+      ],
+      timeoutMs,
+    );
     expect(
       await rejected(
         harness.backend.oneShotPrompt("label", {

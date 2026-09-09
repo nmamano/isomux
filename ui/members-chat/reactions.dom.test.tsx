@@ -14,18 +14,34 @@ it("toggles desired state and exposes honestly attributed names by focus, hover 
     const [active, setActive] = useState(false);
     const { t } = useI18n();
     return createElement(ThumbsUpReaction, {
-      active, isMobile: true,
-      names: active ? [
-        describeMembersChatAuthor({ kind: "agent", userName: "Helper" }, t).label,
-        describeMembersChatAuthor({ kind: "api", userName: "Sam", device: "Phone" }, t).label,
-      ] : [],
-      onChange: async (next) => { calls.push(next); setActive(next); },
+      active,
+      isMobile: true,
+      names: active
+        ? [
+            describeMembersChatAuthor({ kind: "agent", userName: "Helper" }, t)
+              .label,
+            describeMembersChatAuthor(
+              { kind: "api", userName: "Sam", device: "Phone" },
+              t,
+            ).label,
+          ]
+        : [],
+      onChange: async (next) => {
+        calls.push(next);
+        setActive(next);
+      },
     });
   }
   const view = render(onLanguage("en", createElement(Fixture)));
-  await act(async () => fireEvent.click(view.getByRole("button", { name: "Thumbs up" })));
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: "Thumbs up" })),
+  );
   expect(calls).toEqual([true]);
-  expect(view.getByRole("button", { name: "Remove thumbs up" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    view
+      .getByRole("button", { name: "Remove thumbs up" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
   const count = view.getByRole("button", { name: "Thumbs up: 2" });
   const names = count.getAttribute("title")!;
   expect(names).toContain("Helper · agent");
@@ -43,7 +59,11 @@ it("toggles desired state and exposes honestly attributed names by focus, hover 
   fireEvent.click(count);
   fireEvent.mouseLeave(count);
   expect(view.getByText(names).textContent).toBe(names);
-  await act(async () => fireEvent.click(view.getByRole("button", { name: "Remove thumbs up" })));
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: "Remove thumbs up" })),
+  );
   expect(calls).toEqual([true, false]);
-  expect(view.queryByRole("button", { name: "Thumbs up: 2" }) === null).toBe(true);
+  expect(view.queryByRole("button", { name: "Thumbs up: 2" }) === null).toBe(
+    true,
+  );
 });

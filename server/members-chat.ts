@@ -80,7 +80,13 @@ type Line =
     }
   | { op: "edit"; id: string; timestamp: number; content: string }
   | { op: "delete"; id: string; timestamp: number }
-  | { op: "react"; id: string; timestamp: number; reactor: MembersChatReactor; active: boolean };
+  | {
+      op: "react";
+      id: string;
+      timestamp: number;
+      reactor: MembersChatReactor;
+      active: boolean;
+    };
 
 interface FoldedMonth {
   // Every post id this month ever held, in file order - deleted ones included,
@@ -109,7 +115,11 @@ export interface MembersChatStore {
   post(input: PostInput): MembersChatMessage;
   // null when the id is malformed, unknown, or already deleted.
   edit(id: string, content: string): MembersChatMessage | null;
-  setThumbsUp(id: string, reactor: MembersChatReactor, active: boolean): MembersChatMessage | null;
+  setThumbsUp(
+    id: string,
+    reactor: MembersChatReactor,
+    active: boolean,
+  ): MembersChatMessage | null;
   // The message as it was before deletion, or null when there was nothing to
   // delete. The caller needs the author for its ownership decision.
   delete(id: string): MembersChatMessage | null;
@@ -240,7 +250,9 @@ export function createMembersChatStore(
       } else if (line.op === "react") {
         const m = folded.byId.get(line.id);
         if (!m) continue;
-        const thumbsUp = (m.thumbsUp ?? []).filter((r) => r.userId !== line.reactor.userId);
+        const thumbsUp = (m.thumbsUp ?? []).filter(
+          (r) => r.userId !== line.reactor.userId,
+        );
         if (line.active) thumbsUp.push(line.reactor);
         folded.byId.set(line.id, { ...m, thumbsUp });
       } else if (line.op === "delete") {
@@ -304,12 +316,26 @@ export function createMembersChatStore(
     return get(id);
   }
 
-  function setThumbsUp(id: string, reactor: MembersChatReactor, active: boolean): MembersChatMessage | null {
+  function setThumbsUp(
+    id: string,
+    reactor: MembersChatReactor,
+    active: boolean,
+  ): MembersChatMessage | null {
     const existing = get(id);
     if (!existing) return null;
-    if ((existing.thumbsUp ?? []).some((r) => r.userId === reactor.userId) === active) return existing;
+    if (
+      (existing.thumbsUp ?? []).some((r) => r.userId === reactor.userId) ===
+      active
+    )
+      return existing;
     // Fold the desired state in the target's file, including across month boundaries.
-    append(monthOfId(id)!, { op: "react", id, timestamp: now(), reactor, active });
+    append(monthOfId(id)!, {
+      op: "react",
+      id,
+      timestamp: now(),
+      reactor,
+      active,
+    });
     return get(id);
   }
 

@@ -322,7 +322,9 @@ it("folds idempotent reactions in the target month without moving any reader", (
   store.setReadPointer(nil.userId, message.id);
   clock = SEP;
   const reactor = { ...pau, kind: "api" as const };
-  expect(store.setThumbsUp(message.id, reactor, true)?.thumbsUp).toEqual([reactor]);
+  expect(store.setThumbsUp(message.id, reactor, true)?.thumbsUp).toEqual([
+    reactor,
+  ]);
   const path = join(dir, "2026-08.jsonl");
   const saved = readFileSync(path, "utf8");
   store.setThumbsUp(message.id, reactor, true);
@@ -332,11 +334,25 @@ it("folds idempotent reactions in the target month without moving any reader", (
   appendFileSync(path, reactLine + "\n");
   store = createMembersChatStore(dir);
   expect(store.get(message.id)?.thumbsUp).toEqual([reactor]);
-  expect([store.unreadCount(nil.userId), store.unreadCount(pau.userId)]).toEqual([0, 1]);
+  expect([
+    store.unreadCount(nil.userId),
+    store.unreadCount(pau.userId),
+  ]).toEqual([0, 1]);
   expect(store.page().messages.map((m) => m.id)).toEqual([message.id]);
   expect(store.setThumbsUp(message.id, reactor, false)?.thumbsUp).toEqual([]);
   store.delete(message.id);
-  appendFileSync(path, reactLine + "\n" + JSON.stringify({ op: "react", id: "202608-00000000", reactor, active: true }) + "\n");
+  appendFileSync(
+    path,
+    reactLine +
+      "\n" +
+      JSON.stringify({
+        op: "react",
+        id: "202608-00000000",
+        reactor,
+        active: true,
+      }) +
+      "\n",
+  );
   store = createMembersChatStore(dir);
   expect(store.page().messages).toEqual([]);
   expect(store.setThumbsUp(message.id, reactor, true)).toBeNull();

@@ -306,7 +306,11 @@ export class ProviderAccountManager {
     };
   }
 
-  async list(userId: string, refresh = false, selection?: ProviderAccountReadOptions): Promise<ProviderAccountWire[]> {
+  async list(
+    userId: string,
+    refresh = false,
+    selection?: ProviderAccountReadOptions,
+  ): Promise<ProviderAccountWire[]> {
     const pairs: Array<[ProviderAccountProvider, ProviderAccountScope]> = [
       ["codex", "office"],
       ["codex", "personal"],
@@ -314,37 +318,64 @@ export class ProviderAccountManager {
       ["claude", "personal"],
     ];
     return Promise.all(
-      pairs.filter(([provider, scope]) => !selection ||
-        (provider === selection.provider && scope === selection.scope)
-      ).map(([provider, scope]) =>
-        this.wireFor(userId, provider, scope, refresh, selection?.signal),
-      ),
+      pairs
+        .filter(
+          ([provider, scope]) =>
+            !selection ||
+            (provider === selection.provider && scope === selection.scope),
+        )
+        .map(([provider, scope]) =>
+          this.wireFor(userId, provider, scope, refresh, selection?.signal),
+        ),
     );
   }
 
   // Assemble an existing full snapshot without starting unrelated providers.
   // If any scope is still unknown, leave the browser's current snapshot alone.
-  cachedList(userId: string, fresh: ProviderAccountWire[] = []): ProviderAccountWire[] | null {
+  cachedList(
+    userId: string,
+    fresh: ProviderAccountWire[] = [],
+  ): ProviderAccountWire[] | null {
     const accounts: ProviderAccountWire[] = [];
     for (const provider of ["codex", "claude"] as const) {
       for (const scope of ["office", "personal"] as const) {
         let target: Target;
-        try { target = this.target(userId, provider, scope); }
-        catch { return null; }
-        if (scope === "personal" && target.autoPersonal && !this.personalActive(userId, provider)) {
+        try {
+          target = this.target(userId, provider, scope);
+        } catch {
+          return null;
+        }
+        if (
+          scope === "personal" &&
+          target.autoPersonal &&
+          !this.personalActive(userId, provider)
+        ) {
           accounts.push(this.inactivePersonal(target));
           continue;
         }
         const running = this.active.get(target.key);
         const cached = this.statusCache.get(this.cacheKey(userId, target));
-        const wire = running?.userId === userId ? running.wire :
-          cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS ? cached.wire : null;
-        const refreshed = fresh.find((value) => value.provider === provider && value.scope === scope);
+        const wire =
+          running?.userId === userId
+            ? running.wire
+            : cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS
+              ? cached.wire
+              : null;
+        const refreshed = fresh.find(
+          (value) => value.provider === provider && value.scope === scope,
+        );
         if (!wire && !refreshed) return null;
-        accounts.push(refreshed ? {
-          ...refreshed,
-          loginStatus: running?.userId === userId ? running.wire.loginStatus : refreshed.loginStatus,
-        } : wire!);
+        accounts.push(
+          refreshed
+            ? {
+                ...refreshed,
+                loginStatus:
+                  running?.userId === userId
+                    ? running.wire.loginStatus
+                    : refreshed.loginStatus,
+              }
+            : wire!,
+        );
       }
     }
     return accounts;
@@ -352,9 +383,13 @@ export class ProviderAccountManager {
 
   private inactivePersonal(target: Target): ProviderAccountWire {
     return {
-      provider: target.provider, scope: target.scope,
-      accountStatus: "not_connected", loginStatus: "idle", shared: false,
-      canBrowserLogin: true, externalCli: target.externalCli,
+      provider: target.provider,
+      scope: target.scope,
+      accountStatus: "not_connected",
+      loginStatus: "idle",
+      shared: false,
+      canBrowserLogin: true,
+      externalCli: target.externalCli,
       explicitDirectory: target.explicitDirectory,
     };
   }
@@ -446,12 +481,15 @@ export class ProviderAccountManager {
     return `${target.key}:${target.scope}:${this.environmentKeyForUser(userId)}`;
   }
 
-  private async probe(target: Target, signal?: AbortSignal): Promise<ProviderAccountWire> {
+  private async probe(
+    target: Target,
+    signal?: AbortSignal,
+  ): Promise<ProviderAccountWire> {
     let client: AccountClient | null = null;
     let closed: Promise<void> | undefined;
     const close = (): Promise<void> => {
       if (!client) return Promise.resolve();
-      return closed ??= client.close();
+      return (closed ??= client.close());
     };
     let onAbort: (() => void) | undefined;
     try {

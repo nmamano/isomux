@@ -218,17 +218,21 @@ describe("the costume picker", () => {
     ] as const) {
       view.rerender(agentDialog(language));
       const select = view.getByLabelText(label) as HTMLSelectElement;
-      expect(Array.from(select.options).map(option => option.text)).toContain(construction);
+      expect(Array.from(select.options).map((option) => option.text)).toContain(
+        construction,
+      );
       act(() => {
         select.value = "construction";
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
-      expect(view.container.querySelector('[data-costume-body="construction"]')).not.toBeNull();
+      expect(
+        view.container.querySelector('[data-costume-body="construction"]'),
+      ).not.toBeNull();
       act(() => {
         select.value = "none";
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
-      expect(view.container.querySelector('[data-costume-body]')).toBeNull();
+      expect(view.container.querySelector("[data-costume-body]")).toBeNull();
     }
     await settle();
   });

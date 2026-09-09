@@ -81,12 +81,22 @@ it("keeps overflow body identification while suppressing its name chip", () => {
 });
 
 it("centres every occupied seat's tag within its ghost and keeps it above its head", () => {
-  const presences = LOBBY_SPOT_IDS.map((id, i) => ghost(`c${i}`, `Viewer ${i}`, id));
-  const view = render(createElement(LobbyScene, {
-    rooms: [], officeName: null, mode: "dark", layout: "nilo", presences,
-  }));
+  const presences = LOBBY_SPOT_IDS.map((id, i) =>
+    ghost(`c${i}`, `Viewer ${i}`, id),
+  );
+  const view = render(
+    createElement(LobbyScene, {
+      rooms: [],
+      officeName: null,
+      mode: "dark",
+      layout: "nilo",
+      presences,
+    }),
+  );
   for (const p of presences) {
-    const nodes = view.container.querySelectorAll<HTMLElement>(`div[title="${p.username}"]`);
+    const nodes = view.container.querySelectorAll<HTMLElement>(
+      `div[title="${p.username}"]`,
+    );
     expect(nodes.length).toBe(2);
     const [body, tag] = nodes;
     const left = parseFloat(body.style.left);

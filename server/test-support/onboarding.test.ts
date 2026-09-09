@@ -415,9 +415,17 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       isAuthError: (t) => /not logged in|\/login/i.test(t),
       loginInstructions: { text: LOGIN, commands: [LOGIN_CMD] },
     });
-    server = await startTestServer({ fakeBackend, startServer: {
-      createClaudeAccountClient: () => ({ start: async () => {}, read: async () => ({ connected: false }), close: async () => {} }) as never,
-    } });
+    server = await startTestServer({
+      fakeBackend,
+      startServer: {
+        createClaudeAccountClient: () =>
+          ({
+            start: async () => {},
+            read: async () => ({ connected: false }),
+            close: async () => {},
+          }) as never,
+      },
+    });
     const rawSessionId = await claimOwner(server, "Boss");
 
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
@@ -435,7 +443,10 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     await waitForLog(
       sock,
       claude.id,
-      (e) => e.kind === "system" && e.content === "Claude rejected the credentials. Checking the connection…",
+      (e) =>
+        e.kind === "system" &&
+        e.content ===
+          "Claude rejected the credentials. Checking the connection…",
     );
     await waitForLog(
       sock,

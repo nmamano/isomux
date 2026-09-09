@@ -74,7 +74,12 @@ describe("the office nav bar", () => {
 
     // Every desktop action of OfficeView, label and title, once in Catalan.
     // Shortcut titles include the key; Schedules keeps its label.
-    for (const title of ["Tasques (t)", "Programacions", "Apps (a)", "Configuració (s)"])
+    for (const title of [
+      "Tasques (t)",
+      "Programacions",
+      "Apps (a)",
+      "Configuració (s)",
+    ])
       expect(view.queryByTitle(title), title).not.toBeNull();
     // The vent in the scene carries the same word as its SVG title, so the
     // label is not the only match.

@@ -17,11 +17,12 @@ for (const broadcastFirst of [true, false]) {
       if (broadcastFirst) shimEmit({ type: "room_created", room: created });
       return { room: created };
     });
-    if (broadcastFirst) await act(async () =>
-      fireEvent.click(
-        view.getByRole("button", { hidden: true, name: "New room" }),
-      ),
-    );
+    if (broadcastFirst)
+      await act(async () =>
+        fireEvent.click(
+          view.getByRole("button", { hidden: true, name: "New room" }),
+        ),
+      );
     await act(async () =>
       fireEvent.click(
         view.getByRole("button", { hidden: true, name: "Open room" }),
@@ -40,9 +41,10 @@ for (const broadcastFirst of [true, false]) {
     expect(
       view.getAllByRole("button", { hidden: true, name: "Room 2 0/8" }),
     ).toHaveLength(1);
-    if (broadcastFirst) expect(
-      view.getAllByRole("button", { hidden: true, name: "New room" }),
-    ).toHaveLength(1);
+    if (broadcastFirst)
+      expect(
+        view.getAllByRole("button", { hidden: true, name: "New room" }),
+      ).toHaveLength(1);
   });
 }
 

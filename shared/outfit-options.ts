@@ -1,11 +1,19 @@
 import type { AgentOutfit } from "./types.ts";
 
-export const COSTUMES = ["none", "doctor", "police", "firefighter", "chef", "construction", "astronaut"] as const;
+export const COSTUMES = [
+  "none",
+  "doctor",
+  "police",
+  "firefighter",
+  "chef",
+  "construction",
+  "astronaut",
+] as const;
 
 // Old records omit the field; permissive API clients can also send unknown ids.
 export function costumeOf(value: unknown): NonNullable<AgentOutfit["costume"]> {
-  return COSTUMES.includes(value as typeof COSTUMES[number])
-    ? value as typeof COSTUMES[number]
+  return COSTUMES.includes(value as (typeof COSTUMES)[number])
+    ? (value as (typeof COSTUMES)[number])
     : "none";
 }
 

@@ -228,11 +228,19 @@ export function OfficeView({
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(!embed);
   const [chatHidden, setChatHidden] = useState(getMembersChatHidden);
-  const [chatViewportWidth, setChatViewportWidth] = useState(() => typeof window === "undefined" ? 1440 : window.innerWidth);
-  const [preferredChatWidth, setPreferredChatWidth] = useState<number | null>(() => isMobile ? null : getMembersChatWidth(chatViewportWidth));
+  const [chatViewportWidth, setChatViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1440 : window.innerWidth,
+  );
+  const [preferredChatWidth, setPreferredChatWidth] = useState<number | null>(
+    () => (isMobile ? null : getMembersChatWidth(chatViewportWidth)),
+  );
   // A phone does not read the desktop preference, including on first mount.
-  if (!isMobile && preferredChatWidth === null) setPreferredChatWidth(getMembersChatWidth(chatViewportWidth));
-  const chatWidth = clampMembersChatWidth(preferredChatWidth ?? LOBBY_CHAT_WIDTH, chatViewportWidth);
+  if (!isMobile && preferredChatWidth === null)
+    setPreferredChatWidth(getMembersChatWidth(chatViewportWidth));
+  const chatWidth = clampMembersChatWidth(
+    preferredChatWidth ?? LOBBY_CHAT_WIDTH,
+    chatViewportWidth,
+  );
   useEffect(() => {
     const resize = () => setChatViewportWidth(window.innerWidth);
     window.addEventListener("resize", resize);
@@ -901,7 +909,14 @@ export function OfficeView({
         </div>
         {desktopChatVisible && (
           <MembersChatPanel
-            resizeHandle={<ChatWidthHandle width={chatWidth} viewportWidth={chatViewportWidth} onChange={changeChatWidth} onCommit={commitChatWidth} />}
+            resizeHandle={
+              <ChatWidthHandle
+                width={chatWidth}
+                viewportWidth={chatViewportWidth}
+                onChange={changeChatWidth}
+                onCommit={commitChatWidth}
+              />
+            }
             onHide={() => changeChatHidden(true)}
             loadFailed={membersChatLoadFailed}
             onRetry={retryMembersChat}

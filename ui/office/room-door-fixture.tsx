@@ -36,10 +36,13 @@ function Office({ creationOnly = false }: { creationOnly?: boolean }) {
   }, [state, send]);
   // The creation ordering cases need the real dialog, store and tabs, but
   // not repeated SVG office scenes. One case still mounts the whole office.
-  if (creationOnly) return <>
-    <RoomTabBar />
-    {open && <NewRoomDialog onClose={() => setOpen(false)} />}
-  </>;
+  if (creationOnly)
+    return (
+      <>
+        <RoomTabBar />
+        {open && <NewRoomDialog onClose={() => setOpen(false)} />}
+      </>
+    );
   return (
     <OfficeView
       onSpawn={noop}
@@ -67,7 +70,11 @@ export function fullState(rooms: ReturnType<typeof room>[]) {
   });
 }
 
-export function mount(rooms = [room("first")], embed = false, creationOnly = false) {
+export function mount(
+  rooms = [room("first")],
+  embed = false,
+  creationOnly = false,
+) {
   setShim(noop);
   const view = render(
     <StoreProvider>

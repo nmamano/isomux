@@ -13,7 +13,9 @@ export function useMembersChatHydration(enabled: boolean) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => setAttempt((n) => n + 1), []);
-  const snapshotHeldIds = useEffectEvent(() => messages.map((message) => message.id));
+  const snapshotHeldIds = useEffectEvent(() =>
+    messages.map((message) => message.id),
+  );
   useEffect(() => {
     if (!enabled || loaded) return;
     const heldAtRequest = snapshotHeldIds();
@@ -24,7 +26,12 @@ export function useMembersChatHydration(enabled: boolean) {
         if (cancelled) return;
         if (!Array.isArray(page.messages))
           throw new Error("Invalid members chat page");
-        dispatch({ type: "members_chat_page", ...page, prepend: false, heldAtRequest });
+        dispatch({
+          type: "members_chat_page",
+          ...page,
+          prepend: false,
+          heldAtRequest,
+        });
         setLoadFailed(false);
       })
       .catch(() => {

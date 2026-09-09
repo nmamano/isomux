@@ -20,9 +20,17 @@ export function maxMembersChatWidth(viewportWidth: number): number {
   return Math.max(MIN_MEMBERS_CHAT_WIDTH, Math.min(900, viewportWidth - 48));
 }
 
-export function clampMembersChatWidth(width: number, viewportWidth: number): number {
+export function clampMembersChatWidth(
+  width: number,
+  viewportWidth: number,
+): number {
   const safe = Number.isFinite(width) ? width : DEFAULT_MEMBERS_CHAT_WIDTH;
-  return Math.round(Math.max(MIN_MEMBERS_CHAT_WIDTH, Math.min(maxMembersChatWidth(viewportWidth), safe)));
+  return Math.round(
+    Math.max(
+      MIN_MEMBERS_CHAT_WIDTH,
+      Math.min(maxMembersChatWidth(viewportWidth), safe),
+    ),
+  );
 }
 
 export function getMembersChatWidth(viewportWidth: number): number {
@@ -35,7 +43,9 @@ export function getMembersChatWidth(viewportWidth: number): number {
 }
 
 export function setMembersChatWidth(width: number): void {
-  try { localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width)); } catch {}
+  try {
+    localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width));
+  } catch {}
 }
 const KEY_APP_PREVIEWS = "isomux-app-previews";
 const KEY_APP_PREVIEW_OPENS = "isomux-app-preview-opens";

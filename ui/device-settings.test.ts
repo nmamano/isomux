@@ -148,7 +148,6 @@ describe("usage pill pin", () => {
   });
 });
 
-
 describe("members chat width", () => {
   beforeEach(() => store.clear());
   it("defaults missing and invalid values, clamps finite values, and remembers width", () => {

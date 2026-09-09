@@ -173,7 +173,10 @@ import type {
   SubscriptionUsageResult,
   LoginInstructions,
 } from "./backends/types.ts";
-import type { EffectiveProviderAccountTarget, ProviderAccountReadOptions } from "./provider-account-manager.ts";
+import type {
+  EffectiveProviderAccountTarget,
+  ProviderAccountReadOptions,
+} from "./provider-account-manager.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import type {
   AgentContextUsageResp,
@@ -241,7 +244,10 @@ export interface ManagerDeps {
   // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
   claudeAuthCheckTimeoutMs?: number;
-  listProviderAccounts?: (userId: string, options?: ProviderAccountReadOptions) => Promise<ProviderAccountWire[]>;
+  listProviderAccounts?: (
+    userId: string,
+    options?: ProviderAccountReadOptions,
+  ) => Promise<ProviderAccountWire[]>;
   effectiveProviderAccountTarget?: (
     userId: string,
     provider: ProviderAccountProvider,
@@ -548,14 +554,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     void emitLoginInstructions(agentId, agentLoginInstructions(managed));
   }
 
-  async function emitClaudeAuthInstructions(agentId: string, managed: ManagedAgent): Promise<void> {
+  async function emitClaudeAuthInstructions(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<void> {
     const t = logWords(agentId);
     addLogEntry(agentId, "system", t("systemEntries.claudeAuth.checking"));
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const target = fallbackProviderTarget(managed);
-      if (!managed.info.userId || !target || !deps.listProviderAccounts) throw new Error("Account scope unavailable");
+      if (!managed.info.userId || !target || !deps.listProviderAccounts)
+        throw new Error("Account scope unavailable");
       const expired = new Promise<never>((_resolve, reject) => {
         // 2026-09-09: three loaded-box probes took 3.486/3.649/5.779s.
         // Three times the slowest reaches the approved 10s cap.
@@ -566,18 +576,36 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       });
       const accounts = await Promise.race([
         deps.listProviderAccounts(managed.info.userId, {
-          provider: "claude", scope: target.scope, refresh: true, signal: controller.signal,
+          provider: "claude",
+          scope: target.scope,
+          refresh: true,
+          signal: controller.signal,
         }),
         expired,
       ]);
-      const account = accounts.find((value) => value.provider === "claude" && value.scope === target.scope);
-      if (!account || account.accountStatus === "unavailable") throw new Error("Account check unavailable");
-      const location = t(target.scope === "office" ?
-        "systemEntries.claudeAuth.officeLocation" : "systemEntries.claudeAuth.personalLocation");
+      const account = accounts.find(
+        (value) => value.provider === "claude" && value.scope === target.scope,
+      );
+      if (!account || account.accountStatus === "unavailable")
+        throw new Error("Account check unavailable");
+      const location = t(
+        target.scope === "office"
+          ? "systemEntries.claudeAuth.officeLocation"
+          : "systemEntries.claudeAuth.personalLocation",
+      );
       if (account.accountStatus === "not_connected") {
-        addLogEntry(agentId, "system", t("systemEntries.claudeAuth.disconnected", { location }), { providerLogin: "claude" });
+        addLogEntry(
+          agentId,
+          "system",
+          t("systemEntries.claudeAuth.disconnected", { location }),
+          { providerLogin: "claude" },
+        );
       } else if (account.accountStatus === "connected") {
-        addLogEntry(agentId, "system", t("systemEntries.claudeAuth.connected", { location }));
+        addLogEntry(
+          agentId,
+          "system",
+          t("systemEntries.claudeAuth.connected", { location }),
+        );
       } else {
         throw new Error("Account check incomplete");
       }
@@ -8681,7 +8709,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 // calls this at boot; tests construct createAgentManager(...) with fakes.
 export function createProductionAgentManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
-  listProviderAccounts?: (userId: string, options?: ProviderAccountReadOptions) => Promise<ProviderAccountWire[]>;
+  listProviderAccounts?: (
+    userId: string,
+    options?: ProviderAccountReadOptions,
+  ) => Promise<ProviderAccountWire[]>;
   effectiveProviderAccountTarget?: (
     userId: string,
     provider: ProviderAccountProvider,

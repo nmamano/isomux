@@ -178,11 +178,19 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
-export function continuesMembersChatAuthor(previous: MembersChatMessage | undefined, message: MembersChatMessage): boolean {
-  return !!previous && previous.kind === "user" && message.kind === "user" &&
-    previous.userId === message.userId && previous.device === message.device &&
+export function continuesMembersChatAuthor(
+  previous: MembersChatMessage | undefined,
+  message: MembersChatMessage,
+): boolean {
+  return (
+    !!previous &&
+    previous.kind === "user" &&
+    message.kind === "user" &&
+    previous.userId === message.userId &&
+    previous.device === message.device &&
     message.timestamp >= previous.timestamp &&
-    message.timestamp - previous.timestamp <= 5 * 60 * 1000;
+    message.timestamp - previous.timestamp <= 5 * 60 * 1000
+  );
 }
 
 export function MembersChatPanel({
@@ -292,8 +300,7 @@ export function MembersChatPanel({
   // Members-chat IDs carry a random suffix and do not sort. The server
   // keeps the pointer monotonic by file position, including unloaded history.
   useEffect(() => {
-    if (!loaded || !atBottom || !newestId || newestId === readPointer)
-      return;
+    if (!loaded || !atBottom || !newestId || newestId === readPointer) return;
     if (document.visibilityState !== "visible") return;
     const t = setTimeout(() => {
       chatApi
@@ -401,7 +408,11 @@ export function MembersChatPanel({
     chatApi
       .edit(id, text)
       .then((m) => {
-        dispatch({ type: "members_chat_message", message: m, updateOnly: true });
+        dispatch({
+          type: "members_chat_message",
+          message: m,
+          updateOnly: true,
+        });
         setEditingId(null);
       })
       .catch((err: unknown) =>
@@ -598,7 +609,10 @@ export function MembersChatPanel({
           </div>
         )}
         {messages.map((m, index) => {
-          const continuation = continuesMembersChatAuthor(messages[index - 1], m);
+          const continuation = continuesMembersChatAuthor(
+            messages[index - 1],
+            m,
+          );
           const author = describeMembersChatAuthor(m, t);
           const mine = me !== null && m.userId === me;
           const time = formatWhen(language, m.timestamp);
@@ -650,12 +664,16 @@ export function MembersChatPanel({
               username={label}
               variant="members-chat"
               hideAuthor={continuation}
-              footer={<ThumbsUpReaction
-                active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
-                names={(m.thumbsUp ?? []).map((r) => describeMembersChatAuthor(r, t).label)}
-                isMobile={isMobile}
-                onChange={(active) => setThumbsUp(m.id, active)}
-              />}
+              footer={
+                <ThumbsUpReaction
+                  active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
+                  names={(m.thumbsUp ?? []).map(
+                    (r) => describeMembersChatAuthor(r, t).label,
+                  )}
+                  isMobile={isMobile}
+                  onChange={(active) => setThumbsUp(m.id, active)}
+                />
+              }
               title={label}
               fromNonHuman={author.nonHuman}
               attachments={m.attachments}

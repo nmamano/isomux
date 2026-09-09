@@ -59,7 +59,11 @@ export interface MembersChatDeps {
   page(opts: { before?: string; limit?: number }): MembersChatPage;
   post(input: PostInput): MembersChatMessage;
   edit(id: string, content: string): MembersChatMessage | null;
-  setThumbsUp(id: string, reactor: MembersChatAuthor, active: boolean): MembersChatMessage | null;
+  setThumbsUp(
+    id: string,
+    reactor: MembersChatAuthor,
+    active: boolean,
+  ): MembersChatMessage | null;
   delete(id: string): MembersChatMessage | null;
   get(id: string): MembersChatMessage | null;
   getReadPointer(userId: string): string | null;
@@ -208,7 +212,8 @@ export function membersChatHandlers(
       const reactor = deps.authorFor(ctx.identity);
       if (!reactor) return fail(403, "forbidden");
       const body = (ctx.body ?? {}) as Partial<MembersChatThumbsUpReq>;
-      if (typeof body.active !== "boolean") return fail(400, "invalid_request", "active must be a boolean");
+      if (typeof body.active !== "boolean")
+        return fail(400, "invalid_request", "active must be a boolean");
       const message = deps.setThumbsUp(ctx.params.id, reactor, body.active);
       if (!message) return fail(404, "not_found");
       deps.emitMessage(message, true);

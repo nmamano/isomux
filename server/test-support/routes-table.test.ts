@@ -615,7 +615,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["chat:members"],
     emits: ["members_chat_message"],
   },
-  "membersChat.thumbsUp": { caps: ["chat:members"], emits: ["members_chat_message"] },
+  "membersChat.thumbsUp": {
+    caps: ["chat:members"],
+    emits: ["members_chat_message"],
+  },
   "membersChat.edit": {
     caps: ["chat:members"],
     emits: ["members_chat_message"],

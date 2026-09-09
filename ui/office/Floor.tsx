@@ -960,7 +960,11 @@ export function Walls({
   const { currentRoomId, rooms } = useAppState();
   const { t, language } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
-  const blossomRoom = roomPaletteIndex(ordinaryRooms(rooms).findIndex((r) => r.id === currentRoomId), 2) === 0;
+  const blossomRoom =
+    roomPaletteIndex(
+      ordinaryRooms(rooms).findIndex((r) => r.id === currentRoomId),
+      2,
+    ) === 0;
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -1242,26 +1246,30 @@ export function Walls({
       </g>
 
       {/* Clip the trailing plant's contact shadow to the sill. */}
-      {!blossomRoom && <g clipPath="url(#sill-clip)" aria-hidden="true">
-        <g filter="url(#sill-shadow)">
-          {/* The pot base lies at y=70.5 in the sill plane. */}
-          <ellipse
-            cx={POT_X}
-            cy={70.5}
-            rx="8.2"
-            ry="3"
-            fill="#000"
-            opacity="0.34"
-          />
+      {!blossomRoom && (
+        <g clipPath="url(#sill-clip)" aria-hidden="true">
+          <g filter="url(#sill-shadow)">
+            {/* The pot base lies at y=70.5 in the sill plane. */}
+            <ellipse
+              cx={POT_X}
+              cy={70.5}
+              rx="8.2"
+              ry="3"
+              fill="#000"
+              opacity="0.34"
+            />
+          </g>
         </g>
-      </g>}
+      )}
 
       {!blossomRoom && <WindowPlant />}
 
       {/* The jar base follows the sill plane at this position. */}
-      {blossomRoom && <g transform="translate(-236 92.6)">
-        <BlossomJar />
-      </g>}
+      {blossomRoom && (
+        <g transform="translate(-236 92.6)">
+          <BlossomJar />
+        </g>
+      )}
 
       {/* Corkboard on left wall - casual, mutable feel */}
       <g

@@ -875,30 +875,44 @@ export function UserMessage({
       data-members-chat-message={compact ? "" : undefined}
       style={{
         fontFamily: compact ? "'DM Sans',sans-serif" : undefined,
-        margin: compact ? (hideAuthor ? "2px 0" : "8px 0 2px") : outgoing ? "12px 0 12px 18px" : "12px 0",
+        margin: compact
+          ? hideAuthor
+            ? "2px 0"
+            : "8px 0 2px"
+          : outgoing
+            ? "12px 0 12px 18px"
+            : "12px 0",
         padding: compact ? "5px 10px" : "10px 14px",
         paddingRight: compact ? 70 : 40,
         borderRadius: 10,
         background: "var(--user-msg-bg)",
-        ...(compact ? {} : outgoing ? { borderRight: edge } : { borderLeft: edge }),
+        ...(compact
+          ? {}
+          : outgoing
+            ? { borderRight: edge }
+            : { borderLeft: edge }),
         position: "relative",
       }}
     >
-      {!hideAuthor && <div
-        data-members-chat-author={compact ? "" : undefined}
-        style={{
-          fontSize: compact ? 12 : isMobile ? 12 : 10,
-          fontWeight: 600,
-          color: accentColor,
-          marginBottom: 4,
-          textTransform: compact ? "none" : "uppercase",
-          letterSpacing: compact ? "normal" : "0.05em",
-          fontStyle: fromNonHuman ? "italic" : "normal",
-        }}
-      >
-        {avatar}
-        {compact ? (username ?? t("common.you")) : (username ?? t("common.you")).toUpperCase()}
-      </div>}
+      {!hideAuthor && (
+        <div
+          data-members-chat-author={compact ? "" : undefined}
+          style={{
+            fontSize: compact ? 12 : isMobile ? 12 : 10,
+            fontWeight: 600,
+            color: accentColor,
+            marginBottom: 4,
+            textTransform: compact ? "none" : "uppercase",
+            letterSpacing: compact ? "normal" : "0.05em",
+            fontStyle: fromNonHuman ? "italic" : "normal",
+          }}
+        >
+          {avatar}
+          {compact
+            ? (username ?? t("common.you"))
+            : (username ?? t("common.you")).toUpperCase()}
+        </div>
+      )}
       <div
         id={bodyId}
         onFocusCapture={() => {
@@ -915,7 +929,9 @@ export function UserMessage({
             <div
               style={{
                 color: "var(--text-secondary)",
-                fontFamily: compact ? "'DM Sans',sans-serif" : "'JetBrains Mono',monospace",
+                fontFamily: compact
+                  ? "'DM Sans',sans-serif"
+                  : "'JetBrains Mono',monospace",
                 fontSize: messageFontSize,
                 lineHeight: messageLineHeight,
                 whiteSpace: "pre-wrap",
@@ -1101,7 +1117,10 @@ export function EditableUserMessage({
           borderRadius: 6,
           padding: "8px 10px",
           fontSize: isMobile ? 15 : 13,
-          fontFamily: variant === "members-chat" ? "'DM Sans',sans-serif" : "'JetBrains Mono',monospace",
+          fontFamily:
+            variant === "members-chat"
+              ? "'DM Sans',sans-serif"
+              : "'JetBrains Mono',monospace",
           lineHeight: 1.6,
           background: "var(--bg-base)",
           color: "var(--text-secondary)",

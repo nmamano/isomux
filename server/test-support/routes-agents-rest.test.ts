@@ -755,7 +755,12 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const x = await spawnAt(srv, "Costume", srv.agentManager.getRooms()[0].id, 0);
+    const x = await spawnAt(
+      srv,
+      "Costume",
+      srv.agentManager.getRooms()[0].id,
+      0,
+    );
     const original = srv.agentManager.getAgent(x.id)!.outfit;
     const outfit = { ...original, costume: "doctor" as const };
     const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
@@ -763,7 +768,9 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(200);
-    expect((res.body as { agent: { outfit: unknown } }).agent.outfit).toEqual(outfit);
+    expect((res.body as { agent: { outfit: unknown } }).agent.outfit).toEqual(
+      outfit,
+    );
     expect(srv.agentManager.getAgent(x.id)!.outfit).toEqual(outfit);
   });
 

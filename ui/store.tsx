@@ -297,7 +297,11 @@ type Action =
     }
   | { type: "set_lobby_open"; open: boolean }
   // Wire events for the same slice (server/events/registry.ts).
-  | { type: "members_chat_message"; message: MembersChatMessage; updateOnly?: boolean }
+  | {
+      type: "members_chat_message";
+      message: MembersChatMessage;
+      updateOnly?: boolean;
+    }
   | { type: "members_chat_deleted"; id: string }
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }
