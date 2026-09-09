@@ -9,6 +9,7 @@ type ClaudeOAuthSeam = {
   claudeOAuthCallback?: (code: string, state: string) => Promise<unknown>;
   claudeOAuthWaitForCompletion?: () => Promise<unknown>;
   accountInfo?: () => Promise<unknown>;
+  close?: () => void;
 };
 
 export interface ClaudeAccountInfo {
@@ -33,6 +34,7 @@ function httpsUrl(value: unknown): string {
 export class ClaudeAccountClient {
   private readonly abortController = new AbortController();
   private oauthState: string | null = null;
+  private closeQuery: (() => void) | null = null;
   private seam: Required<
     Pick<
       ClaudeOAuthSeam,
@@ -51,6 +53,7 @@ export class ClaudeAccountClient {
 
   async start(): Promise<void> {
     const abortController = this.abortController;
+    abortController.signal.throwIfAborted();
     async function* input(): AsyncGenerator<never> {
       if (abortController.signal.aborted) yield undefined as never;
       await new Promise<void>(() => {});
@@ -65,6 +68,11 @@ export class ClaudeAccountClient {
         abortController,
       },
     }) as ClaudeOAuthSeam;
+    this.closeQuery = () => raw.close?.();
+    if (abortController.signal.aborted) {
+      await this.close();
+      abortController.signal.throwIfAborted();
+    }
     if (
       typeof raw.claudeAuthenticate !== "function" ||
       typeof raw.claudeOAuthCallback !== "function" ||
@@ -140,6 +148,9 @@ export class ClaudeAccountClient {
 
   async close(): Promise<void> {
     this.abortController.abort();
+    const close = this.closeQuery;
+    this.closeQuery = null;
+    close?.();
   }
 
   private required(): NonNullable<typeof this.seam> {

@@ -1846,6 +1846,18 @@ export const ca: Catalog = {
   "systemEntries.diffBadDir": "No es pot fer diff de `{path}`: {message}.",
   "systemEntries.diffClean":
     "L'arbre de treball de `{path}` està net: no hi ha canvis sense confirmar.",
+  "systemEntries.claudeAuth.checking":
+    "Claude ha rebutjat les credencials. Comprovant la connexió…",
+  "systemEntries.claudeAuth.officeLocation":
+    "Configuració → Oficina → Connexions de tota l’oficina",
+  "systemEntries.claudeAuth.personalLocation":
+    "Configuració → Tu → Connexions individuals",
+  "systemEntries.claudeAuth.disconnected":
+    "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
+  "systemEntries.claudeAuth.connected":
+    "Claude ha rebutjat les credencials, però la comprovació de la connexió indica que hi ha una sessió iniciada. Torna a provar la sol·licitud o revisa Claude a {location}.",
+  "systemEntries.claudeAuth.incomplete":
+    "No s’ha pogut completar la comprovació de la connexió de Claude. Torna a provar la sol·licitud o inicia sessió a Claude a Configuració.",
   "systemEntries.signInRequired":
     "{provider} no ha pogut executar aquest missatge perquè no ha iniciat sessió. Inicia sessió a sota per continuar.",
   "systemEntries.manageSignIn": "Gestiona la teva sessió de {provider} a sota.",

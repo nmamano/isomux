@@ -37,6 +37,13 @@ export const CODEX_HOME_INVALID = "CODEX_HOME must be an absolute directory.";
 const ACCOUNT_STATUS_TTL_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
+export interface ProviderAccountReadOptions {
+  provider: ProviderAccountProvider;
+  scope: ProviderAccountScope;
+  refresh: true;
+  signal: AbortSignal;
+}
+
 type AccountClient = CodexAccountClient | ClaudeAccountClient;
 
 export type CreateCodexAccountClient = (
@@ -299,7 +306,7 @@ export class ProviderAccountManager {
     };
   }
 
-  async list(userId: string, refresh = false): Promise<ProviderAccountWire[]> {
+  async list(userId: string, refresh = false, selection?: ProviderAccountReadOptions): Promise<ProviderAccountWire[]> {
     const pairs: Array<[ProviderAccountProvider, ProviderAccountScope]> = [
       ["codex", "office"],
       ["codex", "personal"],
@@ -307,10 +314,49 @@ export class ProviderAccountManager {
       ["claude", "personal"],
     ];
     return Promise.all(
-      pairs.map(([provider, scope]) =>
-        this.wireFor(userId, provider, scope, refresh),
+      pairs.filter(([provider, scope]) => !selection ||
+        (provider === selection.provider && scope === selection.scope)
+      ).map(([provider, scope]) =>
+        this.wireFor(userId, provider, scope, refresh, selection?.signal),
       ),
     );
+  }
+
+  // Assemble an existing full snapshot without starting unrelated providers.
+  // If any scope is still unknown, leave the browser's current snapshot alone.
+  cachedList(userId: string, fresh: ProviderAccountWire[] = []): ProviderAccountWire[] | null {
+    const accounts: ProviderAccountWire[] = [];
+    for (const provider of ["codex", "claude"] as const) {
+      for (const scope of ["office", "personal"] as const) {
+        let target: Target;
+        try { target = this.target(userId, provider, scope); }
+        catch { return null; }
+        if (scope === "personal" && target.autoPersonal && !this.personalActive(userId, provider)) {
+          accounts.push(this.inactivePersonal(target));
+          continue;
+        }
+        const running = this.active.get(target.key);
+        const cached = this.statusCache.get(this.cacheKey(userId, target));
+        const wire = running?.userId === userId ? running.wire :
+          cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS ? cached.wire : null;
+        const refreshed = fresh.find((value) => value.provider === provider && value.scope === scope);
+        if (!wire && !refreshed) return null;
+        accounts.push(refreshed ? {
+          ...refreshed,
+          loginStatus: running?.userId === userId ? running.wire.loginStatus : refreshed.loginStatus,
+        } : wire!);
+      }
+    }
+    return accounts;
+  }
+
+  private inactivePersonal(target: Target): ProviderAccountWire {
+    return {
+      provider: target.provider, scope: target.scope,
+      accountStatus: "not_connected", loginStatus: "idle", shared: false,
+      canBrowserLogin: true, externalCli: target.externalCli,
+      explicitDirectory: target.explicitDirectory,
+    };
   }
 
   // Reuse personal resolution and its cache, but expose no account metadata.
@@ -341,6 +387,7 @@ export class ProviderAccountManager {
     provider: ProviderAccountProvider,
     scope: ProviderAccountScope,
     refresh: boolean,
+    signal?: AbortSignal,
   ): Promise<ProviderAccountWire> {
     let target: Target;
     try {
@@ -362,19 +409,10 @@ export class ProviderAccountManager {
       target.autoPersonal &&
       !this.personalActive(userId, provider)
     ) {
-      return {
-        provider,
-        scope,
-        accountStatus: "not_connected",
-        loginStatus: "idle",
-        shared: false,
-        canBrowserLogin: true,
-        externalCli: target.externalCli,
-        explicitDirectory: target.explicitDirectory,
-      };
+      return this.inactivePersonal(target);
     }
     const running = this.active.get(target.key);
-    if (running?.userId === userId) return running.wire;
+    if (running?.userId === userId && !signal) return running.wire;
     const cacheKey = this.cacheKey(userId, target);
     const cacheGeneration = refresh
       ? (this.cacheGenerations.get(cacheKey) ?? 0) + 1
@@ -392,23 +430,51 @@ export class ProviderAccountManager {
       probe = this.probe(target).finally(() => this.probes.delete(cacheKey));
       this.probes.set(cacheKey, probe);
     }
-    probe ??= this.probe(target);
+    probe ??= this.probe(target, signal);
     const wire = await probe;
-    if ((this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration)
+    if (signal?.aborted) return wire;
+    if ((this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration) {
       this.statusCache.set(cacheKey, { checkedAt: Date.now(), wire });
-    return wire;
+      return wire;
+    }
+    // A full-list read started before this scope's forced refresh must not
+    // publish its older result after the refreshed snapshot.
+    return this.statusCache.get(cacheKey)?.wire ?? wire;
   }
 
   private cacheKey(userId: string, target: Target): string {
     return `${target.key}:${target.scope}:${this.environmentKeyForUser(userId)}`;
   }
 
-  private async probe(target: Target): Promise<ProviderAccountWire> {
+  private async probe(target: Target, signal?: AbortSignal): Promise<ProviderAccountWire> {
     let client: AccountClient | null = null;
+    let closed: Promise<void> | undefined;
+    const close = (): Promise<void> => {
+      if (!client) return Promise.resolve();
+      return closed ??= client.close();
+    };
+    let onAbort: (() => void) | undefined;
     try {
+      signal?.throwIfAborted();
       client = this.clientFor(target);
-      await client.start();
-      const status = await client.read();
+      // A factory can abort synchronously; close the returned client too.
+      signal?.throwIfAborted();
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        if (!signal) return;
+        onAbort = () => {
+          void close().catch(() => {});
+          reject(new Error("Account check cancelled"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+      const read = async () => {
+        await client!.start();
+        signal?.throwIfAborted();
+        return client!.read();
+      };
+      const status = await Promise.race([read(), cancelled]);
+      signal?.throwIfAborted();
       return {
         provider: target.provider,
         scope: target.scope,
@@ -434,7 +500,8 @@ export class ProviderAccountManager {
         error: err instanceof Error ? err.message : String(err),
       };
     } finally {
-      await client?.close();
+      if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+      await close();
     }
   }
 

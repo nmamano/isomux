@@ -1851,6 +1851,18 @@ export const es: Catalog = {
   "systemEntries.diffBadDir": "No se puede hacer diff de `{path}`: {message}.",
   "systemEntries.diffClean":
     "El árbol de trabajo de `{path}` está limpio: no hay cambios sin confirmar.",
+  "systemEntries.claudeAuth.checking":
+    "Claude rechazó las credenciales. Comprobando la conexión…",
+  "systemEntries.claudeAuth.officeLocation":
+    "Ajustes → Oficina → Conexiones de toda la oficina",
+  "systemEntries.claudeAuth.personalLocation":
+    "Ajustes → Tú → Conexiones individuales",
+  "systemEntries.claudeAuth.disconnected":
+    "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
+  "systemEntries.claudeAuth.connected":
+    "Claude rechazó las credenciales, pero la comprobación de la conexión indica que hay una sesión iniciada. Vuelve a intentar la solicitud o revisa Claude en {location}.",
+  "systemEntries.claudeAuth.incomplete":
+    "No se pudo completar la comprobación de la conexión de Claude. Vuelve a intentar la solicitud o inicia sesión en Claude en Ajustes.",
   "systemEntries.signInRequired":
     "{provider} no pudo ejecutar este mensaje porque no ha iniciado sesión. Inicia sesión abajo para continuar.",
   "systemEntries.manageSignIn": "Gestiona tu sesión de {provider} abajo.",

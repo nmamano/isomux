@@ -139,6 +139,10 @@ In Settings → Office → Office-wide connections (for every agent) or Settings
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
+If Claude rejects authentication, Isomux checks the affected connection and names
+the sign-in to check. If the check cannot finish, the guidance offers a retry or
+sign-in without claiming the account is disconnected.
+
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 

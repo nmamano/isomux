@@ -1840,6 +1840,18 @@ export const en = {
   "systemEntries.diffBadDir": "Cannot diff `{path}`: {message}.",
   "systemEntries.diffClean":
     "Working tree clean in `{path}` - no uncommitted changes.",
+  "systemEntries.claudeAuth.checking":
+    "Claude rejected the credentials. Checking the connection…",
+  "systemEntries.claudeAuth.officeLocation":
+    "Settings → Office → Office-wide connections",
+  "systemEntries.claudeAuth.personalLocation":
+    "Settings → You → Individual connections",
+  "systemEntries.claudeAuth.disconnected":
+    "Claude rejected the credentials. Sign in to Claude in {location}.",
+  "systemEntries.claudeAuth.connected":
+    "Claude rejected the credentials, but the connection check reports a sign-in. Retry the request or check Claude in {location}.",
+  "systemEntries.claudeAuth.incomplete":
+    "The Claude connection check could not finish. Retry the request or sign in to Claude in Settings.",
   "systemEntries.signInRequired":
     "{provider} could not run this message because it is not signed in. Sign in below to continue.",
   "systemEntries.manageSignIn": "Manage your {provider} sign-in below.",

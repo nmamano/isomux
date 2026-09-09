@@ -415,7 +415,9 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       isAuthError: (t) => /not logged in|\/login/i.test(t),
       loginInstructions: { text: LOGIN, commands: [LOGIN_CMD] },
     });
-    server = await startTestServer({ fakeBackend });
+    server = await startTestServer({ fakeBackend, startServer: {
+      createClaudeAccountClient: () => ({ start: async () => {}, read: async () => ({ connected: false }), close: async () => {} }) as never,
+    } });
     const rawSessionId = await claimOwner(server, "Boss");
 
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
@@ -428,18 +430,17 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       rawSessionId,
     });
 
-    // Observable shape: an error log, the backend's login text as a system log,
-    // and a clickable terminal-command card for the login command.
+    // The auth rejection gets an immediate check notice and the scoped sign-in card.
     await waitForLog(sock, claude.id, (e) => e.kind === "error");
     await waitForLog(
       sock,
       claude.id,
-      (e) => e.kind === "system" && e.content.includes(LOGIN),
+      (e) => e.kind === "system" && e.content === "Claude rejected the credentials. Checking the connection…",
     );
     await waitForLog(
       sock,
       claude.id,
-      (e) => e.kind === "terminal-command" && e.terminal?.command === LOGIN_CMD,
+      (e) => e.kind === "system" && e.metadata?.providerLogin === "claude",
     );
     // Auth failure parks at waiting_for_response ("user needs to sign in"), not
     // "error" ("agent crashed").

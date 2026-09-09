@@ -2,6 +2,34 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
+  it("closes the SDK query even while initialization is pending", async () => {
+    let closed = 0;
+    let controller: AbortController | undefined;
+    const client = new ClaudeAccountClient({}, (options) => {
+      controller = (options as { options: { abortController: AbortController } }).options.abortController;
+      return {
+        claudeAuthenticate: async () => ({}), claudeOAuthCallback: async () => {},
+        claudeOAuthWaitForCompletion: async () => {},
+        accountInfo: () => new Promise(() => {}), close: () => { closed++; },
+      };
+    });
+    void client.start();
+    await client.close();
+    await client.close();
+    expect(controller?.signal.aborted).toBe(true);
+    expect(closed).toBe(1);
+  });
+
+  it("closes a query returned after cancellation inside its factory", async () => {
+    let closed = 0;
+    const client = new ClaudeAccountClient({}, (options) => {
+      (options as { options: { abortController: AbortController } }).options.abortController.abort();
+      return { close: () => { closed++; } };
+    });
+    expect(await client.start().then(() => false, () => true)).toBe(true);
+    expect(closed).toBe(1);
+  });
+
   it("recognizes current first-party account info without tokenSource", async () => {
     const client = new ClaudeAccountClient({}, () => ({
       claudeAuthenticate: async () => ({ manualUrl: "https://claude.ai/" }),

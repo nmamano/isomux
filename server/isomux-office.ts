@@ -434,7 +434,15 @@ function createManagers(startOpts: StartServerOpts): void {
     startOpts.agentManager ??
     createProductionAgentManager({
       resolveBackend: startOpts.resolveBackend,
-      listProviderAccounts: (userId) => providerAccountManager.list(userId),
+      listProviderAccounts: async (userId, options) => {
+        const accounts = await providerAccountManager.list(userId, options?.refresh, options);
+        if (options && !options.signal.aborted) {
+          // Never start an unrelated provider just to publish a full snapshot.
+          const snapshot = providerAccountManager.cachedList(userId, accounts);
+          if (snapshot) liveEmit("provider_accounts_updated", { accounts: snapshot }, { userId });
+        }
+        return accounts;
+      },
       effectiveProviderAccountTarget: (userId, provider) =>
         providerAccountManager.effectiveTarget(userId, provider),
     });
