@@ -207,7 +207,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/worlds-best-boss",
     outfit: {
-      costume: "doctor",
       hat: "none",
       color: "#4A90D9",
       hair: "#3a2a1a",
@@ -229,7 +228,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/schrute-farms",
     outfit: {
-      costume: "police",
       hat: "none",
       color: "#D4A843",
       hair: "#8B4513",
@@ -251,7 +249,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/dunder-mifflin/sales",
     outfit: {
-      costume: "firefighter",
       hat: "none",
       color: "#45B7D1",
       hair: "#3a2a1a",
@@ -273,7 +270,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/art-studio",
     outfit: {
-      costume: "chef",
       hat: "none",
       color: "#E85D75",
       hair: "#C4A265",
@@ -295,7 +291,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/crossword-solver",
     outfit: {
-      costume: "construction",
       hat: "none",
       color: "#D4A843",
       hair: "#222",
@@ -317,7 +312,6 @@ const OFFICE_CHARACTERS: {
     room: 0,
     cwd: "~/famous-chili",
     outfit: {
-      costume: "astronaut",
       hat: "none",
       color: "#FF8C42",
       hair: "#8B4513",

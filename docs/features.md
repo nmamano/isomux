@@ -9,7 +9,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 ## Multi-provider
 
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
-- **Claude sign-in guidance** checks the affected connection after an authentication rejection and names the office or individual sign-in to check. A failed connection check offers retry or sign-in actions.
 - **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
 - **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
 
@@ -42,7 +41,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
-- **Members chat** - a humans-only chat on the Lobby. Consecutive messages sent directly by the same member share a name line. Members can give a message a thumbs up; hover over or tap the count to see who reacted. On desktop, drag the chat edge or focus it and use the arrow keys to change its width; the browser remembers it.
+- **Members chat** - a humans-only chat on the Lobby.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
@@ -60,7 +59,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Lobby** - a room always open to every member; it's where members without access to any room land. It also has a Receptionist agent and a members chat.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
-- **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize). Choose a doctor, police officer, firefighter, chef, construction worker or astronaut costume.
+- **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.
 - Desk monitors **glow based on agent state** (green / purple / red).
 - Status light with **escalating hung-agent warnings**: amber at 2 min, red at 5 min.
