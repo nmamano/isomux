@@ -99,7 +99,9 @@ type SidecarMessage =
 export interface TerminalDeps {
   getAgent: (agentId: string) => ManagedAgent | undefined;
   emit: (event: TerminalEvent) => void;
-  buildEnvForUserId: (userId: string | null | undefined) => Record<string, string | undefined> | undefined;
+  buildEnvForUserId: (
+    userId: string | null | undefined,
+  ) => Record<string, string | undefined> | undefined;
 }
 
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {

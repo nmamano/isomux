@@ -14,21 +14,37 @@ function fixture(buildEnvForUserId: TerminalDeps["buildEnvForUserId"]) {
   const write = mock((data: string) => data.length);
   const spawn = spyOn(Bun, "spawn").mockReturnValue({
     stdin: { write },
-    stdout: new ReadableStream({ start(controller) { controller.close(); } }),
+    stdout: new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    }),
     exited: new Promise<number>(() => {}),
     pid: 123,
   } as unknown as ReturnType<typeof Bun.spawn>);
   const emit = mock(() => {});
   spyOn(console, "log").mockImplementation(() => {});
   const warn = spyOn(console, "warn").mockImplementation(() => {});
-  const deps: TerminalDeps = { getAgent: () => managed, emit, buildEnvForUserId };
-  return { managed, spawn, emit, warn, deps, env: () => JSON.parse(write.mock.calls[0][0]).env };
+  const deps: TerminalDeps = {
+    getAgent: () => managed,
+    emit,
+    buildEnvForUserId,
+  };
+  return {
+    managed,
+    spawn,
+    emit,
+    warn,
+    deps,
+    env: () => JSON.parse(write.mock.calls[0][0]).env,
+  };
 }
 
 describe("terminal environment", () => {
   it("passes the agent owner's managed variables to the PTY", () => {
     const build = mock((userId: string | null | undefined) => ({
-      TERMINAL_MEMBER_VALUE: userId === "member-id" ? "member-value" : "wrong-owner",
+      TERMINAL_MEMBER_VALUE:
+        userId === "member-id" ? "member-value" : "wrong-owner",
       CLAUDE_CONFIG_DIR: "/personal/claude",
       CODEX_HOME: "/personal/codex",
     }));
@@ -43,8 +59,12 @@ describe("terminal environment", () => {
 
   it("keeps all six shell overlay values above managed values", () => {
     const f = fixture(() => ({
-      TERM: "managed", SHELL: "managed", HOME: "managed",
-      USER: "managed", LANG: "managed", PATH: "managed",
+      TERM: "managed",
+      SHELL: "managed",
+      HOME: "managed",
+      USER: "managed",
+      LANG: "managed",
+      PATH: "managed",
     }));
     expect(openTerminal("agent-terminal", f.deps)).toBe(true);
     expect(f.env()).toMatchObject({
@@ -59,11 +79,20 @@ describe("terminal environment", () => {
 
   it("warns and exits without a sidecar when environment loading throws", () => {
     const error = new Error("managed environment import pending");
-    const f = fixture(() => { throw error; });
+    const f = fixture(() => {
+      throw error;
+    });
     expect(openTerminal("agent-terminal", f.deps)).toBe(false);
     expect(f.spawn).not.toHaveBeenCalled();
     expect(f.managed.ptySidecar).toBeNull();
-    expect(f.warn).toHaveBeenCalledWith("[terminal] cannot open PTY for agent-terminal:", error);
-    expect(f.emit).toHaveBeenCalledWith({ type: "terminal_exit", agentId: "agent-terminal", exitCode: 1 });
+    expect(f.warn).toHaveBeenCalledWith(
+      "[terminal] cannot open PTY for agent-terminal:",
+      error,
+    );
+    expect(f.emit).toHaveBeenCalledWith({
+      type: "terminal_exit",
+      agentId: "agent-terminal",
+      exitCode: 1,
+    });
   });
 });

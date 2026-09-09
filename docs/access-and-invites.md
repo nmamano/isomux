@@ -133,8 +133,6 @@ Every member can open the lobby. The members chat is office-wide. The first owne
 - **Agents run with the host Linux user's permissions.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
 - **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
 
-The terminal inherits the agent owner's office-wide and individual connections.
-
 ## Use your own provider account
 
 In Settings → Office → Office-wide connections (for every agent) or Settings → You → Individual connections (for your own), choose whether the account is for every agent
