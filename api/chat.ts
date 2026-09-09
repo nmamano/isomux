@@ -103,7 +103,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Multiple rooms - click doors to switch rooms, each room has 8 desks, no hard limit on total agents
 - Tab/Shift+Tab cycles between agents within a room; rooms keep things organized (e.g., main project agents in room 1, side projects in room 2)
 - Name your agents - each gets a nametag on their desk
-- Unique character per agent - customize hat, shirt, hair, accessory, or randomize
+- Unique character per agent - customize hat, shirt, hair, accessory, or randomize. Choose a doctor, police officer, firefighter, chef, construction worker or astronaut costume.
 - Animated characters - sleeping when idle, typing when working, waving when waiting for you
 - Desk monitors glow based on agent state (green / purple / red)
 - Status light with escalating warnings: amber at 2 min, red at 5 min

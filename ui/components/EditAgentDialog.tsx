@@ -21,6 +21,8 @@ import {
 } from "../../shared/types.ts";
 import { roomSlotCount } from "../../shared/desks.ts";
 import {
+  COSTUMES,
+  costumeOf,
   SHIRT_COLORS,
   HAIR_COLORS,
   SKIN_COLORS,
@@ -1339,6 +1341,20 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     {t("dialogs.agent.randomize")}
                   </button>
                 </div>
+
+                <label style={labelStyle} htmlFor="agent-costume">
+                  {t("dialogs.agent.costume")}
+                </label>
+                <select
+                  id="agent-costume"
+                  value={costumeOf(outfit.costume)}
+                  onChange={(e) => setOutfit({ ...outfit, costume: costumeOf(e.target.value) })}
+                  style={{ ...inputStyle, marginBottom: 10 }}
+                >
+                  {COSTUMES.map((costume) => <option key={costume} value={costume}>
+                    {t(`dialogs.agent.costume.${costume}`)}
+                  </option>)}
+                </select>
 
                 {/* Skin Color */}
                 <div

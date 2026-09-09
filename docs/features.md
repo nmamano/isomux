@@ -59,7 +59,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 - **Lobby** - a room always open to every member; it's where members without access to any room land. It also has a Receptionist agent and a members chat.
 - **Isometric rooms with 8 desks** - see all your agents at a glance.
-- **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize).
+- **Unique character per agent** - customize color, hat, shirt, hair, accessory, with live preview (or randomize). Choose a doctor, police officer, firefighter, chef, construction worker or astronaut costume.
 - **Animated characters** - sleeping when idle, typing when working, waving when waiting for you.
 - Desk monitors **glow based on agent state** (green / purple / red).
 - Status light with **escalating hung-agent warnings**: amber at 2 min, red at 5 min.

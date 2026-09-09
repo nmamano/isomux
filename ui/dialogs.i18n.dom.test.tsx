@@ -208,6 +208,32 @@ describe("the agent dialog", () => {
   });
 });
 
+describe("the costume picker", () => {
+  it("translates the choices and updates the live preview", async () => {
+    const view = render(agentDialog("ca"));
+    for (const [language, label, construction] of [
+      ["ca", "Disfressa", "Treballador de la construcció"],
+      ["es", "Disfraz", "Trabajador de la construcción"],
+      [null, "Costume", "Construction worker"],
+    ] as const) {
+      view.rerender(agentDialog(language));
+      const select = view.getByLabelText(label) as HTMLSelectElement;
+      expect(Array.from(select.options).map(option => option.text)).toContain(construction);
+      act(() => {
+        select.value = "construction";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(view.container.querySelector('[data-costume-body="construction"]')).not.toBeNull();
+      act(() => {
+        select.value = "none";
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+      expect(view.container.querySelector('[data-costume-body]')).toBeNull();
+    }
+    await settle();
+  });
+});
+
 describe("the schedule dialogs", () => {
   it("read the language too, including the weekday list and the prompt dialog", () => {
     const view = render(scheduleDialog("ca"));

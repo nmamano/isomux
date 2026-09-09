@@ -42,6 +42,7 @@ export interface AgentChoiceInteraction {
 }
 
 export interface AgentOutfit {
+  costume?: "none" | "doctor" | "police" | "firefighter" | "chef" | "construction" | "astronaut";
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
   color: string; // shirt color hex
   hair: string; // hair color hex

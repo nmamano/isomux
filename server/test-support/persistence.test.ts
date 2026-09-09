@@ -103,6 +103,7 @@ beforeEach(() => {
 
 // Shared, fully-populated outfit so fixtures carry every nested field.
 const OUTFIT: AgentOutfit = {
+  costume: "astronaut",
   hat: "cap",
   color: "#ff0000",
   hair: "#221100",
