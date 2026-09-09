@@ -58,13 +58,13 @@ const SITE_VOICE = `You are an assistant on the Isomux website (isomux.com). You
 export const ISOMUX_KNOWLEDGE = `## What is Isomux?
 Isomux (Isometric Multiplexer) is a free, open-source meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration, a mobile UI, and more. It gives you a browser-based UI with an isometric office where each agent sits at a desk, so you see who's working, who's idle, and who needs your attention at a glance.
 
-Free · open source · no cloud · no account.
+Free · open source · no account needed · works with your subscriptions.
 
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
-- Claude can use your existing Claude Code login. Codex ships bundled and connects to ChatGPT from User Settings or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
-- Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
+- Claude can use your existing Claude Code login. Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
+- Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. No database.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
@@ -72,11 +72,11 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)
 
 ## Getting Started
-1. Install Bun (v1.2+) and Node.js 24 (LTS) (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). Codex and OpenCode ship bundled. Codex prompts for sign-in on first use. OpenCode lists Free, Pay-as-you-go, and Subscription models. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
+1. Install Bun (v1.2+) and Node.js 24 (LTS) (the embedded terminal runs on Node.js; Bun can't replace it). On Debian/Ubuntu, also install the native build tools (\`sudo apt install python3 build-essential\`). If Claude is not set up, Isomux prompts for installation and sign-in when you talk to a Claude agent. Codex and OpenCode ship bundled. Codex prompts for sign-in on first use. OpenCode lists Free, Pay-as-you-go, and Subscription models. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
 2. \`git clone https://github.com/nmamano/isomux.git && cd isomux && bun install && bun run dev\`
-3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit, then click an empty desk to pick an engine and spawn your first agent.
+3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit to enter the office. New offices start with three welcome agents, one each for Claude, Codex, and OpenCode. Click an empty desk to spawn another agent.
 
-## Self-hosted Persistent Server (Mac Mini style)
+## Self-hosted Persistent Server
 Isomux shines when you run it on your own always-on machine (like a Mac Mini), and then access it from all your devices.
 Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.
 Bonus: anyone you invite can chime in to the same conversation in real time, so multiple humans can collaborate with the same agent.
@@ -84,12 +84,12 @@ Bonus: anyone you invite can chime in to the same conversation in real time, so 
 Setup:
 1. Install Tailscale (free) on the server, your laptop, and your phone.
 2. Claim ownership of the office first, from the host machine: open \`http://localhost:4000\` and submit a display name. Before this happens the server binds 127.0.0.1 only, so the tailnet URL won't respond yet.
-3. In the running office, open User Settings → Access → External access, enable the toggle, paste the URL where other devices will reach the office (e.g. \`http://my-mac-mini:4000\`), click Save, then restart isomux (\`systemctl --user restart isomux\`).
+3. In the running office, open Settings → Office → Access → External access, enable the toggle, paste the URL where other devices will reach the office (e.g. \`http://my-mac-mini:4000\`), click Save, then restart isomux.
 4. Access Isomux from any tailnet device at that URL. Tip: rename your machine in the Tailscale admin console to something friendly like \`my-mac-mini\`.
-5. For persistence, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout.
+5. For persistence on Linux, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout. Use launchd on macOS or Task Scheduler on Windows. See isomux.com/docs/self-hosted.
 6. Install Isomux as an app for a full-screen experience: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome will prompt you to install on first visit.
 7. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
-8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
+8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/self-hosted have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
 
 ## Hosted Isomux
 Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
@@ -110,23 +110,23 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Auto-generated conversation topic below nametag
 - Drag agents between desks to rearrange
 - Color themes: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
-- Live user presence: other connected people (and the user's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from User Settings. The name tag above each ghost shows username and device. Clicking a ghost opens that user's settings. In the lobby, everyone sees their own ghost too. Each visitor gets a random free spot; click a free spot to move there.
+- Live user presence: other connected people (and the user's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from Settings → You → Profile. The name tag above each ghost shows username and device. Clicking a ghost opens that user's settings. In the lobby, everyone sees their own ghost too. Each visitor gets a random free spot; click a free spot to move there.
 - Members chat: a humans-only chat on the Lobby. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, edit in place, delete, and an unread dot with the count in its label. On desktop, members can hide the panel and show it again from the Lobby tab bar; the browser remembers the choice and keeps the unread dot visible while hidden. On phones, the Members chat button in the Lobby opens the chat full screen.
 - Receptionist: an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model, that helps new members settle into the office. It is an ordinary agent spawned from the Isomux Receptionist profile: an owner can change its engine, model and instructions, and spawning a fresh agent from that profile restores the default.
 - User roster: owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 
 ### Skeuomorphic Details
 - Click the **corkboard** on the wall to open the shared task board
-- Click the **framed sign** to edit the office-wide system prompt (injected into all agents)
+- Click the **vent** to open Office Settings and edit the office-wide system prompt (injected into all agents)
 - Click the **moon** through the window to toggle dark mode
 - Click the **neon sign** to visit isomux.com
 - Click **doors** to switch between rooms
 - Frontier-tier agents (Opus, Fable, GPT-6 Astra, GPT-5.6 Sol) have a book on their desk; small fast models (Haiku, GPT minis) have crayons
-- The entire SVG scene (~1,600 lines of raw coordinates and bezier curves) was drawn by Claude Opus - no libraries, assets, or tools
+- The office scene is drawn with React and SVG.
 
 ### Agent Backends
 - **Claude** (Anthropic): best general-purpose coding agent. Uses your existing Claude Code login.
-- **Codex** (OpenAI): GPT-5 family. Ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
+- **Codex** (OpenAI): ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
 - **OpenCode**: ships as a pinned bundled server and exposes models from its connected providers. To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under Settings → You → Individual connections.
 - The engine is chosen at spawn time and can be switched later from the agent's edit dialog. Model family and effort/reasoning can also be changed at any time.
 - All three engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
@@ -150,7 +150,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Browser preview cards: agents can screenshot a web page (like the dev server they're working on) straight into the chat. Needs a Chrome-family browser installed on the server (runs headless, no display needed); everything else works without one.
-- Embedded terminal for direct shell access per agent. The terminal inherits the agent owner's office-wide and individual connections. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
+- Embedded terminal for direct shell access per agent. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching - edit a past message to fork the conversation from that point, preserving the original
 - Right-click context menu - resume past sessions, edit agent, kill
@@ -184,7 +184,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Agents persist across server restarts - sessions are recreated from disk
 - Auto-resume last conversation on restart
 - Resume past conversations from session files (via /resume or right-click menu)
-- All conversations are persisted forever in append-only JSONL logs
+- Conversations are persisted in append-only JSONL logs. Owners can prune old history from the storage panel.
 - Isomux masks recognized secret patterns before they reach the logs or the chat, to prevent leaks.
 - Kill removes agent and frees desk
 - Context self-check: every agent can ask how full its own context window is (an API documented in its system prompt), so instructions like "start wrapping up past 80% of context" have something real to check against. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context, plus a battery-style meter in the conversation header that drains and shifts from dim to orange to red as the window fills. The server also nudges the agent as its window fills - a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% - so wrap-up suggestions fire even when the agent never thinks to check
@@ -204,11 +204,11 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Access & Invites
 - Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.
-- Single-use invite links: the office owner mints a URL in User Settings → Invites for each new user, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link from the Invites section.
+- Single-use invite links: the office owner mints a URL in Settings → Office → Invites for each new user, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link from the Invites section.
 - Two roles: owner (can invite users, revoke sessions, and set per-user room access) and member (can act in the rooms the owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office - owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their user settings. Each user also picks which of their accessible rooms are displayed in their own view; notifications are limited to displayed rooms.
-- The owner can revoke any active session or unconsumed invite from the Access pane; revocation force-closes the affected WebSocket within ~1s.
+- The owner can revoke active sessions from Settings → Office → Sessions and unconsumed invites from Settings → Office → Invites; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
-- To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
+- To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/self-hosted walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
 - Claude, Codex, and OpenCode apply the same built-in pre-tool safety policy. The guards block recognized dangerous actions before they run.
@@ -232,7 +232,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Schedule recurring agent runs (daily at HH:MM, weekly on a weekday, or every N minutes). Use case: a 09:00 schedule that summarizes what every agent did yesterday.
 - Schedules are not desk agents; they have no persistent identity. Each scheduled fire spawns a fresh SDK session that runs to completion, then the transcript is preserved.
 - Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
-- Same configurability as a desk agent: model, thinking effort, cwd, permission mode (bypassPermissions or auto)
+- Same configurability as a desk agent: model, thinking effort, cwd, permission mode
 - Manual "Run now" for any schedule, independent of its timing
 - Per schedule token usage rolled into the /isomux-usage report alongside per-agent and per-room totals (for owners)
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
@@ -240,13 +240,13 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
-- The Apps tab lists every app available to you with its state, restart count, recent output, and screenshot preview, and lets you start, stop, restart, or delete it.
+- The Apps tab lists every app available to you with its state, restart count, and screenshot preview. App owners and office owners can also read recent output and start, stop, restart, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/self-hosted).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 
 ### Other
-- Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
+- Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
 - Per-user profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
 - Managed variables for secrets and config: owners edit office-wide variables under Settings → Office → Office-wide connections and each user edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
 - Personal API tokens: one token has one durable conversation with all the agents it messages; sends and replies share a sequence log, read by cursor in pages of 500 until latestSequence, with live entries through the office WebSocket and cursor reads for recovery after a disconnect. Only owner-driven storage pruning removes entries, including after revocation. See isomux.com/docs/developer-api for the protocol and Idempotency-Key retries.
