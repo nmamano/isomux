@@ -292,10 +292,12 @@ type Action =
       readPointer: string | null;
       unread: number;
       prepend: boolean;
+      // Client-local snapshot at fetch issue; never sent over the wire.
+      heldAtRequest?: string[];
     }
   | { type: "set_lobby_open"; open: boolean }
   // Wire events for the same slice (server/events/registry.ts).
-  | { type: "members_chat_message"; message: MembersChatMessage }
+  | { type: "members_chat_message"; message: MembersChatMessage; updateOnly?: boolean }
   | { type: "members_chat_deleted"; id: string }
   | { type: "members_chat_read"; readPointer: string | null; unread: number }
   | { type: "tasks"; tasks: TaskItem[] }
@@ -750,17 +752,12 @@ export function reducer(state: AppState, action: Action): AppState {
       const incoming = action.messages;
       const ids = new Set(incoming.map((m) => m.id));
       const kept = state.membersChat.messages.filter((m) => !ids.has(m.id));
-      // Older page: it goes above everything held. Fresh page: it is the newest
-      // slice, and anything held that it does not contain arrived live after
-      // the server built the page, so it stays below.
+      // Members-chat IDs carry a random suffix and do not sort. A fresh page
+      // replaces the request-time cache, retaining only arrivals during fetch.
+      const heldAtRequest = new Set(action.heldAtRequest ?? []);
       const messages = action.prepend
         ? [...incoming, ...kept]
-        : [
-            ...incoming,
-            ...kept.filter(
-              (m) => m.id > (incoming[incoming.length - 1]?.id ?? ""),
-            ),
-          ];
+        : [...incoming, ...kept.filter((m) => !heldAtRequest.has(m.id))];
       return {
         ...state,
         membersChat: {
@@ -774,7 +771,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
-    // A post or an in-place edit. Upsert by id: an edit replaces where it sits,
+    // A post or an in-place update. A held message is replaced where it sits,
     // a new message goes to the end. Someone else's new message bumps the
     // local unread until the next markRead answer replaces it.
     case "members_chat_message": {
@@ -785,6 +782,8 @@ export function reducer(state: AppState, action: Action): AppState {
         messages[idx] = action.message;
         return { ...state, membersChat: { ...mc, messages } };
       }
+      // Edits and reactions to an unloaded message are not new arrivals.
+      if (action.updateOnly) return state;
       const mine = action.message.userId === state.sessionContext?.userId;
       return {
         ...state,

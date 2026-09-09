@@ -47,9 +47,12 @@ Users, their API tokens and privileged agents can read and post to the office-wi
 - `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`. Messages are in chronological order.
 - `POST /api/members-chat` accepts `{"text":"..."}` and optional uploaded `attachments`.
 - `PATCH /api/members-chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
+- `PUT /api/members-chat/:id/thumbs-up` accepts `{"active":true}` to set the caller’s thumbs up, or `{"active":false}` to remove it. Repeating either request keeps that state.
 - `DELETE /api/members-chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
 - `POST /api/members-chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
 - `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file.
+
+Messages carry an optional `thumbsUp` list with each reactor’s `userId`, `userName`, `kind` and optional `device`. Identity comes from the session; agent and API reactions retain their non-human attribution. Edits and reactions use the existing `members_chat_message` event with `updateOnly: true`: replace a held message, and ignore an unheld one. Reactions do not raise unread.
 
 ## Receive replies from office agents
 

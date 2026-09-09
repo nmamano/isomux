@@ -28,6 +28,9 @@ afterAll(() => {
 });
 
 const {
+  getMembersChatHidden,
+  getMembersChatWidth,
+  setMembersChatWidth,
   getAppPreviews,
   setAppPreviews,
   APP_PREVIEW_OPEN_TTL_MS,
@@ -143,4 +146,30 @@ describe("usage pill pin", () => {
     expect(getUsagePin("agent-2", "claude")).toBeNull();
     expect(getUsagePin("agent-3", "claude")).toBeNull();
   });
+});
+
+
+describe("members chat width", () => {
+  beforeEach(() => store.clear());
+  it("defaults missing and invalid values, clamps finite values, and remembers width", () => {
+    expect(getMembersChatWidth(1440)).toBe(520);
+    for (const value of ["broken", "NaN", "Infinity", ""]) {
+      store.set("isomux-members-chat-width", value);
+      expect(getMembersChatWidth(1440)).toBe(520);
+    }
+    store.set("isomux-members-chat-width", "-900");
+    expect(getMembersChatWidth(1440)).toBe(300);
+    setMembersChatWidth(800);
+    expect(getMembersChatWidth(1440)).toBe(800);
+    expect(getMembersChatWidth(768)).toBe(720);
+    setMembersChatWidth(90000);
+    expect(getMembersChatWidth(1440)).toBe(900);
+  });
+});
+
+it("defaults a missing or unknown desktop chat visibility value to visible", () => {
+  store.delete("isomux-members-chat-hidden");
+  expect(getMembersChatHidden()).toBe(false);
+  store.set("isomux-members-chat-hidden", "broken");
+  expect(getMembersChatHidden()).toBe(false);
 });

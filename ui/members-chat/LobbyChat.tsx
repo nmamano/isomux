@@ -131,7 +131,7 @@ export function LobbyChat({
           fontSize: 11,
           fontWeight: 600,
           cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace",
+          fontFamily: "'DM Sans',sans-serif",
           letterSpacing: "0.02em",
           display: "inline-flex",
           alignItems: "center",

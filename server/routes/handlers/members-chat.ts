@@ -34,6 +34,7 @@ import type { Attachment, MembersChatMessage } from "../../../shared/types.ts";
 import type {
   MembersChatPostReq,
   MembersChatEditReq,
+  MembersChatThumbsUpReq,
   MembersChatReadReq,
 } from "../../../shared/contract-shapes.ts";
 import {
@@ -58,6 +59,7 @@ export interface MembersChatDeps {
   page(opts: { before?: string; limit?: number }): MembersChatPage;
   post(input: PostInput): MembersChatMessage;
   edit(id: string, content: string): MembersChatMessage | null;
+  setThumbsUp(id: string, reactor: MembersChatAuthor, active: boolean): MembersChatMessage | null;
   delete(id: string): MembersChatMessage | null;
   get(id: string): MembersChatMessage | null;
   getReadPointer(userId: string): string | null;
@@ -74,7 +76,7 @@ export interface MembersChatDeps {
   // (a user record that vanished, an agent that is gone) - rendered as 403.
   authorFor(identity: Identity): MembersChatAuthor | null;
   isOwner(userId: string): boolean;
-  emitMessage(message: MembersChatMessage): void;
+  emitMessage(message: MembersChatMessage, updateOnly?: boolean): void;
   emitDeleted(id: string): void;
   emitRead(userId: string, readPointer: string | null, unread: number): void;
 }
@@ -198,7 +200,18 @@ export function membersChatHandlers(
         return storeError(err);
       }
       if (!message) return fail(404, "not_found");
-      deps.emitMessage(message);
+      deps.emitMessage(message, true);
+      return ok(message);
+    },
+
+    "membersChat.thumbsUp": (ctx) => {
+      const reactor = deps.authorFor(ctx.identity);
+      if (!reactor) return fail(403, "forbidden");
+      const body = (ctx.body ?? {}) as Partial<MembersChatThumbsUpReq>;
+      if (typeof body.active !== "boolean") return fail(400, "invalid_request", "active must be a boolean");
+      const message = deps.setThumbsUp(ctx.params.id, reactor, body.active);
+      if (!message) return fail(404, "not_found");
+      deps.emitMessage(message, true);
       return ok(message);
     },
 

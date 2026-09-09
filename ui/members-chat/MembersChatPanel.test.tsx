@@ -149,10 +149,10 @@ describe("formatWhen", () => {
 describe("MembersChatPanel markup", () => {
   it("renders every author label, the members-chat file route, and the online count", () => {
     const html = render({});
-    expect(html).toContain("NIL (PHONE)");
-    expect(html).toContain("NIL · API TOKEN &quot;LAPTOP&quot;");
-    expect(html).toContain("ISOMUX PM · AGENT");
-    expect(html).toContain("· EDITED");
+    expect(html).toContain("Nil (Phone)");
+    expect(html).toContain("Nil · API token &quot;Laptop&quot;");
+    expect(html).toContain("Isomux PM · agent");
+    expect(html).toContain("· edited");
     expect(html).toContain('href="/api/members-chat/files/report.pdf"');
     expect(html).not.toContain("/api/files/");
     expect(html).toContain("2 online");

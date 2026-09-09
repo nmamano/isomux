@@ -7,8 +7,9 @@
 //
 // What differs from the agent chat, on purpose: an edit rewrites in place (no
 // branch), a message can be deleted (own, or any for an office owner), the
-// author line carries a time and a small ghost of the author (a trial Nil
-// decides on sight), and the list pages older messages when scrolled to the
+// group header carries a time and a small ghost of the author. Human
+// continuations keep their own time in a title; non-human messages keep
+// their author line on every message. The list pages older messages at the
 // top instead of holding the whole history.
 
 import {
@@ -33,6 +34,7 @@ import { MEMBERS_CHAT_MAX_CHARS } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import { useAppState, useDispatch } from "../store.tsx";
+import { ThumbsUpReaction } from "./ThumbsUpReaction.tsx";
 import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
 import { getDevice } from "../device-settings.ts";
@@ -45,12 +47,12 @@ import {
 // The char counter appears once a draft is this close to the cap.
 const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
 
-// The author label the card prints, uppercased by the card. A person reads as
+// The author label the card prints. A person reads as
 // "Nil (Phone)"; an API token and an agent read as machine-sent, the way the
 // agent chat styles them, so nobody scrolling back takes a script's line for a
 // boss's.
 export function describeMembersChatAuthor(
-  m: MembersChatMessage,
+  m: Pick<MembersChatMessage, "kind" | "userName" | "device">,
   t: Translator["t"],
 ): {
   label: string;
@@ -176,13 +178,22 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
   );
 }
 
+export function continuesMembersChatAuthor(previous: MembersChatMessage | undefined, message: MembersChatMessage): boolean {
+  return !!previous && previous.kind === "user" && message.kind === "user" &&
+    previous.userId === message.userId && previous.device === message.device &&
+    message.timestamp >= previous.timestamp &&
+    message.timestamp - previous.timestamp <= 5 * 60 * 1000;
+}
+
 export function MembersChatPanel({
+  resizeHandle,
   style,
   onClose,
   onHide,
   onRetry,
   loadFailed = false,
 }: {
+  resizeHandle?: ReactNode;
   style?: React.CSSProperties;
   onClose?: () => void;
   onHide?: () => void;
@@ -278,8 +289,10 @@ export function MembersChatPanel({
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, []);
+  // Members-chat IDs carry a random suffix and do not sort. The server
+  // keeps the pointer monotonic by file position, including unloaded history.
   useEffect(() => {
-    if (!loaded || !atBottom || !newestId || newestId <= (readPointer ?? ""))
+    if (!loaded || !atBottom || !newestId || newestId === readPointer)
       return;
     if (document.visibilityState !== "visible") return;
     const t = setTimeout(() => {
@@ -388,12 +401,21 @@ export function MembersChatPanel({
     chatApi
       .edit(id, text)
       .then((m) => {
-        dispatch({ type: "members_chat_message", message: m });
+        dispatch({ type: "members_chat_message", message: m, updateOnly: true });
         setEditingId(null);
       })
       .catch((err: unknown) =>
         setError(chatError(err, "membersChat.editFailed")),
       );
+  }
+
+  async function setThumbsUp(id: string, active: boolean) {
+    try {
+      const message = await chatApi.setThumbsUp(id, active);
+      dispatch({ type: "members_chat_message", message, updateOnly: true });
+    } catch (err) {
+      setError(chatError(err, "membersChat.reactionFailed"));
+    }
   }
 
   function remove(id: string) {
@@ -435,6 +457,7 @@ export function MembersChatPanel({
       }}
       onDrop={handleDrop}
     >
+      {resizeHandle}
       <div
         style={{
           display: "flex",
@@ -530,7 +553,7 @@ export function MembersChatPanel({
           flex: 1,
           minHeight: 0,
           overflowY: "auto",
-          padding: isMobile ? "0 12px" : "0 18px",
+          padding: "4px 10px",
         }}
       >
         {hasMore && (
@@ -574,7 +597,8 @@ export function MembersChatPanel({
             {t("membersChat.empty")}
           </div>
         )}
-        {messages.map((m) => {
+        {messages.map((m, index) => {
+          const continuation = continuesMembersChatAuthor(messages[index - 1], m);
           const author = describeMembersChatAuthor(m, t);
           const mine = me !== null && m.userId === me;
           const time = formatWhen(language, m.timestamp);
@@ -585,6 +609,7 @@ export function MembersChatPanel({
                 key={m.id}
                 content={m.content}
                 entryId={m.id}
+                variant="members-chat"
                 isMobile={isMobile}
                 username={author.label}
                 onCancel={() => setEditingId(null)}
@@ -623,6 +648,15 @@ export function MembersChatPanel({
               content={m.content}
               isMobile={isMobile}
               username={label}
+              variant="members-chat"
+              hideAuthor={continuation}
+              footer={<ThumbsUpReaction
+                active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
+                names={(m.thumbsUp ?? []).map((r) => describeMembersChatAuthor(r, t).label)}
+                isMobile={isMobile}
+                onChange={(active) => setThumbsUp(m.id, active)}
+              />}
+              title={label}
               fromNonHuman={author.nonHuman}
               attachments={m.attachments}
               fileBase={MEMBERS_CHAT_FILES_BASE}
@@ -711,7 +745,7 @@ export function MembersChatPanel({
                   background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
                   border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
                   fontSize: isMobile ? 13 : 11,
-                  fontFamily: "'JetBrains Mono',monospace",
+                  fontFamily: "'DM Sans',sans-serif",
                   color: att.error ? "var(--red)" : "var(--text-secondary)",
                   maxWidth: "100%",
                 }}
@@ -822,7 +856,7 @@ export function MembersChatPanel({
                 border: "none",
                 outline: "none",
                 color: "var(--text-secondary)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: "'DM Sans',sans-serif",
                 fontSize: isMobile ? 16 : 13,
                 caretColor: "var(--green)",
                 resize: "none",

@@ -796,6 +796,10 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
 }
 
 export function UserMessage({
+  variant,
+  hideAuthor = false,
+  footer,
+  title,
   content,
   isMobile,
   username,
@@ -813,6 +817,10 @@ export function UserMessage({
   canEdit,
   onEdit,
 }: {
+  variant?: "members-chat";
+  hideAuthor?: boolean;
+  footer?: ReactNode;
+  title?: string;
   content: string;
   isMobile?: boolean;
   username?: string;
@@ -845,8 +853,9 @@ export function UserMessage({
   const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const [overflows, setOverflows] = useState(false);
-  const messageFontSize = isMobile ? 15 : 13;
-  const messageLineHeight = 1.6;
+  const compact = variant === "members-chat";
+  const messageFontSize = compact ? 15 : isMobile ? 15 : 13;
+  const messageLineHeight = compact ? 1.4 : 1.6;
   const previewHeight = messageFontSize * messageLineHeight * 6;
   useEffect(() => {
     const body = bodyRef.current;
@@ -862,30 +871,34 @@ export function UserMessage({
   const edge = `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`;
   return (
     <div
+      title={title}
+      data-members-chat-message={compact ? "" : undefined}
       style={{
-        margin: outgoing ? "12px 0 12px 18px" : "12px 0",
-        padding: "10px 14px",
-        paddingRight: 40,
+        fontFamily: compact ? "'DM Sans',sans-serif" : undefined,
+        margin: compact ? (hideAuthor ? "2px 0" : "8px 0 2px") : outgoing ? "12px 0 12px 18px" : "12px 0",
+        padding: compact ? "5px 10px" : "10px 14px",
+        paddingRight: compact ? 70 : 40,
         borderRadius: 10,
         background: "var(--user-msg-bg)",
-        ...(outgoing ? { borderRight: edge } : { borderLeft: edge }),
+        ...(compact ? {} : outgoing ? { borderRight: edge } : { borderLeft: edge }),
         position: "relative",
       }}
     >
-      <div
+      {!hideAuthor && <div
+        data-members-chat-author={compact ? "" : undefined}
         style={{
-          fontSize: isMobile ? 12 : 10,
+          fontSize: compact ? 12 : isMobile ? 12 : 10,
           fontWeight: 600,
           color: accentColor,
           marginBottom: 4,
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
+          textTransform: compact ? "none" : "uppercase",
+          letterSpacing: compact ? "normal" : "0.05em",
           fontStyle: fromNonHuman ? "italic" : "normal",
         }}
       >
         {avatar}
-        {(username ?? t("common.you")).toUpperCase()}
-      </div>
+        {compact ? (username ?? t("common.you")) : (username ?? t("common.you")).toUpperCase()}
+      </div>}
       <div
         id={bodyId}
         onFocusCapture={() => {
@@ -902,7 +915,7 @@ export function UserMessage({
             <div
               style={{
                 color: "var(--text-secondary)",
-                fontFamily: "'JetBrains Mono',monospace",
+                fontFamily: compact ? "'DM Sans',sans-serif" : "'JetBrains Mono',monospace",
                 fontSize: messageFontSize,
                 lineHeight: messageLineHeight,
                 whiteSpace: "pre-wrap",
@@ -926,6 +939,7 @@ export function UserMessage({
           )}
         </div>
       </div>
+      {footer}
       {collapsible && overflows && (
         <button
           type="button"
@@ -993,6 +1007,7 @@ export function UserMessage({
 }
 
 export function EditableUserMessage({
+  variant,
   content,
   entryId,
   isMobile,
@@ -1002,6 +1017,7 @@ export function EditableUserMessage({
 }: {
   content: string;
   entryId: string;
+  variant?: "members-chat";
   isMobile?: boolean;
   username?: string;
   onCancel?: () => void;
@@ -1085,7 +1101,7 @@ export function EditableUserMessage({
           borderRadius: 6,
           padding: "8px 10px",
           fontSize: isMobile ? 15 : 13,
-          fontFamily: "'JetBrains Mono',monospace",
+          fontFamily: variant === "members-chat" ? "'DM Sans',sans-serif" : "'JetBrains Mono',monospace",
           lineHeight: 1.6,
           background: "var(--bg-base)",
           color: "var(--text-secondary)",

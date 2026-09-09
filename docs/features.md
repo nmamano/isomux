@@ -42,7 +42,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
-- **Members chat** - a humans-only chat on the Lobby.
+- **Members chat** - a humans-only chat on the Lobby. Consecutive messages sent directly by the same member share a name line. Members can give a message a thumbs up; hover over or tap the count to see who reacted. On desktop, drag the chat edge or focus it and use the arrow keys to change its width; the browser remembers it.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.

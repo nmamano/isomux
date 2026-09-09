@@ -44,6 +44,10 @@ export function edit(id: string, text: string): Promise<MembersChatMessage> {
   });
 }
 
+export function setThumbsUp(id: string, active: boolean): Promise<MembersChatMessage> {
+  return apiFetch<MembersChatMessage>("PUT", `/api/members-chat/${id}/thumbs-up`, { active });
+}
+
 export function remove(id: string): Promise<void> {
   return apiFetch<void>("DELETE", `/api/members-chat/${id}`);
 }

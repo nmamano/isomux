@@ -192,7 +192,7 @@ export interface EventPayloads {
   provider_accounts_updated: { accounts: ProviderAccountWire[] };
   // Members chat: a post or an in-place edit (upsert by id), a deletion, and the
   // recipient's own read pointer moving on another device.
-  members_chat_message: { message: MembersChatMessage };
+  members_chat_message: { message: MembersChatMessage; updateOnly?: boolean };
   members_chat_deleted: { id: string };
   members_chat_read: { readPointer: string | null; unread: number };
   tasks: { tasks: TaskItem[] };

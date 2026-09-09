@@ -1,7 +1,12 @@
 import {
   getMembersChatHidden,
+  getMembersChatWidth,
+  setMembersChatWidth,
+  clampMembersChatWidth,
+  DEFAULT_MEMBERS_CHAT_WIDTH,
   setMembersChatHidden,
 } from "../device-settings.ts";
+import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
@@ -53,7 +58,7 @@ import { buildCommitNotice } from "../../shared/update-notice.ts";
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
 
-export const LOBBY_CHAT_WIDTH = 380;
+export const LOBBY_CHAT_WIDTH = DEFAULT_MEMBERS_CHAT_WIDTH;
 
 /** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
@@ -223,6 +228,25 @@ export function OfficeView({
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(!embed);
   const [chatHidden, setChatHidden] = useState(getMembersChatHidden);
+  const [chatViewportWidth, setChatViewportWidth] = useState(() => typeof window === "undefined" ? 1440 : window.innerWidth);
+  const [preferredChatWidth, setPreferredChatWidth] = useState<number | null>(() => isMobile ? null : getMembersChatWidth(chatViewportWidth));
+  // A phone does not read the desktop preference, including on first mount.
+  if (!isMobile && preferredChatWidth === null) setPreferredChatWidth(getMembersChatWidth(chatViewportWidth));
+  const chatWidth = clampMembersChatWidth(preferredChatWidth ?? LOBBY_CHAT_WIDTH, chatViewportWidth);
+  useEffect(() => {
+    const resize = () => setChatViewportWidth(window.innerWidth);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  function changeChatWidth(width: number) {
+    const next = clampMembersChatWidth(width, chatViewportWidth);
+    setPreferredChatWidth(next);
+  }
+  function commitChatWidth(width: number) {
+    const next = clampMembersChatWidth(width, chatViewportWidth);
+    setPreferredChatWidth(next);
+    setMembersChatWidth(next);
+  }
   const desktopChatVisible = lobbyOpen && !isMobile && !embed && !chatHidden;
   function changeChatHidden(hidden: boolean) {
     setChatHidden(hidden);
@@ -858,7 +882,7 @@ export function OfficeView({
               onZoomIn={viewport.zoomIn}
               onZoomOut={viewport.zoomOut}
               onReset={viewport.resetView}
-              rightInset={desktopChatVisible ? LOBBY_CHAT_WIDTH : 0}
+              rightInset={desktopChatVisible ? chatWidth : 0}
             />
             /* eslint-enable react-hooks/refs */
           )}
@@ -877,6 +901,7 @@ export function OfficeView({
         </div>
         {desktopChatVisible && (
           <MembersChatPanel
+            resizeHandle={<ChatWidthHandle width={chatWidth} viewportWidth={chatViewportWidth} onChange={changeChatWidth} onCommit={commitChatWidth} />}
             onHide={() => changeChatHidden(true)}
             loadFailed={membersChatLoadFailed}
             onRetry={retryMembersChat}
@@ -886,7 +911,7 @@ export function OfficeView({
               right: 0,
               bottom: 0,
               zIndex: 1,
-              width: LOBBY_CHAT_WIDTH,
+              width: chatWidth,
               borderLeft: "1px solid var(--border)",
             }}
           />

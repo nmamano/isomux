@@ -620,6 +620,13 @@ export interface Attachment {
 // JS string length of one members chat message, like an app message.
 export const MEMBERS_CHAT_MAX_CHARS = 4000;
 
+export interface MembersChatReactor {
+  kind: "user" | "api" | "agent";
+  userId: string;
+  userName: string;
+  device?: string;
+}
+
 export interface MembersChatMessage {
   id: string; // "YYYYMM-xxxxxxxx": the month names the file that holds it
   // Who posted: a person in the browser, that person's API token, or one of
@@ -632,6 +639,7 @@ export interface MembersChatMessage {
   content: string;
   attachments: Attachment[];
   editedAt?: number;
+  thumbsUp?: MembersChatReactor[];
 }
 
 // Per-file summary inside a kind:"diff" LogEntry. The server pre-computes
@@ -1568,8 +1576,9 @@ export type ServerMessage =
   // this - it arrives as one of the two deltas below, which is ~1KB instead of
   // the whole board.
   // Members chat (the humans-only stream on the Lobby tab). A message event
-  // carries a post or an in-place edit; the client upserts by id.
-  | { type: "members_chat_message"; message: MembersChatMessage }
+  // carries a post or an in-place update. updateOnly replaces held messages
+  // without appending an unloaded message or raising unread.
+  | { type: "members_chat_message"; message: MembersChatMessage; updateOnly?: boolean }
   | { type: "members_chat_deleted"; id: string }
   // The recipient's own read pointer moved (from any of their devices).
   | { type: "members_chat_read"; readPointer: string | null; unread: number }

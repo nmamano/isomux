@@ -733,6 +733,10 @@ export interface MembersChatPostReq {
   device?: string;
 }
 
+export interface MembersChatThumbsUpReq {
+  active: boolean;
+}
+
 export interface MembersChatEditReq {
   text: string;
 }

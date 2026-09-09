@@ -12,6 +12,31 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
 const KEY_MEMBERS_CHAT_HIDDEN = "isomux-members-chat-hidden";
+const KEY_MEMBERS_CHAT_WIDTH = "isomux-members-chat-width";
+export const DEFAULT_MEMBERS_CHAT_WIDTH = 520;
+export const MIN_MEMBERS_CHAT_WIDTH = 300;
+
+export function maxMembersChatWidth(viewportWidth: number): number {
+  return Math.max(MIN_MEMBERS_CHAT_WIDTH, Math.min(900, viewportWidth - 48));
+}
+
+export function clampMembersChatWidth(width: number, viewportWidth: number): number {
+  const safe = Number.isFinite(width) ? width : DEFAULT_MEMBERS_CHAT_WIDTH;
+  return Math.round(Math.max(MIN_MEMBERS_CHAT_WIDTH, Math.min(maxMembersChatWidth(viewportWidth), safe)));
+}
+
+export function getMembersChatWidth(viewportWidth: number): number {
+  let width = DEFAULT_MEMBERS_CHAT_WIDTH;
+  try {
+    const raw = localStorage.getItem(KEY_MEMBERS_CHAT_WIDTH);
+    if (raw !== null && raw.trim() !== "") width = Number(raw);
+  } catch {}
+  return clampMembersChatWidth(width, viewportWidth);
+}
+
+export function setMembersChatWidth(width: number): void {
+  try { localStorage.setItem(KEY_MEMBERS_CHAT_WIDTH, String(width)); } catch {}
+}
 const KEY_APP_PREVIEWS = "isomux-app-previews";
 const KEY_APP_PREVIEW_OPENS = "isomux-app-preview-opens";
 // Keep aligned with APP_SESSION_TTL_MS in server/app-auth.ts. A preview cannot

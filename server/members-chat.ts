@@ -37,6 +37,7 @@ import {
   MEMBERS_CHAT_MAX_CHARS,
   type Attachment,
   type MembersChatMessage,
+  type MembersChatReactor,
 } from "../shared/types.ts";
 import { atomicWriteFileSync, sanitizeFilename } from "./persistence.ts";
 
@@ -78,7 +79,8 @@ type Line =
       attachments: Attachment[];
     }
   | { op: "edit"; id: string; timestamp: number; content: string }
-  | { op: "delete"; id: string; timestamp: number };
+  | { op: "delete"; id: string; timestamp: number }
+  | { op: "react"; id: string; timestamp: number; reactor: MembersChatReactor; active: boolean };
 
 interface FoldedMonth {
   // Every post id this month ever held, in file order - deleted ones included,
@@ -107,6 +109,7 @@ export interface MembersChatStore {
   post(input: PostInput): MembersChatMessage;
   // null when the id is malformed, unknown, or already deleted.
   edit(id: string, content: string): MembersChatMessage | null;
+  setThumbsUp(id: string, reactor: MembersChatReactor, active: boolean): MembersChatMessage | null;
   // The message as it was before deletion, or null when there was nothing to
   // delete. The caller needs the author for its ownership decision.
   delete(id: string): MembersChatMessage | null;
@@ -234,6 +237,12 @@ export function createMembersChatStore(
             editedAt: line.timestamp,
           });
         }
+      } else if (line.op === "react") {
+        const m = folded.byId.get(line.id);
+        if (!m) continue;
+        const thumbsUp = (m.thumbsUp ?? []).filter((r) => r.userId !== line.reactor.userId);
+        if (line.active) thumbsUp.push(line.reactor);
+        folded.byId.set(line.id, { ...m, thumbsUp });
       } else if (line.op === "delete") {
         folded.byId.delete(line.id);
       }
@@ -292,6 +301,15 @@ export function createMembersChatStore(
     if (!existing) return null;
     validateContent(content, existing.attachments);
     append(monthOfId(id)!, { op: "edit", id, timestamp: now(), content });
+    return get(id);
+  }
+
+  function setThumbsUp(id: string, reactor: MembersChatReactor, active: boolean): MembersChatMessage | null {
+    const existing = get(id);
+    if (!existing) return null;
+    if ((existing.thumbsUp ?? []).some((r) => r.userId === reactor.userId) === active) return existing;
+    // Fold the desired state in the target's file, including across month boundaries.
+    append(monthOfId(id)!, { op: "react", id, timestamp: now(), reactor, active });
     return get(id);
   }
 
@@ -436,6 +454,7 @@ export function createMembersChatStore(
   return {
     post,
     edit,
+    setThumbsUp,
     delete: del,
     get,
     page,

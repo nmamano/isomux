@@ -385,3 +385,17 @@ and the zoom-control inset. `desktop-read.dom.test.tsx` checks incoming unread
 while hidden and proves that showing the same message sends a read request.
 `desktop-controls.dom.test.tsx` checks translated controls and mobile behavior
 with the desktop preference set to hidden.
+
+Members-chat random-ID ordering is covered by
+`ui/members-chat/read-order.dom.test.tsx` (a visible later message with a lower
+ID clears the Lobby badge), `hydration-order.dom.test.tsx` (request-time
+snapshot and superseded responses), and the fresh-page case in `ui/store.test.ts`.
+`collapse.dom.test.tsx` checks adjacent author/device/kind grouping and per-message
+time; `width.dom.test.tsx` checks desktop sizing and persistence,
+`width-i18n.dom.test.tsx` checks translations, and `width-mobile.dom.test.tsx`
+checks mobile exclusion. `ui/device-settings.test.ts` checks stored width bounds.
+`reactions.dom.test.tsx` checks desired-state toggles and reactor names on
+hover, focus and tap. `server/test-support/routes-members-chat-reactions.test.ts`
+checks the route guard, identity, idempotence, update events and unchanged unread.
+`server/members-chat.test.ts` checks reaction replay across a month boundary;
+`ui/store.test.ts` checks held updates, ignored unheld updates and new arrivals.

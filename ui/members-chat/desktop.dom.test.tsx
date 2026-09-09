@@ -65,33 +65,18 @@ function lobby(
     },
   );
 }
-it("defaults to visible and remembers hiding the desktop chat", () => {
-  let view = render(lobby());
-  const zoom = () =>
-    view.getByRole("button", { name: "Zoom in" }).parentElement!;
-  expect(zoom().style.right).toBe("392px");
-  fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
-  expect(view.queryByPlaceholderText("Message the members…")).toBeNull();
-  expect(zoom().style.right).toBe("12px");
-  view.unmount();
-  view = render(lobby());
-  expect(view.queryByPlaceholderText("Message the members…")).toBeNull();
-  expect(zoom().style.right).toBe("12px");
-});
-it("remembers showing the desktop chat again", () => {
+it("loads the saved choice and persists both showing and hiding the desktop chat", () => {
   localStorage.setItem(key, "true");
-  let view = render(lobby());
-  const zoom = () =>
-    view.getByRole("button", { name: "Zoom in" }).parentElement!;
-  fireEvent.click(view.getByRole("button", { name: "Members chat" }));
-  expect(view.getByPlaceholderText("Message the members…")).not.toBeNull();
-  expect(zoom().style.right).toBe("392px");
-  view.unmount();
-  view = render(lobby());
-  expect(view.getByRole("button", { name: "Hide chat" })).not.toBeNull();
-});
-it("defaults an unknown stored value to visible", () => {
-  localStorage.setItem(key, "broken");
   const view = render(lobby());
-  expect(view.getByRole("button", { name: "Hide chat" })).not.toBeNull();
+  const zoom = () => view.getByRole("button", { name: "Zoom in" }).parentElement!;
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(true);
+  expect(zoom().style.right).toBe("12px");
+  fireEvent.click(view.getByRole("button", { name: "Members chat" }));
+  expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(true);
+  expect(localStorage.getItem(key)).toBe("false");
+  expect(zoom().style.right).toBe("532px");
+  fireEvent.click(view.getByRole("button", { name: "Hide chat" }));
+  expect(view.queryByPlaceholderText("Message the members…") === null).toBe(true);
+  expect(localStorage.getItem(key)).toBe("true");
+  expect(zoom().style.right).toBe("12px");
 });

@@ -2351,6 +2351,7 @@ function buildExecutorDeps(
       page: (opts) => membersChat.page(opts),
       post: (input) => membersChat.post(input),
       edit: (id, content) => membersChat.edit(id, content),
+      setThumbsUp: (id, reactor, active) => membersChat.setThumbsUp(id, reactor, active),
       delete: (id) => membersChat.delete(id),
       get: (id) => membersChat.get(id),
       getReadPointer: (userId) => membersChat.getReadPointer(userId),
@@ -2363,7 +2364,7 @@ function buildExecutorDeps(
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
       authorFor: membersChatAuthorFor,
       isOwner: (userId) => getUserById(userId)?.role === "owner",
-      emitMessage: (message) => liveEmit("members_chat_message", { message }),
+      emitMessage: (message, updateOnly) => liveEmit("members_chat_message", { message, ...(updateOnly ? { updateOnly } : {}) }),
       emitDeleted: (id) => liveEmit("members_chat_deleted", { id }),
       emitRead: (userId, readPointer, unread) =>
         liveEmit("members_chat_read", { readPointer, unread }, { userId }),

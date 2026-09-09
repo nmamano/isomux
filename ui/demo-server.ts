@@ -1625,6 +1625,20 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  const thumbsUpMatch = pathname.match(/^\/api\/members-chat\/([^/]+)\/thumbs-up$/);
+  if (method === "PUT" && thumbsUpMatch) {
+    const i = demoMembersChat.findIndex((m) => m.id === thumbsUpMatch[1]);
+    if (i === -1) throw new ApiError(404, "not_found", "No such message.");
+    const active = (body as { active?: unknown } | undefined)?.active;
+    if (typeof active !== "boolean") throw new ApiError(400, "invalid_request", "active must be a boolean");
+    const ricky = users.get("ricky")!;
+    const thumbsUp = (demoMembersChat[i].thumbsUp ?? []).filter((r) => r.userId !== ricky.id);
+    if (active) thumbsUp.push({ kind: "user", userId: ricky.id, userName: ricky.name });
+    const message = { ...demoMembersChat[i], thumbsUp };
+    demoMembersChat[i] = message;
+    shimEmit({ type: "members_chat_message", message, updateOnly: true });
+    return message;
+  }
   if (
     pathname.startsWith("/api/members-chat/") &&
     pathname !== "/api/members-chat/read" &&
@@ -1648,7 +1662,7 @@ export async function demoApi(
       editedAt: Date.now(),
     };
     demoMembersChat[i] = edited;
-    shimEmit({ type: "members_chat_message", message: edited });
+    shimEmit({ type: "members_chat_message", message: edited, updateOnly: true });
     return edited;
   }
   if (method === "DELETE" && pathname.startsWith("/api/me/api-tokens/")) {
