@@ -317,7 +317,8 @@ export interface SubscriptionUsage {
 }
 
 // Three outcomes, not two. The difference matters because the reading is
-// long-lived: it survives /clear and only refreshes at turn boundaries, so
+// long-lived: it survives /clear and refreshes only when the manager samples
+// it (on turn completion and on a usage update during a turn), so
 // "the call blew up once" and "this account has no plan allowance" must not
 // be the same value.
 //   usage       - a reading; replaces whatever was displayed.
