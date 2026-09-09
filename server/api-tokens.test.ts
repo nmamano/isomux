@@ -542,8 +542,15 @@ describe("token log recovery and read offsets", () => {
 
   it("seeks to the saved offset for sequential pages and never scans a steady-state poll", async () => {
     const { apiToken } = await mint();
-    for (let i = 0; i < 1002; i++)
-      await inboxMessage(apiToken.id, `café 👋 ${i}`);
+    await inboxMessage(apiToken.id, "café 👋 0");
+    const entry = JSON.parse(readFileSync(pathFor(apiToken.id), "utf8"));
+    // e17792e6: page reads need a corpus, not 1002 durable metadata writes.
+    // Keep multi-byte text and varying line lengths to expose byte-offset bugs.
+    writeFileSync(pathFor(apiToken.id), Array.from({ length: 1002 }, (_, i) =>
+      JSON.stringify({ ...entry, id: `entry-${i}`, sequence: i + 1, text: `café 👋 ${i}` }) + "\n",
+    ).join(""));
+    // Cold loading rebuilds logHints/cursors and repairs persisted lastSequence
+    // from the log. The real append below must therefore receive sequence 1003.
     _testResetApiTokens();
     loadApiTokens();
     const readSpy = spyOn(fs, "readSync");

@@ -1,7 +1,9 @@
 import { afterAll, beforeEach } from "bun:test";
-const { useEffect } = await import("react");
+const { useEffect, useState } = await import("react");
 const { act, render, fireEvent } = await import("@testing-library/react");
 const { OfficeView } = await import("./OfficeView.tsx");
+const { NewRoomDialog } = await import("./NewRoomDialog.tsx");
+const { RoomTabBar } = await import("./RoomTabBar.tsx");
 const { StoreProvider, useAppState, useDispatch, FeaturesProvider } =
   await import("../store.tsx");
 const { LanguageProvider } = await import("../i18n.tsx");
@@ -24,13 +26,20 @@ export let dispatch: ReturnType<typeof useDispatch>;
 export let requests: unknown[] = [];
 let reply: () => Promise<unknown>;
 
-function Office() {
+function Office({ creationOnly = false }: { creationOnly?: boolean }) {
   const state = useAppState();
   const send = useDispatch();
+  const [open, setOpen] = useState(true);
   useEffect(() => {
     snapshot = state;
     dispatch = send;
   }, [state, send]);
+  // The creation ordering cases need the real dialog, store and tabs, but
+  // not repeated SVG office scenes. One case still mounts the whole office.
+  if (creationOnly) return <>
+    <RoomTabBar />
+    {open && <NewRoomDialog onClose={() => setOpen(false)} />}
+  </>;
   return (
     <OfficeView
       onSpawn={noop}
@@ -58,13 +67,13 @@ export function fullState(rooms: ReturnType<typeof room>[]) {
   });
 }
 
-export function mount(rooms = [room("first")], embed = false) {
+export function mount(rooms = [room("first")], embed = false, creationOnly = false) {
   setShim(noop);
   const view = render(
     <StoreProvider>
       <LanguageProvider>
         <FeaturesProvider features={{ ...PRODUCTION_FEATURES, embed }}>
-          <Office />
+          <Office creationOnly={creationOnly} />
         </FeaturesProvider>
       </LanguageProvider>
     </StoreProvider>,

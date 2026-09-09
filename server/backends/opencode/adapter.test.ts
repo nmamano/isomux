@@ -140,12 +140,72 @@ describe("OpenCode deterministic tracer", () => {
 });
 
 describe("OpenCode pinned transport", () => {
+  function controlledBackstop(delayMs: number) {
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    let callback: (() => void) | undefined;
+    let handle: ReturnType<typeof setTimeout> | undefined;
+    let now = 0;
+    let armed = false;
+    let cleared = false;
+    let captures = 0;
+    // 1cc892ff: only the one-shot budget is virtual. Transport timers with
+    // other delays and Bun.sleep (SSE delivery/cleanup) retain their real clocks.
+    const timer = spyOn(globalThis, "setTimeout").mockImplementation(((fn: Bun.TimerHandler, ms?: number, ...args: unknown[]) => {
+      if (ms !== delayMs) return realSetTimeout(fn, ms, ...args);
+      captures++;
+      callback = () => fn(...args);
+      armed = true;
+      // A real handle preserves clearTimeout's contract without a live deadline.
+      handle = realSetTimeout(() => {}, 2_147_483_647);
+      return handle;
+    }) as typeof setTimeout);
+    const clear = spyOn(globalThis, "clearTimeout").mockImplementation((id) => {
+      if (handle !== undefined && id === handle) {
+        armed = false;
+        cleared = true;
+      }
+      // Bun, Node and DOM contribute separate overloads for this same native
+      // function. The spy accepts their union and forwards the handle unchanged.
+      (realClearTimeout as (value: typeof id) => void)(id);
+    });
+    cleanup.push(() => {
+      timer.mockRestore();
+      clear.mockRestore();
+      if (handle !== undefined) realClearTimeout(handle);
+    });
+    return {
+      advance(ms: number) {
+        now += ms;
+        expect(captures).toBe(1);
+        if (armed && now >= delayMs) {
+          armed = false;
+          callback!();
+        }
+      },
+      expectCleared() {
+        expect(captures).toBe(1);
+        expect(cleared).toBe(true);
+        expect(armed).toBe(false);
+      },
+    };
+  }
+
   function oneShotHarness(
     frames: unknown[],
     timeoutMs = 100,
     providerLookupFails = false,
+    holdFrames = false,
   ) {
     const permissionReplies: unknown[] = [];
+    let receivedPermissionReply!: () => void;
+    const permissionReplyReceived = new Promise<void>((resolve) => {
+      receivedPermissionReply = resolve;
+    });
+    let deliverFrames!: () => void;
+    const frameDelivery = new Promise<void>((resolve) => { deliverFrames = resolve; });
+    let requestedEvents!: () => void;
+    const eventsRequested = new Promise<void>((resolve) => { requestedEvents = resolve; });
     let deletes = 0;
     const server = Bun.serve({
       hostname: "127.0.0.1",
@@ -192,6 +252,9 @@ describe("OpenCode pinned transport", () => {
           return new Response(
             new ReadableStream({
               async start(controller) {
+                requestedEvents();
+                if (holdFrames) await frameDelivery;
+                if (request.signal.aborted) return;
                 for (const frame of frames) {
                   controller.enqueue(`data: ${JSON.stringify(frame)}\n\n`);
                   await Bun.sleep(20);
@@ -205,6 +268,7 @@ describe("OpenCode pinned transport", () => {
         if (url.pathname.endsWith("/prompt_async")) return Response.json(true);
         if (url.pathname.includes("/permission/") && request.body) {
           permissionReplies.push(await request.json());
+          receivedPermissionReply();
           return Response.json(true);
         }
         if (url.pathname.endsWith("/abort")) return Response.json(true);
@@ -235,6 +299,9 @@ describe("OpenCode pinned transport", () => {
         oneShotTimeoutMs: timeoutMs,
       }),
       permissionReplies,
+      permissionReplyReceived,
+      eventsRequested,
+      deliverFrames,
       deletes: () => deletes,
     };
   }
@@ -393,6 +460,8 @@ describe("OpenCode pinned transport", () => {
   });
 
   it("denies unattended one-shot tool requests before the timeout backstop", async () => {
+    const timeoutMs = 100;
+    const clock = controlledBackstop(timeoutMs);
     const harness = oneShotHarness([
       {
         type: "permission.asked",
@@ -406,28 +475,37 @@ describe("OpenCode pinned transport", () => {
         type: "session.idle",
         properties: { sessionID: "one-shot-session" },
       },
-    ]);
-    expect(
-      await rejected(
+    ], timeoutMs, false, true);
+    const result = rejected(
         harness.backend.oneShotPrompt("label", {
           cwd: "/tmp",
           modelFamily: "gate/free",
           systemPrompt: "label only",
         }),
-      ),
-    ).toHaveProperty(
-      "message",
-      expect.stringMatching(/timed out|without a recorded completion/),
     );
+    await harness.eventsRequested;
+    harness.deliverFrames();
+    // A failed prompt also releases this wait, so an early backstop fails the
+    // reply assertion instead of hanging on a reply that can no longer arrive.
+    await Promise.race([harness.permissionReplyReceived, result]);
+    clock.advance(timeoutMs);
+    const error = await result;
     expect(harness.permissionReplies).toEqual([
       {
         reply: "reject",
       },
     ]);
+    expect(error).toHaveProperty(
+      "message",
+      expect.stringMatching(/timed out|without a recorded completion/),
+    );
+    clock.expectCleared();
     expect(harness.deletes()).toBe(1);
   });
 
   it("fails unattended one-shot questions instead of waiting", async () => {
+    const timeoutMs = 100;
+    const clock = controlledBackstop(timeoutMs);
     const harness = oneShotHarness([
       {
         type: "question.asked",
@@ -436,7 +514,7 @@ describe("OpenCode pinned transport", () => {
           id: "question-1",
         },
       },
-    ]);
+    ], timeoutMs);
     expect(
       await rejected(
         harness.backend.oneShotPrompt("label", {
@@ -449,6 +527,7 @@ describe("OpenCode pinned transport", () => {
       "message",
       expect.stringContaining("requested interactive input"),
     );
+    clock.expectCleared();
     expect(harness.deletes()).toBe(1);
   });
 

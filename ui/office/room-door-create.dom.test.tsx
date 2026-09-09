@@ -10,13 +10,14 @@ fixture.setupRoomDoorTests();
 
 for (const broadcastFirst of [true, false]) {
   it(`creates and selects once with broadcast ${broadcastFirst ? "before" : "after"} response`, async () => {
-    const view = mount();
+    // Keep the full door → dialog → store → tab flow for broadcast-before.
+    const view = mount(undefined, false, !broadcastFirst);
     const created = room("created", "Room 2");
     setReply(async () => {
       if (broadcastFirst) shimEmit({ type: "room_created", room: created });
       return { room: created };
     });
-    await act(async () =>
+    if (broadcastFirst) await act(async () =>
       fireEvent.click(
         view.getByRole("button", { hidden: true, name: "New room" }),
       ),
@@ -35,11 +36,11 @@ for (const broadcastFirst of [true, false]) {
     ]);
     expect(fixture.snapshot.currentRoomId).toBe("created");
     expect(fixture.snapshot.lobbyOpen).toBe(false);
-    expect(view.queryByRole("dialog")).toBeNull();
+    expect(view.queryByRole("dialog") === null).toBe(true);
     expect(
       view.getAllByRole("button", { hidden: true, name: "Room 2 0/8" }),
     ).toHaveLength(1);
-    expect(
+    if (broadcastFirst) expect(
       view.getAllByRole("button", { hidden: true, name: "New room" }),
     ).toHaveLength(1);
   });
@@ -47,17 +48,12 @@ for (const broadcastFirst of [true, false]) {
 
 it("creates a protected first ordinary room from the canonical lobby and retains selection", async () => {
   const state = new OfficeState({ rooms: [LOBBY_ROOM] });
-  const view = mount([LOBBY_ROOM]);
+  const view = mount([LOBBY_ROOM], false, true);
   setReply(async () => {
     state.createRoom();
     return { room: state.ordinaryRooms[0] };
   });
   expect(fixture.snapshot.lobbyOpen).toBe(true);
-  await act(async () =>
-    fireEvent.click(
-      view.getByRole("button", { hidden: true, name: "New room" }),
-    ),
-  );
   await act(async () =>
     fireEvent.click(
       view.getByRole("button", { hidden: true, name: "Open room" }),
