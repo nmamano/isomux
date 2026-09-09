@@ -15,38 +15,7 @@ import {
 const SIZE = 40;
 // Leave the right-side zoom stack and its inset clear in scene coordinates.
 export const LOBBY_OVERFLOW_RIGHT_MARGIN = 110;
-// Tags are capped at 140 px by GhostTag. Group close horizontal neighbors
-// within one natural tag row, then give their chips separate vertical levels.
-export const LOBBY_TAG_NEARBY_PX = 144;
-export const LOBBY_TAG_ROW_NEARBY_PX = 32;
-const LOBBY_TAG_LEVEL_GAP = 24;
 const BODY_HEIGHT = Math.round(SIZE * SVG_HEIGHT_RATIO);
-
-export function lobbyTagTops(
-  spots: LayoutSpec["ghostSpots"],
-  occupied: ReadonlySet<string>,
-) {
-  const result = new Map<string, number>();
-  const placed: Array<{ x: number; naturalTop: number; tagTop: number }> = [];
-  // Saved layout order is stable; presence arrival/order never enters this rule.
-  for (const spot of spots) {
-    if (!spot.id || !occupied.has(spot.id)) continue;
-    const { x, y } = floorXY(spot.b, spot.a);
-    const naturalTop = y - VB_Y - BODY_HEIGHT + 8;
-    let tagTop = naturalTop;
-    for (const earlier of placed) {
-      if (
-        Math.abs(x - earlier.x) < LOBBY_TAG_NEARBY_PX &&
-        Math.abs(naturalTop - earlier.naturalTop) < LOBBY_TAG_ROW_NEARBY_PX
-      ) {
-        tagTop = Math.min(tagTop, earlier.tagTop - LOBBY_TAG_LEVEL_GAP);
-      }
-    }
-    result.set(spot.id, tagTop);
-    placed.push({ x, naturalTop, tagTop });
-  }
-  return result;
-}
 
 export function lobbyGhostPlacements(
   presences: PresenceInfo[],
@@ -62,10 +31,6 @@ export function lobbyGhostPlacements(
       (SCENE_W - LOBBY_OVERFLOW_RIGHT_MARGIN - GHOST_LOBBY_BASE_X - SIZE) /
         GHOST_LOBBY_GAP,
     ) + 1,
-  );
-  const tagTops = lobbyTagTops(
-    spots,
-    new Set(visible.flatMap((p) => (p.lobbySpotId ? [p.lobbySpotId] : []))),
   );
   // Wrap upward once. Later overflow stacks on that row, so an arrival does
   // not change the spacing of existing ghosts or put bodies below the viewport.
@@ -90,7 +55,8 @@ export function lobbyGhostPlacements(
       presence,
       dimmed: presence.viewMode === "away",
       ...position,
-      tagTop: spot?.id ? tagTops.get(spot.id) : undefined,
+      // Keep the chip immediately above its own head, even in a full lobby.
+      tagTop: spot ? position.top : undefined,
     };
   });
 }

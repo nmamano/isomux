@@ -79,3 +79,25 @@ it("keeps overflow body identification while suppressing its name chip", () => {
   ).toHaveLength(1);
   expect(view.queryByText("Waiting viewer")).toBeNull();
 });
+
+it("centres every occupied seat's tag within its ghost and keeps it above its head", () => {
+  const presences = LOBBY_SPOT_IDS.map((id, i) => ghost(`c${i}`, `Viewer ${i}`, id));
+  const view = render(createElement(LobbyScene, {
+    rooms: [], officeName: null, mode: "dark", layout: "nilo", presences,
+  }));
+  for (const p of presences) {
+    const nodes = view.container.querySelectorAll<HTMLElement>(`div[title="${p.username}"]`);
+    expect(nodes.length).toBe(2);
+    const [body, tag] = nodes;
+    const left = parseFloat(body.style.left);
+    const width = parseFloat(body.style.width);
+    // happy-dom does not lay out text. The tag anchor plus translateX(-50%)
+    // defines the chip centre; Chrome verification checks the painted bounds.
+    const centre = parseFloat(tag.style.left);
+    expect(tag.style.transform).toBe("translateX(-50%)");
+    expect(centre).toBeGreaterThanOrEqual(left);
+    expect(centre).toBeLessThanOrEqual(left + width);
+    expect(centre).toBe(left + width / 2);
+    expect(parseFloat(tag.style.top)).toBe(parseFloat(body.style.top) - 11);
+  }
+});

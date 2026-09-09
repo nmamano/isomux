@@ -34,7 +34,7 @@ function mountAt(path: string): View {
 }
 
 // The office is the only view that renders the nav bar.
-const officeShowing = (view: View) => view.queryByTitle("Tasks") !== null;
+const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
 describe("a path that is not a route", () => {
   it("shows the office and normalises the address bar to /", () => {

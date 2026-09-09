@@ -39,11 +39,11 @@ for (const [key, path] of [
       }),
     );
     expect(window.location.pathname).toBe("/");
-    expect(view.queryByTitle("Tasks") !== null).toBe(true);
+    expect(view.queryByTitle("Tasks (t)") !== null).toBe(true);
     await act(async () => {
       fireEvent.keyDown(document.body, { key, bubbles: true });
     });
     expect(window.location.pathname).toBe(path);
-    expect(view.queryByTitle("Tasks") === null).toBe(true);
+    expect(view.queryByTitle("Tasks (t)") === null).toBe(true);
   });
 }

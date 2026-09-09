@@ -34,7 +34,7 @@ beforeEach(() => {
 const settingsOpen = (view: View) =>
   view.queryByText(/Select a setting from the list/) !== null;
 const officeShowing = (view: View) =>
-  view.queryByTitle("Tasks") !== null && !settingsOpen(view);
+  view.queryByTitle("Tasks (t)") !== null && !settingsOpen(view);
 
 describe("the settings shortcut, modified", () => {
   for (const [name, modifier] of [

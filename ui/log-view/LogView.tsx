@@ -1341,6 +1341,7 @@ export function LogView({
             id: "tasks",
             icon: TasksIcon,
             label: i18n.t("common.tasks"),
+            title: i18n.t("nav.tasksShortcut"),
             onClick: onOpenTasks,
           },
         ]

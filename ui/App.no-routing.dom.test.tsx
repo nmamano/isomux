@@ -38,7 +38,7 @@ function mountAt(path: string, { routing }: { routing?: boolean } = {}): View {
 const taskPageOpen = (view: View) =>
   view.queryByPlaceholderText(/Quick add a task/) !== null;
 // The office is the only view that renders the nav bar.
-const officeShowing = (view: View) => view.queryByTitle("Tasks") !== null;
+const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
 describe("deployed without routing", () => {
   // The landing demo serves this same App under /demo (ui/demo-entry.tsx),

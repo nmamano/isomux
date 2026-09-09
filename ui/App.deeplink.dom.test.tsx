@@ -46,7 +46,7 @@ const taskPageOpen = (view: View) =>
 const settingsOpen = (view: View) =>
   view.queryByText(/Select a setting from the list/) !== null;
 // The office is the only view that renders the nav bar.
-const officeShowing = (view: View) => view.queryByTitle("Tasks") !== null;
+const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
 describe("a link straight to a page", () => {
   it("opens the page and keeps its path, without pushing an entry", () => {

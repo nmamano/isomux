@@ -1,7 +1,7 @@
 import { expect, it } from "bun:test";
 import { LOBBY_SPOT_IDS, type PresenceInfo } from "../../../shared/types.ts";
 import { LOBBY_LAYOUTS } from "./layouts.ts";
-import { lobbyGhostPlacements, lobbyTagTops } from "./LobbyGhosts.tsx";
+import { lobbyGhostPlacements } from "./LobbyGhosts.tsx";
 const ghost = (
   connectionId: string,
   lobbySpotId: string | null,
@@ -85,12 +85,9 @@ it("keeps overflow spacing fixed when later viewers join", () => {
   expect(after.slice(0, before.length)).toEqual(before);
 });
 
-it("staggers adjacent occupied seats independent of presence order and keeps their body coordinates", () => {
+it("keeps adjacent tags attached independent of presence order and occupancy", () => {
   const spots = LOBBY_LAYOUTS.nilo.ghostSpots;
   const [a, b] = LOBBY_SPOT_IDS;
-  const first = lobbyTagTops(spots, new Set([a, b]));
-  expect(first.get(a)).not.toBe(first.get(b));
-  expect(lobbyTagTops(spots, new Set([b, a]))).toEqual(first);
   const people = [ghost("z", a), ghost("a", b)];
   const rows = lobbyGhostPlacements(people, spots);
   const reversed = lobbyGhostPlacements([...people].reverse(), spots);
@@ -99,5 +96,6 @@ it("staggers adjacent occupied seats independent of presence order and keeps the
   const paired = rows.find((p) => p.presence.lobbySpotId === b)!;
   expect(paired.left).toBe(single.left);
   expect(paired.top).toBe(single.top);
-  expect(paired.tagTop).not.toBe(single.tagTop);
+  expect(paired.tagTop).toBe(single.tagTop);
+  expect(paired.tagTop).toBe(paired.top);
 });

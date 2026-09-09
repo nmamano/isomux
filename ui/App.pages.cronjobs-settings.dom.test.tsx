@@ -62,7 +62,7 @@ const PAGES: Array<{
   },
   {
     page: "settings",
-    button: "Settings",
+    button: "Settings (s)",
     showing: (v) => v.queryByText(/Select a setting from the list/) !== null,
   },
 ];

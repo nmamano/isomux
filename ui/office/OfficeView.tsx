@@ -311,6 +311,7 @@ export function OfficeView({
       id: "tasks",
       icon: TasksIcon,
       label: t("common.tasks"),
+      title: t("nav.tasksShortcut"),
       onClick: onOpenTasks,
     },
     {
@@ -323,6 +324,7 @@ export function OfficeView({
       id: "apps",
       icon: AppsIcon,
       label: t("common.apps"),
+      title: t("nav.appsShortcut"),
       onClick: onOpenApps,
     },
     // One gear for every setting. The office, room, user and device buttons
@@ -333,7 +335,7 @@ export function OfficeView({
       icon: SettingsIcon,
       label: t("common.settings"),
       onClick: onOpenSettings,
-      title: t("common.settings"),
+      title: t("nav.settingsShortcut"),
     },
     {
       id: "theme",

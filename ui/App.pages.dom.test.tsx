@@ -59,12 +59,12 @@ const PAGES: Array<{
 }> = [
   {
     page: "tasks",
-    button: "Tasks",
+    button: "Tasks (t)",
     showing: (v) => v.queryByPlaceholderText(/Quick add a task/) !== null,
   },
   {
     page: "apps",
-    button: "Apps",
+    button: "Apps (a)",
     showing: (v) => v.queryByTitle("Hide app previews") !== null,
   },
 ];

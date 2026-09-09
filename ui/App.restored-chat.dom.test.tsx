@@ -62,7 +62,7 @@ beforeEach(() => {
 const taskPageOpen = (view: View) =>
   view.queryByPlaceholderText(/Quick add a task/) !== null;
 // The office is the only view that renders the nav bar.
-const officeShowing = (view: View) => view.queryByTitle("Tasks") !== null;
+const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
 describe("a cold link over a restored chat", () => {
   // The one sequence that needs the REAL store: the agent has to arrive from

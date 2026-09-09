@@ -73,23 +73,23 @@ describe("the office nav bar", () => {
     const view = render(app("ca"));
 
     // Every desktop action of OfficeView, label and title, once in Catalan.
-    // The title is the label unless the action names its own.
-    for (const title of ["Tasques", "Programacions", "Apps", "Configuració"])
+    // Shortcut titles include the key; Schedules keeps its label.
+    for (const title of ["Tasques (t)", "Programacions", "Apps (a)", "Configuració (s)"])
       expect(view.queryByTitle(title), title).not.toBeNull();
     // The vent in the scene carries the same word as its SVG title, so the
     // label is not the only match.
     expect(view.queryAllByText("Configuració").length).toBeGreaterThan(0);
     expect(view.queryByText("Tema")).not.toBeNull();
     expect(view.queryByTitle("Canvia el tema")).not.toBeNull();
-    expect(view.queryByTitle(TASKS.en)).toBeNull();
+    expect(view.queryByTitle("Tasks (t)")).toBeNull();
 
     view.rerender(app("es"));
-    expect(view.queryByTitle(TASKS.es)).not.toBeNull();
-    expect(view.queryByTitle(TASKS.ca)).toBeNull();
+    expect(view.queryByTitle("Tareas (t)")).not.toBeNull();
+    expect(view.queryByTitle("Tasques (t)")).toBeNull();
 
     view.rerender(app(null));
-    expect(view.queryByTitle(TASKS.en)).not.toBeNull();
-    expect(view.queryByTitle(TASKS.es)).toBeNull();
+    expect(view.queryByTitle("Tasks (t)")).not.toBeNull();
+    expect(view.queryByTitle("Tareas (t)")).toBeNull();
 
     // The phone menu keeps the office actions without a view toggle.
     view.rerender(app("ca", { isMobile: true }));

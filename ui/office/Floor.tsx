@@ -7,6 +7,7 @@ import {
   isoXY,
   roomPaletteIndex,
 } from "./grid.ts";
+import { ordinaryRooms } from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import {
   Leaf,
@@ -959,6 +960,7 @@ export function Walls({
   const { currentRoomId, rooms } = useAppState();
   const { t, language } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
+  const blossomRoom = roomPaletteIndex(ordinaryRooms(rooms).findIndex((r) => r.id === currentRoomId), 2) === 0;
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -1239,18 +1241,10 @@ export function Walls({
         />
       </g>
 
-      {/* Everything standing on the sill casts its contact shadow here, in
-          one blurred group clipped to the ledge, so both stop at the same
-          edge and neither runs on down the wall. Blur first, then clip: the
-          shadow is soft where it lies on the sill and cut where the sill
-          ends, which is what a real one does. */}
-      <g clipPath="url(#sill-clip)" aria-hidden="true">
+      {/* Clip the trailing plant's contact shadow to the sill. */}
+      {!blossomRoom && <g clipPath="url(#sill-clip)" aria-hidden="true">
         <g filter="url(#sill-shadow)">
-          {/* Centred under what casts them. Offsetting a contact shadow to
-              suggest a light direction is what makes the object read as
-              floating: the one place a shadow must touch its object is
-              directly under it. Each sits in the plane of that object's base
-              ellipse - the pot's at y=70.5, the jar's at its own origin. */}
+          {/* The pot base lies at y=70.5 in the sill plane. */}
           <ellipse
             cx={POT_X}
             cy={70.5}
@@ -1260,21 +1254,14 @@ export function Walls({
             opacity="0.34"
           />
         </g>
-      </g>
+      </g>}
 
-      <WindowPlant />
+      {!blossomRoom && <WindowPlant />}
 
-      {/* Jar of cherry blossom, standing on the sill left of the plant.
-          The sill is the wall opening's bottom edge, from (-290,120) to
-          (-140,45), so y = 120 - 0.5 * (x + 290): at x=-248 that is 99.
-          Slide the translate ALONG that line to move it - off the line and
-          the jar floats. Worker 6 drew it at x=-200, which is where the
-          plant's pot stands, so it moved left. It sits in this SVG, whose
-          pointer-events are none, so it does not take the window's
-          "Change theme" click. */}
-      <g transform="translate(-236 92.6)">
+      {/* The jar base follows the sill plane at this position. */}
+      {blossomRoom && <g transform="translate(-236 92.6)">
         <BlossomJar />
-      </g>
+      </g>}
 
       {/* Corkboard on left wall - casual, mutable feel */}
       <g
