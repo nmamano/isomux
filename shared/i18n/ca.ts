@@ -1950,7 +1950,7 @@ export const ca: Catalog = {
   "preAuth.login.openInvite":
     "Obre un enllaç d'invitació per iniciar la sessió en aquest dispositiu.",
   "preAuth.login.alreadySignedIn":
-    "Ja tens la sessió iniciada en un altre lloc? Crea'n un a Configuració d'usuari allà.",
+    "Ja tens la sessió iniciada en un altre lloc? Crea enllaços d'invitació per als teus altres dispositius a Configuració.",
   "preAuth.login.askOwner": "Si no, demana'n un al propietari de l'oficina.",
   "preAuth.login.noOwner": "Aquesta oficina encara no té propietari.",
   "preAuth.login.claimHere": "Obre {link} per reclamar-ne la propietat.",

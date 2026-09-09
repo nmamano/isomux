@@ -1955,7 +1955,7 @@ export const es: Catalog = {
   "preAuth.login.openInvite":
     "Abre un enlace de invitación para iniciar sesión en este dispositivo.",
   "preAuth.login.alreadySignedIn":
-    "¿Ya tienes sesión iniciada en otro sitio? Crea uno en Ajustes de usuario allí.",
+    "¿Ya tienes sesión iniciada en otro sitio? Crea enlaces de invitación para tus otros dispositivos en Ajustes.",
   "preAuth.login.askOwner": "Si no, pídeselo al propietario de la oficina.",
   "preAuth.login.noOwner": "Esta oficina todavía no tiene propietario.",
   "preAuth.login.claimHere": "Abre {link} para reclamar la propiedad.",

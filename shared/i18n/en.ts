@@ -1946,7 +1946,7 @@ export const en = {
   "preAuth.login.title": "sign in",
   "preAuth.login.openInvite": "Open an invite link to sign in on this device.",
   "preAuth.login.alreadySignedIn":
-    "Already signed in elsewhere? Create one in User settings there.",
+    "Already signed in elsewhere? Create invite links for your other devices in Settings.",
   "preAuth.login.askOwner": "Otherwise, ask the office owner for one.",
   "preAuth.login.noOwner": "No owner has been set up for this office yet.",
   "preAuth.login.claimHere": "Open {link} to claim ownership.",

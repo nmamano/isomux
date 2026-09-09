@@ -236,7 +236,7 @@ describe("the login page", () => {
         "<p>Open an invite link to sign in on this device.</p>",
       );
       expect(html).toContain(
-        "<p>Already signed in elsewhere? Create one in User settings there.</p>",
+        "<p>Already signed in elsewhere? Create invite links for your other devices in Settings.</p>",
       );
       expect(html).toContain(
         '<p class="muted">Otherwise, ask the office owner for one.</p>',
