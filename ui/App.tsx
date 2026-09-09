@@ -595,12 +595,10 @@ export function App({ routing = true }: { routing?: boolean }) {
         !e.defaultPrevented
       ) {
         e.preventDefault();
-        const idx = rooms.findIndex((r) => r.id === currentRoomId);
-        const nextIdx = e.shiftKey
-          ? (idx - 1 + roomCount) % roomCount
-          : (idx + 1) % roomCount;
-        const next = rooms[nextIdx];
-        if (next) dispatch({ type: "set_current_room", roomId: next.id });
+        // Walk the tab bar in order, the Lobby included, through the same
+        // path as a phone swipe: from the lobby, Tab reaches the first room
+        // rather than the room after the one last visited (Nil, 2026-09-09).
+        swipeRoom(e.shiftKey ? "prev" : "next");
       }
       // Tab: cycle to next agent within current room (Shift+Tab: previous) when viewing an agent
       // Skip if autocomplete already consumed this Tab (it calls preventDefault)
@@ -632,6 +630,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     rooms,
     currentRoomId,
     roomCount,
+    swipeRoom,
     usersOpen,
     appsOpen,
     tasksOpen,
