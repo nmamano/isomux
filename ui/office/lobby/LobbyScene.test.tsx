@@ -1,4 +1,11 @@
-import { describe, expect, it } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  setSystemTime,
+} from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { LobbyScene } from "./LobbyScene.tsx";
 
@@ -314,6 +321,13 @@ describe("facing", () => {
 });
 
 describe("how many ways a prop faces", () => {
+  // The scene's wall clock draws its hands from the current minute, and this
+  // test compares whole renders byte for byte, so a minute boundary inside the
+  // loop made two identical placements differ (P0 fd09ad90, 2026-09-10). Pin
+  // the clock for the block.
+  beforeAll(() => setSystemTime(new Date("2026-09-10T12:00:00.000Z")));
+  afterAll(() => setSystemTime());
+
   it("only turns around the props that have a drawn back", () => {
     for (const fam of LOBBY_PROPS) {
       for (const v of fam.variants) {
