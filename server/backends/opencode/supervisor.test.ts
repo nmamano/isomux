@@ -19,6 +19,9 @@ import { resolveOpenCodeBinary } from "./runtime.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import { readLinuxProcessStartTicks } from "./process-identity.ts";
 
+// Opt-in live tier (bun run test:opencode), same switch as adapter.test.ts.
+const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
 const supervisors: OpenCodeSupervisor[] = [];
 const scratch: string[] = [];
 const mocks: ReturnType<typeof Bun.serve>[] = [];
@@ -414,7 +417,10 @@ describe("OpenCode shared server supervisor", () => {
     replacement.release();
   }, 20_000);
 
-  it("refuses cross-process adoption when the environment revision changed", async () => {
+  // Two real OpenCode startups (7.7 s + 8.1 s measured at load 17 on
+  // 2026-09-10) against a 20 s cap: real-subprocess work, so it runs in the
+  // opt-in live tier (bun run test:opencode) like the real-OC1 cases.
+  it.skipIf(!LIVE)("refuses cross-process adoption when the environment revision changed", async () => {
     const path = await root();
     const config = gateConfig(mockProvider());
     const first = new OpenCodeSupervisor({
