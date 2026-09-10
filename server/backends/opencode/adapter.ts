@@ -23,11 +23,7 @@ import type {
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
-import {
-  OPENCODE_DEFAULT_MODEL,
-  OPENCODE_TRACER_MODEL,
-} from "../../../shared/types.ts";
-import { preferredFreeOpenCodeModel } from "../../../shared/opencode-model.ts";
+import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
 import {
   discoverOpenCodeModels,
   OPENCODE_AUTH_FAILURE,
@@ -602,26 +598,26 @@ export function createOpenCodeBackend(
         supervisor,
         opts.cwd ?? "/tmp",
       );
-      const selected = preferredFreeOpenCodeModel(
-        models,
-        opts.modelFamily || OPENCODE_DEFAULT_MODEL,
-      );
+      // Topic text must use the same selection as a live session. Never pick
+      // a default or another discovered model when that selection is missing.
+      const selected = models.find((model) => model.id === opts.modelFamily);
       if (!selected) {
-        throw new Error("OpenCode one-shot prompts require a free model.");
+        throw new Error("OpenCode one-shot selected model is unavailable.");
       }
+      const model = productionModel(selected.id);
       const session = new OpenCodeServerSession(
         {
           agentId: "isomux-opencode-one-shot",
           cwd: opts.cwd ?? "/tmp",
           systemPrompt: opts.systemPrompt ?? "",
-          modelFamily: selected.id,
+          modelFamily: model,
           effort: "high",
           permissionMode: "default",
           env: opts.env,
           environmentKey: opts.environmentKey,
           environmentRevision: opts.environmentRevision,
         },
-        selected.id,
+        model,
         supervisor,
       );
       const timeoutError = new Error("OpenCode one-shot prompt timed out.");

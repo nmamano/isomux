@@ -340,7 +340,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Self-hosted reachable / real-time | T1 | full_state on connect + delta sync | - |
 | Mobile UI | manual | - | visual |
 | Visual office / animated characters / skeuomorphic / themes | manual | - | visual |
-| Auto-generated topic | T1/T3 | endpoint returns non-empty, at most 8 words (mechanism) | T3 quality spot-check |
+| Auto-generated topic | T1/T3 | `backends/opencode/adapter.test.ts`: one-shot marker reaches only the selected free/paid model; missing/unavailable selections send no prompt. The agent-manager topic path has no integration test. | T3 quality spot-check |
 | Terminal | T1 (partial) | event-registry audience for terminal_output/terminal_exit; terminal_open buffered-replay ACL covered (projection.test.ts, task 39ce6225) and its marking plus the panel's query suppression (TerminalPanel.replay.dom.test.tsx, task 74d33445); live PTY resize/close routing deferred to a future seam | opt-in real PTY |
 | Editor | T1 | editor_open/save/external-change routes + path safety; watch deletion/recreation lifecycle + per-path revision guard (file-editor-watch.test.ts, routes-editor-rest.test.ts) | - |
 | Diff tool | T0/T1 | diff summary unit + POST diff route | - |

@@ -201,6 +201,7 @@ describe("OpenCode pinned transport", () => {
     providerLookupFails = false,
     holdFrames = false,
   ) {
+    const requests: Array<{ path: string; body: string }> = [];
     const permissionReplies: unknown[] = [];
     let receivedPermissionReply!: () => void;
     const permissionReplyReceived = new Promise<void>((resolve) => {
@@ -220,6 +221,7 @@ describe("OpenCode pinned transport", () => {
       port: 0,
       async fetch(request) {
         const url = new URL(request.url);
+        requests.push({ path: url.pathname, body: await request.clone().text() });
         if (url.pathname === "/provider") {
           if (providerLookupFails)
             return new Response("failed", { status: 503 });
@@ -230,6 +232,16 @@ describe("OpenCode pinned transport", () => {
                 id: "gate",
                 name: "Gate",
                 models: {
+                  paid: {
+                    name: "Paid",
+                    limit: { context: 200_000, output: 10_000 },
+                    cost: { input: 1, output: 2 },
+                  },
+                  alternate: {
+                    name: "Another free model",
+                    limit: { context: 200_000, output: 10_000 },
+                    cost: { input: 0, output: 0 },
+                  },
                   free: {
                     name: "Free",
                     limit: { context: 200_000, output: 10_000 },
@@ -306,12 +318,66 @@ describe("OpenCode pinned transport", () => {
         supervisor,
         oneShotTimeoutMs: timeoutMs,
       }),
+      requests,
       permissionReplies,
       permissionReplyReceived,
       eventsRequested,
       deliverFrames,
       deletes: () => deletes,
     };
+  }
+
+  const topicFrames = [
+    {
+      type: "message.updated",
+      properties: { sessionID: "one-shot-session", info: { id: "assistant", role: "assistant" } },
+    },
+    {
+      type: "message.part.updated",
+      properties: {
+        sessionID: "one-shot-session",
+        part: { type: "text", id: "text", messageID: "assistant", text: "Topic label" },
+      },
+    },
+    {
+      type: "message.part.updated",
+      properties: {
+        sessionID: "one-shot-session",
+        part: { type: "step-finish", id: "finish", messageID: "assistant" },
+      },
+    },
+    { type: "session.idle", properties: { sessionID: "one-shot-session" } },
+  ];
+
+  for (const modelFamily of ["gate/paid", "gate/free"]) {
+    it(`routes one-shot marker only to selected model ${modelFamily}`, async () => {
+      const harness = oneShotHarness(topicFrames, 2_000);
+      const marker = "SYNTHETIC_TOPIC_ROUTING_MARKER";
+      const result = await harness.backend.oneShotPrompt(marker, { modelFamily })
+        .catch((error: unknown) => error);
+      const carryingText = harness.requests.filter((request) => request.body.includes(marker));
+      // Check every HTTP body before checking the reply or the error text.
+      expect(carryingText.map((request) => ({
+        path: request.path,
+        model: JSON.parse(request.body).model,
+      }))).toEqual([{
+        path: "/session/one-shot-session/prompt_async",
+        model: { providerID: "gate", modelID: modelFamily.split("/")[1] },
+      }]);
+      expect(result).toBe("Topic label");
+    });
+  }
+
+  for (const modelFamily of ["retired/preference", ""]) {
+    it(`skips one-shot marker for unavailable selection ${JSON.stringify(modelFamily)}`, async () => {
+      const harness = oneShotHarness(topicFrames, 2_000);
+      const marker = "SYNTHETIC_TOPIC_SKIP_MARKER";
+      const result = await harness.backend.oneShotPrompt(marker, { modelFamily })
+        .catch((error: unknown) => error);
+      expect(harness.requests.filter((request) => request.body.includes(marker))).toEqual([]);
+      expect(harness.requests.some((request) => request.path === "/session")).toBe(false);
+      expect(result).toBeInstanceOf(Error);
+    });
   }
 
   it("reports context fullness from the latest complete OpenCode step", async () => {
@@ -777,11 +843,13 @@ describe("OpenCode pinned transport", () => {
   it.skip("returns one reply through the real OC1 HTTP and SSE contract", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-adapter-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
+    const providerRequests: Array<{ path: string; body: string }> = [];
     const mock = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
-      fetch(request) {
+      async fetch(request) {
         const url = new URL(request.url);
+        providerRequests.push({ path: url.pathname, body: await request.clone().text() });
         if (url.pathname === "/v1/models") {
           return Response.json({
             object: "list",
@@ -893,10 +961,20 @@ describe("OpenCode pinned transport", () => {
       false,
     );
     expect(JSON.stringify(discovered)).not.toContain("test-only");
+    const skippedMarker = "SYNTHETIC_RETIRED_TOPIC_MARKER";
+    const beforeSkipped = providerRequests.length;
+    const skipped = await backend.oneShotPrompt(skippedMarker, {
+      cwd: root,
+      modelFamily: "retired/preference",
+      systemPrompt: "You only label.",
+    }).catch((error: unknown) => error);
+    expect(providerRequests.filter((request) => request.body.includes(skippedMarker))).toEqual([]);
+    expect(providerRequests.slice(beforeSkipped).some((request) => request.path === "/v1/chat/completions")).toBe(false);
+    expect(skipped).toBeInstanceOf(Error);
     expect(
       await backend.oneShotPrompt("label this conversation", {
         cwd: root,
-        modelFamily: "retired/preference",
+        modelFamily: "gate/gate-model",
         systemPrompt: "You only label.",
       }),
     ).toBe("OpenCode real tracer reply.");
