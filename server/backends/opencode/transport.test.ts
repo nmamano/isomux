@@ -74,12 +74,48 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(events).toContainEqual({
       kind: "turn_completed",
       status: "failed",
-      error: "OpenCode cannot send a turn without an Isomux system prompt.",
+      error: "OpenCode cannot send a turn without an Isomux system prompt (Error; HTTP status: unavailable).",
     });
     expect(leasesAcquired).toBe(0);
     expect(turnsStarted).toBe(0);
     expect(turnsEnded).toBe(0);
     transport.close();
+  });
+
+  it("reports a named early turn failure to the safe sink and event stream", async () => {
+    const failure = Object.assign(new TypeError("startup socket closed"), {
+      status: 503,
+    });
+    const supervisor = {
+      acquire: async () => {
+        throw failure;
+      },
+    } as unknown as OpenCodeSupervisor;
+    const safeErrors: Array<Record<string, unknown>> = [];
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: "system",
+      supervisor,
+      safeErrorSink: (error) => safeErrors.push({ ...error }),
+    });
+    const events: NormalizedEvent[] = [];
+
+    await transport.send([{ type: "text", text: "go" }], (event) =>
+      events.push(event),
+    );
+
+    expect(safeErrors).toEqual([
+      { name: "TypeError", statusCode: 503 },
+    ]);
+    expect(events).toEqual([
+      {
+        kind: "turn_completed",
+        status: "failed",
+        error:
+          "OpenCode turn failed (TypeError; HTTP status: 503).",
+      },
+    ]);
   });
 
   it("keeps only connected provider model labels and composite ids", () => {

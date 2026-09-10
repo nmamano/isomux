@@ -17,6 +17,8 @@ The maintained reference for Isomux's test suite: the tiers, how to run them, th
 
 ## Tiers (LLM-call policy)
 
+OpenCode local-failure coverage is deterministic in `server/backends/opencode/transport-failure.test.ts`: injected setup, HTTP and stream faults check the error sink, failed completion, and agent JSONL. The running-server `/config` check for disabled sharing and updates is in `supervisor.test.ts`, gated by `ISOMUX_TEST_OPENCODE=1` and included in `bun run test:opencode`.
+
 Default `bun test` makes zero LLM calls.
 
 | Tier | LLM? | What | When |

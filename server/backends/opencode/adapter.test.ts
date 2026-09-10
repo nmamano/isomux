@@ -843,7 +843,6 @@ describe("OpenCode pinned transport", () => {
 
   it("keeps each session model and permission profile in the prompt wire body", async () => {
     let nextSession = 0;
-    let nextEvent = 0;
     const promptModels: unknown[] = [];
     const promptAgents: unknown[] = [];
     const promptSystems: unknown[] = [];
@@ -857,16 +856,11 @@ describe("OpenCode pinned transport", () => {
           return Response.json({ id: `session-${++nextSession}` });
         }
         if (url.pathname === "/event") {
-          const sessionId = `session-${++nextEvent}`;
           return new Response(
             new ReadableStream({
               start(controller) {
-                controller.enqueue(
-                  new TextEncoder().encode(
-                    `data: ${JSON.stringify({ type: "session.idle", properties: { sessionID: sessionId } })}\n\n`,
-                  ),
-                );
-                controller.close();
+                // Keep the subscription alive while the test sends its prompt.
+                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
               },
             }),
             {

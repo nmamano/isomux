@@ -318,27 +318,59 @@ export class OpenCodeTransport {
   }
 
   async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
+    let settled = false;
+    let turnStarted = false;
+    let controller: AbortController | undefined;
+    const emit: EventSink = (event) => {
+      if (event.kind === "turn_completed") {
+        if (settled) return;
+        settled = true;
+        this.activeTurn = false;
+        this.pendingPermission = null;
+        this.authorityBinding?.deactivate();
+        if (turnStarted) this.lease?.endTurn();
+        controller?.abort();
+      }
+      sink(event);
+    };
+    const fail = (error: unknown, context: string): void => {
+      // Late failures after settlement or intentional close are deliberately silent.
+      if (settled || this.closed) return;
+      const safeError = allowTransportError(error);
+      // Observability must not stop delivery of the failed completion.
+      try {
+        this.safeErrorSink?.(safeError);
+      } catch {
+        console.error("OpenCode error sink failed.");
+      } finally {
+        emit({
+          kind: "turn_completed",
+          status: "failed",
+          error: `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`,
+        });
+      }
+    };
     if (this.systemPrompt === undefined) {
-      sink({
-        kind: "turn_completed",
-        status: "failed",
-        error: "OpenCode cannot send a turn without an Isomux system prompt.",
-      });
+      fail(new Error(), "OpenCode cannot send a turn without an Isomux system prompt");
       return;
     }
-    const sessionId = await this.initialize(sink);
-    await this.lease!.beginTurn();
     try {
+      const sessionId = await this.initialize(emit);
+      await this.lease!.beginTurn();
+      turnStarted = true;
       const turnHandle = this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
       this.abortRequested = false;
-      this.abortController = new AbortController();
-      await this.consumeEvents(sessionId, sink, this.abortController.signal);
+      controller = new AbortController();
+      this.abortController = controller;
+      await this.consumeEvents(sessionId, emit, controller.signal, fail);
+      if (settled) return;
       const [providerID, modelID] = splitModel(this.model);
       await this.request(
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         {
           method: "POST",
+          signal: controller.signal,
           body: JSON.stringify({
             model: { providerID, modelID },
             ...(this.agent ? { agent: this.agent } : {}),
@@ -354,16 +386,7 @@ export class OpenCodeTransport {
       );
       this.contractShapeSink?.("http:prompt_async:success");
     } catch (error) {
-      this.abortController?.abort();
-      this.activeTurn = false;
-      this.authorityBinding?.deactivate();
-      this.lease!.endTurn();
-      sink({
-        kind: "turn_completed",
-        status: "failed",
-        error:
-          error instanceof Error ? error.message : "OpenCode request failed.",
-      });
+      fail(error, "OpenCode turn failed");
     }
   }
 
@@ -449,6 +472,7 @@ export class OpenCodeTransport {
     sessionId: string,
     sink: EventSink,
     signal: AbortSignal,
+    onFailure: (error: unknown, context: string) => void,
   ): Promise<void> {
     const response = await this.request("/event", { signal });
     if (!response.body) throw new Error("OpenCode event stream has no body.");
@@ -465,12 +489,12 @@ export class OpenCodeTransport {
     const settle = (event: NormalizedEvent): void => {
       if (settled) return;
       settled = true;
-      this.activeTurn = false;
-      this.pendingPermission = null;
-      this.authorityBinding?.deactivate();
-      this.lease?.endTurn();
       sink(event);
-      this.abortController?.abort();
+    };
+    const fail = (error: unknown, context: string): void => {
+      if (settled) return;
+      settled = true;
+      onFailure(error, context);
     };
     let buffer = "";
     void (async () => {
@@ -624,23 +648,15 @@ export class OpenCodeTransport {
                     : {}),
                 });
               } else {
-                settle({
-                  kind: "turn_completed",
-                  status: "failed",
-                  error: "OpenCode became idle without a recorded completion.",
-                });
+                fail(new Error(), "OpenCode became idle without a recorded completion");
               }
               return;
             }
             if (event.kind === "error") {
               if (this.abortRequested) continue;
-              settled = true;
-              this.activeTurn = false;
-              this.authorityBinding?.deactivate();
-              this.lease?.endTurn();
               this.safeErrorSink?.(event.error);
               const failure = await this.classifyProviderFailure(event.error);
-              sink({
+              settle({
                 kind: "turn_completed",
                 status: "failed",
                 error:
@@ -650,25 +666,16 @@ export class OpenCodeTransport {
                       ? OPENCODE_AUTH_FAILURE
                       : "OpenCode reported a provider or transport error.",
               });
-              this.abortController?.abort();
               return;
             }
           }
         }
         if (!signal.aborted) {
-          settle({
-            kind: "turn_completed",
-            status: "failed",
-            error: "OpenCode event stream ended before turn completion.",
-          });
+          fail(new Error(), "OpenCode event stream ended before turn completion");
         }
       } catch (error) {
         if (!signal.aborted) {
-          settle({
-            kind: "turn_completed",
-            status: "failed",
-            error: `OpenCode event stream failed: ${error instanceof Error ? error.message : "unknown error"}`,
-          });
+          fail(error, "OpenCode event stream failed");
         }
       }
     })();
@@ -709,7 +716,9 @@ export class OpenCodeTransport {
     });
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      throw new Error(`OpenCode HTTP ${response.status} at ${path}.`);
+      throw Object.assign(new Error(`OpenCode HTTP ${response.status} at ${path}.`), {
+        statusCode: response.status,
+      });
     }
     return response;
   }
@@ -910,9 +919,31 @@ type AllowedEvent =
 
 export interface SafeOpenCodeError {
   name?: string;
+  code?: string;
   message?: string;
   statusCode?: number;
   isRetryable?: boolean;
+}
+
+// Exception messages, paths, headers and arbitrary names can contain secrets.
+// Project local failures onto reviewed class names and a valid HTTP status.
+function allowTransportError(error: unknown): SafeOpenCodeError {
+  const value = asRecord(error);
+  const names = ["Error", "TypeError", "SyntaxError", "RangeError", "ReferenceError", "URIError", "EvalError", "AggregateError", "AbortError", "TimeoutError"];
+  const name = typeof value.name === "string" && names.includes(value.name)
+    ? value.name
+    : "UnknownError";
+  const status = value.statusCode ?? value.status;
+  const codes = ["ConnectionRefused", "ECONNREFUSED", "ECONNRESET", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ERR_STREAM_PREMATURE_CLOSE"];
+  return {
+    name,
+    ...(typeof value.code === "string"
+      ? { code: codes.includes(value.code) ? value.code : "UnknownCode" }
+      : {}),
+    ...(typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599
+      ? { statusCode: status }
+      : {}),
+  };
 }
 
 export function parseAllowedEvent(data: string): AllowedEvent | null {
