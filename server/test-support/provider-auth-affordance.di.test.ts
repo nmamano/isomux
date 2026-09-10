@@ -38,7 +38,10 @@ function room(id: string): RoomWire {
 }
 
 async function waitFor(check: () => boolean): Promise<void> {
-  const deadline = Date.now() + 2_000;
+  // The poll returns as soon as the condition holds; the deadline is only the
+  // failure bound. Two seconds lost the pre-push CI of 58f70d91 under full-suite
+  // load (2026-09-10), green alone 3 of 3.
+  const deadline = Date.now() + 15_000;
   while (!check() && Date.now() < deadline) await Bun.sleep(5);
   expect(check()).toBe(true);
 }
