@@ -43,3 +43,54 @@ export function pageForPath(pathname: string): Page | null {
 export function pathForPage(page: Page | null): string {
   return page === null ? "/" : `/${page}`;
 }
+
+export interface PageFlags {
+  usersOpen: boolean;
+  tasksOpen: boolean;
+  cronjobsOpen: boolean;
+  appsOpen: boolean;
+}
+
+/** Shared by history and the rendered page switch. Flags can overlap. */
+export function pageForFlags(flags: PageFlags): Page | null {
+  return flags.usersOpen ? "settings"
+    : flags.tasksOpen ? "tasks"
+      : flags.cronjobsOpen ? "cronjobs"
+        : flags.appsOpen ? "apps" : null;
+}
+
+export interface PageShortcutInput {
+  key: string;
+  isInput?: boolean;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+}
+
+export interface PageShortcutUpdate {
+  tasksOpen?: boolean | ((open: boolean) => boolean);
+  cronjobsOpen?: boolean;
+  appsOpen?: boolean;
+  usersOpen?: true;
+}
+
+/** Return only the setters the existing shortcut changes. */
+export function pageShortcut(
+  input: PageShortcutInput,
+  flags: PageFlags,
+): PageShortcutUpdate | "home" | null {
+  if (input.isInput || flags.usersOpen || input.metaKey || input.ctrlKey || input.altKey)
+    return null;
+  if (input.key === "t") {
+    // Keep a functional update: two keydowns can occur before React renders.
+    // Tasks deliberately leaves the other page flags set underneath it.
+    return { tasksOpen: (open) => !open };
+  }
+  if (input.key === "a") {
+    if (flags.appsOpen && !flags.tasksOpen && !flags.cronjobsOpen) return "home";
+    return { tasksOpen: false, cronjobsOpen: false, appsOpen: true };
+  }
+  // Settings only opens; leaving it must pass its own unsaved-edit guard.
+  if (input.key === "s") return { usersOpen: true };
+  return null;
+}

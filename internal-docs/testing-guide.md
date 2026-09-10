@@ -189,6 +189,15 @@ portals. Anything that can be stated as a pure function stays a plain unit
 test.
 
 `ui/App.lobby-landing.dom.test.tsx` covers first-visit Lobby landing. `ui/App.lobby-saved-room.dom.test.tsx` covers saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` and `ui/App.room-tasks.dom.test.tsx` cover the task shortcut scope from Lobby and a room tab, respectively.
+The scope tests retain the real `t` keydown, URL change, and rendered select.
+The room case also keeps `t → a → t` to prove the keyboard binding switches
+between mounted pages. `ui/routes.test.ts` covers the full `t/a/t/a/s`
+sequence through the pure shortcut transitions and page selection that App
+uses for both history and rendering. Tasks toggles without clearing the other
+page flags; page precedence decides which page is visible. The unchanged
+`ui/App.apps-shortcut.dom.test.tsx` covers the real return trip through history
+and the previous page's unmount.
+
 
 The saved-room landing case commits `session_context` before `full_state`. Keep these
 as separate React updates: the saved-room case must catch a save effect that

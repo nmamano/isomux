@@ -31,7 +31,7 @@ import { agentTabLabel } from "./agent-face.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { swipeTarget } from "./office/room-cycle.ts";
 import { isValidDesk } from "../shared/desks.ts";
-import { pageForPath, pathForPage, type Page } from "./routes.ts";
+import { pageForPath, pathForPage, pageForFlags, pageShortcut, type Page } from "./routes.ts";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
 function cycleAgent(
@@ -492,55 +492,19 @@ export function App({ routing = true }: { routing?: boolean }) {
         setCtxMenu(null);
         setEditAgent(null);
       }
-      // "t": toggle the task board from anywhere (office view or while viewing an
-      // agent), as long as you're not typing into a field. Disabled while the
-      // Settings page is open - jumping away from it would bypass its
-      // unsaved-edits check.
-      if (
-        !isInput &&
-        e.key === "t" &&
-        !usersOpen &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey
-      ) {
+      const pageUpdate = pageShortcut(
+        { key: e.key, isInput, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey },
+        { usersOpen, tasksOpen, cronjobsOpen, appsOpen },
+      );
+      if (pageUpdate !== null) {
         e.preventDefault();
-        setTasksOpen((v) => !v);
-      }
-      // Apps has no unsaved edits. Toggle it with the page's own close action.
-      if (
-        !isInput &&
-        e.key === "a" &&
-        !usersOpen &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        // "t" can leave appsOpen true underneath Tasks, so appsOpen alone
-        // does not mean Apps is on screen. The Schedules check is defensive
-        // symmetry with page priority; no current UI path sets both flags.
-        if (appsOpen && !tasksOpen && !cronjobsOpen) goHome();
+        if (pageUpdate === "home") goHome();
         else {
-          setTasksOpen(false);
-          setCronjobsOpen(false);
-          setAppsOpen(true);
+          if (pageUpdate.tasksOpen !== undefined) setTasksOpen(pageUpdate.tasksOpen);
+          if (pageUpdate.cronjobsOpen !== undefined) setCronjobsOpen(pageUpdate.cronjobsOpen);
+          if (pageUpdate.appsOpen !== undefined) setAppsOpen(pageUpdate.appsOpen);
+          if (pageUpdate.usersOpen) openSettings(null);
         }
-      }
-      // "s": open the Settings page from anywhere, the same way "t" reaches
-      // the task board. It only OPENS - pressing it again does not close the
-      // page, because leaving that way would skip its unsaved-edits check.
-      // Escape (handled by the page itself) is the way back out.
-      if (
-        !isInput &&
-        e.key === "s" &&
-        !usersOpen &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey
-      ) {
-        e.preventDefault();
-        openSettings(null);
       }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
@@ -641,15 +605,7 @@ export function App({ routing = true }: { routing?: boolean }) {
   // Which page is showing, in the same precedence as the view switch below. A
   // chat is not a page: agent chats are not routes (ruling 3), so a chat and
   // the office share the path "/".
-  const page: Page | null = usersOpen
-    ? "settings"
-    : tasksOpen
-      ? "tasks"
-      : cronjobsOpen
-        ? "cronjobs"
-        : appsOpen
-          ? "apps"
-          : null;
+  const page = pageForFlags({ usersOpen, tasksOpen, cronjobsOpen, appsOpen });
   const isDeep = page !== null || focusedAgentId !== null;
   useEffect(() => {
     const write = (method: "pushState" | "replaceState") => {
@@ -720,14 +676,14 @@ export function App({ routing = true }: { routing?: boolean }) {
     <>
       <style>{CSS}</style>
       <ConnectionBanner />
-      {usersOpen ? (
+      {page === "settings" ? (
         <UserSettingsView
           initialUserId={editingUserId}
           initialTarget={settingsTarget}
           onSwitchUser={(name) => setUsername(name)}
           onClose={goHome}
         />
-      ) : tasksOpen ? (
+      ) : page === "tasks" ? (
         <TaskView
           onClose={closeTasks}
           onFocusAgent={(agentId) => {
@@ -735,9 +691,9 @@ export function App({ routing = true }: { routing?: boolean }) {
             dispatch({ type: "focus", agentId });
           }}
         />
-      ) : cronjobsOpen ? (
+      ) : page === "cronjobs" ? (
         <CronjobsView onClose={goHome} />
-      ) : appsOpen ? (
+      ) : page === "apps" ? (
         <AppsView
           onClose={goHome}
           onFocusAgent={(agentId) => {

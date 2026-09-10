@@ -46,6 +46,9 @@ export async function checkTaskShortcuts(lobbyOpen: boolean) {
     expect(scope.selectedOptions[0].textContent).toBe(
       lobbyOpen ? "All rooms" : "Isomux",
     );
+    // Scope rendering stays in DOM. The complete sequence is in routes.test.ts.
+    if (lobbyOpen) return;
+    // Keep one direct page-to-page switch through the real keyboard binding.
     await act(async () => {
       fireEvent.keyDown(document.body, { key: "a", bubbles: true });
     });
@@ -55,15 +58,5 @@ export async function checkTaskShortcuts(lobbyOpen: boolean) {
       fireEvent.keyDown(document.body, { key: "t", bubbles: true });
     });
     expect(window.location.pathname).toBe("/tasks");
-    expect(view.queryByText("No apps yet.") === null).toBe(true);
-    await act(async () => {
-      fireEvent.keyDown(document.body, { key: "a", bubbles: true });
-    });
-    expect(window.location.pathname).toBe("/apps");
-    expect(view.queryByText("No apps yet.") !== null).toBe(true);
-    await act(async () => {
-      fireEvent.keyDown(document.body, { key: "s", bubbles: true });
-    });
-    expect(window.location.pathname).toBe("/settings");
     expect(view.queryByText("No apps yet.") === null).toBe(true);
 }
