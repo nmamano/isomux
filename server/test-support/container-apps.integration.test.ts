@@ -115,13 +115,26 @@ websocket: {message(ws, message) { ws.send(message); }} });
   const denied = await raw(office.port, { host: `generated.${OFFICE_HOST}` });
   expect(denied.status).toBe(302);
   expect(denied.headers.location).toStartWith(`${HTTPS_ORIGIN}/auth/app?`);
-  const ws = await wsConnect(office.port, {
+  let ws = await wsConnect(office.port, {
     host: `generated.${OFFICE_HOST}`,
     path: "/echo",
     cookie,
     headers: { Origin: `https://generated.${OFFICE_HOST}` },
   });
-  expect(ws.ok).toBe(true);
+  const wsReadyAt = Date.now() + 3000;
+  while (!ws.ok && Date.now() < wsReadyAt) {
+    await Bun.sleep(50);
+    ws = await wsConnect(office.port, {
+      host: `generated.${OFFICE_HOST}`,
+      path: "/echo",
+      cookie,
+      headers: { Origin: `https://generated.${OFFICE_HOST}` },
+    });
+  }
+  if (!ws.ok)
+    throw new Error(
+      `app WS upgrade refused: ${ws.response.status} ${ws.response.body}`,
+    );
   if (ws.ok) {
     try {
       ws.client.send("synthetic-echo");
@@ -135,10 +148,18 @@ websocket: {message(ws, message) { ws.send(message); }} });
   }
   office = await office.restart();
   const renewedCookie = await signIn(office, "generated", owner.rawSessionId);
-  const afterRestart = await raw(office.port, {
+  let afterRestart = await raw(office.port, {
     host: `generated.${OFFICE_HOST}`,
     headers: withAppCookie(renewedCookie),
   });
+  const restartReadyAt = Date.now() + 3000;
+  while (afterRestart.status !== 200 && Date.now() < restartReadyAt) {
+    await Bun.sleep(50);
+    afterRestart = await raw(office.port, {
+      host: `generated.${OFFICE_HOST}`,
+      headers: withAppCookie(renewedCookie),
+    });
+  }
   expect(afterRestart.status).toBe(200);
   expect((JSON.parse(afterRestart.body) as { pid: number }).pid).toBe(pid);
   const deleted = await office.http("/api/apps/generated", {

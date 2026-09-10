@@ -532,7 +532,7 @@ export function wsConnect(
     headers?: Record<string, string>;
   },
 ): Promise<WsConnectResult> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const seen: WsEvent[] = [];
     const waiters: Array<(event: WsEvent) => void> = [];
     const emit = (event: WsEvent): void => {
@@ -545,6 +545,18 @@ export function wsConnect(
     let settled = false;
     const decoder = new FrameDecoder({ maxMessageBytes: 8 * 1024 * 1024 });
     const socket = connect(port, "127.0.0.1");
+    // An unframed response on a kept-open socket has no completion event.
+    // Reject that hang; elapsed time must never classify a partial response.
+    // 2026-09-10: a successful attempt took 422ms at load 1/5/15
+    // 15.30/17.16/14.60 -> 13.22/16.23/14.44; 2000ms gives ample margin.
+    const deadline = setTimeout(() => {
+      settled = true;
+      const status = parseRaw(head.toString("utf8")).status;
+      socket.destroy();
+      reject(new Error(
+        `wsConnect: no 101, complete framed response, or socket end within 2000ms; received ${head.length} bytes, status ${status}`,
+      ));
+    }, 2000);
     socket.on("connect", () => {
       socket.write(
         [
@@ -603,7 +615,42 @@ export function wsConnect(
         const end = head.indexOf("\r\n\r\n");
         if (end === -1) return;
         const headText = head.subarray(0, end).toString("latin1");
-        if (!/^HTTP\/1\.1 101/.test(headText)) return; // handled on close/timeout
+        if (!/^HTTP\/1\.1 101/.test(headText)) {
+          // Bun can keep a refused upgrade alive. Content-Length, chunked
+          // framing and bodyless statuses finish on data; unframed bodies
+          // wait for socket end or the diagnostic rejection deadline.
+          const response = parseRaw(head.toString("utf8"));
+          const bodyStart = end + 4;
+          const length = response.headers["content-length"];
+          let complete = response.status === 204 || response.status === 304;
+          if (response.headers["transfer-encoding"]?.toLowerCase() === "chunked") {
+            let offset = bodyStart;
+            for (;;) {
+              const lineEnd = head.indexOf("\r\n", offset);
+              if (lineEnd === -1) break;
+              const sizeText = head.subarray(offset, lineEnd).toString("ascii").split(";")[0];
+              if (!/^[\da-f]+$/i.test(sizeText)) break;
+              const size = Number.parseInt(sizeText, 16);
+              offset = lineEnd + 2;
+              if (size === 0) {
+                complete = head.subarray(offset, offset + 2).equals(Buffer.from("\r\n")) ||
+                  head.indexOf("\r\n\r\n", offset) !== -1;
+                break;
+              }
+              if (head.length < offset + size + 2) break;
+              offset += size + 2;
+            }
+          } else if (length !== undefined && /^\d+$/.test(length)) {
+            complete = head.length - bodyStart >= Number(length);
+          }
+          if (complete) {
+            settled = true;
+            clearTimeout(deadline);
+            socket.destroy();
+            resolve({ ok: false, response });
+          }
+          return;
+        }
         for (const line of headText.split("\r\n").slice(1)) {
           const colon = line.indexOf(":");
           if (colon > 0) {
@@ -613,6 +660,7 @@ export function wsConnect(
         }
         upgraded = true;
         settled = true;
+        clearTimeout(deadline);
         resolve({ ok: true, client });
         chunk = head.subarray(end + 4);
         head = Buffer.alloc(0);
@@ -633,19 +681,11 @@ export function wsConnect(
         return;
       }
       settled = true;
+      clearTimeout(deadline);
       resolve({ ok: false, response: parseRaw(head.toString("utf8")) });
     };
     socket.on("end", finish);
     socket.on("close", finish);
     socket.on("error", finish);
-    // A refusal that leaves the connection open (Bun keeps it alive) still has
-    // to resolve; the response is complete once the body has arrived.
-    setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        socket.destroy();
-        resolve({ ok: false, response: parseRaw(head.toString("utf8")) });
-      }
-    }, 400);
   });
 }
