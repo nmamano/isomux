@@ -15,13 +15,17 @@ The URL cannot be changed for Hosted Isomux offices.
 
 ## Deploy on Render
 
-Create a Blueprint in the intended Render workspace from [this repository](https://github.com/nmamano/isomux), using `main` and `render.yaml`. Set `ISOMUX_PUBLIC_URL` to the final HTTPS office origin, such as `https://office.example.com`. Review the Pro service and 20 GB persistent disk, and deploy.
+Render runs the office as one Docker web service on a paid compute plan with a persistent disk. The `render.yaml` at the root of the isomux repository declares that service, and Render reads it when you create a Blueprint.
 
-Add `office.example.com` and `*.office.example.com` as custom domains on the same service. Set their CNAMEs to the assigned `onrender.com` hostname and copy Render's validation CNAME targets exactly. Wait for both domains and HTTPS to be ready.
+You need a domain you control. Apps that agents build get their own subdomains under the office address, and Render's `onrender.com` addresses cannot provide those. Pick the office address before you start, for example `office.example.com`.
 
-Find `ISOMUX_SETUP_KEY` in the service's environment settings. Open the office domain and enter the key and first owner's name. Keep the key out of messages and logs. Connect a model provider, then ask an agent to build a small app with synthetic data. Check that the app opens and retains a saved change after a service restart.
+1. Create the service. In the Render dashboard, open [New > Blueprint](https://dashboard.render.com/blueprints), connect the [isomux repository](https://github.com/nmamano/isomux) and keep the `main` branch. Render lists one web service with a 20 GB disk and asks for one value, `ISOMUX_PUBLIC_URL`: enter `https://` followed by your office address. Apply, and wait for the first build to finish. [Render's Blueprint docs](https://render.com/docs/infrastructure-as-code).
+2. Point your domain at it. On the new service, open Settings > Custom Domains and add both `office.example.com` and `*.office.example.com` (the wildcard serves the apps). Render shows the DNS records to create at your registrar; copy them exactly and wait until both domains show as verified. [Render's custom domain docs](https://render.com/docs/custom-domains).
+3. Claim the office. Open the service's Environment tab and copy the value of `ISOMUX_SETUP_KEY`, which Render generated for you. Open your office address in a browser and enter the key and your name. You are the first owner; the key stops working after that, and you add other people through invite links in the office.
 
-Keep projects under `/var/data/workspaces`; office and app state live under `/var/data/home`. Restarts interrupt active turns and requests.
+Only the disk, mounted at `/var/data`, survives a deploy; the rest of the container is rebuilt from the image. Agents' home directory is on the disk, so their default working directory is safe. A project created anywhere else is gone after the next deploy.
+
+To check that app subdomains work, ask an agent to build a small app and open it.
 
 ## VPS install
 

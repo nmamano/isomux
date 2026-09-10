@@ -50,7 +50,7 @@ See the [full feature list](docs/features.md).
 ## Self-hosted and hosted
 
 The open-source app in this repo is the complete office: run it on your own
-computer or server, with your own provider accounts, or [deploy on Render](docs/self-hosted.md#deploy-on-render).
+computer or server, with your own provider accounts.
 
 The repo also contains the website and the provisioning and billing system for
 [Hosted Isomux](https://isomux.com/hosted), our managed option for people who do
@@ -94,7 +94,7 @@ Visit **http://localhost:4000** in your browser.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
 - OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or Subscription model.
 
-Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or Render.
+Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or [Render](docs/self-hosted.md#deploy-on-render).
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 
