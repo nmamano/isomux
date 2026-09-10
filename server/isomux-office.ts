@@ -150,6 +150,7 @@ import {
   sessionContextFor,
   setOnInviteConsumed,
   setOnSessionsChanged,
+  takeOwnerClaimedInThisProcess,
   setPublicOriginFallback,
   setLoopbackOriginPort,
   setRoomsSnapshotProvider,
@@ -495,9 +496,14 @@ function createManagers(startOpts: StartServerOpts): void {
 // registerBootHooks: install the auth.ts callbacks (room-snapshot provider,
 // invite/session change fanout, first-owner welcome-agent seed) against the
 // active manager instance. Extracted so startServer() controls when they run.
-// The welcome-agent helpers below are local to this function (used only here).
+// The welcome-agent seed is also consumed by the ordered background boot path
+// when Render claimed its first owner before the hooks existed.
 // Body left at prior indentation; prettier normalizes post-review.
 const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+
+let seedWelcomeAgentsForFirstOwner:
+  | ((username: string) => Promise<void>)
+  | null = null;
 
 async function welcomeOpenCodeModel(username: string): Promise<string | null> {
   const user = getUserByName(username);
@@ -772,7 +778,7 @@ function registerBootHooks(): void {
   // fires on first-claim flows by design; the agent-count guard below is
   // defensive in case a future call path fires it against an already-
   // populated office.
-  setOnOwnerCreated(async ({ username }) => {
+  seedWelcomeAgentsForFirstOwner = async (username) => {
     const hadAgents = agentManager.getAllAgents().length > 0;
     await ensureReceptionist(username);
     // Branch on the pre-spawn snapshot so the lobby does not suppress welcome agents.
@@ -806,6 +812,10 @@ function registerBootHooks(): void {
         username,
       );
     }
+  };
+  setOnOwnerCreated(async ({ username }) => {
+    takeOwnerClaimedInThisProcess();
+    await seedWelcomeAgentsForFirstOwner!(username);
   });
 } // end registerBootHooks
 
@@ -6064,9 +6074,13 @@ function runBackgroundBoot(
       );
     }
     try {
+      const justClaimedOwner = listUsers().find((u) => u.role === "owner");
+      if (justClaimedOwner && takeOwnerClaimedInThisProcess()) {
+        await seedWelcomeAgentsForFirstOwner!(justClaimedOwner.name);
+      }
       await ensureReceptionistAtBoot();
     } catch (err) {
-      console.warn("[bootstrap] receptionist boot check failed:", err);
+      console.warn("[bootstrap] onboarding boot check failed:", err);
     }
     // One-time hygiene pass: remove any stale roomIds from users'
     // allowedRooms / notifRooms that don't match a currently-existing
@@ -6209,6 +6223,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnSessionsChanged(() => {});
   setOnUserRoleChanged(() => {});
   setOnOwnerCreated(async () => {});
+  seedWelcomeAgentsForFirstOwner = null;
   setApiTokenStreamSinks({ logEntry: () => {}, revoked: () => {} });
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.

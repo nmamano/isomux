@@ -29,6 +29,7 @@ import {
   acceptInvite,
   mintInvite,
   _testResetState,
+  _testResetOwnerClaimedInThisProcess,
   _testSeedOwner,
 } from "../auth.ts";
 import { _testResetUsers } from "../users.ts";
@@ -155,6 +156,7 @@ async function bootTestServer(
       // server starts empty. restart() skips this to preserve on-disk state.
       removeStateDir(STATE_ROOT);
       mkdirSync(STATE_ROOT, { recursive: true });
+      _testResetOwnerClaimedInThisProcess();
     }
     // Reset the module caches that lazy-load from STATE_ROOT - ALWAYS, even on a
     // no-wipe restart, so the re-boot re-reads the persisted files instead of

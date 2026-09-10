@@ -167,7 +167,10 @@ import {
   type AbortResult,
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
-import { isClaudeCodeAuthenticated } from "./backends/claude-install-check.ts";
+import {
+  isClaudeCloudSelected,
+  isClaudeCodeAuthenticated,
+} from "./backends/claude-install-check.ts";
 import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
 import type {
   ApprovalDecision,
@@ -258,6 +261,21 @@ export interface ManagerDeps {
     userId: string,
     provider: ProviderAccountProvider,
   ) => EffectiveProviderAccountTarget;
+}
+
+export function detectAuthErrorForEnvironment(
+  agentType: AgentBackendType,
+  text: string,
+  env: Record<string, string | undefined> | undefined,
+  detect: (value: string) => boolean,
+): boolean {
+  // Bedrock and Vertex own authentication and access failures. Their messages
+  // must pass through as provider errors; Claude's OAuth guidance only applies
+  // to the first-party provider.
+  if (agentType === "claude" && env && isClaudeCloudSelected(env)) {
+    return false;
+  }
+  return detect(text);
 }
 
 export function backendSessionHasFixedCwd(
@@ -451,7 +469,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     text: string,
   ): boolean {
     if (!managed) return isAuthError(text);
-    return getBackend(managed.info.agentType).detectAuthError(text);
+    let env: Record<string, string | undefined> | undefined;
+    try {
+      env = buildEnvForUserId(managed.info.userId);
+    } catch {
+      env = undefined;
+    }
+    const backend = getBackend(managed.info.agentType);
+    return detectAuthErrorForEnvironment(
+      managed.info.agentType,
+      text,
+      env,
+      (value) => backend.detectAuthError(value),
+    );
   }
   function agentIsKnownUnauthenticated(managed: ManagedAgent): boolean {
     // Credential state must gate topic-output sniffing. The per-turn auth

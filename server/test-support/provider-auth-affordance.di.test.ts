@@ -9,7 +9,11 @@ import type {
   ProviderAccountWire,
   RoomWire,
 } from "../../shared/types.ts";
-import { createAgentManager, type ManagerDeps } from "../agent-manager.ts";
+import {
+  createAgentManager,
+  detectAuthErrorForEnvironment,
+  type ManagerDeps,
+} from "../agent-manager.ts";
 import {
   ProviderAccountManager,
   type EffectiveProviderAccountTarget,
@@ -98,7 +102,78 @@ function claudeWire(
   };
 }
 
+const BEDROCK_PAYMENT_ERROR =
+  "Failed to authenticate. API Error: 403 Model access is denied due to INVALID_PAYMENT_INSTRUMENT: A valid payment instrument must be provided. Your AWS Marketplace subscription for this model cannot be completed at this time. If you recently fixed this issue, try again after 5 minutes.";
+
+describe("Claude auth classification by provider", () => {
+  const classify = (
+    text: string,
+    env: Record<string, string | undefined>,
+  ) =>
+    detectAuthErrorForEnvironment("claude", text, env, (value) =>
+      claudeBackend.detectAuthError(value),
+    );
+
+  it("does not classify the Bedrock 403 as a first-party auth error", () => {
+    expect(classify(BEDROCK_PAYMENT_ERROR, { CLAUDE_CODE_USE_BEDROCK: "1" }))
+      .toBe(false);
+  });
+
+  it("keeps the same 403 classified when no cloud selector is active", () => {
+    expect(classify(BEDROCK_PAYMENT_ERROR, {})).toBe(true);
+  });
+
+  it("does not classify first-party-shaped text under a cloud selector", () => {
+    expect(
+      classify("Not logged in · Please run /login", {
+        CLAUDE_CODE_USE_VERTEX: "true",
+      }),
+    ).toBe(false);
+  });
+});
+
 describe("provider auth affordances", () => {
+  it("keeps a cloud provider failure and skips the OAuth account check", async () => {
+    setTestManagedOfficeEnv({ CLAUDE_CODE_USE_BEDROCK: "1" });
+    let accountChecks = 0;
+    const fake = new FakeBackend({
+      isAuthError: (text) => claudeBackend.detectAuthError(text),
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({
+            status: "failed",
+            error: BEDROCK_PAYMENT_ERROR,
+          }),
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "claude",
+      fake,
+      accounts: async () => {
+        accountChecks++;
+        return [claudeWire("office", { accountStatus: "connected" })];
+      },
+      target: () => ({
+        provider: "claude",
+        scope: "office",
+        dir: "/accounts/office",
+      }),
+    });
+
+    await mgr.sendMessage(agentId, "hello", "tester");
+
+    const logs = mgr.getAgentLogs(agentId);
+    expect(logs.filter((entry) => entry.content === BEDROCK_PAYMENT_ERROR))
+      .toHaveLength(1);
+    expect(
+      logs.some((entry) => entry.content.includes("Checking the connection…")),
+    ).toBe(false);
+    expect(logs.some((entry) => entry.metadata?.providerLogin === "claude"))
+      .toBe(false);
+    expect(accountChecks).toBe(0);
+    expect(mgr.getAgent(agentId)?.state).toBe("error");
+  });
+
   for (const selector of [
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",

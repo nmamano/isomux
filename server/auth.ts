@@ -90,6 +90,16 @@ interface StoredSession {
 // Module state is mutated only under `mutate()`.
 let invites: Map<string, StoredInvite> | null = null;
 let sessions: Map<string, StoredSession> | null = null;
+// A Render setup claim happens before the office server boots, so its normal
+// owner-created hook does not exist yet. The boot path consumes this flag and
+// runs the same onboarding seed. A normal HTTP claim consumes it in that hook.
+let ownerClaimedInThisProcess = false;
+
+export function takeOwnerClaimedInThisProcess(): boolean {
+  const claimed = ownerClaimedInThisProcess;
+  ownerClaimedInThisProcess = false;
+  return claimed;
+}
 
 // Mutex: a chain of promises. Each `mutate` awaits the previous link before
 // running, so concurrent invite acceptances and revocations serialize. The
@@ -1022,6 +1032,7 @@ export async function claimOwnership(
     // Sweep any leftover unconsumed bootstrap invites from prior versions
     // now that this office has an owner. Best-effort.
     markAllUnconsumedBootstrapInvitesConsumed();
+    ownerClaimedInThisProcess = true;
 
     return {
       ok: true,
@@ -2118,4 +2129,8 @@ export function _testResetState() {
   envEvaluated = false;
   envCachedOrigin = null;
   boundLoopbackPort = null;
+}
+
+export function _testResetOwnerClaimedInThisProcess(): void {
+  ownerClaimedInThisProcess = false;
 }
