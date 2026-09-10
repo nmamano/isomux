@@ -1,8 +1,8 @@
 # Deploy a customer office
 
-Use the latest main revision containing the browser setup fix (ab30ced or later).
-The repository is public. Customers can deploy it without a GitHub repository
-invitation. Sign in to Render to create the Blueprint in the intended workspace.
+Deploy from the `main` branch of https://github.com/nmamano/isomux. The
+repository is public, so no GitHub invitation is needed. Sign in to Render to
+create the Blueprint in the intended workspace.
 
 1. In the intended Render workspace, select New > Blueprint and connect this
    repository. Choose main and render.yaml. Give the Blueprint a name.
