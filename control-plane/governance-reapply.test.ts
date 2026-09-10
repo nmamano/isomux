@@ -177,7 +177,11 @@ afterAll(async () => {
   if (failures.length > 0) {
     throw new AggregateError(failures, "failed to drop scratch databases");
   }
-}, PG_TEST_HOOK_TIMEOUT_MS);
+  // One scratch database per test, dropped in sequence: roles, backends,
+  // database. About 25 of them; the shared 30 s hook budget bound in a full
+  // CI run under load (2026-09-10, P0 filed) while the file passed alone in
+  // 68 to 91 s three times. The budget is an upper bound, not a wait.
+}, PG_TEST_HOOK_TIMEOUT_MS * 5);
 
 /** A schema-ready database governed exactly as PRODUCTION is today: the roles
  * in place and the catalog carrying the PRIOR matrix. */
