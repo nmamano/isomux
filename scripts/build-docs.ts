@@ -467,6 +467,7 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
   border-bottom: 1px solid var(--border);
 }
 .content h2 {
+  scroll-margin-top: 72px; /* the sticky .topbar covers the top of the page */
   font-size: 1.4rem;
   font-weight: 700;
   margin: 36px 0 12px;
@@ -475,6 +476,7 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
 }
 .content h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 .content h3 {
+  scroll-margin-top: 72px;
   font-size: 1.1rem;
   font-weight: 600;
   color: var(--accent);

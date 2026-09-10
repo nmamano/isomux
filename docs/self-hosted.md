@@ -320,7 +320,7 @@ values.
 
 ## Deploy on Render
 
-Render runs the office as one Docker web service on a paid compute plan with a persistent disk. The `render.yaml` at the root of the isomux repository declares that service, and Render reads it when you create a Blueprint.
+[Render](https://render.com) runs the office as one Docker web service on a paid compute plan with a persistent disk. The `render.yaml` at the root of the isomux repository declares that service, and Render reads it when you create a Blueprint.
 
 You need a domain you control. Apps that agents build get their own subdomains under the office address, and Render's `onrender.com` addresses cannot provide those. Pick the office address before you start, for example `office.example.com`.
 
