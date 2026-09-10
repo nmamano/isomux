@@ -16,10 +16,23 @@ function renderTokens(tokens: Token[]): ReactNode[] {
       // only, including marked's normalized bare www. links.
       let safe = false;
       try {
-        safe = ["https:", "http:", "mailto:"].includes(new URL(token.href).protocol);
-      } catch { /* Keep an invalid destination as literal text. */ }
+        safe = ["https:", "http:", "mailto:"].includes(
+          new URL(token.href).protocol,
+        );
+      } catch {
+        /* Keep an invalid destination as literal text. */
+      }
       if (safe)
-        return <a key={index} href={token.href} target="_blank" rel="noopener noreferrer">{renderTokens(token.tokens)}</a>;
+        return (
+          <a
+            key={index}
+            href={token.href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {renderTokens(token.tokens)}
+          </a>
+        );
     }
     if (token.type === "escape") return token.text;
     return token.raw;
@@ -27,6 +40,12 @@ function renderTokens(tokens: Token[]): ReactNode[] {
 }
 
 export function InlineMarkdown({ content }: { content: string }) {
-  const nodes = useMemo(() => renderTokens(Lexer.lexInline(content, { ...defaults, gfm: true, breaks: false })), [content]);
+  const nodes = useMemo(
+    () =>
+      renderTokens(
+        Lexer.lexInline(content, { ...defaults, gfm: true, breaks: false }),
+      ),
+    [content],
+  );
   return <span style={{ whiteSpace: "pre-wrap" }}>{nodes}</span>;
 }

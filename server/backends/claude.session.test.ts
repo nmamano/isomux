@@ -1016,7 +1016,11 @@ describe("Claude launch telemetry settings", () => {
       backend.createSession(opts);
       backend.resumeSession("telemetry-session", opts);
       await backend.oneShotPrompt("hello", opts);
-      for (const call of [fake.createCalls[0].opts, fake.resumeCalls[0].opts, fake.oneShotCalls[0]]) {
+      for (const call of [
+        fake.createCalls[0].opts,
+        fake.resumeCalls[0].opts,
+        fake.oneShotCalls[0],
+      ]) {
         expect(call.settings).toMatchObject({
           autoMemoryEnabled: false,
           env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },

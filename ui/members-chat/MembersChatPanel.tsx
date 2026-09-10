@@ -233,7 +233,10 @@ export function MembersChatPanel({
   const me = sessionContext?.userId ?? null;
   const amOwner = sessionContext?.role === "owner";
   const { messages, hasMore, loaded, readPointer } = membersChat;
-  const loadedMessageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
+  const loadedMessageIds = useMemo(
+    () => new Set(messages.map((message) => message.id)),
+    [messages],
+  );
 
   const [input, setInput] = useState("");
   const [replyingTo, setReplyingTo] = useState<MembersChatMessage | null>(null);
@@ -274,7 +277,12 @@ export function MembersChatPanel({
     chatApi
       .fetchPage({ before: messages[0].id, limit: PAGE_LIMIT })
       .then((page) => {
-        dispatch({ type: "members_chat_page", ...page, prepend: true, pinsRevisionAtRequest });
+        dispatch({
+          type: "members_chat_page",
+          ...page,
+          prepend: true,
+          pinsRevisionAtRequest,
+        });
         // Hold the reader's place: grow the scroll offset by what was added
         // above, so the message they were looking at does not jump.
         requestAnimationFrame(() => {
@@ -409,9 +417,11 @@ export function MembersChatPanel({
         if (textareaRef.current) textareaRef.current.style.height = "auto";
       })
       .catch((err: unknown) =>
-        setError(err instanceof ApiError && err.code === "reply_not_found"
-          ? { key: "membersChat.replyMissing", message: "" }
-          : chatError(err, "membersChat.sendFailed")),
+        setError(
+          err instanceof ApiError && err.code === "reply_not_found"
+            ? { key: "membersChat.replyMissing", message: "" }
+            : chatError(err, "membersChat.sendFailed"),
+        ),
       )
       .finally(() => setSending(false));
   }
@@ -425,9 +435,14 @@ export function MembersChatPanel({
   }
 
   function setPinned(id: string, active: boolean) {
-    chatApi.setPinned(id, active).then((message) => {
-      dispatch({ type: "members_chat_message", message, updateOnly: true });
-    }).catch((err: unknown) => setError(chatError(err, "membersChat.pinFailed")));
+    chatApi
+      .setPinned(id, active)
+      .then((message) => {
+        dispatch({ type: "members_chat_message", message, updateOnly: true });
+      })
+      .catch((err: unknown) =>
+        setError(chatError(err, "membersChat.pinFailed")),
+      );
   }
 
   function submitEdit(id: string, text: string) {
@@ -583,11 +598,15 @@ export function MembersChatPanel({
       </div>
 
       {membersChat.pinned?.[0] && (
-        <PinnedMessageStrip key={membersChat.pinned[0].id} message={membersChat.pinned[0]} count={membersChat.pinned.length}
+        <PinnedMessageStrip
+          key={membersChat.pinned[0].id}
+          message={membersChat.pinned[0]}
+          count={membersChat.pinned.length}
           author={describeMembersChatAuthor(membersChat.pinned[0], t).label}
           loaded={loadedMessageIds.has(membersChat.pinned[0].id)}
           onJump={() => jumpTo(membersChat.pinned![0].id)}
-          onUnpin={() => setPinned(membersChat.pinned![0].id, false)} />
+          onUnpin={() => setPinned(membersChat.pinned![0].id, false)}
+        />
       )}
 
       <div
@@ -654,15 +673,15 @@ export function MembersChatPanel({
           if (editingId === m.id) {
             return (
               <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
-              <EditableUserMessage
-                content={m.content}
-                entryId={m.id}
-                variant="members-chat"
-                isMobile={isMobile}
-                username={author.label}
-                onCancel={() => setEditingId(null)}
-                onSubmit={submitEdit}
-              />
+                <EditableUserMessage
+                  content={m.content}
+                  entryId={m.id}
+                  variant="members-chat"
+                  isMobile={isMobile}
+                  username={author.label}
+                  onCancel={() => setEditingId(null)}
+                  onSubmit={submitEdit}
+                />
               </div>
             );
           }
@@ -693,44 +712,125 @@ export function MembersChatPanel({
           const canDelete = mine || amOwner;
           return (
             <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
-            <UserMessage
-              beforeContent={m.replyTo && <ReplyQuote reply={m.replyTo} onJump={loadedMessageIds.has(m.replyTo.id) ? () => jumpTo(m.replyTo!.id) : undefined} />}
-              content={m.content}
-              renderedContent={<InlineMarkdown content={m.content} />}
-              isMobile={isMobile}
-              username={label}
-              variant="members-chat"
-              hideAuthor={continuation}
-              inlineAccessory={
-                <ThumbsUpReaction
-                  active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
-                  names={(m.thumbsUp ?? []).map(
-                    (r) => describeMembersChatAuthor(r, t).label,
-                  )}
-                  isMobile={isMobile}
-                  onChange={(active) => setThumbsUp(m.id, active)}
-                />
-              }
-              title={label}
-              fromNonHuman={author.nonHuman}
-              attachments={m.attachments}
-              fileBase={MEMBERS_CHAT_FILES_BASE}
-              avatar={avatar}
-              editTitle={t("common.edit")}
-
-              extraActions={
-                <MessageActions>{(close) => <>
-                    <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} title={t("membersChat.reply")} disabled={sending} onClick={() => {
-                      close();
-                      setReplyingTo(m);
-                      textareaRef.current?.focus();
-                    }}>{t("membersChat.reply")}</button>
-                    <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} onClick={() => { close(); setPinned(m.id, m.pinnedAt === undefined); }}>{t(m.pinnedAt === undefined ? "membersChat.pin" : "membersChat.unpin")}</button>
-                    {mine && <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} title={t("common.edit")} onClick={() => { close(); setEditingId(m.id); }}>{t("common.edit")}</button>}
-                    {canDelete && <DeleteControl onConfirm={() => { close(); remove(m.id); }} />}
-                </>}</MessageActions>
-              }
-            />
+              <UserMessage
+                beforeContent={
+                  m.replyTo && (
+                    <ReplyQuote
+                      reply={m.replyTo}
+                      onJump={
+                        loadedMessageIds.has(m.replyTo.id)
+                          ? () => jumpTo(m.replyTo!.id)
+                          : undefined
+                      }
+                    />
+                  )
+                }
+                content={m.content}
+                renderedContent={<InlineMarkdown content={m.content} />}
+                isMobile={isMobile}
+                username={label}
+                variant="members-chat"
+                hideAuthor={continuation}
+                inlineAccessory={
+                  <ThumbsUpReaction
+                    active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
+                    names={(m.thumbsUp ?? []).map(
+                      (r) => describeMembersChatAuthor(r, t).label,
+                    )}
+                    isMobile={isMobile}
+                    onChange={(active) => setThumbsUp(m.id, active)}
+                  />
+                }
+                title={label}
+                fromNonHuman={author.nonHuman}
+                attachments={m.attachments}
+                fileBase={MEMBERS_CHAT_FILES_BASE}
+                avatar={avatar}
+                editTitle={t("common.edit")}
+                extraActions={
+                  <MessageActions>
+                    {(close) => (
+                      <>
+                        <button
+                          type="button"
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "var(--text-primary)",
+                            textAlign: "left",
+                            font: "inherit",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            padding: "4px 0",
+                          }}
+                          title={t("membersChat.reply")}
+                          disabled={sending}
+                          onClick={() => {
+                            close();
+                            setReplyingTo(m);
+                            textareaRef.current?.focus();
+                          }}
+                        >
+                          {t("membersChat.reply")}
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            color: "var(--text-primary)",
+                            textAlign: "left",
+                            font: "inherit",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            padding: "4px 0",
+                          }}
+                          onClick={() => {
+                            close();
+                            setPinned(m.id, m.pinnedAt === undefined);
+                          }}
+                        >
+                          {t(
+                            m.pinnedAt === undefined
+                              ? "membersChat.pin"
+                              : "membersChat.unpin",
+                          )}
+                        </button>
+                        {mine && (
+                          <button
+                            type="button"
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--text-primary)",
+                              textAlign: "left",
+                              font: "inherit",
+                              fontSize: 12,
+                              cursor: "pointer",
+                              padding: "4px 0",
+                            }}
+                            title={t("common.edit")}
+                            onClick={() => {
+                              close();
+                              setEditingId(m.id);
+                            }}
+                          >
+                            {t("common.edit")}
+                          </button>
+                        )}
+                        {canDelete && (
+                          <DeleteControl
+                            onConfirm={() => {
+                              close();
+                              remove(m.id);
+                            }}
+                          />
+                        )}
+                      </>
+                    )}
+                  </MessageActions>
+                }
+              />
             </div>
           );
         })}
@@ -752,10 +852,44 @@ export function MembersChatPanel({
         }}
       >
         {replyingTo && (
-          <div data-members-chat-composer-quote style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <ReplyQuote reply={{ id: replyingTo.id, userName: replyingTo.userName, excerpt: membersChatExcerpt(replyingTo.content, replyingTo.attachments) }} />
-            <button type="button" disabled={sending} onClick={() => setReplyingTo(null)} aria-label={t("membersChat.cancelReply")} title={t("membersChat.cancelReply")} style={{ border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", padding: 8 }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+          <div
+            data-members-chat-composer-quote
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <ReplyQuote
+              reply={{
+                id: replyingTo.id,
+                userName: replyingTo.userName,
+                excerpt: membersChatExcerpt(
+                  replyingTo.content,
+                  replyingTo.attachments,
+                ),
+              }}
+            />
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => setReplyingTo(null)}
+              aria-label={t("membersChat.cancelReply")}
+              title={t("membersChat.cancelReply")}
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                padding: 8,
+              }}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <path d="m4 4 8 8M12 4l-8 8" />
+              </svg>
             </button>
           </div>
         )}

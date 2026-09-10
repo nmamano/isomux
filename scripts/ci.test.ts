@@ -23,10 +23,16 @@ afterEach(() => {
     const pid = Number(readFileSync(file, "utf8").trim());
     if (alive(pid)) process.kill(pid, "SIGKILL");
   }
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0))
+    rmSync(root, { recursive: true, force: true });
 });
 
-async function fakeStep(command: string[], ceiling?: number, missingExit = false, fastTimers = false) {
+async function fakeStep(
+  command: string[],
+  ceiling?: number,
+  missingExit = false,
+  fastTimers = false,
+) {
   const root = mkdtempSync(join(tmpdir(), "isomux-ci-test-"));
   roots.push(root);
   const log = join(root, "step.log");
@@ -40,13 +46,17 @@ async function fakeStep(command: string[], ceiling?: number, missingExit = false
     console.log("RESULT=" + JSON.stringify(result));
   `;
   const proc = Bun.spawn([process.execPath, "-e", source], {
-    stdout: "pipe", stderr: "pipe", detached: true,
+    stdout: "pipe",
+    stderr: "pipe",
+    detached: true,
   });
   // An independent deadline also catches a removed ceiling or an uncleared timer.
   const timer = setTimeout(() => killStage(proc, "SIGKILL"), 3_000);
   try {
     const [code, out, err] = await Promise.all([
-      proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text(),
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
     ]);
     expect({ code, err }).toEqual({ code: 0, err: "" });
     const line = out.split("\n").find((entry) => entry.startsWith("RESULT="));
@@ -63,12 +73,21 @@ it("fails a slow step, reports its last line, and kills its grandchild", async (
   roots.push(root);
   const pidFile = join(root, "pid");
   descendants.push(pidFile);
-  const { result, out } = await fakeStep([
-    "sh", "-c", 'sleep 60 & echo $! > "$1"; echo earlier; echo LAST_TEST_LINE >&2; wait', "sh", pidFile,
-  ], 600);
+  const { result, out } = await fakeStep(
+    [
+      "sh",
+      "-c",
+      'sleep 60 & echo $! > "$1"; echo earlier; echo LAST_TEST_LINE >&2; wait',
+      "sh",
+      pidFile,
+    ],
+    600,
+  );
   expect(result.status).toBe("failed");
   expect(result.exitCode).not.toBe(0);
-  expect(result.reason).toBe("wall-clock limit 600ms exceeded; last test line: LAST_TEST_LINE");
+  expect(result.reason).toBe(
+    "wall-clock limit 600ms exceeded; last test line: LAST_TEST_LINE",
+  );
   expect(out).toContain(`✗ bun test failed (${result.reason})`);
   const pid = Number(readFileSync(pidFile, "utf8").trim());
   expect(pid).toBeGreaterThan(0);
@@ -82,7 +101,9 @@ it("fails a slow step, reports its last line, and kills its grandchild", async (
 it("reports an empty timed-out log explicitly", async () => {
   const { result, out } = await fakeStep(["sleep", "60"], 600);
   expect(result.status).toBe("failed");
-  expect(result.reason).toBe("wall-clock limit 600ms exceeded; last test line: (no output)");
+  expect(result.reason).toBe(
+    "wall-clock limit 600ms exceeded; last test line: (no output)",
+  );
   expect(out).toContain(result.reason);
 }, 15_000);
 
@@ -96,7 +117,10 @@ it("preserves fast success and failure and clears the long ceiling timer", async
 }, 15_000);
 
 it("falls back to the child when it does not own its process group", async () => {
-  const child = Bun.spawn(["sleep", "60"], { stdout: "ignore", stderr: "ignore" });
+  const child = Bun.spawn(["sleep", "60"], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
   let expired = false;
   const timer = setTimeout(() => {
     expired = true;
@@ -116,7 +140,9 @@ it("returns 124 even when the child exit notification never arrives", async () =
   const { result } = await fakeStep(["sleep", "60"], 600, true);
   expect(result.exitCode).toBe(124);
   expect(result.status).toBe("failed");
-  expect(result.reason).toBe("wall-clock limit 600ms exceeded; last test line: (no output)");
+  expect(result.reason).toBe(
+    "wall-clock limit 600ms exceeded; last test line: (no output)",
+  );
 }, 15_000);
 
 it("selects the real ceiling only for bun test and applies it by default", async () => {
@@ -129,10 +155,15 @@ it("selects the real ceiling only for bun test and applies it by default", async
   const pidFile = join(root, "pid");
   descendants.push(pidFile);
   // Compress the clock in the isolated runner, keeping the real default argument.
-  const { result } = await fakeStep([
-    "sh", "-c", 'echo $$ > "$1"; exec sleep 60', "sh", pidFile,
-  ], undefined, false, true);
+  const { result } = await fakeStep(
+    ["sh", "-c", 'echo $$ > "$1"; exec sleep 60', "sh", pidFile],
+    undefined,
+    false,
+    true,
+  );
   expect(result.exitCode).toBe(124);
   expect(result.status).toBe("failed");
-  expect(result.reason).toBe(`wall-clock limit ${BUN_TEST_CEILING_MS}ms exceeded; last test line: (no output)`);
+  expect(result.reason).toBe(
+    `wall-clock limit ${BUN_TEST_CEILING_MS}ms exceeded; last test line: (no output)`,
+  );
 }, 15_000);

@@ -18,8 +18,14 @@ let enabled = true;
 function Content() {
   const { loadFailed, retry } = useMembersChatHydration(enabled);
   const { lobbyOpen, isMobile } = useAppState();
-  return createElement(Fragment, null, createElement(RoomTabBar),
-    lobbyOpen && isMobile && createElement(LobbyChat, { loadFailed, onRetry: retry }));
+  return createElement(
+    Fragment,
+    null,
+    createElement(RoomTabBar),
+    lobbyOpen &&
+      isMobile &&
+      createElement(LobbyChat, { loadFailed, onRetry: retry }),
+  );
 }
 function Harness() {
   const state = useAppState();

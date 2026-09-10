@@ -58,7 +58,8 @@ export const en = {
   "membersChat.reply": "Reply",
   "membersChat.cancelReply": "Cancel reply",
   "membersChat.actions": "Message actions",
-  "membersChat.replyMissing": "The original message was deleted. Cancel the reply or choose another message.",
+  "membersChat.replyMissing":
+    "The original message was deleted. Cancel the reply or choose another message.",
   "membersChat.pin": "Pin",
   "membersChat.unpin": "Unpin",
   "membersChat.pinned": "Pinned ({count})",

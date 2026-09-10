@@ -1208,30 +1208,84 @@ describe("RoomTabBar: the Lobby tab", () => {
 });
 
 describe("members chat pins outside the loaded page", () => {
-  const pin = { id: "202608-00000001", kind: "user" as const, userId: "other", userName: "Sam", timestamp: 1, content: "old pin", attachments: [], pinnedAt: 10 };
-  const start: AppState = { ...initialState, membersChat: { ...initialState.membersChat, loaded: true, messages: [], unread: 7, pinned: [] } };
+  const pin = {
+    id: "202608-00000001",
+    kind: "user" as const,
+    userId: "other",
+    userName: "Sam",
+    timestamp: 1,
+    content: "old pin",
+    attachments: [],
+    pinnedAt: 10,
+  };
+  const start: AppState = {
+    ...initialState,
+    membersChat: {
+      ...initialState.membersChat,
+      loaded: true,
+      messages: [],
+      unread: 7,
+      pinned: [],
+    },
+  };
   it("updates an unloaded pin without appending a message or increasing unread, and deletes it", () => {
-    const pinned = reducer(start, { type: "members_chat_message", message: pin, updateOnly: true });
+    const pinned = reducer(start, {
+      type: "members_chat_message",
+      message: pin,
+      updateOnly: true,
+    });
     expect(pinned.membersChat.pinned).toEqual([pin]);
     expect(pinned.membersChat.messages).toEqual([]);
     expect(pinned.membersChat.unread).toBe(7);
     expect(pinned.membersChat.pinsStale).toBe(true);
-    const edited = reducer(pinned, { type: "members_chat_message", message: { ...pin, content: "edited" }, updateOnly: true });
+    const edited = reducer(pinned, {
+      type: "members_chat_message",
+      message: { ...pin, content: "edited" },
+      updateOnly: true,
+    });
     expect(edited.membersChat.pinned?.[0].content).toBe("edited");
-    const removed = reducer(edited, { type: "members_chat_deleted", id: pin.id });
+    const removed = reducer(edited, {
+      type: "members_chat_deleted",
+      id: pin.id,
+    });
     expect(removed.membersChat.pinned).toEqual([]);
     expect(removed.membersChat.unread).toBe(7);
   });
   it("unpins immediately and refuses stale HTTP pin snapshots", () => {
-    const pinned = reducer(start, { type: "members_chat_message", message: pin, updateOnly: true });
+    const pinned = reducer(start, {
+      type: "members_chat_message",
+      message: pin,
+      updateOnly: true,
+    });
     const { pinnedAt: _time, ...unpinned } = pin;
-    const removed = reducer(pinned, { type: "members_chat_message", message: unpinned, updateOnly: true });
+    const removed = reducer(pinned, {
+      type: "members_chat_message",
+      message: unpinned,
+      updateOnly: true,
+    });
     expect(removed.membersChat.pinned).toEqual([]);
-    const stale = reducer(removed, { type: "members_chat_pins", pinned: [pin], pinsRevisionAtRequest: 1 });
+    const stale = reducer(removed, {
+      type: "members_chat_pins",
+      pinned: [pin],
+      pinsRevisionAtRequest: 1,
+    });
     expect(stale.membersChat.pinned).toEqual([]);
-    const stalePage = reducer(removed, { type: "members_chat_page", messages: [], pinned: [pin], hasMore: false, unread: 7, readPointer: null, prepend: false, pinsRevisionAtRequest: 1 });
+    const stalePage = reducer(removed, {
+      type: "members_chat_page",
+      messages: [],
+      pinned: [pin],
+      hasMore: false,
+      unread: 7,
+      readPointer: null,
+      prepend: false,
+      pinsRevisionAtRequest: 1,
+    });
     expect(stalePage.membersChat.pinned).toEqual([]);
-    const refreshed = reducer(removed, { type: "members_chat_pins", pinned: [], pinsRevisionAtRequest: 2 });
+    const refreshed = reducer(removed, {
+      type: "members_chat_pins",
+      pinned: [],
+      pinsRevisionAtRequest: 2,
+    });
     expect(refreshed.membersChat.pinsStale).toBe(false);
     expect(refreshed.membersChat.unread).toBe(7);
   });

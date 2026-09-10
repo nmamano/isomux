@@ -43,7 +43,8 @@ export const ca: Catalog = {
   "membersChat.reply": "Respon",
   "membersChat.cancelReply": "Cancel·la la resposta",
   "membersChat.actions": "Accions del missatge",
-  "membersChat.replyMissing": "El missatge original s’ha suprimit. Cancel·la la resposta o tria un altre missatge.",
+  "membersChat.replyMissing":
+    "El missatge original s’ha suprimit. Cancel·la la resposta o tria un altre missatge.",
   "membersChat.pin": "Fixa",
   "membersChat.unpin": "Desfixa",
   "membersChat.pinned": "Fixats ({count})",

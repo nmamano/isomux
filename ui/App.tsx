@@ -31,7 +31,13 @@ import { agentTabLabel } from "./agent-face.ts";
 import { LOBBY_ROOM_ID, type AgentInfo } from "../shared/types.ts";
 import { swipeTarget } from "./office/room-cycle.ts";
 import { isValidDesk } from "../shared/desks.ts";
-import { pageForPath, pathForPage, pageForFlags, pageShortcut, type Page } from "./routes.ts";
+import {
+  pageForPath,
+  pathForPage,
+  pageForFlags,
+  pageShortcut,
+  type Page,
+} from "./routes.ts";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
 function cycleAgent(
@@ -493,16 +499,25 @@ export function App({ routing = true }: { routing?: boolean }) {
         setEditAgent(null);
       }
       const pageUpdate = pageShortcut(
-        { key: e.key, isInput, metaKey: e.metaKey, ctrlKey: e.ctrlKey, altKey: e.altKey },
+        {
+          key: e.key,
+          isInput,
+          metaKey: e.metaKey,
+          ctrlKey: e.ctrlKey,
+          altKey: e.altKey,
+        },
         { usersOpen, tasksOpen, cronjobsOpen, appsOpen },
       );
       if (pageUpdate !== null) {
         e.preventDefault();
         if (pageUpdate === "home") goHome();
         else {
-          if (pageUpdate.tasksOpen !== undefined) setTasksOpen(pageUpdate.tasksOpen);
-          if (pageUpdate.cronjobsOpen !== undefined) setCronjobsOpen(pageUpdate.cronjobsOpen);
-          if (pageUpdate.appsOpen !== undefined) setAppsOpen(pageUpdate.appsOpen);
+          if (pageUpdate.tasksOpen !== undefined)
+            setTasksOpen(pageUpdate.tasksOpen);
+          if (pageUpdate.cronjobsOpen !== undefined)
+            setCronjobsOpen(pageUpdate.cronjobsOpen);
+          if (pageUpdate.appsOpen !== undefined)
+            setAppsOpen(pageUpdate.appsOpen);
           if (pageUpdate.usersOpen) openSettings(null);
         }
       }

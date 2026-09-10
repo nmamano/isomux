@@ -164,7 +164,8 @@ export class JsonRpcLiteClient {
     // A launch override also covers per-user CODEX_HOME without file writes.
     const codexArgs = [
       ...(this.opts.args ?? ["app-server", "--listen", "stdio://"]),
-      "-c", "analytics.enabled=false",
+      "-c",
+      "analytics.enabled=false",
     ];
     let bin: string;
     let spawnArgs: string[];

@@ -53,10 +53,15 @@ export interface PageFlags {
 
 /** Shared by history and the rendered page switch. Flags can overlap. */
 export function pageForFlags(flags: PageFlags): Page | null {
-  return flags.usersOpen ? "settings"
-    : flags.tasksOpen ? "tasks"
-      : flags.cronjobsOpen ? "cronjobs"
-        : flags.appsOpen ? "apps" : null;
+  return flags.usersOpen
+    ? "settings"
+    : flags.tasksOpen
+      ? "tasks"
+      : flags.cronjobsOpen
+        ? "cronjobs"
+        : flags.appsOpen
+          ? "apps"
+          : null;
 }
 
 export interface PageShortcutInput {
@@ -79,7 +84,13 @@ export function pageShortcut(
   input: PageShortcutInput,
   flags: PageFlags,
 ): PageShortcutUpdate | "home" | null {
-  if (input.isInput || flags.usersOpen || input.metaKey || input.ctrlKey || input.altKey)
+  if (
+    input.isInput ||
+    flags.usersOpen ||
+    input.metaKey ||
+    input.ctrlKey ||
+    input.altKey
+  )
     return null;
   if (input.key === "t") {
     // Keep a functional update: two keydowns can occur before React renders.
@@ -87,7 +98,8 @@ export function pageShortcut(
     return { tasksOpen: (open) => !open };
   }
   if (input.key === "a") {
-    if (flags.appsOpen && !flags.tasksOpen && !flags.cronjobsOpen) return "home";
+    if (flags.appsOpen && !flags.tasksOpen && !flags.cronjobsOpen)
+      return "home";
     return { tasksOpen: false, cronjobsOpen: false, appsOpen: true };
   }
   // Settings only opens; leaving it must pass its own unsaved-edit guard.

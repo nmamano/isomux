@@ -927,12 +927,17 @@ export function UserMessage({
           if (collapsed && overflows) onToggle?.();
         }}
         style={{
-          ...(inlineAccessory ? { display: "flex", alignItems: "flex-end", gap: 8 } : {}),
+          ...(inlineAccessory
+            ? { display: "flex", alignItems: "flex-end", gap: 8 }
+            : {}),
           maxHeight: collapsed ? previewHeight : undefined,
           overflow: collapsed ? "hidden" : undefined,
         }}
       >
-        <div ref={bodyRef} style={inlineAccessory ? { flex: 1, minWidth: 0 } : undefined}>
+        <div
+          ref={bodyRef}
+          style={inlineAccessory ? { flex: 1, minWidth: 0 } : undefined}
+        >
           {content && (
             <div
               style={{

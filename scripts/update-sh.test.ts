@@ -64,7 +64,10 @@ let readyServer: ReturnType<typeof Bun.serve> | null = null;
 // exited-child spin. The async form is not a fix for a Bun reaping bug.
 async function sh(cwd: string, cmd: string): Promise<string> {
   const proc = Bun.spawn(["sh", "-c", cmd], {
-    cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    cwd,
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
   });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),

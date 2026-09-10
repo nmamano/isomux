@@ -23,12 +23,22 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
 
-async function livePhase<T>(phase: string, action: () => Promise<T>): Promise<T> {
+async function livePhase<T>(
+  phase: string,
+  action: () => Promise<T>,
+): Promise<T> {
   const started = performance.now();
   try {
     return await action();
   } finally {
-    console.info("OpenCode live timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() }));
+    console.info(
+      "OpenCode live timing",
+      JSON.stringify({
+        phase,
+        ms: Math.round(performance.now() - started),
+        load: loadavg(),
+      }),
+    );
   }
 }
 const liveCleanup: Array<() => Promise<void> | void> = [];
@@ -37,7 +47,7 @@ let liveServer: Promise<OpenCodeSupervisor> | undefined;
 // A live case registers its provider path before it asks for the shared server.
 // Default runs never call this function and therefore never start this fixture.
 function liveSupervisor(): Promise<OpenCodeSupervisor> {
-  return liveServer ??= (async () => {
+  return (liveServer ??= (async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-live-"));
     liveCleanup.push(() => rm(root, { recursive: true, force: true }));
     const proxy = Bun.serve({
@@ -47,8 +57,11 @@ function liveSupervisor(): Promise<OpenCodeSupervisor> {
         const url = new URL(request.url);
         const [, key, ...path] = url.pathname.split("/");
         const target = liveProviderTargets.get(key);
-        if (!target) return new Response("Unknown live provider path", { status: 404 });
-        return fetch(new Request(`${target}/${path.join("/")}${url.search}`, request));
+        if (!target)
+          return new Response("Unknown live provider path", { status: 404 });
+        return fetch(
+          new Request(`${target}/${path.join("/")}${url.search}`, request),
+        );
       },
     });
     liveCleanup.push(() => proxy.stop(true));
@@ -58,33 +71,67 @@ function liveSupervisor(): Promise<OpenCodeSupervisor> {
       env: [],
       models: {
         "gate-model": {
-          name: "Gate model", reasoning: true, tool_call: true,
+          name: "Gate model",
+          reasoning: true,
+          tool_call: true,
           limit: { context: 100000, output: 10000 },
           cost: { input: 0, output: 0 },
         },
       },
-      options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${proxy.port}/${path}/v1` },
+      options: {
+        apiKey: "test-only",
+        baseURL: `http://127.0.0.1:${proxy.port}/${path}/v1`,
+      },
     });
     const supervisor = new OpenCodeSupervisor({
-      profileDir: join(root, "profile"), serverCwd: root, idleShutdownMs: 100,
+      profileDir: join(root, "profile"),
+      serverCwd: root,
+      idleShutdownMs: 100,
       config: {
-        autoupdate: false, model: "gate/gate-model", small_model: "gate/gate-model", share: "disabled",
+        autoupdate: false,
+        model: "gate/gate-model",
+        small_model: "gate/gate-model",
+        share: "disabled",
         permission: { bash: "ask", edit: "ask", question: "deny" },
         agent: {
-          "isomux-interactive-bypass": { mode: "primary", permission: { bash: "ask", edit: "ask", task: "allow", question: "deny" } },
-          "isomux-cron": { mode: "primary", permission: { bash: "ask", edit: "ask", task: "deny", question: "deny" } },
+          "isomux-interactive-bypass": {
+            mode: "primary",
+            permission: {
+              bash: "ask",
+              edit: "ask",
+              task: "allow",
+              question: "deny",
+            },
+          },
+          "isomux-cron": {
+            mode: "primary",
+            permission: {
+              bash: "ask",
+              edit: "ask",
+              task: "deny",
+              question: "deny",
+            },
+          },
         },
         provider: { gate: provider("reply"), tools: provider("tools") },
       },
     });
-    liveCleanup.push(() => livePhase("shared server teardown", () => supervisor.shutdown()));
-    const lease = await livePhase("shared server start", () => supervisor.acquire());
+    liveCleanup.push(() =>
+      livePhase("shared server teardown", () => supervisor.shutdown()),
+    );
+    const lease = await livePhase("shared server start", () =>
+      supervisor.acquire(),
+    );
     liveCleanup.push(() => lease.release());
     return supervisor;
-  })();
+  })());
 }
 afterAll(async () => {
-  if (!LIVE) expect(liveServer, "Default adapter tests must not start the live OpenCode fixture").toBeUndefined();
+  if (!LIVE)
+    expect(
+      liveServer,
+      "Default adapter tests must not start the live OpenCode fixture",
+    ).toBeUndefined();
   for (const dispose of liveCleanup.splice(0).reverse()) await dispose();
 });
 
@@ -1168,14 +1215,23 @@ describe("OpenCode pinned transport", () => {
     "preserves history and forks a child through the real OC1 contract",
   ];
   for (const [index, name] of replySteps.entries()) {
-    it.skipIf(!LIVE)(name, async () => {
-      expect(completedReplySteps, `Requires successful real OC1 step ${index}: ${replySteps[index - 1] ?? "initial state"}`).toBe(index);
-      const step = await livePhase(name, () => replyScenario.next());
-      expect(step.done, `Real OC1 step ${index + 1} did not reach its completion event`).toBe(false);
-      completedReplySteps++;
-    }, 40_000);
+    it.skipIf(!LIVE)(
+      name,
+      async () => {
+        expect(
+          completedReplySteps,
+          `Requires successful real OC1 step ${index}: ${replySteps[index - 1] ?? "initial state"}`,
+        ).toBe(index);
+        const step = await livePhase(name, () => replyScenario.next());
+        expect(
+          step.done,
+          `Real OC1 step ${index + 1} did not reach its completion event`,
+        ).toBe(false);
+        completedReplySteps++;
+      },
+      40_000,
+    );
   }
-
 
   // Real subprocess contract: run with bun run test:opencode.
   const toolsScenario = (async function* () {
@@ -1196,11 +1252,15 @@ describe("OpenCode pinned transport", () => {
           toolStartObserved = true;
           toolStarted.resolve();
           return new Promise<Response>((resolve) => {
-            request.signal.addEventListener("abort", () => {
-              toolStopObserved = true;
-              toolStopped.resolve();
-              resolve(new Response("aborted"));
-            }, { once: true });
+            request.signal.addEventListener(
+              "abort",
+              () => {
+                toolStopObserved = true;
+                toolStopped.resolve();
+                resolve(new Response("aborted"));
+              },
+              { once: true },
+            );
             liveCleanup.push(() => resolve(new Response("cleanup")));
           });
         }
@@ -1242,7 +1302,8 @@ describe("OpenCode pinned transport", () => {
               ],
             });
             if (!hasToolResult) {
-              const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+              const quote = (value: string) =>
+                "'" + value.replaceAll("'", "'\\''") + "'";
               const command = prompt.includes("ABORT")
                 ? `${quote(process.execPath)} -e ${quote(`await fetch("http://127.0.0.1:${mock.port}/tool-started")`)}`
                 : prompt.includes("CRON")
@@ -1362,7 +1423,9 @@ describe("OpenCode pinned transport", () => {
           await session.send(text);
           await done;
         });
-        expect(events.filter((event) => event.kind === "turn_completed")).toHaveLength(index + 1);
+        expect(
+          events.filter((event) => event.kind === "turn_completed"),
+        ).toHaveLength(index + 1);
       }
       session.close();
       await consumer;
@@ -1387,7 +1450,9 @@ describe("OpenCode pinned transport", () => {
       })();
       await session.send("ABORT PERMISSION");
       await done;
-      expect(events.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
+      expect(
+        events.filter((event) => event.kind === "turn_completed"),
+      ).toHaveLength(1);
       session.close();
       return events;
     };
@@ -1409,7 +1474,10 @@ describe("OpenCode pinned transport", () => {
         }
       })();
       const abortOnStart = toolStarted.promise.then(async () => {
-        expect(toolStartObserved, "Shell-start HTTP event must precede the abort").toBe(true);
+        expect(
+          toolStartObserved,
+          "Shell-start HTTP event must precede the abort",
+        ).toBe(true);
         aborts.push(session.abort());
         await aborts[0];
       });
@@ -1417,7 +1485,10 @@ describe("OpenCode pinned transport", () => {
       await abortOnStart;
       await done;
       await toolStopped.promise;
-      expect(toolStopObserved, "Aborting the shell must close its pending HTTP request").toBe(true);
+      expect(
+        toolStopObserved,
+        "Aborting the shell must close its pending HTTP request",
+      ).toBe(true);
       if (aborts.length !== 1)
         throw new Error("tool abort did not start exactly once");
       await Promise.all(aborts);
@@ -1538,11 +1609,21 @@ describe("OpenCode pinned transport", () => {
     "routes tools to two working directories through the real OC1 contract",
   ];
   for (const [index, name] of toolsSteps.entries()) {
-    it.skipIf(!LIVE)(name, async () => {
-      expect(completedToolsSteps, `Requires successful real OC1 tools step ${index}: ${toolsSteps[index - 1] ?? "initial state"}`).toBe(index);
-      const step = await livePhase(name, () => toolsScenario.next());
-      expect(step.done, `Real OC1 tools step ${index + 1} did not reach its completion event`).toBe(false);
-      completedToolsSteps++;
-    }, 40_000);
+    it.skipIf(!LIVE)(
+      name,
+      async () => {
+        expect(
+          completedToolsSteps,
+          `Requires successful real OC1 tools step ${index}: ${toolsSteps[index - 1] ?? "initial state"}`,
+        ).toBe(index);
+        const step = await livePhase(name, () => toolsScenario.next());
+        expect(
+          step.done,
+          `Real OC1 tools step ${index + 1} did not reach its completion event`,
+        ).toBe(false);
+        completedToolsSteps++;
+      },
+      40_000,
+    );
   }
 });

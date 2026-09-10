@@ -52,7 +52,14 @@ it("ignores self and unseen crossings on both sides of the Lobby door", async ()
   await act(async () => {});
   for (const lobby of [false, true]) {
     // Clear presence before changing sides; each side observes a fresh arrival.
-    act(() => shimEmit({ type: "presence_list", entries: [], totalOnlineUsers: 0, onlineUserIds: [] }));
+    act(() =>
+      shimEmit({
+        type: "presence_list",
+        entries: [],
+        totalOnlineUsers: 0,
+        onlineUserIds: [],
+      }),
+    );
     act(() => {
       shimEmit({
         type: "session_context",

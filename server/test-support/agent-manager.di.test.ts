@@ -930,232 +930,272 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   // Real subprocess credential scrub: run with bun run test:opencode.
-  it.skipIf(!LIVE)("keeps provider credentials out of Connections guidance and agent logs", async () => {
-    const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
-    const requestPaths: string[] = [];
-    const safeErrors: Array<Record<string, unknown>> = [];
-    const mock = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch(request) {
-        const url = new URL(request.url);
-        requestPaths.push(url.pathname);
-        if (url.pathname === "/v1/models") {
-          return Response.json({
-            object: "list",
-            data: [{ id: "gate-model", object: "model" }],
-          });
-        }
-        if (url.pathname !== "/v1/responses")
-          return new Response("not found", { status: 404 });
-        if (
-          request.headers.get("authorization") !== `Bearer rejected-${apiKey}`
-        ) {
-          return Response.json(
-            {
-              error: {
-                message: "invalid credential",
-                type: "authentication_error",
+  it.skipIf(!LIVE)(
+    "keeps provider credentials out of Connections guidance and agent logs",
+    async () => {
+      const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
+      const requestPaths: string[] = [];
+      const safeErrors: Array<Record<string, unknown>> = [];
+      const mock = Bun.serve({
+        hostname: "127.0.0.1",
+        port: 0,
+        fetch(request) {
+          const url = new URL(request.url);
+          requestPaths.push(url.pathname);
+          if (url.pathname === "/v1/models") {
+            return Response.json({
+              object: "list",
+              data: [{ id: "gate-model", object: "model" }],
+            });
+          }
+          if (url.pathname !== "/v1/responses")
+            return new Response("not found", { status: 404 });
+          if (
+            request.headers.get("authorization") !== `Bearer rejected-${apiKey}`
+          ) {
+            return Response.json(
+              {
+                error: {
+                  message: "invalid credential",
+                  type: "authentication_error",
+                },
               },
+              { status: 401, headers: { "x-provider-private": apiKey } },
+            );
+          }
+          const response = {
+            id: "resp_gate",
+            object: "response",
+            created_at: 1,
+            status: "completed",
+            model: "gpt-4o",
+            output: [
+              {
+                id: "msg_gate",
+                type: "message",
+                status: "completed",
+                role: "assistant",
+                content: [
+                  {
+                    type: "output_text",
+                    text: "Recovered after login.",
+                    annotations: [],
+                  },
+                ],
+              },
+            ],
+            usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+          };
+          const stream = new ReadableStream({
+            start(controller) {
+              const send = (type: string, data: unknown) =>
+                controller.enqueue(
+                  `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+                );
+              send("response.created", {
+                type: "response.created",
+                response: { ...response, status: "in_progress", output: [] },
+              });
+              send("response.output_item.added", {
+                type: "response.output_item.added",
+                output_index: 0,
+                item: {
+                  ...response.output[0],
+                  status: "in_progress",
+                  content: [],
+                },
+              });
+              send("response.content_part.added", {
+                type: "response.content_part.added",
+                item_id: "msg_gate",
+                output_index: 0,
+                content_index: 0,
+                part: { type: "output_text", text: "", annotations: [] },
+              });
+              send("response.output_text.delta", {
+                type: "response.output_text.delta",
+                item_id: "msg_gate",
+                output_index: 0,
+                content_index: 0,
+                delta: "Recovered after login.",
+              });
+              send("response.output_text.done", {
+                type: "response.output_text.done",
+                item_id: "msg_gate",
+                output_index: 0,
+                content_index: 0,
+                text: "Recovered after login.",
+              });
+              send("response.content_part.done", {
+                type: "response.content_part.done",
+                item_id: "msg_gate",
+                output_index: 0,
+                content_index: 0,
+                part: response.output[0].content[0],
+              });
+              send("response.output_item.done", {
+                type: "response.output_item.done",
+                output_index: 0,
+                item: response.output[0],
+              });
+              send("response.completed", {
+                type: "response.completed",
+                response,
+              });
+              controller.close();
             },
-            { status: 401, headers: { "x-provider-private": apiKey } },
+          });
+          return new Response(stream, {
+            headers: { "content-type": "text/event-stream" },
+          });
+        },
+      });
+      const supervisor = new OpenCodeSupervisor({
+        profileDir: join(STATE_ROOT, "opencode", "profiles", "default"),
+        serverCwd: STATE_ROOT,
+        idleShutdownMs: 100,
+        launchEnv: {
+          OPENAI_API_KEY: apiKey,
+          OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
+        },
+        config: {
+          autoupdate: false,
+          model: "openai/gpt-4o",
+          small_model: "openai/gpt-4o",
+          share: "disabled",
+        },
+      });
+      const measure = async <T>(
+        phase: string,
+        action: () => Promise<T>,
+      ): Promise<T> => {
+        const started = performance.now();
+        try {
+          return await action();
+        } finally {
+          console.info(
+            "OpenCode DI timing",
+            JSON.stringify({
+              phase,
+              ms: Math.round(performance.now() - started),
+              load: loadavg(),
+            }),
           );
         }
-        const response = {
-          id: "resp_gate",
-          object: "response",
-          created_at: 1,
-          status: "completed",
-          model: "gpt-4o",
-          output: [
-            {
-              id: "msg_gate",
-              type: "message",
-              status: "completed",
-              role: "assistant",
-              content: [
-                {
-                  type: "output_text",
-                  text: "Recovered after login.",
-                  annotations: [],
-                },
-              ],
-            },
-          ],
-          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
-        };
-        const stream = new ReadableStream({
-          start(controller) {
-            const send = (type: string, data: unknown) =>
-              controller.enqueue(
-                `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
-              );
-            send("response.created", {
-              type: "response.created",
-              response: { ...response, status: "in_progress", output: [] },
-            });
-            send("response.output_item.added", {
-              type: "response.output_item.added",
-              output_index: 0,
-              item: {
-                ...response.output[0],
-                status: "in_progress",
-                content: [],
-              },
-            });
-            send("response.content_part.added", {
-              type: "response.content_part.added",
-              item_id: "msg_gate",
-              output_index: 0,
-              content_index: 0,
-              part: { type: "output_text", text: "", annotations: [] },
-            });
-            send("response.output_text.delta", {
-              type: "response.output_text.delta",
-              item_id: "msg_gate",
-              output_index: 0,
-              content_index: 0,
-              delta: "Recovered after login.",
-            });
-            send("response.output_text.done", {
-              type: "response.output_text.done",
-              item_id: "msg_gate",
-              output_index: 0,
-              content_index: 0,
-              text: "Recovered after login.",
-            });
-            send("response.content_part.done", {
-              type: "response.content_part.done",
-              item_id: "msg_gate",
-              output_index: 0,
-              content_index: 0,
-              part: response.output[0].content[0],
-            });
-            send("response.output_item.done", {
-              type: "response.output_item.done",
-              output_index: 0,
-              item: response.output[0],
-            });
-            send("response.completed", {
-              type: "response.completed",
-              response,
-            });
-            controller.close();
+      };
+      let lease: Awaited<ReturnType<OpenCodeSupervisor["acquire"]>> | undefined;
+      try {
+        lease = await measure("server start", () => supervisor.acquire());
+        const backend = createOpenCodeBackend({
+          supervisor,
+          safeErrorSink: (error) => safeErrors.push({ ...error }),
+        });
+        const guidance =
+          "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+        const guidanceLogged = Promise.withResolvers<void>();
+        const expectedAgent = { id: "" };
+        let observedGuidance = false;
+        const mgr = createAgentManager({
+          eventSink: (event) => {
+            if (
+              event.type === "log_entry" &&
+              event.entry.agentId === expectedAgent.id &&
+              event.entry.content === guidance
+            ) {
+              observedGuidance = true;
+            }
+            if (
+              event.type === "agent_updated" &&
+              event.agentId === expectedAgent.id &&
+              (event.changes.state === "waiting_for_response" ||
+                event.changes.state === "error")
+            ) {
+              if (observedGuidance) guidanceLogged.resolve();
+              else
+                guidanceLogged.reject(
+                  new Error(
+                    "Agent settled without the required Connections guidance log event",
+                  ),
+                );
+            }
           },
+          resolveBackend: () => backend,
+          officeState: new OfficeState({
+            rooms: rooms("room-opencode-recovery"),
+          }),
+          initialRooms: [],
         });
-        return new Response(stream, {
-          headers: { "content-type": "text/event-stream" },
-        });
-      },
-    });
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(STATE_ROOT, "opencode", "profiles", "default"),
-      serverCwd: STATE_ROOT,
-      idleShutdownMs: 100,
-      launchEnv: {
-        OPENAI_API_KEY: apiKey,
-        OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
-      },
-      config: {
-        autoupdate: false,
-        model: "openai/gpt-4o",
-        small_model: "openai/gpt-4o",
-        share: "disabled",
-      },
-    });
-    const measure = async <T>(phase: string, action: () => Promise<T>): Promise<T> => {
-      const started = performance.now();
-      try { return await action(); }
-      finally { console.info("OpenCode DI timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() })); }
-    };
-    let lease: Awaited<ReturnType<OpenCodeSupervisor["acquire"]>> | undefined;
-    try {
-      lease = await measure("server start", () => supervisor.acquire());
-      const backend = createOpenCodeBackend({
-        supervisor,
-        safeErrorSink: (error) => safeErrors.push({ ...error }),
-      });
-      const guidance =
-        "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
-      const guidanceLogged = Promise.withResolvers<void>();
-      const expectedAgent = { id: "" };
-      let observedGuidance = false;
-      const mgr = createAgentManager({
-        eventSink: (event) => {
-          if (event.type === "log_entry" && event.entry.agentId === expectedAgent.id && event.entry.content === guidance) {
-            observedGuidance = true;
-          }
-          if (event.type === "agent_updated" && event.agentId === expectedAgent.id &&
-              (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
-            if (observedGuidance) guidanceLogged.resolve();
-            else guidanceLogged.reject(new Error("Agent settled without the required Connections guidance log event"));
-          }
-        },
-        resolveBackend: () => backend,
-        officeState: new OfficeState({
-          rooms: rooms("room-opencode-recovery"),
-        }),
-        initialRooms: [],
-      });
-      mgr.configureAgentTurnDeps();
-      const info = await mgr.spawn(
-        "OpenCode recovery tracer",
-        STATE_ROOT,
-        "default",
-        undefined,
-        undefined,
-        "room-opencode-recovery",
-        undefined,
-        "openai/gpt-4o",
-        "high",
-        undefined,
-        "opencode",
-      );
-      expectedAgent.id = info!.id;
-      const replyStarted = performance.now();
-      mgr.enqueueMessage(info!.id, {
-        sender: { kind: "user", username: "tester" },
-        text: "fail before login",
-      });
-      // The provider-error log event, rather than elapsed time, ends this wait.
-      console.info("Waiting for Connections guidance log event");
-      await guidanceLogged.promise;
-      expect(observedGuidance, "Missing Connections guidance log event").toBe(true);
-      console.info("OpenCode DI timing", JSON.stringify({ phase: "guidance reply", ms: Math.round(performance.now() - replyStarted), load: loadavg() }));
-      const logs = mgr.getAgentLogs(info!.id);
-      expect(
-        logs.some((entry) => entry.content === guidance),
-      ).toBe(true);
-      expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
-        false,
-      );
-
-      const globalAuth = join(
-        STATE_ROOT,
-        "global-data",
-        "opencode",
-        "auth.json",
-      );
-      expect(await Bun.file(globalAuth).exists()).toBe(false);
-      const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
-      expect(safeErrors).toHaveLength(1);
-      expect(requestPaths).toContain("/v1/responses");
-      expect(serialized).not.toContain(apiKey);
-      let scannedFiles = 0;
-      for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
-        scannedFiles++;
-        expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(
-          apiKey,
+        mgr.configureAgentTurnDeps();
+        const info = await mgr.spawn(
+          "OpenCode recovery tracer",
+          STATE_ROOT,
+          "default",
+          undefined,
+          undefined,
+          "room-opencode-recovery",
+          undefined,
+          "openai/gpt-4o",
+          "high",
+          undefined,
+          "opencode",
         );
+        expectedAgent.id = info!.id;
+        const replyStarted = performance.now();
+        mgr.enqueueMessage(info!.id, {
+          sender: { kind: "user", username: "tester" },
+          text: "fail before login",
+        });
+        // The provider-error log event, rather than elapsed time, ends this wait.
+        console.info("Waiting for Connections guidance log event");
+        await guidanceLogged.promise;
+        expect(observedGuidance, "Missing Connections guidance log event").toBe(
+          true,
+        );
+        console.info(
+          "OpenCode DI timing",
+          JSON.stringify({
+            phase: "guidance reply",
+            ms: Math.round(performance.now() - replyStarted),
+            load: loadavg(),
+          }),
+        );
+        const logs = mgr.getAgentLogs(info!.id);
+        expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+        expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
+          false,
+        );
+
+        const globalAuth = join(
+          STATE_ROOT,
+          "global-data",
+          "opencode",
+          "auth.json",
+        );
+        expect(await Bun.file(globalAuth).exists()).toBe(false);
+        const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
+        expect(safeErrors).toHaveLength(1);
+        expect(requestPaths).toContain("/v1/responses");
+        expect(serialized).not.toContain(apiKey);
+        let scannedFiles = 0;
+        for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
+          scannedFiles++;
+          expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(
+            apiKey,
+          );
+        }
+        expect(
+          scannedFiles,
+          "Credential sweep must read persisted logs",
+        ).toBeGreaterThan(0);
+        await mgr.kill(info!.id);
+      } finally {
+        lease?.release();
+        await measure("server teardown", () => supervisor.shutdown());
+        await mock.stop(true);
       }
-      expect(scannedFiles, "Credential sweep must read persisted logs").toBeGreaterThan(0);
-      await mgr.kill(info!.id);
-    } finally {
-      lease?.release();
-      await measure("server teardown", () => supervisor.shutdown());
-      await mock.stop(true);
-    }
-  }, 130_000);
+    },
+    130_000,
+  );
 
   it("restore/revive install path fills absent Codex permission defaults", async () => {
     const persisted = {

@@ -553,9 +553,11 @@ export function wsConnect(
       settled = true;
       const status = parseRaw(head.toString("utf8")).status;
       socket.destroy();
-      reject(new Error(
-        `wsConnect: no 101, complete framed response, or socket end within 2000ms; received ${head.length} bytes, status ${status}`,
-      ));
+      reject(
+        new Error(
+          `wsConnect: no 101, complete framed response, or socket end within 2000ms; received ${head.length} bytes, status ${status}`,
+        ),
+      );
     }, 2000);
     socket.on("connect", () => {
       socket.write(
@@ -623,17 +625,25 @@ export function wsConnect(
           const bodyStart = end + 4;
           const length = response.headers["content-length"];
           let complete = response.status === 204 || response.status === 304;
-          if (response.headers["transfer-encoding"]?.toLowerCase() === "chunked") {
+          if (
+            response.headers["transfer-encoding"]?.toLowerCase() === "chunked"
+          ) {
             let offset = bodyStart;
             for (;;) {
               const lineEnd = head.indexOf("\r\n", offset);
               if (lineEnd === -1) break;
-              const sizeText = head.subarray(offset, lineEnd).toString("ascii").split(";")[0];
+              const sizeText = head
+                .subarray(offset, lineEnd)
+                .toString("ascii")
+                .split(";")[0];
               if (!/^[\da-f]+$/i.test(sizeText)) break;
               const size = Number.parseInt(sizeText, 16);
               offset = lineEnd + 2;
               if (size === 0) {
-                complete = head.subarray(offset, offset + 2).equals(Buffer.from("\r\n")) ||
+                complete =
+                  head
+                    .subarray(offset, offset + 2)
+                    .equals(Buffer.from("\r\n")) ||
                   head.indexOf("\r\n\r\n", offset) !== -1;
                 break;
               }

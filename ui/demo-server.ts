@@ -1,4 +1,7 @@
-import { membersChatExcerpt, recentMembersChatPins } from "../shared/members-chat.ts";
+import {
+  membersChatExcerpt,
+  recentMembersChatPins,
+} from "../shared/members-chat.ts";
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
@@ -131,8 +134,13 @@ function seedMembersChat(now: number): void {
     },
   ];
   demoMembersChat.push({
-    id: membersChatId(), kind: "user", userId: stephen.id, userName: stephen.name,
-    timestamp: now - min, content: "**Thanks!**", attachments: [],
+    id: membersChatId(),
+    kind: "user",
+    userId: stephen.id,
+    userName: stephen.name,
+    timestamp: now - min,
+    content: "**Thanks!**",
+    attachments: [],
     thumbsUp: [
       { kind: "user", userId: ricky.id, userName: ricky.name },
       { kind: "user", userId: stephen.id, userName: stephen.name },
@@ -1639,13 +1647,18 @@ export async function demoApi(
   const route = `${method} ${pathname}`;
   const pinMatch = /^\/api\/members-chat\/([^/]+)\/pin$/.exec(pathname);
   if (method === "PUT" && pinMatch) {
-    const index = demoMembersChat.findIndex((message) => message.id === pinMatch[1]);
+    const index = demoMembersChat.findIndex(
+      (message) => message.id === pinMatch[1],
+    );
     if (index === -1) throw new ApiError(404, "not_found", "");
     const active = (body as { active?: unknown } | undefined)?.active;
-    if (typeof active !== "boolean") throw new ApiError(400, "invalid_request", "active must be a boolean");
+    if (typeof active !== "boolean")
+      throw new ApiError(400, "invalid_request", "active must be a boolean");
     const existing = demoMembersChat[index];
     const { pinnedAt: previous, ...rest } = existing;
-    const message = active ? { ...rest, pinnedAt: previous ?? Date.now() } : rest;
+    const message = active
+      ? { ...rest, pinnedAt: previous ?? Date.now() }
+      : rest;
     demoMembersChat[index] = message;
     shimEmit({ type: "members_chat_message", message, updateOnly: true });
     return message;
@@ -1732,12 +1745,28 @@ export async function demoApi(
         throw new ApiError(400, "empty", "a message needs text or a file");
       }
       if (b.replyTo !== undefined && typeof b.replyTo !== "string")
-        throw new ApiError(400, "invalid_request", "replyTo must be a message id");
-      const target = b.replyTo === undefined ? undefined : demoMembersChat.find((m) => m.id === b.replyTo);
-      if (b.replyTo !== undefined && !target) throw new ApiError(404, "reply_not_found", "");
+        throw new ApiError(
+          400,
+          "invalid_request",
+          "replyTo must be a message id",
+        );
+      const target =
+        b.replyTo === undefined
+          ? undefined
+          : demoMembersChat.find((m) => m.id === b.replyTo);
+      if (b.replyTo !== undefined && !target)
+        throw new ApiError(404, "reply_not_found", "");
       const message: MembersChatMessage = {
         id: membersChatId(),
-        ...(target ? { replyTo: { id: target.id, userName: target.userName, excerpt: membersChatExcerpt(target.content, target.attachments) } } : {}),
+        ...(target
+          ? {
+              replyTo: {
+                id: target.id,
+                userName: target.userName,
+                excerpt: membersChatExcerpt(target.content, target.attachments),
+              },
+            }
+          : {}),
         kind: "user",
         userId: ricky.id,
         userName: ricky.name,

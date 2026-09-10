@@ -61,7 +61,14 @@ it("walks through lobby and first-room doors on seen exits and entries", async (
   await act(async () => {});
   for (const lobby of [false, true]) {
     // Clear presence before changing sides; each side observes a fresh arrival.
-    act(() => shimEmit({ type: "presence_list", entries: [], totalOnlineUsers: 0, onlineUserIds: [] }));
+    act(() =>
+      shimEmit({
+        type: "presence_list",
+        entries: [],
+        totalOnlineUsers: 0,
+        onlineUserIds: [],
+      }),
+    );
     act(() => fixture.dispatch({ type: "set_lobby_open", open: lobby }));
     const here = lobby ? "lobby" : "first";
     const there = lobby ? "first" : "lobby";

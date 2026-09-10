@@ -362,26 +362,56 @@ it("folds idempotent reactions in the target month without moving any reader", (
 
 describe("reply snapshots", () => {
   it("keeps a raw code-point snapshot across target edits, deletion and a process reload", () => {
-    const target = store.post({ ...nil, content: "**raw** " + "😀".repeat(210) });
+    const target = store.post({
+      ...nil,
+      content: "**raw** " + "😀".repeat(210),
+    });
     clock = SEP;
     const reply = store.post({ ...pau, content: "reply", replyTo: target.id });
-    expect(reply.replyTo).toEqual({ id: target.id, userName: "Nil", excerpt: "**raw** " + "😀".repeat(192) });
+    expect(reply.replyTo).toEqual({
+      id: target.id,
+      userName: "Nil",
+      excerpt: "**raw** " + "😀".repeat(192),
+    });
     expect(Array.from(reply.replyTo!.excerpt).length).toBe(200);
     store.edit(target.id, "changed");
     store.delete(target.id);
     const reopened = createMembersChatStore(dir);
     expect(reopened.get(reply.id)?.replyTo).toEqual(reply.replyTo);
-    const direct = reopened.post({ ...nil, content: "reply to reply", replyTo: reply.id });
-    expect(direct.replyTo).toEqual({ id: reply.id, userName: "Pau", excerpt: "reply" });
-    expect(() => reopened.post({ ...nil, content: "late", replyTo: target.id })).toThrow(MembersChatError);
+    const direct = reopened.post({
+      ...nil,
+      content: "reply to reply",
+      replyTo: reply.id,
+    });
+    expect(direct.replyTo).toEqual({
+      id: reply.id,
+      userName: "Pau",
+      excerpt: "reply",
+    });
+    expect(() =>
+      reopened.post({ ...nil, content: "late", replyTo: target.id }),
+    ).toThrow(MembersChatError);
   });
 
   it("snapshots attachment names and accepts old post lines without a reply", () => {
-    const target = store.post({ ...nil, content: "", attachments: [{ filename: "a.pdf", originalName: "Report.pdf", mediaType: "application/pdf", size: 1 }] });
+    const target = store.post({
+      ...nil,
+      content: "",
+      attachments: [
+        {
+          filename: "a.pdf",
+          originalName: "Report.pdf",
+          mediaType: "application/pdf",
+          size: 1,
+        },
+      ],
+    });
     const reply = store.post({ ...pau, content: "thanks", replyTo: target.id });
     expect(reply.replyTo?.excerpt).toBe("Report.pdf");
     expect(createMembersChatStore(dir).get(target.id)?.replyTo).toBeUndefined();
-    expect(() => store.post({ ...nil, content: "bad", replyTo: "unknown" })).toThrow(MembersChatError);
+    expect(() =>
+      store.post({ ...nil, content: "bad", replyTo: "unknown" }),
+    ).toThrow(MembersChatError);
   });
 });
 
@@ -392,13 +422,21 @@ describe("pinned history index", () => {
     clock = SEP;
     const latest = store.post({ ...pau, content: "new month" });
     store.setPinned(latest.id, true);
-    expect(store.page({ limit: 1 }).pinned.map((message) => message.id)).toEqual([latest.id, old.id]);
-    expect(store.page({ limit: 1 }).messages.map((message) => message.id)).toEqual([latest.id]);
+    expect(
+      store.page({ limit: 1 }).pinned.map((message) => message.id),
+    ).toEqual([latest.id, old.id]);
+    expect(
+      store.page({ limit: 1 }).messages.map((message) => message.id),
+    ).toEqual([latest.id]);
     store.edit(old.id, "updated pin");
     expect(store.page().pinned[1].content).toBe("updated pin");
     store.setThumbsUp(old.id, { ...pau, kind: "user" }, true);
     expect(store.page().pinned[1].thumbsUp?.[0].userName).toBe("Pau");
-    expect(createMembersChatStore(dir).page().pinned.map((message) => message.id)).toEqual([latest.id, old.id]);
+    expect(
+      createMembersChatStore(dir)
+        .page()
+        .pinned.map((message) => message.id),
+    ).toEqual([latest.id, old.id]);
     store.setPinned(latest.id, false);
     expect(store.page().pinned.map((message) => message.id)).toEqual([old.id]);
     store.delete(old.id);
@@ -408,7 +446,10 @@ describe("pinned history index", () => {
 
   it("serves 21 as a sentinel, permits more pins, and keeps repeated desired state idempotent", () => {
     const ids = postN(22);
-    for (const id of ids) { clock++; store.setPinned(id, true); }
+    for (const id of ids) {
+      clock++;
+      store.setPinned(id, true);
+    }
     const pins = store.page().pinned;
     expect(pins).toHaveLength(21);
     expect(pins.map((message) => message.id)).toEqual(ids.slice(1).reverse());
@@ -442,5 +483,7 @@ it("folds cold pin history once and does not reread old months on warm pages", (
     const mutationReads = read.mock.calls.length;
     expect(reopened.page({ limit: 1 }).pinned[0].content).toBe("updated");
     expect(read.mock.calls.length).toBe(mutationReads);
-  } finally { read.mockRestore(); }
+  } finally {
+    read.mockRestore();
+  }
 });

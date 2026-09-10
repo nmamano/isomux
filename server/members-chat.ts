@@ -23,7 +23,10 @@
 // still resolves after that message is deleted, because the fold keeps the
 // position of every post it has seen.
 
-import { membersChatExcerpt, recentMembersChatPins } from "../shared/members-chat.ts";
+import {
+  membersChatExcerpt,
+  recentMembersChatPins,
+} from "../shared/members-chat.ts";
 import { join } from "path";
 import {
   appendFileSync,
@@ -269,7 +272,10 @@ export function createMembersChatStore(
         const message = folded.byId.get(line.id);
         if (message) {
           const { pinnedAt: _previous, ...rest } = message;
-          folded.byId.set(line.id, line.active ? { ...rest, pinnedAt: line.timestamp } : rest);
+          folded.byId.set(
+            line.id,
+            line.active ? { ...rest, pinnedAt: line.timestamp } : rest,
+          );
         }
       } else if (line.op === "delete") {
         folded.byId.delete(line.id);
@@ -333,11 +339,13 @@ export function createMembersChatStore(
     const target = input.replyTo === undefined ? null : get(input.replyTo);
     if (input.replyTo !== undefined && !target)
       throw new MembersChatError("reply_not_found", "reply target not found");
-    const replyTo = target ? {
-      id: target.id,
-      userName: target.userName,
-      excerpt: membersChatExcerpt(target.content, target.attachments),
-    } : undefined;
+    const replyTo = target
+      ? {
+          id: target.id,
+          userName: target.userName,
+          excerpt: membersChatExcerpt(target.content, target.attachments),
+        }
+      : undefined;
     const timestamp = now();
     const month = monthKey(timestamp);
     const folded = fold(month);
@@ -428,7 +436,11 @@ export function createMembersChatStore(
       }
       if (hasMore) break;
     }
-    return { messages: newestFirst.reverse(), hasMore, pinned: pinnedMessages() };
+    return {
+      messages: newestFirst.reverse(),
+      hasMore,
+      pinned: pinnedMessages(),
+    };
   }
 
   function readReads(): Record<string, string> {

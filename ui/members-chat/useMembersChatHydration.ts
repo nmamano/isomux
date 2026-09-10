@@ -50,13 +50,25 @@ export function useMembersChatHydration(enabled: boolean) {
   useEffect(() => {
     if (!enabled || !loaded || !pinsStale) return;
     let cancelled = false;
-    chatApi.fetchPage({ limit: chatApi.MEMBERS_CHAT_PAGE_LIMIT }).then((page) => {
-      if (cancelled) return;
-      if (!Array.isArray(page.pinned)) throw new Error("Invalid members chat pins");
-      dispatch({ type: "members_chat_pins", pinned: page.pinned, pinsRevisionAtRequest: pinsRevision });
-      setLoadFailed(false);
-    }).catch(() => { if (!cancelled) setLoadFailed(true); });
-    return () => { cancelled = true; };
+    chatApi
+      .fetchPage({ limit: chatApi.MEMBERS_CHAT_PAGE_LIMIT })
+      .then((page) => {
+        if (cancelled) return;
+        if (!Array.isArray(page.pinned))
+          throw new Error("Invalid members chat pins");
+        dispatch({
+          type: "members_chat_pins",
+          pinned: page.pinned,
+          pinsRevisionAtRequest: pinsRevision,
+        });
+        setLoadFailed(false);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [enabled, loaded, pinsStale, pinsRevision, dispatch, attempt]);
   return { loadFailed, retry };
 }

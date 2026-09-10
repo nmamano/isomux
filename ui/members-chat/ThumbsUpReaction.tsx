@@ -25,7 +25,10 @@ export function ThumbsUpReaction({
     const row = popup.parentElement!;
     const list = row.closest("[data-members-chat-list]");
     const top = Math.max(0, list?.getBoundingClientRect().top ?? 0);
-    setOpenDown(row.getBoundingClientRect().top - popup.getBoundingClientRect().height < top);
+    setOpenDown(
+      row.getBoundingClientRect().top - popup.getBoundingClientRect().height <
+        top,
+    );
   }, [showNames, namesText]);
   async function toggle() {
     setPending(true);
@@ -58,7 +61,6 @@ export function ThumbsUpReaction({
         border: "1px solid var(--border)",
         borderRadius: 10,
         background: active ? "var(--bg-subtle)" : "transparent",
-
       }}
     >
       <button
@@ -115,7 +117,21 @@ export function ThumbsUpReaction({
             <span
               ref={popupRef}
               id={namesId}
-              style={{ position: "absolute", right: 0, bottom: openDown ? undefined : "100%", top: openDown ? "100%" : undefined, zIndex: 3, minWidth: 120, maxWidth: 240, padding: 8, borderRadius: 6, background: "var(--bg-surface-solid)", border: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)" }}
+              style={{
+                position: "absolute",
+                right: 0,
+                bottom: openDown ? undefined : "100%",
+                top: openDown ? "100%" : undefined,
+                zIndex: 3,
+                minWidth: 120,
+                maxWidth: 240,
+                padding: 8,
+                borderRadius: 6,
+                background: "var(--bg-surface-solid)",
+                border: "1px solid var(--border)",
+                fontSize: 12,
+                color: "var(--text-muted)",
+              }}
             >
               {namesText}
             </span>

@@ -393,10 +393,10 @@ These shapes do not run the system installer or its service-account updater. The
 
 Every deployment shape above gets the same backend telemetry controls:
 
-| Backend | Vendor telemetry |
-| --- | --- |
-| Claude Code | Usage metrics and error reporting are off. |
-| Codex | Analytics are off. |
-| OpenCode | Share uploads are off. Version 1.18.23 has no vendor usage reporting (source checked 2026-09-10). |
+| Backend     | Vendor telemetry                                                                                  |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| Claude Code | Usage metrics and error reporting are off.                                                        |
+| Codex       | Analytics are off.                                                                                |
+| OpenCode    | Share uploads are off. Version 1.18.23 has no vendor usage reporting (source checked 2026-09-10). |
 
 Operator-configured OpenTelemetry exports remain available. Model requests and other required connections still leave the box; see [vendor telemetry](security-audit.md#75-vendor-telemetry).

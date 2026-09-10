@@ -25,18 +25,31 @@ function expectedLog(label: string, matches: (content: string) => boolean) {
   let agentId: string | undefined;
   let observed = false;
   const sink: EventHandler = (event) => {
-    if (event.type === "log_entry" && event.entry.agentId === agentId && matches(event.entry.content)) {
+    if (
+      event.type === "log_entry" &&
+      event.entry.agentId === agentId &&
+      matches(event.entry.content)
+    ) {
       observed = true;
     }
-    if (event.type === "agent_updated" && event.agentId === agentId &&
-        (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
+    if (
+      event.type === "agent_updated" &&
+      event.agentId === agentId &&
+      (event.changes.state === "waiting_for_response" ||
+        event.changes.state === "error")
+    ) {
       if (observed) seen.resolve();
-      else seen.reject(new Error(`Agent settled without the required ${label} log event`));
+      else
+        seen.reject(
+          new Error(`Agent settled without the required ${label} log event`),
+        );
     }
   };
   return {
     sink,
-    arm(id: string) { agentId = id; },
+    arm(id: string) {
+      agentId = id;
+    },
     async wait() {
       console.info(`Waiting for ${label} log event`);
       await seen.promise;
@@ -47,8 +60,18 @@ function expectedLog(label: string, matches: (content: string) => boolean) {
 
 async function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
   const started = performance.now();
-  try { return await action(); }
-  finally { console.info("OpenCode manager live timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() })); }
+  try {
+    return await action();
+  } finally {
+    console.info(
+      "OpenCode manager live timing",
+      JSON.stringify({
+        phase,
+        ms: Math.round(performance.now() - started),
+        load: loadavg(),
+      }),
+    );
+  }
 }
 
 function rooms(...ids: string[]): RoomWire[] {
@@ -162,7 +185,10 @@ it.skipIf(!LIVE)(
             ? "durable"
             : backend.inspectStoredSession(sessionId, opts),
       };
-      const reply = expectedLog("first reply", (content) => content === "OpenCode real tracer reply.");
+      const reply = expectedLog(
+        "first reply",
+        (content) => content === "OpenCode real tracer reply.",
+      );
       const mgr = createAgentManager({
         eventSink: reply.sink,
         resolveBackend: () => backendWithControlledStorage,
@@ -183,7 +209,9 @@ it.skipIf(!LIVE)(
         undefined,
         "opencode",
       );
-      const warmLease = await measure("first reply server start", () => supervisor.acquire());
+      const warmLease = await measure("first reply server start", () =>
+        supervisor.acquire(),
+      );
       const warmPid = warmLease.pid;
       expect(alive(warmPid)).toBe(true);
       reply.arm(info!.id);
@@ -274,7 +302,9 @@ it.skipIf(!LIVE)(
       },
     });
     try {
-      const reply = expectedLog("provider error", (content) => content.includes("provider or transport error"));
+      const reply = expectedLog("provider error", (content) =>
+        content.includes("provider or transport error"),
+      );
       const mgr = createAgentManager({
         eventSink: reply.sink,
         resolveBackend: () => createOpenCodeBackend({ supervisor }),
@@ -295,7 +325,9 @@ it.skipIf(!LIVE)(
         undefined,
         "opencode",
       );
-      const warmLease = await measure("provider error server start", () => supervisor.acquire());
+      const warmLease = await measure("provider error server start", () =>
+        supervisor.acquire(),
+      );
       const warmPid = warmLease.pid;
       expect(alive(warmPid)).toBe(true);
       reply.arm(info!.id);
@@ -322,7 +354,10 @@ it.skipIf(!LIVE)(
           canary,
         );
       }
-      expect(scannedFiles, "Provider-error canary sweep must read persisted logs").toBeGreaterThan(0);
+      expect(
+        scannedFiles,
+        "Provider-error canary sweep must read persisted logs",
+      ).toBeGreaterThan(0);
       for (const name of ["server.stdout.log", "server.stderr.log"]) {
         const file = Bun.file(`${supervisor.profileDir}/${name}`);
         expect((await file.exists()) ? await file.text() : "").not.toContain(

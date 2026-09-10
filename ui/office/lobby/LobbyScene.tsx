@@ -2,7 +2,13 @@ import { SceneDecorationContext } from "../scene-decoration.tsx";
 import { LOBBY_ROOM_ID, type PresenceInfo } from "../../../shared/types.ts";
 import { LobbyGhosts, lobbyGhostPlacements } from "./LobbyGhosts.tsx";
 import { useI18n } from "../../i18n.tsx";
-import { useEffect, useMemo, useState, useContext, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useContext,
+  type ReactNode,
+} from "react";
 import {
   useGhostTransitions,
   LEFT_DOOR_COORD,

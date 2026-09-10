@@ -85,7 +85,14 @@ function lastTestLine(log: string): string {
     const size = fstatSync(fd).size;
     const tail = Buffer.alloc(Math.min(size, 8192));
     const count = readSync(fd, tail, 0, tail.length, size - tail.length);
-    return tail.subarray(0, count).toString("utf8").trimEnd().split(/\r?\n/).at(-1) || "(no output)";
+    return (
+      tail
+        .subarray(0, count)
+        .toString("utf8")
+        .trimEnd()
+        .split(/\r?\n/)
+        .at(-1) || "(no output)"
+    );
   } finally {
     closeSync(fd);
   }
@@ -96,7 +103,9 @@ export async function runStage(
   command: string[],
   log: string,
   timeoutMs = ceilingFor(name),
-  waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number> = (child) => child.exited,
+  waitForExit: (child: ReturnType<typeof Bun.spawn>) => Promise<number> = (
+    child,
+  ) => child.exited,
 ): Promise<StageResult> {
   const fd = openSync(log, "w");
   const started = performance.now();
@@ -110,20 +119,23 @@ export async function runStage(
     child = Bun.spawn(command, { stdout: fd, stderr: fd, detached: true });
     children.add(child);
     const runningChild = child;
-    const deadline = timeoutMs === undefined ? new Promise<number>(() => {}) : new Promise<number>((resolve, reject) => {
-      timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          // Kill descendants too, including shells blocked in synchronous calls.
-          killStage(runningChild, "SIGKILL");
-          // A missed exit notification must not hold CI open after the deadline.
-          runningChild.unref();
-          resolve(124);
-        } catch (error) {
-          reject(error);
-        }
-      }, timeoutMs);
-    });
+    const deadline =
+      timeoutMs === undefined
+        ? new Promise<number>(() => {})
+        : new Promise<number>((resolve, reject) => {
+            timer = setTimeout(() => {
+              timedOut = true;
+              try {
+                // Kill descendants too, including shells blocked in synchronous calls.
+                killStage(runningChild, "SIGKILL");
+                // A missed exit notification must not hold CI open after the deadline.
+                runningChild.unref();
+                resolve(124);
+              } catch (error) {
+                reject(error);
+              }
+            }, timeoutMs);
+          });
     exitCode = await Promise.race([waitForExit(child), deadline]);
   } finally {
     clearTimeout(timer);
@@ -138,8 +150,8 @@ export async function runStage(
     timedOut
       ? `✗ ${name} failed (${reason})`
       : exitCode === 0
-      ? `✓ ${name} ${seconds.toFixed(2)}s`
-      : `✗ ${name} failed (exit ${exitCode}) ${seconds.toFixed(2)}s`,
+        ? `✓ ${name} ${seconds.toFixed(2)}s`
+        : `✗ ${name} failed (exit ${exitCode}) ${seconds.toFixed(2)}s`,
   );
 
   return {
@@ -181,11 +193,12 @@ async function main(): Promise<void> {
   const logDir = mkdtempSync(join(tmpdir(), "isomux-ci-"));
   process.once("SIGINT", () => stopChildren("SIGINT"));
   process.once("SIGTERM", () => stopChildren("SIGTERM"));
-  const stage = (name: StageName) => runStage(
-    name,
-    definition(name).command,
-    join(logDir, `${stages.findIndex((entry) => entry.name === name)}.log`),
-  );
+  const stage = (name: StageName) =>
+    runStage(
+      name,
+      definition(name).command,
+      join(logDir, `${stages.findIndex((entry) => entry.name === name)}.log`),
+    );
   const started = performance.now();
 
   try {

@@ -245,14 +245,7 @@ export function RoomTabBar({
   // counts shifting tab widths.
   useEffect(() => {
     updateOverflow();
-  }, [
-    rooms,
-    agents,
-    presences,
-    totalOnlineUsers,
-    mobileLobby,
-    updateOverflow,
-  ]);
+  }, [rooms, agents, presences, totalOnlineUsers, mobileLobby, updateOverflow]);
 
   // Keep the active tab visible: on mount (deep room in a long list) and
   // whenever the current room changes (e.g. selected via a partially

@@ -31,11 +31,15 @@ async function expectChildEnvironment(
   pid: number,
   expected: Record<string, string | undefined>,
 ): Promise<void> {
-  const entries = (await readFile(`/proc/${pid}/environ`)).toString().split("\0");
-  const actual = new Map(entries.filter(Boolean).map((entry) => {
-    const separator = entry.indexOf("=");
-    return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
-  }));
+  const entries = (await readFile(`/proc/${pid}/environ`))
+    .toString()
+    .split("\0");
+  const actual = new Map(
+    entries.filter(Boolean).map((entry) => {
+      const separator = entry.indexOf("=");
+      return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
+    }),
+  );
   for (const [name, value] of Object.entries(expected)) {
     expect(actual.get(name) === value, `child environment: ${name}`).toBe(true);
   }
@@ -263,8 +267,22 @@ describe("OpenCode shared server supervisor", () => {
       OPENCODE_DISABLE_SHARE: "0",
       ISOMUX_OPENCODE_DEBUG: "1",
     };
-    const first = makeSupervisor(path, config, 1000, hostileAmbient, 5000, binary);
-    const second = makeSupervisor(path, config, 1000, hostileAmbient, 5000, binary);
+    const first = makeSupervisor(
+      path,
+      config,
+      1000,
+      hostileAmbient,
+      5000,
+      binary,
+    );
+    const second = makeSupervisor(
+      path,
+      config,
+      1000,
+      hostileAmbient,
+      5000,
+      binary,
+    );
     const [leaseA, leaseB] = await Promise.all([
       first.acquire(),
       second.acquire(),
@@ -420,30 +438,34 @@ describe("OpenCode shared server supervisor", () => {
   // Two real OpenCode startups (7.7 s + 8.1 s measured at load 17 on
   // 2026-09-10) against a 20 s cap: real-subprocess work, so it runs in the
   // opt-in live tier (bun run test:opencode) like the real-OC1 cases.
-  it.skipIf(!LIVE)("refuses cross-process adoption when the environment revision changed", async () => {
-    const path = await root();
-    const config = gateConfig(mockProvider());
-    const first = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      config,
-      environmentRevision: "revision-before",
-    });
-    const second = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      config,
-      environmentRevision: "revision-after",
-    });
-    supervisors.push(first, second);
-    const oldLease = await first.acquire();
-    const oldPid = oldLease.pid;
-    const newLease = await second.acquire();
-    expect(newLease.pid).not.toBe(oldPid);
-    expect(alive(oldPid)).toBe(false);
-    oldLease.release();
-    newLease.release();
-  }, 20_000);
+  it.skipIf(!LIVE)(
+    "refuses cross-process adoption when the environment revision changed",
+    async () => {
+      const path = await root();
+      const config = gateConfig(mockProvider());
+      const first = new OpenCodeSupervisor({
+        profileDir: join(path, "profile"),
+        serverCwd: path,
+        config,
+        environmentRevision: "revision-before",
+      });
+      const second = new OpenCodeSupervisor({
+        profileDir: join(path, "profile"),
+        serverCwd: path,
+        config,
+        environmentRevision: "revision-after",
+      });
+      supervisors.push(first, second);
+      const oldLease = await first.acquire();
+      const oldPid = oldLease.pid;
+      const newLease = await second.acquire();
+      expect(newLease.pid).not.toBe(oldPid);
+      expect(alive(oldPid)).toBe(false);
+      oldLease.release();
+      newLease.release();
+    },
+    20_000,
+  );
 
   it("adopts an unchanged config but replaces a pre-revision config record", async () => {
     const path = await root();
