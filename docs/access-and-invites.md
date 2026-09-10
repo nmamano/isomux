@@ -159,15 +159,19 @@ GitHub credentials.
 
 ### Claude on Amazon Bedrock
 
-Three variables, in Office-wide connections (every agent) or Individual connections (your own agents):
+Settings → Office-wide connections → Environment variables
+
+Add:
 
 ```text
 CLAUDE_CODE_USE_BEDROCK=1
-AWS_REGION=<your-region>
-AWS_BEARER_TOKEN_BEDROCK=<token>
+AWS_REGION=us-west-2 (or your region)
+AWS_BEARER_TOKEN_BEDROCK=...
 ```
 
-Instead of the bearer token, an access key pair works (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, plus `AWS_SESSION_TOKEN` for temporary credentials), or an `AWS_PROFILE` configured on the Isomux server. AWS must grant access to the models you use.
+The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys). If you use an IAM access key instead, replace that line with `AWS_ACCESS_KEY_ID=AKIA...` and `AWS_SECRET_ACCESS_KEY=...`, plus `AWS_SESSION_TOKEN=...` if the credentials are temporary.
+
+Then `/clear` Claude agents to pick up the variables.
 
 Model pins are optional: with none, the picker's `opus` is Opus 5 and `sonnet` is Sonnet 4.5 on Bedrock. To change a default, set the family's pin to a Bedrock model or inference-profile ID, for example `ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.claude-sonnet-4-6`; the others are `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_DEFAULT_FABLE_MODEL`. Conversation titles use the Sonnet default. `ANTHROPIC_MODEL` does not override the picker. Agents pick the variables up on their next new or resumed conversation.
 
