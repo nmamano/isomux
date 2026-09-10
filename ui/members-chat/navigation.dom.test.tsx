@@ -2,9 +2,10 @@ import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { act, render, fireEvent } = await import("@testing-library/react");
-const { createElement, useEffect } = await import("react");
+const { createElement, useEffect, Fragment } = await import("react");
 const { StateCtx, StoreProvider, useAppState, useDispatch } =
   await import("../store.tsx");
+const { LobbyChat } = await import("./LobbyChat.tsx");
 const { RoomTabBar } = await import("../office/RoomTabBar.tsx");
 const { useMembersChatHydration } =
   await import("./useMembersChatHydration.ts");
@@ -16,10 +17,9 @@ let mobile = true;
 let enabled = true;
 function Content() {
   const { loadFailed, retry } = useMembersChatHydration(enabled);
-  return createElement(RoomTabBar, {
-    membersChatLoadFailed: loadFailed,
-    onRetryMembersChat: retry,
-  });
+  const { lobbyOpen, isMobile } = useAppState();
+  return createElement(Fragment, null, createElement(RoomTabBar),
+    lobbyOpen && isMobile && createElement(LobbyChat, { loadFailed, onRetry: retry }));
 }
 function Harness() {
   const state = useAppState();

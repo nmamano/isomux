@@ -634,6 +634,12 @@ export interface MembersChatReactor {
   device?: string;
 }
 
+export interface MembersChatReply {
+  id: string;
+  userName: string;
+  excerpt: string;
+}
+
 export interface MembersChatMessage {
   id: string; // "YYYYMM-xxxxxxxx": the month names the file that holds it
   // Who posted: a person in the browser, that person's API token, or one of
@@ -647,6 +653,8 @@ export interface MembersChatMessage {
   attachments: Attachment[];
   editedAt?: number;
   thumbsUp?: MembersChatReactor[];
+  replyTo?: MembersChatReply;
+  pinnedAt?: number;
 }
 
 // Per-file summary inside a kind:"diff" LogEntry. The server pre-computes

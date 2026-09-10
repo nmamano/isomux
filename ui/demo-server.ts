@@ -1,3 +1,4 @@
+import { membersChatExcerpt, recentMembersChatPins } from "../shared/members-chat.ts";
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
@@ -129,6 +130,23 @@ function seedMembersChat(now: number): void {
       attachments: [],
     },
   ];
+  demoMembersChat.push({
+    id: membersChatId(), kind: "user", userId: stephen.id, userName: stephen.name,
+    timestamp: now - min, content: "**Thanks!**", attachments: [],
+    thumbsUp: [
+      { kind: "user", userId: ricky.id, userName: ricky.name },
+      { kind: "user", userId: stephen.id, userName: stephen.name },
+      { kind: "user", userId: "demo-alex", userName: "Alex" },
+      { kind: "user", userId: "demo-jo", userName: "Jo" },
+      { kind: "user", userId: "demo-sam", userName: "Sam" },
+    ],
+  });
+  demoMembersChat[1].pinnedAt = now - 2 * min;
+  demoMembersChat[1].replyTo = {
+    id: demoMembersChat[0].id,
+    userName: demoMembersChat[0].userName,
+    excerpt: demoMembersChat[0].content,
+  };
 }
 const demoManagedEnv: Record<string, Record<string, string>> = {};
 let demoManagedOfficeEnv: Record<string, string> = {};
@@ -1619,6 +1637,19 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  const pinMatch = /^\/api\/members-chat\/([^/]+)\/pin$/.exec(pathname);
+  if (method === "PUT" && pinMatch) {
+    const index = demoMembersChat.findIndex((message) => message.id === pinMatch[1]);
+    if (index === -1) throw new ApiError(404, "not_found", "");
+    const active = (body as { active?: unknown } | undefined)?.active;
+    if (typeof active !== "boolean") throw new ApiError(400, "invalid_request", "active must be a boolean");
+    const existing = demoMembersChat[index];
+    const { pinnedAt: previous, ...rest } = existing;
+    const message = active ? { ...rest, pinnedAt: previous ?? Date.now() } : rest;
+    demoMembersChat[index] = message;
+    shimEmit({ type: "members_chat_message", message, updateOnly: true });
+    return message;
+  }
   const thumbsUpMatch = pathname.match(
     /^\/api\/members-chat\/([^/]+)\/thumbs-up$/,
   );
@@ -1678,6 +1709,7 @@ export async function demoApi(
     case "GET /api/members-chat":
       return {
         messages: [...demoMembersChat],
+        pinned: recentMembersChatPins(demoMembersChat),
         hasMore: false,
         readPointer: demoMembersChat.at(-1)?.id ?? null,
         unread: 0,
@@ -1688,6 +1720,7 @@ export async function demoApi(
         text?: unknown;
         attachments?: unknown;
         device?: unknown;
+        replyTo?: unknown;
       };
       if (!ricky || typeof b.text !== "string") {
         throw new ApiError(400, "invalid_request", "text must be a string");
@@ -1698,8 +1731,13 @@ export async function demoApi(
       if (!b.text.trim() && attachments.length === 0) {
         throw new ApiError(400, "empty", "a message needs text or a file");
       }
+      if (b.replyTo !== undefined && typeof b.replyTo !== "string")
+        throw new ApiError(400, "invalid_request", "replyTo must be a message id");
+      const target = b.replyTo === undefined ? undefined : demoMembersChat.find((m) => m.id === b.replyTo);
+      if (b.replyTo !== undefined && !target) throw new ApiError(404, "reply_not_found", "");
       const message: MembersChatMessage = {
         id: membersChatId(),
+        ...(target ? { replyTo: { id: target.id, userName: target.userName, excerpt: membersChatExcerpt(target.content, target.attachments) } } : {}),
         kind: "user",
         userId: ricky.id,
         userName: ricky.name,

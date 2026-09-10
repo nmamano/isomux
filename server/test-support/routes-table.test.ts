@@ -615,6 +615,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["chat:members"],
     emits: ["members_chat_message"],
   },
+  "membersChat.pin": {
+    caps: ["chat:members"],
+    emits: ["members_chat_message"],
+  },
   "membersChat.thumbsUp": {
     caps: ["chat:members"],
     emits: ["members_chat_message"],
@@ -1043,6 +1047,7 @@ const API_REACHABLE_OPIDS = [
   "agents.getFile",
   "membersChat.page",
   "membersChat.post",
+  "membersChat.pin",
   "membersChat.thumbsUp",
   "membersChat.edit",
   "membersChat.delete",

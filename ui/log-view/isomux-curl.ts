@@ -759,6 +759,7 @@ function matchIsomuxUrl(
 const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["GET", "/api/members-chat", "apiCall.membersChat.read"],
   ["POST", "/api/members-chat", "apiCall.membersChat.post"],
+  ["PUT", "/api/members-chat/*/pin", "apiCall.membersChat.pin"],
   ["PUT", "/api/members-chat/*/thumbs-up", "apiCall.membersChat.thumbsUp"],
   ["PATCH", "/api/members-chat/*", "apiCall.membersChat.edit"],
   ["DELETE", "/api/members-chat/*", "apiCall.membersChat.delete"],

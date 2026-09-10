@@ -31,6 +31,8 @@ import { SCENE_W, SCENE_H } from "./grid.ts";
 import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
 import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
+import { LobbyChat } from "../members-chat/LobbyChat.tsx";
+import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
 import { MembersChatPanel } from "../members-chat/MembersChatPanel.tsx";
 import { apiFetch } from "../api.ts";
 import type {
@@ -520,14 +522,13 @@ export function OfficeView({
       {!embed && (
         <RoomTabBar
           onOpenRoomSettings={onEditRoomSettings}
-          membersChatLoadFailed={membersChatLoadFailed}
-          onRetryMembersChat={retryMembersChat}
-          onShowMembersChat={
-            lobbyOpen && !isMobile && chatHidden
-              ? () => changeChatHidden(false)
-              : undefined
-          }
         />
+      )}
+
+      {!embed && lobbyOpen && isMobile && (
+        <div data-lobby-chat-entry style={{ padding: "8px 12px", background: "var(--bg-surface)", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "flex-end" }}>
+          <LobbyChat loadFailed={membersChatLoadFailed} onRetry={retryMembersChat} />
+        </div>
       )}
 
       {/* Chat overlays the scene without changing the viewport's fit or origin.
@@ -892,7 +893,7 @@ export function OfficeView({
               onZoomIn={viewport.zoomIn}
               onZoomOut={viewport.zoomOut}
               onReset={viewport.resetView}
-              rightInset={desktopChatVisible ? chatWidth : 0}
+              rightInset={desktopChatVisible ? chatWidth : lobbyOpen && !isMobile && chatHidden ? 36 : 0}
             />
             /* eslint-enable react-hooks/refs */
           )}
@@ -909,6 +910,17 @@ export function OfficeView({
             />
           )}
         </div>
+        {!embed && lobbyOpen && !isMobile && chatHidden && (
+          <button
+            data-lobby-chat-edge
+            onClick={() => changeChatHidden(false)}
+            aria-label={t("membersChat.title")}
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: 36, zIndex: 1, border: "none", borderLeft: "1px solid var(--border)", background: "var(--bg-surface)", color: "var(--text-primary)", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10, writingMode: "vertical-rl", fontFamily: "'DM Sans',sans-serif", fontSize: 12 }}
+          >
+            {t("membersChat.title")}
+            <MembersChatUnread />
+          </button>
+        )}
         {desktopChatVisible && (
           <MembersChatPanel
             resizeHandle={

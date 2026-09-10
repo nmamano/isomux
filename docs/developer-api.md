@@ -44,15 +44,16 @@ For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-
 
 Users, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
 
-- `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer` and `unread`. Messages are in chronological order.
-- `POST /api/members-chat` accepts `{"text":"..."}` and optional uploaded `attachments`.
+- `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer`, `unread` and `pinned`. Messages are in chronological order. `pinned` holds up to 21 live pinned messages from all history, newest `pinnedAt` first; the extra entry lets a client distinguish exactly 20 from more than 20.
+- `POST /api/members-chat` accepts `{"text":"..."}`, optional uploaded `attachments`, and optional `replyTo` (an existing message id). The server stores `replyTo: {id, userName, excerpt}` on the message. The excerpt holds the first 200 Unicode characters of the target text, or its attachment names when it has no text. Edits and deletion of the target leave this snapshot unchanged. An unknown or deleted target returns `404 reply_not_found`.
 - `PATCH /api/members-chat/:id` accepts `{"text":"..."}` and edits the caller's own post.
 - `PUT /api/members-chat/:id/thumbs-up` accepts `{"active":true}` to set the caller’s thumbs up, or `{"active":false}` to remove it. Repeating either request keeps that state.
+- `PUT /api/members-chat/:id/pin` accepts `{"active":true}` or `{"active":false}`. Anyone who can post can pin or unpin. Pinning sets `pinnedAt`; unpinning removes it. Repeating the current state preserves the timestamp. Deleting a message also removes its pin.
 - `DELETE /api/members-chat/:id` deletes the caller's own post, or any post when the caller acts for an office owner.
 - `POST /api/members-chat/read` accepts `{"lastReadId":"..."}` and updates that user's read pointer.
 - `POST /api/members-chat/uploads` accepts multipart files; `GET /api/members-chat/files/:filename` reads an uploaded file.
 
-Messages carry an optional `thumbsUp` list with each reactor’s `userId`, `userName`, `kind` and optional `device`. Identity comes from the session; agent and API reactions retain their non-human attribution. Edits and reactions use the existing `members_chat_message` event with `updateOnly: true`: replace a held message, and ignore an unheld one. Reactions do not raise unread.
+Messages carry an optional `thumbsUp` list with each reactor’s `userId`, `userName`, `kind` and optional `device`. Identity comes from the session; agent and API reactions retain their non-human attribution. Edits, reactions and pin changes use `members_chat_message` with `updateOnly: true`. Clients update the pinned strip even when the message is not in the loaded page, without appending it to the conversation or raising unread. Clients can refresh the page response to refill the capped pinned list after a change.
 
 ## Receive replies from office agents
 

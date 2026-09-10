@@ -123,7 +123,8 @@ export function LobbyChat({
         style={{
           position: "relative",
           flexShrink: 0,
-          padding: "4px 12px",
+          padding: "10px 14px",
+          minHeight: 44,
           border: "1px solid var(--border)",
           borderRadius: 6,
           background: "var(--bg-code)",

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useState, useRef, useLayoutEffect } from "react";
 import { useI18n } from "../i18n.tsx";
 
 export function ThumbsUpReaction({
@@ -16,6 +16,17 @@ export function ThumbsUpReaction({
   const [pending, setPending] = useState(false);
   const [showNames, setShowNames] = useState(false);
   const namesId = useId();
+  const popupRef = useRef<HTMLSpanElement>(null);
+  const [openDown, setOpenDown] = useState(false);
+  const namesText = names.join(", ");
+  useLayoutEffect(() => {
+    const popup = popupRef.current;
+    if (!showNames || !popup) return;
+    const row = popup.parentElement!;
+    const list = row.closest("[data-members-chat-list]");
+    const top = Math.max(0, list?.getBoundingClientRect().top ?? 0);
+    setOpenDown(row.getBoundingClientRect().top - popup.getBoundingClientRect().height < top);
+  }, [showNames, namesText]);
   async function toggle() {
     setPending(true);
     try {
@@ -25,9 +36,11 @@ export function ThumbsUpReaction({
     }
   }
   const buttonStyle = {
-    border: "1px solid var(--border)",
+    border: "none",
     borderRadius: 10,
-    background: active ? "var(--bg-subtle)" : "transparent",
+    background: "transparent",
+    display: "inline-flex",
+    alignItems: "center",
     color: active ? "var(--accent)" : "var(--text-muted)",
     padding: isMobile ? "6px 9px" : "2px 6px",
     cursor: "pointer",
@@ -37,11 +50,15 @@ export function ThumbsUpReaction({
   return (
     <div
       style={{
-        display: "flex",
+        display: "inline-flex",
         alignItems: "center",
-        flexWrap: "wrap",
-        gap: 4,
-        marginTop: 4,
+        position: "relative",
+        flexShrink: 0,
+        gap: 0,
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        background: active ? "var(--bg-subtle)" : "transparent",
+
       }}
     >
       <button
@@ -74,7 +91,7 @@ export function ThumbsUpReaction({
           <button
             type="button"
             style={buttonStyle}
-            title={names.join(", ")}
+            title={namesText}
             aria-label={t("membersChat.reactors", { count: names.length })}
             aria-expanded={showNames}
             aria-controls={namesId}
@@ -96,10 +113,11 @@ export function ThumbsUpReaction({
           </button>
           {showNames && (
             <span
+              ref={popupRef}
               id={namesId}
-              style={{ fontSize: 12, color: "var(--text-muted)" }}
+              style={{ position: "absolute", right: 0, bottom: openDown ? undefined : "100%", top: openDown ? "100%" : undefined, zIndex: 3, minWidth: 120, maxWidth: 240, padding: 8, borderRadius: 6, background: "var(--bg-surface-solid)", border: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)" }}
             >
-              {names.join(", ")}
+              {namesText}
             </span>
           )}
         </>

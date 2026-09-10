@@ -1,3 +1,4 @@
+import { recentMembersChatPins } from "../shared/members-chat.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import {
   createContext,
@@ -63,6 +64,9 @@ import {
 } from "./themes.ts";
 
 export interface MembersChatState {
+  pinned?: MembersChatMessage[];
+  pinsRevision?: number;
+  pinsStale?: boolean;
   messages: MembersChatMessage[];
   hasMore: boolean;
   loaded: boolean;
@@ -285,7 +289,7 @@ type Action =
   // after its REST page fetch. `prepend` is an older page landing above what the
   // panel already holds; otherwise the page REPLACES the slice (initial load or
   // a reconnect refetch), keeping any live message that arrived meanwhile.
-  | {
+  | ({
       type: "members_chat_page";
       messages: MembersChatMessage[];
       hasMore: boolean;
@@ -294,7 +298,8 @@ type Action =
       prepend: boolean;
       // Client-local snapshot at fetch issue; never sent over the wire.
       heldAtRequest?: string[];
-    }
+    } & ({ pinned: MembersChatMessage[]; pinsRevisionAtRequest: number } | { pinned?: never; pinsRevisionAtRequest?: number }))
+  | { type: "members_chat_pins"; pinned: MembersChatMessage[]; pinsRevisionAtRequest: number }
   | { type: "set_lobby_open"; open: boolean }
   // Wire events for the same slice (server/events/registry.ts).
   | {
@@ -765,6 +770,9 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         membersChat: {
+          ...state.membersChat,
+          ...(action.pinned && action.pinsRevisionAtRequest === (state.membersChat.pinsRevision ?? 0)
+            ? { pinned: action.pinned, pinsStale: false } : {}),
           messages,
           hasMore: action.prepend
             ? action.hasMore
@@ -775,24 +783,34 @@ export function reducer(state: AppState, action: Action): AppState {
         },
       };
     }
+    case "members_chat_pins":
+      if (action.pinsRevisionAtRequest !== (state.membersChat.pinsRevision ?? 0)) return state;
+      return { ...state, membersChat: { ...state.membersChat, pinned: action.pinned, pinsStale: false } };
     // A post or an in-place update. A held message is replaced where it sits,
     // a new message goes to the end. Someone else's new message bumps the
     // local unread until the next markRead answer replaces it.
     case "members_chat_message": {
       const mc = state.membersChat;
+      const pinAffected = (mc.pinned ?? []).some((message) => message.id === action.message.id) || action.message.pinnedAt !== undefined;
+      const pinState = pinAffected ? {
+        pinned: recentMembersChatPins([...(mc.pinned ?? []).filter((message) => message.id !== action.message.id), action.message]),
+        pinsRevision: (mc.pinsRevision ?? 0) + 1,
+        pinsStale: true,
+      } : {};
       const idx = mc.messages.findIndex((m) => m.id === action.message.id);
       if (idx !== -1) {
         const messages = mc.messages.slice();
         messages[idx] = action.message;
-        return { ...state, membersChat: { ...mc, messages } };
+        return { ...state, membersChat: { ...mc, ...pinState, messages } };
       }
       // Edits and reactions to an unloaded message are not new arrivals.
-      if (action.updateOnly) return state;
+      if (action.updateOnly) return pinAffected ? { ...state, membersChat: { ...mc, ...pinState } } : state;
       const mine = action.message.userId === state.sessionContext?.userId;
       return {
         ...state,
         membersChat: {
           ...mc,
+          ...pinState,
           messages: [...mc.messages, action.message],
           unread: mine ? mc.unread : mc.unread + 1,
         },
@@ -800,12 +818,14 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "members_chat_deleted": {
       const mc = state.membersChat;
-      if (!mc.messages.some((m) => m.id === action.id)) return state;
+      const pinAffected = (mc.pinned ?? []).some((message) => message.id === action.id);
+      if (!mc.messages.some((m) => m.id === action.id) && !pinAffected) return state;
       return {
         ...state,
         membersChat: {
           ...mc,
           messages: mc.messages.filter((m) => m.id !== action.id),
+          ...(pinAffected ? { pinned: mc.pinned!.filter((message) => message.id !== action.id), pinsRevision: (mc.pinsRevision ?? 0) + 1, pinsStale: true } : {}),
         },
       };
     }

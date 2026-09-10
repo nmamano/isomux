@@ -717,6 +717,7 @@ export interface MemoryWriteRes {
 // describe the CALLER's own position, so one read hydrates the panel and the
 // badge together.
 export interface MembersChatPageRes {
+  pinned: MembersChatMessage[];
   messages: MembersChatMessage[];
   hasMore: boolean;
   readPointer: string | null;
@@ -725,12 +726,18 @@ export interface MembersChatPageRes {
 
 export interface MembersChatPostReq {
   text: string;
+  // The server snapshots this existing message; clients cannot supply the quote.
+  replyTo?: string;
   // Files already uploaded through membersChat.upload; the server refuses a
   // filename it does not hold.
   attachments?: Attachment[];
   // The browser's device label, a snapshot for the author line. Ignored for an
   // API token (the token's name is the device) and for an agent.
   device?: string;
+}
+
+export interface MembersChatPinReq {
+  active: boolean;
 }
 
 export interface MembersChatThumbsUpReq {

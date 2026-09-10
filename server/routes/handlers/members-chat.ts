@@ -35,6 +35,7 @@ import type {
   MembersChatPostReq,
   MembersChatEditReq,
   MembersChatThumbsUpReq,
+  MembersChatPinReq,
   MembersChatReadReq,
 } from "../../../shared/contract-shapes.ts";
 import {
@@ -52,10 +53,11 @@ const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
 
 export type MembersChatAuthor = Omit<
   PostInput,
-  "content" | "attachments" | "device"
+  "content" | "attachments" | "device" | "replyTo"
 > & { kind: MembersChatMessage["kind"]; device?: string };
 
 export interface MembersChatDeps {
+  setPinned(id: string, active: boolean): MembersChatMessage | null;
   page(opts: { before?: string; limit?: number }): MembersChatPage;
   post(input: PostInput): MembersChatMessage;
   edit(id: string, content: string): MembersChatMessage | null;
@@ -98,6 +100,7 @@ function isAttachmentShape(v: unknown): v is Attachment {
 
 function storeError(err: unknown) {
   if (err instanceof MembersChatError) {
+    if (err.code === "reply_not_found") return fail(404, err.code);
     return fail(
       400,
       err.code === "too_long" ? "too_long" : "empty",
@@ -138,6 +141,8 @@ export function membersChatHandlers(
       if (typeof body.text !== "string") {
         return fail(400, "invalid_request", "text must be a string");
       }
+      if (body.replyTo !== undefined && typeof body.replyTo !== "string")
+        return fail(400, "invalid_request", "replyTo must be a message id");
       let attachments: Attachment[] = [];
       if (body.attachments !== undefined) {
         if (
@@ -178,6 +183,7 @@ export function membersChatHandlers(
           userName: author.userName,
           ...(device ? { device } : {}),
           content: body.text,
+          ...(body.replyTo !== undefined ? { replyTo: body.replyTo } : {}),
           attachments,
         });
       } catch (err) {
@@ -203,6 +209,17 @@ export function membersChatHandlers(
       } catch (err) {
         return storeError(err);
       }
+      if (!message) return fail(404, "not_found");
+      deps.emitMessage(message, true);
+      return ok(message);
+    },
+
+    "membersChat.pin": (ctx) => {
+      if (!deps.authorFor(ctx.identity)) return fail(403, "forbidden");
+      const body = (ctx.body ?? {}) as Partial<MembersChatPinReq>;
+      if (typeof body.active !== "boolean")
+        return fail(400, "invalid_request", "active must be a boolean");
+      const message = deps.setPinned(ctx.params.id, body.active);
       if (!message) return fail(404, "not_found");
       deps.emitMessage(message, true);
       return ok(message);

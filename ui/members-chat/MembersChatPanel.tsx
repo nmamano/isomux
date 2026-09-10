@@ -12,6 +12,7 @@
 // their author line on every message. The list pages older messages at the
 // top instead of holding the whole history.
 
+import { membersChatExcerpt } from "../../shared/members-chat.ts";
 import {
   useCallback,
   useEffect,
@@ -34,6 +35,10 @@ import { MEMBERS_CHAT_MAX_CHARS } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
 import { defaultGhostColorForUserId } from "../../shared/avatar.ts";
 import { useAppState, useDispatch } from "../store.tsx";
+import { PinnedMessageStrip } from "./PinnedMessageStrip.tsx";
+import { MessageActions } from "./MessageActions.tsx";
+import { ReplyQuote } from "./ReplyQuote.tsx";
+import { InlineMarkdown } from "./InlineMarkdown.tsx";
 import { ThumbsUpReaction } from "./ThumbsUpReaction.tsx";
 import { UserMessage, EditableUserMessage } from "../log-view/LogEntryCard.tsx";
 import { GhostGraphic } from "../office/ghostVariants.tsx";
@@ -173,7 +178,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
       }}
     >
       <TrashIcon />
-      {armed && <span>{t("membersChat.sure")}</span>}
+      <span>{armed ? t("membersChat.sure") : t("common.delete")}</span>
     </button>
   );
 }
@@ -228,8 +233,10 @@ export function MembersChatPanel({
   const me = sessionContext?.userId ?? null;
   const amOwner = sessionContext?.role === "owner";
   const { messages, hasMore, loaded, readPointer } = membersChat;
+  const loadedMessageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
 
   const [input, setInput] = useState("");
+  const [replyingTo, setReplyingTo] = useState<MembersChatMessage | null>(null);
   const [staged, setStaged] = useState<Staged[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [error, setError] = useState<ChatError | null>(null);
@@ -263,10 +270,11 @@ export function MembersChatPanel({
     const prevHeight = el?.scrollHeight ?? 0;
     const prevTop = el?.scrollTop ?? 0;
     setLoadingOlder(true);
+    const pinsRevisionAtRequest = membersChat.pinsRevision ?? 0;
     chatApi
       .fetchPage({ before: messages[0].id, limit: PAGE_LIMIT })
       .then((page) => {
-        dispatch({ type: "members_chat_page", ...page, prepend: true });
+        dispatch({ type: "members_chat_page", ...page, prepend: true, pinsRevisionAtRequest });
         // Hold the reader's place: grow the scroll offset by what was added
         // above, so the message they were looking at does not jump.
         requestAnimationFrame(() => {
@@ -278,7 +286,7 @@ export function MembersChatPanel({
         setError(chatError(err, "membersChat.olderFailed")),
       )
       .finally(() => setLoadingOlder(false));
-  }, [loadingOlder, hasMore, messages, dispatch]);
+  }, [loadingOlder, hasMore, messages, membersChat.pinsRevision, dispatch]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -388,20 +396,38 @@ export function MembersChatPanel({
     chatApi
       .post({
         text: input,
+        ...(replyingTo ? { replyTo: replyingTo.id } : {}),
         attachments: readyAttachments,
         ...(device ? { device } : {}),
       })
       .then((m) => {
         dispatch({ type: "members_chat_message", message: m });
         setInput("");
+        setReplyingTo(null);
         setStaged([]);
         setAtBottom(true);
         if (textareaRef.current) textareaRef.current.style.height = "auto";
       })
       .catch((err: unknown) =>
-        setError(chatError(err, "membersChat.sendFailed")),
+        setError(err instanceof ApiError && err.code === "reply_not_found"
+          ? { key: "membersChat.replyMissing", message: "" }
+          : chatError(err, "membersChat.sendFailed")),
       )
       .finally(() => setSending(false));
+  }
+
+  function jumpTo(id: string) {
+    const target = document.getElementById(`members-chat-${id}`);
+    if (!target) return;
+    setAtBottom(false);
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.focus({ preventScroll: true });
+  }
+
+  function setPinned(id: string, active: boolean) {
+    chatApi.setPinned(id, active).then((message) => {
+      dispatch({ type: "members_chat_message", message, updateOnly: true });
+    }).catch((err: unknown) => setError(chatError(err, "membersChat.pinFailed")));
   }
 
   function submitEdit(id: string, text: string) {
@@ -556,6 +582,14 @@ export function MembersChatPanel({
         )}
       </div>
 
+      {membersChat.pinned?.[0] && (
+        <PinnedMessageStrip key={membersChat.pinned[0].id} message={membersChat.pinned[0]} count={membersChat.pinned.length}
+          author={describeMembersChatAuthor(membersChat.pinned[0], t).label}
+          loaded={loadedMessageIds.has(membersChat.pinned[0].id)}
+          onJump={() => jumpTo(membersChat.pinned![0].id)}
+          onUnpin={() => setPinned(membersChat.pinned![0].id, false)} />
+      )}
+
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -619,8 +653,8 @@ export function MembersChatPanel({
           const label = `${author.label} · ${time}${m.editedAt ? t("membersChat.edited") : ""}`;
           if (editingId === m.id) {
             return (
+              <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
               <EditableUserMessage
-                key={m.id}
                 content={m.content}
                 entryId={m.id}
                 variant="members-chat"
@@ -629,6 +663,7 @@ export function MembersChatPanel({
                 onCancel={() => setEditingId(null)}
                 onSubmit={submitEdit}
               />
+              </div>
             );
           }
           const user = usersById.get(m.userId);
@@ -657,14 +692,16 @@ export function MembersChatPanel({
             ) : null;
           const canDelete = mine || amOwner;
           return (
+            <div key={m.id} id={`members-chat-${m.id}`} tabIndex={-1}>
             <UserMessage
-              key={m.id}
+              beforeContent={m.replyTo && <ReplyQuote reply={m.replyTo} onJump={loadedMessageIds.has(m.replyTo.id) ? () => jumpTo(m.replyTo!.id) : undefined} />}
               content={m.content}
+              renderedContent={<InlineMarkdown content={m.content} />}
               isMobile={isMobile}
               username={label}
               variant="members-chat"
               hideAuthor={continuation}
-              footer={
+              inlineAccessory={
                 <ThumbsUpReaction
                   active={(m.thumbsUp ?? []).some((r) => r.userId === me)}
                   names={(m.thumbsUp ?? []).map(
@@ -680,14 +717,21 @@ export function MembersChatPanel({
               fileBase={MEMBERS_CHAT_FILES_BASE}
               avatar={avatar}
               editTitle={t("common.edit")}
-              canEdit={mine}
-              onEdit={() => setEditingId(m.id)}
+
               extraActions={
-                canDelete ? (
-                  <DeleteControl onConfirm={() => remove(m.id)} />
-                ) : null
+                <MessageActions>{(close) => <>
+                    <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} title={t("membersChat.reply")} disabled={sending} onClick={() => {
+                      close();
+                      setReplyingTo(m);
+                      textareaRef.current?.focus();
+                    }}>{t("membersChat.reply")}</button>
+                    <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} onClick={() => { close(); setPinned(m.id, m.pinnedAt === undefined); }}>{t(m.pinnedAt === undefined ? "membersChat.pin" : "membersChat.unpin")}</button>
+                    {mine && <button type="button" style={{ border: "none", background: "transparent", color: "var(--text-primary)", textAlign: "left", font: "inherit", fontSize: 12, cursor: "pointer", padding: "4px 0" }} title={t("common.edit")} onClick={() => { close(); setEditingId(m.id); }}>{t("common.edit")}</button>}
+                    {canDelete && <DeleteControl onConfirm={() => { close(); remove(m.id); }} />}
+                </>}</MessageActions>
               }
             />
+            </div>
           );
         })}
       </div>
@@ -707,6 +751,14 @@ export function MembersChatPanel({
           transition: "background 0.15s, border-color 0.15s",
         }}
       >
+        {replyingTo && (
+          <div data-members-chat-composer-quote style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ReplyQuote reply={{ id: replyingTo.id, userName: replyingTo.userName, excerpt: membersChatExcerpt(replyingTo.content, replyingTo.attachments) }} />
+            <button type="button" disabled={sending} onClick={() => setReplyingTo(null)} aria-label={t("membersChat.cancelReply")} title={t("membersChat.cancelReply")} style={{ border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", padding: 8 }}>
+              <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>
+            </button>
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"

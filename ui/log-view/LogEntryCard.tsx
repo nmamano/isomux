@@ -799,6 +799,9 @@ export function UserMessage({
   variant,
   hideAuthor = false,
   footer,
+  beforeContent,
+  renderedContent,
+  inlineAccessory,
   title,
   content,
   isMobile,
@@ -820,6 +823,9 @@ export function UserMessage({
   variant?: "members-chat";
   hideAuthor?: boolean;
   footer?: ReactNode;
+  beforeContent?: ReactNode;
+  renderedContent?: ReactNode;
+  inlineAccessory?: ReactNode;
   title?: string;
   content: string;
   isMobile?: boolean;
@@ -913,6 +919,7 @@ export function UserMessage({
             : (username ?? t("common.you")).toUpperCase()}
         </div>
       )}
+      {beforeContent}
       <div
         id={bodyId}
         onFocusCapture={() => {
@@ -920,11 +927,12 @@ export function UserMessage({
           if (collapsed && overflows) onToggle?.();
         }}
         style={{
+          ...(inlineAccessory ? { display: "flex", alignItems: "flex-end", gap: 8 } : {}),
           maxHeight: collapsed ? previewHeight : undefined,
           overflow: collapsed ? "hidden" : undefined,
         }}
       >
-        <div ref={bodyRef}>
+        <div ref={bodyRef} style={inlineAccessory ? { flex: 1, minWidth: 0 } : undefined}>
           {content && (
             <div
               style={{
@@ -939,7 +947,7 @@ export function UserMessage({
                 wordBreak: "break-word",
               }}
             >
-              {content}
+              {renderedContent ?? content}
             </div>
           )}
           {attachments && attachments.length > 0 && (agentId || fileBase) && (
@@ -954,6 +962,7 @@ export function UserMessage({
             />
           )}
         </div>
+        {inlineAccessory}
       </div>
       {footer}
       {collapsible && overflows && (

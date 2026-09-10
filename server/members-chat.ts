@@ -23,6 +23,7 @@
 // still resolves after that message is deleted, because the fold keeps the
 // position of every post it has seen.
 
+import { membersChatExcerpt, recentMembersChatPins } from "../shared/members-chat.ts";
 import { join } from "path";
 import {
   appendFileSync,
@@ -54,7 +55,7 @@ const MAX_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 const MONTH_FILE = /^(\d{4})-(\d{2})\.jsonl$/;
 const ID_SHAPE = /^(\d{4})(\d{2})-[0-9a-f]{8}$/;
 
-export type MembersChatErrorCode = "empty" | "too_long";
+export type MembersChatErrorCode = "empty" | "too_long" | "reply_not_found";
 
 export class MembersChatError extends Error {
   constructor(
@@ -69,6 +70,7 @@ export class MembersChatError extends Error {
 type Line =
   | {
       op: "post";
+      replyTo?: MembersChatMessage["replyTo"];
       id: string;
       kind?: MembersChatMessage["kind"];
       userId: string;
@@ -80,6 +82,7 @@ type Line =
     }
   | { op: "edit"; id: string; timestamp: number; content: string }
   | { op: "delete"; id: string; timestamp: number }
+  | { op: "pin"; id: string; timestamp: number; active: boolean }
   | {
       op: "react";
       id: string;
@@ -97,12 +100,14 @@ interface FoldedMonth {
 }
 
 export interface MembersChatPage {
+  pinned: MembersChatMessage[];
   // Chronological (oldest first) - the order the panel renders.
   messages: MembersChatMessage[];
   hasMore: boolean;
 }
 
 export interface PostInput {
+  replyTo?: string;
   kind?: MembersChatMessage["kind"];
   userId: string;
   userName: string;
@@ -112,6 +117,7 @@ export interface PostInput {
 }
 
 export interface MembersChatStore {
+  setPinned(id: string, active: boolean): MembersChatMessage | null;
   post(input: PostInput): MembersChatMessage;
   // null when the id is malformed, unknown, or already deleted.
   edit(id: string, content: string): MembersChatMessage | null;
@@ -184,6 +190,9 @@ export function createMembersChatStore(
   const filesDir = join(dir, "files");
   const readsFile = join(dir, "reads.json");
   const cache = new Map<string, FoldedMonth>();
+  // First use folds history once. Later pages use this derived index; the
+  // append path keeps edits, reactions, unpins and deletions in step with it.
+  let pinIndex: Map<string, MembersChatMessage> | null = null;
 
   const monthFile = (month: string) => join(dir, `${month}.jsonl`);
 
@@ -237,6 +246,7 @@ export function createMembersChatStore(
           timestamp: line.timestamp,
           content: line.content,
           attachments: Array.isArray(line.attachments) ? line.attachments : [],
+          ...(line.replyTo ? { replyTo: line.replyTo } : {}),
         });
       } else if (line.op === "edit") {
         const m = folded.byId.get(line.id);
@@ -255,6 +265,12 @@ export function createMembersChatStore(
         );
         if (line.active) thumbsUp.push(line.reactor);
         folded.byId.set(line.id, { ...m, thumbsUp });
+      } else if (line.op === "pin") {
+        const message = folded.byId.get(line.id);
+        if (message) {
+          const { pinnedAt: _previous, ...rest } = message;
+          folded.byId.set(line.id, line.active ? { ...rest, pinnedAt: line.timestamp } : rest);
+        }
       } else if (line.op === "delete") {
         folded.byId.delete(line.id);
       }
@@ -267,6 +283,34 @@ export function createMembersChatStore(
     mkdirSync(dir, { recursive: true });
     appendFileSync(monthFile(month), JSON.stringify(line) + "\n");
     cache.delete(month);
+    if (pinIndex && (line.op === "pin" || pinIndex.has(line.id))) {
+      const message = get(line.id);
+      if (message?.pinnedAt !== undefined) pinIndex.set(line.id, message);
+      else pinIndex.delete(line.id);
+    }
+  }
+
+  function pinnedMessages(): MembersChatMessage[] {
+    if (!pinIndex) {
+      const index = new Map<string, MembersChatMessage>();
+      for (const month of listMonths()) {
+        const wasCached = cache.has(month);
+        for (const message of fold(month).byId.values())
+          if (message.pinnedAt !== undefined) index.set(message.id, message);
+        // Keep the page cache small after this one-time history scan.
+        if (!wasCached) cache.delete(month);
+      }
+      pinIndex = index;
+    }
+    return recentMembersChatPins(pinIndex.values());
+  }
+
+  function setPinned(id: string, active: boolean): MembersChatMessage | null {
+    const existing = get(id);
+    if (!existing) return null;
+    if ((existing.pinnedAt !== undefined) === active) return existing;
+    append(monthOfId(id)!, { op: "pin", id, timestamp: now(), active });
+    return get(id);
   }
 
   function get(id: string): MembersChatMessage | null {
@@ -286,6 +330,14 @@ export function createMembersChatStore(
   function post(input: PostInput): MembersChatMessage {
     const attachments = input.attachments ?? [];
     const content = validateContent(input.content, attachments);
+    const target = input.replyTo === undefined ? null : get(input.replyTo);
+    if (input.replyTo !== undefined && !target)
+      throw new MembersChatError("reply_not_found", "reply target not found");
+    const replyTo = target ? {
+      id: target.id,
+      userName: target.userName,
+      excerpt: membersChatExcerpt(target.content, target.attachments),
+    } : undefined;
     const timestamp = now();
     const month = monthKey(timestamp);
     const folded = fold(month);
@@ -295,6 +347,7 @@ export function createMembersChatStore(
     } while (folded.order.includes(id));
     const line: Line = {
       op: "post",
+      ...(replyTo ? { replyTo } : {}),
       id,
       kind: input.kind ?? "user",
       userId: input.userId,
@@ -375,7 +428,7 @@ export function createMembersChatStore(
       }
       if (hasMore) break;
     }
-    return { messages: newestFirst.reverse(), hasMore };
+    return { messages: newestFirst.reverse(), hasMore, pinned: pinnedMessages() };
   }
 
   function readReads(): Record<string, string> {
@@ -478,6 +531,7 @@ export function createMembersChatStore(
   }
 
   return {
+    setPinned,
     post,
     edit,
     setThumbsUp,

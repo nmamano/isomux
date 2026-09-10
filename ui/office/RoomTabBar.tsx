@@ -1,8 +1,7 @@
 import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
-import { LobbyChat } from "../members-chat/LobbyChat.tsx";
 import { ordinaryRooms } from "../../shared/types.ts";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { useAppState, useDispatch, useFeatures } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
@@ -165,14 +164,8 @@ function TotalOnlineChip({ count }: { count: number }) {
 // SECOND copy from its own state, so the office had two of them.
 export function RoomTabBar({
   onOpenRoomSettings,
-  membersChatLoadFailed = false,
-  onRetryMembersChat,
-  onShowMembersChat,
 }: {
   onOpenRoomSettings?: (roomId: string) => void;
-  membersChatLoadFailed?: boolean;
-  onRetryMembersChat?: () => void;
-  onShowMembersChat?: () => void;
 }) {
   const {
     agents,
@@ -186,8 +179,7 @@ export function RoomTabBar({
     lobbyOpen,
   } = useAppState();
   const { t } = useI18n();
-  const { embed } = useFeatures();
-  const mobileChatEntry = isMobile && lobbyOpen && !embed;
+  const mobileLobby = isMobile && lobbyOpen;
   const selfConnectionId = sessionContext?.connectionId ?? null;
   const rooms = useMemo(() => ordinaryRooms(allRooms), [allRooms]);
   const roomCount = rooms.length;
@@ -258,7 +250,7 @@ export function RoomTabBar({
     agents,
     presences,
     totalOnlineUsers,
-    mobileChatEntry,
+    mobileLobby,
     updateOverflow,
   ]);
 
@@ -408,35 +400,9 @@ export function RoomTabBar({
             }}
           >
             {t("common.lobby")}
-            {!mobileChatEntry && <MembersChatUnread />}
+            {!mobileLobby && <MembersChatUnread />}
           </button>
         </div>
-        {onShowMembersChat && (
-          <button
-            onClick={onShowMembersChat}
-            style={{
-              flexShrink: 0,
-              padding: "4px 12px",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              background: "var(--bg-code)",
-              color: "var(--text-primary)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "'JetBrains Mono',monospace",
-            }}
-          >
-            {t("membersChat.title")}
-          </button>
-        )}
-        {/* The mobile lobby owns this entry; its chat uses a portal to fill the screen. */}
-        {mobileChatEntry && (
-          <LobbyChat
-            loadFailed={membersChatLoadFailed}
-            onRetry={onRetryMembersChat}
-          />
-        )}
         {rooms.map((room, i) => {
           const isActive = !lobbyOpen && room.id === currentRoomId;
           const roomAgents = agents.filter((a) => a.roomId === room.id);

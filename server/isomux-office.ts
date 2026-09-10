@@ -2362,6 +2362,7 @@ function buildExecutorDeps(
   };
   register(
     membersChatHandlers({
+      setPinned: (id, active) => membersChat.setPinned(id, active),
       page: (opts) => membersChat.page(opts),
       post: (input) => membersChat.post(input),
       edit: (id, content) => membersChat.edit(id, content),

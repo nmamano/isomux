@@ -269,6 +269,25 @@ describe("demo fixture data", () => {
 });
 
 describe("demo members chat", () => {
+  it("keeps pin mutations and the served strip consistent", async () => {
+    const message = await demoApi("POST", "/api/members-chat", { text: "pin fixture" }) as MembersChatMessage;
+    const path = `/api/members-chat/${message.id}/pin`;
+    const pinned = await demoApi("PUT", path, { active: true }) as MembersChatMessage;
+    expect(typeof pinned.pinnedAt).toBe("number");
+    const repeated = await demoApi("PUT", path, { active: true }) as MembersChatMessage;
+    expect(repeated.pinnedAt).toBe(pinned.pinnedAt);
+    const page = await demoApi("GET", "/api/members-chat") as { pinned: MembersChatMessage[] };
+    expect(page.pinned.some((pin) => pin.id === message.id)).toBe(true);
+    const invalid = await Promise.allSettled([
+      demoApi("PUT", path, { active: "yes" }),
+      demoApi("PUT", "/api/members-chat/missing/pin", { active: true }),
+    ]);
+    expect(invalid.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    await demoApi("PUT", path, { active: false });
+    const after = await demoApi("GET", "/api/members-chat") as { pinned: MembersChatMessage[] };
+    expect(after.pinned.some((pin) => pin.id === message.id)).toBe(false);
+  });
+
   it("serves a canned page and lands a post as the demo viewer", async () => {
     const page = (await demoApi("GET", "/api/members-chat")) as {
       messages: MembersChatMessage[];

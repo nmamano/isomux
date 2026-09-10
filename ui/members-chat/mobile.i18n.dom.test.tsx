@@ -4,7 +4,7 @@ setUpDomTestFile();
 const { render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
-const { RoomTabBar } = await import("../office/RoomTabBar.tsx");
+const { LobbyChat } = await import("./LobbyChat.tsx");
 for (const [language, title, back, unread, singular, retry] of [
   [
     "en",
@@ -35,9 +35,9 @@ for (const [language, title, back, unread, singular, retry] of [
     const bar = (count: number) =>
       onLanguage(
         language,
-        createElement(RoomTabBar, {
-          membersChatLoadFailed: true,
-          onRetryMembersChat: () => {},
+        createElement(LobbyChat, {
+          loadFailed: true,
+          onRetry: () => {},
         }),
         {
           isMobile: true,

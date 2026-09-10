@@ -75,9 +75,10 @@ it("keeps incoming unread visible while hidden and marks the same message read o
   expect(
     view
       .getByRole("button", { name: /Lobby/ })
-      .querySelector("[data-lobby-unread]"),
-  ).not.toBeNull();
-  expect(view.getByRole("img", { name: "Unread message: 1" })).not.toBeNull();
+      .querySelector("[data-lobby-unread]") !== null,
+  ).toBe(true);
+  expect(view.getAllByRole("img", { name: "Unread message: 1" }).length).toBe(2);
+  expect(view.getByRole("button", { name: "Members chat" }).querySelector("[data-lobby-unread]") !== null).toBe(true);
   await settleRead();
   expect(reads).toEqual([]);
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));

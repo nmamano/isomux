@@ -32,6 +32,7 @@ export function fetchPage(opts: {
 
 export function post(input: {
   text: string;
+  replyTo?: string;
   attachments: Attachment[];
   device?: string;
 }): Promise<MembersChatMessage> {
@@ -42,6 +43,10 @@ export function edit(id: string, text: string): Promise<MembersChatMessage> {
   return apiFetch<MembersChatMessage>("PATCH", `/api/members-chat/${id}`, {
     text,
   });
+}
+
+export function setPinned(id: string, active: boolean): Promise<MembersChatMessage> {
+  return apiFetch<MembersChatMessage>("PUT", `/api/members-chat/${id}/pin`, { active });
 }
 
 export function setThumbsUp(
