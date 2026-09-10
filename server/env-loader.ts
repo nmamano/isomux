@@ -43,10 +43,16 @@ export function setOfficeEnvFileProvider(fn: () => string | null): void {
   getOfficeEnvFile = fn;
 }
 
+// Returns the provider it replaced so a test can put back exactly what it
+// found. Two suites once installed `() => false` here and never restored it,
+// which disabled personal-provider resolution for every later file in the
+// same process (53f6a397).
 export function setPersonalProviderActiveProvider(
   fn: typeof isPersonalProviderActive,
-): void {
+): typeof isPersonalProviderActive {
+  const previous = getPersonalProviderActive;
   getPersonalProviderActive = fn;
+  return previous;
 }
 
 function resolveUserEnvSource(
