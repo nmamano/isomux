@@ -11,7 +11,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
 - **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
 - **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
-- **Claude on Amazon Bedrock** uses office-wide or individual connection variables. See [setup](access-and-invites.md#claude-on-amazon-bedrock).
 
 ## Multi-agent
 
@@ -43,7 +42,6 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
 - **Members chat** - a humans-only chat on the Lobby.
-  Members can quote a message in a reply. Quotes keep their original text after an edit or deletion. Messages support bold, italics and links. Members can pin messages; the top strip jumps to a loaded message or expands an older one in place. A collapsed edge strip reopens the chat on desktop; phones have an entry in the Lobby view.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.

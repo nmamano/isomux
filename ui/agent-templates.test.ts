@@ -139,12 +139,16 @@ describe("agent template catalog", () => {
     }
   });
 
-  it("assigns the doctor costume only to Health Navigator", () => {
+  it("assigns costumes to Health Navigator and the two builders only", () => {
     expect(
       AGENT_TEMPLATES.filter((template) => template.outfit.costume).map(
         (template) => [template.key, template.outfit.costume],
       ),
-    ).toEqual([["health-navigator", "doctor"]]);
+    ).toEqual([
+      ["side-project-builder", "construction"],
+      ["personal-site-builder", "construction"],
+      ["health-navigator", "doctor"],
+    ]);
   });
 
   it("keeps each Claude recommendation valid through the product helper", () => {

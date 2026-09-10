@@ -391,15 +391,3 @@ The Isomux installer and updater do not manage this shape, so updates do not cha
 | One local machine     | `http://localhost:4000` | No separate hostnames; use each app's port | The machine owner controls it.                                       | No front-door access log. | Other local processes and any exposure the operator adds.     |
 
 These shapes do not run the system installer or its service-account updater. They get neither its firewall verification nor its Caddy access log, and updates do not change their network bind.
-
-### Vendor telemetry
-
-Every deployment shape above gets the same backend telemetry controls:
-
-| Backend     | Vendor telemetry                                                                                  |
-| ----------- | ------------------------------------------------------------------------------------------------- |
-| Claude Code | Usage metrics and error reporting are off.                                                        |
-| Codex       | Analytics are off.                                                                                |
-| OpenCode    | Share uploads are off. Version 1.18.23 has no vendor usage reporting (source checked 2026-09-10). |
-
-Operator-configured OpenTelemetry exports remain available. Model requests and other required connections still leave the box; see [vendor telemetry](security-audit.md#75-vendor-telemetry).

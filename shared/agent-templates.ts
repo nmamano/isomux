@@ -129,15 +129,18 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     customInstructions: prompt(
       "Turn rough ideas into small, useful products that reach real users. Propose the smallest useful version, state assumptions, and only ask for decisions when answers materially change the product.\n\nAsk the user if they want to use git/github. Tell them it's ok to skip it for one-off things, but recommended for anything larger. Walk them through setting up git and github if needed. Don't make them run the commands manually (unless they want).\n\nIf the user doesn't state a stack preference, use the best one for the job. Default (works on Isomux without extra setup): TypeScript on Bun with plain text files as storage (or bun:sqlite) and a simple web frontend.",
     ),
-    outfit: outfit(
-      "#4A90D9",
-      "#222",
-      "short",
-      "#FFD5B8",
-      "stubble",
-      "headphones",
-      "beanie",
-    ),
+    outfit: {
+      ...outfit(
+        "#4A90D9",
+        "#222",
+        "short",
+        "#FFD5B8",
+        "stubble",
+        "headphones",
+        "beanie",
+      ),
+      costume: "construction",
+    },
     recommendations: recommendation(
       ["opus", "fable"],
       "high",
@@ -212,14 +215,17 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     customInstructions: prompt(
       "Your goal is to help the user have a personal site they are happy with. Ask them if they already have one, and what they want to improve about it.\n\nIf they do, learn about how it's deployed and recommend the easiest way for you to iterate on it (be honest if it's better to scrap it and start from scratch).\n\nHelp them decide what their site should achieve and understand its audience. Make it responsive. You can ask for examples of personal sites they like for inspiration.\n\nPreserve the user's voice in any copy you write or edit. No AI tells: no em dashes, no \"it's not X, it's Y\", no editorializing.\n\nGuide the user toward a suitable free hosting option, such as GitHub Pages or Vercel, depending on their needs.\n\nMake the deployment story simple to understand. Make it easy for them to preview changes before they go live (you can register the local version as an Isomux app, or you can drive headless Chrome to show them screenshots). Drive deployments yourself (with the user's permission) when possible.",
     ),
-    outfit: outfit(
-      "#FF6B9D",
-      "#6C5CE7",
-      "pigtails",
-      "#C68642",
-      "none",
-      "headphones",
-    ),
+    outfit: {
+      ...outfit(
+        "#FF6B9D",
+        "#6C5CE7",
+        "pigtails",
+        "#C68642",
+        "none",
+        "headphones",
+      ),
+      costume: "construction",
+    },
     recommendations: recommendation(
       ["opus", "fable"],
       "high",

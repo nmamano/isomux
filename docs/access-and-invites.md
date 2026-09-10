@@ -159,32 +159,19 @@ GitHub credentials.
 
 ### Claude on Amazon Bedrock
 
-Set these variables in Office-wide connections or Individual connections:
+Three variables, in Office-wide connections (every agent) or Individual connections (your own agents):
 
 ```text
 CLAUDE_CODE_USE_BEDROCK=1
 AWS_REGION=<your-region>
+AWS_BEARER_TOKEN_BEDROCK=<token>
 ```
 
-Use `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY` (plus `AWS_SESSION_TOKEN` for temporary credentials).
-An `AWS_PROFILE` configured on the Isomux server also works. AWS must allow
-access to the selected models.
+Instead of the bearer token, an access key pair works (`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, plus `AWS_SESSION_TOKEN` for temporary credentials), or an `AWS_PROFILE` configured on the Isomux server. AWS must grant access to the models you use.
 
-The model picker uses Claude Code's cloud aliases. Pin the families you use with
-`ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
-`ANTHROPIC_DEFAULT_HAIKU_MODEL`, and `ANTHROPIC_DEFAULT_FABLE_MODEL`, set to
-Bedrock model or inference-profile IDs. Set the Sonnet pin too: Isomux uses
-Sonnet for conversation titles. `ANTHROPIC_MODEL` does not override the picker.
-New or resumed sessions read the variables.
+Then pin each model family you use to a Bedrock model or inference-profile ID: `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_FABLE_MODEL`. The picker chooses the family; the pin says which Bedrock model that is. Pin Sonnet in any case, because conversation titles use it. `ANTHROPIC_MODEL` does not override the picker. Agents pick the variables up on their next new or resumed conversation.
 
-Connections recognizes external authentication; it does not verify AWS model
-access. To use a personal Claude login in a Bedrock office, set
-`CLAUDE_CODE_USE_BEDROCK=0` in Individual connections. Vertex uses the same
-rule with `CLAUDE_CODE_USE_VERTEX`.
-
-Sources checked 2026-09-10: [Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)
-and [model configuration](https://code.claude.com/docs/en/model-config).
+Connections shows Bedrock as connected when the variables are set; it does not check AWS model access. A member who wants their own Claude login in a Bedrock office sets `CLAUDE_CODE_USE_BEDROCK=0` in Individual connections. Vertex works the same way with `CLAUDE_CODE_USE_VERTEX`.
 
 ### Connection variables and directories
 
