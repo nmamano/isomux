@@ -277,7 +277,7 @@ Shipped (the shell-drivable slice):
   `GET /api/version`.
 - Unauth `GET /readyz` with the per-IP limiter (`server/ready-limiter.ts`),
   loopback exempt.
-- `scripts/release.sh` (CI-green gate via check-runs, tag-reuse refusal,
+- `scripts/release.sh` (CI-green gate via check-runs, tag pushed with --no-verify since that gate already covers the tagged commit, tag-reuse refusal,
   annotated CalVer tag, push, GitHub Release) and `scripts/update.sh`
   (everything above, snapshot via tar directly - no `backup.ts` coupling).
   Failure paths are exercised in `scripts/update-sh.test.ts` /
