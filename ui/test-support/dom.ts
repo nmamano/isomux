@@ -91,9 +91,8 @@ export const DOM_TEST_CAP_MS = 5000;
  * after every test, unregistration after the file, and the wall-clock cap.
  *
  * Call it once, in the module body, before any `await import(...)` of UI code.
- * The clock starts here, so it measures the file's own time - bun's startup and
- * transpile land outside it and the whole `bun test` invocation always reads
- * longer than the cap allows for.
+ * The clock starts here and includes the awaited UI imports below the call.
+ * Bun's startup is outside it, so a whole invocation can take longer.
  */
 export function setUpDomTestFile({
   capMs = DOM_TEST_CAP_MS,

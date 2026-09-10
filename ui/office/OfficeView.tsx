@@ -10,7 +10,8 @@ import { ChatWidthHandle } from "../members-chat/ChatWidthHandle.tsx";
 import { useMembersChatHydration } from "../members-chat/useMembersChatHydration.ts";
 import { send } from "../ws.ts";
 import { LOBBY_ROOM_ID, ordinaryRooms } from "../../shared/types.ts";
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useContext } from "react";
+import { SceneDecorationContext } from "./scene-decoration.tsx";
 import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
@@ -225,6 +226,7 @@ export function OfficeView({
   const dispatch = useDispatch();
   const { mode, cycleTheme } = useTheme();
   const { embed } = useFeatures();
+  const decorateScene = useContext(SceneDecorationContext);
   const { loadFailed: membersChatLoadFailed, retry: retryMembersChat } =
     useMembersChatHydration(!embed);
   const [chatHidden, setChatHidden] = useState(getMembersChatHidden);
@@ -659,8 +661,8 @@ export function OfficeView({
                       ).length
                     }
                   />
-                  <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />
-                  <GroundShadows />
+                  {decorateScene && <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />}
+                  {decorateScene && <GroundShadows />}
                   <WallDoors
                     leftDoor={
                       currentRoomIndex > 0
@@ -714,7 +716,7 @@ export function OfficeView({
                     }
                   />
                   <RoomProps />
-                  <Seasonal />
+                  {decorateScene && <Seasonal />}
                   {currentRoomIndex > 0 && (
                     <DoorDropZone
                       side="left"

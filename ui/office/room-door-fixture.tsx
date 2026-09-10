@@ -20,6 +20,8 @@ export const room = (
   prompt: null,
   canCloseWhenEmpty: true,
 });
+const { SceneDecorationContext } = await import("./scene-decoration.tsx");
+let decorateScene = true;
 const noop = () => {};
 export let snapshot: ReturnType<typeof useAppState>;
 export let dispatch: ReturnType<typeof useDispatch>;
@@ -76,21 +78,25 @@ export function mount(
   creationOnly = false,
 ) {
   setShim(noop);
-  const view = render(
+  const tree = (embed: boolean) => (
     <StoreProvider>
       <LanguageProvider>
         <FeaturesProvider features={{ ...PRODUCTION_FEATURES, embed }}>
-          <Office creationOnly={creationOnly} />
+          <SceneDecorationContext.Provider value={decorateScene}>
+            <Office creationOnly={creationOnly} />
+          </SceneDecorationContext.Provider>
         </FeaturesProvider>
       </LanguageProvider>
-    </StoreProvider>,
+    </StoreProvider>
   );
+  const view = render(tree(embed));
   act(() => fullState(rooms));
-  return view;
+  return { ...view, setEmbed: (next: boolean) => view.rerender(tree(next)) };
 }
 
-export function setupRoomDoorTests() {
+export function setupRoomDoorTests({ decorations = true } = {}) {
   beforeEach(() => {
+    decorateScene = decorations;
     window.localStorage.clear();
     requests = [];
     reply = async () => ({ room: room("created", "Room 2") });

@@ -3,6 +3,7 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const { render, fireEvent } = await import("@testing-library/react");
 const { createElement } = await import("react");
+const { SceneDecorationContext } = await import("../office/scene-decoration.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { OfficeView } = await import("../office/OfficeView.tsx");
 const noop = () => {};
@@ -27,7 +28,7 @@ function lobby(
 ) {
   return onLanguage(
     language,
-    createElement(OfficeView, {
+    createElement(SceneDecorationContext.Provider, { value: false }, createElement(OfficeView, {
       onSpawn: noop,
       onContextMenu: noop,
       onOpenSettings: noop,
@@ -37,7 +38,7 @@ function lobby(
       onOpenCronjobs: noop,
       onOpenApps: noop,
       onOpenUpdate: noop,
-    }),
+    })),
     {
       lobbyOpen: true,
       isMobile: mobile,

@@ -135,7 +135,7 @@ const { App } = await import("./App.tsx");
    in 2.54 s. Keep mutation runs inside a memory limit and process deadline.
 5. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
    throwing `afterAll` fails the run). The clock starts at
-   `setUpDomTestFile()`, so it measures the file and not bun's startup: the App
+   `setUpDomTestFile()`, so it measures the file, including its awaited imports, but not bun's startup: the App
    file reads 2251 ms in-file and about 3 s as a whole invocation.
 
 The harness also supplies what happy-dom does not and the app still reaches
@@ -188,7 +188,23 @@ behaviour that needs the browser's own machinery - history and popstate, focus,
 portals. Anything that can be stated as a pure function stays a plain unit
 test.
 
-`ui/App.lobby-landing.dom.test.tsx` covers first-visit Lobby landing and saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` covers the task shortcut scope from Lobby and a room tab.
+`ui/App.lobby-landing.dom.test.tsx` covers first-visit Lobby landing. `ui/App.lobby-saved-room.dom.test.tsx` covers saved-room restoration through the real store. `ui/App.lobby-tasks.dom.test.tsx` and `ui/App.room-tasks.dom.test.tsx` cover the task shortcut scope from Lobby and a room tab, respectively.
+
+The saved-room landing case commits `session_context` before `full_state`. Keep these
+as separate React updates: the saved-room case must catch a save effect that
+writes pre-hydration defaults before restoration.
+
+`SceneDecorationContext` in `ui/office/scene-decoration.tsx` defaults to the
+full scene. DOM fixtures that do not assert on decoration can explicitly set
+it to false to omit the room floor, ground shadows, seasonal art, lobby floor,
+and decorative lobby placements. An interactive receptionist remains when supplied. Controls, doors, ghost placement and animation, and chat
+still mount. Decoration tests keep the default. The door swing and self-crossing
+files each use one scenario that clears projected presence between sides;
+they keep every side's assertions within that scenario, without sharing DOM
+between tests. The room-door scenario mounts ordinary mode first, then
+reuses the tree for embed absence checks; `newRoomDoor` is a pure render-time
+condition on `embed`, so the same condition removes it in either path.
+
 
 The `ui/App.*.dom.test.tsx` files also document a useful seam: `App` mounts
 bare, with no provider tree and no fake store. `StateCtx`, `DispatchCtx` and
@@ -218,6 +234,13 @@ not defined" and a failed run - so drain with `act` after each such pane and
 once at the end. And a click on a sidebar row proves nothing until the row
 reports `aria-current`; without that check a pane anchor that also appears
 elsewhere on the page passes for the pane.
+
+The Codex safety-hook installation file prepares its artifact with top-level
+`await`, before registering its tests. The existing preparation and trust
+promises cache this work per process. The trust probe keeps its own deadline;
+Bun's hook cap does not wrap the warm-up. A preparation rejection reports a
+file-load error with its cause. Test preload state and artifact cleanup are
+unchanged.
 
 ## Seams and where they live
 

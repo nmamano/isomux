@@ -9,7 +9,7 @@ const { floorXY } = await import("./lobby/geometry.ts");
 const { VB_X, VB_Y } = await import("./grid.ts");
 const { SVG_HEIGHT_RATIO } = await import("./Ghost.tsx");
 const { mount, act, shimEmit } = fixture;
-fixture.setupRoomDoorTests();
+fixture.setupRoomDoorTests({ decorations: false });
 
 function presence(
   currentRoomId: string | null,
@@ -56,10 +56,12 @@ function swing(node: Element) {
   );
 }
 
-for (const lobby of [true, false]) {
-  it(`walks through the ${lobby ? "lobby right" : "first room left"} door on seen exits and entries`, async () => {
-    const view = mount();
-    await act(async () => {});
+it("walks through lobby and first-room doors on seen exits and entries", async () => {
+  const view = mount();
+  await act(async () => {});
+  for (const lobby of [false, true]) {
+    // Clear presence before changing sides; each side observes a fresh arrival.
+    act(() => shimEmit({ type: "presence_list", entries: [], totalOnlineUsers: 0, onlineUserIds: [] }));
     act(() => fixture.dispatch({ type: "set_lobby_open", open: lobby }));
     const here = lobby ? "lobby" : "first";
     const there = lobby ? "first" : "lobby";
@@ -113,5 +115,5 @@ for (const lobby of [true, false]) {
     expect(body(view.container) === ghost).toBe(true);
     expect(ghost.style.left).toBe(naturalLeft);
     expect(ghost.style.top).toBe(naturalTop);
-  });
-}
+  }
+});

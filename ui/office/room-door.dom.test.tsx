@@ -4,9 +4,9 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { mount, room, act, fireEvent, fullState } = fixture;
-fixture.setupRoomDoorTests();
+fixture.setupRoomDoorTests({ decorations: false });
 
-it("uses the right door on the last visible room, keeps first-room Lobby navigation, and has no right drop target", async () => {
+it("uses the right door on the last visible room, keeps first-room Lobby navigation, has no right drop target, and hides creation in embed", async () => {
   const view = mount([room("first"), room("last")]);
   expect(
     view.queryByRole("button", { hidden: true, name: "New room" }),
@@ -35,10 +35,11 @@ it("uses the right door on the last visible room, keeps first-room Lobby navigat
   );
   expect(fixture.requests).toHaveLength(0);
   expect(fixture.snapshot.currentRoomId).toBe("last");
-});
-
-it("hides the creation door in embed, including an empty lobby", async () => {
-  const view = mount([room("first")], true);
+  // Keep the ordinary checks on a fresh ordinary mount, then reuse it for embed.
+  await act(async () => {
+    view.setEmbed(true);
+    fullState([room("first")]);
+  });
   expect(
     view.queryByRole("button", { hidden: true, name: "New room" }),
   ).toBeNull();

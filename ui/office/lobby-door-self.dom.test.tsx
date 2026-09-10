@@ -5,7 +5,7 @@ setUpDomTestFile();
 const fixture = await import("./room-door-fixture.tsx");
 const { LOBBY_SPOT_IDS } = await import("../../shared/types.ts");
 const { mount, act, shimEmit } = fixture;
-fixture.setupRoomDoorTests();
+fixture.setupRoomDoorTests({ decorations: false });
 
 function presence(
   currentRoomId: string | null,
@@ -47,10 +47,12 @@ function swing(node: Element) {
   );
 }
 
-for (const lobby of [true, false]) {
-  it(`ignores self and unseen crossings on the ${lobby ? "lobby" : "first room"} side`, async () => {
-    const view = mount();
-    await act(async () => {});
+it("ignores self and unseen crossings on both sides of the Lobby door", async () => {
+  const view = mount();
+  await act(async () => {});
+  for (const lobby of [false, true]) {
+    // Clear presence before changing sides; each side observes a fresh arrival.
+    act(() => shimEmit({ type: "presence_list", entries: [], totalOnlineUsers: 0, onlineUserIds: [] }));
     act(() => {
       shimEmit({
         type: "session_context",
@@ -82,5 +84,5 @@ for (const lobby of [true, false]) {
     // Check the enabling event before reporting a self-exclusion failure.
     expect(peerSwung).toBe(true);
     expect(quiet).toEqual([true, true, true, true]);
-  });
-}
+  }
+});

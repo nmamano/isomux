@@ -6,6 +6,6 @@ const { setupTaskShortcutTests, checkTaskShortcuts } =
   await import("./test-support/task-shortcuts-fixture.tsx");
 setupTaskShortcutTests();
 
-it("t, a and s open pages; t selects All rooms from Lobby", async () => {
-  await checkTaskShortcuts(true);
+it("t, a and s open pages; t selects the selected room from its tab", async () => {
+  await checkTaskShortcuts(false);
 });

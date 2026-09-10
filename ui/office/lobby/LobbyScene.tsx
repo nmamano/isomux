@@ -1,7 +1,8 @@
+import { SceneDecorationContext } from "../scene-decoration.tsx";
 import { LOBBY_ROOM_ID, type PresenceInfo } from "../../../shared/types.ts";
 import { LobbyGhosts, lobbyGhostPlacements } from "./LobbyGhosts.tsx";
 import { useI18n } from "../../i18n.tsx";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useContext, type ReactNode } from "react";
 import {
   useGhostTransitions,
   LEFT_DOOR_COORD,
@@ -116,6 +117,7 @@ export function LobbyScene({
     RIGHT_DOOR_COORD,
     naturalGhostPlacements,
   );
+  const decorateScene = useContext(SceneDecorationContext);
   const spec =
     placements || receptionistAt
       ? {
@@ -131,13 +133,13 @@ export function LobbyScene({
         onOpenApps={onOpenApps}
         onOpenCronjobs={onOpenCronjobs}
       />
-      <LobbyFloor c={c} />
+      {decorateScene && <LobbyFloor c={c} />}
       {rightDoor && (
         <WallDoors rightDoor={{ ...rightDoor, passCount: rightDoorUses }} />
       )}
-      {spec && (
+      {spec && (decorateScene || receptionist) && (
         <LobbyProps
-          placements={spec.placements}
+          placements={decorateScene ? spec.placements : []}
           variants={variants}
           rooms={rooms}
           officeName={officeName?.trim() || t("lobby.officeFallback")}
