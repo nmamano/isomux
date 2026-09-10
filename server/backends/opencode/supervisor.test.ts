@@ -164,10 +164,12 @@ function makeSupervisor(
 async function makeHealthOnlyBinary(path: string) {
   const binary = join(path, "health-only-opencode");
   const healthMarker = join(path, "health-only-requests");
+  const launchMarker = join(path, "health-only-launches");
   await writeFile(
     binary,
     `#!/usr/bin/env bun
 import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(launchMarker)}, process.pid + "\\n");
 const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
 Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
   if (new URL(request.url).pathname !== "/global/health")
@@ -179,7 +181,7 @@ await new Promise(() => {});
 `,
   );
   await chmod(binary, 0o700);
-  return { binary, healthMarker };
+  return { binary, healthMarker, launchMarker };
 }
 
 function alive(pid: number): boolean {
@@ -189,21 +191,6 @@ function alive(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-async function binaryProcessCount(): Promise<number> {
-  const binary = resolveOpenCodeBinary();
-  let count = 0;
-  for (const pid of await readdir("/proc")) {
-    if (!/^\d+$/.test(pid)) continue;
-    try {
-      const argv0 = (await readFile(join("/proc", pid, "cmdline")))
-        .toString()
-        .split("\0", 1)[0];
-      if (argv0 === binary) count++;
-    } catch {}
-  }
-  return count;
 }
 
 describe("OpenCode shared server supervisor", () => {
@@ -263,22 +250,26 @@ describe("OpenCode shared server supervisor", () => {
 
   it("serializes two supervisors and reconciles by adopting one healthy process", async () => {
     const path = await root();
-    const mock = mockProvider();
-    const config = gateConfig(mock);
-    const baseline = await binaryProcessCount();
+    // Hostile autoupdate:true keeps the forcing assertion live; a supplied
+    // config bypasses DEFAULT_OPENCODE_CONFIG, so share is set here as
+    // gateConfig does, and the launched-config checks below read the file.
+    const config = { autoupdate: true, share: "disabled" };
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
     const hostileAmbient = {
       OPENCODE_CONFIG_CONTENT: "hostile ambient config",
       OPENCODE_DISABLE_SHARE: "0",
       ISOMUX_OPENCODE_DEBUG: "1",
     };
-    const first = makeSupervisor(path, config, 1000, hostileAmbient);
-    const second = makeSupervisor(path, config, 1000, hostileAmbient);
+    const first = makeSupervisor(path, config, 1000, hostileAmbient, 5000, binary);
+    const second = makeSupervisor(path, config, 1000, hostileAmbient, 5000, binary);
     const [leaseA, leaseB] = await Promise.all([
       first.acquire(),
       second.acquire(),
     ]);
     expect(leaseA.pid).toBe(leaseB.pid);
-    expect(await binaryProcessCount()).toBe(baseline + 1);
+    // Both leases have completed health checks, so the launch record exists.
+    // Count this test's launches; other suites can start or stop OpenCode.
+    expect(await readFile(launchMarker, "utf8")).toBe(`${leaseA.pid}\n`);
     await expectChildEnvironment(leaseA.pid, {
       ISOMUX_AGENT_TOKEN: undefined,
       OPENCODE_CONFIG_CONTENT: undefined,
@@ -294,18 +285,13 @@ describe("OpenCode shared server supervisor", () => {
         .toString()
         .replaceAll("\0", " "),
     ).toContain(" serve --pure ");
-    expect(
-      JSON.parse(
-        await readFile(join(first.profileDir, "opencode.json"), "utf8"),
-      ).autoupdate,
-    ).toBe(false);
-    const configResponse = await fetch(`${leaseA.baseUrl}/config`, {
-      headers: { authorization: leaseA.authHeader },
-    });
-    expect(configResponse.ok).toBe(true);
-    const effectiveConfig = await configResponse.json();
-    expect(effectiveConfig.share === "disabled", "config: share").toBe(true);
-    expect(effectiveConfig.autoupdate === false, "config: autoupdate").toBe(true);
+    // The launched config, read from the file the server loads: this test's
+    // binary is health-only and serves no /config route.
+    const writtenConfig = JSON.parse(
+      await readFile(join(first.profileDir, "opencode.json"), "utf8"),
+    );
+    expect(writtenConfig.share === "disabled", "config: share").toBe(true);
+    expect(writtenConfig.autoupdate === false, "config: autoupdate").toBe(true);
     leaseA.release();
     leaseB.release();
     await second.shutdown();

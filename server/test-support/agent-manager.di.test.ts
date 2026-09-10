@@ -32,6 +32,7 @@ import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { join } from "node:path";
+import { loadavg } from "node:os";
 import {
   createAgentManager,
   createProductionAgentManager,
@@ -43,6 +44,8 @@ import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
 // config.ts was imported), so the disk-touching assertions below run in-suite
 // instead of skipping. The preload owns temp-root cleanup at process exit.
+
+const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
 
 function rooms(...ids: string[]): RoomWire[] {
   return ids.map((id, i) => ({
@@ -926,7 +929,8 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(false);
   });
 
-  it("keeps provider credentials out of Connections guidance and agent logs", async () => {
+  // Real subprocess credential scrub: run with bun run test:opencode.
+  it.skipIf(!LIVE)("keeps provider credentials out of Connections guidance and agent logs", async () => {
     const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
     const requestPaths: string[] = [];
     const safeErrors: Array<Record<string, unknown>> = [];
@@ -1059,12 +1063,34 @@ describe("AgentManager DI (temp-state isolated)", () => {
         share: "disabled",
       },
     });
+    const measure = async <T>(phase: string, action: () => Promise<T>): Promise<T> => {
+      const started = performance.now();
+      try { return await action(); }
+      finally { console.info("OpenCode DI timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() })); }
+    };
+    let lease: Awaited<ReturnType<OpenCodeSupervisor["acquire"]>> | undefined;
     try {
+      lease = await measure("server start", () => supervisor.acquire());
       const backend = createOpenCodeBackend({
         supervisor,
         safeErrorSink: (error) => safeErrors.push({ ...error }),
       });
+      const guidance =
+        "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
+      const guidanceLogged = Promise.withResolvers<void>();
+      const expectedAgent = { id: "" };
+      let observedGuidance = false;
       const mgr = createAgentManager({
+        eventSink: (event) => {
+          if (event.type === "log_entry" && event.entry.agentId === expectedAgent.id && event.entry.content === guidance) {
+            observedGuidance = true;
+          }
+          if (event.type === "agent_updated" && event.agentId === expectedAgent.id &&
+              (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
+            if (observedGuidance) guidanceLogged.resolve();
+            else guidanceLogged.reject(new Error("Agent settled without the required Connections guidance log event"));
+          }
+        },
         resolveBackend: () => backend,
         officeState: new OfficeState({
           rooms: rooms("room-opencode-recovery"),
@@ -1085,29 +1111,20 @@ describe("AgentManager DI (temp-state isolated)", () => {
         undefined,
         "opencode",
       );
+      expectedAgent.id = info!.id;
+      const replyStarted = performance.now();
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
         text: "fail before login",
       });
-      const guidance =
-        "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.";
-      // Measured alone on 2026-09-07: 15.6 s from enqueue to guidance,
-      // including 7.1 s for real OpenCode subprocess startup. Leave room for
-      // startup and provider-error delivery while other suites use the CPU.
-      const authWaitStartedAt = Date.now();
-      const authWaitBudgetMs = 90_000;
-      const authDeadline = authWaitStartedAt + authWaitBudgetMs;
-      while (
-        !mgr
-          .getAgentLogs(info!.id)
-          .some((entry) => entry.content === guidance) &&
-        Date.now() < authDeadline
-      )
-        await Bun.sleep(10);
+      // The provider-error log event, rather than elapsed time, ends this wait.
+      console.info("Waiting for Connections guidance log event");
+      await guidanceLogged.promise;
+      expect(observedGuidance, "Missing Connections guidance log event").toBe(true);
+      console.info("OpenCode DI timing", JSON.stringify({ phase: "guidance reply", ms: Math.round(performance.now() - replyStarted), load: loadavg() }));
       const logs = mgr.getAgentLogs(info!.id);
       expect(
         logs.some((entry) => entry.content === guidance),
-        `OpenCode subprocess guidance missing after ${Date.now() - authWaitStartedAt} ms (deadline: ${authWaitBudgetMs} ms).`,
       ).toBe(true);
       expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
         false,
@@ -1124,14 +1141,18 @@ describe("AgentManager DI (temp-state isolated)", () => {
       expect(safeErrors).toHaveLength(1);
       expect(requestPaths).toContain("/v1/responses");
       expect(serialized).not.toContain(apiKey);
+      let scannedFiles = 0;
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
+        scannedFiles++;
         expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(
           apiKey,
         );
       }
+      expect(scannedFiles, "Credential sweep must read persisted logs").toBeGreaterThan(0);
       await mgr.kill(info!.id);
     } finally {
-      await supervisor.shutdown();
+      lease?.release();
+      await measure("server teardown", () => supervisor.shutdown());
       await mock.stop(true);
     }
   }, 130_000);

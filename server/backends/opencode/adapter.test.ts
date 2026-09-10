@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterAll, afterEach, describe, expect, it, spyOn } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { getBackend } from "../index.ts";
 import type { CreateSessionOptions, NormalizedEvent } from "../types.ts";
 import {
@@ -15,10 +15,77 @@ import { openCodeModelUnavailableFailure } from "./transport.ts";
 import { STATE_ROOT } from "../../config.ts";
 import permissionRejectMessage from "./fixtures/permission-reject-message.json";
 
+const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
 const cleanup: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
+});
+
+async function livePhase<T>(phase: string, action: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  try {
+    return await action();
+  } finally {
+    console.info("OpenCode live timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() }));
+  }
+}
+const liveCleanup: Array<() => Promise<void> | void> = [];
+const liveProviderTargets = new Map<string, string>();
+let liveServer: Promise<OpenCodeSupervisor> | undefined;
+// A live case registers its provider path before it asks for the shared server.
+// Default runs never call this function and therefore never start this fixture.
+function liveSupervisor(): Promise<OpenCodeSupervisor> {
+  return liveServer ??= (async () => {
+    const root = await mkdtemp(join(tmpdir(), "isomux-opencode-live-"));
+    liveCleanup.push(() => rm(root, { recursive: true, force: true }));
+    const proxy = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        const [, key, ...path] = url.pathname.split("/");
+        const target = liveProviderTargets.get(key);
+        if (!target) return new Response("Unknown live provider path", { status: 404 });
+        return fetch(new Request(`${target}/${path.join("/")}${url.search}`, request));
+      },
+    });
+    liveCleanup.push(() => proxy.stop(true));
+    const provider = (path: string) => ({
+      name: "Gate mock",
+      npm: "@ai-sdk/openai-compatible",
+      env: [],
+      models: {
+        "gate-model": {
+          name: "Gate model", reasoning: true, tool_call: true,
+          limit: { context: 100000, output: 10000 },
+          cost: { input: 0, output: 0 },
+        },
+      },
+      options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${proxy.port}/${path}/v1` },
+    });
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(root, "profile"), serverCwd: root, idleShutdownMs: 100,
+      config: {
+        autoupdate: false, model: "gate/gate-model", small_model: "gate/gate-model", share: "disabled",
+        permission: { bash: "ask", edit: "ask", question: "deny" },
+        agent: {
+          "isomux-interactive-bypass": { mode: "primary", permission: { bash: "ask", edit: "ask", task: "allow", question: "deny" } },
+          "isomux-cron": { mode: "primary", permission: { bash: "ask", edit: "ask", task: "deny", question: "deny" } },
+        },
+        provider: { gate: provider("reply"), tools: provider("tools") },
+      },
+    });
+    liveCleanup.push(() => livePhase("shared server teardown", () => supervisor.shutdown()));
+    const lease = await livePhase("shared server start", () => supervisor.acquire());
+    liveCleanup.push(() => lease.release());
+    return supervisor;
+  })();
+}
+afterAll(async () => {
+  if (!LIVE) expect(liveServer, "Default adapter tests must not start the live OpenCode fixture").toBeUndefined();
+  for (const dispose of liveCleanup.splice(0).reverse()) await dispose();
 });
 
 const opts: CreateSessionOptions = {
@@ -861,11 +928,10 @@ describe("OpenCode pinned transport", () => {
     resumed.close();
   }, 10_000);
 
-  // Quarantined under task 8dbebd08 (P0): this real-OpenCode case sits at its 40 s cap by
-  // construction and fails under suite load (40.2 s on 2026-09-10 in pre-push CI).
-  it.skip("returns one reply through the real OC1 HTTP and SSE contract", async () => {
+  // Real subprocess contract: run with bun run test:opencode.
+  const replyScenario = (async function* () {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-adapter-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    liveCleanup.push(() => rm(root, { recursive: true, force: true }));
     const providerRequests: Array<{ path: string; body: string }> = [];
     const mock = Bun.serve({
       hostname: "127.0.0.1",
@@ -922,49 +988,9 @@ describe("OpenCode pinned transport", () => {
         });
       },
     });
-    cleanup.push(() => mock.stop(true));
-    const config = {
-      autoupdate: false,
-      model: "gate/gate-model",
-      small_model: "gate/gate-model",
-      share: "disabled",
-      agent: {
-        "isomux-interactive-bypass": {
-          mode: "primary",
-          permission: {
-            bash: "ask",
-            edit: "ask",
-            task: "allow",
-            question: "deny",
-          },
-        },
-      },
-      provider: {
-        gate: {
-          name: "Gate mock",
-          npm: "@ai-sdk/openai-compatible",
-          env: [],
-          models: {
-            "gate-model": {
-              name: "Gate model",
-              limit: { context: 100000, output: 10000 },
-              cost: { input: 0, output: 0 },
-            },
-          },
-          options: {
-            apiKey: "test-only",
-            baseURL: `http://127.0.0.1:${mock.port}/v1`,
-          },
-        },
-      },
-    };
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(root, "profile"),
-      serverCwd: root,
-      config,
-      idleShutdownMs: 100,
-    });
-    cleanup.push(() => supervisor.shutdown());
+    liveCleanup.push(() => mock.stop(true));
+    liveProviderTargets.set("reply", `http://127.0.0.1:${mock.port}`);
+    const supervisor = await liveSupervisor();
     const contractShapes: string[] = [];
     const bindingAgents: Array<{ sessionId: string; agent?: string }> = [];
     const backend = createOpenCodeBackend({
@@ -1007,6 +1033,7 @@ describe("OpenCode pinned transport", () => {
         .some((request) => request.path === "/v1/chat/completions"),
     ).toBe(false);
     expect(skipped).toBeInstanceOf(Error);
+    yield; // Discovery and rejected model are complete.
     expect(
       await backend.oneShotPrompt("label this conversation", {
         cwd: root,
@@ -1033,12 +1060,7 @@ describe("OpenCode pinned transport", () => {
       return events;
     })();
     await session.send("hello from Isomux");
-    const events = await Promise.race([
-      eventsPromise,
-      Bun.sleep(10_000).then(() => {
-        throw new Error("timed out waiting for the real OpenCode tracer");
-      }),
-    ]);
+    const events = await eventsPromise;
     expect(events[0]).toMatchObject({
       kind: "system_init",
       model: "gate/gate-model",
@@ -1058,6 +1080,7 @@ describe("OpenCode pinned transport", () => {
         join(import.meta.dir, "fixtures", "s1b-text-contract.json"),
       ).json(),
     );
+    yield; // Reply and the captured transport contract are complete.
     const secondTurn = (async () => {
       const turn: NormalizedEvent[] = [];
       for await (const event of session.stream()) {
@@ -1136,18 +1159,51 @@ describe("OpenCode pinned transport", () => {
     child.close();
     const parentAfter = await backend.getSessionMessages(parentId, root);
     expect(parentAfter).toEqual(parentBefore);
-  }, 40_000);
+    yield; // Parent history, fork, and child reply are complete.
+  })();
+  let completedReplySteps = 0;
+  const replySteps = [
+    "discovers models and rejects a retired model through the real OC1 contract",
+    "returns one reply through the real OC1 HTTP and SSE contract",
+    "preserves history and forks a child through the real OC1 contract",
+  ];
+  for (const [index, name] of replySteps.entries()) {
+    it.skipIf(!LIVE)(name, async () => {
+      expect(completedReplySteps, `Requires successful real OC1 step ${index}: ${replySteps[index - 1] ?? "initial state"}`).toBe(index);
+      const step = await livePhase(name, () => replyScenario.next());
+      expect(step.done, `Real OC1 step ${index + 1} did not reach its completion event`).toBe(false);
+      completedReplySteps++;
+    }, 40_000);
+  }
 
-  // Quarantined under task 8dbebd08 (P0): this real-OpenCode case sits at its 40 s cap by
-  // construction and fails under suite load (40.2 s on 2026-09-10 in pre-push CI).
-  it.skip("runs and denies controlled shell tools through the real OC1 permission route", async () => {
+
+  // Real subprocess contract: run with bun run test:opencode.
+  const toolsScenario = (async function* () {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-tools-"));
-    cleanup.push(() => rm(root, { recursive: true, force: true }));
+    liveCleanup.push(() => rm(root, { recursive: true, force: true }));
+    const toolStarted = Promise.withResolvers<void>();
+    const toolStopped = Promise.withResolvers<void>();
+    let toolStartObserved = false;
+    let toolStopObserved = false;
     const mock = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
+      // The tool request stays open until the abort event closes it.
+      idleTimeout: 0,
       async fetch(request) {
         const url = new URL(request.url);
+        if (url.pathname === "/tool-started") {
+          toolStartObserved = true;
+          toolStarted.resolve();
+          return new Promise<Response>((resolve) => {
+            request.signal.addEventListener("abort", () => {
+              toolStopObserved = true;
+              toolStopped.resolve();
+              resolve(new Response("aborted"));
+            }, { once: true });
+            liveCleanup.push(() => resolve(new Response("cleanup")));
+          });
+        }
         if (url.pathname === "/v1/models")
           return Response.json({
             object: "list",
@@ -1186,10 +1242,11 @@ describe("OpenCode pinned transport", () => {
               ],
             });
             if (!hasToolResult) {
+              const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
               const command = prompt.includes("ABORT")
-                ? "sleep 30"
+                ? `${quote(process.execPath)} -e ${quote(`await fetch("http://127.0.0.1:${mock.port}/tool-started")`)}`
                 : prompt.includes("CRON")
-                  ? "sleep 0.25; printf cron > gate-cron.txt"
+                  ? "printf cron > gate-cron.txt"
                   : prompt.includes("REPO")
                     ? "pwd > repo-observed.txt"
                     : prompt.includes("FAIL")
@@ -1267,51 +1324,9 @@ describe("OpenCode pinned transport", () => {
         });
       },
     });
-    cleanup.push(() => mock.stop(true));
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(root, "profile"),
-      serverCwd: root,
-      idleShutdownMs: 100,
-      config: {
-        autoupdate: false,
-        model: "gate/gate-model",
-        small_model: "gate/gate-model",
-        share: "disabled",
-        permission: { bash: "ask", edit: "ask", question: "deny" },
-        agent: {
-          "isomux-cron": {
-            mode: "primary",
-            permission: {
-              bash: "ask",
-              edit: "ask",
-              task: "deny",
-              question: "deny",
-            },
-          },
-        },
-        provider: {
-          gate: {
-            name: "Gate",
-            npm: "@ai-sdk/openai-compatible",
-            env: [],
-            models: {
-              "gate-model": {
-                name: "Gate",
-                reasoning: true,
-                tool_call: true,
-                limit: { context: 100000, output: 10000 },
-                cost: { input: 0, output: 0 },
-              },
-            },
-            options: {
-              apiKey: "test-only",
-              baseURL: `http://127.0.0.1:${mock.port}/v1`,
-            },
-          },
-        },
-      },
-    });
-    cleanup.push(() => supervisor.shutdown());
+    liveCleanup.push(() => mock.stop(true));
+    liveProviderTargets.set("tools", `http://127.0.0.1:${mock.port}`);
+    const supervisor = await liveSupervisor();
     const backend = createOpenCodeBackend({ supervisor });
     const run = async (
       text: string,
@@ -1323,7 +1338,7 @@ describe("OpenCode pinned transport", () => {
       const session = backend.createSession({
         ...opts,
         cwd,
-        modelFamily: "gate/gate-model",
+        modelFamily: "tools/gate-model",
         permissionMode,
       });
       const events: NormalizedEvent[] = [];
@@ -1343,13 +1358,11 @@ describe("OpenCode pinned transport", () => {
       })();
       for (let index = 0; index < repeats; index++) {
         const done = new Promise<void>((resolve) => turnWaiters.push(resolve));
-        await session.send(text);
-        await Promise.race([
-          done,
-          Bun.sleep(15_000).then(() => {
-            throw new Error("tool turn timed out");
-          }),
-        ]);
+        await livePhase(`tool reply ${text} ${index + 1}`, async () => {
+          await session.send(text);
+          await done;
+        });
+        expect(events.filter((event) => event.kind === "turn_completed")).toHaveLength(index + 1);
       }
       session.close();
       await consumer;
@@ -1362,7 +1375,7 @@ describe("OpenCode pinned transport", () => {
       const session = backend.createSession({
         ...opts,
         cwd: root,
-        modelFamily: "gate/gate-model",
+        modelFamily: "tools/gate-model",
       });
       const events: NormalizedEvent[] = [];
       const done = (async () => {
@@ -1373,12 +1386,8 @@ describe("OpenCode pinned transport", () => {
         }
       })();
       await session.send("ABORT PERMISSION");
-      await Promise.race([
-        done,
-        Bun.sleep(15_000).then(() => {
-          throw new Error("permission abort timed out");
-        }),
-      ]);
+      await done;
+      expect(events.filter((event) => event.kind === "turn_completed")).toHaveLength(1);
       session.close();
       return events;
     };
@@ -1386,7 +1395,7 @@ describe("OpenCode pinned transport", () => {
       const session = backend.createSession({
         ...opts,
         cwd: root,
-        modelFamily: "gate/gate-model",
+        modelFamily: "tools/gate-model",
       });
       const events: NormalizedEvent[] = [];
       const aborts: Promise<void>[] = [];
@@ -1395,19 +1404,20 @@ describe("OpenCode pinned transport", () => {
           events.push(event);
           if (event.kind === "approval_request") {
             await session.approve(event.approvalId, { kind: "allow_once" });
-            await Bun.sleep(200);
-            aborts.push(session.abort());
           }
           if (event.kind === "turn_completed") return;
         }
       })();
+      const abortOnStart = toolStarted.promise.then(async () => {
+        expect(toolStartObserved, "Shell-start HTTP event must precede the abort").toBe(true);
+        aborts.push(session.abort());
+        await aborts[0];
+      });
       await session.send("ABORT TOOL");
-      await Promise.race([
-        done,
-        Bun.sleep(15_000).then(() => {
-          throw new Error("tool abort timed out");
-        }),
-      ]);
+      await abortOnStart;
+      await done;
+      await toolStopped.promise;
+      expect(toolStopObserved, "Aborting the shell must close its pending HTTP request").toBe(true);
       if (aborts.length !== 1)
         throw new Error("tool abort did not start exactly once");
       await Promise.all(aborts);
@@ -1420,22 +1430,6 @@ describe("OpenCode pinned transport", () => {
       run("FAIL", true),
       run("CRON", false, 1, root, "bypassPermissions"),
     ]);
-    await Bun.write(join(root, "gate-edit.txt"), "before\n");
-    const edited = await run("EDIT", true);
-    const [permissionAbort, toolAbort] = await Promise.all([
-      abortAtPermission(),
-      abortDuringTool(),
-    ]);
-    const repoA = join(root, "repo-a");
-    const repoB = join(root, "repo-b");
-    await Promise.all([mkdir(repoA), mkdir(repoB)]);
-    await Promise.all([
-      run("REPO A", true, 1, repoA),
-      run("REPO B", true, 1, repoB),
-    ]);
-    const cronAfter = await supervisor.acquire();
-    expect(cronAfter.pid).toBe(cronPid);
-    cronAfter.release();
     expect(await Bun.file(join(root, "gate-allowed.txt")).text()).toBe(
       "allowed",
     );
@@ -1491,6 +1485,13 @@ describe("OpenCode pinned transport", () => {
       status: "completed",
     });
     expect(await Bun.file(join(root, "gate-cron.txt")).text()).toBe("cron");
+    yield; // Permission outcomes are complete.
+    await Bun.write(join(root, "gate-edit.txt"), "before\n");
+    const edited = await run("EDIT", true);
+    const [permissionAbort, toolAbort] = await Promise.all([
+      abortAtPermission(),
+      abortDuringTool(),
+    ]);
     expect(await Bun.file(join(root, "gate-edit.txt")).text()).toBe("after\n");
     expect(
       edited.some(
@@ -1511,11 +1512,37 @@ describe("OpenCode pinned transport", () => {
       kind: "turn_completed",
       status: "interrupted",
     });
+    yield; // Edits and both abort paths are complete.
+    const repoA = join(root, "repo-a");
+    const repoB = join(root, "repo-b");
+    await Promise.all([mkdir(repoA), mkdir(repoB)]);
+    await Promise.all([
+      run("REPO A", true, 1, repoA),
+      run("REPO B", true, 1, repoB),
+    ]);
+    const cronAfter = await supervisor.acquire();
+    expect(cronAfter.pid).toBe(cronPid);
+    cronAfter.release();
     expect(
       (await readFile(join(repoA, "repo-observed.txt"), "utf8")).trim(),
     ).toBe(repoA);
     expect(
       (await readFile(join(repoB, "repo-observed.txt"), "utf8")).trim(),
     ).toBe(repoB);
-  }, 40_000);
+    yield; // Both working directories are verified.
+  })();
+  let completedToolsSteps = 0;
+  const toolsSteps = [
+    "runs and denies controlled shell tools through the real OC1 permission route",
+    "edits and aborts running tools through the real OC1 permission route",
+    "routes tools to two working directories through the real OC1 contract",
+  ];
+  for (const [index, name] of toolsSteps.entries()) {
+    it.skipIf(!LIVE)(name, async () => {
+      expect(completedToolsSteps, `Requires successful real OC1 tools step ${index}: ${toolsSteps[index - 1] ?? "initial state"}`).toBe(index);
+      const step = await livePhase(name, () => toolsScenario.next());
+      expect(step.done, `Real OC1 tools step ${index + 1} did not reach its completion event`).toBe(false);
+      completedToolsSteps++;
+    }, 40_000);
+  }
 });

@@ -1,4 +1,4 @@
-// This is the only test that drives a first reply end to end through a real
+// This test drives a first reply end to end through a real
 // pinned OpenCode server. It uses a local provider mock and spends no model
 // credits, but starting the server makes the test too costly for the default
 // suite. A regression in this path is therefore caught only by the gated run:
@@ -6,6 +6,8 @@
 //   bun run test:opencode
 
 import { expect, it } from "bun:test";
+import { loadavg } from "node:os";
+import type { EventHandler } from "../internal-types.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
@@ -17,6 +19,37 @@ import { STATE_ROOT } from "../config.ts";
 import { environmentSourceKeyForUserId } from "../env-loader.ts";
 
 const LIVE = process.env.ISOMUX_TEST_OPENCODE === "1";
+
+function expectedLog(label: string, matches: (content: string) => boolean) {
+  const seen = Promise.withResolvers<void>();
+  let agentId: string | undefined;
+  let observed = false;
+  const sink: EventHandler = (event) => {
+    if (event.type === "log_entry" && event.entry.agentId === agentId && matches(event.entry.content)) {
+      observed = true;
+    }
+    if (event.type === "agent_updated" && event.agentId === agentId &&
+        (event.changes.state === "waiting_for_response" || event.changes.state === "error")) {
+      if (observed) seen.resolve();
+      else seen.reject(new Error(`Agent settled without the required ${label} log event`));
+    }
+  };
+  return {
+    sink,
+    arm(id: string) { agentId = id; },
+    async wait() {
+      console.info(`Waiting for ${label} log event`);
+      await seen.promise;
+      expect(observed, `Missing ${label} log event`).toBe(true);
+    },
+  };
+}
+
+async function measure<T>(phase: string, action: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  try { return await action(); }
+  finally { console.info("OpenCode manager live timing", JSON.stringify({ phase, ms: Math.round(performance.now() - started), load: loadavg() })); }
+}
 
 function rooms(...ids: string[]): RoomWire[] {
   return ids.map((id, i) => ({
@@ -129,7 +162,9 @@ it.skipIf(!LIVE)(
             ? "durable"
             : backend.inspectStoredSession(sessionId, opts),
       };
+      const reply = expectedLog("first reply", (content) => content === "OpenCode real tracer reply.");
       const mgr = createAgentManager({
+        eventSink: reply.sink,
         resolveBackend: () => backendWithControlledStorage,
         officeState: new OfficeState({ rooms: rooms("room-opencode-real") }),
         initialRooms: [],
@@ -148,22 +183,15 @@ it.skipIf(!LIVE)(
         undefined,
         "opencode",
       );
-      const warmLease = await supervisor.acquire();
+      const warmLease = await measure("first reply server start", () => supervisor.acquire());
       const warmPid = warmLease.pid;
       expect(alive(warmPid)).toBe(true);
+      reply.arm(info!.id);
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
         text: "hello through OC1",
       });
-      const deadline = Date.now() + 15_000;
-      while (
-        !mgr
-          .getAgentLogs(info!.id)
-          .some((entry) => entry.content === "OpenCode real tracer reply.") &&
-        Date.now() < deadline
-      ) {
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await measure("first reply delivery", () => reply.wait());
       expect(
         mgr
           .getAgentLogs(info!.id)
@@ -186,7 +214,7 @@ it.skipIf(!LIVE)(
       reportStoredSessionAsDurable = true;
       expect(await mgr.demoteToLazy(info!.id)).toBe(true);
     } finally {
-      await supervisor.shutdown();
+      await measure("first reply teardown", () => supervisor.shutdown());
       await mock.stop(true);
     }
   },
@@ -246,7 +274,9 @@ it.skipIf(!LIVE)(
       },
     });
     try {
+      const reply = expectedLog("provider error", (content) => content.includes("provider or transport error"));
       const mgr = createAgentManager({
+        eventSink: reply.sink,
         resolveBackend: () => createOpenCodeBackend({ supervisor }),
         officeState: new OfficeState({ rooms: rooms("room-opencode-error") }),
         initialRooms: [],
@@ -265,40 +295,34 @@ it.skipIf(!LIVE)(
         undefined,
         "opencode",
       );
-      const warmLease = await supervisor.acquire();
+      const warmLease = await measure("provider error server start", () => supervisor.acquire());
       const warmPid = warmLease.pid;
       expect(alive(warmPid)).toBe(true);
+      reply.arm(info!.id);
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
         text: "trigger provider error",
       });
-      const deadline = Date.now() + 15_000;
-      while (
-        !mgr
-          .getAgentLogs(info!.id)
-          .some((entry) =>
-            entry.content.includes("provider or transport error"),
-          ) &&
-        Date.now() < deadline
-      ) {
-        await Bun.sleep(10);
-      }
+      await measure("provider error delivery", () => reply.wait());
       const normalized = JSON.stringify(mgr.getAgentLogs(info!.id));
       expect(warmLease.pid).toBe(warmPid);
       expect(alive(warmPid)).toBe(true);
       warmLease.release();
-      expect(normalized).not.toContain(canary);
       expect(normalized).toContain("provider or transport error");
+      expect(normalized).not.toContain(canary);
       expect(
         mgr
           .getAgentLogs(info!.id)
           .some((entry) => entry.kind === "terminal-command"),
       ).toBe(false);
+      let scannedFiles = 0;
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
+        scannedFiles++;
         expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(
           canary,
         );
       }
+      expect(scannedFiles, "Provider-error canary sweep must read persisted logs").toBeGreaterThan(0);
       for (const name of ["server.stdout.log", "server.stderr.log"]) {
         const file = Bun.file(`${supervisor.profileDir}/${name}`);
         expect((await file.exists()) ? await file.text() : "").not.toContain(
@@ -307,7 +331,7 @@ it.skipIf(!LIVE)(
       }
       await mgr.kill(info!.id);
     } finally {
-      await supervisor.shutdown();
+      await measure("provider error teardown", () => supervisor.shutdown());
       await mock.stop(true);
     }
   },
