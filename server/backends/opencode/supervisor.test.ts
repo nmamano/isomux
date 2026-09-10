@@ -23,6 +23,21 @@ const supervisors: OpenCodeSupervisor[] = [];
 const scratch: string[] = [];
 const mocks: ReturnType<typeof Bun.serve>[] = [];
 
+// Never pass environment values to expect: a failed matcher prints them.
+async function expectChildEnvironment(
+  pid: number,
+  expected: Record<string, string | undefined>,
+): Promise<void> {
+  const entries = (await readFile(`/proc/${pid}/environ`)).toString().split("\0");
+  const actual = new Map(entries.filter(Boolean).map((entry) => {
+    const separator = entry.indexOf("=");
+    return [entry.slice(0, separator), entry.slice(separator + 1)] as const;
+  }));
+  for (const [name, value] of Object.entries(expected)) {
+    expect(actual.get(name) === value, `child environment: ${name}`).toBe(true);
+  }
+}
+
 afterEach(async () => {
   await Promise.all(
     supervisors.splice(0).map((supervisor) => supervisor.shutdown()),
@@ -253,6 +268,7 @@ describe("OpenCode shared server supervisor", () => {
     const baseline = await binaryProcessCount();
     const hostileAmbient = {
       OPENCODE_CONFIG_CONTENT: "hostile ambient config",
+      OPENCODE_DISABLE_SHARE: "0",
       ISOMUX_OPENCODE_DEBUG: "1",
     };
     const first = makeSupervisor(path, config, 1000, hostileAmbient);
@@ -263,16 +279,16 @@ describe("OpenCode shared server supervisor", () => {
     ]);
     expect(leaseA.pid).toBe(leaseB.pid);
     expect(await binaryProcessCount()).toBe(baseline + 1);
-    const childEnv = (await readFile(`/proc/${leaseA.pid}/environ`))
-      .toString()
-      .replaceAll("\0", "\n");
-    expect(childEnv).not.toContain("ISOMUX_AGENT_TOKEN=");
-    expect(childEnv).not.toContain("OPENCODE_CONFIG_CONTENT=");
-    expect(childEnv).not.toContain("OPENCODE_PROFILE_DIR=");
-    expect(childEnv).not.toContain("ISOMUX_OPENCODE_DEBUG=");
-    expect(childEnv).toContain("OPENCODE_DISABLE_PROJECT_CONFIG=1");
-    expect(childEnv).toContain("OPENCODE_DISABLE_CLAUDE_CODE=1");
-    expect(childEnv).toContain("OPENCODE_DISABLE_AUTOUPDATE=1");
+    await expectChildEnvironment(leaseA.pid, {
+      ISOMUX_AGENT_TOKEN: undefined,
+      OPENCODE_CONFIG_CONTENT: undefined,
+      OPENCODE_PROFILE_DIR: undefined,
+      ISOMUX_OPENCODE_DEBUG: undefined,
+      OPENCODE_DISABLE_PROJECT_CONFIG: "1",
+      OPENCODE_DISABLE_CLAUDE_CODE: "1",
+      OPENCODE_DISABLE_AUTOUPDATE: "1",
+      OPENCODE_DISABLE_SHARE: "1",
+    });
     expect(
       (await readFile(`/proc/${leaseA.pid}/cmdline`))
         .toString()
@@ -283,6 +299,13 @@ describe("OpenCode shared server supervisor", () => {
         await readFile(join(first.profileDir, "opencode.json"), "utf8"),
       ).autoupdate,
     ).toBe(false);
+    const configResponse = await fetch(`${leaseA.baseUrl}/config`, {
+      headers: { authorization: leaseA.authHeader },
+    });
+    expect(configResponse.ok).toBe(true);
+    const effectiveConfig = await configResponse.json();
+    expect(effectiveConfig.share === "disabled", "config: share").toBe(true);
+    expect(effectiveConfig.autoupdate === false, "config: autoupdate").toBe(true);
     leaseA.release();
     leaseB.release();
     await second.shutdown();
@@ -315,24 +338,14 @@ describe("OpenCode shared server supervisor", () => {
       if (priorDebug === undefined) delete process.env.ISOMUX_OPENCODE_DEBUG;
       else process.env.ISOMUX_OPENCODE_DEBUG = priorDebug;
     });
-    const childEnv = Object.fromEntries(
-      (await readFile(`/proc/${lease.pid}/environ`))
-        .toString()
-        .split("\0")
-        .filter(Boolean)
-        .map((entry) => {
-          const separator = entry.indexOf("=");
-          return [entry.slice(0, separator), entry.slice(separator + 1)];
-        }),
-    );
     const recordText = await readFile(supervisor.recordPath, "utf8");
     const record = JSON.parse(recordText);
-    expect(childEnv.OPENCODE_API_KEY).toBe(apiKeyCanary);
-    expect(childEnv.OPENCODE_UNRELATED).toBeUndefined();
-    expect(childEnv.OPENCODE_CONFIG).toBe(
-      join(supervisor.profileDir, "opencode.json"),
-    );
-    expect(childEnv.OPENCODE_SERVER_PASSWORD).toBe(record.password);
+    await expectChildEnvironment(lease.pid, {
+      OPENCODE_API_KEY: apiKeyCanary,
+      OPENCODE_UNRELATED: undefined,
+      OPENCODE_CONFIG: join(supervisor.profileDir, "opencode.json"),
+      OPENCODE_SERVER_PASSWORD: record.password,
+    });
     expect(recordText).not.toContain(apiKeyCanary);
     const debugAfter = (await readdir(debugRoot)).filter((name) =>
       name.startsWith("isomux-opencode-debug-"),
@@ -398,9 +411,7 @@ describe("OpenCode shared server supervisor", () => {
     supervisors.push(supervisor);
     const retained = await supervisor.acquire();
     const priorPid = retained.pid;
-    expect((await readFile(`/proc/${priorPid}/environ`)).toString()).toContain(
-      "S4_ENV_CANARY=before",
-    );
+    await expectChildEnvironment(priorPid, { S4_ENV_CANARY: "before" });
     supervisor.updateLaunchEnvironment(
       { S4_ENV_CANARY: "after" },
       "revision-after",
@@ -408,9 +419,7 @@ describe("OpenCode shared server supervisor", () => {
     const replacement = await supervisor.acquire();
     expect(replacement.pid).not.toBe(priorPid);
     expect(retained.pid).toBe(replacement.pid);
-    expect(
-      (await readFile(`/proc/${replacement.pid}/environ`)).toString(),
-    ).toContain("S4_ENV_CANARY=after");
+    await expectChildEnvironment(replacement.pid, { S4_ENV_CANARY: "after" });
     const response = await fetch(`${retained.baseUrl}/global/health`, {
       headers: { authorization: retained.authHeader },
     });

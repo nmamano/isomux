@@ -56,7 +56,7 @@ export interface SdkSessionOptions {
   systemPrompt?: Options["systemPrompt"];
   effort?: SdkEffortLevel;
   // The SDK's "flag settings" layer (`--settings`), typed straight off the
-  // SDK so this stays a faithful subset. Carries CLAUDE_MEMORY_OFF_SETTINGS;
+  // SDK so this stays a faithful subset. Carries CLAUDE_LAUNCH_SETTINGS;
   // a future writer must merge into it, never assign over it.
   settings?: Options["settings"];
   env?: { [key: string]: string | undefined };
@@ -225,6 +225,14 @@ export const CLAUDE_MEMORY_OFF_SETTINGS: Extract<Options["settings"], object> =
   {
     autoMemoryEnabled: false,
   };
+
+// Use the flag-settings env layer so the CLI keeps the inherited environment.
+// The umbrella switch also disables updates and plugin command-source runs;
+// only vendor usage metrics and error reporting are disabled here.
+export const CLAUDE_LAUNCH_SETTINGS: Extract<Options["settings"], object> = {
+  ...CLAUDE_MEMORY_OFF_SETTINGS,
+  env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },
+};
 
 export interface SdkClient {
   createSession(opts: SdkSessionOptions): SdkConversation;
@@ -1339,7 +1347,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // which includes Codex-only values). Narrow at the call site, same
     // pattern as permissionMode.
     effort: opts.effort as SdkEffortLevel,
-    settings: CLAUDE_MEMORY_OFF_SETTINGS,
+    settings: CLAUDE_LAUNCH_SETTINGS,
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
@@ -1497,7 +1505,7 @@ export function createClaudeBackend(
         // settingSources: [] skips the filesystem layers but not the
         // built-in default (auto-memory ON), so the flag layer is needed
         // here too or the /tmp cwd gets its own memory folder.
-        settings: CLAUDE_MEMORY_OFF_SETTINGS,
+        settings: CLAUDE_LAUNCH_SETTINGS,
         env: opts.env,
       });
     },

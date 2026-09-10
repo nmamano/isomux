@@ -225,6 +225,8 @@ for (let attempt = 0; attempt < 40; attempt++) {
         XDG_CACHE_HOME: join(profileDir, "cache"),
         OPENCODE_CONFIG: configPath,
         OPENCODE_DISABLE_AUTOUPDATE: "1",
+        // share: "disabled" blocks new shares; this also stops existing-share sync.
+        OPENCODE_DISABLE_SHARE: "1",
         OPENCODE_DISABLE_PROJECT_CONFIG: "1",
         OPENCODE_DISABLE_CLAUDE_CODE: "1",
         OPENCODE_SERVER_USERNAME: username,

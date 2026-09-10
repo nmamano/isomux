@@ -108,6 +108,36 @@ async function readGrandchildPid(pidFile: string): Promise<number> {
 }
 
 describe("JsonRpcLiteClient.close - real process reaping", () => {
+  for (const args of [undefined, ["app-server", "-c", "analytics.enabled=true"]]) {
+    it(`pins analytics off on the subprocess argv (${args ? "custom" : "default"} args)`, async () => {
+      const dir = mkdtempSync(join(tmpdir(), "codex-telemetry-test-"));
+      tmpDirs.push(dir);
+      const argvFile = join(dir, "argv");
+      const bin = join(dir, "codex.sh");
+      writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGV_FILE"\nexec sleep 600\n');
+      chmodSync(bin, 0o755);
+      const client = new JsonRpcLiteClient({
+        codexBin: bin,
+        args,
+        env: { ...process.env, ARGV_FILE: argvFile },
+        skipSafetyPreflightForTestProbe: true,
+      });
+      try {
+        await client.start();
+        expect(await waitFor(() => {
+          try { return readFileSync(argvFile, "utf8").includes("analytics.enabled"); }
+          catch { return false; }
+        }, 4000)).toBe(true);
+        expect(readFileSync(argvFile, "utf8").trim().split("\n")).toEqual([
+          ...(args ?? ["app-server", "--listen", "stdio://"]),
+          "-c", "analytics.enabled=false",
+        ]);
+      } finally {
+        await client.close();
+      }
+    }, 15_000);
+  }
+
   it("starts the subprocess and returns the warning when safety preflight fails", async () => {
     const dir = mkdtempSync(join(tmpdir(), "codex-client-preflight-test-"));
     tmpDirs.push(dir);

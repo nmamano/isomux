@@ -998,3 +998,31 @@ describe("createClaudeBackend default instance", () => {
     expect(claudeBackend.capabilities.fork).toBe(true);
   });
 });
+
+describe("Claude launch telemetry settings", () => {
+  for (const env of [undefined, { DISABLE_TELEMETRY: "", KEEP_ME: "yes" }]) {
+    it(`disables vendor telemetry on create, resume and one-shot (${env ? "explicit" : "inherited"} env)`, async () => {
+      const fake = new FakeSdkClient();
+      const backend = createClaudeBackend(fake);
+      const opts = {
+        agentId: "telemetry-test",
+        effort: "low",
+        cwd: "/tmp",
+        systemPrompt: "sys",
+        modelFamily: "haiku",
+        permissionMode: "default",
+        env,
+      };
+      backend.createSession(opts);
+      backend.resumeSession("telemetry-session", opts);
+      await backend.oneShotPrompt("hello", opts);
+      for (const call of [fake.createCalls[0].opts, fake.resumeCalls[0].opts, fake.oneShotCalls[0]]) {
+        expect(call.settings).toMatchObject({
+          autoMemoryEnabled: false,
+          env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },
+        });
+        expect(call.env).toEqual(env);
+      }
+    });
+  }
+});

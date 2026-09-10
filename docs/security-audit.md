@@ -272,6 +272,12 @@ Raw tokens are never logged. `safePrefix` (`server/auth.ts`) is used for the few
 
 A revoked session is force-closed within ~1 second on any active WebSocket (per-message recheck + notify-then-close). For an HTTP-only attacker (no WebSocket) the next HTTP request returns 401 immediately. Revocation is effectively synchronous from the legitimate user's perspective.
 
+### 7.5 Vendor telemetry
+
+Isomux disables Claude Code usage metrics and error reporting, and Codex analytics, at backend launch in every deployment. OpenCode share uploads are also disabled; OpenCode 1.18.23 has no vendor usage reporting (source checked 2026-09-10). Operator-configured OpenTelemetry exports remain available.
+
+This does not block all outbound traffic. Authentication, model requests, session resume, hooks, and MCP remain available. Other Claude Code traffic can include updates, release notes, status and availability checks, plugin command-source background runs, and user-submitted feedback. As with Isomux's release check, update metadata traffic remains separate from vendor telemetry. Provider data policies still apply to model requests.
+
 ---
 
 ## Appendix A - Files reviewed
