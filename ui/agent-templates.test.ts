@@ -3,6 +3,7 @@ import type { BackendModelWire, EffortLevel } from "../shared/types.ts";
 import {
   ACCESSORIES,
   BEARDS,
+  COSTUMES,
   HAIR_COLORS,
   HAIR_STYLES,
   HATS,
@@ -134,7 +135,16 @@ describe("agent template catalog", () => {
       expect(BEARDS).toContain(template.outfit.beard);
       expect(HATS).toContain(template.outfit.hat);
       expect(ACCESSORIES).toContain(template.outfit.accessory);
+      expect(COSTUMES).toContain(template.outfit.costume ?? "none");
     }
+  });
+
+  it("assigns the doctor costume only to Health Navigator", () => {
+    expect(
+      AGENT_TEMPLATES.filter((template) => template.outfit.costume).map(
+        (template) => [template.key, template.outfit.costume],
+      ),
+    ).toEqual([["health-navigator", "doctor"]]);
   });
 
   it("keeps each Claude recommendation valid through the product helper", () => {
