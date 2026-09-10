@@ -176,6 +176,7 @@ export function ConnectionsPane({
         )}
       </section>
       <CrossLink half={half} onGoToOtherHalf={onGoToOtherHalf} />
+      <BedrockHint />
     </div>
   );
 }
@@ -219,6 +220,31 @@ function CrossLink({
           ),
         },
       )}
+    </p>
+  );
+}
+
+const BEDROCK_GUIDE =
+  "https://isomux.com/docs/access-and-invites#claude-on-amazon-bedrock";
+
+// One sentence at the bottom of both halves (Nil, 2026-09-10): the Bedrock
+// setup lives in the docs, not in the pane.
+function BedrockHint() {
+  const { rich } = useI18n();
+  return (
+    <p style={{ ...hint, marginTop: 8 }}>
+      {rich("settings.connections.bedrockHint", {
+        link: (chunk) => (
+          <a
+            href={BEDROCK_GUIDE}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "var(--accent)" }}
+          >
+            {chunk}
+          </a>
+        ),
+      })}
     </p>
   );
 }

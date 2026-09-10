@@ -539,6 +539,8 @@ export const ca: Catalog = {
     "Les teves pròpies sessions i variables, que tenen prioritat sobre aquestes, són a <link>Tu → Connexions individuals</link>.",
   "settings.connections.crossLinkFromPersonal":
     "Les sessions i variables de tota l'oficina sobre les quals aquestes tenen prioritat són a <link>Oficina → Connexions de tota l'oficina</link>.",
+  "settings.connections.bedrockHint":
+    "Vols connectar Bedrock? Llegeix <link>aquí</link>.",
 
   "settings.signIn.apiKeyNote":
     "Vols fer servir un token d'API? Mira Configuració → Tu → Connexions individuals.",

@@ -538,6 +538,8 @@ export const en = {
     "Your own sign-ins and variables, which override these, are under <link>You → Individual connections</link>.",
   "settings.connections.crossLinkFromPersonal":
     "The office-wide sign-ins and variables these override are under <link>Office → Office-wide connections</link>.",
+  "settings.connections.bedrockHint":
+    "Want to connect Bedrock? Read <link>here</link>.",
 
   "settings.signIn.apiKeyNote":
     "Do you want to use an API token? See Settings → You → Individual connections.",
