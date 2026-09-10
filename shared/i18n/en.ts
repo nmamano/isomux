@@ -1727,6 +1727,8 @@ export const en = {
     "The agent backend was killed by SIGKILL (exit code {code}). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.signal":
     "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
+  "systemEntries.backendFailure.providerCapacity":
+    "The model provider is at capacity. That is on the provider's side, not this account's subscription or rate limits. Retry in a minute or pick another model. The conversation is saved and can be resumed.",
   "systemEntries.agentReady":
     'Agent "{name}" ready. Working in {cwd}. Permission mode: {mode}.',
   "systemEntries.streamError": "Stream error: {error}",

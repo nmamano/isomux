@@ -65,6 +65,23 @@ describe("humanizeBackendFailure", () => {
     expect(r.raw).toBe(raw);
   });
 
+  it("names a provider capacity refusal as the provider's, not the subscription's", () => {
+    // The Codex app-server's wording, observed 2026-09-10. The account's rate
+    // limits read 68% weekly with no 5-hour limit while this fired, so the
+    // sentence must point away from the subscription.
+    const r = humanizeBackendFailure(
+      t,
+      "Selected model is at capacity. Please try a different model.",
+    );
+    expect(r.text).toBe(
+      "The model provider is at capacity. That is on the provider's side, not this account's subscription or rate limits. Retry in a minute or pick another model. The conversation is saved and can be resumed.",
+    );
+    expect(r.raw).toBe(
+      "Selected model is at capacity. Please try a different model.",
+    );
+    expect(r.id).toBe("provider-capacity");
+  });
+
   it("passes an ordinary exit code through untouched", () => {
     // diagnoseProcessExit already says something specific about these; a vague
     // sentence here would only push its hint further down the chat.

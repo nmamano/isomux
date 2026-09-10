@@ -1726,6 +1726,8 @@ export const ca: Catalog = {
     "El backend de l'agent s'ha matat amb SIGKILL (codi de sortida {code}). La causa més probable és la protecció contra manca de memòria d'aquesta màquina. La conversa està desada i es pot reprendre.",
   "systemEntries.backendFailure.signal":
     "El backend de l'agent s'ha aturat amb el senyal {signal} (codi de sortida {code}). La conversa està desada i es pot reprendre.",
+  "systemEntries.backendFailure.providerCapacity":
+    "El proveïdor del model està saturat. És un problema del costat del proveïdor, no de la subscripció ni dels límits d'ús d'aquest compte. Torna-ho a provar d'aquí a un minut o tria un altre model. La conversa està desada i es pot reprendre.",
   "systemEntries.agentReady":
     'L\'agent "{name}" està a punt. Treballa a {cwd}. Mode de permisos: {mode}.',
   "systemEntries.streamError": "Error de flux: {error}",

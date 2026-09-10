@@ -62,6 +62,7 @@ export type BackendFailureId =
   | `sigkill:${number}`
   | `signal:${number}`
   | "stopped-during-turn"
+  | "provider-capacity"
   | "unclassified";
 
 /**
@@ -89,6 +90,13 @@ export interface BackendFailureText {
 // code 143"). Anchored on the phrase rather than the product name so a reworded
 // or non-Claude variant still classifies.
 const EXIT_CODE_RE = /exited with code (\d+)/i;
+
+// The provider refusing the request because ITS servers are full. Observed
+// wording from the Codex app-server (2026-09-10): "Selected model is at
+// capacity. Please try a different model." Isomux reads the account's rate
+// limits through a separate channel, and those can be far from exhausted while
+// this fires, so the sentence has to say it is not the subscription.
+const PROVIDER_CAPACITY_RE = /\bat capacity\b/i;
 
 export function humanizeBackendFailure(
   t: Translator["t"],
@@ -137,6 +145,14 @@ export function humanizeBackendFailure(
       text: backendStoppedDuringTurn(t),
       raw,
       id: "stopped-during-turn",
+    };
+  }
+
+  if (PROVIDER_CAPACITY_RE.test(raw)) {
+    return {
+      text: t("systemEntries.backendFailure.providerCapacity"),
+      raw,
+      id: "provider-capacity",
     };
   }
 
