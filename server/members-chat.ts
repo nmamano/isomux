@@ -47,7 +47,7 @@ import { atomicWriteFileSync, sanitizeFilename } from "./persistence.ts";
 export { MEMBERS_CHAT_MAX_CHARS };
 export const MEMBERS_CHAT_DEFAULT_PAGE = 100;
 export const MEMBERS_CHAT_MAX_PAGE = 200;
-// Unread counting stops here; the UI shows "99+".
+// Unread counting stops here; the UI label shows this number at the cap.
 export const MEMBERS_CHAT_UNREAD_CAP = 100;
 // Same backstop as persistence.ts saveFile.
 const MAX_ATTACHMENT_BYTES = 200 * 1024 * 1024;

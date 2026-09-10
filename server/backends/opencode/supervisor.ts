@@ -288,6 +288,8 @@ export class OpenCodeSupervisor {
     return createHash("sha256")
       .update(openCodeConfigRevision(config))
       // Do not adopt a server launched before existing-share sync was disabled.
+      // This literal is the NAME=value start-server.ts puts in the child
+      // environment (the helper runs as a script, so no import); change both.
       .update("OPENCODE_DISABLE_SHARE=1")
       .digest("hex");
   }
