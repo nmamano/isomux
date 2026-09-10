@@ -316,7 +316,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         .some(
           (entry) =>
             entry.content ===
-            "OpenCode does not expose thinking effort controls.",
+            "OpenCode effort choices are available in agent settings for models that expose them.",
         ),
     ).toBe(true);
     expect(

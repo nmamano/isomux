@@ -698,7 +698,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.emitEphemeralLog(
           agentId,
           "system",
-          t("commands.effort.openCodeUnsupported"),
+          t("commands.effort.openCodeSettings"),
         );
         deps.updateState(agentId, "waiting_for_response");
         return true;

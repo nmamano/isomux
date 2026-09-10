@@ -19,6 +19,7 @@ import {
 import {
   modelSelectCursor,
   partitionBackendModelsForPicker,
+  selectSupportedEffort,
 } from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
@@ -114,6 +115,23 @@ describe("Codex new-engine defaults", () => {
       permissionMode: "never",
       codexSandbox: "danger-full-access",
     });
+  });
+});
+
+describe("OpenCode effort selection", () => {
+  const options = (...levels: string[]) => levels.map((level) => ({ level }));
+
+  it("keeps a supported effort, then prefers high, then enum order", () => {
+    expect(selectSupportedEffort("medium", options("low", "medium", "high"))).toBe(
+      "medium",
+    );
+    expect(selectSupportedEffort("xhigh", options("low", "medium", "high"))).toBe(
+      "high",
+    );
+    expect(selectSupportedEffort("xhigh", options("low", "medium"))).toBe(
+      "low",
+    );
+    expect(selectSupportedEffort("xhigh", [])).toBeUndefined();
   });
 });
 

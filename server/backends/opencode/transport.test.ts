@@ -118,6 +118,148 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ]);
   });
 
+  it("sends only an effort variant advertised by the selected model", async () => {
+    const promptBodies: Record<string, unknown>[] = [];
+    let providerFailures = 0;
+    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/event") {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                eventController = controller;
+                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
+              },
+            }),
+            {
+              headers: { "content-type": "text/event-stream" },
+            },
+          );
+        }
+        if (url.pathname === "/provider") {
+          if (url.searchParams.get("directory") === "/fail") {
+            providerFailures++;
+            return new Response("failed", { status: 500 });
+          }
+          return Response.json({
+            connected: ["provider"],
+            all: [
+              {
+                id: "provider",
+                models: {
+                  model: { variants: { low: {}, high: {}, none: {} } },
+                },
+              },
+            ],
+          });
+        }
+        if (url.pathname.endsWith("/prompt_async")) {
+          promptBodies.push(
+            (await request.json()) as Record<string, unknown>,
+          );
+          const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
+          const controller = eventController;
+          eventController = null;
+          const events = [
+            {
+              type: "message.part.updated",
+              properties: {
+                sessionID,
+                part: {
+                  type: "step-finish",
+                  id: `finish-${sessionID}`,
+                  messageID: `message-${sessionID}`,
+                  tokens: {
+                    total: 1,
+                    input: 1,
+                    output: 0,
+                    reasoning: 0,
+                    cache: { read: 0, write: 0 },
+                  },
+                },
+              },
+            },
+            { type: "session.idle", properties: { sessionID } },
+          ];
+          setTimeout(() => {
+            try {
+              for (const event of events)
+                controller?.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify(event)}\n\n`,
+                  ),
+                );
+              controller?.close();
+            } catch {
+              // The idle event can abort and close the stream first.
+            }
+          }, 0);
+          return new Response(null, { status: 204 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const send = async (effort: string, cwd = "/tmp") => {
+      const events: NormalizedEvent[] = [];
+      let resolveCompletion!: () => void;
+      const completion = new Promise<void>((resolve) => {
+        resolveCompletion = resolve;
+      });
+      const transport = new OpenCodeTransport({
+        cwd,
+        model: "provider/model",
+        effort,
+        systemPrompt: "system",
+        supervisor,
+        sessionId: cwd === "/fail" ? "session-fail" : `session-${effort}`,
+      });
+      await transport.send([{ type: "text", text: "go" }], (event) => {
+        events.push(event);
+        if (event.kind === "turn_completed") resolveCompletion();
+      });
+      try {
+        await Promise.race([
+          completion,
+          Bun.sleep(1_000).then(() => {
+            throw new Error("no prompt_async arrived");
+          }),
+        ]);
+      } finally {
+        transport.close();
+      }
+      return events;
+    };
+
+    await send("low");
+    await send("medium");
+    const failureEvents = await send("high", "/fail");
+
+    expect(promptBodies[0]).toMatchObject({ variant: "low" });
+    expect("variant" in promptBodies[0]).toBe(true);
+    expect("variant" in promptBodies[1]).toBe(false);
+    expect("variant" in promptBodies[2]).toBe(false);
+    expect(
+      failureEvents.find((event) => event.kind === "turn_completed"),
+    ).toMatchObject({ kind: "turn_completed", status: "completed" });
+    expect(providerFailures).toBe(1);
+    await server.stop(true);
+  });
+
   it("keeps only connected provider model labels and composite ids", () => {
     const canary = "PROVIDER_OPTION_SECRET_CANARY";
     const models = allowDiscoveredModels({
@@ -128,7 +270,16 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
           name: "Gate provider",
           options: { apiKey: canary },
           models: {
-            "gate-model": { name: "Gate model", cost: canary },
+            "gate-model": {
+              name: "Gate model",
+              cost: canary,
+              variants: {
+                high: {},
+                low: {},
+                none: {},
+                thinking: {},
+              },
+            },
             "gate/gate-model": { name: "duplicate", metadata: canary },
           },
         },
@@ -146,8 +297,12 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       ],
     });
     expect(models).toEqual([
-      { id: "gate/gate-model", label: "Gate provider - Gate model" },
-      { id: "safe/model", label: "safe - model" },
+      {
+        id: "gate/gate-model",
+        label: "Gate provider - Gate model",
+        supportedEfforts: [{ level: "low" }, { level: "high" }],
+      },
+      { id: "safe/model", label: "safe - model", supportedEfforts: [] },
     ]);
     expect(JSON.stringify(models)).not.toContain(canary);
   });
@@ -169,8 +324,16 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       ],
     });
     expect(models).toEqual([
-      { id: "opencode/big-pickle", label: "Big Pickle" },
-      { id: "gate/big-pickle", label: "Gate provider - Big Pickle" },
+      {
+        id: "opencode/big-pickle",
+        label: "Big Pickle",
+        supportedEfforts: [],
+      },
+      {
+        id: "gate/big-pickle",
+        label: "Gate provider - Big Pickle",
+        supportedEfforts: [],
+      },
     ]);
   });
 
@@ -200,10 +363,19 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       ],
     });
     expect(models).toEqual([
-      { id: "gate/missing", label: "gate - missing" },
-      { id: "gate/negative", label: "gate - negative" },
-      { id: "gate/valid", label: "gate - valid", contextLimit: 262_144 },
-      { id: "gate/zero", label: "gate - zero" },
+      { id: "gate/missing", label: "gate - missing", supportedEfforts: [] },
+      {
+        id: "gate/negative",
+        label: "gate - negative",
+        supportedEfforts: [],
+      },
+      {
+        id: "gate/valid",
+        label: "gate - valid",
+        contextLimit: 262_144,
+        supportedEfforts: [],
+      },
+      { id: "gate/zero", label: "gate - zero", supportedEfforts: [] },
     ]);
   });
 
@@ -243,7 +415,13 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       ],
     });
 
-    expect(models).toEqual([{ id: "z-connected/model", label: "Zed - Model" }]);
+    expect(models).toEqual([
+      {
+        id: "z-connected/model",
+        label: "Zed - Model",
+        supportedEfforts: [],
+      },
+    ]);
     expect(models.some((model) => model.id.startsWith("anthropic/"))).toBe(
       false,
     );

@@ -443,8 +443,8 @@ session creation gives one settings repair error and does not start, kill the
 agent, or spend watchdog recovery budget. The OpenCode `/model` command points
 to agent settings because its connected list is environment-specific.
 
-OpenCode keeps Ask-only permission mode and exposes no effort, sandbox, or
-one-shot controls. Slide Mode therefore returns no job instead of calling the
+OpenCode keeps Ask-only permission mode and exposes per-model effort, but no
+sandbox or one-shot controls. Slide Mode therefore returns no job instead of calling the
 unavailable OpenCode one-shot path with Codex's formatter model. Fresh offices
 still seed only the existing Claude and Codex welcome agents; S5 does not add a
 third welcome agent.

@@ -72,6 +72,7 @@ import {
   partitionBackendModelsForPicker,
   modelListErrorMessage,
   modelSelectCursor,
+  selectSupportedEffort,
 } from "../backend-model-selection.ts";
 export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 export { defaultBackendModel } from "../backend-model-selection.ts";
@@ -426,6 +427,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     modelsError === null &&
     backendModels !== null &&
     !openCodeModelReady;
+  const selectedOpenCodeEfforts = isOpenCode
+    ? (backendModels?.find((model) => model.id === modelFamily)
+        ?.supportedEfforts ?? [])
+    : [];
 
   // What "unsaved" is measured against. Seeded from the same
   // values the form state above is seeded from, so on open the dialog is clean
@@ -720,6 +725,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             if (!supportsDefault && def.defaultEffort) {
               setEffort(def.defaultEffort as EffortLevel);
               baselineRef.current!.effort = def.defaultEffort as EffortLevel;
+            } else if (
+              isOpenCode &&
+              !supportsDefault &&
+              def.supportedEfforts.length > 0
+            ) {
+              const firstSupported = def.supportedEfforts[0]
+                .level as EffortLevel;
+              setEffort(firstSupported);
+              baselineRef.current!.effort = firstSupported;
             }
           }
         }
@@ -1932,21 +1946,29 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             // Same coercion target the server's validateEffort uses
                             // for an invalid Claude "max".
                             setEffort(DEFAULT_EFFORT);
-                          // Codex: when the model changes, snap effort to the new
-                          // model's default if the current effort isn't supported.
-                          if (isCodex && backendVisible) {
+                          // Dynamic backends keep only an effort the selected
+                          // model advertises. OpenCode has no reported default,
+                          // so its enum-ordered first option is the fallback.
+                          if ((isCodex || isOpenCode) && backendVisible) {
                             const picked = backendVisible.find(
                               (m) => m.id === next,
                             );
                             if (picked) {
-                              const supported = new Set(
-                                picked.supportedEfforts.map((o) => o.level),
-                              );
-                              if (
-                                !supported.has(effort) &&
-                                picked.defaultEffort
-                              ) {
-                                setEffort(picked.defaultEffort as EffortLevel);
+                              if (isCodex && picked.defaultEffort) {
+                                const supported = new Set(
+                                  picked.supportedEfforts.map((o) => o.level),
+                                );
+                                if (!supported.has(effort))
+                                  setEffort(
+                                    picked.defaultEffort as EffortLevel,
+                                  );
+                              } else if (isOpenCode) {
+                                const nextEffort = selectSupportedEffort(
+                                  effort,
+                                  picked.supportedEfforts,
+                                );
+                                if (nextEffort && nextEffort !== effort)
+                                  setEffort(nextEffort);
                               }
                             }
                           }
@@ -2111,7 +2133,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </p>
                 )}
 
-                {!isOpenCode && (
+                {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
                   <>
                     <label style={{ ...labelStyle, marginTop: 12 }}>
                       {t("common.field.effort")}
@@ -2123,7 +2145,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       // come from the catalog either way (effortLabel), including for a
                       // level the table does not carry, which renders as its own id.
                       let effortLevels: { level: string }[];
-                      if (isCodex && backendModels) {
+                      if (isOpenCode) {
+                        effortLevels = selectedOpenCodeEfforts;
+                      } else if (isCodex && backendModels) {
                         const picked = backendModels.find(
                           (m) => m.id === modelFamily,
                         );

@@ -4,6 +4,7 @@ import {
   resolveAgentEngineSettings,
   validateCodexSandbox,
   validateCronjobPermissionMode,
+  validateEffort,
   validatePermissionMode,
 } from "./agent-validators.ts";
 
@@ -79,6 +80,19 @@ describe("OpenCode model validation", () => {
       modelFamily: "",
       permissionMode: "bypassPermissions",
     });
+  });
+});
+
+describe("OpenCode effort validation", () => {
+  it("preserves an enum effort and rejects provider-specific names", () => {
+    expect(validateEffort("opencode", "provider/model", "low")).toBe("low");
+    expect(
+      validateEffort(
+        "opencode",
+        "provider/model",
+        "thinking" as Parameters<typeof validateEffort>[2],
+      ),
+    ).toBe("high");
   });
 });
 

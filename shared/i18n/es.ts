@@ -635,7 +635,7 @@ export const es: Catalog = {
   "common.field.approvalPolicy": "Política de aprobación",
   "common.field.workingDirectory": "Directorio de trabajo",
 
-  "common.effort.minimal": "Mínimo (solo Codex)",
+  "common.effort.minimal": "Mínimo",
   "common.effort.low": "Bajo",
   "common.effort.medium": "Medio",
   "common.effort.high": "Alto",
@@ -1649,8 +1649,8 @@ export const es: Catalog = {
   "commands.model.openCodeUnsupported":
     "Abre los ajustes del agente para elegir un modelo de OpenCode conectado.",
   "commands.model.header": "Cambiar de modelo (actual: **{current}**):",
-  "commands.effort.openCodeUnsupported":
-    "OpenCode no expone controles de esfuerzo de razonamiento.",
+  "commands.effort.openCodeSettings":
+    "Las opciones de esfuerzo de OpenCode están disponibles en los ajustes del agente para los modelos que las ofrecen.",
   "commands.effort.header":
     "Cambiar el esfuerzo de razonamiento (actual: **{current}**):",
   "commands.isomuxAllHands.room": "**=== Sala {number} ===**",

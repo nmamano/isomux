@@ -35,6 +35,7 @@ import {
   modelListErrorMessage,
   modelSelectCursor,
   openCodeModelSelectionReady,
+  selectSupportedEffort,
 } from "../backend-model-selection.ts";
 import {
   ExpandableTextarea,
@@ -230,6 +231,10 @@ export function CronjobDialog({
     modelsError === null &&
     backendModels !== null &&
     !openCodeModelReady;
+  const selectedOpenCodeEfforts = isOpenCode
+    ? (backendModels?.find((model) => model.id === modelFamily)
+        ?.supportedEfforts ?? [])
+    : [];
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -305,6 +310,19 @@ export function CronjobDialog({
                 baselineRef.current!,
                 def.id,
                 def.defaultEffort as EffortLevel,
+              );
+            } else if (
+              isOpenCode &&
+              !supportsDefault &&
+              def.supportedEfforts.length > 0
+            ) {
+              const firstSupported = def.supportedEfforts[0]
+                .level as EffortLevel;
+              setEffort(firstSupported);
+              updateCronjobMachineDefaults(
+                baselineRef.current!,
+                def.id,
+                firstSupported,
               );
             }
           }
@@ -756,16 +774,24 @@ export function CronjobDialog({
                       // Same coercion target the server's validateEffort uses
                       // for an invalid Claude "max".
                       setEffort(DEFAULT_EFFORT);
-                    // Codex: snap effort to the new model's default if the
-                    // current effort isn't in its supportedEfforts list.
-                    if (isCodex && backendVisible) {
+                    // Dynamic backends keep only an effort the selected model
+                    // advertises. OpenCode uses its enum-ordered first option.
+                    if ((isCodex || isOpenCode) && backendVisible) {
                       const picked = backendVisible.find((m) => m.id === next);
                       if (picked) {
-                        const supported = new Set(
-                          picked.supportedEfforts.map((o) => o.level),
-                        );
-                        if (!supported.has(effort) && picked.defaultEffort) {
-                          setEffort(picked.defaultEffort as EffortLevel);
+                        if (isCodex && picked.defaultEffort) {
+                          const supported = new Set(
+                            picked.supportedEfforts.map((o) => o.level),
+                          );
+                          if (!supported.has(effort))
+                            setEffort(picked.defaultEffort as EffortLevel);
+                        } else if (isOpenCode) {
+                          const nextEffort = selectSupportedEffort(
+                            effort,
+                            picked.supportedEfforts,
+                          );
+                          if (nextEffort && nextEffort !== effort)
+                            setEffort(nextEffort);
                         }
                       }
                     }
@@ -882,7 +908,7 @@ export function CronjobDialog({
             </p>
           )}
 
-          {!isOpenCode && (
+          {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 {t("common.field.effort")}
@@ -891,7 +917,9 @@ export function CronjobDialog({
                 // Codex: per-model supportedEfforts from model/list when available.
                 // Claude: family-level rules (max only for opus).
                 let effortOptions: { level: string }[];
-                if (isCodex) {
+                if (isOpenCode) {
+                  effortOptions = selectedOpenCodeEfforts;
+                } else if (isCodex) {
                   const picked = backendModels?.find(
                     (m) => m.id === modelFamily,
                   );

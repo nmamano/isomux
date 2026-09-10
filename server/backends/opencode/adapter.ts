@@ -131,6 +131,7 @@ class OpenCodeServerSession implements BackendSession {
     this.transport = new OpenCodeTransport({
       cwd: opts.cwd,
       model,
+      effort: opts.effort,
       systemPrompt: opts.systemPrompt,
       agentToken: opts.env?.ISOMUX_AGENT_TOKEN,
       agentId: opts.agentId,
@@ -500,7 +501,6 @@ export function createOpenCodeBackend(
       const models = await discoverOpenCodeModels(supervisor, opts.cwd);
       return models.map(({ contextLimit: _contextLimit, ...entry }) => ({
         ...entry,
-        supportedEfforts: [],
       }));
     },
     createSession(opts: CreateSessionOptions): BackendSession {

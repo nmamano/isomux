@@ -69,6 +69,48 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
         })
       ).trim(),
     ).toContain("LIVE_TOPIC_OK");
+    const variantModel = discovered.find(
+      (model) =>
+        model.isFree &&
+        !model.hidden &&
+        model.supportedEfforts.length > 0,
+    );
+    expect(variantModel).toBeDefined();
+    // This is a real-provider smoke, not proof that OpenCode applied the
+    // variant. The pinned API also returns 204 for an unknown variant; the
+    // transport request-body test proves that Isomux sends the known one.
+    const variantEffort = variantModel!.supportedEfforts[0].level;
+    const variantSession = backend.createSession({
+      agentId: "live-variant-check",
+      cwd: repo,
+      systemPrompt: "Reply briefly and do not use tools.",
+      modelFamily: variantModel!.id,
+      effort: variantEffort,
+      permissionMode: "default",
+    });
+    const variantEvents: NormalizedEvent[] = [];
+    const variantComplete = (async () => {
+      for await (const event of variantSession.stream()) {
+        variantEvents.push(event);
+        if (event.kind === "turn_completed") return event;
+      }
+      throw new Error("OpenCode variant check ended before completion.");
+    })();
+    await variantSession.send("Reply with exactly OC1_VARIANT_OK.");
+    const variantTerminal = await Promise.race([
+      variantComplete,
+      Bun.sleep(120_000).then(() => {
+        throw new Error("OpenCode variant check timed out.");
+      }),
+    ]);
+    variantSession.close();
+    expect(variantTerminal.status).toBe("completed");
+    expect(
+      variantEvents
+        .filter((event) => event.kind === "assistant_text")
+        .map((event) => event.text)
+        .join(""),
+    ).toContain("OC1_VARIANT_OK");
     const connected = new Set(discovered.map((model) => model.id));
     for (const model of requestedModels) {
       expect(connected.has(model)).toBe(true);
@@ -111,5 +153,5 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
       expect(billedTokens).toBeGreaterThan(0);
       expect(billedTokens).toBeLessThanOrEqual(TOKEN_LIMIT_PER_MODEL);
     }
-  }, 400_000);
+  }, 520_000); // Adds one 120-second variant smoke to the prior 400-second bound.
 });

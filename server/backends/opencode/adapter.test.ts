@@ -76,6 +76,7 @@ function liveSupervisor(): Promise<OpenCodeSupervisor> {
           tool_call: true,
           limit: { context: 100000, output: 10000 },
           cost: { input: 0, output: 0 },
+          variants: { high: {}, low: {}, none: {}, thinking: {} },
         },
       },
       options: {
@@ -868,6 +869,25 @@ describe("OpenCode pinned transport", () => {
             },
           );
         }
+        if (url.pathname === "/provider") {
+          return Response.json({
+            connected: ["alpha", "beta", "gamma"],
+            all: [
+              {
+                id: "alpha",
+                models: { "model-one": { variants: { high: {} } } },
+              },
+              {
+                id: "beta",
+                models: { "model-two": { variants: { high: {} } } },
+              },
+              {
+                id: "gamma",
+                models: { "model-three": { variants: { high: {} } } },
+              },
+            ],
+          });
+        }
         if (url.pathname.endsWith("/prompt_async")) {
           const body = (await request.json()) as {
             model?: unknown;
@@ -1044,12 +1064,20 @@ describe("OpenCode pinned transport", () => {
     // The mock declares cost {input: 0, output: 0}, so free detection must
     // mark it - a discovery result WITHOUT isFree here would mean the
     // measured-cost predicate silently stopped reading the payload.
-    expect(discovered).toContainEqual({
+    const gateModel = discovered.find((model) => model.id === "gate/gate-model");
+    expect(gateModel).toMatchObject({
       id: "gate/gate-model",
       label: "Gate mock - Gate model",
       isFree: true,
-      supportedEfforts: [],
     });
+    expect(gateModel?.supportedEfforts).toContainEqual({ level: "low" });
+    expect(gateModel?.supportedEfforts).toContainEqual({ level: "high" });
+    expect(gateModel?.supportedEfforts.some(({ level }) => level === "none")).toBe(
+      false,
+    );
+    expect(
+      gateModel?.supportedEfforts.some(({ level }) => level === "thinking"),
+    ).toBe(false);
     expect(discovered.some((model) => model.id.startsWith("offline/"))).toBe(
       false,
     );

@@ -21,6 +21,11 @@ import {
   type OpenCodePermissionEnvelope,
 } from "./safety-adapter.ts";
 import type { evaluateProposedAction } from "../../safety-policy.ts";
+import {
+  DEFAULT_EFFORT,
+  EFFORT_LEVELS,
+  type EffortLevel,
+} from "../../../shared/types.ts";
 
 export const OPENCODE_PERMISSION_ID_WARNING =
   "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
@@ -43,6 +48,7 @@ export interface DiscoveredOpenCodeModel {
   label: string;
   contextLimit?: number;
   isFree?: boolean;
+  supportedEfforts: { level: EffortLevel }[];
 }
 
 export function openCodeModelIsFree(rawCost: unknown): boolean {
@@ -90,6 +96,7 @@ export async function discoverOpenCodeModels(
 export interface OpenCodeTransportOptions {
   cwd: string;
   model: string;
+  effort?: string;
   // Administrative transports used only for history/fork operations have no
   // prompt. Any transport that sends a turn must provide one.
   systemPrompt?: string;
@@ -243,6 +250,7 @@ export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
   private readonly model: string;
+  private readonly effort: string;
   private readonly systemPrompt: string | undefined;
   private readonly agentToken: string | undefined;
   private readonly agentId: string | undefined;
@@ -255,6 +263,10 @@ export class OpenCodeTransport {
     breakdown: OpenCodeContextBreakdown,
   ) => void;
   private modelContextLimit: number | null | undefined;
+  private modelSupportedEfforts: Set<EffortLevel> | undefined;
+  // Try once per session and cache a safe result. A failed catalog lookup
+  // means no advertised efforts, so later turns omit variant without retrying.
+  private discoveredModel: DiscoveredOpenCodeModel | null | undefined;
   private lease: OpenCodeLease | null = null;
   private sessionId: string | null = null;
   private abortController: AbortController | null = null;
@@ -268,6 +280,7 @@ export class OpenCodeTransport {
     this.supervisor = options.supervisor ?? openCodeSupervisor;
     this.cwd = options.cwd;
     this.model = options.model;
+    this.effort = options.effort ?? DEFAULT_EFFORT;
     this.systemPrompt = options.systemPrompt;
     this.agentToken = options.agentToken;
     this.agentId = options.agentId;
@@ -282,16 +295,39 @@ export class OpenCodeTransport {
   async getModelContextLimit(): Promise<number | null> {
     if (this.modelContextLimit !== undefined) return this.modelContextLimit;
     await this.initialize(() => undefined);
-    const response = await this.request("/provider");
-    const model = allowDiscoveredModels(await response.json()).find(
-      (candidate) => candidate.id === this.model,
-    );
+    const model = await this.loadDiscoveredModel();
     this.modelContextLimit = model?.contextLimit ?? null;
     return this.modelContextLimit;
   }
 
   modelId(): string {
     return this.model;
+  }
+
+  private async loadDiscoveredModel(): Promise<DiscoveredOpenCodeModel | null> {
+    if (this.discoveredModel !== undefined) return this.discoveredModel;
+    try {
+      const response = await this.request("/provider");
+      this.discoveredModel =
+        allowDiscoveredModels(await response.json()).find(
+          (candidate) => candidate.id === this.model,
+        ) ?? null;
+    } catch {
+      this.discoveredModel = null;
+    }
+    return this.discoveredModel;
+  }
+
+  private async selectedVariant(): Promise<EffortLevel | undefined> {
+    if (this.modelSupportedEfforts === undefined) {
+      const model = await this.loadDiscoveredModel();
+      this.modelSupportedEfforts = new Set(
+        model?.supportedEfforts.map((option) => option.level) ?? [],
+      );
+    }
+    return this.modelSupportedEfforts.has(this.effort as EffortLevel)
+      ? (this.effort as EffortLevel)
+      : undefined;
   }
 
   async initialize(sink: EventSink): Promise<string> {
@@ -356,6 +392,7 @@ export class OpenCodeTransport {
     }
     try {
       const sessionId = await this.initialize(emit);
+      const variant = await this.selectedVariant();
       await this.lease!.beginTurn();
       turnStarted = true;
       const turnHandle = this.authorityBinding?.activate(this.lease!.pid);
@@ -373,6 +410,7 @@ export class OpenCodeTransport {
           signal: controller.signal,
           body: JSON.stringify({
             model: { providerID, modelID },
+            ...(variant ? { variant } : {}),
             ...(this.agent ? { agent: this.agent } : {}),
             system: turnHandle
               ? this.systemPrompt.replaceAll(
@@ -779,6 +817,10 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       const model = asRecord(rawModel);
       const modelLabel = safeCatalogLabel(model.name, modelId);
       const contextLimit = positiveNumber(asRecord(model.limit), "context");
+      const variants = asRecord(model.variants);
+      const supportedEfforts = EFFORT_LEVELS.filter(({ level }) =>
+        Object.hasOwn(variants, level),
+      ).map(({ level }) => ({ level }));
       if (!byId.has(id)) {
         byId.set(id, {
           id,
@@ -792,6 +834,7 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
               : `${providerLabel} - ${modelLabel}`,
           ...(contextLimit !== null ? { contextLimit } : {}),
           ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
+          supportedEfforts,
         });
       }
     }

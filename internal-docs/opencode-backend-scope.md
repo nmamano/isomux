@@ -206,10 +206,10 @@ The adapter translates these to explicit OpenCode rules. It must not persist
 an OpenCode "always" decision if Isomux promised that an approval lasts only
 for the current session.
 
-OpenCode model variants do not map cleanly to the current `effort` field. Hide
-the effort picker for OpenCode in v1 and let each model use its advertised
-default. Do not rename variants to effort levels. Variant selection can be a
-separate later feature.
+OpenCode model variants use the exact intersection with Isomux effort levels.
+The picker appears only when the selected model exposes at least one matching
+variant. Provider-specific names remain hidden, and models without a match use
+their OpenCode default. See `internal-docs/opencode-efforts.md`.
 
 Existing agent persistence already stores backend, model, effort, permission,
 working directory, and session ID. The required migration is additive:

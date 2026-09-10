@@ -1,7 +1,9 @@
 import {
   CODEX_MODELS,
+  DEFAULT_EFFORT,
   OPENCODE_DEFAULT_MODEL,
   type BackendModelWire,
+  type EffortLevel,
 } from "../shared/types.ts";
 import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 import { apiFetch, ApiError } from "./api.ts";
@@ -79,6 +81,16 @@ export function defaultBackendModel(
     visibleModels.find((model) => model.isDefault) ??
     visibleModels[0]
   );
+}
+
+export function selectSupportedEffort(
+  current: EffortLevel,
+  supportedEfforts: BackendModelWire["supportedEfforts"],
+): EffortLevel | undefined {
+  const levels = supportedEfforts.map((option) => option.level);
+  if (levels.includes(current)) return current;
+  if (levels.includes(DEFAULT_EFFORT)) return DEFAULT_EFFORT;
+  return levels[0] as EffortLevel | undefined;
 }
 
 export function modelSelectCursor(

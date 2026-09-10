@@ -631,7 +631,7 @@ export const ca: Catalog = {
   "common.field.approvalPolicy": "Política d'aprovació",
   "common.field.workingDirectory": "Directori de treball",
 
-  "common.effort.minimal": "Mínim (només Codex)",
+  "common.effort.minimal": "Mínim",
   "common.effort.low": "Baix",
   "common.effort.medium": "Mitjà",
   "common.effort.high": "Alt",
@@ -1641,8 +1641,8 @@ export const ca: Catalog = {
   "commands.model.openCodeUnsupported":
     "Obre la configuració de l'agent per triar un model d'OpenCode connectat.",
   "commands.model.header": "Canviar de model (actual: **{current}**):",
-  "commands.effort.openCodeUnsupported":
-    "OpenCode no exposa controls d'esforç de raonament.",
+  "commands.effort.openCodeSettings":
+    "Les opcions d'esforç d'OpenCode estan disponibles a la configuració de l'agent per als models que les ofereixen.",
   "commands.effort.header":
     "Canviar l'esforç de raonament (actual: **{current}**):",
   "commands.isomuxAllHands.room": "**=== Sala {number} ===**",

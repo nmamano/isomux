@@ -630,7 +630,7 @@ export const en = {
   // Reasoning effort, keyed by the id in EFFORT_LEVELS (shared/types.ts). That
   // table keeps its English label for the server's /effort command until S7;
   // catalog.test.ts holds the two copies to the same text.
-  "common.effort.minimal": "Minimal (Codex only)",
+  "common.effort.minimal": "Minimal",
   "common.effort.low": "Low",
   "common.effort.medium": "Medium",
   "common.effort.high": "High",
@@ -1623,8 +1623,8 @@ export const en = {
   "commands.model.header": "Switch model (current: **{current}**):",
 
   // /effort
-  "commands.effort.openCodeUnsupported":
-    "OpenCode does not expose thinking effort controls.",
+  "commands.effort.openCodeSettings":
+    "OpenCode effort choices are available in agent settings for models that expose them.",
   "commands.effort.header": "Switch thinking effort (current: **{current}**):",
 
   // /isomux-all-hands

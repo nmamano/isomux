@@ -155,11 +155,9 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
   { family: "haiku", label: "Haiku" },
 ];
 
-// Reasoning effort levels. Most are shared across Claude (--effort flag) and
-// Codex (ReasoningEffort enum); `minimal` and `ultra` are Codex-only, and
-// `max` is Claude top-tier families plus the Codex gpt-5.6 and gpt-6
-// models. UI
-// filters per-backend.
+// Reasoning effort levels. Each backend reports the subset that a model
+// supports. OpenCode variants use the exact matching values from this list;
+// provider-specific names stay hidden. UI filters per backend and model.
 export type EffortLevel =
   | "minimal"
   | "low"
@@ -344,13 +342,10 @@ export function claudeFamilySupportsMaxEffort(family: string): boolean {
   return family === "opus" || family === "fable";
 }
 
-// Static effort options for an agent, filtered by backend + model family.
-// Claude: family-level rules ("minimal"/"ultra" are Codex-only; "max" is
-// top-tier families only) - single source for claude.ts listModels and the
-// /effort slash-command picker. Codex: the full static list; the real
-// allow-list is the dynamic per-model supportedReasoningEfforts from
-// model/list, and codex rejects unsupported values at thread/start,
-// mirroring validateEffort's pass-through philosophy.
+// Static effort options for slash commands, filtered by backend + model
+// family. Claude applies family-level rules. Codex uses the full static list;
+// model/list is the real allow-list. OpenCode exposes its dynamic per-model
+// variants in the dialogs, so its slash command has no static list.
 export function effortLevelsFor(
   agentType: AgentBackendType,
   modelFamily: string,
@@ -1371,7 +1366,8 @@ export interface SessionWire {
 }
 
 // Backend-reported effort option for a model. `level` is the backend-specific
-// effort enum value (Codex: ReasoningEffort string; Claude: EffortLevel string).
+// effort enum value (Codex: ReasoningEffort string; Claude: EffortLevel string;
+// OpenCode: an exact EffortLevel-named model variant).
 export interface BackendEffortOptionWire {
   level: string;
   description?: string;
