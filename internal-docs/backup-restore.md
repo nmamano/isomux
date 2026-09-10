@@ -89,6 +89,7 @@ Two things are silently absent:
   | Codex, default `<state-root>/codex-home` (rollouts in `sessions/`) | **Yes**, except login and shell snapshots |
   | Personal Claude/Codex homes below `<state-root>/provider-homes` | **Yes**, except login and shell snapshots |
   | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, except provider and MCP login files |
+  | Agent browser profiles below `<state-root>/browser-profiles` | No - login state is omitted |
   | Any home redirected out of the state root by a per-user env file (`CLAUDE_CONFIG_DIR=...`, `CODEX_HOME=~/.isomux-users/<name>/.codex`) | No |
   | A `CLAUDE_CONFIG_DIR` pointed *inside* the state root | Yes |
 
@@ -347,7 +348,8 @@ signed in until that session would have expired anyway.
   running. Apps that were stopped remain stopped and use the new token when
   started from the Apps page.
 - **Restore the omitted user credentials.** Follow `RESTORE.txt`. Managed
-  environment variables and provider logins cannot be re-minted by Isomux.
+  environment variables, provider logins and agent browser logins cannot be
+  re-minted by Isomux.
 - **Anything newer than the backup is gone**: messages, tasks, cron
   runs, invites minted since. The tarball's mtime tells you the cutoff.
 - **Version skew.** Restoring into the same release the backup came from

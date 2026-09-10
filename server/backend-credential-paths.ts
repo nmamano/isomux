@@ -3,7 +3,12 @@
 // credential location must update both policies in the same change.
 
 export interface BackendCredentialPath {
-  id: "claude-login" | "codex-login" | "opencode-login" | "opencode-mcp-login";
+  id:
+    | "claude-login"
+    | "codex-login"
+    | "opencode-login"
+    | "opencode-mcp-login"
+    | "browser-profile";
   pattern: RegExp;
   archivePatterns: (stateRootName: string) => string[];
 }
@@ -13,6 +18,15 @@ function anywhere(stateRootName: string, suffix: string): string[] {
 }
 
 export const BACKEND_CREDENTIAL_PATHS: readonly BackendCredentialPath[] = [
+  {
+    id: "browser-profile",
+    pattern:
+      /(^|\/)browser-profiles\/[^/]+\/storage-state\.json(?:\.corrupt-\d+)?$/,
+    archivePatterns: (root) => [
+      `${root}/browser-profiles/*/storage-state.json`,
+      `${root}/browser-profiles/*/storage-state.json.corrupt-*`,
+    ],
+  },
   {
     id: "claude-login",
     pattern: /(^|\/)\.credentials\.json$/,

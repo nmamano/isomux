@@ -181,6 +181,8 @@ describe("verified backup publication", () => {
       ".local/share/opencode/mcp-auth.json",
       "opencode/profiles/shared/data/opencode/auth.json",
       "opencode/profiles/shared/data/opencode/mcp-auth.json",
+      "browser-profiles/u-alice/storage-state.json",
+      "browser-profiles/u-alice/storage-state.json.corrupt-1789000000000",
       "tls/cert.key",
     ];
     const kept = [

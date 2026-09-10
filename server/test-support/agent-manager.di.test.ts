@@ -124,6 +124,39 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
+  it("passes the managing user id to the browser profile", async () => {
+    const calls: Array<{ agentId: string; profileId: string | null }> = [];
+    const mgr = createAgentManager({
+      resolveBackend: () => new FakeBackend(),
+      officeState: new OfficeState({ rooms: rooms("room-browser-profile") }),
+      initialRooms: [],
+      runBrowserAction: async (agentId, _body, profileId) => {
+        calls.push({ agentId, profileId });
+        return { ok: true, url: "", title: "" };
+      },
+    });
+    const info = await mgr.spawn(
+      "Browser agent",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-browser-profile",
+      undefined,
+      undefined,
+      undefined,
+      "Owner",
+      "claude",
+      undefined,
+      "user-stable-id",
+    );
+    expect(info).not.toBeNull();
+    await mgr.runAgentBrowserAction(info!.id, { action: "close" });
+    expect(calls).toEqual([
+      { agentId: info!.id, profileId: "user-stable-id" },
+    ]);
+  });
+
   it("classifies OpenCode and Codex sessions as fixed to their birth cwd", () => {
     expect(backendSessionHasFixedCwd("opencode")).toBe(true);
     expect(backendSessionHasFixedCwd("codex")).toBe(true);

@@ -10,6 +10,13 @@ In a standard Isomux install, the server, its agents, and the Codex checker run 
 
 A filesystem-capable MCP remains a concrete route around the built-in tool mappings. On 2026-08-30, live policy checks allowed such an MCP to write Isomux state, read a backend login file, and replace the Codex checker executable. Mapping Codex `apply_patch` into the safety policy closed that tool route; it did not close the class of filesystem-capable tools.
 
+The agent browser (`server/browser-session.ts`, `POST /api/agents/:id/browser`) is not a backend tool, so no hook sees it. Its rules run in the isomux process before Playwright is called: http and https only, no credentials in the URL, and downloads refused at the browser context. The scheme check applies to the URL the agent passes; a page navigates itself afterwards, and Chrome is what refuses a later `file://` navigation (measured against Chrome 151 on 2026-09-05: a `file://` link click, a scripted `file://` navigation, and a 302 to `file://` were all refused). There is no origin policy, by design: a page can navigate to any other http(s) origin, as it can for a person following a link. Chrome keeps its own sandbox, because the pages are untrusted by design. The office stores one browser profile per boss under its state root. A boss's agents share that profile and its logins; another boss's agents never receive it. A logged-in profile increases what a hostile page or mistaken agent action can reach, so the manager-login confirmation rule applies when another boss asks an agent to use it. The context closes on idle and at kill, but its profile persists. An agent holds one page: a window the site opens replaces it, and the page it left closes. A driving browser attached as an MCP server instead would land in the gap named above: it can navigate to `file://`, save to a path the model chooses, and upload a local file into a form. `internal-docs/browser-use-exploration.md` records that comparison.
+
+The live Browser panel does not widen the profile boundary. Only the managing
+boss can watch or drive the page, and the server checks that stable user id on
+every input event. An office owner or a different boss with room access gets no
+frames and no input path.
+
 Before each Codex spawn, Isomux hashes the installed checker bytes and repairs missing or changed content from a verified build artifact. However, a replacement at the same path can affect the next tool call in an already running session. The pre-spawn repair therefore limits a replaced checker to the remainder of the current session; it does not protect that live session.
 
 ## Protected paths and limits

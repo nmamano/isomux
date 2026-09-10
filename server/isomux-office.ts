@@ -23,6 +23,7 @@ import type {
   AppRecord,
   AppWire,
   AppListWire,
+  BrowserHumanInput,
 } from "../shared/types.ts";
 import {
   listAllPresence,
@@ -120,6 +121,7 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
+import { browserPool } from "./browser-session.ts";
 import {
   browserSessionDiagnostic,
   buildPublicOrigin,
@@ -887,6 +889,48 @@ let executorDeps: ExecutorDeps;
 // connectionId (resolved back to a socket by the connectionId emit projection).
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
+const browserWatches = new Map<string, Map<string, () => void>>();
+
+function managesAgent(session: SessionLookup, agentId: string): boolean {
+  return agentManager.getAgent(agentId)?.userId === session.userId;
+}
+
+function validBrowserInput(value: unknown): value is BrowserHumanInput {
+  if (!value || typeof value !== "object") return false;
+  const input = value as Record<string, unknown>;
+  if (input.kind === "mouse") {
+    return (
+      ["mousePressed", "mouseReleased", "mouseMoved", "mouseWheel"].includes(
+        String(input.event),
+      ) &&
+      Number.isFinite(input.x) &&
+      Number.isFinite(input.y) &&
+      Number(input.x) >= 0 &&
+      Number(input.x) <= 2560 &&
+      Number(input.y) >= 0 &&
+      Number(input.y) <= 2560 &&
+      (input.deltaX === undefined || Number.isFinite(input.deltaX)) &&
+      (input.deltaY === undefined || Number.isFinite(input.deltaY))
+    );
+  }
+  return (
+    input.kind === "key" &&
+    ["keyDown", "keyUp", "rawKeyDown", "char"].includes(String(input.event)) &&
+    typeof input.key === "string" &&
+    input.key.length <= 64 &&
+    (input.code === undefined ||
+      (typeof input.code === "string" && input.code.length <= 64)) &&
+    (input.text === undefined ||
+      (typeof input.text === "string" && input.text.length <= 16))
+  );
+}
+
+function stopBrowserWatch(connectionId: string, agentId: string): void {
+  const watches = browserWatches.get(connectionId);
+  watches?.get(agentId)?.();
+  watches?.delete(agentId);
+  if (watches?.size === 0) browserWatches.delete(connectionId);
+}
 
 function editorKey(agentId: string, absPath: string): string {
   return `${agentId}\0${absPath}`;
@@ -2281,7 +2325,7 @@ function buildExecutorDeps(
   );
 
   // Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
-  // terminal-command / preview-url on the agent's OWN chat). Slim deps: just the
+  // terminal-command / preview-url / browser on the agent's OWN chat). Slim deps: just the
   // manager emit ops. The manager emits room-ACL-projected log_entry via the
   // event sink; handlers never emit. These /api routes are the SOLE affordance
   // surface now - the legacy loopback /agents/:id/* affordance handlers were
@@ -2298,6 +2342,8 @@ function buildExecutorDeps(
         agentManager.emitAgentTerminalCommand(agentId, command),
       emitAgentPreviewUrl: (agentId, body) =>
         agentManager.emitAgentPreviewUrl(agentId, body),
+      runAgentBrowserAction: (agentId, body) =>
+        agentManager.runAgentBrowserAction(agentId, body),
       getAgentContextUsage: (agentId) =>
         agentManager.getAgentContextUsage(agentId),
     }),
@@ -5007,6 +5053,37 @@ async function handleInboundMessage(
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.restartTerminal(cmd.agentId);
         break;
+      case "browser_watch": {
+        stopBrowserWatch(ws.data.connectionId, cmd.agentId);
+        if (!cmd.watching || !managesAgent(session, cmd.agentId)) break;
+        let watches = browserWatches.get(ws.data.connectionId);
+        if (!watches) {
+          watches = new Map();
+          browserWatches.set(ws.data.connectionId, watches);
+        }
+        const stop = browserPool.watch(cmd.agentId, (frame) => {
+          if (!browsers.has(ws) || !managesAgent(ws.data.session, cmd.agentId)) {
+            stopBrowserWatch(ws.data.connectionId, cmd.agentId);
+            return;
+          }
+          ws.send(
+            JSON.stringify(
+              frame
+                ? { type: "browser_frame", agentId: cmd.agentId, ...frame }
+                : { type: "browser_status", agentId: cmd.agentId, available: false },
+            ),
+          );
+        });
+        watches.set(cmd.agentId, stop);
+        break;
+      }
+      case "browser_input":
+        // Recheck management on every event. Room access and an authorization
+        // result from panel-open time are not credentials for this profile.
+        if (!managesAgent(session, cmd.agentId) || !validBrowserInput(cmd.input))
+          break;
+        await browserPool.humanInput(cmd.agentId, cmd.input);
+        break;
     }
   } catch (err) {
     console.error(`[inbound] ${cmd.type} failed:`, err);
@@ -5940,6 +6017,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const ws = socket as ServerWebSocket<OfficeWsData>;
         browsers.delete(ws);
+        for (const agentId of [
+          ...(browserWatches.get(ws.data.connectionId)?.keys() ?? []),
+        ])
+          stopBrowserWatch(ws.data.connectionId, agentId);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by
         // connectionId now that the editor is REST - a leaked watch leaks a

@@ -234,6 +234,51 @@ export type AgentContextUsageResp =
   | { available: false; reason: "no_session" | "not_yet_measured" };
 
 /**
+ * POST /api/agents/:id/browser - drive a page in the office browser.
+ * `action` picks what happens; the rest of the fields belong to that action.
+ * See server/browser-session.ts for the rules (http(s) only, no credentials in
+ * the URL, no downloads) and internal-docs/browser-use-exploration.md for why.
+ */
+export interface AffordanceBrowserReq {
+  action:
+    | "goto"
+    | "snapshot"
+    | "text"
+    | "click"
+    | "fill"
+    | "press"
+    | "screenshot"
+    | "close";
+  /** `goto`: the http(s) URL to open. */
+  url?: string;
+  /** `click`, `fill`, and optionally `press`: a Playwright selector. */
+  selector?: string;
+  /** `fill`: the value to type into the field. */
+  text?: string;
+  /** `press`: the key name, e.g. "Enter". */
+  key?: string;
+  /** `screenshot`: capture the whole page instead of the viewport. */
+  fullPage?: boolean;
+  /** Integers, 320..2560 each. Default 1280x800. Applied when the context opens. */
+  viewport?: { width: number; height: number };
+}
+
+/**
+ * Every action answers with the page's url and title after it ran, so an agent
+ * that clicked into a navigation knows where it landed. `snapshot` adds the
+ * ARIA tree, `text` adds the rendered body text, `close` sets `closed`.
+ * A `screenshot` puts its image in the agent's chat and returns no bytes here.
+ */
+export interface AffordanceBrowserResp {
+  ok: true;
+  url: string;
+  title: string;
+  snapshot?: string;
+  text?: string;
+  closed?: boolean;
+}
+
+/**
  * GET /api/agents/:id/logs - conversation-log search and retrieval. One route,
  * three modes chosen by the query (see server/log-search.ts): `?q=` searches,
  * `?session=` retrieves, neither lists the agent's sessions.

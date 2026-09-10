@@ -53,6 +53,8 @@ const AGENT = {
   agentType: "claude",
   modelFamily: "opus",
   topic: null,
+  userId: "u1",
+  username: "Tester",
   queue: [
     {
       id: "q1",
@@ -186,6 +188,11 @@ const ANCHOR = {
     es: "Abrir la terminal (Ctrl+`)",
     en: "Open terminal (Ctrl+`)",
   },
+  openBrowser: {
+    ca: "Obre el navegador en directe",
+    es: "Abrir el navegador en directo",
+    en: "Open live browser",
+  },
   // The context battery with no reading, by its accessible name.
   battery: {
     ca: "L'ús del context encara no s'ha mesurat. Toca per veure'n els detalls.",
@@ -281,6 +288,7 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueAttachments.ca);
     titled(view, ANCHOR.editAgent.ca);
     titled(view, ANCHOR.openTerminal.ca);
+    titled(view, ANCHOR.openBrowser.ca);
     labelled(view, ANCHOR.battery.ca);
     labelled(view, ANCHOR.pill.ca);
     expect(
@@ -295,6 +303,7 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueChip.es);
     shows(view, ANCHOR.queueAttachments.es);
     titled(view, ANCHOR.editAgent.es);
+    titled(view, ANCHOR.openBrowser.es);
     labelled(view, ANCHOR.battery.es);
     labelled(view, ANCHOR.pill.es);
     expect(view.queryByPlaceholderText(ANCHOR.composer.es)).not.toBeNull();
@@ -307,6 +316,7 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueAttachments.en);
     titled(view, ANCHOR.editAgent.en);
     titled(view, ANCHOR.openTerminal.en);
+    titled(view, ANCHOR.openBrowser.en);
     labelled(view, ANCHOR.battery.en);
     labelled(view, ANCHOR.pill.en);
     expect(view.queryByPlaceholderText(ANCHOR.composer.en)).not.toBeNull();

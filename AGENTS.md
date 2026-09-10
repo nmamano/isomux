@@ -30,7 +30,7 @@ If an action runs into permission issues because it's a destructive action, let 
 
 Debug agent issues by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl`.
 
-Look at UI changes instead of assuming them. A box set up by `deploy/install.sh` normally has a headless Google Chrome at `/usr/bin/google-chrome` (the installer warns and carries on when it could not install one), and there are two ways to use it: the `preview-url` card, which screenshots a page straight into the chat, and Playwright launched with `channel: "chrome"`, which drives that same Chrome. Taking that route, Playwright needs no browser download of its own: no `npx playwright install`, and for Chromium no `playwright install-deps` either, since Chrome's package already pulls in the shared libraries it would install.
+Look at UI changes instead of assuming them. A box set up by `deploy/install.sh` normally has a headless Google Chrome at `/usr/bin/google-chrome` (the installer warns and carries on when it could not install one), and there are three ways to use it: the `preview-url` card, which screenshots a page straight into the chat; the `browser` affordance (`server/browser-session.ts`), which keeps a page open per agent so it can read, click and fill; and Playwright launched by hand, which drives that same Chrome. The browser affordance stores one storage-state profile per boss under the isomux state root and shares it only with that boss's agents. Taking that route, Playwright needs no browser download of its own: no `npx playwright install`, and for Chromium no `playwright install-deps` either, since Chrome's package already pulls in the shared libraries it would install.
 
 ## Formatting and linting
 

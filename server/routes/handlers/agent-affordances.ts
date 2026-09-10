@@ -35,6 +35,8 @@ import type {
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
+  AffordanceBrowserReq,
+  AffordanceBrowserResp,
   AgentContextUsageResp,
 } from "../../../shared/contract-shapes.ts";
 
@@ -53,6 +55,13 @@ type PreviewAffordanceResult =
   | { ok: true }
   | { ok: false; status: number; code: string; error: string };
 
+// The browser affordance answers with data, not just `ok`: an agent reads the
+// page from the response. The screenshot action is the one that also leaves a
+// card in the chat, and the manager owns that emit.
+type BrowserAffordanceResult =
+  | ({ ok: true } & AffordanceBrowserResp)
+  | { ok: false; status: number; code: string; error: string };
+
 export interface AgentAffordanceDeps {
   emitAgentReadFile(agentId: string, path: string): AffordanceResult;
   emitAgentDiff(
@@ -66,6 +75,10 @@ export interface AgentAffordanceDeps {
     agentId: string,
     body: unknown,
   ): Promise<PreviewAffordanceResult>;
+  runAgentBrowserAction(
+    agentId: string,
+    body: unknown,
+  ): Promise<BrowserAffordanceResult>;
   // Context-fullness self-check. Never throws for "no data" - unavailability
   // is a structured { available: false, reason } payload, not an error.
   getAgentContextUsage(agentId: string): Promise<AgentContextUsageResp>;
@@ -148,6 +161,25 @@ export function agentAffordanceHandlers(
       } catch (err) {
         console.error("[agents.previewUrl] unexpected rejection:", err);
         return fail(500, "capture_failed", "unexpected error during capture");
+      }
+    },
+
+    "agents.browser": async (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<AffordanceBrowserReq>;
+      if (typeof body.action !== "string" || body.action.length === 0) {
+        return fail(400, "invalid_request", "action is required");
+      }
+      // Full validation (the action name, its own required fields, the URL
+      // rules, viewport ranges) lives in browser-session.ts; the handler stays
+      // shallow, like previewUrl above.
+      try {
+        const r = await deps.runAgentBrowserAction(ctx.params.id, ctx.body);
+        if (!r.ok) return fail(r.status as HandlerErrorStatus, r.code, r.error);
+        const { ok: _ok, ...payload } = r;
+        return ok({ ok: true, ...payload });
+      } catch (err) {
+        console.error("[agents.browser] unexpected rejection:", err);
+        return fail(500, "action_failed", "unexpected error in the browser");
       }
     },
 

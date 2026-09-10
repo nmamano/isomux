@@ -1494,6 +1494,27 @@ export type UpdateStatusWire =
       } | null;
     };
 
+export type BrowserHumanInput =
+  | {
+      kind: "mouse";
+      event: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel";
+      x: number;
+      y: number;
+      button?: "none" | "left" | "middle" | "right";
+      clickCount?: number;
+      deltaX?: number;
+      deltaY?: number;
+      modifiers?: number;
+    }
+  | {
+      kind: "key";
+      event: "keyDown" | "keyUp" | "rawKeyDown" | "char";
+      key: string;
+      code?: string;
+      text?: string;
+      modifiers?: number;
+    };
+
 // Server → Browser messages
 export type ServerMessage =
   | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
@@ -1566,6 +1587,14 @@ export type ServerMessage =
       shell: boolean;
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
+  | {
+      type: "browser_frame";
+      agentId: string;
+      data: string;
+      width: number;
+      height: number;
+    }
+  | { type: "browser_status"; agentId: string; available: boolean }
   | {
       type: "editor_external_change";
       agentId: string;
@@ -1679,6 +1708,12 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "terminal_restart"; agentId: string }
+  | { type: "browser_watch"; agentId: string; watching: boolean }
+  | {
+      type: "browser_input";
+      agentId: string;
+      input: BrowserHumanInput;
+    }
   | {
       // Live-avatars feature: client tells the server where its ghost
       // should appear. Sent on initial WS open (after session_context

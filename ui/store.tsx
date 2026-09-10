@@ -115,7 +115,7 @@ export interface AppState {
   // viewed this agent. Persists across LogView remount on agent switch so
   // the panel reopens automatically when the boss returns. `undefined` means
   // never opened a panel; missing entries default to closed.
-  sidePanels: Map<string, "terminal" | "editor">;
+  sidePanels: Map<string, "terminal" | "editor" | "browser">;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<
     string,
@@ -260,7 +260,7 @@ type Action =
   | {
       type: "set_side_panel";
       agentId: string;
-      panel: "terminal" | "editor" | null;
+      panel: "terminal" | "editor" | "browser" | null;
     }
   | {
       type: "slash_commands";

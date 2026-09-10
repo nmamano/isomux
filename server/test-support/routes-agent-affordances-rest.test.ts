@@ -432,6 +432,120 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
   });
 });
 
+describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
+  // The route, its gate, and its validation. The pool is an office-wide
+  // singleton, so these cover what the REST layer owns and stop before a real
+  // Chrome; the engine (contexts, idle close, action mapping, caps) is covered
+  // by browser-session.test.ts with an injected browser.
+
+  it("rejects a missing or unknown action -> 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+
+    const missing = await affordance(srv, agent.id, "browser", {}, {
+      bearer: token,
+    });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error?.code).toBe("invalid_request");
+
+    const unknown = await affordance(
+      srv,
+      agent.id,
+      "browser",
+      { action: "evaluate" },
+      { bearer: token },
+    );
+    expect(unknown.status).toBe(400);
+    expect(unknown.body.error?.code).toBe("invalid_request");
+  });
+
+  it("rejects a non-http URL and credentials in the URL before any browser work -> 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+
+    for (const url of ["file:///etc/passwd", "http://user:pw@127.0.0.1:3000/"]) {
+      const r = await affordance(
+        srv,
+        agent.id,
+        "browser",
+        { action: "goto", url },
+        { bearer: token },
+      );
+      expect(r.status).toBe(400);
+      expect(r.body.error?.code).toBe("invalid_request");
+    }
+  });
+
+  it("the close action succeeds when the agent holds no context", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const r = await affordance(
+      srv,
+      agent.id,
+      "browser",
+      { action: "close" },
+      { bearer: token },
+    );
+    expect(r.status).toBe(200);
+    expect(r.body.closed).toBe(true);
+  });
+
+  it("reports launch_failed when the configured browser cannot start -> 500", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const prevEnv = process.env.ISOMUX_PREVIEW_BROWSER;
+    process.env.ISOMUX_PREVIEW_BROWSER = join(srv.stateRoot, "no-such-browser");
+    try {
+      const r = await affordance(
+        srv,
+        agent.id,
+        "browser",
+        { action: "goto", url: "http://127.0.0.1:3000/" },
+        { bearer: token },
+      );
+      expect(r.status).toBe(500);
+      expect(r.body.error?.code).toBe("launch_failed");
+    } finally {
+      if (prevEnv === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
+      else process.env.ISOMUX_PREVIEW_BROWSER = prevEnv;
+    }
+  });
+
+  it("an agent token cannot drive a DIFFERENT agent's browser -> 403", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const a = await spawnAgent(srv, "Alice", room.id);
+    const b = await spawnAgent(srv, "Bob", room.id);
+    const aToken = getAgentTokenRaw(a.id)!;
+    const r = await affordance(
+      srv,
+      b.id,
+      "browser",
+      { action: "snapshot" },
+      { bearer: aToken },
+    );
+    expect(r.status).toBe(403);
+  });
+});
+
 describe("routes/agent-affordances REST: authz", () => {
   it("an agent token cannot affordance a DIFFERENT agent's chat -> 403", async () => {
     const srv = await startTestServer();

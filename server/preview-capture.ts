@@ -209,9 +209,10 @@ export function parsePreviewParams(
 }
 
 // Engine probe. ISOMUX_PREVIEW_BROWSER overrides for unusual install paths and
-// for deterministic tests (a fake shell-script "browser").
+// for deterministic tests (a fake shell-script "browser"). Exported because
+// browser-session.ts resolves the same executable: one rule, one override.
 
-function defaultFindBrowser(): string | null {
+export function defaultFindBrowser(): string | null {
   const override = process.env.ISOMUX_PREVIEW_BROWSER;
   if (override) return override;
   for (const candidate of BROWSER_CANDIDATES) {

@@ -97,6 +97,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` - rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](self-hosted.md#vps-install) sets up for you (runs headless, so no display is needed); everything else works without one.
+- **Agents use the browser** - an agent can open a page, read it, click a control, and fill a form in the same browser. The boss who manages the agent can watch the page live, click, type, and log in. The office stores one browser profile per boss on its disk. A boss's agents share that profile and its logins; nobody else can view or control it. The page closes after five idle minutes, but stays open while its Browser panel is open.
 - `/isomux-usage` - per-agent / per-room / per-schedule token spend, scoped to the rooms you can access. The same report is available under Office Settings.
 - `/isomux-storage` - disk usage by category; owners also see the biggest agents.
 

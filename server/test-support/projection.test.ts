@@ -58,6 +58,8 @@ import {
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { getUserByName } from "../users.ts";
+import { browserPool } from "../browser-session.ts";
 import type {
   AgentInfo,
   LogEntry,
@@ -248,6 +250,7 @@ async function spawnIn(
   srv: TestServer,
   name: string,
   roomId: string,
+  manager?: { username: string },
 ): Promise<AgentInfo> {
   const a = await srv.agentManager.spawn(
     name,
@@ -256,6 +259,13 @@ async function spawnIn(
     undefined,
     undefined,
     roomId,
+    undefined,
+    undefined,
+    undefined,
+    manager?.username,
+    "claude",
+    undefined,
+    manager ? getUserByName(manager.username)?.id : undefined,
   );
   if (!a) throw new Error(`spawn failed: ${name}`);
   return a;
@@ -704,6 +714,93 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
     // Scope: a DIFFERENT visible user is not re-seeded - the replay is for the
     // requester only, not an ACL-scoped broadcast to everyone who can see Hid.
     expect(terminalOutFor(visibleSock)).toHaveLength(0);
+  });
+});
+
+describe("live browser profile authorization", () => {
+  it("creates no subscription when a visible boss does not manage the agent", async () => {
+    server = await boot();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const manager = await server.seedOwner("Boss");
+    const otherBoss = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, otherBoss.username, [roomId]);
+    const agent = await spawnIn(server, "Managed", roomId, manager);
+    const otherSock = await connectSettled(server, otherBoss.rawSessionId);
+
+    const originalWatch = browserPool.watch.bind(browserPool);
+    const watched: string[] = [];
+    browserPool.watch = (agentId) => {
+      watched.push(agentId);
+      return () => {};
+    };
+    try {
+      otherSock.send({ type: "browser_watch", agentId: agent.id, watching: true });
+      await pingPong(otherSock);
+      expect(watched).toEqual([]);
+    } finally {
+      browserPool.watch = originalWatch;
+    }
+  });
+
+  it("rechecks management before every frame and input event", async () => {
+    server = await boot();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const manager = await server.seedOwner("Boss");
+    const otherBoss = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, otherBoss.username, [roomId]);
+    const agent = await spawnIn(server, "Managed", roomId, manager);
+    const managerSock = await connectSettled(server, manager.rawSessionId);
+
+    const originalWatch = browserPool.watch.bind(browserPool);
+    const originalHumanInput = browserPool.humanInput.bind(browserPool);
+    let frameListener: Parameters<typeof browserPool.watch>[1] | null = null;
+    let stopped = 0;
+    const inputUsers: string[] = [];
+    browserPool.watch = (_agentId, listener) => {
+      frameListener = listener;
+      return () => stopped++;
+    };
+    browserPool.humanInput = async (_agentId, input) => {
+      inputUsers.push(input.kind);
+      return true;
+    };
+    try {
+      managerSock.send({ type: "browser_watch", agentId: agent.id, watching: true });
+      await pingPong(managerSock);
+      expect(frameListener === null).toBe(false);
+
+      const managerId = getUserByName(manager.username)!.id;
+      server.agentManager.getAgent(agent.id)!.userId = getUserByName(
+        otherBoss.username,
+      )!.id;
+      const framesBefore = bag(managerSock).filter(
+        (message) => message.type === "browser_frame",
+      ).length;
+      frameListener!({ data: "jpeg", width: 800, height: 600 });
+      await pingPong(managerSock);
+      expect(
+        bag(managerSock).filter((message) => message.type === "browser_frame"),
+      ).toHaveLength(framesBefore);
+      expect(stopped).toBe(1);
+
+      const input = {
+        kind: "key" as const,
+        event: "keyDown" as const,
+        key: "a",
+        text: "a",
+      };
+      managerSock.send({ type: "browser_input", agentId: agent.id, input });
+      await pingPong(managerSock);
+      expect(inputUsers).toEqual([]);
+
+      server.agentManager.getAgent(agent.id)!.userId = managerId;
+      managerSock.send({ type: "browser_input", agentId: agent.id, input });
+      await pingPong(managerSock);
+      expect(inputUsers).toEqual(["key"]);
+    } finally {
+      browserPool.watch = originalWatch;
+      browserPool.humanInput = originalHumanInput;
+    }
   });
 });
 

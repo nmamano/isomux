@@ -818,6 +818,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ],
   ["POST", "/api/agents/*/read-file", "apiCall.agents.shareFile"],
   ["POST", "/api/agents/*/preview-url", "apiCall.agents.previewUrl"],
+  ["POST", "/api/agents/*/browser", "apiCall.agents.browser"],
   ["POST", "/api/agents/*/diff", "apiCall.agents.showDiff"],
   ["POST", "/api/agents/*/edit-file", "apiCall.agents.offerFile"],
   ["POST", "/api/agents/*/terminal-command", "apiCall.agents.suggestCommand"],
@@ -1043,6 +1044,8 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.shareFileDetail");
         if (sub === "preview-url" && m === "POST")
           return t("apiCall.agents.previewUrlDetail");
+        if (sub === "browser" && m === "POST")
+          return t("apiCall.agents.browserDetail");
         if (sub === "diff" && m === "POST")
           return t("apiCall.agents.showDiffDetail");
         if (sub === "edit-file" && m === "POST")

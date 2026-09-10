@@ -51,7 +51,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   },
   {
     method: "POST",
-    path: /^\/api\/agents\/[^/]+\/(messages|read-file|preview-url|diff|edit-file|terminal-command|resume|new-conversation|handoff|send-now|abort|move|revive)$/,
+    path: /^\/api\/agents\/[^/]+\/(messages|read-file|preview-url|browser|diff|edit-file|terminal-command|resume|new-conversation|handoff|send-now|abort|move|revive)$/,
   },
   { method: "PATCH", path: /^\/api\/agents\/[^/]+(?:\/messages\/[^/]+)?$/ },
   {

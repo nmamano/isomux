@@ -595,6 +595,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.editFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
+  "agents.browser": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["self:affordance"], emits: [] },
   // Conversation-log search + retrieval. Its OWN capability, deliberately NOT
   // office:read (which plain agent tokens do not carry) and not self:affordance

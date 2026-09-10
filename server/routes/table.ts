@@ -88,6 +88,8 @@ import type {
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
+  AffordanceBrowserReq,
+  AffordanceBrowserResp,
   AgentContextUsageResp,
   LogsResp,
   EditorSaveReq,
@@ -553,6 +555,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.previewUrl",
     method: "POST",
     path: "/api/agents/:id/preview-url",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: ["log_entry"],
+  }),
+  // Drive a page in the office browser (internal-docs/
+  // browser-use-exploration.md). Same self:affordance gate as preview-url. It
+  // emits only for the screenshot action, which puts a card in the chat; the
+  // read and interaction actions answer the caller and leave the chat alone.
+  defineRoute<AffordanceBrowserReq, AffordanceBrowserResp>({
+    opId: "agents.browser",
+    method: "POST",
+    path: "/api/agents/:id/browser",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
   }),

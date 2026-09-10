@@ -118,6 +118,7 @@ import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { capturePreview } from "./preview-capture.ts";
+import { browserPool, type BrowserResult } from "./browser-session.ts";
 import {
   resolveEditorPath,
   openFile as openEditorFileImpl,
@@ -261,6 +262,11 @@ export interface ManagerDeps {
     userId: string,
     provider: ProviderAccountProvider,
   ) => EffectiveProviderAccountTarget;
+  runBrowserAction?: (
+    agentId: string,
+    body: unknown,
+    profileId: string | null,
+  ) => Promise<BrowserResult>;
 }
 
 export function detectAuthErrorForEnvironment(
@@ -410,6 +416,10 @@ export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
   const initialLoadedAgents = deps.initialRooms;
+  const runBrowserAction =
+    deps.runBrowserAction ??
+    ((agentId: string, body: unknown, profileId: string | null) =>
+      browserPool.run(agentId, body, profileId));
   let lobbySeedPending = initialLoadedAgents.some(
     (room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true,
   );
@@ -2587,6 +2597,58 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // inference.
     addLogEntry(agentId, "file-view", result.caption, { preview: true }, [att]);
     return { ok: true };
+  }
+
+  // Drive a page in the office browser (server/browser-session.ts) for
+  // POST /api/agents/:id/browser. Unlike the other affordances this answers
+  // with DATA - the agent reads the page out of the response - so the payload
+  // travels back to the handler instead of into the chat. The one exception is
+  // the screenshot action: its PNG becomes the same `file-view` preview card
+  // preview-url emits, and the bytes are dropped from the response, because a
+  // base64 image in a curl result is worth nothing to the agent and costs it a
+  // large part of a context window.
+  async function runAgentBrowserAction(
+    agentId: string,
+    body: unknown,
+  ): Promise<
+    | {
+        ok: true;
+        url: string;
+        title: string;
+        snapshot?: string;
+        text?: string;
+        closed?: boolean;
+      }
+    | { ok: false; status: number; code: string; error: string }
+  > {
+    const managed = agents.get(agentId);
+    if (!managed)
+      return {
+        ok: false,
+        status: 404,
+        code: "not_found",
+        error: "agent not found",
+      };
+    const result = await runBrowserAction(
+      agentId,
+      body,
+      managed.info.userId ?? null,
+    );
+    if (!result.ok) return result;
+    const { png, filename, caption, ...payload } = result;
+    if (png && filename && caption) {
+      const att = savePersistedFile(agentId, png, "image/png", filename);
+      if (!att) {
+        return {
+          ok: false,
+          status: 500,
+          code: "save_failed",
+          error: "failed to persist the screenshot",
+        };
+      }
+      addLogEntry(agentId, "file-view", caption, { preview: true }, [att]);
+    }
+    return payload;
   }
 
   // Run the same diff machinery as /isomux-diff and emit the result into the
@@ -7345,6 +7407,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function kill(agentId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // A killed agent keeps no browser context. Its idle timer would close it
+    // anyway; this returns the memory now and stops a revived agent from
+    // inheriting the dead one's page.
+    void browserPool.close(agentId);
     // Stamp the history entry with killedAt + final state BEFORE removing
     // the agent from the live map. After deletion, updateAgentHistory skips
     // this entry (loop is over live agents only), so this write is the
@@ -8769,6 +8835,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentReadFile,
     emitAgentDiff,
     emitAgentPreviewUrl,
+    runAgentBrowserAction,
     getAgentContextUsage,
     spawn,
     enqueueMessage,
