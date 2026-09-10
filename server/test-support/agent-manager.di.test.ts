@@ -42,7 +42,10 @@ import {
   createProductionAgentManager,
   backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
-import { personalProviderHome } from "../provider-homes.ts";
+import {
+  isPersonalProviderActive,
+  personalProviderHome,
+} from "../provider-homes.ts";
 import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
@@ -167,7 +170,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         personalProviderHome("01a19e7b", "claude"),
       );
     } finally {
-      setPersonalProviderActiveProvider(() => false);
+      setPersonalProviderActiveProvider(isPersonalProviderActive);
     }
   });
 

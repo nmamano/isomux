@@ -34,6 +34,7 @@ import {
   clearTestManagedOfficeEnv,
   setTestManagedOfficeEnv,
 } from "./managed-office-env.ts";
+import type { AgentEvent } from "../internal-types.ts";
 
 afterEach(() => clearTestManagedOfficeEnv());
 
@@ -42,12 +43,67 @@ function room(id: string): RoomWire {
 }
 
 async function waitFor(check: () => boolean): Promise<void> {
-  // The poll returns as soon as the condition holds; the deadline is only the
-  // failure bound. Two seconds lost the pre-push CI of 58f70d91 under full-suite
-  // load (2026-09-10), green alone 3 of 3.
+  // Two bounds live in this file. These legacy polls keep a generous 15 s
+  // failure bound; nothing here has been measured near it, and a green poll
+  // returns at once. Event-specific waits use a shorter local bound that can
+  // fail with the event's name before Bun's 5 s per-test cap.
   const deadline = Date.now() + 15_000;
   while (!check() && Date.now() < deadline) await Bun.sleep(5);
   expect(check()).toBe(true);
+}
+
+// This fixture must not inherit a personal Claude sign-in from the test runner.
+function withClaudeConfigDirUnset<T>(run: () => T): T {
+  const inherited = process.env.CLAUDE_CONFIG_DIR;
+  delete process.env.CLAUDE_CONFIG_DIR;
+  try {
+    return run();
+  } finally {
+    if (inherited === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = inherited;
+    }
+  }
+}
+
+function logEntryWaiter() {
+  type LogEntryEvent = Extract<AgentEvent, { type: "log_entry" }>;
+  const waiters = new Set<{
+    matches: (event: LogEntryEvent) => boolean;
+    resolve: (event: LogEntryEvent) => void;
+  }>();
+  return {
+    onEvent: (event: AgentEvent): void => {
+      if (event.type !== "log_entry") return;
+      for (const waiter of waiters) {
+        if (!waiter.matches(event)) continue;
+        waiters.delete(waiter);
+        waiter.resolve(event);
+      }
+    },
+    waitFor(
+      matches: (event: LogEntryEvent) => boolean,
+      description: string,
+    ): Promise<LogEntryEvent> {
+      const promise = new Promise<LogEntryEvent>((resolve, reject) => {
+        const waiter = {
+          matches,
+          resolve: (event: LogEntryEvent) => {
+            clearTimeout(timer);
+            resolve(event);
+          },
+        };
+        const timer = setTimeout(() => {
+          waiters.delete(waiter);
+          reject(new Error(`Timed out waiting for ${description}.`));
+        }, 2_000);
+        waiters.add(waiter);
+      });
+      promise.catch(() => {});
+      return promise;
+    },
+  };
 }
 
 async function harness(opts: {
@@ -57,6 +113,7 @@ async function harness(opts: {
   accounts?: ManagerDeps["listProviderAccounts"];
   timeoutMs?: number;
   target?: () => EffectiveProviderAccountTarget;
+  eventSink?: ManagerDeps["eventSink"];
 }) {
   const roomId = `auth-${crypto.randomUUID()}`;
   const mgr = createAgentManager({
@@ -65,6 +122,7 @@ async function harness(opts: {
     initialRooms: [],
     listProviderAccounts: opts.accounts,
     claudeAuthCheckTimeoutMs: opts.timeoutMs,
+    eventSink: opts.eventSink,
     effectiveProviderAccountTarget: opts.target
       ? () => opts.target!()
       : undefined,
@@ -245,33 +303,62 @@ describe("provider auth affordances", () => {
         () => opts.active === true,
       );
 
-    expect(makeManager({}).effectiveTarget("user-a", "claude").scope).toBe(
-      "office",
-    );
-    expect(
-      makeManager({
-        effective: "./relative-office/",
-        office: "./relative-office",
-      }).effectiveTarget("user-a", "claude").scope,
-    ).toBe("office");
-    expect(
-      makeManager({
-        effective: "/accounts/auto-personal/",
-        active: true,
-      }).effectiveTarget("user-a", "claude").scope,
-    ).toBe("personal");
-    expect(
-      makeManager({
-        effective: "/accounts/explicit/",
-        explicit: "/accounts/explicit",
-      }).effectiveTarget("user-a", "claude").scope,
-    ).toBe("personal");
-    expect(() =>
-      makeManager({
-        effective: "/accounts/unknown",
-        explicit: "/accounts/explicit",
-      }).effectiveTarget("user-a", "claude"),
-    ).toThrow("Cannot map the active claude directory to a scope.");
+    const callerClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    try {
+      process.env.CLAUDE_CONFIG_DIR = "/accounts/fixture-sentinel";
+      expect(() =>
+        withClaudeConfigDirUnset(() => {
+          throw new Error("restore probe");
+        }),
+      ).toThrow("restore probe");
+      expect(process.env.CLAUDE_CONFIG_DIR).toBe(
+        "/accounts/fixture-sentinel",
+      );
+
+      delete process.env.CLAUDE_CONFIG_DIR;
+      expect(() =>
+        withClaudeConfigDirUnset(() => {
+          throw new Error("restore probe");
+        }),
+      ).toThrow("restore probe");
+      expect("CLAUDE_CONFIG_DIR" in process.env).toBe(false);
+    } finally {
+      if (callerClaudeConfigDir === undefined) {
+        delete process.env.CLAUDE_CONFIG_DIR;
+      } else {
+        process.env.CLAUDE_CONFIG_DIR = callerClaudeConfigDir;
+      }
+    }
+
+    withClaudeConfigDirUnset(() => {
+      expect(makeManager({}).effectiveTarget("user-a", "claude").scope).toBe(
+        "office",
+      );
+      expect(
+        makeManager({
+          effective: "./relative-office/",
+          office: "./relative-office",
+        }).effectiveTarget("user-a", "claude").scope,
+      ).toBe("office");
+      expect(
+        makeManager({
+          effective: "/accounts/auto-personal/",
+          active: true,
+        }).effectiveTarget("user-a", "claude").scope,
+      ).toBe("personal");
+      expect(
+        makeManager({
+          effective: "/accounts/explicit/",
+          explicit: "/accounts/explicit",
+        }).effectiveTarget("user-a", "claude").scope,
+      ).toBe("personal");
+      expect(() =>
+        makeManager({
+          effective: "/accounts/unknown",
+          explicit: "/accounts/explicit",
+        }).effectiveTarget("user-a", "claude"),
+      ).toThrow("Cannot map the active claude directory to a scope.");
+    });
   });
 
   it("coalesces Claude system_text and a failed 401 completion", async () => {
@@ -949,12 +1036,10 @@ describe("Claude auth-error status checks", () => {
     }
   });
 
-  // Quarantined under P0 53f6a397 (2026-09-10): lost two pre-push CI runs in a
-  // row under full-suite load (2 s poll bound, then the 5 s test cap), green
-  // alone 3 of 3. Body intact; the fix lane rebuilds the wait on the event.
-  it.skip("offers clear after personal sign-in and starts the next conversation with the new account environment", async () => {
+  it("offers clear after personal sign-in and starts the next conversation with the new account environment", async () => {
     const userId = `signin-${crypto.randomUUID()}`;
     const personalDir = personalProviderHome(userId, "claude");
+    const events = logEntryWaiter();
     setTestManagedOfficeEnv({
       CLAUDE_CONFIG_DIR: join(STATE_ROOT, "old-office-claude"),
     });
@@ -962,7 +1047,7 @@ describe("Claude auth-error status checks", () => {
       isAuthError: (text) => claudeBackend.detectAuthError(text),
       session: {
         onSend: (_text, _attachments, session) => {
-          if (_text === "before sign-in") {
+          if (_text.endsWith("before sign-in")) {
             session.completeTurn({ text: "Existing account turn" });
           } else if (session.opts.env?.CLAUDE_CONFIG_DIR !== personalDir) {
             session.completeTurn({
@@ -990,6 +1075,7 @@ describe("Claude auth-error status checks", () => {
         scope: "personal",
         dir: personalDir,
       }),
+      eventSink: events.onEvent,
     });
     try {
       // Start before the personal home is activated by successful sign-in.
@@ -999,23 +1085,20 @@ describe("Claude auth-error status checks", () => {
         join(STATE_ROOT, "old-office-claude"),
       );
       activatePersonalProvider(userId, "claude");
+      const guidanceEvent = events.waitFor(
+        (event) => event.entry.content.includes("new account"),
+        "Claude new-account guidance after sign-in",
+      );
       await mgr.sendMessage(agentId, "after sign-in", "tester");
       expect(fake.sessions).toHaveLength(1);
       expect(oldSession.opts.env?.CLAUDE_CONFIG_DIR).toBe(
         join(STATE_ROOT, "old-office-claude"),
       );
-      await waitFor(() =>
-        mgr
-          .getAgentLogs(agentId)
-          .some((e) => e.content.includes("new account")),
-      );
-      const guidance = mgr
-        .getAgentLogs(agentId)
-        .filter((e) => e.content.includes("new account"));
-      expect(guidance.at(-1)?.content).toBe(
+      const guidance = (await guidanceEvent).entry;
+      expect(guidance.content).toBe(
         "This conversation keeps the Claude account it started with. Start a new conversation (`/clear`) to use the new account.",
       );
-      expect(guidance.at(-1)?.metadata?.providerLogin).toBe("claude");
+      expect(guidance.metadata?.providerLogin).toBe("claude");
       // Explicit resume exercises the same replacement used after interrupt.
       await mgr.resume(agentId, oldSession.sessionId);
       expect(fake.sessions.at(-1)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
@@ -1024,14 +1107,17 @@ describe("Claude auth-error status checks", () => {
       expect(getSessionClaudeConfigDir(agentId, oldSession.sessionId)).toBe(
         join(STATE_ROOT, "old-office-claude"),
       );
-      await mgr.sendMessage(agentId, "retry after resume", "tester");
-      await waitFor(
-        () =>
-          mgr
-            .getAgentLogs(agentId)
-            .filter((e) => e.content.includes("keeps the Claude account"))
-            .length === 2,
+      const resumedGuidanceEvent = events.waitFor(
+        (event) => event.entry.content.includes("keeps the Claude account"),
+        "Claude pinned-account guidance after resume",
       );
+      await mgr.sendMessage(agentId, "retry after resume", "tester");
+      await resumedGuidanceEvent;
+      expect(
+        mgr
+          .getAgentLogs(agentId)
+          .filter((e) => e.content.includes("keeps the Claude account")),
+      ).toHaveLength(2);
       // A cwd edit must move the transcript within the pinned root.
       const oldProject = claudeProjectDir(STATE_ROOT, oldSession.opts.env);
       mkdirSync(oldProject, { recursive: true });
