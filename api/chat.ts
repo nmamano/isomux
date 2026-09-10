@@ -66,7 +66,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Claude can use your existing Claude Code login. Codex ships bundled and connects to ChatGPT from Settings → You → Individual connections or through the terminal fallback. OpenCode also ships bundled with Free, Pay-as-you-go, and Subscription models.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. Bun bundles the UI. No database.
 - GitHub: github.com/nmamano/isomux
-- Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install, access and invites, backup/restore, security audit)
+- Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install and Render Blueprint, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)

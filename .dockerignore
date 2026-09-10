@@ -1,5 +1,5 @@
-# The build context for control-plane/deploy/Dockerfile, which is the only
-# image this repository builds.
+# The build context for control-plane/deploy/Dockerfile.
+# Render uses deploy/render/Dockerfile.dockerignore instead.
 #
 # Deny first, then name what the provisioner is made of. The other order was not
 # an option worth having: an allowlist that starts from "everything" ships the

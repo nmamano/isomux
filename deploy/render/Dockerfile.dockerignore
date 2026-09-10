@@ -1,0 +1,13 @@
+# BuildKit uses this file instead of the root .dockerignore for this Dockerfile only; the rules are not merged. The root allowlist would drop server/ and ui/ from the context.
+.git
+node_modules
+source.tar
+.env
+.env.*
+ui/dist
+*.log
+**/__pycache__
+core
+core.*
+**/core.*
+*.core

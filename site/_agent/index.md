@@ -12,4 +12,4 @@ Isomux is an open-source meta-harness for managing Claude, Codex, and OpenCode a
 
 ## Install
 
-See the [self-hosted guide](https://isomux.com/docs/self-hosted).
+See the [self-hosted guide](https://isomux.com/docs/self-hosted) for your own hardware, a VPS, or Render.

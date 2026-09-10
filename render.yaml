@@ -1,0 +1,20 @@
+# Prototype: validate in a Render workspace before production use.
+services:
+  - type: web
+    name: isomux
+    runtime: docker
+    plan: pro
+    dockerfilePath: ./deploy/render/Dockerfile
+    autoDeployTrigger: off
+    disk:
+      name: isomux-data
+      mountPath: /var/data
+      sizeGB: 20
+    envVars:
+      - key: ISOMUX_PUBLIC_URL
+        sync: false
+      - key: ISOMUX_SETUP_KEY
+        generateValue: true
+# Add the office custom domain and *.office-domain to this same service.
+# Generated apps execute on distinct origins. An onrender.com address alone
+# cannot supply those child hostnames. Provider login happens inside Isomux.

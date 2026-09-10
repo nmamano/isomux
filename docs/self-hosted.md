@@ -13,6 +13,16 @@ The last section states [what Isomux protects and records](#what-each-deployment
 
 The URL cannot be changed for Hosted Isomux offices.
 
+## Deploy on Render
+
+Create a Blueprint in the intended Render workspace from [this repository](https://github.com/nmamano/isomux), using `main` and `render.yaml`. Set `ISOMUX_PUBLIC_URL` to the final HTTPS office origin, such as `https://office.example.com`. Review the Pro service and 20 GB persistent disk, and deploy.
+
+Add `office.example.com` and `*.office.example.com` as custom domains on the same service. Set their CNAMEs to the assigned `onrender.com` hostname and copy Render's validation CNAME targets exactly. Wait for both domains and HTTPS to be ready.
+
+Find `ISOMUX_SETUP_KEY` in the service's environment settings. Open the office domain and enter the key and first owner's name. Keep the key out of messages and logs. Connect a model provider, then ask an agent to build a small app with synthetic data. Check that the app opens and retains a saved change after a service restart.
+
+Keep projects under `/var/data/workspaces`; office and app state live under `/var/data/home`. Restarts interrupt active turns and requests.
+
 ## VPS install
 
 You need:
