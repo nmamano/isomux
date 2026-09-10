@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Portal } from "../components/Portal.tsx";
 import { useI18n } from "../i18n.tsx";
+import { useAppState } from "../store.tsx";
 import { MembersChatPanel } from "./MembersChatPanel.tsx";
 import { MembersChatUnread } from "./MembersChatUnread.tsx";
 
@@ -109,7 +110,14 @@ export function LobbyChat({
   loadFailed: boolean;
   onRetry?: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, tn } = useI18n();
+  const {
+    membersChat: { unread },
+  } = useAppState();
+  const label =
+    unread > 0
+      ? `${t("membersChat.title")} ${tn("membersChat.unreadCount", unread)}`
+      : t("membersChat.title");
   const [open, setOpen] = useState(false);
   const entryRef = useRef<HTMLButtonElement>(null);
   function close() {
@@ -120,27 +128,44 @@ export function LobbyChat({
       <button
         ref={entryRef}
         onClick={() => setOpen(true)}
+        type="button"
+        data-lobby-chat-fab
+        aria-label={label}
+        title={t("membersChat.title")}
         style={{
-          position: "relative",
-          flexShrink: 0,
-          padding: "10px 14px",
-          minHeight: 44,
-          border: "1px solid var(--border)",
-          borderRadius: 6,
-          background: "var(--bg-code)",
+          position: "absolute",
+          right: 12,
+          // The zoom stack ends 120px above the scene bottom; leave a 12px gap.
+          bottom: 132,
+          width: 48,
+          height: 48,
+          padding: 0,
+          border: "1px solid var(--border-light)",
+          borderRadius: "50%",
+          background: "var(--bg-surface)",
           color: "var(--text-primary)",
-          fontSize: 11,
-          fontWeight: 600,
+          boxShadow: "0 4px 16px var(--shadow-heavy)",
           cursor: "pointer",
-          fontFamily: "'DM Sans',sans-serif",
-          letterSpacing: "0.02em",
-          display: "inline-flex",
+          display: "flex",
           alignItems: "center",
-          gap: 6,
-          userSelect: "none",
+          justifyContent: "center",
+          zIndex: 400,
         }}
       >
-        {t("membersChat.title")}
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 3v-3a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" />
+          <path d="M7 9h10M7 13h7" />
+        </svg>
         <MembersChatUnread />
       </button>
       {open && (

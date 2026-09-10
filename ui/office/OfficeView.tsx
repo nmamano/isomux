@@ -521,24 +521,6 @@ export function OfficeView({
 
       {!embed && <RoomTabBar onOpenRoomSettings={onEditRoomSettings} />}
 
-      {!embed && lobbyOpen && isMobile && (
-        <div
-          data-lobby-chat-entry
-          style={{
-            padding: "8px 12px",
-            background: "var(--bg-surface)",
-            borderBottom: "1px solid var(--border)",
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          <LobbyChat
-            loadFailed={membersChatLoadFailed}
-            onRetry={retryMembersChat}
-          />
-        </div>
-      )}
-
       {/* Chat overlays the scene without changing the viewport's fit or origin.
           It stays outside the gesture container so chat scrolling and text
           selection cannot pan or zoom the scene. */}
@@ -926,6 +908,12 @@ export function OfficeView({
             />
           )}
         </div>
+        {!embed && lobbyOpen && isMobile && (
+          <LobbyChat
+            loadFailed={membersChatLoadFailed}
+            onRetry={retryMembersChat}
+          />
+        )}
         {!embed && lobbyOpen && !isMobile && chatHidden && (
           <button
             data-lobby-chat-edge

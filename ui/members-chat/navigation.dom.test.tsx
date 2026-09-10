@@ -63,7 +63,7 @@ const message = {
   attachments: [],
   timestamp: 1,
 };
-it("hydrates the closed chat, moves its dot to the mobile entry, clears on a read pointer, and closes back to the scene", async () => {
+it("hydrates the closed chat, moves its dot to the mobile floating button, clears on a read pointer, and closes back to the scene", async () => {
   const reads: unknown[] = [];
   let pages = 0;
   setApiShim(async (method, path, body) => {
