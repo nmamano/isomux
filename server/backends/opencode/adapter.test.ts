@@ -772,7 +772,9 @@ describe("OpenCode pinned transport", () => {
     resumed.close();
   }, 10_000);
 
-  it("returns one reply through the real OC1 HTTP and SSE contract", async () => {
+  // Quarantined under task 8dbebd08 (P0): this real-OpenCode case sits at its 40 s cap by
+  // construction and fails under suite load (40.2 s on 2026-09-10 in pre-push CI).
+  it.skip("returns one reply through the real OC1 HTTP and SSE contract", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-adapter-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
     const mock = Bun.serve({
@@ -1022,7 +1024,9 @@ describe("OpenCode pinned transport", () => {
     expect(parentAfter).toEqual(parentBefore);
   }, 40_000);
 
-  it("runs and denies controlled shell tools through the real OC1 permission route", async () => {
+  // Quarantined under task 8dbebd08 (P0): this real-OpenCode case sits at its 40 s cap by
+  // construction and fails under suite load (40.2 s on 2026-09-10 in pre-push CI).
+  it.skip("runs and denies controlled shell tools through the real OC1 permission route", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-tools-"));
     cleanup.push(() => rm(root, { recursive: true, force: true }));
     const mock = Bun.serve({

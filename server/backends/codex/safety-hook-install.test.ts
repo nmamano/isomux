@@ -23,10 +23,17 @@ import { _test as trustProbeTest } from "./safety-hook-trust-probe.ts";
 
 const defaultHome = join(STATE_ROOT, "codex-home");
 
-beforeAll(async () => {
-  expect(getCodexPinnedVersion()).toBe(CODEX_HOOK_TRUST_HASH_PROVEN_VERSION);
-  await prepareCodexSafetyHookArtifact();
-});
+// The artifact build plus the Codex trust probe (own deadline
+// CODEX_HOOK_TRUST_PROBE_TIMEOUT_MS = 10 s) cannot fit bun's 5 s default hook cap under
+// suite load: the hook timed out at 5.0 s in pre-push CI on 2026-09-10 (task
+// 6f56ab66, P0). 30 s covers both steps.
+beforeAll(
+  async () => {
+    expect(getCodexPinnedVersion()).toBe(CODEX_HOOK_TRUST_HASH_PROVEN_VERSION);
+    await prepareCodexSafetyHookArtifact();
+  },
+  { timeout: 30_000 },
+);
 
 function userEntry(command: string) {
   return { matcher: "user-tool", hooks: [{ type: "command", command }] };
