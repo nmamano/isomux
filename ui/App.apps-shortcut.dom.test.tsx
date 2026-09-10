@@ -49,9 +49,14 @@ it("a opens Apps from the office and toggles back like Close", async () => {
   await press("a");
   expect(back).toHaveBeenCalledTimes(1);
   back.mockRestore();
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  // history.back() lands asynchronously (popstate); wait for the route to
+  // settle instead of a fixed delay, which loses under box load.
+  const deadline = Date.now() + 2000;
+  while (window.location.pathname !== "/" && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+  }
   expect(window.location.pathname).toBe("/");
   expect(view.queryByText("No apps yet.") === null).toBe(true);
 });

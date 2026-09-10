@@ -10,8 +10,8 @@ spawn, PATCH, persisted agent/history records and office-state events.
 
 PM's corrected ruling keeps the compact `GET /agents` manifest unchanged.
 There is no new route, prompt text or curl route label. The config modal puts
-the picker with the other appearance controls. The demo sets six sample
-costumes and uses the same draw and update paths.
+the picker with the other appearance controls. The demo seeds no costumes
+(Nil's call, ca7b11df); the demo desks draw the plain outfits.
 
 `ui/office/Costume.tsx` draws torso details for the seated ellipse or standing
 rectangle. Each detail group is clipped to that torso silhouette. `Character.tsx` draws those details above the torso, below the head,
@@ -44,7 +44,8 @@ demo screenshots use the built demo and its real EditAgentDialog.
 - `costumes-desktop.png`: every choice, idle/working/waiting/error, plus the
   40-pixel portrait and actual wall plaque at 1280×900.
 - `costumes-mobile.png`: the same set at 390×844, full page.
-- `office-desktop.png`, `office-mobile.png`: costumes on the demo desks.
+- `office-desktop.png`, `office-mobile.png`: the demo desks (captured when the
+  demo still seeded costumes; it no longer does).
 - `config-desktop.png`, `config-mobile.png`: the real config modal with the
   Firefighter choice and live preview.
 

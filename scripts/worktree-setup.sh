@@ -48,9 +48,13 @@ else
   git worktree add "$worktree_path" -b "$name"
 fi
 
+# Parallel lane setups race on bunx's shared node-gyp cache in /tmp (six
+# concurrent installs corrupted one lane's node-pty build, 2026-09-10), so the
+# install steps take a box-wide lock.
+install_lock=/tmp/isomux-worktree-install.lock
 (
   cd "$worktree_path"
-  bun install --frozen-lockfile
+  flock "$install_lock" bun install --frozen-lockfile
 )
 
 main_pty="$repo_root/node_modules/node-pty/build/Release/pty.node"
@@ -70,7 +74,7 @@ fi
   bun run build:ui
   # Root tsc reaches control-plane/web through control-plane/web-i18n.test.tsx,
   # so every lane needs the web dependencies, not only web lanes.
-  bun install --frozen-lockfile --cwd control-plane/web
+  flock "$install_lock" bun install --frozen-lockfile --cwd control-plane/web
 )
 
 printf '%s\n' "$worktree_path"
