@@ -17,6 +17,63 @@ import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
 import { canonicalize, removeStateDir } from "./temp-state.ts";
 
+// Test processes must not race each other or the live office for app ports.
+// Each process claims one block by holding its sentinel socket. The kernel
+// releases the claim on every kind of process death, including SIGKILL. Bun's
+// reusePort option is opt-in; omitting it makes a second bind fail.
+const TEST_APP_PORT_FIRST = 23_000;
+// 32_695 is the last usable port after 96 whole 101-port blocks below Linux's
+// default ephemeral floor of 32_768.
+const TEST_APP_PORT_LAST = 32_695;
+const TEST_APP_PORTS_PER_BLOCK = 100;
+const TEST_APP_BLOCK_SIZE = TEST_APP_PORTS_PER_BLOCK + 1;
+
+function claimTestAppPortBlock(): {
+  sentinel: Bun.TCPSocketListener<undefined>;
+  min: number;
+  max: number;
+} {
+  for (
+    let sentinelPort = TEST_APP_PORT_FIRST;
+    sentinelPort + TEST_APP_PORTS_PER_BLOCK <= TEST_APP_PORT_LAST;
+    sentinelPort += TEST_APP_BLOCK_SIZE
+  ) {
+    try {
+      const sentinel = Bun.listen({
+        hostname: "127.0.0.1",
+        port: sentinelPort,
+        socket: { data() {} },
+      });
+      return {
+        sentinel,
+        min: sentinelPort + 1,
+        max: sentinelPort + TEST_APP_PORTS_PER_BLOCK,
+      };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === "EADDRINUSE" || code === "EACCES") continue;
+      throw err;
+    }
+  }
+  throw new Error(
+    `[test preload] no process-exclusive app port block is available in ${TEST_APP_PORT_FIRST}-${TEST_APP_PORT_LAST}`,
+  );
+}
+
+if (
+  process.env.ISOMUX_TEST_APP_PORT_MIN !== undefined ||
+  process.env.ISOMUX_TEST_APP_PORT_MAX !== undefined
+) {
+  throw new Error(
+    "[test preload] test app port range is owned by the preload and cannot be injected",
+  );
+}
+const testAppPortBlock = claimTestAppPortBlock();
+process.env.ISOMUX_TEST_PRELOAD = "1";
+process.env.ISOMUX_TEST_APP_PORT_MIN = String(testAppPortBlock.min);
+process.env.ISOMUX_TEST_APP_PORT_MAX = String(testAppPortBlock.max);
+afterAll(() => testAppPortBlock.sentinel.stop(true));
+
 // Symlink-aware safety check for an explicitly-set ISOMUX_HOME. Reuses
 // temp-state's canonicalize (realpath of the nearest existing ancestor) so a
 // symlink like /tmp/x -> ~/.isomux cannot slip a real-state path past a lexical

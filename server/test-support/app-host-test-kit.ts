@@ -94,9 +94,52 @@ export interface RawResponse {
   body: string;
 }
 
-// One raw HTTP/1.1 request with a Host of our choosing. Resolves when the
-// server closes the connection, or - so a wrongly-returned 101 fails as an
-// assertion instead of hanging - shortly after it goes idle.
+type FramedCompletion = "content-length" | "chunked-terminator";
+
+export function rawFramingCompletion(
+  bytes: Buffer,
+  method = "GET",
+): FramedCompletion | "bodyless" | null {
+  const headEnd = bytes.indexOf("\r\n\r\n");
+  if (headEnd === -1) return null;
+  const response = parseRaw(bytes.toString("utf8"));
+  const bodyStart = headEnd + 4;
+  if (method.toUpperCase() === "HEAD" || response.status === 204 || response.status === 304) {
+    return "bodyless";
+  }
+  const length = response.headers["content-length"];
+  if (length !== undefined && /^\d+$/.test(length)) {
+    return bytes.length - bodyStart >= Number(length) ? "content-length" : null;
+  }
+  if (response.headers["transfer-encoding"]?.toLowerCase() !== "chunked") {
+    return null;
+  }
+  let offset = bodyStart;
+  for (;;) {
+    const lineEnd = bytes.indexOf("\r\n", offset);
+    if (lineEnd === -1) return null;
+    const sizeText = bytes
+      .subarray(offset, lineEnd)
+      .toString("ascii")
+      .split(";")[0];
+    if (!/^[\da-f]+$/i.test(sizeText)) return null;
+    const size = Number.parseInt(sizeText, 16);
+    offset = lineEnd + 2;
+    if (size === 0) {
+      return bytes.subarray(offset, offset + 2).equals(Buffer.from("\r\n")) ||
+        bytes.indexOf("\r\n\r\n", offset) !== -1
+        ? "chunked-terminator"
+        : null;
+    }
+    if (bytes.length < offset + size + 2) return null;
+    offset += size + 2;
+  }
+}
+
+// One raw HTTP/1.1 request with a Host of our choosing. Resolves only when the
+// response is complete by Content-Length, by a chunked terminator, or because
+// the server closes the connection. Elapsed time diagnoses an incomplete
+// response; it never turns the bytes received so far into a verdict.
 export function raw(
   port: number,
   opts: {
@@ -106,8 +149,9 @@ export function raw(
     headers?: Record<string, string>;
   },
 ): Promise<RawResponse> {
-  return new Promise((resolve) => {
-    let out = "";
+  return new Promise((resolve, reject) => {
+    let out = Buffer.alloc(0);
+    let settled = false;
     const extra = opts.headers ?? {};
     const keepOpen = Object.keys(extra).some(
       (k) => k.toLowerCase() === "connection",
@@ -125,25 +169,42 @@ export function raw(
       );
     });
     const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
       socket.destroy();
-      resolve(parseRaw(out));
+      resolve(parseRaw(out.toString("utf8")));
     };
-    socket.setEncoding("utf8");
     socket.on("data", (chunk: string | Buffer) => {
-      out += chunk.toString();
+      if (settled) return;
+      out = Buffer.concat([out, Buffer.from(chunk)]);
+      if (rawFramingCompletion(out, opts.method ?? "GET") !== null) done();
     });
     socket.on("end", done);
-    socket.setTimeout(500, done);
+    const deadline = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      const status = parseRaw(out.toString("utf8")).status;
+      socket.destroy();
+      reject(
+        new Error(
+          `raw: no complete framed response or socket end within 2000ms; received ${out.length} bytes, status ${status}`,
+        ),
+      );
+    }, 2000);
     // A malformed Host makes the office's own URL parse throw and Bun resets
     // the connection, so "no response" is a real, comparable outcome here
     // rather than a test-harness failure. Resolving with a marker keeps it
     // comparable across two boots; a genuinely dead server surfaces as the
     // baseline sanity assertion failing instead.
     socket.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(deadline);
       socket.destroy();
       const code = (err as { code?: string }).code ?? "ERR";
       resolve({
-        raw: out,
+        raw: out.toString("utf8"),
         status: 0,
         stable: `<socket ${code}>`,
         headers: {},
@@ -618,42 +679,11 @@ export function wsConnect(
         if (end === -1) return;
         const headText = head.subarray(0, end).toString("latin1");
         if (!/^HTTP\/1\.1 101/.test(headText)) {
-          // Bun can keep a refused upgrade alive. Content-Length, chunked
-          // framing and bodyless statuses finish on data; unframed bodies
-          // wait for socket end or the diagnostic rejection deadline.
+          // Bun can keep a refused upgrade alive. Content-Length and chunked
+          // framing finish on data; unframed bodies wait for socket end or the
+          // diagnostic rejection deadline.
           const response = parseRaw(head.toString("utf8"));
-          const bodyStart = end + 4;
-          const length = response.headers["content-length"];
-          let complete = response.status === 204 || response.status === 304;
-          if (
-            response.headers["transfer-encoding"]?.toLowerCase() === "chunked"
-          ) {
-            let offset = bodyStart;
-            for (;;) {
-              const lineEnd = head.indexOf("\r\n", offset);
-              if (lineEnd === -1) break;
-              const sizeText = head
-                .subarray(offset, lineEnd)
-                .toString("ascii")
-                .split(";")[0];
-              if (!/^[\da-f]+$/i.test(sizeText)) break;
-              const size = Number.parseInt(sizeText, 16);
-              offset = lineEnd + 2;
-              if (size === 0) {
-                complete =
-                  head
-                    .subarray(offset, offset + 2)
-                    .equals(Buffer.from("\r\n")) ||
-                  head.indexOf("\r\n\r\n", offset) !== -1;
-                break;
-              }
-              if (head.length < offset + size + 2) break;
-              offset += size + 2;
-            }
-          } else if (length !== undefined && /^\d+$/.test(length)) {
-            complete = head.length - bodyStart >= Number(length);
-          }
-          if (complete) {
+          if (rawFramingCompletion(head, "GET") !== null) {
             settled = true;
             clearTimeout(deadline);
             socket.destroy();

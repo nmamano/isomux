@@ -32,11 +32,7 @@ import { createAppTokenStore } from "../app-tokens.ts";
 import { createAppMessageLimiter } from "../app-message-limits.ts";
 import { STATE_ROOT } from "../config.ts";
 import { getUserByName, updateUserById } from "../users.ts";
-import {
-  APP_PORT_MIN,
-  APP_PORT_MAX,
-  AppRegistryError,
-} from "../app-registry.ts";
+import { AppRegistryError } from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
 import { UNKNOWN_RUNTIME } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
@@ -137,8 +133,12 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     const app = reg.body as AppWire;
     // The agent never picked the port - that is the whole point of the
     // registry - so the response is where it learns it.
-    expect(app.port).toBeGreaterThanOrEqual(APP_PORT_MIN);
-    expect(app.port).toBeLessThanOrEqual(APP_PORT_MAX);
+    expect(app.port).toBeGreaterThanOrEqual(
+      Number(process.env.ISOMUX_TEST_APP_PORT_MIN),
+    );
+    expect(app.port).toBeLessThanOrEqual(
+      Number(process.env.ISOMUX_TEST_APP_PORT_MAX),
+    );
     expect(app.dataDir.startsWith(srv.stateRoot)).toBe(true);
     // Registering STARTS the app - no second call, no human confirm (the
     // design's "no approval click" ruling) - so the state it answers with is

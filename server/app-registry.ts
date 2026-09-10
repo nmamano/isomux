@@ -252,15 +252,17 @@ export function bindProbe(port: number): boolean {
 export function allocatePort(
   used: ReadonlySet<number>,
   probe: (port: number) => boolean = bindProbe,
+  min: number = APP_PORT_MIN,
+  max: number = APP_PORT_MAX,
 ): number {
-  for (let port = APP_PORT_MIN; port <= APP_PORT_MAX; port++) {
+  for (let port = min; port <= max; port++) {
     if (used.has(port)) continue;
     if (!probe(port)) continue;
     return port;
   }
   throw new AppRegistryError(
     "no_port_available",
-    `no free port in ${APP_PORT_MIN}-${APP_PORT_MAX}`,
+    `no free port in ${min}-${max}`,
   );
 }
 
@@ -390,12 +392,18 @@ const isFiniteNumber = (v: unknown): boolean =>
 // treat as authoritative is checked; UNKNOWN fields are ignored, so a record
 // written by a later version still loads.
 //
-// The port window is enforced here deliberately, and it has a consequence worth
-// stating: moving APP_PORT_MIN/MAX later is a BREAKING change that needs a
-// migration, because existing records would fall outside it. That is the right
-// trade - the alternative is a hand-edited or damaged record pointing an app at
-// port 22, which S2 would faithfully turn into a unit.
-function isLegacyPersistedApp(value: unknown): value is LegacyPersistedApp {
+// The registry's active port window is enforced here deliberately, and it has a
+// consequence worth stating: moving the production APP_PORT_MIN/MAX later is a
+// BREAKING change that needs a migration, because existing records would fall
+// outside it. Tests inject a process-exclusive window, and must validate their
+// own persisted records against that same window. The alternative is a
+// hand-edited or damaged record pointing an app at port 22, which S2 would
+// faithfully turn into a unit.
+function isLegacyPersistedApp(
+  value: unknown,
+  portMin: number,
+  portMax: number,
+): value is LegacyPersistedApp {
   if (!isPlainObject(value)) return false;
   const {
     name,
@@ -419,8 +427,8 @@ function isLegacyPersistedApp(value: unknown): value is LegacyPersistedApp {
     APP_NAME_PATTERN.test(name) &&
     typeof port === "number" &&
     Number.isInteger(port) &&
-    port >= APP_PORT_MIN &&
-    port <= APP_PORT_MAX &&
+    port >= portMin &&
+    port <= portMax &&
     typeof command === "string" &&
     command.trim().length > 0 &&
     command.length <= MAX_APP_COMMAND_LENGTH &&
@@ -449,8 +457,12 @@ const isGeneration = (v: unknown): v is number =>
 // legacy-array-only condition; inside an envelope it means the file was written
 // by something that did not understand labels, and guessing on its behalf is
 // how a live app quietly changes origin.
-function isPersistedApp(value: unknown): value is PersistedApp {
-  if (!isLegacyPersistedApp(value)) return false;
+function isPersistedApp(
+  value: unknown,
+  portMin: number,
+  portMax: number,
+): value is PersistedApp {
+  if (!isLegacyPersistedApp(value, portMin, portMax)) return false;
   const { hostLabel, hostGen, registrationGen } = value as Record<
     string,
     unknown
@@ -510,7 +522,12 @@ function isIssuedLabel(value: unknown): value is IssuedLabel {
 // ledger is corruption, not a legacy file to be helpfully seeded: no released
 // version ever wrote one, so the only way to get one is damage or a hand edit,
 // and seeding it from the live apps would silently forget every retired origin.
-function loadState(file: string, dataRoot: string): RegistryState {
+function loadState(
+  file: string,
+  dataRoot: string,
+  portMin: number,
+  portMax: number,
+): RegistryState {
   const parsed = readStateFile(file);
   if (parsed === undefined) return { apps: [], issuedLabels: [] };
 
@@ -538,7 +555,7 @@ function loadState(file: string, dataRoot: string): RegistryState {
 
   if (Array.isArray(parsed)) {
     for (const record of parsed) {
-      if (!isLegacyPersistedApp(record)) {
+      if (!isLegacyPersistedApp(record, portMin, portMax)) {
         throw corrupt(file, "contains an entry that is not a valid app record");
       }
     }
@@ -575,7 +592,7 @@ function loadState(file: string, dataRoot: string): RegistryState {
     throw corrupt(file, '"issuedLabels" is not an array');
   }
   for (const record of apps) {
-    if (!isPersistedApp(record)) {
+    if (!isPersistedApp(record, portMin, portMax)) {
       throw corrupt(file, "contains an entry that is not a valid app record");
     }
   }
@@ -779,6 +796,8 @@ export interface AppRegistryOptions {
   dir?: string;
   now?: () => number;
   probePort?: (port: number) => boolean;
+  portMin?: number;
+  portMax?: number;
 }
 
 export function createAppRegistry(
@@ -789,13 +808,24 @@ export function createAppRegistry(
   const dataRoot = join(dir, "data");
   const now = options.now ?? (() => Date.now());
   const probePort = options.probePort ?? bindProbe;
+  const portMin = options.portMin ?? APP_PORT_MIN;
+  const portMax = options.portMax ?? APP_PORT_MAX;
+  if (
+    !Number.isInteger(portMin) ||
+    !Number.isInteger(portMax) ||
+    portMin < 1 ||
+    portMax > 65_535 ||
+    portMin > portMax
+  ) {
+    throw new Error(`invalid app port range ${portMin}-${portMax}`);
+  }
 
   // The ONE way any operation reads state: the file, validated per-record and
   // then as a set. Every public method starts here - including the reads,
   // because a read answered off a file the registry cannot vouch for is the
   // most convincing wrong answer it can give.
   const snapshot = (): RegistryState => {
-    const state = loadState(appsFile, dataRoot);
+    const state = loadState(appsFile, dataRoot, portMin, portMax);
     assertConsistent(state, appsFile);
     return state;
   };
@@ -858,7 +888,12 @@ export function createAppRegistry(
       }
       // Only LIVE ports are off limits. A deleted app's port is free the moment
       // its record goes, so the lowest gap is the next port handed out.
-      const port = allocatePort(new Set(apps.map((a) => a.port)), probePort);
+      const port = allocatePort(
+        new Set(apps.map((a) => a.port)),
+        probePort,
+        portMin,
+        portMax,
+      );
       // The most recently ISSUED label is the stable lineage address. This
       // includes a label an old rolled-back server issued while no app was
       // live; adopting it preserves the URL browsers actually saw.
@@ -1088,6 +1123,39 @@ export function createAppRegistry(
   };
 }
 
+// The test preload claims a process-exclusive port block before this module is
+// imported. Both values must be present and valid; a partial or malformed seam
+// fails closed instead of silently restoring the shared production window.
+export function parseTestAppPortRange(
+  rawMin: string | undefined,
+  rawMax: string | undefined,
+  isTestRunner: boolean,
+): Pick<
+  AppRegistryOptions,
+  "portMin" | "portMax"
+> {
+  if (rawMin === undefined && rawMax === undefined) return {};
+  if (!isTestRunner) {
+    throw new Error("test app port range is only valid under the test preload");
+  }
+  if (rawMin === undefined || rawMax === undefined) {
+    throw new Error("incomplete test app port range");
+  }
+  if (!/^\d+$/.test(rawMin) || !/^\d+$/.test(rawMax)) {
+    throw new Error(`invalid test app port range ${rawMin}-${rawMax}`);
+  }
+  const portMin = Number(rawMin);
+  const portMax = Number(rawMax);
+  return { portMin, portMax };
+}
+
 // Production singleton over STATE_ROOT/apps. Constructing it touches no disk;
-// the directory is created on the first write.
-export const appRegistry: AppRegistry = createAppRegistry();
+// the directory is created on the first write. Locally constructed registries
+// keep the production window unless their caller explicitly supplies a range.
+export const appRegistry: AppRegistry = createAppRegistry(
+  parseTestAppPortRange(
+    process.env.ISOMUX_TEST_APP_PORT_MIN,
+    process.env.ISOMUX_TEST_APP_PORT_MAX,
+    process.env.ISOMUX_TEST_PRELOAD === "1",
+  ),
+);

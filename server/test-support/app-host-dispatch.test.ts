@@ -41,17 +41,61 @@ import {
   expectPlaceholder,
   patchOfficeConfig,
   raw,
+  rawFramingCompletion,
   type RawResponse,
   registerApp,
   signIn,
   startFlatOffice as bootFlatOffice,
   withAppCookie,
+  wsConnect,
 } from "./app-host-test-kit.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+});
+
+describe("raw HTTP completion", () => {
+  it("requires a complete Content-Length body", () => {
+    expect(
+      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na")),
+    ).toBeNull();
+    expect(
+      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab")),
+    ).toBe("content-length");
+  });
+
+  it("requires the terminating chunk and accepts trailers", () => {
+    expect(
+      rawFramingCompletion(
+        Buffer.from("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n"),
+      ),
+    ).toBeNull();
+    expect(
+      rawFramingCompletion(
+        Buffer.from(
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n0\r\nX-Test: yes\r\n\r\n",
+        ),
+      ),
+    ).toBe("chunked-terminator");
+  });
+
+  it("does not classify an unframed response as complete", () => {
+    expect(rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\n\r\nbody"))).toBeNull();
+  });
+
+  it("completes bodyless statuses and HEAD at the header boundary", () => {
+    expect(rawFramingCompletion(Buffer.from("HTTP/1.1 204 No Content\r\n\r\n"))).toBe(
+      "bodyless",
+    );
+    expect(
+      rawFramingCompletion(
+        Buffer.from("HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\n"),
+        "HEAD",
+      ),
+    ).toBe("bodyless");
+  });
 });
 
 // The rig lives in app-host-test-kit.ts, shared with the handshake tests
@@ -392,23 +436,24 @@ describe("app hosts: the office is untouched", () => {
   it("still upgrades a WebSocket ON the office host", async () => {
     const srv = await startFlatOffice();
     const member = await srv.seedMember("Deputy");
-    const res = await raw(srv.port, {
+    const res = await wsConnect(srv.port, {
       host: OFFICE_HOST,
       path: "/ws",
-      headers: {
-        ...WS_UPGRADE_HEADERS,
-        Origin: HTTPS_ORIGIN,
-        Cookie: `isomux_session=${member.rawSessionId}`,
-      },
+      origin: HTTPS_ORIGIN,
+      headers: { Cookie: `isomux_session=${member.rawSessionId}` },
     });
     // A real 101, not the 401/403 an unauthenticated or misrouted upgrade
     // gets, and emphatically not the app arm's 503.
-    expect(res.status).toBe(101);
-    expect(res.headers["upgrade"]?.toLowerCase()).toBe("websocket");
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.client.handshakeHeaders["upgrade"]?.toLowerCase()).toBe(
+      "websocket",
+    );
+    res.client.drop();
   });
 
-  // Harness sanity on the loopback host, which is a different code path from
-  // the raw upgrade above (Bun's own client, cookie set by the harness).
+  // Harness sanity on the loopback host, using Bun's own client and the cookie
+  // set by the harness rather than the hand-built wsConnect client above.
   it("still accepts a harness WebSocket on the loopback host", async () => {
     const srv = await startFlatOffice();
     const member = await srv.seedMember("Deputy");

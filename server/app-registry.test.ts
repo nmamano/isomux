@@ -28,6 +28,7 @@ import { removeStateDir } from "./test-support/temp-state.ts";
 import {
   createAppRegistry,
   allocatePort,
+  parseTestAppPortRange,
   checkAppName,
   AppRegistryError,
   APP_PORT_MIN,
@@ -50,12 +51,19 @@ let cwdDir: string;
 const allFree = () => true;
 
 function make(
-  overrides: { now?: () => number; probePort?: (p: number) => boolean } = {},
+  overrides: {
+    now?: () => number;
+    probePort?: (p: number) => boolean;
+    portMin?: number;
+    portMax?: number;
+  } = {},
 ): AppRegistry {
   return createAppRegistry({
     dir,
     now: overrides.now ?? (() => 1_700_000_000_000),
     probePort: overrides.probePort ?? allFree,
+    portMin: overrides.portMin,
+    portMax: overrides.portMax,
   });
 }
 
@@ -168,6 +176,46 @@ describe("app-registry: port allocation", () => {
   it("exhaustion raises no_port_available", () => {
     expect(() => allocatePort(new Set(), () => false)).toThrow(
       expect.objectContaining({ code: "no_port_available" }),
+    );
+  });
+
+  it("an injected range controls allocation and names exhaustion", () => {
+    const reg = make({ portMin: 24_001, portMax: 24_002 });
+    expect(reg.register(registerInput("alpha")).port).toBe(24_001);
+    expect(reg.register(registerInput("beta")).port).toBe(24_002);
+    expect(() => reg.register(registerInput("gamma"))).toThrow(
+      expect.objectContaining({
+        code: "no_port_available",
+        message: "no free port in 24001-24002",
+      }),
+    );
+  });
+
+  it("refuses malformed injected ranges", () => {
+    expect(() => make({ portMin: 24_002, portMax: 24_001 })).toThrow(
+      "invalid app port range 24002-24001",
+    );
+  });
+});
+
+describe("app-registry: test singleton port seam", () => {
+  it("accepts a complete numeric range only under the test preload", () => {
+    expect(parseTestAppPortRange(undefined, undefined, false)).toEqual({});
+    expect(parseTestAppPortRange("24001", "24100", true)).toEqual({
+      portMin: 24_001,
+      portMax: 24_100,
+    });
+    expect(() => parseTestAppPortRange("24001", "24100", false)).toThrow(
+      "test app port range is only valid under the test preload",
+    );
+  });
+
+  it("refuses incomplete and non-numeric ranges", () => {
+    expect(() => parseTestAppPortRange("24001", undefined, true)).toThrow(
+      "incomplete test app port range",
+    );
+    expect(() => parseTestAppPortRange("twenty-four", "24100", true)).toThrow(
+      "invalid test app port range twenty-four-24100",
     );
   });
 });
