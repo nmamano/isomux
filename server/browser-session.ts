@@ -50,15 +50,14 @@
 // injectable, so the pool logic (reuse, per-agent isolation, idle close) runs in
 // tests with a stub browser and no Chrome.
 
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-} from "fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync } from "fs";
 import { dirname, join } from "path";
-import type { Browser, BrowserContext, CDPSession, Page } from "playwright-core";
+import type {
+  Browser,
+  BrowserContext,
+  CDPSession,
+  Page,
+} from "playwright-core";
 
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
@@ -191,10 +190,14 @@ function mergeItems(
   // Playwright emits these plain objects in a stable field order. Comparing
   // their JSON therefore detects a changed value without normalizing secrets.
   for (const [key, item] of after) {
-    if (JSON.stringify(before.get(key)) !== JSON.stringify(item)) out.set(key, item);
+    if (JSON.stringify(before.get(key)) !== JSON.stringify(item))
+      out.set(key, item);
   }
   for (const [key, item] of before) {
-    if (!after.has(key) && JSON.stringify(out.get(key)) === JSON.stringify(item)) {
+    if (
+      !after.has(key) &&
+      JSON.stringify(out.get(key)) === JSON.stringify(item)
+    ) {
       out.delete(key);
     }
   }
@@ -369,7 +372,10 @@ export class BrowserPool {
   private readonly backstopMs: number;
   private readonly stateRoot: string;
   private readonly profileChains = new Map<string, Promise<unknown>>();
-  private readonly frameListeners = new Map<string, Set<BrowserFrameListener>>();
+  private readonly frameListeners = new Map<
+    string,
+    Set<BrowserFrameListener>
+  >();
 
   constructor(deps: BrowserSessionDeps = {}) {
     this.findBrowser = deps.findBrowser ?? defaultFindBrowser;
@@ -393,7 +399,9 @@ export class BrowserPool {
     const path = this.profilePath(profileId);
     if (!existsSync(path)) return cloneState(EMPTY_STORAGE_STATE);
     try {
-      const value = JSON.parse(readFileSync(path, "utf8")) as BrowserStorageState;
+      const value = JSON.parse(
+        readFileSync(path, "utf8"),
+      ) as BrowserStorageState;
       if (!Array.isArray(value.cookies) || !Array.isArray(value.origins)) {
         throw new Error("invalid shape");
       }
@@ -411,19 +419,28 @@ export class BrowserPool {
       } catch {
         // A concurrent remove or a read-only directory must not strand every
         // agent of this boss. Start empty and try recovery again next time.
-        console.error(`[browser] could not move corrupt profile aside: ${path}`);
+        console.error(
+          `[browser] could not move corrupt profile aside: ${path}`,
+        );
       }
       return cloneState(EMPTY_STORAGE_STATE);
     }
   }
 
-  private serializeProfile<T>(profileId: string, work: () => Promise<T>): Promise<T> {
+  private serializeProfile<T>(
+    profileId: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
     const prev = this.profileChains.get(profileId) ?? Promise.resolve();
     const result = prev.then(work, work);
-    const tail = result.then(() => {}, () => {});
+    const tail = result.then(
+      () => {},
+      () => {},
+    );
     this.profileChains.set(profileId, tail);
     void tail.then(() => {
-      if (this.profileChains.get(profileId) === tail) this.profileChains.delete(profileId);
+      if (this.profileChains.get(profileId) === tail)
+        this.profileChains.delete(profileId);
     });
     return result;
   }
@@ -435,7 +452,11 @@ export class BrowserPool {
   ): Promise<void> {
     await this.serializeProfile(profileId, async () => {
       const path = this.profilePath(profileId);
-      const next = mergeBrowserStorageState(this.readProfile(profileId), baseline, current);
+      const next = mergeBrowserStorageState(
+        this.readProfile(profileId),
+        baseline,
+        current,
+      );
       const dir = dirname(path);
       mkdirSync(dir, {
         recursive: true,
@@ -542,8 +563,7 @@ export class BrowserPool {
     if (session) {
       this.touch(agentId, session);
       void this.startScreencast(agentId, session);
-    }
-    else listener(null);
+    } else listener(null);
     return () => {
       const current = this.frameListeners.get(agentId);
       current?.delete(listener);
@@ -561,7 +581,10 @@ export class BrowserPool {
     };
   }
 
-  private async startScreencast(agentId: string, session: AgentSession): Promise<void> {
+  private async startScreencast(
+    agentId: string,
+    session: AgentSession,
+  ): Promise<void> {
     if (session.screencast || !this.frameListeners.get(agentId)?.size) return;
     if (session.screencastStarting) return session.screencastStarting;
     const starting = this.startScreencastNow(agentId, session);
@@ -569,7 +592,8 @@ export class BrowserPool {
     try {
       await starting;
     } finally {
-      if (session.screencastStarting === starting) session.screencastStarting = null;
+      if (session.screencastStarting === starting)
+        session.screencastStarting = null;
     }
   }
 
@@ -588,24 +612,30 @@ export class BrowserPool {
         return;
       }
       session.screencast = cdp;
-      cdp.on("Page.screencastFrame", (event: {
-        data: string;
-        sessionId: number;
-        metadata?: { deviceWidth?: number; deviceHeight?: number };
-      }) => {
-        void cdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => {});
-        if (session.screencast !== cdp) return;
-        const viewport = session.page.viewportSize() ?? {
-          width: DEFAULT_WIDTH,
-          height: DEFAULT_HEIGHT,
-        };
-        const frame = {
-          data: event.data,
-          width: event.metadata?.deviceWidth ?? viewport.width,
-          height: event.metadata?.deviceHeight ?? viewport.height,
-        };
-        for (const listener of this.frameListeners.get(agentId) ?? []) listener(frame);
-      });
+      cdp.on(
+        "Page.screencastFrame",
+        (event: {
+          data: string;
+          sessionId: number;
+          metadata?: { deviceWidth?: number; deviceHeight?: number };
+        }) => {
+          void cdp
+            .send("Page.screencastFrameAck", { sessionId: event.sessionId })
+            .catch(() => {});
+          if (session.screencast !== cdp) return;
+          const viewport = session.page.viewportSize() ?? {
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+          };
+          const frame = {
+            data: event.data,
+            width: event.metadata?.deviceWidth ?? viewport.width,
+            height: event.metadata?.deviceHeight ?? viewport.height,
+          };
+          for (const listener of this.frameListeners.get(agentId) ?? [])
+            listener(frame);
+        },
+      );
       await cdp.send("Page.startScreencast", {
         format: "jpeg",
         quality: 75,
@@ -613,7 +643,8 @@ export class BrowserPool {
       });
     } catch {
       if (session.screencast) await this.stopScreencast(session);
-      for (const listener of this.frameListeners.get(agentId) ?? []) listener(null);
+      for (const listener of this.frameListeners.get(agentId) ?? [])
+        listener(null);
     }
   }
 
@@ -626,12 +657,17 @@ export class BrowserPool {
   }
 
   private notifyUnavailable(agentId: string): void {
-    for (const listener of this.frameListeners.get(agentId) ?? []) listener(null);
+    for (const listener of this.frameListeners.get(agentId) ?? [])
+      listener(null);
   }
 
-  async humanInput(agentId: string, input: BrowserHumanInput): Promise<boolean> {
+  async humanInput(
+    agentId: string,
+    input: BrowserHumanInput,
+  ): Promise<boolean> {
     const session = this.sessions.get(agentId);
-    if (!session || !session.screencast || session.page.isClosed()) return false;
+    if (!session || !session.screencast || session.page.isClosed())
+      return false;
     this.touch(agentId, session);
     const cdp = session.screencast;
     if (input.kind === "mouse") {
@@ -640,10 +676,14 @@ export class BrowserPool {
         x: input.x,
         y: input.y,
         ...(input.button === undefined ? {} : { button: input.button }),
-        ...(input.clickCount === undefined ? {} : { clickCount: input.clickCount }),
+        ...(input.clickCount === undefined
+          ? {}
+          : { clickCount: input.clickCount }),
         ...(input.deltaX === undefined ? {} : { deltaX: input.deltaX }),
         ...(input.deltaY === undefined ? {} : { deltaY: input.deltaY }),
-        ...(input.modifiers === undefined ? {} : { modifiers: input.modifiers }),
+        ...(input.modifiers === undefined
+          ? {}
+          : { modifiers: input.modifiers }),
       });
     } else {
       await cdp.send("Input.dispatchKeyEvent", {
@@ -651,7 +691,9 @@ export class BrowserPool {
         key: input.key,
         ...(input.code === undefined ? {} : { code: input.code }),
         ...(input.text === undefined ? {} : { text: input.text }),
-        ...(input.modifiers === undefined ? {} : { modifiers: input.modifiers }),
+        ...(input.modifiers === undefined
+          ? {}
+          : { modifiers: input.modifiers }),
       });
     }
     return true;
@@ -707,7 +749,10 @@ export class BrowserPool {
     if (this.frameListeners.get(agentId)?.size) return;
     session.timer = setTimeout(() => {
       void this.close(agentId).catch((err: unknown) => {
-        console.error(`[browser] could not persist idle profile for ${agentId}:`, err);
+        console.error(
+          `[browser] could not persist idle profile for ${agentId}:`,
+          err,
+        );
       });
     }, this.idleMs);
     // An idle timer must never hold the process open at shutdown.
@@ -730,7 +775,9 @@ export class BrowserPool {
     }
     // Anything that creates a context, or that could relaunch the browser,
     // runs one at a time for the whole office.
-    return this.lifecycle(() => this.createSession(agentId, profileId, viewport));
+    return this.lifecycle(() =>
+      this.createSession(agentId, profileId, viewport),
+    );
   }
 
   private async createSession(
@@ -755,7 +802,9 @@ export class BrowserPool {
     // we are about to make a new context in it.
     if (existing) await this.discard(agentId);
     const baselineState = profileId
-      ? await this.serializeProfile(profileId, async () => this.readProfile(profileId))
+      ? await this.serializeProfile(profileId, async () =>
+          this.readProfile(profileId),
+        )
       : cloneState(EMPTY_STORAGE_STATE);
     const context = await browser.newContext({
       viewport,
@@ -887,7 +936,11 @@ export class BrowserPool {
       return { ok: true, url: "", title: "", closed: true };
     }
 
-    const session = await this.ensureSession(agentId, profileId, params.viewport);
+    const session = await this.ensureSession(
+      agentId,
+      profileId,
+      params.viewport,
+    );
     if ("ok" in session) return session;
 
     // Before Playwright, not after. On a fresh context these actions would
@@ -1060,7 +1113,9 @@ interface ParsedParams {
   viewport: { width: number; height: number };
 }
 
-export function parseBrowserParams(body: unknown): ParsedParams | BrowserFailure {
+export function parseBrowserParams(
+  body: unknown,
+): ParsedParams | BrowserFailure {
   if (!isPlainObject(body)) return invalid("body must be a JSON object");
   const action = body.action;
   if (typeof action !== "string" || !isAction(action)) {

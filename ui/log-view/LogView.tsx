@@ -128,7 +128,10 @@ const PANEL_MAX = { terminal: 1000, editor: 1200, browser: 1400 } as const;
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
 
-function readPanelWidth(kind: "terminal" | "editor" | "browser", fallback: number): number {
+function readPanelWidth(
+  kind: "terminal" | "editor" | "browser",
+  fallback: number,
+): number {
   if (typeof localStorage === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(`isomux:panel-width:${kind}`);
@@ -141,7 +144,10 @@ function readPanelWidth(kind: "terminal" | "editor" | "browser", fallback: numbe
   }
 }
 
-function writePanelWidth(kind: "terminal" | "editor" | "browser", width: number): void {
+function writePanelWidth(
+  kind: "terminal" | "editor" | "browser",
+  width: number,
+): void {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(

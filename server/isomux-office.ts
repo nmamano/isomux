@@ -5062,7 +5062,10 @@ async function handleInboundMessage(
           browserWatches.set(ws.data.connectionId, watches);
         }
         const stop = browserPool.watch(cmd.agentId, (frame) => {
-          if (!browsers.has(ws) || !managesAgent(ws.data.session, cmd.agentId)) {
+          if (
+            !browsers.has(ws) ||
+            !managesAgent(ws.data.session, cmd.agentId)
+          ) {
             stopBrowserWatch(ws.data.connectionId, cmd.agentId);
             return;
           }
@@ -5070,7 +5073,11 @@ async function handleInboundMessage(
             JSON.stringify(
               frame
                 ? { type: "browser_frame", agentId: cmd.agentId, ...frame }
-                : { type: "browser_status", agentId: cmd.agentId, available: false },
+                : {
+                    type: "browser_status",
+                    agentId: cmd.agentId,
+                    available: false,
+                  },
             ),
           );
         });
@@ -5080,7 +5087,10 @@ async function handleInboundMessage(
       case "browser_input":
         // Recheck management on every event. Room access and an authorization
         // result from panel-open time are not credentials for this profile.
-        if (!managesAgent(session, cmd.agentId) || !validBrowserInput(cmd.input))
+        if (
+          !managesAgent(session, cmd.agentId) ||
+          !validBrowserInput(cmd.input)
+        )
           break;
         await browserPool.humanInput(cmd.agentId, cmd.input);
         break;

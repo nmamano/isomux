@@ -734,7 +734,11 @@ describe("live browser profile authorization", () => {
       return () => {};
     };
     try {
-      otherSock.send({ type: "browser_watch", agentId: agent.id, watching: true });
+      otherSock.send({
+        type: "browser_watch",
+        agentId: agent.id,
+        watching: true,
+      });
       await pingPong(otherSock);
       expect(watched).toEqual([]);
     } finally {
@@ -765,7 +769,11 @@ describe("live browser profile authorization", () => {
       return true;
     };
     try {
-      managerSock.send({ type: "browser_watch", agentId: agent.id, watching: true });
+      managerSock.send({
+        type: "browser_watch",
+        agentId: agent.id,
+        watching: true,
+      });
       await pingPong(managerSock);
       expect(frameListener === null).toBe(false);
 

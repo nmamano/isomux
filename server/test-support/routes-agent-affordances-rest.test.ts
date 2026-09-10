@@ -446,9 +446,15 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
 
-    const missing = await affordance(srv, agent.id, "browser", {}, {
-      bearer: token,
-    });
+    const missing = await affordance(
+      srv,
+      agent.id,
+      "browser",
+      {},
+      {
+        bearer: token,
+      },
+    );
     expect(missing.status).toBe(400);
     expect(missing.body.error?.code).toBe("invalid_request");
 
@@ -471,7 +477,10 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
 
-    for (const url of ["file:///etc/passwd", "http://user:pw@127.0.0.1:3000/"]) {
+    for (const url of [
+      "file:///etc/passwd",
+      "http://user:pw@127.0.0.1:3000/",
+    ]) {
       const r = await affordance(
         srv,
         agent.id,

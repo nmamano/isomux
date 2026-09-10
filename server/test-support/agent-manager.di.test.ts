@@ -152,9 +152,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     );
     expect(info).not.toBeNull();
     await mgr.runAgentBrowserAction(info!.id, { action: "close" });
-    expect(calls).toEqual([
-      { agentId: info!.id, profileId: "user-stable-id" },
-    ]);
+    expect(calls).toEqual([{ agentId: info!.id, profileId: "user-stable-id" }]);
   });
 
   it("classifies OpenCode and Codex sessions as fixed to their birth cwd", () => {

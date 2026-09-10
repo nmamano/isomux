@@ -86,7 +86,7 @@ function stubBrowser(
       },
     },
     innerText: async () => "body text",
-    locator: () => ({ ariaSnapshot: async () => "- heading \"hi\"" }),
+    locator: () => ({ ariaSnapshot: async () => '- heading "hi"' }),
     screenshot: async () => Buffer.from("PNG"),
     viewportSize: () => ({ width: 1280, height: 800 }),
   };
@@ -158,12 +158,17 @@ function stubBrowser(
           newCDPSession: async () => {
             const listeners = new Map<string, (event: never) => void>();
             const cdp = {
-              on: (event: string, fn: (event: never) => void) => listeners.set(event, fn),
-              send: async (method: string, params?: Record<string, unknown>) => {
+              on: (event: string, fn: (event: never) => void) =>
+                listeners.set(event, fn),
+              send: async (
+                method: string,
+                params?: Record<string, unknown>,
+              ) => {
                 calls.cdp.push({ method, params });
               },
               detach: async () => {},
-              emit: (event: string, value: never) => listeners.get(event)?.(value),
+              emit: (event: string, value: never) =>
+                listeners.get(event)?.(value),
             };
             cdpSessions.push(cdp);
             return cdp;
@@ -422,9 +427,23 @@ describe("BrowserPool", () => {
     const stateRoot = mkdtempSync(join(tmpdir(), "isomux-browser-profile-"));
     try {
       const calls = freshCalls();
-      const { pool, stub } = poolWith(calls, undefined, 60_000, {}, { stateRoot });
-      await pool.run("a", { action: "goto", url: "https://example.test/" }, "boss-1");
-      await pool.run("b", { action: "goto", url: "https://example.test/" }, "boss-1");
+      const { pool, stub } = poolWith(
+        calls,
+        undefined,
+        60_000,
+        {},
+        { stateRoot },
+      );
+      await pool.run(
+        "a",
+        { action: "goto", url: "https://example.test/" },
+        "boss-1",
+      );
+      await pool.run(
+        "b",
+        { action: "goto", url: "https://example.test/" },
+        "boss-1",
+      );
       stub.contexts[0].setState({
         cookies: [
           {
@@ -458,12 +477,12 @@ describe("BrowserPool", () => {
         ),
       );
       expect(stored.cookies).toHaveLength(2);
-      expect(stored.cookies.map((cookie: { value: string }) => cookie.value)).toEqual(
-        ["logged-in", "from-b"],
-      );
-      expect(statSync(join(stateRoot, "browser-profiles", "boss-1")).mode & 0o777).toBe(
-        0o700,
-      );
+      expect(
+        stored.cookies.map((cookie: { value: string }) => cookie.value),
+      ).toEqual(["logged-in", "from-b"]);
+      expect(
+        statSync(join(stateRoot, "browser-profiles", "boss-1")).mode & 0o777,
+      ).toBe(0o700);
       expect(
         statSync(
           join(stateRoot, "browser-profiles", "boss-1", "storage-state.json"),
@@ -474,11 +493,19 @@ describe("BrowserPool", () => {
         { indexedDB: true, credentials: true },
       ]);
 
-      await pool.run("c", { action: "goto", url: "https://example.test/" }, "boss-1");
+      await pool.run(
+        "c",
+        { action: "goto", url: "https://example.test/" },
+        "boss-1",
+      );
       expect(stub.contexts[2].loadedState).toEqual(stored);
       await pool.close("c");
 
-      await pool.run("d", { action: "goto", url: "https://example.test/" }, "boss-2");
+      await pool.run(
+        "d",
+        { action: "goto", url: "https://example.test/" },
+        "boss-2",
+      );
       expect(stub.contexts[3].loadedState).toEqual({
         cookies: [],
         origins: [],
@@ -520,7 +547,13 @@ describe("BrowserPool", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, "storage-state.json"), "{", { mode: 0o600 });
       const calls = freshCalls();
-      const { pool, stub } = poolWith(calls, undefined, 60_000, {}, { stateRoot });
+      const { pool, stub } = poolWith(
+        calls,
+        undefined,
+        60_000,
+        {},
+        { stateRoot },
+      );
       await pool.run(
         "a",
         { action: "goto", url: "https://example.test/" },
@@ -973,7 +1006,9 @@ describe("BrowserPool", () => {
     expect(frames).toEqual([null]);
 
     await opened(pool, "a");
-    expect(calls.cdp.some((call) => call.method === "Page.startScreencast")).toBe(true);
+    expect(
+      calls.cdp.some((call) => call.method === "Page.startScreencast"),
+    ).toBe(true);
     const stopSecond = pool.watch("a", () => {});
     expect(
       calls.cdp.filter((call) => call.method === "Page.startScreencast"),
@@ -984,7 +1019,9 @@ describe("BrowserPool", () => {
       metadata: { deviceWidth: 640, deviceHeight: 480 },
     } as never);
     expect(frames.at(-1)).toEqual({ data: "jpeg", width: 640, height: 480 });
-    expect(calls.cdp.some((call) => call.method === "Page.screencastFrameAck")).toBe(true);
+    expect(
+      calls.cdp.some((call) => call.method === "Page.screencastFrameAck"),
+    ).toBe(true);
 
     expect(
       await pool.humanInput("a", {
@@ -1009,10 +1046,14 @@ describe("BrowserPool", () => {
 
     stop();
     await Bun.sleep(0);
-    expect(calls.cdp.some((call) => call.method === "Page.stopScreencast")).toBe(false);
+    expect(
+      calls.cdp.some((call) => call.method === "Page.stopScreencast"),
+    ).toBe(false);
     stopSecond();
     await Bun.sleep(0);
-    expect(calls.cdp.some((call) => call.method === "Page.stopScreencast")).toBe(true);
+    expect(
+      calls.cdp.some((call) => call.method === "Page.stopScreencast"),
+    ).toBe(true);
     await pool.shutdown();
   });
 
