@@ -104,7 +104,11 @@ export function rawFramingCompletion(
   if (headEnd === -1) return null;
   const response = parseRaw(bytes.toString("utf8"));
   const bodyStart = headEnd + 4;
-  if (method.toUpperCase() === "HEAD" || response.status === 204 || response.status === 304) {
+  if (
+    method.toUpperCase() === "HEAD" ||
+    response.status === 204 ||
+    response.status === 304
+  ) {
     return "bodyless";
   }
   const length = response.headers["content-length"];

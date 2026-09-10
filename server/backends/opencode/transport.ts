@@ -387,7 +387,10 @@ export class OpenCodeTransport {
       }
     };
     if (this.systemPrompt === undefined) {
-      fail(new Error(), "OpenCode cannot send a turn without an Isomux system prompt");
+      fail(
+        new Error(),
+        "OpenCode cannot send a turn without an Isomux system prompt",
+      );
       return;
     }
     try {
@@ -686,7 +689,10 @@ export class OpenCodeTransport {
                     : {}),
                 });
               } else {
-                fail(new Error(), "OpenCode became idle without a recorded completion");
+                fail(
+                  new Error(),
+                  "OpenCode became idle without a recorded completion",
+                );
               }
               return;
             }
@@ -709,7 +715,10 @@ export class OpenCodeTransport {
           }
         }
         if (!signal.aborted) {
-          fail(new Error(), "OpenCode event stream ended before turn completion");
+          fail(
+            new Error(),
+            "OpenCode event stream ended before turn completion",
+          );
         }
       } catch (error) {
         if (!signal.aborted) {
@@ -754,9 +763,12 @@ export class OpenCodeTransport {
     });
     if (!response.ok) {
       await response.body?.cancel().catch(() => undefined);
-      throw Object.assign(new Error(`OpenCode HTTP ${response.status} at ${path}.`), {
-        statusCode: response.status,
-      });
+      throw Object.assign(
+        new Error(`OpenCode HTTP ${response.status} at ${path}.`),
+        {
+          statusCode: response.status,
+        },
+      );
     }
     return response;
   }
@@ -972,18 +984,42 @@ export interface SafeOpenCodeError {
 // Project local failures onto reviewed class names and a valid HTTP status.
 function allowTransportError(error: unknown): SafeOpenCodeError {
   const value = asRecord(error);
-  const names = ["Error", "TypeError", "SyntaxError", "RangeError", "ReferenceError", "URIError", "EvalError", "AggregateError", "AbortError", "TimeoutError"];
-  const name = typeof value.name === "string" && names.includes(value.name)
-    ? value.name
-    : "UnknownError";
+  const names = [
+    "Error",
+    "TypeError",
+    "SyntaxError",
+    "RangeError",
+    "ReferenceError",
+    "URIError",
+    "EvalError",
+    "AggregateError",
+    "AbortError",
+    "TimeoutError",
+  ];
+  const name =
+    typeof value.name === "string" && names.includes(value.name)
+      ? value.name
+      : "UnknownError";
   const status = value.statusCode ?? value.status;
-  const codes = ["ConnectionRefused", "ECONNREFUSED", "ECONNRESET", "EPIPE", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ERR_STREAM_PREMATURE_CLOSE"];
+  const codes = [
+    "ConnectionRefused",
+    "ECONNREFUSED",
+    "ECONNRESET",
+    "EPIPE",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ERR_STREAM_PREMATURE_CLOSE",
+  ];
   return {
     name,
     ...(typeof value.code === "string"
       ? { code: codes.includes(value.code) ? value.code : "UnknownCode" }
       : {}),
-    ...(typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599
+    ...(typeof status === "number" &&
+    Number.isInteger(status) &&
+    status >= 100 &&
+    status <= 599
       ? { statusCode: status }
       : {}),
   };

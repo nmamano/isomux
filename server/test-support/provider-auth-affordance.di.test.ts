@@ -164,17 +164,15 @@ const BEDROCK_PAYMENT_ERROR =
   "Failed to authenticate. API Error: 403 Model access is denied due to INVALID_PAYMENT_INSTRUMENT: A valid payment instrument must be provided. Your AWS Marketplace subscription for this model cannot be completed at this time. If you recently fixed this issue, try again after 5 minutes.";
 
 describe("Claude auth classification by provider", () => {
-  const classify = (
-    text: string,
-    env: Record<string, string | undefined>,
-  ) =>
+  const classify = (text: string, env: Record<string, string | undefined>) =>
     detectAuthErrorForEnvironment("claude", text, env, (value) =>
       claudeBackend.detectAuthError(value),
     );
 
   it("does not classify the Bedrock 403 as a first-party auth error", () => {
-    expect(classify(BEDROCK_PAYMENT_ERROR, { CLAUDE_CODE_USE_BEDROCK: "1" }))
-      .toBe(false);
+    expect(
+      classify(BEDROCK_PAYMENT_ERROR, { CLAUDE_CODE_USE_BEDROCK: "1" }),
+    ).toBe(false);
   });
 
   it("keeps the same 403 classified when no cloud selector is active", () => {
@@ -221,13 +219,15 @@ describe("provider auth affordances", () => {
     await mgr.sendMessage(agentId, "hello", "tester");
 
     const logs = mgr.getAgentLogs(agentId);
-    expect(logs.filter((entry) => entry.content === BEDROCK_PAYMENT_ERROR))
-      .toHaveLength(1);
+    expect(
+      logs.filter((entry) => entry.content === BEDROCK_PAYMENT_ERROR),
+    ).toHaveLength(1);
     expect(
       logs.some((entry) => entry.content.includes("Checking the connection…")),
     ).toBe(false);
-    expect(logs.some((entry) => entry.metadata?.providerLogin === "claude"))
-      .toBe(false);
+    expect(
+      logs.some((entry) => entry.metadata?.providerLogin === "claude"),
+    ).toBe(false);
     expect(accountChecks).toBe(0);
     expect(mgr.getAgent(agentId)?.state).toBe("error");
   });
@@ -311,9 +311,7 @@ describe("provider auth affordances", () => {
           throw new Error("restore probe");
         }),
       ).toThrow("restore probe");
-      expect(process.env.CLAUDE_CONFIG_DIR).toBe(
-        "/accounts/fixture-sentinel",
-      );
+      expect(process.env.CLAUDE_CONFIG_DIR).toBe("/accounts/fixture-sentinel");
 
       delete process.env.CLAUDE_CONFIG_DIR;
       expect(() =>

@@ -122,12 +122,12 @@ describe("OpenCode effort selection", () => {
   const options = (...levels: string[]) => levels.map((level) => ({ level }));
 
   it("keeps a supported effort, then prefers high, then enum order", () => {
-    expect(selectSupportedEffort("medium", options("low", "medium", "high"))).toBe(
-      "medium",
-    );
-    expect(selectSupportedEffort("xhigh", options("low", "medium", "high"))).toBe(
-      "high",
-    );
+    expect(
+      selectSupportedEffort("medium", options("low", "medium", "high")),
+    ).toBe("medium");
+    expect(
+      selectSupportedEffort("xhigh", options("low", "medium", "high")),
+    ).toBe("high");
     expect(selectSupportedEffort("xhigh", options("low", "medium"))).toBe(
       "low",
     );

@@ -97,7 +97,10 @@ test("a Render setup claim seeds the three welcome agents after office boot", as
 
   const ids = agents.map((agent) => agent.id).sort();
   server = await server.restart();
-  expect(server.agentManager.getAllAgents().map((agent) => agent.id).sort()).toEqual(
-    ids,
-  );
+  expect(
+    server.agentManager
+      .getAllAgents()
+      .map((agent) => agent.id)
+      .sort(),
+  ).toEqual(ids);
 });

@@ -74,7 +74,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(events).toContainEqual({
       kind: "turn_completed",
       status: "failed",
-      error: "OpenCode cannot send a turn without an Isomux system prompt (Error; HTTP status: unavailable).",
+      error:
+        "OpenCode cannot send a turn without an Isomux system prompt (Error; HTTP status: unavailable).",
     });
     expect(leasesAcquired).toBe(0);
     expect(turnsStarted).toBe(0);
@@ -105,15 +106,12 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       events.push(event),
     );
 
-    expect(safeErrors).toEqual([
-      { name: "TypeError", statusCode: 503 },
-    ]);
+    expect(safeErrors).toEqual([{ name: "TypeError", statusCode: 503 }]);
     expect(events).toEqual([
       {
         kind: "turn_completed",
         status: "failed",
-        error:
-          "OpenCode turn failed (TypeError; HTTP status: 503).",
+        error: "OpenCode turn failed (TypeError; HTTP status: 503).",
       },
     ]);
   });
@@ -159,9 +157,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
           });
         }
         if (url.pathname.endsWith("/prompt_async")) {
-          promptBodies.push(
-            (await request.json()) as Record<string, unknown>,
-          );
+          promptBodies.push((await request.json()) as Record<string, unknown>);
           const sessionID = decodeURIComponent(url.pathname.split("/")[2]);
           const controller = eventController;
           eventController = null;

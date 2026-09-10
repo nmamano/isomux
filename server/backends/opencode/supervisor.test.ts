@@ -255,20 +255,29 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it.skipIf(!LIVE)("reports sharing and updates disabled from the running pinned server", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(path, { share: "disabled", autoupdate: true });
-    const lease = await supervisor.acquire();
-    const configResponse = await fetch(
-      `${lease.baseUrl}/config?directory=${encodeURIComponent(path)}`,
-      { headers: { authorization: lease.authHeader } },
-    );
-    expect(configResponse.ok, "config: response ok").toBe(true);
-    const effectiveConfig = await configResponse.json();
-    expect(effectiveConfig.share === "disabled", "config: share").toBe(true);
-    expect(effectiveConfig.autoupdate === false, "config: autoupdate").toBe(true);
-    lease.release();
-  }, 30_000);
+  it.skipIf(!LIVE)(
+    "reports sharing and updates disabled from the running pinned server",
+    async () => {
+      const path = await root();
+      const supervisor = makeSupervisor(path, {
+        share: "disabled",
+        autoupdate: true,
+      });
+      const lease = await supervisor.acquire();
+      const configResponse = await fetch(
+        `${lease.baseUrl}/config?directory=${encodeURIComponent(path)}`,
+        { headers: { authorization: lease.authHeader } },
+      );
+      expect(configResponse.ok, "config: response ok").toBe(true);
+      const effectiveConfig = await configResponse.json();
+      expect(effectiveConfig.share === "disabled", "config: share").toBe(true);
+      expect(effectiveConfig.autoupdate === false, "config: autoupdate").toBe(
+        true,
+      );
+      lease.release();
+    },
+    30_000,
+  );
 
   it("serializes two supervisors and reconciles by adopting one healthy process", async () => {
     const path = await root();

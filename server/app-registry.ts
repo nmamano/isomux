@@ -1130,10 +1130,7 @@ export function parseTestAppPortRange(
   rawMin: string | undefined,
   rawMax: string | undefined,
   isTestRunner: boolean,
-): Pick<
-  AppRegistryOptions,
-  "portMin" | "portMax"
-> {
+): Pick<AppRegistryOptions, "portMin" | "portMax"> {
   if (rawMin === undefined && rawMax === undefined) return {};
   if (!isTestRunner) {
     throw new Error("test app port range is only valid under the test preload");

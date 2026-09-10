@@ -1064,7 +1064,9 @@ describe("OpenCode pinned transport", () => {
     // The mock declares cost {input: 0, output: 0}, so free detection must
     // mark it - a discovery result WITHOUT isFree here would mean the
     // measured-cost predicate silently stopped reading the payload.
-    const gateModel = discovered.find((model) => model.id === "gate/gate-model");
+    const gateModel = discovered.find(
+      (model) => model.id === "gate/gate-model",
+    );
     expect(gateModel).toMatchObject({
       id: "gate/gate-model",
       label: "Gate mock - Gate model",
@@ -1072,9 +1074,9 @@ describe("OpenCode pinned transport", () => {
     });
     expect(gateModel?.supportedEfforts).toContainEqual({ level: "low" });
     expect(gateModel?.supportedEfforts).toContainEqual({ level: "high" });
-    expect(gateModel?.supportedEfforts.some(({ level }) => level === "none")).toBe(
-      false,
-    );
+    expect(
+      gateModel?.supportedEfforts.some(({ level }) => level === "none"),
+    ).toBe(false);
     expect(
       gateModel?.supportedEfforts.some(({ level }) => level === "thinking"),
     ).toBe(false);

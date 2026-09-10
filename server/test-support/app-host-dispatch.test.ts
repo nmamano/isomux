@@ -59,17 +59,23 @@ afterEach(async () => {
 describe("raw HTTP completion", () => {
   it("requires a complete Content-Length body", () => {
     expect(
-      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na")),
+      rawFramingCompletion(
+        Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\na"),
+      ),
     ).toBeNull();
     expect(
-      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab")),
+      rawFramingCompletion(
+        Buffer.from("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab"),
+      ),
     ).toBe("content-length");
   });
 
   it("requires the terminating chunk and accepts trailers", () => {
     expect(
       rawFramingCompletion(
-        Buffer.from("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n"),
+        Buffer.from(
+          "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n",
+        ),
       ),
     ).toBeNull();
     expect(
@@ -82,13 +88,15 @@ describe("raw HTTP completion", () => {
   });
 
   it("does not classify an unframed response as complete", () => {
-    expect(rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\n\r\nbody"))).toBeNull();
+    expect(
+      rawFramingCompletion(Buffer.from("HTTP/1.1 200 OK\r\n\r\nbody")),
+    ).toBeNull();
   });
 
   it("completes bodyless statuses and HEAD at the header boundary", () => {
-    expect(rawFramingCompletion(Buffer.from("HTTP/1.1 204 No Content\r\n\r\n"))).toBe(
-      "bodyless",
-    );
+    expect(
+      rawFramingCompletion(Buffer.from("HTTP/1.1 204 No Content\r\n\r\n")),
+    ).toBe("bodyless");
     expect(
       rawFramingCompletion(
         Buffer.from("HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\n"),
