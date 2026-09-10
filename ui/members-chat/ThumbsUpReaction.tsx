@@ -61,6 +61,10 @@ export function ThumbsUpReaction({
         border: "1px solid var(--border)",
         borderRadius: 10,
         background: active ? "var(--bg-subtle)" : "transparent",
+        // A long press on the chip must not select the count as text.
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        WebkitTouchCallout: "none",
       }}
     >
       <button
