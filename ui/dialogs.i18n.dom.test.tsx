@@ -225,14 +225,19 @@ describe("the costume picker", () => {
         select.value = "construction";
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
+      // Scope to the live preview: template cards draw their own outfits
+      // (Health Navigator wears the doctor costume), so a page-wide query
+      // would find a costume body that this picker never controlled.
+      const preview = () =>
+        view.container.querySelector("[data-outfit-preview]") as HTMLElement;
       expect(
-        view.container.querySelector('[data-costume-body="construction"]'),
+        preview().querySelector('[data-costume-body="construction"]'),
       ).not.toBeNull();
       act(() => {
         select.value = "none";
         select.dispatchEvent(new Event("change", { bubbles: true }));
       });
-      expect(view.container.querySelector("[data-costume-body]")).toBeNull();
+      expect(preview().querySelector("[data-costume-body]")).toBeNull();
     }
     await settle();
   });

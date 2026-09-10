@@ -1324,6 +1324,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   }}
                 >
                   <div
+                    data-outfit-preview
                     style={{
                       width: 52,
                       height: 70,
