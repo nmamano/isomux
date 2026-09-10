@@ -13,19 +13,18 @@ counter increasing from 1 to 2 after a Render CLI restart, office session
 survival, app stop, authenticated WebSocket echo, and app deletion.
 
 The smoke app remains registered and stopped. The WebSocket test app was deleted.
-The WebSocket driver first expected 200 for deletion; the API correctly returned
-204. After correcting the driver, its complete run passed.
+The WebSocket driver first expected 200 for deletion; the API correctly returned 204. After correcting the driver, its complete run passed.
 
 ## DNS
 
 For the test zone nilmamano.com, all four records are CNAMEs:
 
-| Host | Target |
-| --- | --- |
-| render-test | isomux-render-test.onrender.com |
-| *.render-test | isomux-render-test.onrender.com |
-| _acme-challenge.render-test | isomux-render-test.verify.renderdns.com |
-| _cf-custom-hostname.render-test | isomux-render-test.hostname.renderdns.com |
+| Host                             | Target                                    |
+| -------------------------------- | ----------------------------------------- |
+| render-test                      | isomux-render-test.onrender.com           |
+| \*.render-test                   | isomux-render-test.onrender.com           |
+| \_acme-challenge.render-test     | isomux-render-test.verify.renderdns.com   |
+| \_cf-custom-hostname.render-test | isomux-render-test.hostname.renderdns.com |
 
 Use the validation targets Render supplies for the specific service. Do not
 construct them from its srv- identifier: that produced wrong targets during

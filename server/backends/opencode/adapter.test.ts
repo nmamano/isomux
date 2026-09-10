@@ -221,7 +221,10 @@ describe("OpenCode pinned transport", () => {
       port: 0,
       async fetch(request) {
         const url = new URL(request.url);
-        requests.push({ path: url.pathname, body: await request.clone().text() });
+        requests.push({
+          path: url.pathname,
+          body: await request.clone().text(),
+        });
         if (url.pathname === "/provider") {
           if (providerLookupFails)
             return new Response("failed", { status: 503 });
@@ -330,13 +333,21 @@ describe("OpenCode pinned transport", () => {
   const topicFrames = [
     {
       type: "message.updated",
-      properties: { sessionID: "one-shot-session", info: { id: "assistant", role: "assistant" } },
+      properties: {
+        sessionID: "one-shot-session",
+        info: { id: "assistant", role: "assistant" },
+      },
     },
     {
       type: "message.part.updated",
       properties: {
         sessionID: "one-shot-session",
-        part: { type: "text", id: "text", messageID: "assistant", text: "Topic label" },
+        part: {
+          type: "text",
+          id: "text",
+          messageID: "assistant",
+          text: "Topic label",
+        },
       },
     },
     {
@@ -353,17 +364,24 @@ describe("OpenCode pinned transport", () => {
     it(`routes one-shot marker only to selected model ${modelFamily}`, async () => {
       const harness = oneShotHarness(topicFrames, 2_000);
       const marker = "SYNTHETIC_TOPIC_ROUTING_MARKER";
-      const result = await harness.backend.oneShotPrompt(marker, { modelFamily })
+      const result = await harness.backend
+        .oneShotPrompt(marker, { modelFamily })
         .catch((error: unknown) => error);
-      const carryingText = harness.requests.filter((request) => request.body.includes(marker));
+      const carryingText = harness.requests.filter((request) =>
+        request.body.includes(marker),
+      );
       // Check every HTTP body before checking the reply or the error text.
-      expect(carryingText.map((request) => ({
-        path: request.path,
-        model: JSON.parse(request.body).model,
-      }))).toEqual([{
-        path: "/session/one-shot-session/prompt_async",
-        model: { providerID: "gate", modelID: modelFamily.split("/")[1] },
-      }]);
+      expect(
+        carryingText.map((request) => ({
+          path: request.path,
+          model: JSON.parse(request.body).model,
+        })),
+      ).toEqual([
+        {
+          path: "/session/one-shot-session/prompt_async",
+          model: { providerID: "gate", modelID: modelFamily.split("/")[1] },
+        },
+      ]);
       expect(result).toBe("Topic label");
     });
   }
@@ -372,10 +390,15 @@ describe("OpenCode pinned transport", () => {
     it(`skips one-shot marker for unavailable selection ${JSON.stringify(modelFamily)}`, async () => {
       const harness = oneShotHarness(topicFrames, 2_000);
       const marker = "SYNTHETIC_TOPIC_SKIP_MARKER";
-      const result = await harness.backend.oneShotPrompt(marker, { modelFamily })
+      const result = await harness.backend
+        .oneShotPrompt(marker, { modelFamily })
         .catch((error: unknown) => error);
-      expect(harness.requests.filter((request) => request.body.includes(marker))).toEqual([]);
-      expect(harness.requests.some((request) => request.path === "/session")).toBe(false);
+      expect(
+        harness.requests.filter((request) => request.body.includes(marker)),
+      ).toEqual([]);
+      expect(
+        harness.requests.some((request) => request.path === "/session"),
+      ).toBe(false);
       expect(result).toBeInstanceOf(Error);
     });
   }
@@ -849,7 +872,10 @@ describe("OpenCode pinned transport", () => {
       port: 0,
       async fetch(request) {
         const url = new URL(request.url);
-        providerRequests.push({ path: url.pathname, body: await request.clone().text() });
+        providerRequests.push({
+          path: url.pathname,
+          body: await request.clone().text(),
+        });
         if (url.pathname === "/v1/models") {
           return Response.json({
             object: "list",
@@ -963,13 +989,23 @@ describe("OpenCode pinned transport", () => {
     expect(JSON.stringify(discovered)).not.toContain("test-only");
     const skippedMarker = "SYNTHETIC_RETIRED_TOPIC_MARKER";
     const beforeSkipped = providerRequests.length;
-    const skipped = await backend.oneShotPrompt(skippedMarker, {
-      cwd: root,
-      modelFamily: "retired/preference",
-      systemPrompt: "You only label.",
-    }).catch((error: unknown) => error);
-    expect(providerRequests.filter((request) => request.body.includes(skippedMarker))).toEqual([]);
-    expect(providerRequests.slice(beforeSkipped).some((request) => request.path === "/v1/chat/completions")).toBe(false);
+    const skipped = await backend
+      .oneShotPrompt(skippedMarker, {
+        cwd: root,
+        modelFamily: "retired/preference",
+        systemPrompt: "You only label.",
+      })
+      .catch((error: unknown) => error);
+    expect(
+      providerRequests.filter((request) =>
+        request.body.includes(skippedMarker),
+      ),
+    ).toEqual([]);
+    expect(
+      providerRequests
+        .slice(beforeSkipped)
+        .some((request) => request.path === "/v1/chat/completions"),
+    ).toBe(false);
     expect(skipped).toBeInstanceOf(Error);
     expect(
       await backend.oneShotPrompt("label this conversation", {

@@ -8,7 +8,7 @@ create the Blueprint in the intended workspace.
    repository. Choose main and render.yaml. Give the Blueprint a name.
 2. Set ISOMUX_PUBLIC_URL to the final HTTPS office origin, for example
    https://office.example.com. Review the Pro service and 20 GB disk, then deploy.
-3. Add office.example.com and *.office.example.com to that service's custom
+3. Add office.example.com and \*.office.example.com to that service's custom
    domains. Configure the office and wildcard CNAMEs to the assigned onrender.com
    hostname. Copy Render's two validation CNAME targets exactly; do not derive
    them from the srv- service ID. Verify both domains and wait for HTTPS.

@@ -419,11 +419,11 @@ function createManagers(startOpts: StartServerOpts): void {
   // office env-file provider. createProductionCronjobManager() wires the real
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
-  appSupervisor = startOpts.appSupervisor ?? (
-    process.env.ISOMUX_APP_SUPERVISOR === "container"
+  appSupervisor =
+    startOpts.appSupervisor ??
+    (process.env.ISOMUX_APP_SUPERVISOR === "container"
       ? createContainerAppSupervisor()
-      : productionAppSupervisor
-  );
+      : productionAppSupervisor);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {

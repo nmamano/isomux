@@ -1,9 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
 
 const headers = {
-  "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
-  "Referrer-Policy": "same-origin", "X-Content-Type-Options": "nosniff",
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store",
+  "Content-Security-Policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+  "Referrer-Policy": "same-origin",
+  "X-Content-Type-Options": "nosniff",
 };
 const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Set up Isomux</title><style>
@@ -22,25 +25,40 @@ export function createSetupHandler(options: {
   claim: (name: string, userAgent: string | null) => Promise<string | null>;
   complete: () => void;
 }) {
-  if (options.key.length < 32) throw new Error("Setup key must contain at least 32 characters");
+  if (options.key.length < 32)
+    throw new Error("Setup key must contain at least 32 characters");
   let claimed = false;
   let inFlight = false;
   let attempts = 0;
   let windowStart = Date.now();
   return async (request: Request): Promise<Response> => {
     const path = new URL(request.url).pathname;
-    if (path === "/health" && request.method === "GET") return new Response("ok");
-    if (options.hasOwner() || claimed) return new Response("Office setup is complete", { status: 409 });
-    if (path === "/" && request.method === "GET") return new Response(page, { headers });
-    if (path !== "/setup" || request.method !== "POST") return new Response("Not found", { status: 404 });
-    if (request.headers.get("origin") !== options.origin) return new Response("Bad origin", { status: 403 });
-    if (Date.now() - windowStart > 60_000) { attempts = 0; windowStart = Date.now(); }
-    if (++attempts > 20) return new Response("Try again later", { status: 429 });
-    if (!request.headers.get("content-type")?.startsWith("application/x-www-form-urlencoded"))
+    if (path === "/health" && request.method === "GET")
+      return new Response("ok");
+    if (options.hasOwner() || claimed)
+      return new Response("Office setup is complete", { status: 409 });
+    if (path === "/" && request.method === "GET")
+      return new Response(page, { headers });
+    if (path !== "/setup" || request.method !== "POST")
+      return new Response("Not found", { status: 404 });
+    if (request.headers.get("origin") !== options.origin)
+      return new Response("Bad origin", { status: 403 });
+    if (Date.now() - windowStart > 60_000) {
+      attempts = 0;
+      windowStart = Date.now();
+    }
+    if (++attempts > 20)
+      return new Response("Try again later", { status: 429 });
+    if (
+      !request.headers
+        .get("content-type")
+        ?.startsWith("application/x-www-form-urlencoded")
+    )
       return new Response("Unsupported form", { status: 415 });
     // The actual Bun listener also bounds the body before buffering it.
     const body = await request.text();
-    if (body.length > 4096) return new Response("Form too large", { status: 413 });
+    if (body.length > 4096)
+      return new Response("Form too large", { status: 413 });
     const form = new URLSearchParams(body);
     const key = Buffer.from(form.get("key") || "");
     const expected = Buffer.from(options.key);
@@ -49,14 +67,23 @@ export function createSetupHandler(options: {
     if (inFlight) return new Response("Setup is in progress", { status: 409 });
     inFlight = true;
     try {
-      const cookie = await options.claim(form.get("name") || "", request.headers.get("user-agent"));
-      if (cookie === null) return new Response("Check the owner name", { status: 400 });
+      const cookie = await options.claim(
+        form.get("name") || "",
+        request.headers.get("user-agent"),
+      );
+      if (cookie === null)
+        return new Response("Check the owner name", { status: 400 });
       claimed = true;
       // Give the browser its cookie before replacing this listener with the office.
       setTimeout(options.complete, 500);
-      return new Response('<!doctype html><meta http-equiv="refresh" content="3;url=/"><title>Office ready</title><p>Your office is starting.</p>', {
-        headers: { ...headers, "Set-Cookie": cookie },
-      });
-    } finally { inFlight = false; }
+      return new Response(
+        '<!doctype html><meta http-equiv="refresh" content="3;url=/"><title>Office ready</title><p>Your office is starting.</p>',
+        {
+          headers: { ...headers, "Set-Cookie": cookie },
+        },
+      );
+    } finally {
+      inFlight = false;
+    }
   };
 }
