@@ -1,7 +1,8 @@
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
-const { act, render, fireEvent } = await import("@testing-library/react");
+const { act, render, fireEvent, within } =
+  await import("@testing-library/react");
 const { createElement } = await import("react");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { OfficeView } = await import("../office/OfficeView.tsx");
@@ -80,14 +81,16 @@ it("keeps incoming unread visible while hidden and marks the same message read o
   expect(view.getAllByRole("img", { name: "Unread message: 1" }).length).toBe(
     2,
   );
+  const button = view.getByRole("button", {
+    name: "Members chat Unread message: 1",
+  });
+  expect(button.querySelector("[data-lobby-unread]") !== null).toBe(true);
   expect(
-    view
-      .getByRole("button", { name: "Members chat" })
-      .querySelector("[data-lobby-unread]") !== null,
-  ).toBe(true);
+    within(button).getAllByRole("img", { name: "Unread message: 1" }).length,
+  ).toBe(1);
   await settleRead();
   expect(reads).toEqual([]);
-  fireEvent.click(view.getByRole("button", { name: "Members chat" }));
+  fireEvent.click(button);
   await settleRead();
   expect(reads).toEqual(["02"]);
 });

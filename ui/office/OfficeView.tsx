@@ -32,7 +32,7 @@ import { LobbyScene } from "./lobby/index.ts";
 import { ReceptionistFigure } from "./ReceptionistFigure.tsx";
 import { crownHolder, employeeOfTheMinute } from "./lobby/employee.ts";
 import { LobbyChat } from "../members-chat/LobbyChat.tsx";
-import { MembersChatUnread } from "../members-chat/MembersChatUnread.tsx";
+import { MembersChatButton } from "../members-chat/MembersChatButton.tsx";
 import { MembersChatPanel } from "../members-chat/MembersChatPanel.tsx";
 import { apiFetch } from "../api.ts";
 import type {
@@ -885,13 +885,7 @@ export function OfficeView({
               onZoomIn={viewport.zoomIn}
               onZoomOut={viewport.zoomOut}
               onReset={viewport.resetView}
-              rightInset={
-                desktopChatVisible
-                  ? chatWidth
-                  : lobbyOpen && !isMobile && chatHidden
-                    ? 36
-                    : 0
-              }
+              rightInset={desktopChatVisible ? chatWidth : 0}
             />
             /* eslint-enable react-hooks/refs */
           )}
@@ -915,34 +909,7 @@ export function OfficeView({
           />
         )}
         {!embed && lobbyOpen && !isMobile && chatHidden && (
-          <button
-            data-lobby-chat-edge
-            onClick={() => changeChatHidden(false)}
-            aria-label={t("membersChat.title")}
-            style={{
-              position: "absolute",
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: 36,
-              zIndex: 1,
-              border: "none",
-              borderLeft: "1px solid var(--border)",
-              background: "var(--bg-surface)",
-              color: "var(--text-primary)",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              writingMode: "vertical-rl",
-              fontFamily: "'DM Sans',sans-serif",
-              fontSize: 12,
-            }}
-          >
-            {t("membersChat.title")}
-            <MembersChatUnread />
-          </button>
+          <MembersChatButton onClick={() => changeChatHidden(false)} />
         )}
         {desktopChatVisible && (
           <MembersChatPanel

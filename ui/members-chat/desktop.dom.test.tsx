@@ -73,7 +73,7 @@ it("loads the saved choice and persists both showing and hiding the desktop chat
   expect(view.queryByPlaceholderText("Message the members…") === null).toBe(
     true,
   );
-  expect(zoom().style.right).toBe("48px");
+  expect(zoom().style.right).toBe("12px");
   fireEvent.click(view.getByRole("button", { name: "Members chat" }));
   expect(view.queryByPlaceholderText("Message the members…") !== null).toBe(
     true,
@@ -85,5 +85,5 @@ it("loads the saved choice and persists both showing and hiding the desktop chat
     true,
   );
   expect(localStorage.getItem(key)).toBe("true");
-  expect(zoom().style.right).toBe("48px");
+  expect(zoom().style.right).toBe("12px");
 });
