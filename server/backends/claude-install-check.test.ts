@@ -21,6 +21,23 @@ afterAll(() => {
 });
 
 describe("Claude Code effective-environment probes", () => {
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    it(`recognizes enabled ${selector} without local login`, () => {
+      const env = { CLAUDE_CONFIG_DIR: tempDir(), ANTHROPIC_API_KEY: "" };
+      for (const value of ["1", "true", "yes", "on", " TRUE ", "On"])
+        expect(isClaudeCodeAuthenticated({ ...env, [selector]: value })).toBe(
+          true,
+        );
+      for (const value of ["", "0", "false", "off", "no", "enabled"])
+        expect(isClaudeCodeAuthenticated({ ...env, [selector]: value })).toBe(
+          false,
+        );
+    });
+  }
+
   it("resolves credentials from the effective CLAUDE_CONFIG_DIR", () => {
     const signedIn = tempDir();
     const signedOut = tempDir();

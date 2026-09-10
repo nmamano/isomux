@@ -2,6 +2,35 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
+  for (const apiProvider of ["bedrock", "vertex", "gateway"]) {
+    for (const tokenSource of [undefined, "none"]) {
+      it(`recognizes external ${apiProvider} auth with tokenSource ${tokenSource}`, async () => {
+        const env = { CLAUDE_CODE_USE_BEDROCK: "1", AWS_REGION: "us-east-1" };
+        let received: unknown;
+        const client = new ClaudeAccountClient(env, (options) => {
+          received = options;
+          return {
+            claudeAuthenticate: async () => ({}),
+            claudeOAuthCallback: async () => {},
+            claudeOAuthWaitForCompletion: async () => {},
+            accountInfo: async () => ({
+              apiProvider,
+              tokenSource,
+              email: "stale@example.com",
+            }),
+          };
+        });
+        await client.start();
+        expect(received).toMatchObject({ options: { env } });
+        expect(await client.read()).toEqual({
+          connected: true,
+          label: undefined,
+        });
+        await client.close();
+      });
+    }
+  }
+
   it("closes the SDK query even while initialization is pending", async () => {
     let closed = 0;
     let controller: AbortController | undefined;

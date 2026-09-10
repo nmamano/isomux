@@ -12,6 +12,7 @@ import {
   CLAUDE_MEMORY_OFF_SETTINGS,
   ClaudeSession,
   createClaudeBackend,
+  sessionOptsToV1,
   type SdkClient,
   type SdkConversation,
   type SdkOneShotOptions,
@@ -819,6 +820,47 @@ describe("createClaudeBackend.getSessionMessages", () => {
 });
 
 describe("createClaudeBackend.oneShotPrompt", () => {
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    for (const family of ["opus", "sonnet", "haiku", "fable"]) {
+      it(`passes ${family} and its cloud pin through create, resume and one-shot for ${selector}`, async () => {
+        const fake = new FakeSdkClient();
+        const backend = createClaudeBackend(fake);
+        const env = {
+          [selector]: "1",
+          [`ANTHROPIC_DEFAULT_${family.toUpperCase()}_MODEL`]:
+            "provider-model-id",
+          AWS_REGION: "us-east-1",
+        };
+        const opts = {
+          agentId: "cloud-agent",
+          modelFamily: family,
+          env,
+          cwd: "/tmp",
+          systemPrompt: "test",
+          permissionMode: "default",
+          effort: "high",
+        };
+        const created = backend.createSession(opts);
+        const resumed = backend.resumeSession("cloud-session", opts);
+        await backend.oneShotPrompt("Topic", opts);
+        // These are the options sent into query(), not persisted agent state.
+        expect(sessionOptsToV1(fake.createCalls[0].opts)).toMatchObject({
+          model: family,
+          env,
+        });
+        expect(
+          sessionOptsToV1(fake.resumeCalls[0].opts, "cloud-session"),
+        ).toMatchObject({ model: family, env, resume: "cloud-session" });
+        expect(fake.oneShotCalls[0]).toMatchObject({ model: family, env });
+        created.close();
+        resumed.close();
+      });
+    }
+  }
+
   it("resolves modelFamily before delegating to sdkClient.oneShotPrompt", async () => {
     const fake = new FakeSdkClient();
     fake.oneShotResult = "topic-A";

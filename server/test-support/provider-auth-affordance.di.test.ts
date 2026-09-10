@@ -89,6 +89,51 @@ function claudeWire(
 }
 
 describe("provider auth affordances", () => {
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    it(`keeps an auth topic and passes ${selector} to the topic launch`, async () => {
+      const env = {
+        CLAUDE_CONFIG_DIR: join(STATE_ROOT, `signed-out-${selector}`),
+        ANTHROPIC_API_KEY: "",
+        CLAUDE_CODE_USE_BEDROCK: "",
+        CLAUDE_CODE_USE_VERTEX: "",
+        [selector]: "1",
+        AWS_REGION: "us-east-1",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
+      };
+      setTestManagedOfficeEnv(env);
+      const label = "OAuth authentication flow design";
+      let topicEnv: unknown;
+      const fake = new FakeBackend({
+        isAuthError: (text) => claudeBackend.detectAuthError(text),
+        oneShot: (_prompt, opts) => {
+          topicEnv = opts.env;
+          return label;
+        },
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ text: "ok" }),
+        },
+      });
+      const { mgr, agentId } = await harness({ backendType: "claude", fake });
+      const instructions = claudeBackend.getLoginInstructions({
+        env: mgr.buildEnvForUserId("user-a"),
+      });
+      expect(instructions.kind).toBe("already_authed");
+      expect(instructions.cardEligible).toBe(false);
+      await mgr.sendMessage(agentId, "Help me design an OAuth flow", "tester");
+      await waitFor(() => fake.oneShotCount === 1);
+      expect(topicEnv).toMatchObject(env);
+      expect(mgr.getAgent(agentId)?.topic).toBe(label);
+      expect(fake.lastSession?.opts.env).toMatchObject(env);
+      expect(await mgr.demoteToLazy(agentId)).toBe(true);
+      await mgr.sendMessage(agentId, "Continue", "tester");
+      expect(fake.lastSession?.opts.env).toMatchObject(env);
+    });
+  }
+
   it("resolves the active Claude account scope from normalized paths", () => {
     const makeManager = (opts: {
       effective?: string;

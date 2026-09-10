@@ -61,6 +61,28 @@ describe("activated personal provider environment", () => {
 });
 
 describe("managed user environment", () => {
+  it("inherits office Bedrock and lets personal variables disable or replace it", () => {
+    const user = claimUser("Cloud Env User");
+    writeManagedOfficeEnv({
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_REGION: "us-east-1",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
+    });
+    expect(buildEnvForUserId(user.id)).toMatchObject({
+      CLAUDE_CODE_USE_BEDROCK: "1",
+      AWS_REGION: "us-east-1",
+      ANTHROPIC_DEFAULT_SONNET_MODEL: "us.anthropic.claude-sonnet-4-6",
+    });
+    writeManagedUserEnv(user.id, {
+      CLAUDE_CODE_USE_BEDROCK: "0",
+      CLAUDE_CODE_USE_VERTEX: "1",
+    });
+    expect(buildEnvForUserId(user.id)).toMatchObject({
+      CLAUDE_CODE_USE_BEDROCK: "0",
+      CLAUDE_CODE_USE_VERTEX: "1",
+    });
+  });
+
   it("flows provider keys with user-over-office precedence and stable identity", async () => {
     const user = claimUser("Managed Env Flow User");
     writeManagedOfficeEnv({

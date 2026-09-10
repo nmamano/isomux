@@ -359,6 +359,9 @@ macOS and Windows get neither half - both mechanisms are Linux-specific.
 
 Two facts set the boundary: whether a proxy sits in front of Isomux, and whether the office has a real domain. Only a real domain gives apps their own web addresses.
 
+Every shape supports [Claude on Amazon Bedrock](access-and-invites.md#claude-on-amazon-bedrock).
+The operator supplies AWS credentials, region, and model access; the installer does not configure AWS.
+
 **Hosted Isomux** in the first two rows is [the paid managed service](https://isomux.com/hosted), where we run the server for you.
 
 ### Proxy and real domain

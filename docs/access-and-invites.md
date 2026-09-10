@@ -139,8 +139,9 @@ In Settings → Office → Office-wide connections (for every agent) or Settings
 in the office or only agents you spawn. Claude and Codex support browser sign-in
 in either scope. Isomux creates a separate personal provider home when needed.
 
-If both exist, the personal account wins: an agent whose user has set their own
-provider directory uses that account, even when the office is signed in.
+For CLI sign-in, the personal provider directory takes precedence. Provider
+selection variables still apply; a personal login does not disable office-wide
+Bedrock or Vertex settings.
 
 Add provider API keys under Settings → You → Individual connections:
 
@@ -155,6 +156,37 @@ Isomux stores personal and office-wide variables in managed files under
 starts or resumes a conversation. Other per-user variables work the same way,
 for example, each member can set `GH_TOKEN` so their agents use their own
 GitHub credentials.
+
+### Claude on Amazon Bedrock
+
+Set these variables in Office-wide connections or Individual connections:
+
+```text
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=<your-region>
+```
+
+Use `AWS_BEARER_TOKEN_BEDROCK`, or `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` (plus `AWS_SESSION_TOKEN` for temporary credentials).
+An `AWS_PROFILE` configured on the Isomux server also works. AWS must allow
+access to the selected models.
+
+The model picker uses Claude Code's cloud aliases. Pin the families you use with
+`ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
+`ANTHROPIC_DEFAULT_HAIKU_MODEL`, and `ANTHROPIC_DEFAULT_FABLE_MODEL`, set to
+Bedrock model or inference-profile IDs. Set the Sonnet pin too: Isomux uses
+Sonnet for conversation titles. `ANTHROPIC_MODEL` does not override the picker.
+New or resumed sessions read the variables.
+
+Connections recognizes external authentication; it does not verify AWS model
+access. To use a personal Claude login in a Bedrock office, set
+`CLAUDE_CODE_USE_BEDROCK=0` in Individual connections. Vertex uses the same
+rule with `CLAUDE_CODE_USE_VERTEX`.
+
+Sources checked 2026-09-10: [Claude Code on Amazon Bedrock](https://code.claude.com/docs/en/amazon-bedrock)
+and [model configuration](https://code.claude.com/docs/en/model-config).
+
+### Connection variables and directories
 
 An office owner opens a member in Settings → Members and sees which variables
 that member has set. The values stay with the member.

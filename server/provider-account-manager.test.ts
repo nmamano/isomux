@@ -19,6 +19,95 @@ const disconnectedAccountClient = () => ({
 });
 
 describe("ProviderAccountManager", () => {
+  for (const selector of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+  ]) {
+    it(`probes personal ${selector} without activating an OAuth home`, async () => {
+      let connected = true;
+      let probes = 0;
+      const manager = new ProviderAccountManager(
+        () => {},
+        disconnectedAccountClient as never,
+        undefined,
+        (id) => id,
+        () => ({ [selector]: "1" }),
+        (() => ({
+          start: async () => {
+            probes++;
+          },
+          read: async () => ({ connected }),
+          close: async () => {},
+        })) as never,
+        () => ({}),
+        () => ({}),
+        () => ({ [selector]: "1" }),
+        () => [{ id: "cloud-member" }],
+        () => "/tmp/cloud-personal",
+        () => "/tmp/cloud-personal",
+        () => false,
+      );
+      const personal = (accounts: Awaited<ReturnType<typeof manager.list>>) =>
+        accounts.find(
+          (value) => value.provider === "claude" && value.scope === "personal",
+        );
+      expect(personal(await manager.list("cloud-member"))?.accountStatus).toBe(
+        "connected",
+      );
+      expect(manager.effectiveTarget("cloud-member", "claude").scope).toBe(
+        "personal",
+      );
+      expect(probes).toBe(2);
+      expect(personal(manager.cachedList("cloud-member")!)?.accountStatus).toBe(
+        "connected",
+      );
+      expect((await manager.memberStatuses("cloud-member"))[0].status).toBe(
+        "connected",
+      );
+      connected = false;
+      expect(
+        personal(await manager.list("cloud-member", true))?.accountStatus,
+      ).toBe("not_connected");
+    });
+
+    it(`keeps office ${selector} out of the personal account probe`, async () => {
+      const seen: Array<Record<string, string | undefined>> = [];
+      const manager = new ProviderAccountManager(
+        () => {},
+        disconnectedAccountClient as never,
+        undefined,
+        (id) => id,
+        () => ({ [selector]: "1" }),
+        ((env: Record<string, string | undefined>) => {
+          seen.push(env);
+          return disconnectedAccountClient();
+        }) as never,
+        () => ({ [selector]: "1" }),
+        () => ({}),
+        () => ({}),
+        () => [{ id: "cloud-member" }],
+        () => "/tmp/cloud-personal",
+        () => "/tmp/cloud-personal",
+        () => true,
+      );
+      await manager.list("cloud-member");
+      expect(manager.effectiveTarget("cloud-member", "claude").scope).toBe(
+        "office",
+      );
+      expect(seen).toHaveLength(2);
+      expect(
+        seen.find((env) => env.CLAUDE_CONFIG_DIR === "/tmp/cloud-personal")?.[
+          selector
+        ],
+      ).toBe("");
+      expect(
+        seen.find((env) => env.CLAUDE_CONFIG_DIR !== "/tmp/cloud-personal")?.[
+          selector
+        ],
+      ).toBe("1");
+    });
+  }
+
   it("resolves managed CODEX_HOME and CLAUDE_CONFIG_DIR as explicitDirectory", async () => {
     const id = "managed-directory-member";
     const codexDir = resolve("/tmp/managed-member-codex");

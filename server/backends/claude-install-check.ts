@@ -38,13 +38,16 @@ export function isClaudeCodeInstalled(env?: {
 // a "/clear to refresh" hint instead of repeating the install/login
 // walkthrough at someone who's already done their part.
 //
-// Two positive signals, either is enough:
+// Presence signals, not a credential validity check. Cloud selection counts
+// even when its external credentials have expired, just like an API key.
+// Any of these is enough:
 //   1. ANTHROPIC_API_KEY in the agent's effective env - env-var auth
 //      bypasses the credentials file entirely. Caller passes the agent's
 //      resolved env (process.env + office variables + managed personal variables, in
 //      override order); defaults to process.env if no env supplied.
 //   2. `<CLAUDE_CONFIG_DIR>/.credentials.json` exists, falling back to
 //      `~/.claude/.credentials.json` when CLAUDE_CONFIG_DIR is blank.
+//   3. Bedrock or Vertex selected in the effective environment.
 //
 // Symmetric with `isCodexAuthenticated` in codex/native-bin.ts. The CLI
 // presence check (`isClaudeCodeInstalled`) is independent: the SDK can
@@ -54,10 +57,22 @@ export function isClaudeCodeAuthenticated(env?: {
   [key: string]: string | undefined;
 }): boolean {
   const effective = env ?? process.env;
+  if (isClaudeCloudSelected(effective)) return true;
   if (effective.ANTHROPIC_API_KEY) return true;
   const configured = effective.CLAUDE_CONFIG_DIR;
   const configDir = configured?.trim()
     ? configured
     : join(homedir(), ".claude");
   return existsSync(join(configDir, ".credentials.json"));
+}
+
+// Claude Code 2.1.257 (bundled SDK 0.3.257), checked 2026-09-10:
+// its env boolean parser trims, lowercases, and accepts 1/true/yes/on.
+export function isClaudeCloudSelected(env: {
+  [key: string]: string | undefined;
+}): boolean {
+  return [env.CLAUDE_CODE_USE_BEDROCK, env.CLAUDE_CODE_USE_VERTEX].some(
+    (value) =>
+      ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? ""),
+  );
 }

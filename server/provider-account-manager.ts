@@ -16,6 +16,7 @@ import {
 } from "./backends/codex/native-bin.ts";
 import { CodexAccountClient } from "./backends/codex/account.ts";
 import { ClaudeAccountClient } from "./backends/claude/account.ts";
+import { isClaudeCloudSelected } from "./backends/claude-install-check.ts";
 import type { HandlerErrorStatus } from "./routes/executor.ts";
 import type {
   ProviderAccountProvider,
@@ -143,6 +144,12 @@ export class ProviderAccountManager {
   ): EffectiveProviderAccountTarget {
     const office = this.target(userId, provider, "office");
     const env = this.envForUser(userId) ?? process.env;
+    if (provider === "claude" && isClaudeCloudSelected(env)) {
+      const target = isClaudeCloudSelected(this.userOnlyEnv(userId))
+        ? this.target(userId, provider, "personal")
+        : office;
+      return { provider, scope: target.scope, dir: target.dir };
+    }
     const effectiveDir = effectiveProviderDirectory(provider, env);
     if (effectiveDir === resolve(office.dir)) {
       return { provider, scope: "office", dir: effectiveDir };
@@ -299,6 +306,10 @@ export class ProviderAccountManager {
       env: {
         ...(this.envForUser(userId) ?? process.env),
         CLAUDE_CONFIG_DIR: dir,
+        // This card measures the member's connection, like its personal home.
+        // Office cloud selection belongs to the office card.
+        CLAUDE_CODE_USE_BEDROCK: own.CLAUDE_CODE_USE_BEDROCK ?? "",
+        CLAUDE_CODE_USE_VERTEX: own.CLAUDE_CODE_USE_VERTEX ?? "",
       },
       autoPersonal,
       externalCli: false,
@@ -348,7 +359,8 @@ export class ProviderAccountManager {
         if (
           scope === "personal" &&
           target.autoPersonal &&
-          !this.personalActive(userId, provider)
+          !this.personalActive(userId, provider) &&
+          !(provider === "claude" && isClaudeCloudSelected(target.env))
         ) {
           accounts.push(this.inactivePersonal(target));
           continue;
@@ -442,7 +454,8 @@ export class ProviderAccountManager {
     if (
       scope === "personal" &&
       target.autoPersonal &&
-      !this.personalActive(userId, provider)
+      !this.personalActive(userId, provider) &&
+      !(provider === "claude" && isClaudeCloudSelected(target.env))
     ) {
       return this.inactivePersonal(target);
     }

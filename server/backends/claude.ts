@@ -92,6 +92,7 @@ import {
 } from "../cwd-utils.ts";
 import {
   isClaudeCodeAuthenticated,
+  isClaudeCloudSelected,
   isClaudeCodeInstalled,
 } from "./claude-install-check.ts";
 
@@ -1323,9 +1324,18 @@ export function buildClaudeUserMessage(
 // Shared by createSession / resumeSession. Pulls in safety-hooks, builds the
 // typed systemPrompt / effort options, normalizes the model family.
 
+function claudeModelForEnvironment(
+  modelFamily: string,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  // Cloud model IDs and family pins belong to Claude Code. Passing an alias
+  // lets ANTHROPIC_DEFAULT_*_MODEL apply to both turns and topic generation.
+  if (isClaudeCloudSelected(env)) return modelFamily;
+  return FAMILY_TO_MODEL[modelFamily as ModelFamily] ?? modelFamily;
+}
+
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
-  const familyKey = opts.modelFamily as ModelFamily;
-  const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
+  const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
   const sdkOpts: SdkSessionOptions = {
     model,
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
@@ -1495,8 +1505,7 @@ export function createClaudeBackend(
       // roleplaying as an agent attempting the conversation's task. The
       // adapter (V2 or V1) sets tools:[] / thinking:disabled / settingSources:
       // [] / cwd:"/tmp" to keep this a pure single-turn label task.
-      const familyKey = opts.modelFamily as ModelFamily;
-      const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
+      const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
       return sdkClient.oneShotPrompt({
         prompt,
         model,
@@ -1518,7 +1527,7 @@ export function createClaudeBackend(
       env?: { [key: string]: string | undefined };
     }): LoginInstructions {
       // Short-circuit: if the office is already signed in (credentials.json
-      // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
+      // present, API key, or cloud provider selected), the user can /clear
       // a dead session - no walkthrough needed. Symmetric with Codex's
       // ALREADY_AUTHED hint. The check honors the agent's merged env so
       // managed ANTHROPIC_API_KEY counts as authed.

@@ -3132,6 +3132,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         cwd: managed.info.cwd,
         modelFamily: topicModel,
         systemPrompt: topicSystemPrompt,
+        env: buildEnvForUserId(managed.info.userId),
         ...(managed.info.agentType === "opencode"
           ? {
               env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),

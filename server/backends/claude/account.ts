@@ -88,6 +88,14 @@ export class ClaudeAccountClient {
     const account = await this.required().accountInfo();
     if (!account || typeof account !== "object") return { connected: false };
     const value = account as Record<string, unknown>;
+    // AccountInfo defines non-first-party providers as externally authenticated.
+    // OAuth metadata (including a retained tokenSource) does not apply to them.
+    if (
+      typeof value.apiProvider === "string" &&
+      value.apiProvider !== "firstParty" &&
+      value.apiProvider.length > 0
+    )
+      return { connected: true, label: undefined };
     const connected =
       typeof value.tokenSource === "string"
         ? value.tokenSource !== "none"
