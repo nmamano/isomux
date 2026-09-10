@@ -166,7 +166,7 @@ Add:
 ```text
 CLAUDE_CODE_USE_BEDROCK=1
 AWS_REGION=us-west-2 (or your region)
-AWS_BEARER_TOKEN_BEDROCK=...
+AWS_BEARER_TOKEN_BEDROCK=ABSK...
 ```
 
 The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys). If you use an IAM access key instead, replace that line with `AWS_ACCESS_KEY_ID=AKIA...` and `AWS_SECRET_ACCESS_KEY=...`, plus `AWS_SESSION_TOKEN=...` if the credentials are temporary.
