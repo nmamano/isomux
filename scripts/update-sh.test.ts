@@ -36,7 +36,6 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { execSync } from "child_process";
 
 const UPDATE_SH = new URL("./update.sh", import.meta.url).pathname;
 
@@ -58,10 +57,22 @@ interface Fixture {
 let fx: Fixture;
 let readyServer: ReturnType<typeof Bun.serve> | null = null;
 
-function sh(cwd: string, cmd: string): string {
-  return execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"] })
-    .toString()
-    .trim();
+// Mitigation: avoid a synchronous child-exit wait on the main thread.
+// Bun 1.3.11 timed out a live sleep with BOTH helpers on 2026-09-10:
+// /tmp/ci-hang/rev/m-h-async.log and /tmp/ci-hang/rev/m-h-sync.log.
+// The sync control unblocked after SIGTERM; it did not reproduce the
+// exited-child spin. The async form is not a fix for a Bun reaping bug.
+async function sh(cwd: string, cmd: string): Promise<string> {
+  const proc = Bun.spawn(["sh", "-c", cmd], {
+    cwd, stdin: "ignore", stdout: "pipe", stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) throw new Error(`Command failed (${code}): ${cmd}\n${err}`);
+  return out.trim();
 }
 
 function statMode(path: string): number {
@@ -71,7 +82,7 @@ function statMode(path: string): number {
 // Build: origin bare repo with commit c1 (current install) and commit c2
 // tagged as a release; the installed checkout sits detached at c1 with the
 // release tag known only to origin (fetch must bring it).
-function buildFixture(opts: {
+async function buildFixture(opts: {
   tag?: string;
   newFiles?: Record<string, string>;
   readyAfterStarts?: number;
@@ -80,12 +91,12 @@ function buildFixture(opts: {
   stopStaysActive?: boolean;
   caddyActive?: boolean;
   caddyUnitPresent?: boolean;
-}): Fixture {
+}): Promise<Fixture> {
   const base = mkdtempSync(join(tmpdir(), "isomux-update-test-"));
   const repo = join(base, "repo");
   mkdirSync(repo);
-  sh(repo, "git init -q -b main");
-  sh(repo, "git config user.email t@t && git config user.name T");
+  await sh(repo, "git init -q -b main");
+  await sh(repo, "git config user.email t@t && git config user.name T");
   writeFileSync(
     join(repo, "package.json"),
     JSON.stringify({ name: "fake", packageManager: "bun@1.3.11" }),
@@ -93,25 +104,25 @@ function buildFixture(opts: {
   writeFileSync(join(repo, "app.txt"), "old\n");
   mkdirSync(join(repo, "scripts"));
   writeFileSync(join(repo, "scripts", "update.sh"), "# fake updater v-old\n");
-  sh(repo, "git add . && git commit -qm c1");
-  const oldCommit = sh(repo, "git rev-parse HEAD");
+  await sh(repo, "git add . && git commit -qm c1");
+  const oldCommit = await sh(repo, "git rev-parse HEAD");
 
   const origin = join(base, "origin.git");
-  sh(base, "git clone -q --bare repo origin.git");
-  sh(repo, `git remote add origin ${origin}`);
+  await sh(base, "git clone -q --bare repo origin.git");
+  await sh(repo, `git remote add origin ${origin}`);
 
   writeFileSync(join(repo, "app.txt"), "new\n");
   writeFileSync(join(repo, "scripts", "update.sh"), "# fake updater v-new\n");
   for (const [name, content] of Object.entries(opts.newFiles ?? {})) {
     writeFileSync(join(repo, name), content);
   }
-  sh(repo, "git add . && git commit -qm c2");
-  const newCommit = sh(repo, "git rev-parse HEAD");
+  await sh(repo, "git add . && git commit -qm c2");
+  const newCommit = await sh(repo, "git rev-parse HEAD");
   const tag = opts.tag ?? "v2026.7.20";
-  sh(repo, `git tag -a ${tag} -m "${tag}"`);
-  sh(repo, "git push -q origin main --tags");
-  sh(repo, `git checkout -q --detach ${oldCommit}`);
-  sh(repo, `git tag -d ${tag}`);
+  await sh(repo, `git tag -a ${tag} -m "${tag}"`);
+  await sh(repo, "git push -q origin main --tags");
+  await sh(repo, `git checkout -q --detach ${oldCommit}`);
+  await sh(repo, `git tag -d ${tag}`);
 
   const stateRoot = join(base, "state", ".isomux");
   mkdirSync(stateRoot, { recursive: true });
@@ -283,8 +294,8 @@ async function runUpdate(
   return { code, out: `${out}\n${err}` };
 }
 
-function head(): string {
-  return sh(fx.repo, "git rev-parse HEAD");
+async function head(): Promise<string> {
+  return await sh(fx.repo, "git rev-parse HEAD");
 }
 
 function stubCalls(): string[] {
@@ -304,15 +315,15 @@ afterEach(() => {
 });
 
 describe("update.sh happy path", () => {
-  beforeEach(() => {
-    fx = buildFixture({});
+  beforeEach(async () => {
+    fx = await buildFixture({});
   });
 
   it("fetches the tag, builds, stops before snapshotting, starts, reports ok", async () => {
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.out).toContain("updated");
     expect(r.code).toBe(0);
-    expect(head()).toBe(fx.newCommit);
+    expect(await head()).toBe(fx.newCommit);
 
     // stop strictly before start; exactly one of each.
     const svcOps = stubCalls().filter((l) => / (stop|start) /.test(l));
@@ -327,7 +338,7 @@ describe("update.sh happy path", () => {
     );
     expect(snaps.length).toBe(1);
     expect(statMode(join(fx.snapshotDir, snaps[0]))).toBe(0o600);
-    const listing = sh(
+    const listing = await sh(
       fx.snapshotDir,
       `tar -tzf ${join(fx.snapshotDir, snaps[0])}`,
     );
@@ -354,7 +365,7 @@ describe("update.sh happy path", () => {
     // identifies the running release with `git tag --points-at HEAD`, so
     // without it the updated box reports a bare sha and the release banner
     // never stops offering the release it is already running.
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
     // The fixture is a user-kind box, so the system-dependency sync stays out
     // of the way (it needs root); sync_system_deps itself is covered in
     // update-deps-sync.test.ts.
@@ -366,8 +377,8 @@ describe("update.sh happy path", () => {
   });
 
   it("no-op when already on the target tag", async () => {
-    sh(fx.repo, "git fetch -q --tags origin");
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("already on");
@@ -379,12 +390,12 @@ describe("update.sh happy path", () => {
     // on the right commit with no tag, so they report a bare sha and keep
     // being offered the release they run. Writing the tag ahead of the
     // already-on-target exit is what makes a plain re-run fix them.
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("recorded the release tag");
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
     // A pre-deps-sync updater leaves exactly this shape after its first update:
     // current code and updater, but no tag and none of the target's new system
     // dependencies. The repair run must attempt target deps sync before it
@@ -400,8 +411,8 @@ describe("update.sh happy path", () => {
   });
 
   it("a failed repair restores the absent tag so the next run retries deps", async () => {
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
 
     // Force only the target-dependency seam to fail in a temp copy of the
     // real updater. No product-only test switch reaches the root-running
@@ -418,18 +429,18 @@ describe("update.sh happy path", () => {
     const first = await runUpdate(["v2026.7.20"], failingUpdater);
     expect(first.code).not.toBe(0);
     expect(first.out).toContain("--- deps");
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
 
     const retry = await runUpdate(["v2026.7.20"], failingUpdater);
     expect(retry.code).not.toBe(0);
     expect(retry.out).toContain("--- deps");
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
   });
 
   it("a stop timeout restores the absent tag so retries cannot report a no-op", async () => {
-    fx = buildFixture({ stopStaysActive: true });
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    fx = await buildFixture({ stopStaysActive: true });
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
 
     // Keep the production timeout fixed while making this sandbox failure
     // quick. The full source line is unique, so this cannot also shorten the
@@ -450,14 +461,14 @@ describe("update.sh happy path", () => {
       "service did not stop within 60s (state: active)",
     );
     expect(first.out).not.toContain("already on v2026.7.20; nothing to do");
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     expect(status().result).toBe("failed");
 
     const retry = await runUpdate(["v2026.7.20"], timedUpdater);
     expect(retry.code).not.toBe(0);
     expect(retry.out).toContain("--- deps");
     expect(retry.out).not.toContain("already on v2026.7.20; nothing to do");
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     expect(status().result).toBe("failed");
   });
 
@@ -466,12 +477,12 @@ describe("update.sh happy path", () => {
     // The recovery stop also reports failure. Its guard must keep `set -e`
     // from skipping the second start and the honest final message.
     fx.env.FAIL_RECOVERY_STOP = "1";
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
 
     const r = await runUpdate(["v2026.7.20"]);
 
     expect(r.code).not.toBe(0);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
     expect(r.out).toContain("a second start brought isomux back up");
     expect(r.out).toContain("re-run the update to finish the repair");
@@ -480,12 +491,12 @@ describe("update.sh happy path", () => {
 
   it("reports manual attention when the recovery start also fails", async () => {
     fx.env.FAIL_STARTS = "2";
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
 
     const r = await runUpdate(["v2026.7.20"]);
 
     expect(r.code).not.toBe(0);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
     expect(r.out).toContain("the office is still down");
     expect(r.out).toContain("needs manual attention");
@@ -495,12 +506,12 @@ describe("update.sh happy path", () => {
   it("does not claim recovery until the office answers", async () => {
     fx.env.FAIL_STARTS = "1";
     fx.env.READY_AFTER_STARTS = "3";
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
 
     const r = await runUpdate(["v2026.7.20"]);
 
     expect(r.code).not.toBe(0);
-    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(await sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
     expect(r.out).toContain("the office is still down");
     expect(r.out).toContain("needs manual attention");
@@ -510,8 +521,8 @@ describe("update.sh happy path", () => {
 });
 
 describe("update.sh validation", () => {
-  beforeEach(() => {
-    fx = buildFixture({});
+  beforeEach(async () => {
+    fx = await buildFixture({});
   });
 
   it("refuses a non-CalVer target", async () => {
@@ -519,14 +530,14 @@ describe("update.sh validation", () => {
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("CalVer");
     expect(stubCalls()).toEqual([]);
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
   });
 
   it("refuses an unknown tag, service untouched", async () => {
     const r = await runUpdate(["v2099.1.1"]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("not found at");
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
     expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
   });
 
@@ -541,11 +552,11 @@ describe("update.sh validation", () => {
     // Reviewer regression (finding 2): a CalVer tag planted in the
     // service-user-writable checkout, absent upstream, must be refused -
     // the configured upstream is the only tag authority.
-    sh(fx.repo, `git tag -a v2026.7.30 -m planted ${fx.oldCommit}`);
+    await sh(fx.repo, `git tag -a v2026.7.30 -m planted ${fx.oldCommit}`);
     const r = await runUpdate(["v2026.7.30"]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("not found at");
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
     expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
   });
 
@@ -553,14 +564,14 @@ describe("update.sh validation", () => {
     // First update pins v2026.7.20 into the trust repo; then the tag is
     // force-moved upstream. The non-forced trust fetch must refuse it.
     expect((await runUpdate(["v2026.7.20"])).code).toBe(0);
-    sh(
+    await sh(
       fx.base,
       `git -C origin.git tag -f v2026.7.20 ${fx.oldCommit} 2>/dev/null || git -C origin.git update-ref refs/tags/v2026.7.20 ${fx.oldCommit}`,
     );
     const r = await runUpdate(["v2026.7.20", "--allow-downgrade"]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("not found at");
-    expect(head()).toBe(fx.newCommit);
+    expect(await head()).toBe(fx.newCommit);
   });
 
   it("conf values are data, never code: an injection in REPO_URL is inert and refused", async () => {
@@ -595,7 +606,7 @@ describe("update.sh validation", () => {
   });
 
   it("warns about a bun pin mismatch before touching the checkout", async () => {
-    fx = buildFixture({
+    fx = await buildFixture({
       newFiles: {
         "package.json": JSON.stringify({
           name: "fake",
@@ -614,35 +625,35 @@ describe("update.sh validation", () => {
 });
 
 describe("update.sh downgrade guard", () => {
-  beforeEach(() => {
-    fx = buildFixture({ readyAfterStarts: 1 });
+  beforeEach(async () => {
+    fx = await buildFixture({ readyAfterStarts: 1 });
     // Make the CURRENT checkout the newer commit and target the older tag:
     // tag c1 as an older release on origin, sit at c2.
-    sh(fx.repo, `git tag -a v2026.7.18 -m old ${fx.oldCommit}`);
-    sh(fx.repo, "git push -q origin --tags");
-    sh(fx.repo, "git tag -d v2026.7.18");
-    sh(fx.repo, "git fetch -q --tags origin");
-    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    await sh(fx.repo, `git tag -a v2026.7.18 -m old ${fx.oldCommit}`);
+    await sh(fx.repo, "git push -q origin --tags");
+    await sh(fx.repo, "git tag -d v2026.7.18");
+    await sh(fx.repo, "git fetch -q --tags origin");
+    await sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
   });
 
   it("refuses without --allow-downgrade, proceeds with it", async () => {
     const refused = await runUpdate(["v2026.7.18"]);
     expect(refused.code).not.toBe(0);
     expect(refused.out).toContain("--allow-downgrade");
-    expect(head()).toBe(fx.newCommit);
+    expect(await head()).toBe(fx.newCommit);
 
     const r = await runUpdate(["v2026.7.18", "--allow-downgrade"]);
     expect(r.code).toBe(0);
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
   });
 });
 
 describe("update.sh failure ladders", () => {
   it("failed install: restores old deps+UI, never touches the service", async () => {
-    fx = buildFixture({ newFiles: { BREAK_INSTALL: "1" } });
+    fx = await buildFixture({ newFiles: { BREAK_INSTALL: "1" } });
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).not.toBe(0);
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
     expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
     // Recovery reinstalled AND rebuilt for the old commit (reviewer point:
     // ui/dist may already be dirty by then).
@@ -658,10 +669,10 @@ describe("update.sh failure ladders", () => {
   });
 
   it("failed build: same recovery, service untouched", async () => {
-    fx = buildFixture({ newFiles: { BREAK_BUILD: "1" } });
+    fx = await buildFixture({ newFiles: { BREAK_BUILD: "1" } });
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).not.toBe(0);
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
     expect(stubCalls().filter((l) => / (stop|start) /.test(l))).toEqual([]);
     expect(status().result).toBe("failed");
   });
@@ -670,11 +681,11 @@ describe("update.sh failure ladders", () => {
     // New version "migrates" state on start (the stub writes a marker into
     // the state root) and never becomes ready; readiness succeeds only from
     // the second start (the rolled-back old version).
-    fx = buildFixture({ readyAfterStarts: 2, mutateStateOnStart: true });
+    fx = await buildFixture({ readyAfterStarts: 2, mutateStateOnStart: true });
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("rolled back");
-    expect(head()).toBe(fx.oldCommit);
+    expect(await head()).toBe(fx.oldCommit);
 
     // State root restored from the snapshot: original file back, migration
     // marker gone.
@@ -734,7 +745,7 @@ describe("update.sh public-front-door result", () => {
   });
 
   it("warns in both output and status when loopback is ready but Caddy is down", async () => {
-    fx = buildFixture({ caddyActive: false });
+    fx = await buildFixture({ caddyActive: false });
     const result = await runUpdate(
       ["v2026.7.20"],
       updaterWithSystemFrontDoorProbe(),
@@ -750,7 +761,7 @@ describe("update.sh public-front-door result", () => {
   });
 
   it("does not warn on a system office with no Caddy unit", async () => {
-    fx = buildFixture({
+    fx = await buildFixture({
       caddyActive: false,
       caddyUnitPresent: false,
     });
