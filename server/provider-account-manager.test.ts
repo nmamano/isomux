@@ -989,9 +989,10 @@ describe("ProviderAccountManager", () => {
     expect(claudeStarts).toBe(2);
   });
 
-  it("rechecks Claude credentials in a fresh client after code completion", async () => {
+  it("publishes a clean successful Claude sign-in after a rejected duplicate callback", async () => {
     let complete!: () => void;
     let clients = 0;
+    let submissions = 0;
     const emitted: Array<
       Array<{ provider: string; loginStatus: string; scope: string }>
     > = [];
@@ -1001,7 +1002,10 @@ describe("ProviderAccountManager", () => {
         return {
           start: async () => {},
           login: async () => ({ authUrl: "https://claude.com/oauth/" }),
-          submitCode: async () => {},
+          submitCode: async () => {
+            if (++submissions > 1)
+              throw new Error("Claude rejected this sign-in code.");
+          },
           waitForCompletion: () =>
             new Promise<void>((resolvePromise) => {
               complete = resolvePromise;
@@ -1048,7 +1052,10 @@ describe("ProviderAccountManager", () => {
       "personal",
       "code#state",
     );
-    expect(submittedAgain.ok).toBe(true);
+    expect(submittedAgain).toMatchObject({
+      ok: false,
+      message: "Claude rejected this sign-in code.",
+    });
     complete();
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 0));
     const claude = emitted
@@ -1057,7 +1064,11 @@ describe("ProviderAccountManager", () => {
         (account) =>
           account.provider === "claude" && account.scope === "personal",
       );
-    expect(claude).toMatchObject({ loginStatus: "succeeded" });
+    expect(claude).toMatchObject({
+      accountStatus: "connected",
+      loginStatus: "succeeded",
+      error: undefined,
+    });
     expect(clients).toBe(3);
   });
 

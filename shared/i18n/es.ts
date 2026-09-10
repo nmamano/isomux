@@ -1877,8 +1877,14 @@ export const es: Catalog = {
     "Ajustes → Tú → Conexiones individuales",
   "systemEntries.claudeAuth.disconnected":
     "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
+  "systemEntries.claudeAuth.pinned":
+    "Esta conversación conserva la cuenta de Claude con la que se inició. Inicia una conversación nueva (`/clear`) para usar la cuenta nueva.",
+  "systemEntries.claudeSession.invalid":
+    "No se puede acceder a esta conversación de Claude.",
+  "systemEntries.claudeSession.missing":
+    "No se puede reanudar la sesión de Claude {session}…: no se encontró su archivo. Rutas comprobadas: {paths}. Usa /resume para seleccionar otra conversación o inicia una conversación nueva.",
   "systemEntries.claudeAuth.connected":
-    "Claude rechazó las credenciales, pero la comprobación de la conexión indica que hay una sesión iniciada. Vuelve a intentar la solicitud o revisa Claude en {location}.",
+    "Esta conversación puede seguir usando las credenciales con las que se inició. Inicia una conversación nueva (`/clear`) para usar la conexión actual de Claude.",
   "systemEntries.claudeAuth.incomplete":
     "No se pudo completar la comprobación de la conexión de Claude. Vuelve a intentar la solicitud o inicia sesión en Claude en Ajustes.",
   "systemEntries.signInRequired":

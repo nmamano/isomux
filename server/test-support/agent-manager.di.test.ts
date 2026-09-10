@@ -21,7 +21,11 @@ import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
-import { loadAgents, type PersistedAgent } from "../persistence.ts";
+import {
+  loadAgents,
+  ensureSessionClaudeConfigDir,
+  type PersistedAgent,
+} from "../persistence.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
 import {
@@ -565,6 +569,12 @@ describe("AgentManager DI (temp-state isolated)", () => {
       "room-remedy",
     );
 
+    // A known root isolates this test from legacy root discovery.
+    ensureSessionClaudeConfigDir(
+      info!.id,
+      "missing-session",
+      join(STATE_ROOT, "remedy-root"),
+    );
     await mgr.resume(info!.id, "missing-session");
     expect(
       mgr

@@ -2,7 +2,7 @@ import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { act, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { StoreProvider } = await import("../store.tsx");
 const { LogView } = await import("./LogView.tsx");
@@ -129,4 +129,32 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
   });
   expect(view.getByText(/Connected as probe@example.test/)).toBeDefined();
   expect(view.getAllByRole("button", { name: /^Sign in$/ })).toHaveLength(1);
+  // A refreshed connected account has idle login status. The auth-error card
+  // must still expose the existing clear action.
+  await act(async () => {
+    shimEmit({
+      type: "provider_accounts_updated",
+      accounts: [
+        {
+          provider: "claude",
+          scope: "personal",
+          accountStatus: "connected",
+          loginStatus: "idle",
+          canBrowserLogin: true,
+        },
+      ],
+    });
+  });
+  let cleared = false;
+  setApiShim(async (method, path) => {
+    cleared =
+      method === "POST" && path === `/api/agents/${agent.id}/new-conversation`;
+    return {};
+  });
+  await act(async () => {
+    fireEvent.click(
+      view.getByRole("button", { name: "Start a new conversation" }),
+    );
+  });
+  expect(cleared).toBe(true);
 });

@@ -103,6 +103,7 @@ function ProviderScopeConnection({
   const { t, rich } = i18n;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signInError, setSignInError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
@@ -127,6 +128,11 @@ function ProviderScopeConnection({
       setLocalWaiting(false);
     }
   }, [connected]);
+  // A callback response can arrive after the successful account push.
+  // Keep sign-in failures separate so sign-out and cancel failures stay visible.
+  useEffect(() => {
+    if (connected) setSignInError(null);
+  }, [connected, signInError]);
   const title = provider === "codex" ? "Codex" : "Claude";
   const scopeTitle =
     scope === "office"
@@ -155,7 +161,7 @@ function ProviderScopeConnection({
   async function connect(method: "browser" | "device") {
     const popup = window.open("about:blank", "_blank");
     setPending(true);
-    setError(null);
+    setSignInError(null);
     setDeviceCode(null);
     setCodeCopied(false);
     setAuthUrl(null);
@@ -178,7 +184,7 @@ function ProviderScopeConnection({
       await refresh();
     } catch (caught) {
       popup?.close();
-      setError(
+      setSignInError(
         caught instanceof ApiError
           ? caught.message
           : t("settings.signIn.startFailed", { provider: title }),
@@ -190,7 +196,7 @@ function ProviderScopeConnection({
 
   async function submitClaudeCode() {
     setPending(true);
-    setError(null);
+    setSignInError(null);
     try {
       await apiFetch("POST", "/api/me/provider-accounts/claude/callback", {
         scope,
@@ -200,7 +206,7 @@ function ProviderScopeConnection({
       setLocalWaiting(false);
       await refresh();
     } catch (caught) {
-      setError(
+      setSignInError(
         caught instanceof ApiError
           ? caught.message
           : t("settings.signIn.submitFailed"),
@@ -291,6 +297,11 @@ function ProviderScopeConnection({
       {account?.error && (
         <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
           {account.error}
+        </p>
+      )}
+      {signInError && !connected && (
+        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+          {signInError}
         </p>
       )}
       {error && (
@@ -469,17 +480,18 @@ function ProviderScopeConnection({
           )}
         </div>
       )}
-      {account?.loginStatus === "succeeded" && onStartNewConversation && (
-        <div style={{ margin: "12px 0" }}>
-          <p style={hint}>{t("settings.signIn.connectedStart")}</p>
-          <button
-            style={dialogCancelBtn}
-            onClick={() => void onStartNewConversation()}
-          >
-            {t("settings.signIn.startConversation")}
-          </button>
-        </div>
-      )}
+      {onStartNewConversation &&
+        (account?.loginStatus === "succeeded" || connected) && (
+          <div style={{ margin: "12px 0" }}>
+            <p style={hint}>{t("settings.signIn.connectedStart")}</p>
+            <button
+              style={dialogCancelBtn}
+              onClick={() => void onStartNewConversation()}
+            >
+              {t("settings.signIn.startConversation")}
+            </button>
+          </div>
+        )}
     </div>
   );
 }

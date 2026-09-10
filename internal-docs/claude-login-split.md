@@ -19,12 +19,15 @@ process and per-user roots unchanged. No new env variable.
 
 The directory selects both login and `projects/<encoded-cwd>/<sessionId>.jsonl`
 (`server/cwd-utils.ts:76`; encoding replaces non-alphanumeric/non-hyphen
-characters with `-`). Resume recomputes the owner's current environment,
-not its historical root (`server/agent-manager.ts:4648`). Thus a default-only
-change moves every default-office agent's lookup at once. The picker still
+characters with `-`). Sessions now record `claudeConfigDir` in their internal session metadata;
+resume keeps that root after personal sign-in changes, and new conversations
+use the current account root. Legacy sessions check their exact id under the
+current, office, and owner's personal roots, then record the first match.
+The office-split decision (cbea0f74) remains open for Nil; C is still recommended
+for moving owned history into the office's managed state root. The picker still
 reads Isomux logs (`server/persistence.ts:572`, `server/command-handlers.ts:574`),
-but old native sessions fail preflight (`server/backends/claude.ts:1409`).
-Restart restore uses the same path (`server/agent-manager.ts:1745`).
+and preflight now uses the recorded or discovered root. Missing legacy roots
+still fail with the exact paths checked. Restart restore uses the same pin.
 
 Scratch result, 2026-09-06, Bun 1.3.11 / SDK 0.3.257: old root → picker lists
 session, preflight and diagnosis are null; new empty root → same picker entry,
@@ -51,7 +54,7 @@ or scanning the legacy projects tree is excluded. None of these options copies c
 | Option | Loss risk and login result | Code kept long-term | Read rule and backup |
 | --- | --- | --- | --- |
 | A. Bridge `new/projects` to old tree | No move loss; independent office login. Permanently exposes all box conversations and writes new office history there. | Small setup plus permanent link/conflict handling. | Broad alias needs separate approval. Upgraded history stays outside state-root backups; fresh installs differ. |
-| B. Pin each old session's root | No move loss; old sessions depend on valid box login. New sessions get new login/storage. | Permanent pin logic across resume, forks, diagnosis and cron. | Exact-file access; cwd edits still write legacy paths. Old history outside backup, new history inside. |
+| B. Pin each old session's root (implemented for sign-in changes) | No move loss; old sessions keep their original account root. New conversations use the current root. | Per-session pin logic across resume, forks, diagnosis and cron. C must update these pins when moving owned history. | Exact-file access; cwd edits stay inside the pinned root. Old history remains outside state-root backups until C. |
 | **C. Move owned sessions at first updated boot** | Transfer interruption/conflict risks require a journal. After completion all owned history uses new login/storage. | Versioned upgrade helper retained for late upgraders; normal runtime has no old-root branch. | Only recorded ids/cwds and their owned files; no project-tree listing. Moved and new history enter backups. |
 | D. Move each old session on first resume | Same transfer risks, spread across future resumes. Unused old history stays dependent on old disk retention. | Permanent lazy migration and concurrency logic on every resume/fork/cron path. | Same exact-id rule. Backup coverage grows only as old sessions move. |
 

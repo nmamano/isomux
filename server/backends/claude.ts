@@ -1,3 +1,5 @@
+import { claudeSessionStore } from "./claude/session-store.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 // Claude backend.
 //
 // Owns every `@anthropic-ai/...` import. agent-manager talks to this module
@@ -31,6 +33,8 @@ import {
   type SDKResultMessage,
   type SDKUserMessage,
   type SessionMessage,
+  type GetSessionMessagesOptions,
+  type ForkSessionOptions,
   type CanUseTool,
   type HookEvent,
   type HookCallbackMatcher,
@@ -241,9 +245,12 @@ export interface SdkClient {
   oneShotPrompt(opts: SdkOneShotOptions): Promise<string>;
   forkSession(
     sessionId: string,
-    opts: { upToMessageId: string },
+    opts: ForkSessionOptions,
   ): Promise<{ sessionId: string }>;
-  getSessionMessages(sessionId: string): Promise<SessionMessage[]>;
+  getSessionMessages(
+    sessionId: string,
+    opts?: GetSessionMessagesOptions,
+  ): Promise<SessionMessage[]>;
 }
 
 // V1's `query()` consumes an AsyncIterable<SDKUserMessage> as its prompt and
@@ -617,8 +624,8 @@ export const realV1SdkClient: SdkClient = {
   forkSession(sessionId, opts) {
     return sdkForkSession(sessionId, opts);
   },
-  getSessionMessages(sessionId) {
-    return sdkGetSessionMessages(sessionId);
+  getSessionMessages(sessionId, opts) {
+    return sdkGetSessionMessages(sessionId, opts);
   },
 };
 
@@ -1426,10 +1433,12 @@ export function createClaudeBackend(
 
     checkSessionResumable(sessionId, opts): string | null {
       if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
-        return (
-          `Cannot resume session ${sessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(opts.cwd, opts.env)}. ` +
-          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd. ` +
-          `Move the session .jsonl into the new project directory to recover it.`
+        return (opts.words ?? translatorFor("en").t)(
+          "systemEntries.claudeSession.missing",
+          {
+            session: sessionId.slice(0, 8),
+            paths: `${claudeProjectDir(opts.cwd, opts.env)}/${sessionId}.jsonl`,
+          },
         );
       }
       return null;
@@ -1438,6 +1447,7 @@ export function createClaudeBackend(
     async forkSessionBeforeMessage(
       sessionId: string,
       targetMessageId: string,
+      access?: import("./types.ts").SessionAccessOptions,
     ): Promise<ForkSessionBeforeMessageResult> {
       // Find target's position in the transcript so we can decide between
       // fresh-session (target is the first user message) and a real fork at
@@ -1447,7 +1457,17 @@ export function createClaudeBackend(
       // when target itself is the first user message (especially target at
       // index 0) firstUserIdx stays -1 and the fresh-vs-fork decision below
       // misroutes to fork (with a -1 predecessor index).
-      const messages = await sdkClient.getSessionMessages(sessionId);
+      const cwd = access?.cwd ?? process.cwd();
+      const options = {
+        dir: cwd,
+        sessionStore: claudeSessionStore(
+          sessionId,
+          cwd,
+          access?.env,
+          access?.words,
+        ),
+      };
+      const messages = await sdkClient.getSessionMessages(sessionId, options);
       let targetIdx = -1;
       let firstUserIdx = -1;
       for (let i = 0; i < messages.length; i++) {
@@ -1472,6 +1492,7 @@ export function createClaudeBackend(
       const predecessorUuid = messages[targetIdx - 1].uuid;
       const result = await sdkClient.forkSession(sessionId, {
         upToMessageId: predecessorUuid,
+        ...options,
       });
       return {
         kind: "fork",
@@ -1480,8 +1501,20 @@ export function createClaudeBackend(
       };
     },
 
-    async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
-      const messages = await sdkClient.getSessionMessages(sessionId);
+    async getSessionMessages(
+      sessionId: string,
+      cwd: string,
+      access?: import("./types.ts").SessionAccessOptions,
+    ): Promise<NormalizedMessage[]> {
+      const messages = await sdkClient.getSessionMessages(sessionId, {
+        dir: cwd,
+        sessionStore: claudeSessionStore(
+          sessionId,
+          cwd,
+          access?.env,
+          access?.words,
+        ),
+      });
       const out: NormalizedMessage[] = [];
       for (const m of messages) {
         // SessionMessage.type is user/assistant/system (no "result"); narrow

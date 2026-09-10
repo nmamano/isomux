@@ -876,3 +876,49 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     fake.sessions.forEach((s) => s.close());
   });
 });
+
+it("a finalized Claude run resumes with its launch root after an account change", async () => {
+  let root = join(STATE_ROOT, "cron-old-root");
+  const fake = new FakeBackend({
+    session: {
+      onSend: (_text, _attachments, session) =>
+        session.completeTurn({ text: "ok" }),
+    },
+  });
+  const persistence = makeFakeCronPersistence();
+  const mgr = createCronjobManager(
+    baseDeps({
+      resolveBackend: () => fake,
+      resolveEnv: () => ({ CLAUDE_CONFIG_DIR: root }),
+      persistence,
+    }),
+  );
+  const job = mgr.addCronjob(intervalInput("Pinned cron"));
+  const run = mgr.runCronjobNow(job.id, "Nil")!;
+  for (
+    let i = 0;
+    i < 200 && mgr.findRun(job.id, run.id)?.status !== "completed";
+    i++
+  )
+    await Bun.sleep(5);
+  expect(mgr.findRun(job.id, run.id)?.status).toBe("completed");
+  const sid = fake.sessions[0].sessionId;
+  const oldRoot = root;
+  expect(persistence.getRunSessionClaudeConfigDir(job.id, run.id, sid)).toBe(
+    oldRoot,
+  );
+  root = join(STATE_ROOT, "cron-new-root");
+  await mgr.sendRunMessage(job.id, run.id, "resume", "Nil");
+  expect(fake.sessions.at(-1)?.isResume).toBe(true);
+  expect(fake.sessions.at(-1)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(oldRoot);
+  expect(persistence.getRunSessionClaudeConfigDir(job.id, run.id, sid)).toBe(
+    oldRoot,
+  );
+  for (
+    let i = 0;
+    i < 200 && mgr.findRun(job.id, run.id)?.status !== "completed";
+    i++
+  )
+    await Bun.sleep(5);
+  expect(mgr.findRun(job.id, run.id)?.status).toBe("completed");
+});

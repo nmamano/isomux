@@ -214,6 +214,8 @@ type SessionsMap = Record<
     // persisted before this field existed - callers backfill from the agent
     // cwd then (see getSessionCwd / ensureSessionCwd).
     cwd?: string;
+    // Native Claude storage/auth root, fixed at session creation. Internal only.
+    claudeConfigDir?: string;
     // The engine config this session runs under. Source of truth for
     // per-session engine + model; the agent's own agentType/modelFamily/effort/
     // permissionMode/codexSandbox fields are denormalized mirrors of the ACTIVE
@@ -363,6 +365,29 @@ export function ensureSessionCwd(
   };
   saveSessionsMap(agentId, map);
   return fallbackCwd;
+}
+
+export function getSessionClaudeConfigDir(
+  agentId: string,
+  sessionId: string,
+): string | undefined {
+  return loadSessionsMap(agentId)[sessionId]?.claudeConfigDir;
+}
+
+export function ensureSessionClaudeConfigDir(
+  agentId: string,
+  sessionId: string,
+  root: string,
+): string {
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId];
+  if (existing?.claudeConfigDir) return existing.claudeConfigDir;
+  map[sessionId] = {
+    ...(existing ?? { topic: null, lastModified: Date.now() }),
+    claudeConfigDir: root,
+  };
+  saveSessionsMap(agentId, map);
+  return root;
 }
 
 // The engine config a session runs under. Mirrors the per-session cwd model:

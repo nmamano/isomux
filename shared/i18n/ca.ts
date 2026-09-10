@@ -1872,8 +1872,14 @@ export const ca: Catalog = {
     "Configuració → Tu → Connexions individuals",
   "systemEntries.claudeAuth.disconnected":
     "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
+  "systemEntries.claudeAuth.pinned":
+    "Aquesta conversa conserva el compte de Claude amb què es va iniciar. Inicia una conversa nova (`/clear`) per fer servir el compte nou.",
+  "systemEntries.claudeSession.invalid":
+    "No es pot accedir a aquesta conversa de Claude.",
+  "systemEntries.claudeSession.missing":
+    "No es pot reprendre la sessió de Claude {session}…: no s’ha trobat el seu fitxer. Camins comprovats: {paths}. Fes servir /resume per seleccionar una altra conversa o inicia una conversa nova.",
   "systemEntries.claudeAuth.connected":
-    "Claude ha rebutjat les credencials, però la comprovació de la connexió indica que hi ha una sessió iniciada. Torna a provar la sol·licitud o revisa Claude a {location}.",
+    "Aquesta conversa pot continuar fent servir les credencials amb què es va iniciar. Inicia una conversa nova (`/clear`) per fer servir la connexió actual de Claude.",
   "systemEntries.claudeAuth.incomplete":
     "No s’ha pogut completar la comprovació de la connexió de Claude. Torna a provar la sol·licitud o inicia sessió a Claude a Configuració.",
   "systemEntries.signInRequired":

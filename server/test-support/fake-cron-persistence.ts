@@ -13,6 +13,7 @@ export function makeFakeCronPersistence(): CronPersistence {
   let cronjobs: Cronjob[] = [];
   let cronjobsPrompt: string | null = null;
   const runsByJob = new Map<string, CronjobRun[]>();
+  const claudeRoots = new Map<string, string>();
 
   const zeroUsage = {
     inputTokens: 0,
@@ -53,6 +54,13 @@ export function makeFakeCronPersistence(): CronPersistence {
       (runsByJob.get(jobId) ?? []).find((r) => r.id === runId) ?? null,
     listAllCronjobIdsOnDisk: () => [...runsByJob.keys()],
     loadRunSessionsMap: () => ({}),
+    getRunSessionClaudeConfigDir: (job, run, session) =>
+      claudeRoots.get(`${job}/${run}/${session}`),
+    ensureRunSessionClaudeConfigDir: (job, run, session, root) => {
+      const key = `${job}/${run}/${session}`;
+      if (!claudeRoots.has(key)) claudeRoots.set(key, root);
+      return claudeRoots.get(key)!;
+    },
     persistRunSessionFork: () => {},
     findUsageAtForkRun: () => undefined,
     rollRunSessionUsageOnResume: () => {},

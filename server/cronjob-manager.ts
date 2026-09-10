@@ -1,3 +1,8 @@
+import {
+  claudeConfigRoot,
+  resolveClaudeSessionRoot,
+} from "./claude-session-root.ts";
+import { translatorForUserId } from "./i18n.ts";
 // Cronjob scheduler + per-run backend session lifecycle.
 //
 // Scheduler tick: every 60s, looks at every enabled cronjob and fires those
@@ -91,6 +96,7 @@ interface ActiveRun {
   session: BackendSession;
   sessionId: string | null;
   rootSessionId: string;
+  launchedClaudeConfigDir?: string;
   consumerPromise: Promise<void>;
   hardTimeoutTimer: ReturnType<typeof setTimeout> | null;
   lastWrittenEntryId: string | null;
@@ -204,6 +210,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     loadRunLog,
     loadRunLogWithAncestors,
     loadRunSessionsMap,
+    getRunSessionClaudeConfigDir,
+    ensureRunSessionClaudeConfigDir,
     accumulateRunSessionUsage,
     appendRunSessionUsageSnapshot,
     persistRunSessionFork,
@@ -591,6 +599,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
         const sessionId = ev.sessionId;
         if (sessionId && !active.sessionId) {
           active.sessionId = sessionId;
+          if (active.launchedClaudeConfigDir) {
+            ensureRunSessionClaudeConfigDir(
+              active.jobId,
+              active.runId,
+              sessionId,
+              active.launchedClaudeConfigDir,
+            );
+          }
           // If the backend assigned a different id than rootSessionId, update
           // the run row so the transcript loads correctly. On resume the same
           // id is reused, so this branch only fires for fresh-fire init or a
@@ -845,16 +861,45 @@ How to answer questions about Isomux itself: the source lives at https://github.
     };
   }
 
+  function pinRunEnvironment(
+    run: CronjobRun,
+    sessionId: string,
+    env: Record<string, string | undefined> | undefined,
+  ) {
+    if (run.agentTypeSnapshot !== "claude") return env;
+    const job = cronjobs.find((value) => value.id === run.cronjobId);
+    const root = resolveClaudeSessionRoot(
+      sessionId,
+      run.cwdSnapshot,
+      env,
+      getRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId),
+      job?.userId ?? null,
+      translatorForUserId(job?.userId ?? null).t,
+    );
+    ensureRunSessionClaudeConfigDir(run.cronjobId, run.id, sessionId, root);
+    return { ...(env ?? process.env), CLAUDE_CONFIG_DIR: root };
+  }
+
   function sessionAccessForRun(run: CronjobRun): SessionAccessOptions {
     const job = cronjobs.find((candidate) => candidate.id === run.cronjobId);
     if (run.agentTypeSnapshot === "opencode" && !job) {
       throw openCodeDeletedJobError();
     }
+    const environment = resolveRunEnvironment(
+      run.agentTypeSnapshot,
+      job?.userId ?? null,
+    );
+    environment.env = pinRunEnvironment(
+      run,
+      run.currentSessionId ?? run.rootSessionId,
+      environment.env,
+    );
     return {
       cwd: run.cwdSnapshot,
       modelFamily: run.modelFamilySnapshot,
       permissionMode: run.permissionModeSnapshot,
-      ...resolveRunEnvironment(run.agentTypeSnapshot, job?.userId ?? null),
+      ...environment,
+      words: translatorForUserId(job?.userId ?? null).t,
     };
   }
 
@@ -1134,6 +1179,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
       modelFamily: job.modelFamily,
       session,
       sessionId: null,
+      launchedClaudeConfigDir:
+        job.agentType === "claude" ? claudeConfigRoot(opts.env) : undefined,
       rootSessionId: placeholderSessionId,
       consumerPromise: Promise.resolve(),
       hardTimeoutTimer: null,
@@ -1453,6 +1500,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       run.agentTypeSnapshot,
       job?.userId ?? null,
     );
+    environment.env = pinRunEnvironment(run, resumeSessionId, environment.env);
     if (run.agentTypeSnapshot !== "opencode") {
       const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
       environment.env = {
@@ -1685,12 +1733,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     let env: { [key: string]: string | undefined } | undefined;
     try {
-      env = buildEnvForUserId(job?.userId ?? null);
+      env = pinRunEnvironment(
+        run,
+        leaf,
+        buildEnvForUserId(job?.userId ?? null),
+      );
     } catch (err) {
       return `Cannot build env: ${errMessage(err)}`;
     }
     return getBackend(run.agentTypeSnapshot).checkSessionResumable(leaf, {
       cwd: run.cwdSnapshot,
+      words: translatorForUserId(job?.userId ?? null).t,
       env,
       environmentKey: environmentSourceKeyForUserId(job?.userId ?? null),
     });
@@ -1897,6 +1950,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
         return;
       }
       newSessionId = forkResult.sessionId;
+      if (run.agentTypeSnapshot === "claude") {
+        ensureRunSessionClaudeConfigDir(
+          jobId,
+          runId,
+          newSessionId,
+          claudeConfigRoot(sessionAccess.env),
+        );
+      }
     } catch (err) {
       emitRunErrorEntry(jobId, runId, `Fork failed: ${errMessage(err)}`);
       return;

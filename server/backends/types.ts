@@ -1,3 +1,4 @@
+import type { Translator } from "../../shared/i18n/translate.ts";
 // Backend abstraction shared by Claude (claude-agent-sdk) and Codex (App Server).
 //
 // SessionManager holds the session lifecycle; agent-manager.ts holds queue / abort / fork / topic-gen
@@ -69,6 +70,7 @@ export interface SessionEnvironmentOptions {
 }
 
 export interface SessionAccessOptions extends SessionEnvironmentOptions {
+  words?: Translator["t"];
   cwd: string;
   modelFamily: string;
   permissionMode: string;
@@ -490,6 +492,7 @@ export interface Backend {
     sessionId: string,
     opts: {
       cwd: string;
+      words?: Translator["t"];
       env?: { [key: string]: string | undefined };
       environmentKey?: string;
     },

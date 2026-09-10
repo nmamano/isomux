@@ -688,6 +688,35 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
     return e.id;
   }
 
+  it("pins native reads, forks and fork resumes to the parent root after an account change", async () => {
+    wireClaudeConfigDir();
+    const fake = editFake();
+    const { sink } = capture();
+    const mgr = makeManager(fake, sink);
+    const info = await seedTwoTurnAgent(mgr, fake);
+    seedClaudeSession(info.cwd, FORK_SID);
+    setTestManagedOfficeEnv({
+      CLAUDE_CONFIG_DIR: join(STATE_ROOT, "new-account"),
+    });
+    await mgr.editMessage(
+      info.id,
+      userMsgId(info.id, "second"),
+      "edited second",
+    );
+    expect(fake.lastMessagesAccess?.env?.CLAUDE_CONFIG_DIR).toBe(claudeHome());
+    expect(fake.lastForkAccess?.env?.CLAUDE_CONFIG_DIR).toBe(claudeHome());
+    expect(loadSessionsMap(info.id)[FORK_SID]?.claudeConfigDir).toBe(
+      claudeHome(),
+    );
+    expect(fake.sessionForAgent(info.id)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+      claudeHome(),
+    );
+    await mgr.resume(info.id, FORK_SID);
+    expect(fake.sessionForAgent(info.id)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+      claudeHome(),
+    );
+  });
+
   it("marks edit-message history and fork access as interactive", async () => {
     wireClaudeConfigDir();
     const fake = editFake();

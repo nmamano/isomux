@@ -1866,8 +1866,14 @@ export const en = {
     "Settings → You → Individual connections",
   "systemEntries.claudeAuth.disconnected":
     "Claude rejected the credentials. Sign in to Claude in {location}.",
+  "systemEntries.claudeAuth.pinned":
+    "This conversation keeps the Claude account it started with. Start a new conversation (`/clear`) to use the new account.",
+  "systemEntries.claudeSession.invalid":
+    "Cannot access this Claude conversation.",
+  "systemEntries.claudeSession.missing":
+    "Cannot resume Claude session {session}…: its file was not found. Paths checked: {paths}. Use /resume to select another conversation, or start a new conversation.",
   "systemEntries.claudeAuth.connected":
-    "Claude rejected the credentials, but the connection check reports a sign-in. Retry the request or check Claude in {location}.",
+    "This conversation may still use the credentials it started with. Start a new conversation (`/clear`) to use the current Claude sign-in.",
   "systemEntries.claudeAuth.incomplete":
     "The Claude connection check could not finish. Retry the request or sign in to Claude in Settings.",
   "systemEntries.signInRequired":

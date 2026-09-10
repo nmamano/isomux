@@ -251,6 +251,7 @@ type UsageSnapshot = { entryId: string; usage: PersistedUsage };
 type RunSessionsMap = Record<
   string,
   {
+    claudeConfigDir?: string;
     topic: string | null;
     lastModified: number;
     forkedFrom?: string;
@@ -273,6 +274,31 @@ export function loadRunSessionsMap(
   } catch {
     return {};
   }
+}
+
+export function getRunSessionClaudeConfigDir(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+): string | undefined {
+  return loadRunSessionsMap(jobId, runId)[sessionId]?.claudeConfigDir;
+}
+
+export function ensureRunSessionClaudeConfigDir(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+  root: string,
+): string {
+  const map = loadRunSessionsMap(jobId, runId);
+  const existing = map[sessionId];
+  if (existing?.claudeConfigDir) return existing.claudeConfigDir;
+  map[sessionId] = {
+    ...(existing ?? { topic: null, lastModified: Date.now() }),
+    claudeConfigDir: root,
+  };
+  saveRunSessionsMap(jobId, runId, map);
+  return root;
 }
 
 function saveRunSessionsMap(jobId: string, runId: string, map: RunSessionsMap) {

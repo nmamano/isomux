@@ -1,5 +1,7 @@
+import { claudeProjectDir } from "../cwd-utils.ts";
+import { getSessionClaudeConfigDir } from "../persistence.ts";
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { OfficeState } from "../../shared/office-state.ts";
 import type {
@@ -12,6 +14,11 @@ import {
   ProviderAccountManager,
   type EffectiveProviderAccountTarget,
 } from "../provider-account-manager.ts";
+import {
+  activatePersonalProvider,
+  deactivatePersonalProvider,
+  personalProviderHome,
+} from "../provider-homes.ts";
 import { STATE_ROOT } from "../config.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadAgents } from "../persistence.ts";
@@ -746,31 +753,242 @@ describe("Claude auth-error status checks", () => {
     expect(logs.some((e) => e.content.includes("Not logged in"))).toBe(false);
   });
 
-  it("preserves the rejection when the account reports connected", async () => {
+  for (const initialized of [false, true]) {
+    it(`keeps the account explanation conditional with ${initialized ? "an unchanged" : "no recorded"} root`, async () => {
+      const fake = new FakeBackend({
+        isAuthError: (text) => claudeBackend.detectAuthError(text),
+        session: {
+          autoSystemInit: initialized,
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({
+              status: "failed",
+              error: "401 unauthorized",
+            }),
+        },
+      });
+      const { mgr, agentId } = await harness({
+        backendType: "claude",
+        fake,
+        accounts: async () => [
+          claudeWire("office", { accountStatus: "connected" }),
+        ],
+      });
+      try {
+        await mgr.sendMessage(agentId, "hello", "tester");
+        await waitFor(() =>
+          mgr
+            .getAgentLogs(agentId)
+            .some((entry) => entry.content.includes("may still use")),
+        );
+        const entry = mgr
+          .getAgentLogs(agentId)
+          .find((value) => value.content.includes("may still use"));
+        expect(entry?.metadata?.providerLogin).toBe("claude");
+        expect(
+          mgr
+            .getAgentLogs(agentId)
+            .some((value) =>
+              value.content.includes("keeps the Claude account"),
+            ),
+        ).toBe(false);
+      } finally {
+        await mgr.kill(agentId);
+      }
+    });
+  }
+
+  it("keeps the cwd-specific error and rolls back edits when a legacy transcript is missing", async () => {
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: "ok" }),
+      },
+    });
+    const { mgr, agentId } = await harness({ backendType: "claude", fake });
+    try {
+      await mgr.sendMessage(agentId, "first", "tester");
+      // Simulate legacy metadata with no recorded root and no native transcript.
+      writeFileSync(join(STATE_ROOT, "logs", agentId, "sessions.json"), "{}");
+      expect(
+        getSessionClaudeConfigDir(agentId, fake.sessions[0].sessionId),
+      ).toBeUndefined();
+      const before = mgr.getAgent(agentId)!;
+      const oldName = before.name;
+      const oldCwd = before.cwd;
+      const newCwd = join(STATE_ROOT, `missing-transcript-${agentId}`);
+      mkdirSync(newCwd, { recursive: true });
+      const failure = await mgr
+        .editAgent(agentId, { cwd: newCwd, name: "Should roll back" })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toContain("cwd change aborted");
+      expect(mgr.getAgent(agentId)?.cwd).toBe(oldCwd);
+      expect(mgr.getAgent(agentId)?.name).toBe(oldName);
+    } finally {
+      await mgr.kill(agentId);
+    }
+  });
+
+  it("records the launch root when sign-in changes before system_init", async () => {
+    const userId = `init-${crypto.randomUUID()}`;
+    const oldRoot = join(STATE_ROOT, "launch-root");
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: oldRoot });
+    const fake = new FakeBackend({
+      session: {
+        autoSystemInit: false,
+        onSend: (_text, _attachments, session) => {
+          activatePersonalProvider(userId, "claude");
+          session.push({
+            kind: "system_init",
+            sessionId: session.sessionId,
+            slashCommands: [],
+          });
+          session.completeTurn({ text: "ok" });
+        },
+      },
+    });
     const { mgr, agentId } = await harness({
       backendType: "claude",
-      fake: rejected(),
-      accounts: async () => [
-        claudeWire("office", { accountStatus: "connected" }),
-      ],
+      fake,
+      userId,
     });
-    await mgr.sendMessage(agentId, "hello", "tester");
-    await waitFor(() =>
-      mgr
+    try {
+      await mgr.sendMessage(agentId, "first", "tester");
+      expect(
+        getSessionClaudeConfigDir(agentId, fake.sessions[0].sessionId),
+      ).toBe(oldRoot);
+      await mgr.resume(agentId, fake.sessions[0].sessionId);
+      expect(fake.sessions.at(-1)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(oldRoot);
+      expect(
+        getSessionClaudeConfigDir(agentId, fake.sessions[0].sessionId),
+      ).toBe(oldRoot);
+    } finally {
+      deactivatePersonalProvider(userId, "claude");
+      await mgr.kill(agentId);
+    }
+  });
+
+  it("offers clear after personal sign-in and starts the next conversation with the new account environment", async () => {
+    const userId = `signin-${crypto.randomUUID()}`;
+    const personalDir = personalProviderHome(userId, "claude");
+    setTestManagedOfficeEnv({
+      CLAUDE_CONFIG_DIR: join(STATE_ROOT, "old-office-claude"),
+    });
+    const fake = new FakeBackend({
+      isAuthError: (text) => claudeBackend.detectAuthError(text),
+      session: {
+        onSend: (_text, _attachments, session) => {
+          if (_text === "before sign-in") {
+            session.completeTurn({ text: "Existing account turn" });
+          } else if (session.opts.env?.CLAUDE_CONFIG_DIR !== personalDir) {
+            session.completeTurn({
+              status: "failed",
+              error: "401 unauthorized",
+            });
+          } else {
+            session.completeTurn({ text: "New account works" });
+          }
+        },
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "claude",
+      fake,
+      userId,
+      accounts: async () => [
+        claudeWire("personal", {
+          accountStatus: "connected",
+          loginStatus: "idle",
+        }),
+      ],
+      target: () => ({
+        provider: "claude",
+        scope: "personal",
+        dir: personalDir,
+      }),
+    });
+    try {
+      // Start before the personal home is activated by successful sign-in.
+      await mgr.sendMessage(agentId, "before sign-in", "tester");
+      const oldSession = fake.sessions[0];
+      expect(oldSession.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+        join(STATE_ROOT, "old-office-claude"),
+      );
+      activatePersonalProvider(userId, "claude");
+      await mgr.sendMessage(agentId, "after sign-in", "tester");
+      expect(fake.sessions).toHaveLength(1);
+      expect(oldSession.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+        join(STATE_ROOT, "old-office-claude"),
+      );
+      await waitFor(() =>
+        mgr
+          .getAgentLogs(agentId)
+          .some((e) => e.content.includes("new account")),
+      );
+      const guidance = mgr
         .getAgentLogs(agentId)
-        .some((e) => e.content.includes("connection check reports a sign-in")),
-    );
-    const logs = mgr.getAgentLogs(agentId);
-    expect(
-      logs.some((e) =>
-        e.content.includes("Claude rejected the credentials, but"),
-      ),
-    ).toBe(true);
-    expect(
-      logs.some(
-        (e) => e.content.includes("`/clear`") || e.metadata?.providerLogin,
-      ),
-    ).toBe(false);
+        .filter((e) => e.content.includes("new account"));
+      expect(guidance.at(-1)?.content).toBe(
+        "This conversation keeps the Claude account it started with. Start a new conversation (`/clear`) to use the new account.",
+      );
+      expect(guidance.at(-1)?.metadata?.providerLogin).toBe("claude");
+      // Explicit resume exercises the same replacement used after interrupt.
+      await mgr.resume(agentId, oldSession.sessionId);
+      expect(fake.sessions.at(-1)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+        join(STATE_ROOT, "old-office-claude"),
+      );
+      expect(getSessionClaudeConfigDir(agentId, oldSession.sessionId)).toBe(
+        join(STATE_ROOT, "old-office-claude"),
+      );
+      await mgr.sendMessage(agentId, "retry after resume", "tester");
+      await waitFor(
+        () =>
+          mgr
+            .getAgentLogs(agentId)
+            .filter((e) => e.content.includes("keeps the Claude account"))
+            .length === 2,
+      );
+      // A cwd edit must move the transcript within the pinned root.
+      const oldProject = claudeProjectDir(STATE_ROOT, oldSession.opts.env);
+      mkdirSync(oldProject, { recursive: true });
+      writeFileSync(join(oldProject, `${oldSession.sessionId}.jsonl`), "{}\n");
+      const newCwd = join(STATE_ROOT, `moved-${userId}`);
+      mkdirSync(newCwd, { recursive: true });
+      await mgr.editAgent(agentId, { cwd: newCwd });
+      expect(
+        existsSync(
+          join(
+            claudeProjectDir(newCwd, oldSession.opts.env),
+            `${oldSession.sessionId}.jsonl`,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        existsSync(
+          join(
+            claudeProjectDir(newCwd, { CLAUDE_CONFIG_DIR: personalDir }),
+            `${oldSession.sessionId}.jsonl`,
+          ),
+        ),
+      ).toBe(false);
+      await mgr.newConversation(agentId);
+      await mgr.sendMessage(agentId, "fresh", "tester");
+      expect(oldSession.closed).toBe(true);
+      expect(fake.sessions.at(-1)?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+        personalDir,
+      );
+      expect(
+        mgr
+          .getAgentLogs(agentId)
+          .some((e) => e.content === "New account works"),
+      ).toBe(true);
+    } finally {
+      deactivatePersonalProvider(userId, "claude");
+      await mgr.kill(agentId);
+    }
   });
 
   for (const failure of [

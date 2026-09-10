@@ -41,6 +41,8 @@ export interface ManagedAgent {
   // abort bookkeeping live there. Read and write them as
   // `managed.sessionManager.<field>`.
   readonly sessionManager: SessionManager<ManagedAgent>;
+  // Root captured from the actual Claude launch, before system_init assigns an id.
+  launchedClaudeConfigDir?: string;
   slashCommands: {
     name: string;
     description?: string;

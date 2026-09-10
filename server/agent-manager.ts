@@ -1,3 +1,7 @@
+import {
+  claudeConfigRoot,
+  resolveClaudeSessionRoot,
+} from "./claude-session-root.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type {
   AgentBackendType,
@@ -63,6 +67,8 @@ import {
   persistSessionCwd,
   getSessionCwd,
   ensureSessionCwd,
+  getSessionClaudeConfigDir,
+  ensureSessionClaudeConfigDir,
   getSessionEngineConfig,
   stampSessionEngineConfig,
   backfillSessionEngineConfigs,
@@ -604,7 +610,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          t("systemEntries.claudeAuth.connected", { location }),
+          t(
+            managed.sessionManager.sessionId &&
+              getSessionClaudeConfigDir(
+                agentId,
+                managed.sessionManager.sessionId,
+              ) &&
+              getSessionClaudeConfigDir(
+                agentId,
+                managed.sessionManager.sessionId,
+              ) !== claudeConfigRoot(buildEnvForUserId(managed.info.userId))
+              ? "systemEntries.claudeAuth.pinned"
+              : "systemEntries.claudeAuth.connected",
+          ),
+          { providerLogin: "claude" },
         );
       } else {
         throw new Error("Account check incomplete");
@@ -858,7 +877,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // envForHints note.
     diagnoseProcessExitHints: (managed, sessionId) =>
       managed.info.agentType === "claude"
-        ? diagnoseProcessExit(managed.info.cwd, sessionId, envForHints(managed))
+        ? diagnoseProcessExit(
+            managed.info.cwd,
+            sessionId,
+            envForHints(managed),
+            logWords(managed.info.id),
+          )
         : null,
     handleDetectedAuthError: (managed, errorText) => {
       const isAuthError = detectAgentAuthError(managed, errorText);
@@ -1246,7 +1270,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const oldCwd = managed.info.cwd;
     const targetCwd = validated.cwd;
     const cwdMoveEnv = cwdChanging
-      ? buildEnvForUserId(managed.info.userId)
+      ? (() => {
+          try {
+            return buildSessionEnv(managed);
+          } catch {
+            return buildEnvForUserId(managed.info.userId);
+          }
+        })()
       : undefined;
 
     // Snapshot of all editable fields, captured BEFORE the mutation lands.
@@ -1881,7 +1911,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     let resumeSessionId: string | null = null;
     if (p.lastSessionId) {
       try {
-        const restoreEnv = buildEnvForUserId(userId);
+        let restoreEnv = buildEnvForUserId(userId);
+        if (agentType === "claude") {
+          const root = resolveClaudeSessionRoot(
+            p.lastSessionId,
+            restoredCwd,
+            restoreEnv,
+            getSessionClaudeConfigDir(p.id, p.lastSessionId),
+            userId,
+            translatorForUserId(userId).t,
+          );
+          ensureSessionClaudeConfigDir(p.id, p.lastSessionId, root);
+          restoreEnv = {
+            ...(restoreEnv ?? process.env),
+            CLAUDE_CONFIG_DIR: root,
+          };
+        }
         if (
           getBackend(agentType).inspectStoredSession(p.lastSessionId, {
             cwd: restoredCwd,
@@ -3734,6 +3779,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // persistSessionFork so this no-ops there; a plain fresh session
           // (spawn / new conversation) gets the agent's current mirror cwd here.
           ensureSessionCwd(agentId, sessionId, managed.info.cwd);
+          if (
+            managed.info.agentType === "claude" &&
+            managed.launchedClaudeConfigDir
+          ) {
+            ensureSessionClaudeConfigDir(
+              agentId,
+              sessionId,
+              managed.launchedClaudeConfigDir,
+            );
+          }
           // Record the engine config (agentType + model/effort/permission/
           // sandbox) this session is running under. Overwrite, not backfill, so
           // the stamp remains a truthful historical record. A later resume
@@ -4149,6 +4204,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             managed.info.cwd,
             managed.sessionManager.sessionId,
             envForHints(managed),
+            logWords(agentId),
           );
           if (hints) addLogEntry(agentId, "system", hints);
         }
@@ -4575,8 +4631,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // can read our `officeState` without importing it directly.
   function buildSessionEnv(
     managed: ManagedAgent,
+    sessionId: string | null = managed.sessionManager.sessionId,
   ): { [key: string]: string | undefined } | undefined {
-    const base = buildEnvForUserId(managed.info.userId);
+    let base = buildEnvForUserId(managed.info.userId);
+    if (managed.info.agentType === "claude" && sessionId) {
+      const root = resolveClaudeSessionRoot(
+        sessionId,
+        managed.info.cwd,
+        base,
+        getSessionClaudeConfigDir(managed.info.id, sessionId),
+        managed.info.userId,
+        logWords(managed.info.id),
+      );
+      ensureSessionClaudeConfigDir(managed.info.id, sessionId, root);
+      base = { ...(base ?? process.env), CLAUDE_CONFIG_DIR: root };
+    }
     const token = getAgentTokenRaw(managed.info.id);
     if (!token) return base;
     // Inject the agent's own bearer token so its self-affordance /
@@ -4758,12 +4827,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
-    const env = buildSessionEnv(managed);
+    const env = buildSessionEnv(managed, resumeSessionId ?? null);
     if (resumeSessionId) {
       const resumeError = getBackend(
         managed.info.agentType,
       ).checkSessionResumable(resumeSessionId, {
         cwd: managed.info.cwd,
+        words: logWords(managed.info.id),
         env,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       });
@@ -4823,6 +4893,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ),
     };
     const backend = getBackend(managed.info.agentType);
+    managed.launchedClaudeConfigDir =
+      managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
     return resumeSessionId
       ? backend.resumeSession(resumeSessionId, opts)
       : backend.createSession(opts);
@@ -8061,6 +8133,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         permissionMode: managed.info.permissionMode,
         interactive: true,
         env: editEnv,
+        words: logWords(agentId),
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         environmentRevision: environmentSourceRevisionForUserId(
           managed.info.userId,
@@ -8237,6 +8310,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           managed.info.cwd,
           parentBase,
         );
+        if (managed.info.agentType === "claude") {
+          ensureSessionClaudeConfigDir(
+            agentId,
+            newSessionId,
+            claudeConfigRoot(editEnv),
+          );
+        }
         // Stamp the fork's inherited engine inline (a fork runs the parent's
         // engine, like cwd). The fork's own system_init would stamp it anyway,
         // but doing it here too closes the narrow window where the process dies

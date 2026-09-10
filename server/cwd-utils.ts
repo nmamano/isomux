@@ -1,3 +1,4 @@
+import { translatorFor, type Translator } from "../shared/i18n/translate.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
@@ -414,6 +415,7 @@ export function diagnoseProcessExit(
   cwd: string,
   sessionId: string | null,
   env?: { [key: string]: string | undefined },
+  t: Translator["t"] = translatorFor("en").t,
 ): string | null {
   try {
     validateCwd(cwd);
@@ -421,11 +423,10 @@ export function diagnoseProcessExit(
     return `Likely cause: cwd \`${cwd}\` no longer exists. Click the agent name in the log view header to point it at a valid directory.`;
   }
   if (sessionId && !claudeSessionFileExists(cwd, sessionId, env)) {
-    return (
-      `Likely cause: session \`${sessionId.slice(0, 8)}…\` was not found in \`${claudeProjectDir(cwd, env)}\`. ` +
-      `This usually happens after cwd was moved/renamed - the Claude CLI locates session files by a path derived from cwd. ` +
-      `Use /resume to pick another session, or move the session .jsonl into the new project dir.`
-    );
+    return t("systemEntries.claudeSession.missing", {
+      session: sessionId.slice(0, 8),
+      paths: join(claudeProjectDir(cwd, env), `${sessionId}.jsonl`),
+    });
   }
   return null;
 }

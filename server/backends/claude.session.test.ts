@@ -775,8 +775,18 @@ describe("createClaudeBackend.forkSessionBeforeMessage", () => {
     fake.forkResult = { sessionId: "forked-99" };
     const backend = createClaudeBackend(fake);
     const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
-    expect(fake.forkCalls).toEqual([
-      { sessionId: "s-1", opts: { upToMessageId: "a-0" } },
+    expect(fake.forkCalls).toMatchObject([
+      {
+        sessionId: "s-1",
+        opts: {
+          upToMessageId: "a-0",
+          dir: process.cwd(),
+          sessionStore: {
+            load: expect.any(Function),
+            append: expect.any(Function),
+          },
+        },
+      },
     ]);
     expect(result).toEqual({
       kind: "fork",
