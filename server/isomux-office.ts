@@ -276,6 +276,7 @@ import {
 } from "./api-tokens.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
+import { buildAgentSystemPrompt } from "./agent-system-prompt.ts";
 import { conversationHandlers } from "./routes/handlers/conversation.ts";
 import { editorHandlers } from "./routes/handlers/editor.ts";
 import type {
@@ -3082,6 +3083,20 @@ function buildExecutorDeps(
       },
       abort: (agentId) => agentManager.abort(agentId),
       getAgent: (agentId) => agentManager.getAgent(agentId),
+      systemPrompt: (agentId) => {
+        const agent = agentManager.getAgent(agentId);
+        if (!agent) return undefined;
+        const room = agentManager
+          .getRooms()
+          .find((candidate) => candidate.id === agent.roomId);
+        return room
+          ? buildAgentSystemPrompt(
+              agent,
+              room,
+              agentManager.getOfficeSettings(),
+            )
+          : undefined;
+      },
       move: (agentId, targetRoomId) => {
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,

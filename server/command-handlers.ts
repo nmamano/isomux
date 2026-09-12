@@ -12,6 +12,7 @@ import type {
 } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
 import { translatorForUsername } from "./i18n.ts";
+import { getUserByName } from "./users.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 import { COMMAND_DESCRIPTION_KEYS } from "../shared/i18n/command-keys.ts";
 import { keyFrom } from "../shared/i18n/translate.ts";
@@ -33,9 +34,6 @@ import {
   unsupportedMessage,
   type CommandConfig,
 } from "./commands.ts";
-import { buildSystemPrompt } from "./system-prompt.ts";
-import { memoryStore } from "./memory-store.ts";
-import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
 import { recordSkillUse } from "./skill-usage.ts";
@@ -797,7 +795,7 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     async isomuxSystemPrompt(
       agentId,
-      managed,
+      _managed,
       _args,
       rawText,
       username,
@@ -806,63 +804,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       const { t } = translatorForUsername(username);
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      // A live agent's roomId always resolves; roomById logs loud on a
-      // miss and we fail fast rather than build a prompt against room 0.
-      const room = deps.roomById(managed.info.roomId)!;
-      const officeConfig = deps.getOfficeConfig();
-      const ownerRecord = managed.info.username
-        ? getUserByName(managed.info.username)
-        : undefined;
-      const prompt = buildSystemPrompt(
-        managed.info.name,
-        managed.info.id,
-        room.name,
-        room.id,
-        officeConfig.prompt,
-        room.prompt,
-        managed.info.customInstructions,
-        managed.info.username,
-        ownerRecord?.memberPrompt ?? null,
-        managed.info.privileged ?? false,
-        memoryStore.renderForPromptMulti([
-          { scope: "office", scopeId: null, label: "Office-wide" },
-          ...(room.type === "lobby"
-            ? []
-            : [
-                {
-                  scope: "room" as const,
-                  scopeId: managed.info.roomId,
-                  label: `Room "${room.name}"`,
-                },
-              ]),
-          // Boss notes auto-load ONLY for this agent's manager boss (stable
-          // userId), so one boss's notes never bleed into another's context.
-          ...(managed.info.userId
-            ? [
-                {
-                  scope: "boss" as const,
-                  scopeId: managed.info.userId,
-                  label: `Boss "${managed.info.username ?? "boss"}"`,
-                },
-              ]
-            : []),
-          { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
-        ]),
-        managed.info.agentType,
-        ownerRecord?.language ?? null,
-      );
-      // Pick a fence longer than any backtick run inside the prompt so the block
-      // renders verbatim regardless of what office/room/agent prompts contain.
-      const longestRun = (prompt.match(/`+/g) ?? []).reduce(
-        (m, s) => Math.max(m, s.length),
-        0,
-      );
-      const fence = "`".repeat(Math.max(3, longestRun + 1));
-      const header = t("commands.isomuxSystemPrompt.header");
       deps.addLogEntry(
         agentId,
         "system",
-        `${header}\n\n${fence}plaintext\n${prompt}\n${fence}`,
+        t("commands.isomuxSystemPrompt.header"),
+        { systemPrompt: true },
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;

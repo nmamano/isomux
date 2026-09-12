@@ -290,6 +290,7 @@ type AgentInstructionsRes = {
   customInstructions: string | null;
   customInstructionsVersion: string;
 };
+type AgentSystemPromptRes = { prompt: string };
 type OkTrue = { ok: true };
 type InteractionResponseReq = { value: string };
 type InteractionResponseRes = {
@@ -347,6 +348,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.readInstructions",
     method: "GET",
     path: "/api/agents/:id/instructions",
+    auth: authn(agentParam("id")),
+    emits: [],
+  }),
+  defineRoute<void, AgentSystemPromptRes>({
+    opId: "agents.readSystemPrompt",
+    method: "GET",
+    path: "/api/agents/:id/system-prompt",
     auth: authn(agentParam("id")),
     emits: [],
   }),

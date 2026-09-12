@@ -20,6 +20,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { SpeakButton } from "../components/SpeakButton.tsx";
+import { SystemPromptButton } from "../components/SystemPromptButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
@@ -595,6 +596,28 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     case "system": {
+      if (entry.metadata?.systemPrompt === true) {
+        return (
+          <div
+            style={{
+              margin: "4px 0",
+              padding: "10px 12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-subtle)",
+              color: "var(--text-dim)",
+              fontSize: 12,
+            }}
+          >
+            <span>{entry.content}</span>
+            <SystemPromptButton agentId={entry.agentId} />
+          </div>
+        );
+      }
       // Auto-denied tool calls carry metadata.permissionDenied (see
       // agent-manager's permission_denied case). Sessions from before this
       // feature (or older SDKs that never emit the event) simply have no such

@@ -827,6 +827,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   // fallback; humanizeIsomuxRequest below reads the query and says which.
   ["GET", "/api/agents/*/logs", "apiCall.agents.logsSearch"],
   ["GET", "/api/agents/*/instructions", "apiCall.agents.instructions"],
+  ["GET", "/api/agents/*/system-prompt", "apiCall.agents.systemPrompt"],
   ["GET", "/api/memory", "apiCall.memory.read"],
   ["POST", "/api/memory", "apiCall.memory.append"],
   ["PUT", "/api/memory", "apiCall.memory.replace"],

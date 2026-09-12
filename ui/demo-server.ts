@@ -2559,6 +2559,15 @@ export async function demoApi(
     emitEvents(state.kill(id));
     return undefined;
   }
+  if (
+    method === "GET" &&
+    /^\/api\/agents\/[^/]+\/system-prompt$/.test(pathname)
+  ) {
+    return {
+      prompt:
+        "# Isomux demo agent\n\nThis read-only preview shows the full system prompt for the selected agent.",
+    };
+  }
   // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) - swap + broadcast.
   const swapDesksMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/swap-desks$/);
   if (swapDesksMatch && method === "POST") {

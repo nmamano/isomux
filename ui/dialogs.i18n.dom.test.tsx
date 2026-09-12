@@ -85,6 +85,8 @@ const ANCHOR = {
     es: "Crear un agente nuevo",
     en: "Spawn New Agent",
   },
+  identity: { ca: "Identitat", es: "Identidad", en: "Identity" },
+  access: { ca: "Accés", es: "Acceso", en: "Access" },
   // The template section's blank card.
   blank: { ca: "En blanc", es: "En blanco", en: "Blank" },
   // A template card's title, which lives in the catalog keyed by template id.
@@ -168,6 +170,31 @@ function chooseWeekly(view: View): void {
   });
 }
 
+function checkCostume(
+  view: View,
+  label: string,
+  construction: string,
+): void {
+  const select = view.getByLabelText(label) as HTMLSelectElement;
+  expect(Array.from(select.options).map((option) => option.text)).toContain(
+    construction,
+  );
+  act(() => {
+    select.value = "construction";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  const preview = () =>
+    view.container.querySelector("[data-outfit-preview]") as HTMLElement;
+  expect(
+    preview().querySelector('[data-costume-body="construction"]') !== null,
+  ).toBe(true);
+  act(() => {
+    select.value = "none";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(preview().querySelector("[data-costume-body]") === null).toBe(true);
+}
+
 describe("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const [name, anchor] of Object.entries(ANCHOR))
@@ -176,9 +203,10 @@ describe("the anchors", () => {
 });
 
 describe("the agent dialog", () => {
-  it("reads Catalan on ca, then Spanish, then the English of a user who never chose", async () => {
+  it("reads Catalan, Spanish and default English, including the costume picker", async () => {
     const view = render(agentDialog("ca"));
     shows(view, ANCHOR.spawnTitle.ca);
+    shows(view, ANCHOR.identity.ca);
     shows(view, ANCHOR.blank.ca);
     shows(view, ANCHOR.codeReviewer.ca);
     shows(view, ANCHOR.permissionMode.ca);
@@ -187,58 +215,22 @@ describe("the agent dialog", () => {
     shows(view, ANCHOR.effortXhigh.ca);
     expect(view.queryByLabelText(ANCHOR.expandInstructions.ca)).not.toBeNull();
     expect(view.queryByText(ANCHOR.spawnTitle.en)).toBeNull();
+    checkCostume(view, "Disfressa", "Treballador de la construcció");
 
     view.rerender(agentDialog("es"));
     shows(view, ANCHOR.spawnTitle.es);
-    shows(view, ANCHOR.codeReviewer.es);
-    shows(view, ANCHOR.permissionDefault.es);
-    shows(view, ANCHOR.permissionBypass.es);
-    shows(view, ANCHOR.effortXhigh.es);
-    expect(view.queryByLabelText(ANCHOR.expandInstructions.es)).not.toBeNull();
-    expect(view.queryByText(ANCHOR.blank.ca)).toBeNull();
+    shows(view, ANCHOR.identity.es);
+    shows(view, ANCHOR.access.es);
 
     view.rerender(agentDialog(null));
     shows(view, ANCHOR.spawnTitle.en);
+    shows(view, ANCHOR.identity.en);
     shows(view, ANCHOR.blank.en);
     shows(view, ANCHOR.codeReviewer.en);
     shows(view, ANCHOR.permissionDefault.en);
     shows(view, ANCHOR.permissionBypass.en);
     shows(view, ANCHOR.effortXhigh.en);
-    await settle();
-  });
-});
-
-describe("the costume picker", () => {
-  it("translates the choices and updates the live preview", async () => {
-    const view = render(agentDialog("ca"));
-    for (const [language, label, construction] of [
-      ["ca", "Disfressa", "Treballador de la construcció"],
-      ["es", "Disfraz", "Trabajador de la construcción"],
-      [null, "Costume", "Construction worker"],
-    ] as const) {
-      view.rerender(agentDialog(language));
-      const select = view.getByLabelText(label) as HTMLSelectElement;
-      expect(Array.from(select.options).map((option) => option.text)).toContain(
-        construction,
-      );
-      act(() => {
-        select.value = "construction";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      // Scope to the live preview: template cards draw their own outfits
-      // (Health Navigator wears the doctor costume), so a page-wide query
-      // would find a costume body that this picker never controlled.
-      const preview = () =>
-        view.container.querySelector("[data-outfit-preview]") as HTMLElement;
-      expect(
-        preview().querySelector('[data-costume-body="construction"]'),
-      ).not.toBeNull();
-      act(() => {
-        select.value = "none";
-        select.dispatchEvent(new Event("change", { bubbles: true }));
-      });
-      expect(preview().querySelector("[data-costume-body]")).toBeNull();
-    }
+    expect(view.queryByText(ANCHOR.blank.ca)).toBeNull();
     await settle();
   });
 });

@@ -177,6 +177,7 @@ export interface AgentsDeps {
   // agentParam guard already gated existence + room access, so a miss here is
   // a post-guard race (-> defensive 404).
   getAgent(agentId: string): AgentInfo | undefined;
+  systemPrompt(agentId: string): string | undefined;
 }
 
 // Reject a present-but-wrong-typed optional agent field at the boundary, so
@@ -236,6 +237,13 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         customInstructions: agent.customInstructions,
         customInstructionsVersion: agent.customInstructionsVersion,
       });
+    },
+
+    "agents.readSystemPrompt": (ctx) => {
+      const prompt = deps.systemPrompt(ctx.params.id);
+      if (prompt === undefined)
+        return fail(404, "agent_not_found", "Agent not found");
+      return ok({ prompt });
     },
 
     "agents.move": (ctx) => {

@@ -11,6 +11,8 @@ The [Isomux OpenAPI specification](/openapi.json) describes the public API on is
 
 Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in users. Each office injects exact API instructions and its bearer token into its agents. Browser clients use the office session cookie. Start with [access and invites](/docs/access-and-invites) for the authentication model and the [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) for the current source-level contract.
 
+`GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
+
 ## Message an agent from another device
 
 One token = one inbox = one conversation. The token talks to any number of agents; everything it sends and everything it receives lives in one append-only log for that token, in order, each entry with an increasing sequence number.

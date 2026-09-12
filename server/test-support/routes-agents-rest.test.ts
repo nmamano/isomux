@@ -1486,3 +1486,46 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     expect(res.status).toBe(401);
   });
 });
+
+describe("agents.readSystemPrompt REST (task 08d22e38)", () => {
+  it("an authenticated member with room access reads the assembled prompt", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const target = await spawnAt(srv, "Prompt target", roomId, 0);
+    const res = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/system-prompt`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect(res.status).toBe(200);
+    const prompt = (res.body as { prompt: string }).prompt;
+    expect(prompt).toContain("Prompt target");
+    expect(prompt).toContain(target.id);
+  });
+
+  it("a member without room access gets the instructions-read convention: 403 for existing and missing ids", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const target = await spawnAt(srv, "Hidden prompt", roomId, 0);
+    const denied = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/system-prompt`,
+      { rawSessionId: member.rawSessionId },
+    );
+    expect(denied.status).toBe(403);
+    const missing = await req(
+      srv,
+      "GET",
+      "/api/agents/agent-0-none/system-prompt",
+      { rawSessionId: member.rawSessionId },
+    );
+    expect(missing.status).toBe(403);
+  });
+});

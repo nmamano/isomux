@@ -711,7 +711,6 @@ export const en = {
     "Works with models configured through OpenCode.",
   "dialogs.agent.engineSwitchHint":
     "Switching to {engine} starts a new conversation. The current one stays in this agent's resume history.",
-  "dialogs.agent.template": "Start with a template",
   "dialogs.agent.templateHint":
     "Templates fill the fields below. You can edit every suggestion.",
   "dialogs.agent.blank": "Blank",
@@ -787,13 +786,20 @@ export const en = {
   "dialogs.agent.memoryTitle": "Agent Memory",
   "dialogs.agent.memoryPlaceholder": "Some memory relevant to this agent",
   "dialogs.agent.customInstructions": "Custom Instructions",
+  "dialogs.agent.group.template": "Template",
+  "dialogs.agent.group.identity": "Identity",
+  "dialogs.agent.group.engine": "Engine",
+  "dialogs.agent.group.workspace": "Workspace",
+  "dialogs.agent.group.instructions": "Instructions",
+  "dialogs.agent.group.access": "Access",
+  "dialogs.agent.group.restore": "Restore",
   "dialogs.agent.optional": "(optional)",
-  "dialogs.agent.customInstructionsHint":
-    "Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt.",
+  "dialogs.agent.customInstructionsHint": "Personal system prompt for this agent.",
+  "dialogs.agent.showSystemPrompt": "Show full system prompt",
+  "dialogs.agent.systemPromptTitle": "Full system prompt",
+  "dialogs.agent.systemPromptLoadFailed": "Could not load the system prompt.",
   "dialogs.agent.customInstructionsPlaceholder":
     'e.g. "You are a backend specialist. Always write tests."',
-  "dialogs.agent.systemPromptHint":
-    "Run <code>/isomux-system-prompt</code> in a chat to see the agent's full system prompt.",
   "dialogs.agent.revive": "Revive a killed agent",
   "dialogs.agent.reviving": "Reviving…",
   "dialogs.agent.reviveFailed": "Revive failed",
@@ -910,6 +916,7 @@ export const en = {
   "apiCall.agents.logsSession": "Read a session from {who}'s logs",
   "apiCall.agents.logsList": "List {who}'s log sessions",
   "apiCall.agents.instructions": "Read agent instructions",
+  "apiCall.agents.systemPrompt": "Read the agent system prompt",
   "apiCall.agents.clearConversation": "Clear {who}'s conversation",
   "apiCall.agents.flushQueue": "Flush {who}'s queue now",
   "apiCall.agents.interrupt": "Interrupt {who}",

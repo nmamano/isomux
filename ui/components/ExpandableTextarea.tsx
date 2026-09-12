@@ -11,7 +11,8 @@
 // overlay never talks to the server at all - closing it just returns you to
 // the dialog, where Save still does exactly what it did.
 //
-// ESCAPE: every host dialog registers a CAPTURE-phase window keydown that
+// ESCAPE: expanded editors and other full-screen document overlays share this
+// count. Every host dialog registers a CAPTURE-phase window keydown that
 // closes the dialog on Escape, and those listeners were registered before this
 // overlay mounted, so they run first and would close the whole dialog out from
 // under an expanded editor. Hosts therefore consult isExpandedEditorOpen() and
@@ -37,6 +38,13 @@ let openCount = 0;
  *  Escape while this holds - the overlay consumes that key. */
 export function isExpandedEditorOpen(): boolean {
   return openCount > 0;
+}
+
+export function claimExpandedEditor(): () => void {
+  openCount++;
+  return () => {
+    openCount--;
+  };
 }
 
 const EXPAND_ICON = (
@@ -156,12 +164,7 @@ function ExpandedEditor({
   // useLayoutEffect, not useEffect: the counter must already be raised in the
   // same commit that paints the overlay, or an Escape landing in that gap would
   // be handled by the host dialog while an editor is visibly open.
-  useLayoutEffect(() => {
-    openCount++;
-    return () => {
-      openCount--;
-    };
-  }, []);
+  useLayoutEffect(claimExpandedEditor, []);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {

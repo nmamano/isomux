@@ -713,7 +713,6 @@ export const ca: Catalog = {
     "Funciona amb els models configurats a través d'OpenCode.",
   "dialogs.agent.engineSwitchHint":
     "Canviar a {engine} comença una conversa nova. L'actual es queda a l'historial de sessions d'aquest agent.",
-  "dialogs.agent.template": "Començar amb una plantilla",
   "dialogs.agent.templateHint":
     "Les plantilles omplen els camps de sota. Pots editar totes les propostes.",
   "dialogs.agent.blank": "En blanc",
@@ -792,13 +791,22 @@ export const ca: Catalog = {
   "dialogs.agent.memoryPlaceholder":
     "Alguna memòria rellevant per a aquest agent",
   "dialogs.agent.customInstructions": "Instruccions personalitzades",
+  "dialogs.agent.group.template": "Plantilla",
+  "dialogs.agent.group.identity": "Identitat",
+  "dialogs.agent.group.engine": "Motor",
+  "dialogs.agent.group.workspace": "Espai de treball",
+  "dialogs.agent.group.instructions": "Instruccions",
+  "dialogs.agent.group.access": "Accés",
+  "dialogs.agent.group.restore": "Restaurar",
   "dialogs.agent.optional": "(opcional)",
   "dialogs.agent.customInstructionsHint":
-    "Prompt de sistema personal per a aquest agent. Executa /isomux-system-prompt en un xat per veure el prompt de sistema complet de l'agent.",
+    "Prompt de sistema personal per a aquest agent.",
+  "dialogs.agent.showSystemPrompt": "Mostra el prompt de sistema complet",
+  "dialogs.agent.systemPromptTitle": "Prompt de sistema complet",
+  "dialogs.agent.systemPromptLoadFailed":
+    "No s'ha pogut carregar el prompt de sistema.",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ex. "Ets un especialista en backend. Escriu sempre tests."',
-  "dialogs.agent.systemPromptHint":
-    "Executa <code>/isomux-system-prompt</code> en un xat per veure el prompt de sistema complet de l'agent.",
   "dialogs.agent.revive": "Reactiva un agent aturat",
   "dialogs.agent.reviving": "Reactivant…",
   "dialogs.agent.reviveFailed": "No s'ha pogut reactivar",
@@ -919,6 +927,7 @@ export const ca: Catalog = {
   "apiCall.agents.logsSession": "Llegir una sessió dels registres de {who}",
   "apiCall.agents.logsList": "Llistar les sessions dels registres de {who}",
   "apiCall.agents.instructions": "Llegir les instruccions de l'agent",
+  "apiCall.agents.systemPrompt": "Llegir el prompt de sistema de l'agent",
   "apiCall.agents.clearConversation": "Esborrar la conversa de {who}",
   "apiCall.agents.flushQueue": "Buidar ara la cua de {who}",
   "apiCall.agents.interrupt": "Interrompre {who}",

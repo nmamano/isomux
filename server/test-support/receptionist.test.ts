@@ -389,7 +389,7 @@ describe("receptionist profile and lobby", () => {
     sock.close();
   });
 
-  it("omits lobby room memory in session prompts and the system-prompt command", async () => {
+  it("omits lobby room memory in session prompts and logs only a system-prompt marker", async () => {
     const srv = (server = await startTestServer());
     const cookie = await claimOwner(srv, "Boss");
     const r = receptionistOf(srv);
@@ -423,14 +423,14 @@ describe("receptionist profile and lobby", () => {
     await waitUntil(() =>
       srv.agentManager
         .getAgentLogs(r.id)
-        .some((entry) => entry.content.includes("## Your Manager")),
+        .some((entry) => entry.metadata?.systemPrompt === true),
     );
-    expect(
-      srv.agentManager
-        .getAgentLogs(r.id)
-        .map((entry) => entry.content)
-        .join("\n"),
-    ).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
+    const marker = srv.agentManager
+      .getAgentLogs(r.id)
+      .find((entry) => entry.metadata?.systemPrompt === true)!;
+    expect(marker.content).toContain("Full system prompt");
+    expect(marker.content).not.toContain("## Your Manager");
+    expect(marker.content).not.toContain("LOBBY_ROOM_MEMORY_MUST_NOT_LOAD");
   });
 
   it("uses the first owner's normal token reach for rooms, agents, tasks and messages", async () => {

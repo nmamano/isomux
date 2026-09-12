@@ -216,31 +216,68 @@ ${emitThemesCss()}
   /* Spawn/edit agent forms share one responsive layout. */
   .edit-agent-dialog-desktop,
   .spawn-agent-dialog-desktop { width: min(640px, 94vw); }
-  .agent-engine-section { margin-bottom: 18px; }
   .spawn-engine-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .agent-dialog-grid { display: block; }
+  .agent-dialog-columns { display: flex; flex-direction: column; }
   .spawn-template-section,
   .agent-identity-section,
-  .agent-engine-settings { margin-bottom: 18px; }
-  /* Single column: aesthetics are secondary, so Appearance sinks to the
-     bottom. The column wrappers dissolve (display: contents) so 'order' can
-     move one section across them; desktop's two-column grid is untouched. */
+  .agent-appearance-section,
+  .agent-workspace-section,
+  .agent-engine-section,
+  .agent-instructions-section,
+  .agent-access-section,
+  .agent-memory-section,
+  .agent-restore-section { margin-bottom: 20px; }
+  .agent-settings-group-title {
+    margin: 0 0 12px;
+    color: var(--text-primary);
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .agent-privileged-control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 38px;
+    padding: 8px 12px;
+    box-sizing: border-box;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-input);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+  .agent-privileged-control input { width: 18px; height: 18px; }
+  /* Single column: Appearance stays last, after functional settings. */
   @media (max-width: 999px) {
     .agent-dialog-grid { display: flex; flex-direction: column; }
+    .agent-dialog-columns,
     .agent-dialog-left-column,
     .agent-dialog-right-column { display: contents; }
-    .agent-appearance-section { order: 1; }
+    .spawn-template-section { order: 0; }
+    .agent-identity-section { order: 1; }
+    .agent-engine-section { order: 2; }
+    .agent-workspace-section { order: 3; }
+    .agent-instructions-section { order: 4; }
+    .agent-access-section { order: 5; }
+    .agent-memory-section { order: 6; }
+    .agent-appearance-section { order: 7; }
   }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
-    .agent-dialog-grid {
+    .agent-dialog-columns {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 0 28px;
       align-items: start;
     }
-    .agent-dialog-right-column { grid-column: 2; }
+    .agent-access-section {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0 28px;
+    }
+    .agent-access-section .agent-settings-group-title { grid-column: 1 / -1; }
   }
 
   /* Copy buttons */

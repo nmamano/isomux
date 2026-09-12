@@ -716,7 +716,6 @@ export const es: Catalog = {
     "Funciona con los modelos configurados a través de OpenCode.",
   "dialogs.agent.engineSwitchHint":
     "Cambiar a {engine} empieza una conversación nueva. La actual se queda en el historial de sesiones de este agente.",
-  "dialogs.agent.template": "Empezar con una plantilla",
   "dialogs.agent.templateHint":
     "Las plantillas rellenan los campos de abajo. Puedes editar todas las sugerencias.",
   "dialogs.agent.blank": "En blanco",
@@ -795,13 +794,22 @@ export const es: Catalog = {
   "dialogs.agent.memoryPlaceholder":
     "Alguna memoria relevante para este agente",
   "dialogs.agent.customInstructions": "Instrucciones personalizadas",
+  "dialogs.agent.group.template": "Plantilla",
+  "dialogs.agent.group.identity": "Identidad",
+  "dialogs.agent.group.engine": "Motor",
+  "dialogs.agent.group.workspace": "Espacio de trabajo",
+  "dialogs.agent.group.instructions": "Instrucciones",
+  "dialogs.agent.group.access": "Acceso",
+  "dialogs.agent.group.restore": "Restaurar",
   "dialogs.agent.optional": "(opcional)",
   "dialogs.agent.customInstructionsHint":
-    "Prompt de sistema personal para este agente. Ejecuta /isomux-system-prompt en un chat para ver el prompt de sistema completo del agente.",
+    "Prompt de sistema personal para este agente.",
+  "dialogs.agent.showSystemPrompt": "Mostrar el prompt de sistema completo",
+  "dialogs.agent.systemPromptTitle": "Prompt de sistema completo",
+  "dialogs.agent.systemPromptLoadFailed":
+    "No se pudo cargar el prompt de sistema.",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ej. "Eres un especialista en backend. Escribe siempre tests."',
-  "dialogs.agent.systemPromptHint":
-    "Ejecuta <code>/isomux-system-prompt</code> en un chat para ver el prompt de sistema completo del agente.",
   "dialogs.agent.revive": "Reactivar un agente detenido",
   "dialogs.agent.reviving": "Reactivando…",
   "dialogs.agent.reviveFailed": "No se pudo reactivar",
@@ -922,6 +930,7 @@ export const es: Catalog = {
   "apiCall.agents.logsSession": "Leer una sesión de los registros de {who}",
   "apiCall.agents.logsList": "Listar las sesiones de los registros de {who}",
   "apiCall.agents.instructions": "Leer las instrucciones del agente",
+  "apiCall.agents.systemPrompt": "Leer el prompt de sistema del agente",
   "apiCall.agents.clearConversation": "Borrar la conversación de {who}",
   "apiCall.agents.flushQueue": "Vaciar ahora la cola de {who}",
   "apiCall.agents.interrupt": "Interrumpir a {who}",
