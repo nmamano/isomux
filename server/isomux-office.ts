@@ -121,6 +121,7 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
+import { encodeBrowserFrame, validGeneration } from "../shared/browser-frame.ts";
 import { BrowserFrameSender } from "./browser-frame-sender.ts";
 import {
   browserPool,
@@ -5119,6 +5120,8 @@ async function handleInboundMessage(
         agentManager.restartTerminal(cmd.agentId);
         break;
       case "browser_watch": {
+        // Resizing replaces the watch, but preserves sustained pressure.
+        const pressure = browserWatches.get(ws.data.connectionId)?.get(cmd.agentId)?.frames.pressure;
         stopBrowserWatch(ws.data.connectionId, cmd.agentId);
         if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId))
           break;
@@ -5127,6 +5130,8 @@ async function handleInboundMessage(
           (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))
         )
           break;
+        if (cmd.transport !== undefined &&
+            (cmd.transport !== "jpeg-v1" || !validGeneration(cmd.generation))) break;
         let watches = browserWatches.get(ws.data.connectionId);
         if (!watches) {
           watches = new Map();
@@ -5143,7 +5148,8 @@ async function handleInboundMessage(
           }
           return true;
         };
-        const frames = new BrowserFrameSender(ws, canDeliver);
+        const frames = new BrowserFrameSender(ws, canDeliver,
+          () => browserPool.refreshCapture(cmd.agentId), pressure);
         const stop = browserPool.watch(
           cmd.agentId,
           (frame) => {
@@ -5161,9 +5167,15 @@ async function handleInboundMessage(
               ws.send(status);
               previousStatus = status;
             }
+            if (!state.available) frames.clear();
             if (frame)
               frames.send(
-                JSON.stringify({
+                cmd.transport === "jpeg-v1" ? encodeBrowserFrame({
+                  agentId: cmd.agentId,
+                  generation: cmd.generation!,
+                  width: frame.width, height: frame.height,
+                  jpeg: Buffer.from(frame.data, "base64"),
+                }) : JSON.stringify({
                   type: "browser_frame",
                   agentId: cmd.agentId,
                   ...frame,
@@ -5174,6 +5186,7 @@ async function handleInboundMessage(
             managesAgent(ws.data.session, cmd.agentId) &&
             agentVisibleForSession(ws.data.session, cmd.agentId),
           { maxWidth: cmd.maxWidth, maxHeight: cmd.maxHeight },
+          () => frames.pressure.level,
         );
         watches.set(cmd.agentId, { stop, frames });
         break;

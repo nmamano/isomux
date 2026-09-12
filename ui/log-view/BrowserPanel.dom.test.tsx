@@ -1,10 +1,10 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { setShim, shimEmit } = await import("../ws.ts");
+const { setShim, shimEmit, shimEmitBinary } = await import("../ws.ts");
 const { BrowserPanel, useBrowserAutoOpen } = await import("./BrowserPanel.tsx");
 import type { ClientCommand } from "../../shared/types.ts";
 
@@ -318,4 +318,91 @@ describe("BrowserPanel", () => {
     act(() => shimEmit({ type: "browser_action", agentId: "active" }));
     expect(opened).toBe(1);
   });
+});
+
+const bitmapDescriptor = Object.getOwnPropertyDescriptor(globalThis, "createImageBitmap");
+const resizeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "ResizeObserver");
+// Existing Image tests also exercise subscribe-time compatibility. Binary
+// tests supply their own deferred decoder.
+beforeEach(() => { Reflect.deleteProperty(globalThis, "createImageBitmap"); });
+afterEach(() => {
+  if (bitmapDescriptor) Object.defineProperty(globalThis, "createImageBitmap", bitmapDescriptor);
+  else Reflect.deleteProperty(globalThis, "createImageBitmap");
+  if (resizeDescriptor) Object.defineProperty(globalThis, "ResizeObserver", resizeDescriptor);
+  else Reflect.deleteProperty(globalThis, "ResizeObserver");
+});
+
+it("binary decode owns one active bitmap and one pending frame, rejects stale epochs and closes on every resolution", async () => {
+  const { encodeBrowserFrame } = await import("../../shared/browser-frame.ts");
+  let onResize!: ResizeObserverCallback;
+  globalThis.ResizeObserver = class {
+    constructor(callback: ResizeObserverCallback) { onResize = callback; }
+    observe() {} unobserve() {} disconnect() {}
+  };
+  const jobs: Array<{blob: Blob; resolve: (bitmap: ImageBitmap) => void; reject: () => void}> = [];
+  globalThis.createImageBitmap = ((blob: Blob) => new Promise<ImageBitmap>((resolve, reject) => jobs.push({blob,resolve,reject:()=>reject(new Error("decode"))}))) as typeof createImageBitmap;
+  const sent: ClientCommand[] = [];
+  setShim(command => sent.push(command));
+  const view = render(<BrowserPanel agentId="binary" onClose={() => {}} />);
+  const current = () => (sent.filter(m => m.type === "browser_watch" && m.watching).at(-1) as Extract<ClientCommand,{type:"browser_watch"}>).generation!;
+  const emit = (byte: number, generation = current(), agentId = "binary") => act(() => shimEmitBinary(encodeBrowserFrame({agentId,generation,width:1280,height:800,jpeg:new Uint8Array([255,216,byte,255,217])}).buffer));
+  let closes = 0, paints = 0, throwDraw = false;
+  const canvas = view.container.querySelector("canvas")!;
+  Object.defineProperty(canvas, "getContext", {value:()=>({drawImage(){if(throwDraw)throw new Error("draw");paints++;}})});
+  const resolve = async (index: number) => act(async () => {
+    jobs[index].resolve({width:640,height:400,close(){closes++;}});
+    await Promise.resolve();
+  });
+  try {
+    expect(sent[0]).toMatchObject({transport:"jpeg-v1",generation:current()});
+    emit(1,current(),"other"); emit(1,current()+1);
+    expect(jobs).toHaveLength(0);
+    emit(1); emit(2); emit(3); // only 1 decodes; 3 replaces pending 2
+    expect(jobs).toHaveLength(1);
+    await resolve(0);
+    expect(jobs).toHaveLength(2);
+    expect(new Uint8Array(await jobs[1].blob.arrayBuffer())[2]).toBe(3);
+    expect(paints).toBe(1); expect(closes).toBe(1);
+    await resolve(1);
+    expect(paints).toBe(2); expect(closes).toBe(2);
+    emit(4);
+    const old = current();
+    await act(async () => {
+      onResize([{contentRect:{width:400,height:240}} as ResizeObserverEntry], {} as ResizeObserver);
+      await new Promise(resolve => setTimeout(resolve, 170));
+    });
+    expect(current()).toBeGreaterThan(old);
+    emit(5,old); await resolve(2);
+    expect(jobs).toHaveLength(3); expect(paints).toBe(2); expect(closes).toBe(3);
+    emit(6);
+    act(() => shimEmit({type:"browser_status",agentId:"binary",available:false}));
+    emit(7); // current watch id, but unavailable decode epoch
+    await resolve(3);
+    expect(jobs).toHaveLength(4); expect(paints).toBe(2); expect(closes).toBe(4);
+    act(() => shimEmit({type:"browser_status",agentId:"binary",available:true}));
+    throwDraw=true; emit(8); await resolve(4); throwDraw=false;
+    expect(closes).toBe(5); expect(paints).toBe(2);
+    emit(9); view.unmount(); await resolve(5);
+    expect(closes).toBe(6); expect(paints).toBe(2);
+  } finally { view.unmount(); }
+});
+
+it("three consecutive bitmap rejections select JSON once; late binary frames are ignored", async () => {
+  const { encodeBrowserFrame } = await import("../../shared/browser-frame.ts");
+  globalThis.createImageBitmap = () => Promise.reject(new Error("unsupported JPEG"));
+  const sent: ClientCommand[] = [];
+  setShim(command => sent.push(command));
+  const view = render(<BrowserPanel agentId="fallback" onClose={() => {}} />);
+  const first = sent[0] as Extract<ClientCommand,{type:"browser_watch"}>;
+  const frame = encodeBrowserFrame({agentId:"fallback",generation:first.generation!,width:800,height:600,jpeg:new Uint8Array([255,216,255,217])});
+  try {
+    for(let i=0;i<3;i++) await act(async()=>{shimEmitBinary(frame.buffer);await Promise.resolve();});
+    const watches = sent.filter(m=>m.type==="browser_watch");
+    expect(watches).toHaveLength(2);
+    expect(watches[1]).toEqual({type:"browser_watch",agentId:"fallback",watching:true});
+    await act(async()=>{shimEmitBinary(frame.buffer);await Promise.resolve();});
+    expect(sent.filter(m=>m.type==="browser_watch")).toHaveLength(2);
+    act(()=>shimEmit({type:"browser_frame",agentId:"fallback",data:"jpeg",width:800,height:600}));
+    expect(view.getByRole("application") !== null).toBe(true);
+  } finally {view.unmount();}
 });

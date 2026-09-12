@@ -1,3 +1,4 @@
+import { BROWSER_CAPTURE_STEPS } from "./browser-stream-pressure.ts";
 // Agent browser sessions - the engine behind POST /api/agents/:id/browser.
 //
 // preview-capture.ts screenshots a page and stops. This module keeps a page
@@ -383,6 +384,7 @@ export class BrowserPool {
   private readonly backstopMs: number;
   private readonly stateRoot: string;
   private readonly profileChains = new Map<string, Promise<unknown>>();
+  private readonly viewerLevels = new Map<BrowserFrameListener, () => number>();
   private readonly viewerBounds = new Map<
     BrowserFrameListener,
     { maxWidth?: number; maxHeight?: number }
@@ -576,7 +578,9 @@ export class BrowserPool {
     listener: BrowserFrameListener,
     isManager: () => boolean = () => true,
     bounds: { maxWidth?: number; maxHeight?: number } = {},
+    captureLevel: () => number = () => 0,
   ): () => void {
+    this.viewerLevels.set(listener, captureLevel);
     this.viewerBounds.set(listener, bounds);
     this.managerViewers.set(listener, isManager);
     let listeners = this.frameListeners.get(agentId);
@@ -588,7 +592,9 @@ export class BrowserPool {
     const session = this.sessions.get(agentId);
     listener(null);
     if (session) {
-      if (session.lastFrame) listener(session.lastFrame);
+      const bounds = this.captureBounds(agentId, session);
+      if (session.lastFrame && session.captureSize === `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}`)
+        listener(session.lastFrame);
       this.refreshPresence(agentId, session);
       void this.startScreencast(agentId, session);
     }
@@ -597,6 +603,7 @@ export class BrowserPool {
       current?.delete(listener);
       this.managerViewers.delete(listener);
       this.viewerBounds.delete(listener);
+      this.viewerLevels.delete(listener);
       const active = this.sessions.get(agentId);
       if (active) this.refreshPresence(agentId, active);
       if (current?.size) {
@@ -616,6 +623,11 @@ export class BrowserPool {
     };
   }
 
+  refreshCapture(agentId: string): void {
+    const session = this.sessions.get(agentId);
+    if (session) void this.startScreencast(agentId, session);
+  }
+
   private async startScreencast(
     agentId: string,
     session: AgentSession,
@@ -626,7 +638,7 @@ export class BrowserPool {
       return this.startScreencast(agentId, session);
     }
     const bounds = this.captureBounds(agentId, session);
-    const size = `${bounds.maxWidth}x${bounds.maxHeight}`;
+    const size = `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}`;
     if (session.screencast && session.captureSize === size) return;
     const starting = (async () => {
       if (session.screencast) await this.stopScreencast(session);
@@ -647,9 +659,18 @@ export class BrowserPool {
       height: DEFAULT_HEIGHT,
     };
     const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(
-      (listener) => this.viewerBounds.get(listener) ?? {},
+      (listener) => {
+        const bound = this.viewerBounds.get(listener) ?? {};
+        const step = BROWSER_CAPTURE_STEPS[this.viewerLevels.get(listener)?.() ?? 0] ?? BROWSER_CAPTURE_STEPS[0];
+        return {
+          maxWidth: Math.max(1, Math.round(Math.min(viewport.width, bound.maxWidth ?? viewport.width) * step.scale)),
+          maxHeight: Math.max(1, Math.round(Math.min(viewport.height, bound.maxHeight ?? viewport.height) * step.scale)),
+          quality: step.quality,
+        };
+      },
     );
     return {
+      quality: Math.max(...viewers.map((viewer) => viewer.quality)),
       maxWidth: Math.min(
         viewport.width,
         Math.max(...viewers.map((bound) => bound.maxWidth ?? viewport.width)),
@@ -710,10 +731,9 @@ export class BrowserPool {
       if (session.screencast !== cdp || !this.frameListeners.get(agentId)?.size)
         return;
       const bounds = this.captureBounds(agentId, session);
-      session.captureSize = `${bounds.maxWidth}x${bounds.maxHeight}`;
+      session.captureSize = `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}`;
       await cdp.send("Page.startScreencast", {
         format: "jpeg",
-        quality: 50,
         everyNthFrame: 2,
         ...bounds,
       });
@@ -727,7 +747,7 @@ export class BrowserPool {
         const shot = await cdp
           .send("Page.captureScreenshot", {
             format: "jpeg",
-            quality: 50,
+            quality: bounds.quality,
             clip: {
               x: 0,
               y: 0,

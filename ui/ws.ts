@@ -8,6 +8,7 @@ let socket: WebSocket | null = null;
 let handler: MessageHandler | null = null;
 let connHandler: ConnHandler | null = null;
 const rawListeners = new Set<RawHandler>();
+const binaryListeners = new Set<(data: ArrayBuffer) => void>();
 let socketGen = 0;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -25,7 +26,7 @@ let shimHandler: ((cmd: ClientCommand) => void) | null = null;
 let shimOnConnect: (() => void) | null = null;
 
 export function setShim(
-  onCommand: (cmd: ClientCommand) => void,
+  onCommand: ((cmd: ClientCommand) => void) | null,
   onConnect?: () => void,
 ) {
   shimHandler = onCommand;
@@ -138,6 +139,7 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
 
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
+  ws.binaryType = "arraybuffer";
   socket = ws;
   ws.onopen = () => {
     if (myGen !== socketGen) return;
@@ -153,7 +155,12 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     // but the board takes per-task deltas now - a stale delta would simply stay
     // wrong. Cheap and correct for every message type, so it guards them all.
     if (myGen !== socketGen) return;
-    const data = e.data as string;
+    if (e.data instanceof ArrayBuffer) {
+      for (const listener of binaryListeners) listener(e.data);
+      return;
+    }
+    if (typeof e.data !== "string") return;
+    const data = e.data;
     let msg: ServerMessage | null = null;
     try {
       msg = JSON.parse(data) as ServerMessage;
@@ -203,4 +210,16 @@ export function addRawListener(fn: RawHandler) {
 
 export function removeRawListener(fn: RawHandler) {
   rawListeners.delete(fn);
+}
+
+export function addBinaryListener(fn: (data: ArrayBuffer) => void) {
+  binaryListeners.add(fn);
+}
+
+export function removeBinaryListener(fn: (data: ArrayBuffer) => void) {
+  binaryListeners.delete(fn);
+}
+
+export function shimEmitBinary(data: ArrayBuffer) {
+  for (const listener of binaryListeners) listener(data);
 }

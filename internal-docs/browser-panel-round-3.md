@@ -98,19 +98,38 @@ and pointer-move coalescing. At a 1300 CSS-pixel panel the navigation bar limits
 A one-shot snapshot now seeds a static page if screencast supplies no initial frame. It uses a viewport clip scaled to the same bounds and quality, and a newer live frame supersedes the seed. One cached frame serves later viewers of a quiet page through the same access-checked callback. This startup repair followed the comparison measurements. The click-only fixture does not exercise pointer-move coalescing. The results
 measure a bundle; they do not assign a causal speedup to each change.
 
-The wire remains base64 JPEG in JSON. Binary frames would remove base64's
-4/3 expansion but need an agent-id framing convention and transport tests.
-That candidate was not built or measured; its implementation cost is an
-unverified estimate of 1–2 engineer-days. The baseline buffer was intermittent: block 1 had zero buffered bytes, while block 2 had 350 nonzero fan-outs out of 787 and peaked at 3,962,596 bytes. Tuned-wide and sized blocks had zero. The server now retains one latest pending frame per socket/watch when its Bun buffer exceeds one frame; drain delivers that final frame even if capture stops changing. Delivery rechecks room access. This limits additional browser-frame queue growth without slowing other viewers. It does not bound other office messages or kernel buffers. ACK throttling was not added because it can stall capture. Protection on/off measurements are recorded separately below.
+Transport update, 2026-09-12: the bandwidth follow-up adds opt-in binary JPEG
+messages and shared capture adaptation. Legacy watches keep JSON. The dated
+round-3 measurements above still describe the JSON path. See
+[browser-panel-bandwidth.md](browser-panel-bandwidth.md) for the framing,
+pressure controller, fresh comparison and its limits.
+
+The round-3 baseline buffer was intermittent: block 1 had zero buffered bytes,
+while block 2 had 350 nonzero fan-outs out of 787 and peaked at 3,962,596 bytes.
+Tuned-wide and sized blocks had zero. The sender retains one latest pending
+frame per socket/watch when its Bun buffer exceeds one frame; drain delivers
+that final frame even if capture stops changing. Delivery rechecks room access.
+This limits additional browser-frame queue growth without slowing other viewers.
+It does not bound other office messages or kernel buffers. ACK throttling was
+not added because it can stall capture.
 
 
 ### Congestion guard and follow-up
 
 The 2026-09-12 on/off diagnostic used two alternating blocks of 50 clicks each at the 650 CSS-pixel panel size (100 samples per mode). With the guard off, median/p95 was 180.0/582.2 ms; with it on, 187.5/486.6 ms. Every sampled Bun buffer was zero in both modes. Thus the p95 difference is not evidence that the guard improved latency. Those runs used the new helper before its commit, with the old HEAD recorded; they are development diagnostics, not final-commit reproduction. Raw logs are `/tmp/browser-3/protection-{1,2}-{off,on}.log`.
 
-The guard retains one latest frame per watch while the socket is congested. It sends that frame on drain after checking current access. It reduces delivered frame rate under congestion; quality and capture size do not adapt to the buffer. The unit tests establish delivery after a quiet burst, separate socket behavior, access revocation while waiting, and unsubscribe cleanup. The queue argument bounds this feature’s additional pending frame storage, not all WebSocket or kernel memory.
+The guard retains one latest frame per watch while the socket is congested. It
+sends that frame on drain after checking current access. The bandwidth follow-up
+now lowers JPEG quality, then capture size under sustained buffer pressure, and
+recovers after the buffer clears. Capture remains shared: a fast watcher keeps
+its demand while a slow watcher drops delivered frame rate. The follow-up note
+records the thresholds, image cost and an actual paused-reader measurement.
 
-Video’s 1.27 Mbit/s is about 3.6 times lower than tuned-650’s 4.61 Mbit/s. That is a reason to revisit video if consent-safe capture becomes available or a remote member reports lag this loopback fixture cannot reproduce. A follow-up for PM triage is binary JPEG WebSocket framing: removing base64 would save about 25% of the present wire bytes (roughly 1.15 Mbit/s on this fixture) without changing JPEG quality. Buffer-driven quality or size adaptation is another unmeasured follow-up. Neither change is built in this lane.
+Video's historical round-3 1.27 Mbit/s is about 3.6 times lower than tuned-650's
+4.61 Mbit/s. That remains a reason to revisit video if consent-safe capture
+becomes available or a remote member reports lag the loopback fixture cannot
+reproduce. Binary's earlier 25% saving was an estimate, not a round-3 result;
+the follow-up reports a fresh measurement separately.
 
 ## Video mechanisms
 

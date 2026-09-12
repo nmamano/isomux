@@ -4,7 +4,7 @@ import { BrowserFrameSender } from "./browser-frame-sender.ts";
 function fixture() {
   let buffered = 0,
     allowed = true;
-  const sent: string[] = [];
+  const sent: (string | Uint8Array)[] = [];
   const sender = new BrowserFrameSender(
     { send: (data) => sent.push(data), getBufferedAmount: () => buffered },
     () => allowed,

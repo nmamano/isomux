@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addRawListener, removeRawListener, send } from "../ws.ts";
+import { addRawListener, removeRawListener, addBinaryListener, removeBinaryListener, send } from "../ws.ts";
 import { useI18n } from "../i18n.tsx";
 import {
   BROWSER_MIN_DIM,
@@ -9,7 +9,10 @@ import {
   type ServerMessage,
 } from "../../shared/types.ts";
 
-type Frame = { data: string; width: number; height: number };
+import { decodeBrowserFrame, type BinaryBrowserFrame } from "../../shared/browser-frame.ts";
+
+type Frame = { data: string; width: number; height: number } | BinaryBrowserFrame;
+let nextWatchGeneration = 0;
 
 /** Mounted only for the chat being viewed; background chats cannot open a panel. */
 export function useBrowserAutoOpen(
@@ -85,6 +88,13 @@ export function BrowserPanel({
     let pending: Frame | null = null;
     let decoding = false;
     let generation = 0;
+    let watchGeneration = 0;
+    let acceptsFrames = true;
+    let binary = typeof createImageBitmap === "function";
+    let decodeFailures = 0;
+    // Watch generation rejects frames from a replaced subscription (including
+    // resize). Decode epoch also invalidates an in-flight image on unavailable;
+    // acceptsFrames blocks CURRENT-watch frames until status becomes available.
     // One image decode and one replaceable pending frame. A slow viewer cannot
     // accumulate old images behind the current page.
     const decode = () => {
@@ -93,37 +103,62 @@ export function BrowserPanel({
       pending = null;
       decoding = true;
       const epoch = generation;
-      const image = new Image();
       const finish = () => {
         decoding = false;
         decode();
       };
+      const paint = (image: CanvasImageSource, width: number, height: number) => {
+        if (!alive || epoch !== generation || !surfaceRef.current) return;
+        const canvas = surfaceRef.current;
+        if (canvas.width !== width) canvas.width = width;
+        if (canvas.height !== height) canvas.height = height;
+        canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
+        setSize((old) =>
+          old?.width === frame.width && old.height === frame.height
+            ? old
+            : { width: frame.width, height: frame.height },
+        );
+      };
+      if ("jpeg" in frame) {
+        void createImageBitmap(new Blob([frame.jpeg], { type: "image/jpeg" }))
+          .then((bitmap) => {
+            decodeFailures = 0;
+            // A decode can finish after resize, close or unmount. Every
+            // resolved bitmap is owned here, even when painting is skipped.
+            try { paint(bitmap, bitmap.width, bitmap.height); }
+            catch {}
+            finally { bitmap.close(); }
+          }, () => {
+            // One corrupt frame does not change transport. Repeated decoder
+            // failure uses the same JSON/Image path as an older browser.
+            if (alive && epoch === generation && ++decodeFailures >= 3) {
+              binary = false;
+              subscribe();
+            }
+          })
+          .finally(finish);
+        return;
+      }
+      const image = new Image();
       image.onload = () => {
-        if (alive && epoch === generation && surfaceRef.current) {
-          const canvas = surfaceRef.current;
-          const width = image.naturalWidth || frame.width;
-          const height = image.naturalHeight || frame.height;
-          if (canvas.width !== width) canvas.width = width;
-          if (canvas.height !== height) canvas.height = height;
-          canvas.getContext("2d")?.drawImage(image, 0, 0, width, height);
-          setSize((old) =>
-            old?.width === frame.width && old.height === frame.height
-              ? old
-              : { width: frame.width, height: frame.height },
-          );
-        }
-        finish();
+        try { paint(image, image.naturalWidth || frame.width, image.naturalHeight || frame.height); }
+        finally { finish(); }
       };
       image.onerror = finish;
       image.src = `data:image/jpeg;base64,${frame.data}`;
     };
-    const subscribe = () =>
+    const subscribe = () => {
+      watchGeneration = ++nextWatchGeneration;
+      generation++;
+      pending = null;
       send({
+        ...(binary ? { transport: "jpeg-v1" as const, generation: watchGeneration } : {}),
         type: "browser_watch",
         agentId,
         watching: true,
         ...captureBounds.current,
       });
+    };
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     const observer =
       typeof ResizeObserver === "undefined"
@@ -168,6 +203,7 @@ export function BrowserPanel({
       }
       if (!("agentId" in message) || message.agentId !== agentId) return;
       if (message.type === "browser_frame") {
+        if (!acceptsFrames) return;
         setSize((old) =>
           old?.width === message.width && old.height === message.height
             ? old
@@ -176,6 +212,7 @@ export function BrowserPanel({
         pending = message;
         decode();
       } else if (message.type === "browser_status") {
+        acceptsFrames = message.available;
         setAvailable(message.available);
         if (message.url !== undefined && !editing.current)
           setUrl(message.url === "about:blank" ? "" : message.url);
@@ -189,11 +226,20 @@ export function BrowserPanel({
         }
       }
     };
+    const binaryListener = (raw: ArrayBuffer) => {
+      const frame = decodeBrowserFrame(raw);
+      if (!binary || !frame || !acceptsFrames || frame.agentId !== agentId ||
+          frame.generation !== watchGeneration) return;
+      pending = frame;
+      decode();
+    };
+    addBinaryListener(binaryListener);
     addRawListener(listener);
     subscribe();
     if (canDrive) navigate("open");
     return () => {
       alive = false;
+      removeBinaryListener(binaryListener);
       if (resizeTimer) clearTimeout(resizeTimer);
       observer?.disconnect();
       pending = null;

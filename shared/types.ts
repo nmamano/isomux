@@ -1736,6 +1736,8 @@ export type ClientCommand =
   | { type: "terminal_restart"; agentId: string }
   | {
       type: "browser_watch";
+      transport?: "jpeg-v1";
+      generation?: number;
       agentId: string;
       watching: boolean;
       maxWidth?: number;

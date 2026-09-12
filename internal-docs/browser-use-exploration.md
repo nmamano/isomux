@@ -318,7 +318,13 @@ agent action. Only manager watchers suspend the five-minute idle timer; a room
 viewer cannot keep the manager's profile context alive. Watcher identity is
 checked again while frames are delivered.
 
-The current transport uses CDP JPEG frames over the office WebSocket. The panel
+The current transport uses opt-in binary CDP JPEG frames over the office
+WebSocket; legacy watches keep JSON. Each binary message carries its agent id
+and watch generation. Sustained socket pressure lowers JPEG quality, then
+scaled capture bounds; a clear buffer restores them. Capture uses the highest
+demand among watchers, so one fast watcher keeps its quality while a slow
+watcher drops delivered frame rate. See the dated measurement and limits in
+[browser-panel-bandwidth.md](browser-panel-bandwidth.md). The panel
 keeps one image decode and one replaceable waiting frame, and coalesces pointer
 movement. A debounced ResizeObserver requests CSS size times device pixel ratio,
 quantized to 16 pixels and bounded to 320–2560. Capture uses the largest live
