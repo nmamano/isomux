@@ -810,7 +810,7 @@ export class BrowserPool {
   private touch(agentId: string, session: AgentSession): void {
     if (session.timer) clearTimeout(session.timer);
     session.timer = null;
-    // Only the managing member can keep the profile context alive.
+    // Only the manager can keep the profile context alive.
     session.heldByManager = this.hasManagerViewer(agentId);
     session.timer = setTimeout(() => {
       // Recheck even on a static page with no new capture frames.

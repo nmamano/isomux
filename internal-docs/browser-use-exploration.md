@@ -561,8 +561,8 @@ but no live two-agent run was made.
 Re-measured 2026-09-10 with Chrome 151.0.7922.137. A real `BrowserPool`
 opened a local login page while a live-view listener was attached. The listener
 received 19 screencast frames. CDP keyboard input entered
-`member@example.test`, the agent clicked Sign in, and the page reported
-`signed in as member@example.test`. After close, a later agent of the same member
+`boss@example.test`, the agent clicked Sign in, and the page reported
+`signed in as boss@example.test`. After close, a later agent of the same member
 read `signed in`; an agent of another member read `signed out`. Human input and
 the agent click used the same page. Log:
 `/tmp/browser-use/slice3-live-probe.log`. The panel render is captured at
