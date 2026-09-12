@@ -21,7 +21,16 @@ afterEach(() => {
   for (const file of descendants.splice(0)) {
     if (!existsSync(file)) continue;
     const pid = Number(readFileSync(file, "utf8").trim());
-    if (alive(pid)) process.kill(pid, "SIGKILL");
+    // alive() is a reading from a moment ago: a descendant that exits between
+    // the check and the signal makes kill() throw ESRCH, which failed the test
+    // that happened to be running (full CI, 2026-09-12). A process that is
+    // already gone is what this hook wanted.
+    if (!alive(pid)) continue;
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (err) {
+      if ((err as { code?: string }).code !== "ESRCH") throw err;
+    }
   }
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true });

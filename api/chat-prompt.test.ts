@@ -29,7 +29,7 @@ describe("site chatbot page context", () => {
       "Hosted customers sign in at the Hosted Isomux dashboard and open their office from there.",
     );
     expect(prompt).toContain(
-      "The user is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.",
+      "The visitor is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.",
     );
     expect(prompt).toContain(
       "Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.",
@@ -38,7 +38,7 @@ describe("site chatbot page context", () => {
 
   it("uses a neutral context when page identity is absent or unrecognised", () => {
     const neutral =
-      "Answer for the Isomux option that fits the user's question. Do not assume they are self-hosting.";
+      "Answer for the Isomux option that fits the visitor's question. Do not assume they are self-hosting.";
     expect(buildSystemPrompt(undefined)).toContain(neutral);
     expect(buildSystemPrompt("unknown")).toContain(neutral);
   });

@@ -452,6 +452,17 @@ const tripwires = {
   )!,
 };
 
+// The baseline blob predates the 2026-09-12 terminology pass (b5eeb3c1), which
+// renamed the person in every deny message from "the user" to "the member". That
+// is prose, not policy, so it is folded out on BOTH sides: everything else in the
+// deny text is still compared byte for byte.
+function normalizeVocabulary(decision: Decision): Decision {
+  return {
+    ...decision,
+    reason: decision.reason.replace(/\bthe member\b/g, "the user"),
+  };
+}
+
 async function expectCaseAgainstBaseline(
   currentFactory: HookFactory,
   baseline: HookFactory,
@@ -467,7 +478,9 @@ async function expectCaseAgainstBaseline(
       testCase.intendedDivergence.currentDenied,
     );
   } else {
-    expect(current, testCase.name).toEqual(original);
+    expect(normalizeVocabulary(current), testCase.name).toEqual(
+      normalizeVocabulary(original),
+    );
   }
 }
 
