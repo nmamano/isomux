@@ -718,97 +718,131 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
 });
 
 describe("live browser profile authorization", () => {
-  it("creates no subscription when a visible boss does not manage the agent", async () => {
+  it("permits a room viewer to subscribe and refuses a member without room access", async () => {
     server = await boot();
     const roomId = server.agentManager.getRooms()[0].id;
     const manager = await server.seedOwner("Boss");
-    const otherBoss = await server.seedMember("Mia");
-    await setAccess(server, manager.rawSessionId, otherBoss.username, [roomId]);
+    const member = await server.seedMember("Mia");
     const agent = await spawnIn(server, "Managed", roomId, manager);
-    const otherSock = await connectSettled(server, otherBoss.rawSessionId);
-
-    const originalWatch = browserPool.watch.bind(browserPool);
+    const socket = await connectSettled(server, member.rawSessionId);
+    const original = browserPool.watch.bind(browserPool);
     const watched: string[] = [];
-    browserPool.watch = (agentId) => {
-      watched.push(agentId);
-      return () => {};
-    };
+    browserPool.watch = id => { watched.push(id); return () => {}; };
     try {
-      otherSock.send({
-        type: "browser_watch",
-        agentId: agent.id,
-        watching: true,
-      });
-      await pingPong(otherSock);
+      socket.send({type: "browser_watch", agentId: agent.id, watching: true});
+      await pingPong(socket);
       expect(watched).toEqual([]);
-    } finally {
-      browserPool.watch = originalWatch;
-    }
+      await setAccess(server, manager.rawSessionId, member.username, [roomId]);
+      socket.send({type: "browser_watch", agentId: agent.id, watching: true});
+      await pingPong(socket);
+      expect(watched).toEqual([agent.id]);
+    } finally { browserPool.watch = original; }
   });
 
-  it("rechecks management before every frame and input event", async () => {
+  it("checks room access again at every frame fan-out", async () => {
     server = await boot();
     const roomId = server.agentManager.getRooms()[0].id;
     const manager = await server.seedOwner("Boss");
-    const otherBoss = await server.seedMember("Mia");
-    await setAccess(server, manager.rawSessionId, otherBoss.username, [roomId]);
+    const member = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, member.username, [roomId]);
     const agent = await spawnIn(server, "Managed", roomId, manager);
-    const managerSock = await connectSettled(server, manager.rawSessionId);
-
-    const originalWatch = browserPool.watch.bind(browserPool);
-    const originalHumanInput = browserPool.humanInput.bind(browserPool);
-    let frameListener: Parameters<typeof browserPool.watch>[1] | null = null;
+    const socket = await connectSettled(server, member.rawSessionId);
+    const original = browserPool.watch.bind(browserPool);
+    let listener!: Parameters<typeof browserPool.watch>[1];
     let stopped = 0;
-    const inputUsers: string[] = [];
-    browserPool.watch = (_agentId, listener) => {
-      frameListener = listener;
-      return () => stopped++;
-    };
-    browserPool.humanInput = async (_agentId, input) => {
-      inputUsers.push(input.kind);
-      return true;
-    };
+    browserPool.watch = (_id, next) => { listener = next; return () => stopped++; };
     try {
-      managerSock.send({
-        type: "browser_watch",
-        agentId: agent.id,
-        watching: true,
-      });
-      await pingPong(managerSock);
-      expect(frameListener === null).toBe(false);
-
-      const managerId = getUserByName(manager.username)!.id;
-      server.agentManager.getAgent(agent.id)!.userId = getUserByName(
-        otherBoss.username,
-      )!.id;
-      const framesBefore = bag(managerSock).filter(
-        (message) => message.type === "browser_frame",
-      ).length;
-      frameListener!({ data: "jpeg", width: 800, height: 600 });
-      await pingPong(managerSock);
-      expect(
-        bag(managerSock).filter((message) => message.type === "browser_frame"),
-      ).toHaveLength(framesBefore);
+      socket.send({type: "browser_watch", agentId: agent.id, watching: true});
+      await pingPong(socket);
+      listener({data: "visible", width: 800, height: 600});
+      await pingPong(socket);
+      expect(bag(socket).filter(m => m.type === "browser_frame")).toHaveLength(1);
+      await setAccess(server, manager.rawSessionId, member.username, []);
+      listener({data: "must-not-arrive", width: 800, height: 600});
+      await pingPong(socket);
+      expect(bag(socket).filter(m => m.type === "browser_frame")).toHaveLength(1);
       expect(stopped).toBe(1);
+    } finally { browserPool.watch = original; }
+  });
 
-      const input = {
-        kind: "key" as const,
-        event: "keyDown" as const,
-        key: "a",
-        text: "a",
-      };
-      managerSock.send({ type: "browser_input", agentId: agent.id, input });
-      await pingPong(managerSock);
-      expect(inputUsers).toEqual([]);
+  it("checks the manager on each pointer, key, and navigation event", async () => {
+    server = await boot();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const manager = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, member.username, [roomId]);
+    const agent = await spawnIn(server, "Managed", roomId, manager);
+    const managerSocket = await connectSettled(server, manager.rawSessionId);
+    const otherSocket = await connectSettled(server, member.rawSessionId);
+    const originalInput = browserPool.humanInput.bind(browserPool);
+    const originalNavigate = browserPool.humanNavigate.bind(browserPool);
+    const calls: string[] = [];
+    browserPool.humanInput = async (_id, input) => {calls.push(input.kind); return true;};
+    browserPool.humanNavigate = async (_id, input) => {calls.push(input.action); return {ok:true,url:"",title:""};};
+    const inputs = [
+      {kind:"key",event:"keyDown",key:"a"},
+      {kind:"mouse",event:"mousePressed",x:10,y:10},
+      ...["open","back","forward","reload","close"].map(action=>({kind:"navigate",action})),
+      {kind:"navigate",action:"goto",url:"https://example.test"},
+    ];
+    try {
+      for (const input of inputs) otherSocket.send({type:"browser_input",agentId:agent.id,input});
+      await pingPong(otherSocket);
+      expect(calls).toEqual([]);
+      for (const input of inputs) managerSocket.send({type:"browser_input",agentId:agent.id,input});
+      await pingPong(managerSocket);
+      expect(calls).toEqual(["key","mouse","open","back","forward","reload","close","goto"]);
+      calls.length=0;
+      server.agentManager.getAgent(agent.id)!.userId = getUserByName(member.username)!.id;
+      for (const input of inputs) managerSocket.send({type:"browser_input",agentId:agent.id,input});
+      await pingPong(managerSocket);
+      expect(calls).toEqual([]);
+      otherSocket.send({type:"browser_input",agentId:agent.id,input:{kind:"navigate",action:"goto",url:"file:///etc/passwd"}});
+      otherSocket.send({type:"browser_input",agentId:agent.id,input:{kind:"navigate",action:"goto",url:"https://user:pass@example.test"}});
+      await pingPong(otherSocket);
+      expect(calls).toEqual([]);
+    } finally {browserPool.humanInput=originalInput;browserPool.humanNavigate=originalNavigate;}
+  });
 
-      server.agentManager.getAgent(agent.id)!.userId = managerId;
-      managerSock.send({ type: "browser_input", agentId: agent.id, input });
-      await pingPong(managerSock);
-      expect(inputUsers).toEqual(["key"]);
-    } finally {
-      browserPool.watch = originalWatch;
-      browserPool.humanInput = originalHumanInput;
-    }
+  it("sends page-created notifications only to the manager", async () => {
+    server = await boot();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const manager = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, member.username, [roomId]);
+    const agent = await spawnIn(server, "Managed", roomId, manager);
+    const managerSocket = await connectSettled(server, manager.rawSessionId);
+    const otherSocket = await connectSettled(server, member.rawSessionId);
+    const original = browserPool.run.bind(browserPool);
+    browserPool.run = async () => ({ok:true,url:"https://example.test",title:"Example",createdPage:true});
+    try {
+      const result = await server.agentManager.runAgentBrowserAction(agent.id, {action:"goto",url:"https://example.test"});
+      await pingPong(managerSocket);await pingPong(otherSocket);
+      expect(bag(managerSocket).filter(m=>m.type==="browser_action")).toEqual([{type:"browser_action",agentId:agent.id}]);
+      expect(bag(otherSocket).filter(m=>m.type==="browser_action")).toEqual([]);
+      expect("createdPage" in result).toBe(false);
+    } finally {browserPool.run=original;}
+  });
+
+  for (const managing of [true, false]) it(`sends ${managing ? "the full URL to the manager" : "only origin and path to another room viewer"}`, async () => {
+    server = await boot();
+    const roomId = server.agentManager.getRooms()[0].id;
+    const manager = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    await setAccess(server, manager.rawSessionId, member.username, [roomId]);
+    const agent = await spawnIn(server, "Managed", roomId, manager);
+    const socket = await connectSettled(server, (managing ? manager : member).rawSessionId);
+    const originalWatch=browserPool.watch.bind(browserPool), originalStatus=browserPool.status.bind(browserPool);
+    const url="https://example.test/login?token=secret-query#secret-fragment";
+    browserPool.status=()=>({available:true,url,title:"Example"});
+    browserPool.watch=(_id,listener)=>{listener(null);return()=>{};};
+    try {
+      socket.send({type:"browser_watch",agentId:agent.id,watching:true});
+      await pingPong(socket);
+      const status=bag(socket).find(m=>m.type==="browser_status");
+      expect(status?.url).toBe(managing ? url : "https://example.test/login");
+      expect(status?.title).toBe("Example");
+    } finally {browserPool.watch=originalWatch;browserPool.status=originalStatus;}
   });
 });
 

@@ -62,7 +62,7 @@ import type {
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { defaultFindBrowser, BROWSER_CANDIDATES } from "./preview-capture.ts";
-import type { BrowserHumanInput } from "../shared/types.ts";
+import { BROWSER_MIN_DIM, BROWSER_MAX_DIM, type BrowserHumanInput, type BrowserNavigation } from "../shared/types.ts";
 
 /** How long an agent's context survives with no browser call. */
 export const BROWSER_IDLE_MS = 5 * 60 * 1000;
@@ -80,8 +80,8 @@ export const MAX_SNAPSHOT_CHARS = 20_000;
 const MAX_URL_LEN = 2048;
 const MAX_SELECTOR_LEN = 500;
 const MAX_FILL_LEN = 10_000;
-const MIN_DIM = 320;
-const MAX_DIM = 2560;
+const MIN_DIM = BROWSER_MIN_DIM;
+const MAX_DIM = BROWSER_MAX_DIM;
 const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 
@@ -130,6 +130,8 @@ export interface BrowserSuccess {
   caption?: string;
   /** True when the action closed the agent's context. */
   closed?: boolean;
+  /** An agent goto created a fresh page; used for manager panel notification. */
+  createdPage?: boolean;
 }
 
 export type BrowserResult = BrowserSuccess | BrowserFailure;
@@ -342,9 +344,13 @@ interface AgentSession {
    * as a timeout instead of the documented no_page.
    */
   opened: boolean;
+  title: string;
+  heldByManager: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   screencast: CDPSession | null;
   screencastStarting: Promise<void> | null;
+  captureSize: string | null;
+  lastFrame: BrowserFrame | null;
 }
 
 export interface BrowserFrame {
@@ -372,6 +378,8 @@ export class BrowserPool {
   private readonly backstopMs: number;
   private readonly stateRoot: string;
   private readonly profileChains = new Map<string, Promise<unknown>>();
+  private readonly viewerBounds = new Map<BrowserFrameListener, {maxWidth?:number;maxHeight?:number}>();
+  private readonly managerViewers = new Map<BrowserFrameListener, () => boolean>();
   private readonly frameListeners = new Map<
     string,
     Set<BrowserFrameListener>
@@ -552,7 +560,9 @@ export class BrowserPool {
     return [...this.sessions.keys()];
   }
 
-  watch(agentId: string, listener: BrowserFrameListener): () => void {
+  watch(agentId: string, listener: BrowserFrameListener, isManager: () => boolean = () => true, bounds: {maxWidth?:number;maxHeight?:number} = {}): () => void {
+    this.viewerBounds.set(listener, bounds);
+    this.managerViewers.set(listener, isManager);
     let listeners = this.frameListeners.get(agentId);
     if (!listeners) {
       listeners = new Set();
@@ -560,14 +570,23 @@ export class BrowserPool {
     }
     listeners.add(listener);
     const session = this.sessions.get(agentId);
+    listener(null);
     if (session) {
-      this.touch(agentId, session);
+      if (session.lastFrame) listener(session.lastFrame);
+      this.refreshPresence(agentId, session);
       void this.startScreencast(agentId, session);
-    } else listener(null);
+    }
     return () => {
       const current = this.frameListeners.get(agentId);
       current?.delete(listener);
-      if (current?.size) return;
+      this.managerViewers.delete(listener);
+      this.viewerBounds.delete(listener);
+      const active = this.sessions.get(agentId);
+      if (active) this.refreshPresence(agentId, active);
+      if (current?.size) {
+        if (active) void this.startScreencast(agentId, active);
+        return;
+      }
       this.frameListeners.delete(agentId);
       // A reconnect can replace one watcher with another in the same turn.
       // Let that replacement attach before deciding that capture has no viewer.
@@ -576,7 +595,7 @@ export class BrowserPool {
         const session = this.sessions.get(agentId);
         if (!session) return;
         void this.stopScreencast(session);
-        this.touch(agentId, session);
+        this.refreshPresence(agentId, session);
       });
     };
   }
@@ -585,9 +604,18 @@ export class BrowserPool {
     agentId: string,
     session: AgentSession,
   ): Promise<void> {
-    if (session.screencast || !this.frameListeners.get(agentId)?.size) return;
-    if (session.screencastStarting) return session.screencastStarting;
-    const starting = this.startScreencastNow(agentId, session);
+    if (!this.frameListeners.get(agentId)?.size) return;
+    if (session.screencastStarting) {
+      await session.screencastStarting;
+      return this.startScreencast(agentId, session);
+    }
+    const bounds = this.captureBounds(agentId, session);
+    const size = `${bounds.maxWidth}x${bounds.maxHeight}`;
+    if (session.screencast && session.captureSize === size) return;
+    const starting = (async () => {
+      if (session.screencast) await this.stopScreencast(session);
+      await this.startScreencastNow(agentId, session);
+    })();
     session.screencastStarting = starting;
     try {
       await starting;
@@ -595,6 +623,15 @@ export class BrowserPool {
       if (session.screencastStarting === starting)
         session.screencastStarting = null;
     }
+  }
+
+  private captureBounds(agentId: string, session: AgentSession) {
+    const viewport = session.page.viewportSize() ?? {width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT};
+    const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(listener => this.viewerBounds.get(listener) ?? {});
+    return {
+      maxWidth: Math.min(viewport.width, Math.max(...viewers.map(bound => bound.maxWidth ?? viewport.width))),
+      maxHeight: Math.min(viewport.height, Math.max(...viewers.map(bound => bound.maxHeight ?? viewport.height))),
+    };
   }
 
   private async startScreencastNow(
@@ -612,6 +649,10 @@ export class BrowserPool {
         return;
       }
       session.screencast = cdp;
+      cdp.on("Page.frameNavigated", () => { void this.updateStatus(agentId, session); });
+      await cdp.send("Page.enable");
+      await this.updateStatus(agentId, session);
+      let receivedFrame = false;
       cdp.on(
         "Page.screencastFrame",
         (event: {
@@ -623,6 +664,8 @@ export class BrowserPool {
             .send("Page.screencastFrameAck", { sessionId: event.sessionId })
             .catch(() => {});
           if (session.screencast !== cdp) return;
+          receivedFrame = true;
+          this.refreshPresence(agentId, session);
           const viewport = session.page.viewportSize() ?? {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
@@ -632,15 +675,30 @@ export class BrowserPool {
             width: event.metadata?.deviceWidth ?? viewport.width,
             height: event.metadata?.deviceHeight ?? viewport.height,
           };
-          for (const listener of this.frameListeners.get(agentId) ?? [])
-            listener(frame);
+          this.publishFrame(agentId, session, frame);
         },
       );
+      if (session.screencast !== cdp || !this.frameListeners.get(agentId)?.size) return;
+      const bounds = this.captureBounds(agentId, session);
+      session.captureSize = `${bounds.maxWidth}x${bounds.maxHeight}`;
       await cdp.send("Page.startScreencast", {
         format: "jpeg",
-        quality: 75,
-        everyNthFrame: 1,
+        quality: 50,
+        everyNthFrame: 2,
+        ...bounds,
       });
+      // A static tab can emit no initial frame with everyNthFrame > 1.
+      // Seed the view once, but never replace a newer screencast frame.
+      if (!receivedFrame) {
+        const viewport = session.page.viewportSize() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+        const shot = await cdp.send("Page.captureScreenshot", {
+          format: "jpeg", quality: 50,
+          clip: { x: 0, y: 0, ...viewport, scale: Math.min(bounds.maxWidth / viewport.width, bounds.maxHeight / viewport.height) },
+        }).catch(() => null);
+        if (shot?.data && !receivedFrame && session.screencast === cdp && this.sessions.get(agentId) === session) {
+          this.publishFrame(agentId, session, {data:shot.data,...viewport});
+        }
+      }
     } catch {
       if (session.screencast) await this.stopScreencast(session);
       for (const listener of this.frameListeners.get(agentId) ?? [])
@@ -648,10 +706,17 @@ export class BrowserPool {
     }
   }
 
+  private publishFrame(agentId: string, session: AgentSession, frame: BrowserFrame): void {
+    session.lastFrame = frame;
+    for (const listener of this.frameListeners.get(agentId) ?? []) listener(frame);
+  }
+
   private async stopScreencast(session?: AgentSession): Promise<void> {
     const cdp = session?.screencast;
     if (!session || !cdp) return;
     session.screencast = null;
+    session.captureSize = null;
+    session.lastFrame = null;
     await cdp.send("Page.stopScreencast").catch(() => {});
     await cdp.detach().catch(() => {});
   }
@@ -663,7 +728,7 @@ export class BrowserPool {
 
   async humanInput(
     agentId: string,
-    input: BrowserHumanInput,
+    input: Exclude<BrowserHumanInput, BrowserNavigation>,
   ): Promise<boolean> {
     const session = this.sessions.get(agentId);
     if (!session || !session.screencast || session.page.isClosed())
@@ -735,6 +800,7 @@ export class BrowserPool {
     for (const [agentId, session] of this.sessions) {
       if (session.timer) clearTimeout(session.timer);
       void this.stopScreencast(session);
+      this.sessions.delete(agentId);
       this.notifyUnavailable(agentId);
     }
     this.sessions.clear();
@@ -744,10 +810,11 @@ export class BrowserPool {
   private touch(agentId: string, session: AgentSession): void {
     if (session.timer) clearTimeout(session.timer);
     session.timer = null;
-    // An open panel is active human presence. The socket-close path drops its
-    // watcher and calls touch again, starting the five-minute clock then.
-    if (this.frameListeners.get(agentId)?.size) return;
+    // Only the managing member can keep the profile context alive.
+    session.heldByManager = this.hasManagerViewer(agentId);
     session.timer = setTimeout(() => {
+      // Recheck even on a static page with no new capture frames.
+      if (this.hasManagerViewer(agentId)) { this.touch(agentId, session); return; }
       void this.close(agentId).catch((err: unknown) => {
         console.error(
           `[browser] could not persist idle profile for ${agentId}:`,
@@ -757,6 +824,61 @@ export class BrowserPool {
     }, this.idleMs);
     // An idle timer must never hold the process open at shutdown.
     session.timer.unref?.();
+  }
+
+  private hasManagerViewer(agentId: string): boolean {
+    return [...(this.frameListeners.get(agentId) ?? [])].some(listener => this.managerViewers.get(listener)?.());
+  }
+
+  private refreshPresence(agentId: string, session: AgentSession): void {
+    if (this.hasManagerViewer(agentId) !== session.heldByManager) this.touch(agentId, session);
+  }
+
+  status(agentId: string): { available: boolean; url: string; title: string } {
+    const session = this.sessions.get(agentId);
+    if (!session || session.page.isClosed()) return { available: false, url: "", title: "" };
+    return { available: true, url: session.page.url(), title: session.title };
+  }
+
+  private async updateStatus(agentId: string, session: AgentSession): Promise<void> {
+    const page = session.page;
+    const title = await page.title().catch(() => "");
+    if (this.sessions.get(agentId) !== session || session.page !== page) return;
+    session.title = title;
+    for (const listener of this.frameListeners.get(agentId) ?? []) listener(null);
+  }
+
+  /** Navigation shares the agent queue; pointer and keyboard input remain immediate. */
+  async humanNavigate(agentId: string, input: BrowserNavigation, profileId: string): Promise<BrowserResult> {
+    if (input.action === "goto") return this.run(agentId, { action: "goto", url: input.url }, profileId);
+    if (input.action === "close") return this.run(agentId, { action: "close" }, profileId);
+    return this.serialize(agentId, async () => {
+      if (input.action === "open") {
+        const session = await this.ensureSession(agentId, profileId, {width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT});
+        if ("ok" in session) return session;
+        await this.updateStatus(agentId, session);
+        return { ok: true, url: session.page.url(), title: session.title };
+      }
+      const session = this.sessions.get(agentId);
+      if (!session || session.page.isClosed()) return fail(400, "no_page", "no page is open");
+      this.touch(agentId, session);
+      let work: Promise<unknown> | undefined;
+      try {
+        const options = { timeout: this.actionMs, waitUntil: "load" as const };
+        work = input.action === "back" ? session.page.goBack(options)
+          : input.action === "forward" ? session.page.goForward(options) : session.page.reload(options);
+        await withDeadline(work, this.backstopMs);
+        session.opened = session.page.url() !== "about:blank";
+        await this.updateStatus(agentId, session);
+        return { ok: true, url: session.page.url(), title: session.title };
+      } catch (error) {
+        if (error instanceof DeadlineError) {
+          await this.closeNow(agentId);
+          if (work) await work.catch(() => {});
+        }
+        return fail(500, error instanceof DeadlineError ? "action_timeout" : "action_failed", error instanceof Error ? error.message.split("\n")[0] : String(error));
+      }
+    });
   }
 
   private async ensureSession(
@@ -818,9 +940,13 @@ export class BrowserPool {
       context,
       page,
       opened: false,
+      title: "",
+      heldByManager: false,
       timer: null,
       screencast: null,
       screencastStarting: null,
+      captureSize: null,
+      lastFrame: null,
     };
     this.sessions.set(agentId, session);
     // Registered AFTER the first page, so this agent's own page does not read
@@ -936,6 +1062,7 @@ export class BrowserPool {
       return { ok: true, url: "", title: "", closed: true };
     }
 
+    const createdPage = params.action === "goto" && !this.status(agentId).available;
     const session = await this.ensureSession(
       agentId,
       profileId,
@@ -958,7 +1085,9 @@ export class BrowserPool {
     let work: Promise<BrowserSuccess> | undefined;
     try {
       work = this.perform(session, params);
-      return await withDeadline(work, this.backstopMs);
+      const result = await withDeadline(work, this.backstopMs);
+      await this.updateStatus(agentId, session);
+      return createdPage ? { ...result, createdPage: true } : result;
     } catch (err) {
       if (err instanceof DeadlineError) {
         // Playwright's own timeout should have fired first. If we are here it
@@ -1088,13 +1217,14 @@ function cap(value: string, max: number): string {
 
 // Card provenance, matching preview-capture: origin + pathname, never the query
 // string, which can carry a token an agent pasted into a URL.
-function describeShot(raw: string): { filename: string; caption: string } {
+export function describeShot(raw: string): { filename: string; caption: string } {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return { filename: "page.png", caption: raw };
+    return { filename: "page.png", caption: "" };
   }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return {filename:"page.png",caption:""};
   const path = url.pathname === "/" ? "" : url.pathname;
   const slug =
     `${url.host}${path}`.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 80) ||
@@ -1111,6 +1241,10 @@ interface ParsedParams {
   key?: string;
   fullPage?: boolean;
   viewport: { width: number; height: number };
+}
+
+export function validBrowserBound(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= MIN_DIM && value <= MAX_DIM;
 }
 
 export function parseBrowserParams(
@@ -1132,16 +1266,7 @@ export function parseBrowserParams(
     if (!isPlainObject(body.viewport))
       return invalid("viewport must be an object {width, height}");
     const { width: w, height: h } = body.viewport;
-    if (
-      typeof w !== "number" ||
-      typeof h !== "number" ||
-      !Number.isInteger(w) ||
-      !Number.isInteger(h) ||
-      w < MIN_DIM ||
-      w > MAX_DIM ||
-      h < MIN_DIM ||
-      h > MAX_DIM
-    ) {
+    if (!validBrowserBound(w) || !validBrowserBound(h)) {
       return invalid(
         `viewport width/height must be integers in ${MIN_DIM}..${MAX_DIM}`,
       );

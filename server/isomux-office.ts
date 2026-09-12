@@ -121,7 +121,8 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
-import { browserPool } from "./browser-session.ts";
+import { BrowserFrameSender } from "./browser-frame-sender.ts";
+import { browserPool, describeShot, parseBrowserParams, validBrowserBound } from "./browser-session.ts";
 import {
   browserSessionDiagnostic,
   buildPublicOrigin,
@@ -890,7 +891,7 @@ let executorDeps: ExecutorDeps;
 // connectionId (resolved back to a socket by the connectionId emit projection).
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
-const browserWatches = new Map<string, Map<string, () => void>>();
+const browserWatches = new Map<string, Map<string, { stop: () => void; frames: BrowserFrameSender }>>();
 
 function managesAgent(session: SessionLookup, agentId: string): boolean {
   return agentManager.getAgent(agentId)?.userId === session.userId;
@@ -899,6 +900,10 @@ function managesAgent(session: SessionLookup, agentId: string): boolean {
 function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
+  if (input.kind === "navigate") {
+    if (input.action === "goto") return parseBrowserParams({ action: "goto", url: input.url }).ok;
+    return ["open", "back", "forward", "reload", "close"].includes(String(input.action));
+  }
   if (input.kind === "mouse") {
     return (
       ["mousePressed", "mouseReleased", "mouseMoved", "mouseWheel"].includes(
@@ -928,7 +933,9 @@ function validBrowserInput(value: unknown): value is BrowserHumanInput {
 
 function stopBrowserWatch(connectionId: string, agentId: string): void {
   const watches = browserWatches.get(connectionId);
-  watches?.get(agentId)?.();
+  const watch = watches?.get(agentId);
+  watch?.frames.stop();
+  watch?.stop();
   watches?.delete(agentId);
   if (watches?.size === 0) browserWatches.delete(connectionId);
 }
@@ -4587,6 +4594,11 @@ function routeAgentEvent(event: AgentEvent) {
 // (carriedRoomId) instead of the old broadcast-all.
 function emitAgentEvent(event: AgentEvent): void {
   switch (event.type) {
+    case "browser_action": {
+      const userId = agentManager.getAgent(event.agentId)?.userId;
+      if (userId) liveEmit("browser_action", { agentId: event.agentId }, { userId });
+      break;
+    }
     case "log_entry":
       liveEmit("log_entry", { entry: event.entry });
       break;
@@ -4795,6 +4807,10 @@ function routeAgentEventToWs(
       if (agentVisibleForSession(session, event.entry.agentId)) {
         ws.send(JSON.stringify(event));
       }
+      break;
+    }
+    case "browser_action": {
+      if (managesAgent(session, event.agentId) && agentVisibleForSession(session, event.agentId)) ws.send(JSON.stringify(event));
       break;
     }
     case "clear_logs":
@@ -5082,33 +5098,34 @@ async function handleInboundMessage(
         break;
       case "browser_watch": {
         stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-        if (!cmd.watching || !managesAgent(session, cmd.agentId)) break;
+        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId)) break;
+        if ((cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) || (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))) break;
         let watches = browserWatches.get(ws.data.connectionId);
         if (!watches) {
           watches = new Map();
           browserWatches.set(ws.data.connectionId, watches);
         }
-        const stop = browserPool.watch(cmd.agentId, (frame) => {
+        let previousStatus = "";
+        const canDeliver = () => {
           if (
             !browsers.has(ws) ||
-            !managesAgent(ws.data.session, cmd.agentId)
+            !agentVisibleForSession(ws.data.session, cmd.agentId)
           ) {
             stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-            return;
+            return false;
           }
-          ws.send(
-            JSON.stringify(
-              frame
-                ? { type: "browser_frame", agentId: cmd.agentId, ...frame }
-                : {
-                    type: "browser_status",
-                    agentId: cmd.agentId,
-                    available: false,
-                  },
-            ),
-          );
-        });
-        watches.set(cmd.agentId, stop);
+          return true;
+        };
+        const frames = new BrowserFrameSender(ws, canDeliver);
+        const stop = browserPool.watch(cmd.agentId, (frame) => {
+          if (!canDeliver()) return;
+          const state = browserPool.status(cmd.agentId);
+          const status = JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...state,
+            url: managesAgent(ws.data.session, cmd.agentId) ? state.url : describeShot(state.url).caption });
+          if (status !== previousStatus) { ws.send(status); previousStatus = status; }
+          if (frame) frames.send(JSON.stringify({ type: "browser_frame", agentId: cmd.agentId, ...frame }));
+        }, () => managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId), {maxWidth:cmd.maxWidth,maxHeight:cmd.maxHeight});
+        watches.set(cmd.agentId, { stop, frames });
         break;
       }
       case "browser_input":
@@ -5119,7 +5136,13 @@ async function handleInboundMessage(
           !validBrowserInput(cmd.input)
         )
           break;
-        await browserPool.humanInput(cmd.agentId, cmd.input);
+        if (cmd.input.kind === "navigate") {
+          ws.send(JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...browserPool.status(cmd.agentId), busy: true }));
+          const result = await browserPool.humanNavigate(cmd.agentId, cmd.input, session.userId);
+          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId)) {
+            ws.send(JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...browserPool.status(cmd.agentId), busy: false, ...(!result.ok ? {error: result.error} : {}) }));
+          }
+        } else await browserPool.humanInput(cmd.agentId, cmd.input);
         break;
     }
   } catch (err) {
@@ -6042,6 +6065,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         } catch (e) {
           console.error("Invalid command:", e);
         }
+      },
+      drain(socket) {
+        if (socket.data.kind === "api" || socket.data.kind === "app") return;
+        const ws = socket as ServerWebSocket<OfficeWsData>;
+        for (const watch of browserWatches.get(ws.data.connectionId)?.values() ?? []) watch.frames.flush();
       },
       close(socket, code, reason) {
         if (socket.data.kind === "api") {

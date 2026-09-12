@@ -280,6 +280,7 @@ export type AgentEvent =
       }[];
       skills: SkillInfo[];
     }
+  | { type: "browser_action"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | {
       type: "terminal_status";

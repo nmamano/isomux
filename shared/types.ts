@@ -1500,7 +1500,17 @@ export type UpdateStatusWire =
       } | null;
     };
 
+export const BROWSER_MIN_DIM = 320;
+export const BROWSER_MAX_DIM = 2560;
+
+export type BrowserNavigation = {
+  kind: "navigate";
+  action: "open" | "goto" | "back" | "forward" | "reload" | "close";
+  url?: string;
+};
+
 export type BrowserHumanInput =
+  | BrowserNavigation
   | {
       kind: "mouse";
       event: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel";
@@ -1600,7 +1610,8 @@ export type ServerMessage =
       width: number;
       height: number;
     }
-  | { type: "browser_status"; agentId: string; available: boolean }
+  | { type: "browser_status"; agentId: string; available: boolean; url?: string; title?: string; busy?: boolean; error?: string }
+  | { type: "browser_action"; agentId: string }
   | {
       type: "editor_external_change";
       agentId: string;
@@ -1715,7 +1726,7 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "terminal_restart"; agentId: string }
-  | { type: "browser_watch"; agentId: string; watching: boolean }
+  | { type: "browser_watch"; agentId: string; watching: boolean; maxWidth?: number; maxHeight?: number }
   | {
       type: "browser_input";
       agentId: string;

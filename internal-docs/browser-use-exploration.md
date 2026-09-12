@@ -299,28 +299,42 @@ storage-state design keeps one shared browser and one context per agent.
 
 ### 7.3 Live view and human input
 
-The selected mechanism is a CDP screencast from the agent's page. The server
-sends JPEG frames over the office WebSocket, and the Browser panel maps pointer
-and keyboard events back through CDP `Input.dispatchMouseEvent` and
-`Input.dispatchKeyEvent`. Capture starts when the first panel subscribes and
-stops when the last panel leaves.
+Round 3, 2026-09-12: the Browser panel offers an address field, back, forward,
+reload, and Close page. Opening the panel creates a blank page for the manager
+when none exists. Closing the panel hides it; Close page ends the context.
+An agent goto that creates a fresh page sends a manager-only notification.
+Only the mounted chat responds, so a background agent cannot take over the panel.
+A later action on an existing page does not undo a manual panel dismissal.
 
-Only the boss who manages the agent can subscribe or send input. The server
-checks that stable user id again on every input event. An office owner or a
-different boss with room access cannot watch or control the page. This keeps
-the isolation statement exact: the profile belongs to the managing boss, is
-shared by that boss's agents, and is never shown to or driven by anyone else.
-An old agent record with no stable managing user id has no Browser panel until
-the office can resolve that manager; no user identity matches null.
+The server checks room access at subscription and at every frame delivery.
+The server checks management on every browser input, including open, navigation,
+and close. Other room members can watch an existing page but cannot create one.
+The server sends the full address to the manager and origin plus pathname to
+other viewers. The same function strips screenshot captions and viewer addresses.
 
-Human input interleaves with agent actions. It does not wait for the agent's
-per-agent action queue. This matches a person taking the mouse to finish or
-repair a login; waiting behind a 30-second agent action would defeat that use.
-The result can be two hands on one page, which is visible and understandable.
-An attached viewer suspends the five-minute idle timer. When the last viewer
-leaves, the timer starts again. This keeps a login page open while the boss
-uses a password manager or waits for a code, and the socket-close sweep keeps a
-closed tab from pinning the page. Human input also touches that same clock.
+Navigation runs on the per-agent action queue and uses the agent goto validator.
+Pointer and keyboard input use the immediate CDP path and can interleave with an
+agent action. Only manager watchers suspend the five-minute idle timer; a room
+viewer cannot keep the manager's profile context alive. Watcher identity is
+checked again while frames are delivered.
+
+The current transport uses CDP JPEG frames over the office WebSocket. The panel
+keeps one image decode and one replaceable waiting frame, and coalesces pointer
+movement. A debounced ResizeObserver requests CSS size times device pixel ratio,
+quantized to 16 pixels and bounded to 320–2560. Capture uses the largest live
+watcher bound, capped by the page viewport; joins, resizes, and departures
+recompute it. The canvas uses the decoded image size while input retains page
+coordinates. The video evaluation and dated measurements are recorded in
+[browser-panel-round-3.md](browser-panel-round-3.md). Chrome 151.0.7922.137 on
+this box rejected `Page.startScreenRecording` as an unknown method on 2026-09-12,
+although the current [CDP Page reference](https://chromedevtools.github.io/devtools-protocol/tot/Page/)
+lists it as experimental. No video capture flag is enabled in the office browser.
+
+On 2026-09-12, Bun 1.3.11 acting as a Playwright CDP client timed out against a
+local Chrome endpoint while Node connected. The cause is not established.
+This is a constraint on a direct desktop-CDP option; an extension using
+`chrome.debugger` and opening its own office connection does not use that path.
+The Node measurement bridge lives under `/tmp/browser-3/` and is not shipped.
 
 ### 7.4 Per-backend permission gate, if one were wanted
 
@@ -590,7 +604,7 @@ the agent click used the same page. Log:
     starts again with an empty profile.
 - `POST /api/agents/:id/browser` - route, handler, manager op, contract shapes.
 - The Browser side panel - CDP screencast frames over the office WebSocket and
-  direct CDP pointer and keyboard input, available only to the managing boss.
+  direct CDP pointer and keyboard input. Room members can watch; only the manager can drive.
 - `server/preview-capture.ts` - `defaultFindBrowser` exported so both features
   resolve the same executable.
 - `playwright-core` 1.62.1 as a root dependency, imported lazily so an office

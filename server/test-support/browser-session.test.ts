@@ -57,6 +57,7 @@ interface StubOptions {
   contextGate?: Promise<void>;
   /** Held until resolved, so a test can prove profile capture is bounded. */
   storageStateGate?: Promise<void>;
+  screenshot?: () => Promise<{data:string}>;
 }
 
 function stubBrowser(
@@ -165,6 +166,7 @@ function stubBrowser(
                 params?: Record<string, unknown>,
               ) => {
                 calls.cdp.push({ method, params });
+                if (method === "Page.captureScreenshot") return options.screenshot?.();
               },
               detach: async () => {},
               emit: (event: string, value: never) =>
@@ -1057,6 +1059,50 @@ describe("BrowserPool", () => {
     await pool.shutdown();
   });
 
+  it("seeds a quiet page and never replaces a newer live frame with the seed", async () => {
+    for (const live of [false, true]) {
+      const calls = freshCalls();
+      let resolve!: (shot: {data:string}) => void;
+      const screenshot = new Promise<{data:string}>(done => {resolve=done;});
+      const {pool, stub} = poolWith(calls, {}, 60_000, {screenshot:()=>screenshot});
+      await opened(pool,"quiet");
+      const frames: unknown[]=[];
+      const stop = pool.watch("quiet", frame => {if(frame)frames.push(frame);});
+      await Bun.sleep(0);
+      if(live)stub.cdpSessions[0].emit("Page.screencastFrame",{data:"live",sessionId:1} as never);
+      resolve({data:"seed"});
+      await Bun.sleep(0);
+      expect(frames).toEqual([{data:live?"live":"seed",width:1280,height:800}]);
+      const late: unknown[]=[];
+      const stopLate=pool.watch("quiet",frame=>{if(frame)late.push(frame);},()=>false);
+      expect(late).toEqual(frames);
+      stopLate();
+      stop(); await pool.shutdown();
+    }
+  });
+
+  it("capture follows the largest watcher on join, grow and departure", async () => {
+    const calls = freshCalls();
+    const { pool } = poolWith(calls);
+    const starts = () => calls.cdp.filter(call => call.method === "Page.startScreencast");
+    const size = () => { const p = starts().at(-1)!.params!; return [p.maxWidth,p.maxHeight]; };
+    const settle = () => Bun.sleep(0);
+    let stopA = pool.watch("a", () => {}, () => true, {maxWidth:400,maxHeight:320});
+    await opened(pool,"a");
+    expect(size()).toEqual([400,320]);
+    const stopB = pool.watch("a", () => {}, () => false, {maxWidth:800,maxHeight:600});
+    await settle(); expect(size()).toEqual([800,600]);
+    const count = starts().length;
+    const stopC = pool.watch("a", () => {}, () => false, {maxWidth:500,maxHeight:400});
+    await settle(); expect(starts()).toHaveLength(count);
+    stopA();
+    stopA = pool.watch("a", () => {}, () => true, {maxWidth:1000,maxHeight:700});
+    await settle(); expect(size()).toEqual([1000,700]);
+    stopA(); await settle(); expect(size()).toEqual([800,600]);
+    stopB(); await settle(); expect(size()).toEqual([500,400]);
+    stopC(); await pool.shutdown();
+  });
+
   it("an attached viewer suspends idle close until the viewer leaves", async () => {
     const calls = freshCalls();
     const { pool } = poolWith(calls, undefined, 200);
@@ -1075,6 +1121,63 @@ describe("BrowserPool", () => {
     stop();
     await Bun.sleep(230);
     expect(pool.activeAgents()).toEqual([]);
+    await pool.shutdown();
+  });
+
+  it("room viewers do not suspend idle close", async () => {
+    const calls = freshCalls();
+    const { pool } = poolWith(calls, undefined, 80);
+    const stop = pool.watch("a", () => {}, () => false);
+    await opened(pool, "a");
+    await Bun.sleep(110);
+    expect(pool.activeAgents()).toEqual([]);
+    stop();
+    await pool.shutdown();
+  });
+
+  it("human open and goto let the agent act; human close leaves no page", async () => {
+    const calls = freshCalls();
+    let url = "about:blank";
+    const { pool } = poolWith(calls, {url:()=>url,goto:async (next:string)=>{url=next;}});
+    expect((await pool.humanNavigate("a", {kind:"navigate",action:"open"}, "boss")).ok).toBe(true);
+    expect(pool.status("a").available).toBe(true);
+    expect((await pool.humanNavigate("a", {kind:"navigate",action:"goto",url:"file:///tmp/page"}, "boss")).ok).toBe(false);
+    await pool.humanNavigate("a", {kind:"navigate",action:"goto",url:"https://example.test"}, "boss");
+    expect((await pool.run("a", {action:"click",selector:"button"})).ok).toBe(true);
+    await pool.humanNavigate("a", {kind:"navigate",action:"close"}, "boss");
+    expect(pool.status("a").available).toBe(false);
+    const result = await pool.run("a", {action:"click",selector:"button"});
+    expect(!result.ok && result.code).toBe("no_page");
+    await pool.shutdown();
+  });
+
+  it("only an agent goto creating a fresh page reports createdPage", async () => {
+    const {pool}=poolWith(freshCalls());
+    const first=await pool.run("a",{action:"goto",url:"https://example.test"});
+    expect(first.ok && first.createdPage).toBe(true);
+    const next=await pool.run("a",{action:"goto",url:"https://example.test/next"});
+    expect(next.ok && next.createdPage).toBeUndefined();
+    const close=await pool.run("a",{action:"close"});
+    expect(close.ok && close.createdPage).toBeUndefined();
+    const fresh=await pool.run("a",{action:"goto",url:"https://example.test"});
+    expect(fresh.ok && fresh.createdPage).toBe(true);
+    await pool.shutdown();
+  });
+
+  it("human navigation waits for the agent action queue", async () => {
+    const calls=freshCalls();
+    let release!:()=>void;
+    const gate=new Promise<void>(r=>release=r);
+    let began!:()=>void;
+    const started=new Promise<void>(r=>began=r);
+    const {pool}=poolWith(calls,{click:async()=>{began();await gate;calls.actions.push("click-done");},goBack:async()=>{calls.actions.push("back");}});
+    await opened(pool,"a");
+    const click=pool.run("a",{action:"click",selector:"button"});
+    await started;
+    const back=pool.humanNavigate("a",{kind:"navigate",action:"back"},"boss");
+    expect(calls.actions).not.toContain("back");
+    release();await click;await back;
+    expect(calls.actions.slice(-2)).toEqual(["click-done","back"]);
     await pool.shutdown();
   });
 

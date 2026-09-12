@@ -2656,7 +2656,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.userId ?? null,
     );
     if (!result.ok) return result;
-    const { png, filename, caption, ...payload } = result;
+    const { png, filename, caption, createdPage, ...payload } = result;
+    if (createdPage) emit({ type: "browser_action", agentId });
     if (png && filename && caption) {
       const att = savePersistedFile(agentId, png, "image/png", filename);
       if (!att) {

@@ -63,7 +63,7 @@ import {
 } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
-import { BrowserPanel } from "./BrowserPanel.tsx";
+import { BrowserPanel, useBrowserAutoOpen } from "./BrowserPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
@@ -773,7 +773,10 @@ export function LogView({
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
   const browserOpen = sidePanel === "browser";
-  const canOpenBrowser = sessionContext?.userId === agent.userId;
+  const canOpenBrowser = true;
+  const canDriveBrowser = !!agent.userId && sessionContext?.userId === agent.userId;
+  const autoOpenBrowser = useCallback(() => dispatch({type: "set_side_panel", agentId: agent.id, panel: "browser"}), [agent.id, dispatch]);
+  useBrowserAutoOpen(agent.id, canDriveBrowser, autoOpenBrowser);
   const [terminalWidth, setTerminalWidth] = useState<number>(() =>
     readPanelWidth("terminal", 500),
   );
@@ -3394,6 +3397,7 @@ export function LogView({
               onCommit={commitBrowserWidth}
             />
             <BrowserPanel
+              canDrive={canDriveBrowser}
               agentId={agent.id}
               onClose={() => setBrowserOpen(false)}
             />
@@ -3482,6 +3486,7 @@ export function LogView({
           }}
         >
           <BrowserPanel
+              canDrive={canDriveBrowser}
             agentId={agent.id}
             onClose={() => setBrowserOpen(false)}
           />
