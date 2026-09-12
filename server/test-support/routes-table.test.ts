@@ -535,6 +535,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // caps: [] = `authenticated`-kind (task 68891fa1): every agent may READ the
   // blob + version; only the WRITE (agents.update) is capability-gated.
   "agents.readInstructions": { caps: [], emits: [] },
+  "agents.readSystemPrompt": { caps: [], emits: [] },
   "agents.setPrivileged": {
     caps: ["agent:privilege"],
     emits: ["agent_updated"],
@@ -1025,6 +1026,7 @@ const API_REACHABLE_OPIDS = [
   "agents.abort",
   "agents.update",
   "agents.readInstructions",
+  "agents.readSystemPrompt",
   "agents.move",
   "agents.setTopic",
   "agents.clearTopic",
