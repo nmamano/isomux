@@ -26,7 +26,7 @@ contract so V2 does not spread through the product.
 
 ## Product outcome
 
-Users can choose OpenCode when they create an agent, use it through the normal
+Members can choose OpenCode when they create an agent, use it through the normal
 Isomux chat and controls, resume its conversations, run OpenCode cronjobs, and
 configure supported models through the existing environment-file system.
 

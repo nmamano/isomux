@@ -101,8 +101,8 @@ Who may steer whom:
 | | Rule | Cost |
 |---|---|---|
 | A | Privileged agents only (today's de-facto rule) | Zero policy change; only the atomic call is new. Ordinary workers still cannot page each other. |
-| B | Any agent may steer any agent its boss can reach | Confused deputy. `hasRoomAccess` keys on the spawning user, so "room-mate" really means "everything my boss owns" - the exact escalation the `conversationReset` guard comment warns against (`guards.ts:375`). |
-| C | Per-receiver opt-in, three grains: a global `steerable` boolean; a sender allowlist on the receiver; or a receiver-scoped capability granted to named agents | The boolean is cheapest but lets every agent under the boss steer once enabled. An allowlist expresses "my reviewer and my manager may interrupt me, nobody else". Cost scales with grain: persisted field, spawn/edit UI, guard branch. |
+| B | Any agent may steer any agent its member can reach | Confused deputy. `hasRoomAccess` keys on the spawning user, so "room-mate" really means "everything my member owns" - the exact escalation the `conversationReset` guard comment warns against (`guards.ts:375`). |
+| C | Per-receiver opt-in, three grains: a global `steerable` boolean; a sender allowlist on the receiver; or a receiver-scoped capability granted to named agents | The boolean is cheapest but lets every agent under the member steer once enabled. An allowlist expresses "my reviewer and my manager may interrupt me, nobody else". Cost scales with grain: persisted field, spawn/edit UI, guard branch. |
 | D | Same-room only | Reads as the natural middle, but still needs a deliberate guard (room membership, not `hasRoomAccess`), and it breaks the pattern this office actually uses, where the manager steers workers **across** rooms. |
 
 Recommendation: **A now, C-with-allowlist as the growth path.** B is cheap and wrong; D sounds right and does not
@@ -119,7 +119,7 @@ keeps the interruption legible in the receiver's transcript either way.
 
 New read: `GET /api/agents/:id/queue` returning `{queue: QueuedMessage[]}`. It needs its **own** guard rather than
 borrowing one: the log-read guard carries killed-agent clauses that mean nothing for a live queue. The model to
-copy is the log route's - own agent, plus any agent in the boss's rooms - but whether privileged status is required
+copy is the log route's - own agent, plus any agent in the member's rooms - but whether privileged status is required
 for the cross-agent case is a decision, not an inheritance.
 
 Mutations, in increasing order of blast radius:
@@ -294,7 +294,7 @@ bca33c68 (conditions) as separate tasks since they ship in different slices.
 
 **Queue access**
 
-3. Cross-agent queue **reads**: any agent in the boss's rooms, or privileged only?
+3. Cross-agent queue **reads**: any agent in the member's rooms, or privileged only?
 4. Own-queue **cancel** for an ordinary agent: allow or not?
 5. Cross-agent **cancel**: stays privileged-only, or opens to whoever can read the queue?
 6. Confirm reorder is dropped.

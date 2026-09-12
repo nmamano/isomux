@@ -55,7 +55,7 @@ const COUNTER_FROM = MEMBERS_CHAT_MAX_CHARS - 500;
 // The author label the card prints. A person reads as
 // "Nil (Phone)"; an API token and an agent read as machine-sent, the way the
 // agent chat styles them, so nobody scrolling back takes a script's line for a
-// boss's.
+// member's.
 export function describeMembersChatAuthor(
   m: Pick<MembersChatMessage, "kind" | "userName" | "device">,
   t: Translator["t"],

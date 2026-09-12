@@ -517,7 +517,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const human = humanizeSchedule(cronjob.schedule);
     const scheduleDescription = human.charAt(0).toLowerCase() + human.slice(1);
     // Inspection (no live runId) renders the URL with a `<runId>` placeholder
-    // so the boss can see the template; the spawn/resume paths pass the real id.
+    // so the member can see the template; the spawn/resume paths pass the real id.
     const runIdForUrl = runId ?? "<runId>";
 
     let prompt = `You are "${cronjob.name}", a scheduled cron job in the Isomux office. You run ${scheduleDescription}.
@@ -553,11 +553,11 @@ OpenCode cron runs can work in their project directory but cannot use Isomux off
 
     prompt += `
 
-How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents - they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
+How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents - they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the member asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
   ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
-To create, edit, delete, or trigger a cronjob, direct the boss to the Schedules page in the UI.
+To create, edit, delete, or trigger a cronjob, direct the member to the Schedules page in the UI.
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 
@@ -565,7 +565,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
     if (cronjobsPrompt)
       prompt += `\n\n## Cron Jobs Instructions\n\n${cronjobsPrompt}`;
-    // memberPrompt for the boss this cronjob runs on behalf of, looked up
+    // memberPrompt for the member this cronjob runs on behalf of, looked up
     // at build time so renames / edits to the user's profile take effect
     // on the next fire without touching the cronjob record itself.
     if (cronjob.username) {
@@ -575,7 +575,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
     }
     // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its
-    // own; boss memory is intentionally NOT injected - see the boss-memory
+    // own; member memory is intentionally NOT injected - see the member-memory
     // auto-load boundary in the design doc). Rendered via the injected seam + the
     // shared memorySection helper so tests stay off real state.
     prompt += memorySection(

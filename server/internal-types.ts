@@ -105,7 +105,7 @@ export interface ManagedAgent {
   // generation (resetContextUsage); restored on edit-fork rollback; preserved on
   // model change (the conversation continues, already-fired notices stay fired).
   firedAgentThresholds: Set<number>;
-  // Boss-facing fullness thresholds already fired THIS generation: the
+  // Member-facing fullness thresholds already fired THIS generation: the
   // ephemeral chat system line ("Context is NN% full. ...") emitted by the
   // sample-commit path (maybeEmitUiContextNotice in agent-manager). Deliberately
   // SEPARATE from firedAgentThresholds - different audiences, and one firing
@@ -135,7 +135,7 @@ export interface ManagedAgent {
   // unexpected backend death; consumed by the pre-send step in runAgentTurn on
   // the same never-before-send rule as memoryNotice. Without it the warning
   // reaches only the isomux log, and the agent - the one holding a tool result
-  // that falsely claims its boss rejected the running command - never sees it.
+  // that falsely claims its member rejected the running command - never sees it.
   // No companion "fired" flag: every wake re-arms it, and there is nothing to
   // suppress across a conversation.
   wakeNotice: string | null;
@@ -339,7 +339,7 @@ export class TurnSupersededError extends Error {
 // message itself should already be user-actionable (install hint, login
 // prompt, etc.) - it's surfaced verbatim with no "Error:" prefix.
 //
-// `command` is an optional shell command the user can run to resolve the
+  // `command` is an optional shell command the member can run to resolve the
 // not-configured state (install command, login command). When present, the
 // catch site emits a terminal-command card alongside the system message so
 // the user can click [Copy to terminal] instead of retyping it.

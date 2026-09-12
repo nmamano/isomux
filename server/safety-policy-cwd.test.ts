@@ -488,7 +488,7 @@ describe("shell cwd flow", () => {
         "Reason: isomux could not resolve the relative path because the tool call " +
         "did not include a non-empty absolute agent cwd.\n\n" +
         "Bash target: .isomux/x\n\n" +
-        "Tell the user that the safety hook received a missing or invalid cwd, " +
+        "Tell the member that the safety hook received a missing or invalid cwd, " +
         "and use an absolute write target.",
     });
   });

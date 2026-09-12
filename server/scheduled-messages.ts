@@ -97,7 +97,7 @@ export interface ScheduledMessageManagerDeps {
   // source at schedule time; freshness source at fire time.
   getAgentDisplay(agentId: string): { name: string; roomName: string } | null;
   // Best-effort failure notice into the SENDER's chat (production: a system
-  // log entry - boss-visible, burns no turn). Failures here are swallowed.
+  // log entry - member-visible, burns no turn). Failures here are swallowed.
   notifySender(senderAgentId: string, text: string): void;
   persistence: ScheduledMessagesPersistence;
   clock: ScheduledMessagesClock;

@@ -365,7 +365,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(422, "invalid_request", "roomId and desk are required");
       }
       // Same range check as spawn: without it an off-grid desk reached the core
-      // and came back as 409 desk_taken, telling the boss a desk was occupied
+      // and came back as 409 desk_taken, telling the member a desk was occupied
       // when it doesn't exist.
       if (!isValidDesk(b.desk, deps.roomForDesks?.(b.roomId))) {
         return fail(

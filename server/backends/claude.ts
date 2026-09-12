@@ -1033,12 +1033,12 @@ export function* translateSDKMessage(
         // orchestration) and the SDK's wire shape is the only place we
         // have the base64 bytes.
         //
-        // Not the canonical "show a file to the boss" path - that's POST
+        // Not the canonical "show a file to the member" path - that's POST
         // /api/agents/:id/read-file (or /api/cronjobs/:id/runs/:runId/read-file
         // for cronjobs); the system prompt teaches those endpoints. This
         // branch stays because it's a useful side effect: when an agent
         // genuinely uses Read on an image to look at it themselves, the
-        // image still surfaces in the conversation so the boss can see
+        // image still surfaces in the conversation so the member can see
         // what the agent saw. Agents don't need to know about this.
         // Codex agents never hit this path; they go straight to /read-file.
         let attachments: Attachment[] | undefined;
@@ -1153,7 +1153,7 @@ export function* translateSDKMessage(
 // A background-task settle wakes an idle agent with a fresh turn, but the
 // triggering notification was invisible in
 // the isomux transcript - the agent appeared to start talking spontaneously.
-// These breadcrumbs give the boss the visible trigger.
+// These breadcrumbs give the member the visible trigger.
 
 const TASK_LABEL_MAX = 200;
 const TRACKED_TASKS_MAX = 200;

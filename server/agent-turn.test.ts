@@ -37,7 +37,7 @@ describe("stripOutboundEnvelope", () => {
     const sdkText = "[Nil] keep going";
     const wrapped =
       "--- begin isomux: context-check ---\n" +
-      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the boss a /clear is advisable.]\n" +
+      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the member a /clear is advisable.]\n" +
       "--- end isomux: context-check ---\n\n" +
       "User message:\n" +
       sdkText;
@@ -224,7 +224,7 @@ describe("formatContextNotice", () => {
   it("formats the 75 band with wrap-up advice", () => {
     const line = formatContextNotice(75, snap(87));
     expect(line).toBe(
-      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the boss a /clear is advisable.]",
+      "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the member a /clear is advisable.]",
     );
   });
 
@@ -257,8 +257,8 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
     ).toBe(
       "[memory check: auto-loaded memory is close to its size cap - Office-wide at 80% of its cap. " +
         "Caps are hard: a save that would put a scope over its cap is refused. " +
-        "Offer the boss specific trims, applying them through the memory READ + PUT API after approval. " +
-        "Let the boss know they can also edit memory in Settings.]",
+        "Offer the member specific trims, applying them through the memory READ + PUT API after approval. " +
+        "Let the member know they can also edit memory in Settings.]",
     );
   });
 
@@ -266,11 +266,11 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
     const line = formatMemoryNotice([
       scope("Office-wide", 0.2),
       scope('Room "Isomux Dev"', 0.9),
-      scope('Boss "Nil"', 1.18),
+      scope('Member "Nil"', 1.18),
       scope("Your agent", 0.4),
     ])!;
     expect(line).toContain(
-      'Boss "Nil" at 118% (at or over its cap; saves to it fail until it is trimmed), Room "Isomux Dev" at 90% of its cap.',
+      'Member "Nil" at 118% (at or over its cap; saves to it fail until it is trimmed), Room "Isomux Dev" at 90% of its cap.',
     );
     expect(line).not.toContain("Office-wide");
     expect(line).not.toContain("Your agent");

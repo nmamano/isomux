@@ -315,7 +315,7 @@ export function conversationHandlers(
         );
       }
       // Scheduling is AGENT-branch only. A USER-scope deliverAt is REJECTED,
-      // never silently sent immediately (review-pinned): a boss who typed a
+      // never silently sent immediately (review-pinned): a member who typed a
       // future time must not have the message land now without noticing.
       if (b.deliverAt !== undefined && ctx.identity.scope !== "agent") {
         return fail(

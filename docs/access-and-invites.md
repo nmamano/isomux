@@ -4,9 +4,9 @@ How Isomux gates who can use an office, and how the invite-link flow works end-t
 
 ## TL;DR
 
-- Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
+- Isomux agents can run shell commands, so authenticated members effectively have shell access to the host. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
-- Two roles: `owner` (can toggle external access and mint invites for new users) and `member`. Both have full operational access, and every user can mint device links for their own extra devices.
+- Two roles: `owner` (can toggle external access and mint invites for new members) and `member`. Both have full operational access, and every member can mint device links for their own extra devices.
 - Sessions are created when someone opens an invite URL (issued by an owner, or by a member for one of their own devices).
 - The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server is only reachable from the host (or via an SSH tunnel).
 
@@ -14,7 +14,7 @@ How Isomux gates who can use an office, and how the invite-link flow works end-t
 
 ### 1. First boot - owner claim
 
-On startup, the server checks `~/.isomux/users.json`. When no user has `role: "owner"`, the server listens on the loopback interface only (so the office isn't reachable from your LAN or VPN yet), serves a name-picker form at `/`, and prints a banner with the two ways to reach it:
+On startup, the server checks `~/.isomux/users.json`. When no member has `role: "owner"`, the server listens on the loopback interface only (so the office isn't reachable from your LAN or VPN yet), serves a name-picker form at `/`, and prints a banner with the two ways to reach it:
 
 ```
 ================================================================
@@ -41,31 +41,31 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `Settings` → `Office` → `Invites`:
 
-- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
+- **Issue invite**: enter the new member's name, pick a role. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
 Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
 
-A browser that is already signed in as a user cannot accept an invite for a different user (the invite is not consumed).
+A browser that is already signed in as a member cannot accept an invite for a different member (the invite is not consumed).
 
 Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If the first link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
 
-### 3. Multi-device users
+### 3. Multi-device members
 
-Invites create new users only. Typing a name that already exists shows a pointer instead of a form mode: existing users add devices themselves, with a device link from `My devices` in their own settings (the server rejects owner-minted invites for existing names too). The exception is recovery: someone signed out of every device can't self-serve, so the owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per user). One user can have many simultaneous sessions (laptop + phone + tablet).
+Invites create new members only. Typing a name that already exists shows a pointer instead of a form mode: existing members add devices themselves, with a device link from `My devices` in their own settings (the server rejects office-owner-minted invites for existing names too). The exception is recovery: someone signed out of every device can't self-serve, so an office owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per member). One member can have many simultaneous sessions (laptop + phone + tablet).
 
 ### 4. Device links
 
-Every user adds more of their own devices without involving anyone else. In `Settings` → `You`, the `Sign-in links` pane (owners also have `Access` / `Invites` / `Sessions` under `Office`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+Every member adds more of their own devices without involving anyone else. In `Settings` → `You`, the `Sign-in links` pane (owners also have `Access` / `Invites` / `Sessions` under `Office`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
 
-Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
+Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target member, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
 
 The `My devices` pane also lists your own outstanding device links and active sessions - same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
 
 ### 5. Sign out
 
-`Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same user stay signed in.
+`Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same member stay signed in.
 
 ## Reachability
 
@@ -84,7 +84,7 @@ Saving persists both fields to `~/.isomux/office-config.json` and mints an owner
 
 The same file can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` keeps today's rule: loopback before claim or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.
 
-The tunnel-setup agent prompt ([self-hosted setup](self-hosted.md#other-users-public-url)) ends at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
+The tunnel-setup agent prompt ([self-hosted setup](self-hosted.md#other-members-public-url)) ends at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
 
 The resolved value drives:
 
@@ -99,7 +99,7 @@ The Public URL is **operator-authored configuration**. The server never infers t
 
 Stored in `~/.isomux/`:
 
-- `users.json` - user profiles. Each record carries `role: "owner" | "member"`.
+- `users.json` - member profiles. Each record carries `role: "owner" | "member"`.
 - `invites.json` - outstanding invites, keyed by sha256(token). Raw tokens never persist; only the hash and an 8-char display prefix.
 - `sessions.json` - active sessions, keyed by sha256(session-id). Raw IDs never persist.
 
@@ -117,7 +117,7 @@ The 1-year cap is a deliberate usability/security trade-off. The
 cookie carries `HttpOnly`, `SameSite=Lax`, `Secure`-on-HTTPS,
 host-only scope, and a per-message server-side recheck so a revoke
 from the Sessions pane disconnects an active session within ~1s - the
-residual risk is the shared-device case where the user forgot to
+residual risk is the shared-device case where the member forgot to
 sign out (the security audit calls this out under external-access
 "session lifetime on shared devices"). Devices used in untrusted
 environments should be revoked from the Sessions pane (or signed out
@@ -129,7 +129,7 @@ Every member can open the lobby. The members chat is office-wide. The first owne
 
 ## Trust model boundaries
 
-- **Inside the office, authenticated users have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other users' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
+- **Inside the office, authenticated members have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other members' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
 - **Agents run with the host Linux user's permissions.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
 - **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
 
@@ -212,15 +212,15 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
 - **Revoking a live session?** The Sessions pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
-- **Owner tries to mint an invite for an existing user?** Rejected too (409): invites create new users only, and device links are self-service. To get a locked-out user back in, use the Recovery card in the Invites section.
+- **Member tries to mint an invite for a new member?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
+- **Office owner tries to mint an invite for an existing member?** Rejected too (409): invites create new members only, and device links are self-service. To get a locked-out member back in, use the Recovery card in the Invites section.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
 
 ## Personal API tokens
 
-A signed-in user can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+A signed-in member can create a named personal API token in **Settings → You → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
-Personal tokens have a separate API identity scope. They carry the issuing user's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
+Personal tokens have a separate API identity scope. They carry the issuing member's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
 The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
 

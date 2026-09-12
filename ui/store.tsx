@@ -114,7 +114,7 @@ export interface AppState {
   drafts: Map<string, string>; // agentId → unsent chat input
   // agentId → which side panel was open (terminal/editor) when the user last
   // viewed this agent. Persists across LogView remount on agent switch so
-  // the panel reopens automatically when the boss returns. `undefined` means
+  // the panel reopens automatically when the member returns. `undefined` means
   // never opened a panel; missing entries default to closed.
   sidePanels: Map<string, "terminal" | "editor" | "browser">;
   recentCwds: string[]; // persisted recent working directories
@@ -162,7 +162,7 @@ export interface AppState {
   // update_status arrives). "commit" = source-checkout notice (release +
   // main-drift context), "release" = a new release on an updater-managed box.
   updateInfo: UpdateStatusWire | null;
-  // Server-stored boss profiles. `users` is keyed by lowercase(name). The
+  // Server-stored member profiles. `users` is keyed by lowercase(name). The
   // current device's user is identified by `sessionContext.username`, which
   // the server sends right after WS open from the session cookie. Pre-auth
   // setups have null until the server emits session_context.

@@ -1,7 +1,7 @@
 > Superseded behavior, 2026-09-08: the receptionist is now an ordinary agent
 > created from the Isomux Receptionist profile. Name, cwd, kill, move, prompt and
 > token use the normal paths. Its initial cwd is ~; the old directory is left
-> on disk. The first owner is its boss. Knowledge and office guidance render at
+> on disk. The first owner is its manager. Knowledge and office guidance render at
 > spawn into custom instructions. The canonical lobby room has one slot and
 > persists in agents.json. Any agent can occupy it; an empty lobby stays empty
 > across restarts. The former locks, restricted token, dedicated prompt and
@@ -133,8 +133,8 @@ These entries are unchanged. The shared page components keep their existing copy
 | `cards.toolResult.showLess` | `Show less` | `Ver menos` | `Mostra'n menys` |
 | `cards.toolResult.showMore` | `Show more` | `Ver más` | `Mostra'n més` |
 | `cards.userMessage.editAndBranch` | `Edit & branch` | `Editar y ramificar` | `Edita i ramifica` |
-| `cards.userMessage.toRemoteBoss` | `To remote boss` | `Al jefe remoto` | `Al cap remot` |
-| `cards.userMessage.toRemoteBossNamed` | `To remote boss "{name}"` | `Al jefe remoto "{name}"` | `Al cap remot "{name}"` |
+| `cards.userMessage.toRemoteBoss` | `To remote member` | `Al miembro remoto` | `Al membre remot` |
+| `cards.userMessage.toRemoteBossNamed` | `To remote member "{name}"` | `Al miembro remoto "{name}"` | `Al membre remot "{name}"` |
 | `common.apps` | `Apps` | `Apps` | `Apps` |
 | `common.back` | `Back` | `Atrás` | `Enrere` |
 | `common.cancel` | `Cancel` | `Cancelar` | `Cancel·la` |
@@ -227,8 +227,8 @@ These entries are unchanged. The shared page components keep their existing copy
 | `dialogs.agent.hat.none` | `None` | `Ninguno` | `Cap` |
 | `dialogs.agent.invalidDirectory` | `Invalid directory` | `Directorio no válido` | `Directori no vàlid` |
 | `dialogs.agent.manager` | `Manager` | `Responsable` | `Responsable` |
-| `dialogs.agent.managerHint` | `Locked to the spawning user. Controls which personal variables load on each session (see Settings → You → Individual connections).` | `Vinculado al usuario que lo crea. Determina qué variables personales se cargan en cada sesión (mira Ajustes → Tú → Conexiones individuales).` | `Vinculat a l'usuari que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).` |
-| `dialogs.agent.managerNoUser` | `(no user assigned)` | `(sin usuario asignado)` | `(cap usuari assignat)` |
+| `dialogs.agent.managerHint` | `Locked to the spawning member. Controls which personal variables load on each session (see Settings → You → Individual connections).` | `Vinculado al miembro que lo crea. Determina qué variables personales se cargan en cada sesión (mira Ajustes → Tú → Conexiones individuales).` | `Vinculat a l'membre que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).` |
+| `dialogs.agent.managerNoUser` | `(no member assigned)` | `(sin miembro asignado)` | `(cap membre assignat)` |
 | `dialogs.agent.managerTitle` | `Set at spawn - manager cannot be changed after the agent is created.` | `Se fija al crear el agente - el responsable no se puede cambiar después.` | `Es fixa en crear l'agent - el responsable no es pot canviar després.` |
 | `dialogs.agent.managerUnowned` | `(unowned)` | `(sin propietario)` | `(sense propietari)` |
 | `dialogs.agent.memoryHint` | `(durable facts for this agent; raw lines; {size} / {cap})` | `(hechos duraderos de este agente; líneas en bruto; {size} / {cap})` | `(fets duradors d'aquest agent; línies en brut; {size} / {cap})` |
@@ -247,7 +247,7 @@ These entries are unchanged. The shared page components keep their existing copy
 | `dialogs.agent.permission.codexOnRequest` | `On request (model asks when needed)` | `A petición (el modelo pregunta cuando lo necesita)` | `A petició (el model pregunta quan ho necessita)` |
 | `dialogs.agent.permission.codexUntrusted` | `Untrusted (ask on every tool)` | `No fiable (preguntar en cada herramienta)` | `No fiable (preguntar a cada eina)` |
 | `dialogs.agent.privileged` | `Privileged operator access` | `Acceso de operador con privilegios` | `Accés d'operador amb privilegis` |
-| `dialogs.agent.privilegedHint` | `Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning user's room-scoped permissions. It still acts as the agent, never as the user.` | `Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del usuario que lo creó. Sigue actuando como el agente, nunca como el usuario.` | `Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'usuari que el va crear. Continua actuant com l'agent, mai com l'usuari.` |
+| `dialogs.agent.privilegedHint` | `Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the user.` | `Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.` | `Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'membre que el va crear. Continua actuant com l'agent, mai com l'membre.` |
 | `dialogs.agent.privilegedRestart` | `Saving restarts the agent's session.` | `Al guardar se reinicia la sesión del agente.` | `En desar es reinicia la sessió de l'agent.` |
 | `dialogs.agent.randomize` | `Randomize` | `Elegir al azar` | `Tria a l'atzar` |
 | `dialogs.agent.recent` | `Recent` | `Recientes` | `Recents` |

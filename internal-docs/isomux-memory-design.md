@@ -20,8 +20,8 @@
 > - **Per-scope size caps** refuse growth over budget and keep auto-load complete.
 > - **Authority is permissive on every verb** (any authenticated caller may
 >   read/append/replace any existing target); `date` is server-stamped on APPEND,
->   as is `author` except on the self-note case above. The only structural boundary is that a boss's memory auto-loads
->   solely into that boss's own agents' prompts.
+>   as is `author` except on the self-note case above. The only structural boundary is that a member's memory auto-loads
+>   solely into that member's own agents' prompts.
 > - **Humans curate through the same READ/REPLACE verbs** from each scope's
 >   settings field (a shared `useMemoryEditor` hook).
 >
@@ -42,14 +42,14 @@ by vector similarity. Three reasons rule that out for our use case:
   write-when-you-learn-something / read-once-per-session pattern. At our turn
   volume it is too slow (~10s of turn-boundary latency) and too expensive.
 - **Opacity.** A vector store is not meant to be read or edited by hand. We want
-  memory the boss can open, grep, and curate directly. Plain files plus grep are
+  memory the member can open, grep, and curate directly. Plain files plus grep are
   enough to start; vector retrieval can come later over the same files (section 8).
 
 **The key insight** (schema-grounded memory): the facts worth keeping are not
 about the _task_; they are about _people, projects, environment, and rules_,
 which have a small, stable shape regardless of what agents are working on. isomux
 is a **general meta-harness**, so we cannot schema the task. But we **can** schema
-the one thing that is always constant: the **office / room / boss / agent**
+the one thing that is always constant: the **office / room / `boss` / agent**
 structure.
 
 **Why shared scope is the whole point.** Claude's built-in memory already gives each repo its own durable file. If isomux memory were agent-only, it would be a
@@ -67,7 +67,7 @@ Memory is **plain markdown files on disk**. The directory tree _is_ the schema.
   office.md                  # office-wide, visible to everyone
   rooms/<roomId>.md          # a room/project, visible to anyone in that room
   agents/<agentId>.md        # an agent's standing facts, visible with that agent
-  bosses/<userId>.md         # a single boss's scoped facts
+  bosses/<userId>.md         # one member's scoped facts
   .oplog.jsonl               # append-only audit/recovery log of every mutation
 ```
 
@@ -101,12 +101,12 @@ enforced schema (no `factType` is persisted):
 
 | Kind                     | Example                              | Natural scope |
 | ------------------------ | ------------------------------------ | ------------- |
-| preference               | "no em dashes in prose"              | boss          |
+| preference               | "no em dashes in prose"              | `boss`        |
 | convention               | "this room uses Bun"                 | room          |
 | rule / prohibition       | "never touch the 8788 daemon"        | room/office   |
 | environment / infra fact | "context composer runs on port 3456" | office        |
 | role                     | "Isomuxer4 pairs with Reviewer4"     | agent         |
-| contact / external       | "DNS for chess: A 66.241.124.181"    | boss/office   |
+| contact / external       | "DNS for chess: A 66.241.124.181"    | `boss`/office |
 
 The durability gate is **behavioral, not typed**: write lasting facts about
 people/projects/environment/rules; do NOT write work-in-progress (the session
@@ -114,10 +114,10 @@ transcript already holds that).
 
 ## 2. Scope model and trust boundary (same-user reality)
 
-Four scopes, but **boss scope is "context-scoped for auto-load," NOT a
+Four scopes, but **the `boss` member scope is "context-scoped for auto-load," NOT a
 confidentiality guarantee or a REST-private read**:
 
-- `office`, `room`, `agent` are cross-boss visible by scope.
+- `office`, `room`, `agent` are cross-member visible by scope.
 - `bosses/<userId>.md` is structurally scoped only at **auto-load** time (below),
   not over REST.
 
@@ -129,22 +129,22 @@ and restraint lives in the system-prompt affordance:
 
 - **Every verb (READ / APPEND / REPLACE) is authenticated + target-EXISTENCE
   gated, open to any authenticated caller** (agent token or user cookie) for any
-  existing scope/target, including any boss and including the destructive REPLACE.
-  There is no per-scope / per-room / per-boss access gate. `author` + `date` are
+  existing scope/target, including any member and including the destructive REPLACE.
+  There is no per-scope / per-room / per-member access gate. `author` + `date` are
   server-stamped on APPEND from the caller's identity; body values are ignored.
   (`author` is omitted from the line - not taken from the body - when an agent
   appends to its own agent scope; see Provenance above.)
-- **The one structural boss property is in AUTO-LOAD, not REST:** a boss's notes
-  are auto-injected only into that boss's own agents' prompts (keyed on the
-  agent's stable manager `userId`), so one boss's notes never bleed into another
-  boss's context. This is context-scoping, not a read boundary.
-- **Do not teach agents the boss-memory filesystem path in the system prompt.**
+- **The one structural member property is in AUTO-LOAD, not REST:** a member's notes
+  are auto-injected only into that member's own agents' prompts (keyed on the
+  agent's stable manager `userId`), so one member's notes never bleed into another
+  member's context. This is context-scoping, not a read boundary.
+- **Do not teach agents the member-memory filesystem path in the system prompt.**
   Reduces casual leakage; does not make it confidential.
 
 **On permissive REPLACE specifically (a deliberate product/security decision).**
 REPLACE is a whole-file destructive primitive, so making it permissive means any
 authenticated agent can rewrite office memory (which auto-injects into every
-agent), any nameable room, or another boss's file. Nil chose this knowingly: the
+agent), any nameable room, or another member's file. Nil chose this knowingly: the
 risk class is handled in the affordance ("Do not make big changes to it"), and
 the **op-log is the recovery net - not an authorization boundary**.
 This is pinned by a test asserting a plain agent token _can_ REPLACE office memory,
@@ -158,10 +158,10 @@ security boundary. Real confidentiality waits on the per-user isolation work.
 Two paths, by design.
 
 **1. Auto-load at session start (guaranteed recall).** The always-relevant scopes
-(`office.md` + this room's file + this boss's file + this agent's file) are
+(`office.md` + this room's file + this member's file + this agent's file) are
 injected at session start, so the agent always sees its memory without a per-turn
-extractor. Cron jobs (which have no room/agent/boss identity of their own)
-auto-load **office memory only**; the boss-memory boundary stays "that boss's own
+extractor. Cron jobs (which have no room/agent/member identity of their own)
+auto-load **office memory only**; the member-memory boundary stays "that member's own
 agents," not their cron jobs.
 
 Injected as a **distinct, provenance-labeled layer, separate from the
@@ -172,15 +172,15 @@ attributed. This separation shrinks the blast radius of a bad agent write from
 shared pool."
 
 **Each scope has a hard maximum injected size** (`MEMORY_CAPS`: office 2500 / room
-10000 / agent 5000 / boss 5000 chars). APPEND refuses a write that would exceed
+10000 / agent 5000 / `boss` 5000 chars). APPEND refuses a write that would exceed
 the scope cap. REPLACE refuses growth over the cap, but remains raw-in-raw-out and
 allows an over-cap legacy file to shrink. Legacy over-cap scopes still load in
 full and refuse further APPENDs. The REST READ is uncapped and reports the current
 injected size and cap.
 
 **2. On-demand (the long tail).** The REST **READ** (`GET /api/memory`) returns the
-**whole raw file plus its `version`**, for any scope (including boss) for any
-authenticated caller - boss reads are NOT caller-scoped over REST (section 2). READ
+**whole raw file plus its `version`**, for any scope (including `boss`) for any
+authenticated caller - member reads are NOT caller-scoped over REST (section 2). READ
 is also the first half of the read-modify-REPLACE edit flow. Raw `grep` over the
 files remains a documented _convenience, not a policy boundary_.
 
@@ -219,9 +219,9 @@ Three verbs, two writers.
 
 Agents write **via REST**, never by editing files directly (the safety hooks block
 agent writes under `~/.isomux`). Agents may touch **all four scopes** with **no
-proposal queue or boss promotion step** - shared writes are the point. Discretion,
-not a gate, governs when an agent writes versus asks the boss first (section 6):
-the wider the scope, the more it should consult the boss. The non-ceremony safety
+proposal queue or member promotion step** - shared writes are the point. Discretion,
+not a gate, governs when an agent writes versus asks the member first (section 6):
+the wider the scope, the more it should consult the member. The non-ceremony safety
 measures are:
 
 1. **Memory is injected as notes, not policy** (section 3) - bad lines are
@@ -246,7 +246,7 @@ authority claim.
 | `agents/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
 | `rooms/<id>.md`   | any authenticated caller | `scopeId` required; must be an existing room                                                                       |
 | `office.md`       | any authenticated caller | no `scopeId`                                                                                                       |
-| `bosses/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id (any boss)        |
+| `bosses/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id (any member)        |
 
 ### Humans write/curate via the settings menu
 
@@ -258,7 +258,7 @@ settings menu has a memory field** next to its prompt field.
 | office | office prompt modal                      | office memory |
 | room   | room settings modal                      | room memory   |
 | agent  | edit-agent dialog                        | agent memory  |
-| boss   | user management (next to `memberPrompt`) | boss memory   |
+| `boss` | member management (next to `memberPrompt`) | member memory |
 
 The field uses the **same READ/REPLACE verbs** as agents (a shared
 `useMemoryEditor` hook): on open it READs `{ text, version }`; on save it PUTs the
@@ -294,18 +294,18 @@ guardrail. It tells agents:
   not the incident story.
 - **Scope and cap guidance:** choose the narrowest scope that reaches every agent
   that must act on the fact. When a scope is full, trim the agent's own lines,
-  propose the rest to a boss, or drop the note; never widen it. Office memory is
+  propose the rest to a member, or drop the note; never widen it. Office memory is
   only for facts that change how agents act there, and agents do not make big
   changes to it.
 - **The three operations:** APPEND by default (safe; server-stamped; 409 on a
   normalized-exact duplicate; 422 over the 400-character text limit or scope
   cap); EDIT or REMOVE is routine in the agent's own scope. In a shared scope,
-  agents fix their own line and propose other changes to a boss. Unrelated lines
+  agents fix their own line and propose other changes to a member. Unrelated lines
   stay byte-identical; a stale REPLACE returns 409, so re-READ and retry.
-- **The boss caveat:** boss memory is auto-loaded only for that boss's agents; it
+- **The member caveat:** member memory is auto-loaded only for that member's agents; it
   is not a confidentiality boundary.
 
-It does **not** expose the boss-memory filesystem path (section 2).
+It does **not** expose the member-memory filesystem path (section 2).
 
 **Honest caveat:** prompt-based restraint shapes a well-behaved model - a behavior
 nudge, not a boundary. The non-prompt guardrails are the exact-duplicate guard, the
@@ -314,7 +314,7 @@ version guard, and the op-log (section 4).
 ## 7. Cleanup and recovery
 
 Cleanup is **routine curation**: agents trim their own scope and propose shared
-scope trims to a boss; humans prune in the settings memory field (a REPLACE).
+scope trims to a member; humans prune in the settings memory field (a REPLACE).
 The slow leaks are duplicate restatements
 (mitigated at write time by the exact-normalized guard; rewords are allowed) and staleness (a fact goes
 wrong and nobody retracts it) - staleness is the known, consciously-deferred cost;
@@ -358,11 +358,11 @@ file the operator has to remember:
 
 Deferred. Add only if real scale demands:
 
-- **Boss-curated pinning.** If a scope routinely exceeds its cap, let a boss-pinned
+- **Member-curated pinning.** If a scope routinely exceeds its cap, let a member-pinned
   subset always survive truncation instead of pure newest-first.
 - **Proposal / promotion queue.** If open shared writes prove too noisy and the
   exact-duplicate guard plus lazy pruning are not enough, add an agent-proposes /
-  boss-confirms queue for office and room scopes.
+  member-confirms queue for office and room scopes.
 - **Vector / RAG over the same markdown files.** If "read whole / grep" stops
   scaling, add a vector index on top; the files stay the source of truth.
 - **A restore endpoint/UI over the op-log.** v1 restore is manual.
@@ -379,14 +379,14 @@ Deferred. Add only if real scale demands:
 - **Permissive on every verb** (any authenticated caller, target-existence gated),
   including the destructive REPLACE of office memory - restraint via the affordance,
   recovery via the op-log; pinned by a test.
-- **Boss boundary is auto-load only** (a boss's notes auto-inject solely into that
-  boss's own agents' prompts), not a REST-read restriction.
+- **Member boundary is auto-load only** (a member's notes auto-inject solely into that
+  member's own agents' prompts), not a REST-read restriction.
 - **APPEND dedup is exact-normalized only** (no fuzzy/Jaccard); a reword is allowed.
 - **Optimistic concurrency via a short sha256 `version`**; the synchronous
   read-modify-write within one store call is serialized by the single-threaded
   event loop, and the cross-request edit flow is guarded by the version.
 - **Per-scope hard injected-size caps** (office 2500 / room 10000 / agent 5000 /
-  boss 5000); APPEND cannot exceed them, REPLACE can shrink a legacy over-cap
+  `boss` 5000); APPEND cannot exceed them, REPLACE can shrink a legacy over-cap
   scope, auto-load remains complete, and READ remains uncapped.
 - **Humans curate via each scope's settings field**, a thin client of the same
   READ/REPLACE verbs (`useMemoryEditor`); raw in, raw out.

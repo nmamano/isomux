@@ -538,7 +538,7 @@ export function EditorPanel({
   }, [connectionId, openPath]);
 
   // Whenever a new initialPath arrives - first mount with one, or the parent
-  // sets a new path because the boss clicked another EditRequestCard -
+  // sets a new path because the member clicked another EditRequestCard -
   // either focus the existing tab or open the file. Activate it optimistically
   // so it becomes the active tab even when other tabs were restored from the
   // module store with a different activePath set already.
@@ -874,7 +874,7 @@ export function EditorPanel({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [saveActiveTab]);
 
-  // Close the mobile tab menu when the boss taps anywhere outside it (or its
+  // Close the mobile tab menu when the member taps anywhere outside it (or its
   // anchor button). pointerdown beats click so we close before a competing
   // tap target reads the open state.
   useEffect(() => {

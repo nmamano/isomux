@@ -322,7 +322,7 @@ export class SessionManager<H extends SessionHost = SessionHost> {
         //     turns don't double-count - we just lose the aborted turn from
         //     the running total. Acceptable for cost reporting.
         //   - system_text breadcrumbs from the adapter (e.g. "Codex interrupt
-        //     failed: …") are dropped here, so the user only sees the
+        //     failed: …") are dropped here, so the member only sees the
         //     orchestrator-level fallback message if the timeout path fires.
         //     Acceptable for debug UX.
         //   - tool_call events dropped here can make the matching tool_result

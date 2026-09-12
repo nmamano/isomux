@@ -1401,7 +1401,7 @@ export class CodexSession implements BackendSession {
           });
         }
         // If we self-interrupted to short-circuit a doomed-by-auth turn,
-        // remap status="interrupted" → "failed" so the user sees a clear
+        // remap status="interrupted" → "failed" so the member sees a clear
         // failure (not a misleading "interrupted" - which the UI treats as
         // a user-initiated stop). Substitute the error to the same auth
         // summary used for the stderr-driven path; the codex-emitted error
@@ -2145,7 +2145,7 @@ export class CodexSession implements BackendSession {
 
   private handleStderr(chunk: string): void {
     // Codex stderr is opaque process output. Route to the agent log as
-    // system_text so the boss has visibility. Codex's rust tracing colors
+    // system_text so the member has visibility. Codex's rust tracing colors
     // its log lines, so strip ANSI CSI sequences - the escapes would be
     // persisted verbatim and reach the chat as literal bytes (task
     // ebe1bc1e). Then trim trailing newlines and skip pure whitespace.
@@ -2359,7 +2359,7 @@ function splitPlainArgv(text: string): string[] | null {
 const PLAIN_ARGV_TOKEN = /^[A-Za-z0-9_./:@%+=,-]+$/;
 
 // The tokens of the single command this approval is about, or null when we
-// can't be sure what "the command" is. Null means "ask the user", and every
+// can't be sure what "the command" is. Null means "ask the member", and every
 // uncertain case lands there:
 //   - not exactly one parsed command action (nothing unambiguous to match)
 //   - a missing or non-string command

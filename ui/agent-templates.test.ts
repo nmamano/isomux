@@ -415,7 +415,7 @@ describe("Blank template dirty state", () => {
     expect(applied.customInstructions).toBe(template.customInstructions);
     expect(applied.customInstructions).toContain(FIRST_TURN_CLAUSE);
     expect(applied.customInstructions).toContain(
-      "Turn rough ideas into small, useful products that reach real users.",
+      "Turn rough ideas into small, useful products that reach real customers.",
     );
   });
 

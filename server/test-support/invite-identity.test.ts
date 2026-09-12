@@ -77,7 +77,7 @@ describe("invite identity allow-list", () => {
     expect(listInvites()).toHaveLength(1);
 
     const body = await refused.text();
-    expect(body).toContain("This invite is for a different user");
+    expect(body).toContain("This invite is for a different member");
     expect(body).toContain("You are signed in as Boss.");
     expect(body).toContain("This invite is for Newbie");
 
@@ -99,7 +99,7 @@ describe("invite identity allow-list", () => {
     });
     expect(page.status).toBe(409);
     const html = await page.text();
-    expect(html).toContain("This invite is for a different user");
+    expect(html).toContain("This invite is for a different member");
     expect(html).not.toContain('action="/auth/accept"');
     expect(peekInvite(token)).toMatchObject({ username: "Newbie" });
   });

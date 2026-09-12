@@ -49,7 +49,7 @@ a pending lobby, boot clears the marker without spawning a second agent.
 
 Older servers read the new lobby bucket in `agents.json` as an ordinary room.
 
-The lobby agent now loads the first owner's boss memory, and its token now reaches every room, board and agent the first owner reaches, for any person who opens its chat, member or not.
+The lobby agent now loads the first owner's member memory, and its token now reaches every room, board and agent the first owner reaches, for any person who opens its chat, member or not.
 
 With a normal token, any person who opens the lobby agent's chat, member or not, can have it file an office-global task.
 `defaultCreateRoomIdForIdentity` is the only implicit task-room default; the other
@@ -79,7 +79,7 @@ The owner can create a fresh agent from the profile to get the current text.
 - `receptionist.test.ts`: locked kill/move/name/cwd and the dedicated-directory
   assertions are replaced by editable lifecycle, one-slot, home-cwd
   and restart tests. The no-user token/global-tasks-only assertions are replaced
-  by normal first-owner reach and boss-memory assertions. Empty `full_state.rooms`
+  by normal first-owner reach and member-memory assertions. Empty `full_state.rooms`
   becomes a typed Lobby record. No-lobby spawn/close/swap assertions become
   room-capacity and protected-close assertions.
 - `system-prompt.test.ts`: the `buildReceptionistSystemPrompt` block is removed,

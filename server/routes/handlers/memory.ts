@@ -2,7 +2,7 @@
 // verbs: READ (memory.read), APPEND (memory.append), REPLACE (memory.replace).
 // See internal-docs/isomux-memory-design.md.
 //
-// Scopes: agent, room, office, boss. On APPEND the author + date are server-
+// Scopes: agent, room, office, member. On APPEND the author + date are server-
 // stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
 // not an authority claim. Authority is intentionally permissive: any
 // authenticated caller (agent token OR user cookie) may read,
@@ -13,8 +13,8 @@
 // authorization boundary.
 //
 // The one structural privacy property is in AUTO-LOAD (agent-manager), not here:
-// a boss's notes auto-load only into that boss's own agents' prompts. REST reads
-// of any scope are open to any authenticated caller - boss memory is
+// a member's notes auto-load only into that member's own agents' prompts. REST reads
+// of any scope are open to any authenticated caller - member memory is
 // context-scoped for auto-load, not REST-private.
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
@@ -90,8 +90,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   //            may be targeted by any authenticated caller.
   //   room   - scopeId required + must EXIST.
   //   office - never takes a scopeId (always office.md).
-  //   boss   - omitted scopeId defaults to the caller's own/manager userId; any
-  //            existing boss may be targeted by any authenticated caller.
+  //   member   - omitted scopeId defaults to the caller's own/manager userId; any
+  //            existing member may be targeted by any authenticated caller.
   //   other  - unsupported.
   function resolveTarget(
     identity: Identity,
@@ -149,7 +149,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     if (scope === "boss") {
       if (rawScopeId === undefined || rawScopeId === null) {
         // Default to the caller's own/manager user. An agent token with no
-        // manager userId has no default -> 400 (never bosses/null.md).
+        // manager userId has no default -> 400 (never members/null.md).
         const own = identity.userId;
         if (!own) {
           return {

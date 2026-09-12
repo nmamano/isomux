@@ -707,7 +707,7 @@ function registerBootHooks(): void {
     const roster = WELCOME_AGENTS.map(
       (agent) => `${agent.name} (${agent.family})`,
     ).join(", ");
-    return `You are the ${self.name} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription. The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet. If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+    return `You are the ${self.name} in this member's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription. The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet. If the member messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the member asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
   // Fixed outfits so all three welcome agents have a recognizable, friendly
@@ -1867,7 +1867,7 @@ function attributionFor(identity: Identity): {
 // the retired loopback /tasks surface. Same empty set for a token whose user is
 // gone.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
-  // Humans, their agents, and their remote-boss API tokens inherit the user's
+  // Humans, their agents, and their remote-member API tokens inherit the user's
   // rooms. Written as an allowlist
   // rather than "everything except cron-run": an APP identity also carries a
   // userId (the app's owner), so the fallthrough would have handed a registered
@@ -5633,7 +5633,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               );
             }
             // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
-            // below: the killed agent's own boss (the user that spawned it), plus
+            // below: the killed agent's own member (the user that spawned it), plus
             // office owners, and NEVER a cron run. Room grants move after a kill
             // and a dead agent's last room is a fact about the past, so the room
             // projection the live arm uses would be the wrong question here - and
@@ -5642,7 +5642,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             // Mirrors killedAgentLogAccess in identity/guards.ts clause for
             // clause, INCLUDING its cron-run denial: an AGENT identity carries its
             // spawning user's userId (which is what lets an agent reach its own
-            // boss's killed agents), but a CRON-RUN identity carries its
+            // member's killed agents), but a CRON-RUN identity carries its
             // creator's - so without this branch a cron run would out-reach the
             // very log route this discovery feeds.
             if (auth.identity.scope === "cron-run") {
@@ -6187,7 +6187,7 @@ function logBootBanners(): void {
     console.log(`    2. Open http://localhost:${PORT} in that browser.`);
     console.log("");
     console.log(
-      "  After you claim, the Access pane (User Settings) lets you enable",
+      "  After you claim, Settings → Office → Access lets you enable",
     );
     console.log(
       "  external access so everyday use doesn't need the SSH tunnel.",

@@ -48,7 +48,7 @@ interface SharedGhostProps {
   // userId is forwarded to the click handler so the parent can open
   // the user-edit modal preopened to the right user.
   userId: string;
-  // True when the ghost is in "away" mode (boss is in TaskView /
+  // True when the ghost is in "away" mode (member is in TaskView /
   // CronjobsView / Settings). The body fades; the bob continues so
   // it doesn't look fully frozen.
   dimmed: boolean;
@@ -87,7 +87,7 @@ function makeClickHandler(
   return (e: ReactMouseEvent<HTMLDivElement>) => {
     // Don't bubble to an underlying desk - a ghost rendered SE of a
     // desk overlaps the desk's hit area in some isometric configurations,
-    // and the boss expects clicking a ghost to open user settings, not
+    // and the member expects clicking a ghost to open user settings, not
     // also focus the agent.
     e.stopPropagation();
     e.preventDefault();
@@ -109,7 +109,7 @@ function makeClickHandler(
 // noticed after the ghost, not before it.
 
 // Moves shorter than this leave nothing behind: a stack reshuffle of a
-// few pixels (a second boss joining the same desk) should not puff.
+// few pixels (a second member joining the same desk) should not puff.
 const TRAIL_MIN_DISTANCE_PX = 12;
 
 // Each mark is dropped `back` of the way along the tail, measured back

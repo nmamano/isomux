@@ -155,7 +155,7 @@ const corrupt = (file: string, why: string): AppRegistryError =>
 // Validate a proposed app name against the grammar and the reserved list.
 // Returns the error to raise, or null when the name is acceptable. REJECTS
 // rather than sanitizes: an agent chose this string and is about to put it in a
-// URL it hands its boss, so silently registering `my_app` as `my-app` produces
+// URL it hands its member, so silently registering `my_app` as `my-app` produces
 // a working app at an address nobody was told about.
 export function checkAppName(name: string): AppRegistryError | null {
   if (name.length === 0) {

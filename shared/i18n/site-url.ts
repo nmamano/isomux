@@ -3,7 +3,7 @@
 // The public site is six static pages: the landing and the hosted page, each
 // in English, Spanish and Catalan. English sits at the root; the other two sit
 // under a language directory. This module is the one place that says so, so
-// the office (ui/office/Floor.tsx, which sends a boss to the site) and the
+// the office (ui/office/Floor.tsx, which sends a member to the site) and the
 // page checker (scripts/site-i18n-check.test.ts) cannot drift apart.
 //
 // Like time.ts and number.ts it holds no catalog words: it turns a language

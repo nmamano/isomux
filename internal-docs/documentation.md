@@ -21,7 +21,7 @@ Keep these consistent across all surfaces below.
   - `## Feature Highlights` - two subsections, `### Coworkers...` and `### An office made for humans and agents`. **Must stay in lockstep with the landing page's `<ul class="coworker-list">` and `<ul class="office-list">` (see section 2)** - same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
   - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md` and the hosted page (section 2b).
   - `## How it works` - one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
-- **Update when:** any user-visible feature is added, removed, or meaningfully changed.
+- **Update when:** any member-visible feature is added, removed, or meaningfully changed.
 - **Language:** English only. The README is the developer surface; the visitor-facing translations live on the landing (section 2).
 
 ## 2. Landing page (isomux.com)
@@ -81,7 +81,7 @@ Keep these consistent across all surfaces below.
 - **Internal safety evidence:** `internal-docs/safety-hooks.md` records the maintained scope, evidence, and limits for Claude and Codex pre-tool safety hooks. Update it when the policy surface, backend hook contract, installation checks, failure behavior, or isolation boundary changes.
 - **Sidebar nav:** every doc page renders a sidebar listing all pages, with the current one highlighted (sticky on desktop, stacked above content on mobile).
 - **Build:** `bun run build:docs`. The renderer rewrites local `.md` links to clean `/docs/<slug>` URLs (links to `features.md` → `/docs`), auto-generates an "On this page" TOC from H2/H3 headings, and writes Markdown variants under `site/_agent/docs/` for content negotiation. Trusted-source-only - no HTML sanitization (see the comment at the top of the script if outside contributions to `docs/` are ever accepted).
-- **Update when:** any feature is added, removed, or changed that's covered by a page above. `features.md` is the canonical inventory and must be updated alongside any user-visible change.
+- **Update when:** any feature is added, removed, or changed that's covered by a page above. `features.md` is the canonical inventory and must be updated alongside any member-visible change.
 - **Deploy note:** built and served by Vercel via `vercel.json`'s `buildCommand` (which calls `bun run build:docs`) and `cleanUrls: true`.
 
 ## 4b. Machine-readable site resources
@@ -175,11 +175,11 @@ These aren't user-facing docs, but they do describe features and can fall out of
 - `docs/developer-api.md` also documents the discovery manifest: a desk agent has a 1-based `room`; the lobby agent has `room: null`, `roomName: "Lobby"`, and `roomId: "lobby"`. Keep both discovery aliases and the members-chat routes in sync with the runtime.
 - `shared/receptionist-profile.ts` and `server/receptionist-profile.ts` define and render the Isomux Receptionist profile. The renderer includes `ISOMUX_KNOWLEDGE` from `api/chat.ts` byte for byte at spawn. Office name and members are a spawn-time snapshot; the expanded text persists as normal custom instructions. `shared/agent-templates.ts` holds the template catalog. Lobby agents persist in the typed room bucket in `agents.json`.
 
-## Quick checklist when adding a user-visible feature
+## Quick checklist when adding a member-visible feature
 
 1. `README.md` `## Feature Highlights` - only if the feature is headline-level.
 2. `site/index.html` `<ul class="coworker-list">` / `<ul class="office-list">` - keep in lockstep with the README.
-3. `docs/features.md` - canonical inventory. Add/edit here whenever any user-visible feature changes.
+3. `docs/features.md` - canonical inventory. Add/edit here whenever any member-visible feature changes.
 4. `docs/<other>.md` - touch the relevant page if the feature affects setup, access, backup, etc.
 5. `api/chat.ts` `SYSTEM_PROMPT` - the feature-list section and any relevant guideline.
 6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` - only if it adds a command or changes tips. A new command also needs its `commands.<name>.description` in all three catalogs and an entry in `shared/i18n/command-keys.ts`.

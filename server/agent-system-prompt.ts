@@ -37,7 +37,7 @@ export function buildAgentSystemPrompt(
             {
               scope: "boss" as const,
               scopeId: agent.userId,
-              label: `Boss "${agent.username ?? "boss"}"`,
+              label: `Member "${agent.username ?? "member"}"`,
             },
           ]
         : []),

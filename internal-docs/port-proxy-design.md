@@ -42,25 +42,25 @@ identity.
 
 ## Problem
 
-An agent runs `bun dev` on :5173 and tells the boss to open it. On auntie that
-works: tailscale makes every port on the box reachable from the boss's devices.
+An agent runs `bun dev` on :5173 and tells the member to open it. On auntie that
+works: tailscale makes every port on the box reachable from the member's devices.
 On a VPS install it does not - `configure_firewall` allows 80, 443 and SSH only,
-and Caddy proxies exactly one thing (`$DOMAIN -> 127.0.0.1:4000`). The boss can
+and Caddy proxies exactly one thing (`$DOMAIN -> 127.0.0.1:4000`). The member can
 get a screenshot via `preview-url`, but cannot click anything.
 
 ## Options
 
 **A. SSH tunnel, documented.** `ssh -L 5173:localhost:5173 root@box`, then open
 `http://localhost:5173`. Zero code, zero exposure, full interactivity. Costs: a
-terminal on the boss's machine, SSH enabled on the box (opt-in per the hosted
+terminal on the member's machine, SSH enabled on the box (opt-in per the hosted
 design), and no phone story.
 
 **B. Subpath on the office origin** (`https://office.example.com/app/5173/...`).
 Rejected on two independent grounds:
 
-- _Auth blast radius._ Same origin means the boss's `isomux_session` cookie
+- _Auth blast radius._ Same origin means the member's `isomux_session` cookie
   (`Path=/`, host-only) is sent to the agent's app on every request, and any
-  script the app loads can call the office API as the boss with a matching
+  script the app loads can call the office API as the member with a matching
   `Origin` header. A dependency in a scratch dev app becomes office takeover.
   Stripping the cookie on the way out fixes half of it; the same-origin fetch
   path is unfixable.
@@ -78,7 +78,7 @@ prerequisite below. This is the real feature.
 
 **D. Third-party tunnel per app** (cloudflared, ngrok, Funnel). Another account
 and daemon, publishing to the whole internet with the vendor's auth. Fine as
-something a boss chooses; not something isomux should build on.
+something a member chooses; not something isomux should build on.
 
 **E. Open the port in ufw.** No TLS, no auth, and the firewall becomes mutable
 state agents poke at. No.
@@ -89,7 +89,7 @@ Ship **A now, C when hosted goes live** - and not before the prerequisite lands.
 
 A is a docs change (`docs/vps-install.md`, since merged into `docs/self-hosted.md`) plus a line in the agent system
 prompt, so agents suggest the tunnel instead of handing out a `localhost:5173`
-URL that will not resolve from the boss's browser. That is the whole answer for
+URL that will not resolve from the member's browser. That is the whole answer for
 a laptop.
 
 C is what works from a phone and for an invited office member who will never
@@ -224,7 +224,7 @@ address. The ask endpoint is a purpose-built domain predicate - an indexed
 lookup against the active share table, not a generic loopback-authenticated
 route - because Caddy calls it on every unknown SNI. Set `strict_sni_host` so
 SNI and Host cannot disagree. Cap concurrent and newly created shares, and
-document the CA limit; a boss who burns the weekly budget on a dev loop gets a
+document the CA limit; a member who burns the weekly budget on a dev loop gets a
 confusing TLS failure otherwise.
 
 Both need a wildcard A record (`*.apps.<office>`), provisioned by the control
@@ -269,7 +269,7 @@ same registered-domain certificate budget.
 The office session cookie is host-only, so it never reaches the app subdomain.
 Each share gets its own cookie, minted through the office origin:
 
-1. Boss opens `https://alice-7f3c9d.apps.office.example.com/some/path`. No app
+1. Member opens `https://alice-7f3c9d.apps.office.example.com/some/path`. No app
    cookie.
 2. isomux redirects to the office origin, carrying the requested path:
    `https://office.example.com/auth/app?h=<host>&r=<path>`. This is the only
@@ -330,7 +330,7 @@ reach for it casually.
 Only the agent's manager or an office owner may enable a pending share. Room
 visibility alone is not enough - a member who can watch an agent should not be
 able to publish its output. Once enabled, the share is reachable by the office
-users who can see the agent's room. There is no anonymous access.
+members who can see the agent's room. There is no anonymous access.
 
 Wildcard DNS resolves every hostname under `apps.<office>`, approved or not, so
 enablement must be enforced by isomux and never inferred from a working

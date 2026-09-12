@@ -270,11 +270,11 @@ system prompt, which tells the agent to decline suspicious sites
 browser goes further: it can submit a form, follow a login, and act as the
 person whose cookies the profile holds.
 
-The browser now holds the managing boss's logins. That is the point of the
+The browser now holds the manager's logins. That is the point of the
 feature, and it raises the consequence of a hostile page or mistaken action.
-The boundary is ownership: the office stores one profile per boss under its
-state root, every agent managed by that boss shares it, and another boss's
-agents never load it. If a boss asks an agent managed by someone else to use a
+The boundary is ownership: the office stores one profile per member under its
+state root, every agent managed by that member shares it, and another member's
+agents never load it. If a member asks an agent managed by someone else to use a
 login, the agent confirms that it will act with its manager's profile first.
 
 The browser keeps the other enforced boundaries: http(s) only for the URL the
@@ -291,10 +291,10 @@ keeps authentication only there will not survive an idle close. Source:
 
 Two alternatives were weighed on 2026-09-10. A plain read-at-open and
 write-at-close storage-state file loses a newer login when an older context
-closes last, so the implementation serializes writes per boss, re-reads the
+closes last, so the implementation serializes writes per member, re-reads the
 latest file and merges only that context's changes. A persistent Chrome context
-per boss would let Chrome own the profile directly, but it costs one browser's
-fixed memory per active boss and lets that boss's agents share a context. The
+per member would let Chrome own the profile directly, but it costs one browser's
+fixed memory per active member and lets that member's agents share a context. The
 storage-state design keeps one shared browser and one context per agent.
 
 ### 7.3 Live view and human input
@@ -387,14 +387,14 @@ under Playwright. Both are correct for what they measure.
 
 Conclusion: **one shared browser, one context per agent, idle-close the context**.
 
-Re-measured 2026-09-10 after adding the per-boss storage-state profile, with
+Re-measured 2026-09-10 after adding the per-member storage-state profile, with
 Chrome 151.0.7922.137 and `playwright-core` 1.62.1. Each context loaded a small
 local page, so these figures do not replace the heavier office-page measurements
 above. No same-page run without persistence was made, so this run does not
 isolate the profile's own memory cost. PSS over the Chrome process tree was 255
 MB at one agent (9 processes) and 964 MB at six agents (19 processes).
 The same run set an HttpOnly session cookie, closed the context, and confirmed
-that a later agent of the same boss read `logged-in`; an agent of another boss
+that a later agent of the same member read `logged-in`; an agent of another member
 read `logged-out`. Log: `/tmp/browser-use/slice2-measurement.log`.
 
 ## 9. Open questions for Nil
@@ -412,8 +412,8 @@ single revert.
 3. **Which backends get it first?** Recommendation: all three, because the route
    costs nothing per backend.
 4. **Does the browser keep cookies between turns?** Nil's 2026-09-05 ruling:
-   yes. The managing boss's agents share one persistent storage-state profile;
-   another boss's agents never load it (section 7.2).
+   yes. The manager's agents share one persistent storage-state profile;
+   another member's agents never load it (section 7.2).
 5. **Is there a permission prompt?** Recommendation: no prompt. Isomux enforces
    rules in the route handler and the agent sees a refusal, matching the
    philosophy that no human-approval gate stands in front of an agent action.
@@ -561,9 +561,9 @@ but no live two-agent run was made.
 Re-measured 2026-09-10 with Chrome 151.0.7922.137. A real `BrowserPool`
 opened a local login page while a live-view listener was attached. The listener
 received 19 screencast frames. CDP keyboard input entered
-`boss@example.test`, the agent clicked Sign in, and the page reported
-`signed in as boss@example.test`. After close, a later agent of the same boss
-read `signed in`; an agent of another boss read `signed out`. Human input and
+`member@example.test`, the agent clicked Sign in, and the page reported
+`signed in as member@example.test`. After close, a later agent of the same member
+read `signed in`; an agent of another member read `signed out`. Human input and
 the agent click used the same page. Log:
 `/tmp/browser-use/slice3-live-probe.log`. The panel render is captured at
 `/tmp/browser-use/browser-panel.png`.
@@ -597,10 +597,10 @@ the agent click used the same page. Log:
     has used the browser. This module installs NO signal handler: OpenCode's
     supervisor is the single owner, and a second self-re-raising reaper would
     cut its cleanup short (section 11.3).
-  - Each agent context loads the managing boss's storage-state profile. On
-    close, a third queue serializes writes per boss; the writer re-reads the
+  - Each agent context loads the manager's storage-state profile. On
+    close, a third queue serializes writes per member; the writer re-reads the
     file and merges its changes against its opening baseline. Profile capture
-    has its own deadline, and a corrupt file is moved aside before the boss
+    has its own deadline, and a corrupt file is moved aside before the member
     starts again with an empty profile.
 - `POST /api/agents/:id/browser` - route, handler, manager op, contract shapes.
 - The Browser side panel - CDP screencast frames over the office WebSocket and
@@ -618,5 +618,5 @@ the agent click used the same page. Log:
   REST cases in `server/test-support/routes-agent-affordances-rest.test.ts`,
   plus the live-view authorization case and Browser panel render test.
 
-The user-visible copy is quoted verbatim in the report to the PM, for Nil to
+The member-visible copy is quoted verbatim in the report to the PM, for Nil to
 approve or replace. It is applied in this branch so the branch is testable.

@@ -378,7 +378,7 @@ export function saveFile(
   force: boolean,
 ): SaveFileResult {
   // Concurrency guard: if the disk changed since what the client opened,
-  // refuse (unless `force`). Client surfaces a banner that lets the boss
+  // refuse (unless `force`). Client surfaces a banner that lets the member
   // choose Overwrite (force=true) or Reload.
   let st: ReturnType<typeof statSync> | null = null;
   try {

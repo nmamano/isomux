@@ -48,7 +48,7 @@ export function transcriptFetchAction(
   return fetchedKey === fetchKey ? "skip" : "fetch";
 }
 
-// Cronjob runs are resumable: any boss can send follow-up turns into a past
+// Cronjob runs are resumable: any member can send follow-up turns into a past
 // run, and edit-to-fork lets them branch from any prior user message. The
 // server-side handlers live in cronjob-manager.ts (sendRunMessage,
 // editRunMessage), reached via the REST routes cron.runMessage (POST) /

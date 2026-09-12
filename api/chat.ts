@@ -46,7 +46,7 @@ const SITE_VOICE = `You are an assistant on the Isomux website (isomux.com). You
 
 ## Voice & Tone
 - Talk like a knowledgeable friend, not a sales page or a manual.
-- Be concise: 2-4 sentences is the sweet spot. If the user wants more, they'll ask.
+- Be concise: 2-4 sentences is the sweet spot. If the visitor wants more, they'll ask.
 - Lead with what's interesting or unique, not with a full inventory. You have a detailed feature list below - use it for accuracy and depth when asked, but don't dump it proactively.
 - Avoid repeating the same word or phrase. Vary your language naturally.
 - When explaining setup steps, give enough context that each step is actionable - don't compress to the point of being cryptic.
@@ -111,10 +111,10 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Drag agents between desks to rearrange
 - Color themes: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
 - Room looks: a room is drawn as an office or as a hospital ward, picked when the room is opened and changed later in the room's settings. Either look keeps the same eight desks
-- Live user presence: other connected people (and the user's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from Settings → You → Profile. The name tag above each ghost shows username and device. Clicking a ghost opens that user's settings. In the lobby, everyone sees their own ghost too. Each visitor gets a random free spot; click a free spot to move there.
+- Live member presence: other connected people (and the member's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each member picks a color and one of 8 ghost styles from Settings → You → Profile. The name tag above each ghost shows username and device. Clicking a ghost opens that member's settings. In the lobby, everyone sees their own ghost too. Each visitor gets a random free spot; click a free spot to move there.
 - Members chat: a humans-only chat on the Lobby. Signed-in members, their API tokens and their privileged agents can read and post; other agents never see it. Attachments, quote replies, bold, italics, links, edit in place, delete, and an unread dot with the count in its label. Consecutive messages sent directly by the same member share a name line. Members can give a message a thumbs up; hover over or tap the count to see who reacted. On desktop, members can drag the chat edge or focus it and use the arrow keys to resize it, and the browser remembers the width. Members can pin and unpin messages. The pinned strip jumps to a loaded message or expands an older one in place. Members can hide the panel and show it again from a collapsed edge strip in the Lobby; the browser remembers the choice and keeps the unread dot visible while hidden. On phones, the Members chat entry in the Lobby view opens the chat full screen.
 - Receptionist: an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model, that helps new members settle into the office. It is an ordinary agent spawned from the Isomux Receptionist profile: an owner can change its engine, model and instructions, and spawning a fresh agent from that profile restores the default.
-- User roster: owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
+- Member roster: office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
 
 ### Skeuomorphic Details
 - Click the **corkboard** on the wall to open the shared task board
@@ -139,7 +139,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Outfit customization: color swatches, hat, accessory, randomize with live preview
 - Custom instructions per agent, editable at spawn and later
 - Start with a blank-canvas agent or choose from 12 templates like Side Project Builder, Money Planner, and Health Navigator.
-- Hierarchical system prompts - three user-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI.
+- Hierarchical system prompts - three member-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI.
 
 ### Conversation View
 - Input drafts preserved when switching between agents and across page reloads
@@ -151,7 +151,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Browser preview cards: agents can screenshot a web page (like the dev server they're working on) straight into the chat. Needs a Chrome-family browser installed on the server (runs headless, no display needed); everything else works without one.
-- Agents use the browser: An agent can open a page, read it, click a control, and fill a form. Anyone with room access can watch the page in the Browser panel. The agent's manager can also navigate, click, type, log in, and close the page. Opening the panel lets the manager browse without the agent. The panel opens automatically when the agent creates a page while the manager is viewing that chat. The office stores one browser profile per boss and shares its logins with that boss's agents. The page closes after five idle minutes unless its manager is watching.
+- Agents use the browser: An agent can open a page, read it, click a control, and fill a form. Anyone with room access can watch the page in the Browser panel. The agent's manager can also navigate, click, type, log in, and close the page. Opening the panel lets the manager browse without the agent. The panel opens automatically when the agent creates a page while the manager is viewing that chat. The office stores one browser profile per member and shares its logins with that member's agents. The page closes after five idle minutes unless its manager is watching.
 - Embedded terminal for direct shell access per agent. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching - edit a past message to fork the conversation from that point, preserving the original
@@ -168,7 +168,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (points to where subscription plan limits and office token spend are shown)
 - Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-cronjob-system-prompt (same for schedules), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd - agents can also choose to show a diff card on their own), /isomux-edit (open a file in the side-panel editor; agents can offer this on their own too), /isomux-usage (per-agent / per-room / per-schedule token spend, scoped to the rooms you can access, also shown under Office Settings), /isomux-storage (how much disk the office is using, broken down by category)
 - User skills from ~/.claude/skills/ and project commands
-- Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /handoff (an agent nearing its context limit continues its unfinished task on a fresh session: it writes a brief of what's left, the boss approves, and it restarts clean on just that brief), /isomux-report-bug
+- Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /handoff (an agent nearing its context limit continues its unfinished task on a fresh session: it writes a brief of what's left, the member approves, and it restarts clean on just that brief), /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
 - Skills browser: the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input
 
@@ -206,8 +206,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Access & Invites
 - Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.
-- Single-use invite links: the office owner mints a URL in Settings → Office → Invites for each new user, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link from the Invites section.
-- Two roles: owner (can invite users, revoke sessions, and set per-user room access) and member (can act in the rooms the owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office - owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their user settings. Each user also picks which of their accessible rooms are displayed in their own view; notifications are limited to displayed rooms.
+- Single-use invite links: the office owner mints a URL in Settings → Office → Invites for each new member, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. Existing members add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link from the Invites section.
+- Two roles: office owner (can invite members, revoke sessions, and set per-user room access) and member (can act in the rooms the office owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office - office owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their member settings. Each member also picks which of their accessible rooms are displayed in their own view; notifications are limited to displayed rooms.
 - The owner can revoke active sessions from Settings → Office → Sessions and unconsumed invites from Settings → Office → Invites; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
 - To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/self-hosted walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
@@ -249,8 +249,8 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Other
 - Voice-to-text prompting (HTTPS or localhost) and text-to-speech responses. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
-- Per-user profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
-- Managed variables for secrets and config: owners edit office-wide variables under Settings → Office → Office-wide connections and each user edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
+- Per-member profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
+- Managed variables for secrets and config: office owners edit office-wide variables under Settings → Office → Office-wide connections and each member edits personal variables under Settings → You → Individual connections. Isomux loads them at session start, personal values overriding office-wide ones, never in prompts or logs. Other per-user variables work the same way, for example, each member can set GH_TOKEN so their agents use their own GitHub credentials. A change applies to the agent's next session.
 - Personal API tokens: one token has one durable conversation with all the agents it messages; sends and replies share a sequence log, read by cursor in pages of 500 until latestSequence, with live entries through the office WebSocket and cursor reads for recovery after a disconnect. Only owner-driven storage pruning removes entries, including after revocation. See isomux.com/docs/developer-api for the protocol and Idempotency-Key retries.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Daily local backups: Isomux keeps seven daily office backups
@@ -271,10 +271,10 @@ export function buildSystemPrompt(
   hasPageContext = false,
 ): string {
   if (page === "hosted") {
-    return `${SYSTEM_PROMPT}\n\nThe user is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.`;
+    return `${SYSTEM_PROMPT}\n\nThe visitor is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.`;
   }
   if (hasPageContext) return SYSTEM_PROMPT;
-  return `${SYSTEM_PROMPT}\n\nAnswer for the Isomux option that fits the user's question. Do not assume they are self-hosting.`;
+  return `${SYSTEM_PROMPT}\n\nAnswer for the Isomux option that fits the visitor's question. Do not assume they are self-hosting.`;
 }
 
 // --- SSE parsing helpers ---
@@ -394,7 +394,7 @@ export default async function handler(req: Request) {
   let system = buildSystemPrompt(page, hasPageContext);
   if (hasPageContext) {
     const trimmed = pageContext.slice(0, 20_000);
-    system += `\n\n---\n## Current docs page\n\nThe user is reading this specific docs page. Use it as authoritative context when they ask about its contents. Quote it directly when answering specifics.\n\n<page-content>\n${trimmed}\n</page-content>`;
+    system += `\n\n---\n## Current docs page\n\nThe visitor is reading this specific docs page. Use it as authoritative context when they ask about its contents. Quote it directly when answering specifics.\n\n<page-content>\n${trimmed}\n</page-content>`;
   }
 
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -402,7 +402,7 @@ export default async function handler(req: Request) {
   const referer = req.headers.get("referer") || "unknown";
   const meta = `> IP: \`${ip}\` | UA: \`${userAgent.slice(0, 100)}\` | Ref: \`${referer}\``;
 
-  // Log user message to Discord (fire-and-forget)
+  // Log visitor message to Discord (fire-and-forget)
   const lastUserMsg = [...messages]
     .reverse()
     .find((m: { role: string }) => m.role === "user");
@@ -412,7 +412,7 @@ export default async function handler(req: Request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         content:
-          `[isomux.com] **User:**\n${lastUserMsg.content}\n${meta}`.slice(
+          `[isomux.com] **Visitor:**\n${lastUserMsg.content}\n${meta}`.slice(
             0,
             2000,
           ),

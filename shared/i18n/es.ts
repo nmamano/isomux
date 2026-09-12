@@ -102,7 +102,7 @@ export const es: Catalog = {
   "common.role": "Rol",
   "common.rooms": "Salas",
   "common.signOut": "Cerrar sesión",
-  "common.user": "Usuario",
+  "common.user": "Miembro",
   "common.schedules": "Programaciones",
   "common.apps": "Apps",
   "common.changeTheme": "Cambiar el tema",
@@ -118,7 +118,7 @@ export const es: Catalog = {
   "settings.backToOffice": "Volver a la oficina",
   "settings.selectHint": "Elige un ajuste de la lista",
   "settings.profilesNote":
-    "Los perfiles de usuario se guardan en el servidor. Tus notificaciones y credenciales te siguen entre dispositivos.",
+    "Los perfiles de miembro se guardan en el servidor. Tus notificaciones y credenciales te siguen entre dispositivos.",
   "settings.signOutHint": "Cierra la sesión de este dispositivo",
   "settings.you": "(tú)",
   "settings.sidebar.office": "Oficina",
@@ -136,23 +136,23 @@ export const es: Catalog = {
   "settings.sidebar.deviceLabel": "Etiqueta del dispositivo",
   "settings.sidebar.members": "Miembros",
   "settings.members.editHint":
-    "Solo el propio usuario y los propietarios pueden editar un usuario",
+    "Solo el propio miembro y los propietarios de la oficina pueden editar un miembro",
   "settings.members.onlineNow": "En línea ahora",
   "settings.members.online": "en línea",
   "settings.members.onlineSessions.one": "en línea · {count} sesión",
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
-  "settings.role.owner": "propietario",
+  "settings.role.owner": "propietario de la oficina",
   "settings.role.member": "miembro",
   "settings.role.ownerHint":
-    "Propietario - puede invitar usuarios, revocar sesiones y fijar el acceso a salas de cada usuario",
+    "Propietario - puede invitar miembros, revocar sesiones y fijar el acceso a salas de cada miembro",
   "settings.role.memberHint":
-    "Miembro - puede actuar en las salas que el propietario le permitió; no puede invitar ni revocar",
+    "Miembro - puede actuar en las salas que el propietario de la oficina le permitió; no puede invitar ni revocar",
 
   "settings.profile.identity": "Identidad",
   "settings.profile.displayName": "Nombre visible",
   "settings.profile.accessHint":
-    "Acceso: salas que este usuario puede ver y en las que puede actuar (lo gestiona el propietario).",
+    "Acceso: salas que este miembro puede ver y en las que puede actuar (lo gestiona el propietario de la oficina).",
   "settings.profile.viewHint":
     "Mostradas: cuáles de tus salas accesibles aparecen en tu vista. Notificaciones: sonido cuando un agente de esa sala termina. Una sala debe estar mostrada para notificar.",
   "settings.profile.roomColumn": "Sala",
@@ -165,21 +165,21 @@ export const es: Catalog = {
   "settings.profile.agentContext": "Contexto para agentes",
   "settings.profile.profilePrompt": "Prompt de perfil",
   "settings.profile.profilePromptHint":
-    "(se inyecta en el prompt de sistema de los agentes que posees; los agentes de otros usuarios pueden consultarlo si necesitan contexto sobre ti)",
+    "(se inyecta en el prompt de sistema de los agentes que posees; los agentes de otros miembros pueden consultarlo si necesitan contexto sobre ti)",
   "settings.profile.profilePromptTitle": "{user} · Prompt de perfil",
   "settings.profile.profilePromptExpandedHint":
-    "Se inyecta en el prompt de sistema de los agentes que posee este usuario; los agentes de otros usuarios pueden consultarlo si necesitan contexto sobre él.",
+    "Se inyecta en el prompt de sistema de los agentes que posee este miembro; los agentes de otros miembros pueden consultarlo si necesitan contexto sobre él.",
   "settings.profile.profilePromptPlaceholder":
     "Unas notas para los agentes sobre quién eres, tu rol, cómo te gusta colaborar…",
   "settings.profile.memoryHint":
-    "(hechos duraderos sobre este usuario; reescribe el archivo tal como se muestra - una memoria por línea; {size} / {cap})",
+    "(hechos duraderos sobre este miembro; reescribe el archivo tal como se muestra - una memoria por línea; {size} / {cap})",
   "settings.profile.memoryTitle": "{user} · Memoria",
   "settings.profile.memoryPlaceholder":
-    "Alguna memoria relevante para este usuario",
+    "Alguna memoria relevante para este miembro",
   "settings.profile.appearance": "Apariencia",
   "settings.profile.avatarHint":
-    "(tu fantasma en la escena de la oficina; los demás usuarios lo ven junto al agente que estás viendo)",
-  "settings.profile.deleteHint": "Eliminar este usuario",
+    "(tu fantasma en la escena de la oficina; los demás miembros lo ven junto al agente que estás viendo)",
+  "settings.profile.deleteHint": "Eliminar este miembro",
   "settings.profile.deleteFailed": "No se pudo eliminar",
   "settings.profile.roomListFailed":
     "No se pudo confirmar tu lista de salas; Mostradas no se guardó.",
@@ -435,14 +435,14 @@ export const es: Catalog = {
     "Envía esta URL a la persona invitada. Es de un solo uso: al abrirla en su dispositivo, entra. La URL se muestra una vez - cópiala ahora.",
 
   "settings.invites.intro":
-    "Añade un miembro o un propietario: emite una URL de invitación y envíasela por otro canal. Al abrirla se crea su cuenta y ese dispositivo entra. Para más dispositivos en una cuenta que ya existe, cada persona genera su propio enlace desde <i>Mis dispositivos</i>.",
+    "Añade un miembro o un propietario de la oficina: emite una URL de invitación y envíasela por otro canal. Al abrirla se crea su cuenta y ese dispositivo entra. Para más dispositivos en una cuenta que ya existe, cada persona genera su propio enlace desde <i>Mis dispositivos</i>.",
   "settings.invites.issueFor": "Emitir invitación para…",
   "settings.invites.namePlaceholder": "Nombre nuevo (p. ej. Marc)",
   "settings.invites.existing":
     "<b>{name}</b> ya existe, así que no hace falta ninguna invitación: para entrar con otro dispositivo, {name} puede generar un enlace desde <i>Mis dispositivos</i> en sus propios ajustes - o le puedes emitir un enlace de recuperación aquí abajo.",
   "settings.invites.grantRoom": "Dar acceso a {room}",
   "settings.invites.roomsHint":
-    "La persona invitada entra con acceso a las salas marcadas. Déjalas todas sin marcar para dar acceso más tarde desde sus ajustes.",
+    "La persona invitada entra con acceso a las salas marcadas. Déjalas todas sin marcar para dar acceso más tarde desde Ajustes → Miembros.",
   "settings.invites.expiryHint":
     "El enlace de invitación caduca 24 h después de emitirlo si no se usa. Las sesiones aceptadas duran hasta 1 año (revocables desde la sección Sesiones en cualquier momento).",
   "settings.invites.minting": "Emitiendo…",
@@ -530,7 +530,7 @@ export const es: Catalog = {
   "settings.connections.officeVars":
     "Variables para cada agente de esta oficina",
   "settings.connections.officeVarsHint":
-    "Estas variables se cargan para cada agente salvo que una variable de usuario tenga prioridad.",
+    "Estas variables se cargan para cada agente salvo que una variable de miembro tenga prioridad.",
   "settings.connections.ownerManaged":
     "Las variables de toda la oficina las gestiona una persona propietaria.",
   "settings.connections.personalVars": "Variables para los agentes que creo",
@@ -764,13 +764,13 @@ export const es: Catalog = {
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
     "Se fija al crear el agente - el responsable no se puede cambiar después.",
-  "dialogs.agent.managerNoUser": "(sin usuario asignado)",
+  "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
   "dialogs.agent.managerHint":
-    "Vinculado al usuario que lo crea. Determina qué variables personales se cargan en cada sesión (mira Ajustes → Tú → Conexiones individuales).",
+    "Vinculado al miembro que lo crea. Determina qué variables personales se cargan en cada sesión (mira Ajustes → Tú → Conexiones individuales).",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
-    "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del usuario que lo creó. Sigue actuando como el agente, nunca como el usuario.",
+    "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.",
   "dialogs.agent.privilegedRestart":
     "Al guardar se reinicia la sesión del agente.",
   "dialogs.agent.permission.ask": "Preguntar",
@@ -965,17 +965,17 @@ export const es: Catalog = {
   "apiCall.memory.readAgent": "Leer las memorias de este agente",
   "apiCall.memory.readRoom": "Leer las memorias de la sala",
   "apiCall.memory.readOffice": "Leer las memorias de la oficina",
-  "apiCall.memory.readBoss": "Leer las memorias del jefe",
+  "apiCall.memory.readBoss": "Leer las memorias del miembro",
   "apiCall.memory.readAny": "Leer las memorias",
   "apiCall.memory.saveAgent": "Guardar una memoria para este agente",
   "apiCall.memory.saveRoom": "Guardar una memoria de sala",
   "apiCall.memory.saveOffice": "Guardar una memoria de oficina",
-  "apiCall.memory.saveBoss": "Guardar una memoria de jefe",
+  "apiCall.memory.saveBoss": "Guardar una memoria de miembro",
   "apiCall.memory.save": "Guardar una memoria",
   "apiCall.memory.rewriteAgent": "Reescribir las memorias de este agente",
   "apiCall.memory.rewriteRoom": "Reescribir las memorias de la sala",
   "apiCall.memory.rewriteOffice": "Reescribir las memorias de la oficina",
-  "apiCall.memory.rewriteBoss": "Reescribir las memorias del jefe",
+  "apiCall.memory.rewriteBoss": "Reescribir las memorias del miembro",
   "apiCall.memory.rewriteAny": "Reescribir las memorias",
   "apiCall.rooms.create": "Crear una sala",
   "apiCall.rooms.createNamed": "Crear la sala {name}",
@@ -1034,8 +1034,8 @@ export const es: Catalog = {
   "common.sender.cronjob": "{name} · programación",
   "cards.userMessage.expand": "Expandir mensaje",
   "cards.userMessage.collapse": "Contraer mensaje",
-  "cards.userMessage.toRemoteBoss": "Al jefe remoto",
-  "cards.userMessage.toRemoteBossNamed": 'Al jefe remoto "{name}"',
+  "cards.userMessage.toRemoteBoss": "Al miembro remoto",
+  "cards.userMessage.toRemoteBossNamed": 'Al miembro remoto "{name}"',
   "cards.userMessage.editAndBranch": "Editar y ramificar",
   "cards.thinking.label": "Pensando...",
   "cards.toolCall.input": "Entrada",
@@ -1268,8 +1268,8 @@ export const es: Catalog = {
   "office.tabs.roomSettings": "Haz doble clic para la configuración de la sala",
   "office.tabs.closeEmptyRoom": "Cerrar la sala vacía",
   "office.tabs.newRoom": "Crear una sala nueva",
-  "office.tabs.onlineUsers.one": "{count} usuario en línea",
-  "office.tabs.onlineUsers.other": "{count} usuarios en línea",
+  "office.tabs.onlineUsers.one": "{count} miembro en línea",
+  "office.tabs.onlineUsers.other": "{count} miembros en línea",
   "office.zoom.in": "Acercar",
   "office.zoom.out": "Alejar",
   "office.zoom.reset": "Restablecer la vista (0)",
@@ -1656,10 +1656,10 @@ export const es: Catalog = {
   "commands.help.tipPhoneVpn":
     "Isomux funciona en el móvil. Lo más fácil es conectarlo a la misma VPN (por ejemplo Tailscale, que es gratis) que la máquina donde se ejecuta.",
   "commands.help.tipInviteFunnel":
-    "Cuando la oficina sea accesible desde fuera de tu VPN (por ejemplo con Tailscale Funnel; mira {url}), el propietario puede abrir Ajustes de usuario → Acceso y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
+    "Cuando la oficina sea accesible desde fuera de tu VPN (por ejemplo con Tailscale Funnel; mira {url}), un propietario de la oficina puede abrir Ajustes → Oficina → Invitaciones y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
   "commands.help.tipPhoneOrigin": "Isomux funciona en el móvil: abre {origin}.",
   "commands.help.tipInvite":
-    "El propietario puede abrir Ajustes de usuario → Acceso y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
+    "Un propietario de la oficina puede abrir Ajustes → Oficina → Invitaciones y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
   "commands.help.tipTerminal":
     "El terminal del panel lateral va bien para casos puntuales en los que necesitas ejecutar algo a mano, como un inicio de sesión.",
   "commands.help.tipHooks":
@@ -1972,7 +1972,7 @@ export const es: Catalog = {
   "storageReport.locationOfficeState": "estado de la oficina",
   "storageReport.locationNotSetUp": "{label} (sin configurar)",
   "storageReport.ownerOnly":
-    "_El desglose por agente y las rutas son solo para el propietario._",
+    "_El desglose por agente y las rutas son solo para el propietario de la oficina._",
   "storageReport.biggestAgents": "Agentes más grandes",
   "storageReport.columnAgent": "Agente",
   "storageReport.columnTranscripts": "Transcripciones",
@@ -1983,7 +1983,7 @@ export const es: Catalog = {
   "storageReport.showing":
     "_Se muestran los {shown} agentes más grandes de {total} con datos guardados._",
   "storageReport.nothingDeleted":
-    "_Aquí no se borra nada automáticamente. Las transcripciones y los adjuntos solo se eliminan cuando el propietario lo pide._",
+    "_Aquí no se borra nada automáticamente. Las transcripciones y los adjuntos solo se eliminan cuando el propietario de la oficina lo pide._",
   "storageReport.unknownSize": "tamaño desconocido",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
@@ -2016,7 +2016,7 @@ export const es: Catalog = {
   "preAuth.claim.ogDescription":
     "Reclama la propiedad de una oficina Isomux nueva.",
   "preAuth.claim.errorOwnerExists":
-    "Esta oficina ya tiene propietario. Actualiza la página e inicia sesión con un enlace de invitación.",
+    "Ya existe un propietario de la oficina. Actualiza la página e inicia sesión con un enlace de invitación.",
   "preAuth.claim.errorName":
     "Elige un nombre para mostrar (letras, números, espacios, puntos, guiones, apóstrofos o guiones bajos).",
   "preAuth.invite.titleAccept": "aceptar invitación",
@@ -2038,17 +2038,17 @@ export const es: Catalog = {
   "preAuth.inviteError.consumed": "Esta invitación ya se ha usado.",
   "preAuth.inviteError.expired": "Esta invitación ha caducado.",
   "preAuth.inviteError.roleMismatch":
-    "Esta invitación no se puede aceptar porque el usuario que ya existe tiene otro rol. Pide al propietario que cree una invitación nueva.",
+    "Esta invitación no se puede aceptar porque el miembro que ya existe tiene otro rol. Pide a un propietario de la oficina que cree una invitación nueva.",
   "preAuth.inviteError.ownerExists":
-    "Esta oficina ya tiene propietario. Las invitaciones iniciales dejan de funcionar cuando la oficina ya está reclamada.",
+    "Ya existe un propietario de la oficina. Las invitaciones iniciales dejan de funcionar cuando la oficina ya está reclamada.",
   "preAuth.inviteError.generic": "Esta invitación ya no es válida.",
-  "preAuth.conflict.heading": "Esta invitación es para otro usuario",
+  "preAuth.conflict.heading": "Esta invitación es para otro miembro",
   "preAuth.conflict.body":
     "Has iniciado sesión como {current}. Esta invitación es para {invitee}: ábrela en su dispositivo o en otro perfil del navegador.",
   "preAuth.signOutBlocked.title": "cierre de sesión bloqueado",
   "preAuth.signOutBlocked.heading": "Cierre de sesión bloqueado",
   "preAuth.signOutBlocked.lastOwnerSession":
-    "Cierre de sesión rechazado: esta es la última sesión activa de propietario en la oficina. Crea otra invitación para ti y acéptala en otro dispositivo antes de volver a intentarlo.",
+    "Cierre de sesión rechazado: esta es la última sesión activa de un propietario de la oficina. Crea otra invitación para ti y acéptala en otro dispositivo antes de volver a intentarlo.",
   "demo.banner.short":
     "Esto es una demo. Para conectar agentes reales de Claude, Codex y OpenCode:",
   "demo.banner.long":

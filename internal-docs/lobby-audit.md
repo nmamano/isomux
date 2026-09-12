@@ -1,7 +1,7 @@
 > Superseded behavior, 2026-09-08: the receptionist is now an ordinary agent
 > created from the Isomux Receptionist profile. Name, cwd, kill, move, prompt and
 > token use the normal paths. Its initial cwd is ~; the old directory is left
-> on disk. The first owner is its boss. Knowledge and office guidance render at
+> on disk. The first owner is its member. Knowledge and office guidance render at
 > spawn into custom instructions. The canonical lobby room has one slot and
 > persists in agents.json. Any agent can occupy it; an empty lobby stays empty
 > across restarts. The former locks, restricted token, dedicated prompt and
@@ -85,7 +85,7 @@ in addition to reading their current runtime consumers.
 | ui/office/lobby/props-plaque.tsx | Two-line Employee of the Minute heading | Fixed. Both display lines are catalog entries in all three languages. Agent name remains data. |
 | ui/office/lobby/layouts.ts | Layouts, placements and ghost spots | Fixed. Added nilo with all saved coordinates and ten named spots without rounding. Internal editor layout labels stay outside user-facing translation scope. No live ghost consumer, per PM ruling. |
 | ui/demo-server.ts | Demo event and REST switches | Pass. Members-chat page/post/edit/delete/read fixtures remain beside main's API-token changes; the demo uses the same scene and catalog, with the fixed receptionist cwd reflected in its fixture. Upload remains the existing raw multipart route. |
-| shared/i18n/en.ts | Canonical user-visible messages | Fixed. Lobby strings and default identity names have catalog entries. Default stored identities remain English; reader-specific labels translate. |
+| shared/i18n/en.ts | Canonical member-visible messages | Fixed. Lobby strings and default identity names have catalog entries. Default stored identities remain English; reader-specific labels translate. |
 | shared/i18n/es.ts | Spanish catalog | Fixed. Complete translations with matching placeholders. |
 | shared/i18n/ca.ts | Catalan catalog | Fixed. Complete translations with matching placeholders. |
 | shared/i18n/time.ts | Locale date shapes | Fixed. Added explicit 24-hour clock and month/day/clock shapes for members chat; old dates use the existing fullDate shape. |
@@ -182,7 +182,7 @@ and mobile-chat redesign.
 
 The lobby-editor app remains bound to this worktree. Leave it and the stash
 alone. At merge the PM must resolve the app's worktree lifetime before cleanup.
-Server changes need a boss-approved restart; no server restart is part of this
+Server changes need a member-approved restart; no server restart is part of this
 lane. Worktree builds do not change the served office.
 
 ## Copy inventory

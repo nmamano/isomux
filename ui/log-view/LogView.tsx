@@ -124,7 +124,7 @@ class UploadStatusError extends Error {
 const PANEL_MIN = { terminal: 300, editor: 380, browser: 420 } as const;
 const PANEL_MAX = { terminal: 1000, editor: 1200, browser: 1400 } as const;
 // The chat column always keeps at least this many pixels regardless of how
-// far the boss drags the panel. Window-resize clamping shrinks the panel
+// far the member drags the panel. Window-resize clamping shrinks the panel
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
 
@@ -824,7 +824,7 @@ export function LogView({
       Math.min(PANEL_MAX.browser, window.innerWidth - CHAT_COLUMN_FLOOR),
     );
   }, []);
-  // Window-resize clamp: when the boss shrinks the browser window so far
+  // Window-resize clamp: when the member shrinks the browser window so far
   // that the panel + min chat column would overflow, shrink the panel.
   useEffect(() => {
     function clamp() {
@@ -1166,7 +1166,7 @@ export function LogView({
     return () => window.removeEventListener("keydown", handleEditorShortcut);
   }, [isMobile, features.editor, setEditorOpen]);
 
-  // Cite-from-selection: when the boss highlights text in the chat log, show
+  // Cite-from-selection: when the member highlights text in the chat log, show
   // a floating "Cite" pill that inserts the selection into the draft as a
   // triple-quoted block. Gated to pointer-fine devices because mobile scroll
   // is already finicky and must not regress. The

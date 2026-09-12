@@ -849,7 +849,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   //
   // We deliberately don't suppress the hint+card on subsequent attempts -
   // every user message that hits a broken backend gets the full actionable
-  // message. Boss preference: simpler over a terser repeated-failure UX.
+  // message. Member preference: simpler over a terser repeated-failure UX.
   function surfaceBackendNotConfigured(
     agentId: string,
     managed: ManagedAgent,
@@ -1146,7 +1146,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { name: managed.info.name, roomName: room.name };
   }
 
-  // Best-effort system note into an agent's chat (a plain log entry: boss-
+  // Best-effort system note into an agent's chat (a plain log entry: member-
   // visible in the UI, burns no turn, never enters the SDK conversation).
   // Used by the scheduled-message scheduler for delivery-failure notices.
   // Returns false when the agent doesn't exist.
@@ -1879,7 +1879,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return killedSummariesFrom(loadAgentHistory());
   }
 
-  // The killed agents SPAWNED BY one user - the boss-scoped reach behind
+  // The killed agents SPAWNED BY one user - the member-scoped reach behind
   // GET /agents?killed=1, the same rule killedAgentLogAccess
   // applies to the transcripts these ids unlock.
   //
@@ -2232,7 +2232,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // historical conversation (especially important for legacy revivals
         // where the SDK can never resume because cwd/project dir don't
         // match). New messages start a fresh SDK session that doesn't have
-        // that context, but the boss can read the past.
+        // that context, but the member can read the past.
         // Clear the historical topic - it was derived from the OLD session
         // that we can no longer resume. The fresh session will regenerate
         // its own topic from new messages.
@@ -2378,7 +2378,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Run the same path-resolution as /isomux-edit and emit an `edit-request` log
-  // entry so the boss can open the file in the editor side panel. Mirrors
+  // entry so the member can open the file in the editor side panel. Mirrors
   // emitAgentDiff. The card shows an [Open in editor] button - the panel never
   // auto-opens (matches the rejected "server auto-opens panel" decision).
   function emitAgentEditRequest(
@@ -2450,7 +2450,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Validate a command string and emit a `terminal-command` log entry so the
-  // boss sees a [Copy to terminal] card. Mirrors emitAgentEditRequest.
+  // member sees a [Copy to terminal] card. Mirrors emitAgentEditRequest.
   // Single-line only at first; agents that need multiple steps can join with
   // `&&` / `;` or set up a one-line wrapper.
   const TERMINAL_COMMAND_MAX_LEN = 4096;
@@ -2578,7 +2578,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // POST /api/agents/:id/preview-url. Unlike the sync
   // affordances this is async, and failures return structured HTTP errors
   // (status + code) instead of system chat messages: a failed screenshot has
-  // no boss-facing value, and the calling agent is the one who must react
+  // no member-facing value, and the calling agent is the one who must react
   // (start the dev server, fix the URL, retry). The entry's `content` is the
   // sanitized origin+pathname; the UI renders it as a visible caption.
   async function emitAgentPreviewUrl(
@@ -2675,7 +2675,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   // Run the same diff machinery as /isomux-diff and emit the result into the
   // agent's chat stream. Used by POST /api/agents/:id/diff so an agent can show
-  // the boss a styled diff card without the boss invoking the slash command.
+  // the member a styled diff card without the member invoking the slash command.
   function emitAgentDiff(
     agentId: string,
     dir?: string,
@@ -3036,7 +3036,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Turn-end activity stamp: entering a queue-idle state means the turn just
     // finished, so reset the idle clock here too (not only at turn start). "Idle
     // N min" should mean "quiet for N min" - otherwise a long turn that ends
-    // would be demoted by the very next sweep and a boss follow-up moments later
+    // would be demoted by the very next sweep and a member follow-up moments later
     // would eat a cold resume.
     if (state !== prev && isQueueIdleState(state)) {
       managed.lastActiveAt = Date.now();
@@ -3524,14 +3524,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.contextUsage = snapshot;
     if (shouldBroadcast) broadcastContextUsage(managed);
     // Commit side effects, per the design doc: store → broadcast → evaluate
-    // the BOSS-facing threshold notice. Independent of the broadcast throttle
+    // the MEMBER-facing threshold notice. Independent of the broadcast throttle
     // (uses the raw float, and the fired-set already dedups). The agent-facing
     // fired-set is never touched here - runAgentTurn owns it.
     maybeEmitUiContextNotice(managed);
     return true;
   }
 
-  // Boss-facing fullness notice (design doc §3): the first time a conversation
+  // Member-facing fullness notice (design doc §3): the first time a conversation
   // crosses each threshold band, surface ONE ephemeral system line in the
   // chat. A distinct audience from the agent-facing injected notice - separate
   // fired-set, so one audience firing never suppresses the other. Emitted from
@@ -3541,7 +3541,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // the first committed sample already clears both bands (e.g. lands at 87%),
   // only the HIGHEST band emits a line; all bands ≤ it are consumed.
   function maybeEmitUiContextNotice(managed: ManagedAgent): void {
-    // Keep this boss-facing guard aligned with buildContextNoticeBlock. Codex
+    // Keep this member-facing guard aligned with buildContextNoticeBlock. Codex
     // compacts itself; OpenCode is opted out by default
     // because its harness owns compaction and this lane did not establish when
     // /clear or /handoff advice is useful. Its measured connected-model windows
@@ -4151,7 +4151,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           flushPendingFreshRecoveryNotice(agentId, managed);
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
-          // status="interrupted" arrives after a user-initiated turn/interrupt.
+          // status="interrupted" arrives after a member-initiated turn/interrupt.
           // The orchestrator's abort() already logged "Agent interrupted." and
           // flipped state to waiting_for_response - don't re-log as an error
           // or flip state to error. The pendingTurn.resolve() below still fires
@@ -4220,7 +4220,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               emitDetectedAuthInstructions(agentId, managed);
             }
             // Auth-failed turns: leave the agent in waiting_for_response so the
-            // desk reads "user needs to sign in," not "agent crashed." Non-auth
+            // desk reads "member needs to sign in," not "agent crashed." Non-auth
             // failures still flip to "error" so genuine failures surface.
             updateState(
               agentId,
@@ -4457,7 +4457,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Both non-idle branches carry the warning. When the Claude CLI is
   // SIGTERMed mid-turn it hands the model hardcoded text claiming the USER
   // rejected the tool that was running. The resumed agent can't tell that from
-  // a real denial, so it wakes up believing its boss countermanded it and
+  // a real denial, so it wakes up believing its member countermanded it and
   // abandons the work (18 occurrences since 2026-07-25; 16 were our own service
   // restarts, 2 were earlyoom kills). It also can't tell whether the killed
   // command had already done half its job.
@@ -4882,14 +4882,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               label: `Room "${room.name}"`,
             },
           ]),
-      // Boss notes auto-load ONLY for this agent's manager boss (stable
-      // userId), so one boss's notes never bleed into another's context.
+      // Member notes auto-load ONLY for this agent's manager (stable
+      // userId), so one member's notes never bleed into another's context.
       ...(managed.info.userId
         ? [
             {
               scope: "boss" as const,
               scopeId: managed.info.userId,
-              label: `Boss "${managed.info.username ?? "boss"}"`,
+              label: `Member "${managed.info.username ?? "member"}"`,
             },
           ]
         : []),
@@ -5296,7 +5296,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // message labelled by sender. Both human senders (via sendMessage) and agent
   // senders (via the unified /api/agents/:id/messages route) go through the same queue.
   //
-  // Persistence: in-memory only. The boss accepted that restarts (a developer-only
+  // Persistence: in-memory only. The member accepted that restarts (a developer-only
   // event in practice) drop the queue.
 
   const QUEUE_MAX = 50;
@@ -5916,7 +5916,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           sdkText: prompt,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
           // Cron jobs are machine traffic, like agents and apps, so their
-          // completed turns stay silent. Only a human boss starts a chimeable
+          // completed turns stay silent. Only a human member starts a chimeable
           // turn here.
           humanInput: items.some((m) => m.sender.kind === "user"),
           onSendAccepted: () => {
@@ -6084,7 +6084,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Steering action: stop whatever the agent is doing and flush the queue.
-  // Mapped to the UI "Send now" button. No-op when the queue is empty so users
+  // Mapped to the UI "Send now" button. No-op when the queue is empty so members
   // who hit it accidentally don't kill an in-flight turn for no reason.
   //
   // REPORTS WHAT IT DID. The old signature was `Promise<void>`
@@ -6451,7 +6451,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // Runs before slash-command interception by design - any typed slash command
     // while a prompt is pending is consumed as a deny reason, matching the
-    // "anything else denies" contract shown to the user.
+    // "anything else denies" contract shown to the member.
     const clickedPermissionChoice =
       claimedChoice?.interaction.kind === "permission"
         ? claimedChoice.value
@@ -7550,7 +7550,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     // Legacy pre-revive entries have only name + lastRoom*. Missing fields
     // are defaulted below - agentType→claude, cwd→home, outfit→random - so
-    // the boss can recover the on-disk transcript. The fresh-fallback path
+    // the member can recover the on-disk transcript. The fresh-fallback path
     // in restoreOrReviveAgent kicks in when the SDK can't resume the legacy
     // session id (different project dir), and the log cache stays loaded
     // so the historical chat is visible against the fresh session.

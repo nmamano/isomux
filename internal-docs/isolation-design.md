@@ -234,7 +234,7 @@ Spawn path (`server/env-loader.ts:buildEnvFor(username)`):
 3. Merge: `{ ...process.env, ...officeEnv, ...userEnv }`
 4. Pass to the backend's `createSession({ env: mergedEnv, ... })`
 
-`buildEnvFor` is invoked at every spawn point: Claude `createSession` and `resumeSession`, Codex `createSession` and `resumeSession`, `list_backend_models`, cronjob fire, one-shot prompt. It returns `undefined` (not merged env) when no managed variables or personal provider are active, so default-path users see no behavior change.
+`buildEnvFor` is invoked at every spawn point: Claude `createSession` and `resumeSession`, Codex `createSession` and `resumeSession`, `list_backend_models`, cronjob fire, one-shot prompt. It returns `undefined` (not merged env) when no managed variables or personal provider are active, so default-path members see no behavior change.
 
 ### Spawn-time failure mode
 
@@ -397,7 +397,7 @@ The launcher is generated per-spawn so cwd, env file path, and UID can vary.
 
 1. **Cwd freedom.** Today agents pick any cwd via `recent-cwds.json` and roam outside it. A mount-isolated agent can only see what was bind-mounted at spawn. You either constrain cwd to a per-scope root, or accept that "scope" effectively means "this one repo subtree."
 2. **Cross-scope references.** Agents read each other's logs via `~/.isomux/agents-summary.json` and `~/.isomux/logs/<id>/...`. Mount isolation breaks that unless `~/.isomux` is bind-mounted read-only into every scope, which then re-leaks credentials stored there. Per-scope secrets need to live outside `~/.isomux` (which the per-office hub design already does: each office has its own state dir).
-3. **Moving an agent between scopes.** Currently a metadata flip in `agents.json`. Under namespace isolation, moving scopes means tearing down the namespace and rehydrating with a different UID/mount view. Workable but the user-visible "drag agent to new room" gesture now has session-restart semantics.
+3. **Moving an agent between scopes.** Currently a metadata flip in `agents.json`. Under namespace isolation, moving scopes means tearing down the namespace and rehydrating with a different UID/mount view. Workable but the member-visible "drag agent to new room" gesture now has session-restart semantics.
 4. **Tools the agent invokes.** `bun`, `git`, `gh`, MCPs all run inside the namespace and need to be present on the bound paths (i.e., system bin/lib mounts). Standard for `bwrap` but worth budgeting for the test matrix.
 5. **No root required if** the kernel permits unprivileged user namespaces. Default true on most modern distros, but some Debian/Ubuntu configs have toggled this off. Probe `/proc/sys/kernel/unprivileged_userns_clone` at startup and surface a clear error if disabled.
 

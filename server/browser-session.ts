@@ -13,11 +13,11 @@
 //     shared against about 3.4 GB with a browser each, because a browser each
 //     pays the 350 MB again every time. See
 //     internal-docs/browser-use-exploration.md section 8.
-//   - One storage-state profile per boss lives under the isomux state root.
-//     Agents of that boss share its cookies, local storage, IndexedDB and
-//     virtual WebAuthn credentials; agents of another boss never load it.
+//   - One storage-state profile per member lives under the isomux state root.
+//     Agents of that member share its cookies, local storage, IndexedDB and
+//     virtual WebAuthn credentials; agents of another member never load it.
 //     Contexts still die with the idle timer, then merge their changes into the
-//     latest profile under a per-boss queue so a stale close cannot erase a
+//     latest profile under a per-member queue so a stale close cannot erase a
 //     login another agent added.
 //   - Chrome keeps its own sandbox. `--no-sandbox` is NOT passed: pages here are
 //     untrusted by design, and the sandbox is what stands between a hostile page
@@ -153,7 +153,7 @@ export interface BrowserSessionDeps {
    * Default: actionMs + BACKSTOP_MARGIN_MS. Tests inject a short one.
    */
   backstopMs?: number;
-  /** Root for per-boss browser profiles. Default: the active isomux root. */
+  /** Root for per-member browser profiles. Default: the active isomux root. */
   stateRoot?: string;
 }
 
@@ -206,7 +206,7 @@ function mergeItems(
   return [...out.values()];
 }
 
-/** Merge only this context's changes into the newest per-boss state. */
+/** Merge only this context's changes into the newest per-member state. */
 export function mergeBrowserStorageState(
   latest: BrowserStorageState,
   baseline: BrowserStorageState,
@@ -426,7 +426,7 @@ export class BrowserPool {
         console.error(`[browser] moved corrupt profile aside: ${path}`);
       } catch {
         // A concurrent remove or a read-only directory must not strand every
-        // agent of this boss. Start empty and try recovery again next time.
+        // agent of this member. Start empty and try recovery again next time.
         console.error(
           `[browser] could not move corrupt profile aside: ${path}`,
         );

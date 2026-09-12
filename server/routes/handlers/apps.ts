@@ -178,7 +178,7 @@ export interface AppsDeps {
   // Deliver a message from `appName` to `targetAgentId`. The SENDER is built
   // server-side by the wiring, from the app name the token resolved to - so
   // nothing a caller writes can appear as the sender, and no app can speak as
-  // another app, an agent, or a boss. Never steers: an app must not be able to
+  // another app, an agent, or a member. Never steers: an app must not be able to
   // interrupt a turn in progress.
   sendAsApp(
     appName: string,

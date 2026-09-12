@@ -431,7 +431,7 @@ describe("ProviderAccountManager", () => {
       ok: false,
       status: 409,
       code: "shared_login_in_progress",
-      message: "Another user is signing in to this shared Codex account.",
+      message: "Another member is signing in to this shared Codex account.",
     });
     expect(starts).toBe(1);
   });

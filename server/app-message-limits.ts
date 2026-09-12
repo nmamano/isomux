@@ -4,7 +4,7 @@
 //
 // TWO LIMITS, BECAUSE THERE ARE TWO COSTS. A burst limit protects the office
 // from a hammering caller (the cost is isomux's, and it is paid whether or not
-// anything is delivered), and a daily cap protects the boss's model spend (the
+// anything is delivered), and a daily cap protects the member's model spend (the
 // cost is paid only when an agent actually wakes up). They are therefore spent
 // at different moments, which is why this is not one `take()`:
 //

@@ -72,7 +72,7 @@ owner and office owners.
 The audience is derived at read and authorization time, not persisted:
 
 - **Agent moved:** the old room audience loses access and the new room audience
-  gains it as part of the move. Open app sockets for users who lost access are
+  gains it as part of the move. Open app sockets for members who lost access are
   closed. One move can retarget several apps made by that agent.
 - **Agent killed:** the creator is no longer live, so the app immediately falls
   back to its owner and office owners. A killed-agent history row does not grant

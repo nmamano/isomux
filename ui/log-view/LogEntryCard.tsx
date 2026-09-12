@@ -369,7 +369,7 @@ function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
 // affordance key on.
 //
 // A user_message is not always a person. Three kinds of sender reach an agent
-// through the same queue and land in the same log: a boss typing, another agent
+// through the same queue and land in the same log: a member typing, another agent
 // (sender_agent_*), and one of the agent's own apps (sender_app_name). The
 // authority distinction has to survive the chip becoming a log entry, because
 // the log is what anyone reads afterwards - and editing someone else's message
@@ -412,7 +412,7 @@ export function describeMessageSender(
   }
   // An app messaging the agent that built it. Same treatment as an agent sender,
   // for a stronger reason: an app is unattended code, so a reader scrolling back
-  // must never take its message for the boss asking for something.
+  // must never take its message for the member asking for something.
   if (senderAppName) {
     return {
       label: i18n.t("common.sender.app", { name: senderAppName }),
@@ -881,7 +881,7 @@ export function UserMessage({
   username?: string;
   // Sender is not a person: another agent, or one of this agent's apps. Drives
   // the muted/dashed/italic treatment that keeps a non-human message from
-  // reading like the boss.
+  // reading like the member.
   fromNonHuman?: boolean;
   // The agent SENT this, rather than received it. Mirrors the card - accent
   // bar on the right and a small left inset - so direction is readable at a
@@ -1627,7 +1627,7 @@ function ToolResult({
   // path notices) and is already rendered above as the
   // user's upload - a full re-render just mirrors it back. Collapse to a
   // click-to-expand chip instead. Images read from anywhere else (agent
-  // screenshots, repo files) keep the full render: there the boss can't
+  // screenshots, repo files) keep the full render: there the member can't
   // otherwise know what the agent is looking at.
   const calledPathRaw = (
     pairedToolCall?.metadata?.input as { file_path?: unknown } | undefined
@@ -1883,7 +1883,7 @@ function TaskBreadcrumb({
 // Compact card for a tool call auto-denied without an interactive prompt
 // (metadata.permissionDenied on a system entry - auto-mode classifier, deny
 // rule, dontAsk). Styled distinctly from both SystemMessage and the error
-// block: a red-edged card, since the denial is a policy outcome the boss
+// block: a red-edged card, since the denial is a policy outcome the member
 // should notice, not an agent failure. No Unicode glyph for the marker (iOS
 // Safari emoji-renders glyphs, overriding CSS color).
 function PermissionDeniedCard({

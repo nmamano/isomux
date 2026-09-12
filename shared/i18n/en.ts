@@ -118,7 +118,7 @@ export const en = {
   "common.role": "Role",
   "common.rooms": "Rooms",
   "common.signOut": "Sign out",
-  "common.user": "User",
+  "common.user": "Member",
   "common.schedules": "Schedules",
   "common.apps": "Apps",
   "common.changeTheme": "Change theme",
@@ -135,7 +135,7 @@ export const en = {
   "settings.backToOffice": "Back to office",
   "settings.selectHint": "Select a setting from the list",
   "settings.profilesNote":
-    "User profiles are stored on the server. Your notifications and credentials follow you across devices.",
+    "Member profiles are stored on the server. Your notifications and credentials follow you across devices.",
   "settings.signOutHint": "End this device's session",
   "settings.you": "(you)",
   "settings.sidebar.office": "Office",
@@ -153,24 +153,24 @@ export const en = {
   "settings.sidebar.deviceLabel": "Device label",
   "settings.sidebar.members": "Members",
   "settings.members.editHint":
-    "Only the user themselves and owners can edit a user",
+    "Only the member and office owners can edit a member",
   "settings.members.onlineNow": "Online now",
   "settings.members.online": "online",
   "settings.members.onlineSessions.one": "online · {count} session",
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
-  "settings.role.owner": "owner",
+  "settings.role.owner": "office owner",
   "settings.role.member": "member",
   "settings.role.ownerHint":
-    "Owner - can invite users, revoke sessions, and set per-user room access",
+    "Office owner - can invite members, revoke sessions, and set per-user room access",
   "settings.role.memberHint":
-    "Member - can act in rooms the owner allowed; can't invite or revoke",
+    "Member - can act in rooms an office owner allowed; can't invite or revoke",
 
-  // The user editor (the Profile row and the roster rows).
+  // The member editor (the Profile row and the roster rows).
   "settings.profile.identity": "Identity",
   "settings.profile.displayName": "Display Name",
   "settings.profile.accessHint":
-    "Access: rooms this user can see and act in (owner-managed).",
+    "Access: rooms this member can see and act in (office-owner managed).",
   "settings.profile.viewHint":
     "Displayed: which of your accessible rooms appear in your own view. Notifications: sound when an agent in that room finishes. A room must be displayed to notify.",
   "settings.profile.roomColumn": "Room",
@@ -183,20 +183,20 @@ export const en = {
   "settings.profile.agentContext": "Agent Context",
   "settings.profile.profilePrompt": "Profile Prompt",
   "settings.profile.profilePromptHint":
-    "(auto-injected into the system prompt of agents you own; other users' agents can look it up if they need context on you)",
+    "(auto-injected into the system prompt of agents you own; other members' agents can look it up if they need context on you)",
   "settings.profile.profilePromptTitle": "{user} · Profile Prompt",
   "settings.profile.profilePromptExpandedHint":
-    "Auto-injected into the system prompt of agents this user owns; other users' agents can look it up if they need context on them.",
+    "Auto-injected into the system prompt of agents this member owns; other members' agents can look it up if they need context on them.",
   "settings.profile.profilePromptPlaceholder":
     "A few notes for agents about who you are, your role, how you like to collaborate…",
   "settings.profile.memoryHint":
-    "(durable boss-scoped facts for this user; rewrites the file exactly as shown - one memory per line; {size} / {cap})",
+    "(durable member-scoped facts for this member; rewrites the file exactly as shown - one memory per line; {size} / {cap})",
   "settings.profile.memoryTitle": "{user} · Memory",
-  "settings.profile.memoryPlaceholder": "Some memory relevant to this user",
+  "settings.profile.memoryPlaceholder": "Some memory relevant to this member",
   "settings.profile.appearance": "Appearance",
   "settings.profile.avatarHint":
-    "(your ghost in the office scene; other users see it next to the agent you're viewing)",
-  "settings.profile.deleteHint": "Delete this user",
+    "(your ghost in the office scene; other members see it next to the agent you're viewing)",
+  "settings.profile.deleteHint": "Delete this member",
   "settings.profile.deleteFailed": "Delete failed",
   "settings.profile.roomListFailed":
     "Could not confirm your room list; Displayed not saved.",
@@ -435,14 +435,14 @@ export const en = {
     "Send this URL to the invitee. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
 
   "settings.invites.intro":
-    "Add a new member or owner: issue an invite URL and send it to them out-of-band. Opening it creates their account and signs that device in. For extra devices on an existing account, each user generates their own device link from <i>My devices</i>.",
+    "Add a new member or office owner: issue an invite URL and send it to them out-of-band. Opening it creates their account and signs that device in. For extra devices on an existing account, each member generates their own device link from <i>My devices</i>.",
   "settings.invites.issueFor": "Issue invite for…",
   "settings.invites.namePlaceholder": "New username (e.g. Marc)",
   "settings.invites.existing":
     "<b>{name}</b> already exists, so no invite is needed: to sign in another device, {name} can generate a device link from <i>My devices</i> in their own settings - or you can mint them a recovery link below.",
   "settings.invites.grantRoom": "Grant access to {room}",
   "settings.invites.roomsHint":
-    "The invitee lands with access to the checked rooms. Leave all unchecked to grant access later from their user settings.",
+    "The invitee lands with access to the checked rooms. Leave all unchecked to grant access later from Settings → Members.",
   "settings.invites.expiryHint":
     "Invite link expires 24h after issuing if unused. Accepted sessions last up to 1 year (revocable from the Sessions section any time).",
   "settings.invites.minting": "Minting…",
@@ -450,8 +450,8 @@ export const en = {
   "settings.invites.mintFailed": "Failed to mint invite",
   "settings.invites.recovery": "Recovery",
   "settings.invites.recoveryHint":
-    "Help an existing user get back in. Device links are self-service, but someone signed out of every device can't mint their own - pick them here and send the link out-of-band. It expires in 24h; minting a new one replaces their previous link.",
-  "settings.invites.selectUser": "Select a user…",
+    "Help an existing member get back in. Device links are self-service, but someone signed out of every device can't mint their own - pick them here and send the link out-of-band. It expires in 24h; minting a new one replaces their previous link.",
+  "settings.invites.selectUser": "Select a member…",
   "settings.invites.mintRecovery": "Mint recovery link",
   "settings.invites.recoveryFailed": "Failed to mint recovery link",
   "settings.invites.outstanding": "Outstanding invites",
@@ -460,7 +460,7 @@ export const en = {
   "settings.invites.bootstrap": "(bootstrap)",
 
   "settings.sessions.intro":
-    "Devices signed into this office, across all users. Revoking a session signs that device out. New people get an invite from the Invites section; existing users add devices themselves from <i>My devices</i>.",
+    "Devices signed into this office, across all members. Revoking a session signs that device out. New people get an invite from the Invites section; existing members add devices themselves from <i>My devices</i>.",
   "settings.sessions.columnLastSeen": "Last seen",
   "settings.sessions.columnCreated": "Created",
   "settings.sessions.currentSession": "Current session",
@@ -526,7 +526,7 @@ export const en = {
   "settings.connections.envTitle": "Environment variables",
   "settings.connections.officeVars": "Variables for every agent in this office",
   "settings.connections.officeVarsHint":
-    "These variables load for every agent unless a user variable overrides them.",
+    "These variables load for every agent unless a member variable overrides them.",
   "settings.connections.ownerManaged":
     "Office-wide variables are managed by an office owner.",
   "settings.connections.personalVars": "Variables for agents I spawn",
@@ -601,7 +601,7 @@ export const en = {
 
   "settings.memberConnections.title": "Individual Connections",
   "settings.memberConnections.hint":
-    "Personal provider status and variable names for this user's agents.",
+    "Personal provider status and variable names for this member's agents.",
   "settings.memberConnections.loadFailed": "Could not load connections.",
   "settings.memberConnections.unknown": "Could not check status.",
   "settings.memberConnections.empty": "No variables.",
@@ -759,13 +759,13 @@ export const en = {
   "dialogs.agent.manager": "Manager",
   "dialogs.agent.managerTitle":
     "Set at spawn - manager cannot be changed after the agent is created.",
-  "dialogs.agent.managerNoUser": "(no user assigned)",
+  "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
   "dialogs.agent.managerHint":
-    "Locked to the spawning user. Controls which personal variables load on each session (see Settings → You → Individual connections).",
+    "Locked to the spawning member. Controls which personal variables load on each session (see Settings → You → Individual connections).",
   "dialogs.agent.privileged": "Privileged operator access",
   "dialogs.agent.privilegedHint":
-    "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning user's room-scoped permissions. It still acts as the agent, never as the user.",
+    "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the member.",
   "dialogs.agent.privilegedRestart": "Saving restarts the agent's session.",
   "dialogs.agent.permission.ask": "Ask",
   "dialogs.agent.permission.bypassAll": "Bypass all permissions",
@@ -947,17 +947,17 @@ export const en = {
   "apiCall.memory.readAgent": "Read memories for this agent",
   "apiCall.memory.readRoom": "Read room memories",
   "apiCall.memory.readOffice": "Read office memories",
-  "apiCall.memory.readBoss": "Read boss memories",
+  "apiCall.memory.readBoss": "Read member memories",
   "apiCall.memory.readAny": "Read memories",
   "apiCall.memory.saveAgent": "Save a memory for this agent",
   "apiCall.memory.saveRoom": "Save a room memory",
   "apiCall.memory.saveOffice": "Save a office memory",
-  "apiCall.memory.saveBoss": "Save a boss memory",
+  "apiCall.memory.saveBoss": "Save a member memory",
   "apiCall.memory.save": "Save a memory",
   "apiCall.memory.rewriteAgent": "Rewrite memories for this agent",
   "apiCall.memory.rewriteRoom": "Rewrite room memories",
   "apiCall.memory.rewriteOffice": "Rewrite office memories",
-  "apiCall.memory.rewriteBoss": "Rewrite boss memories",
+  "apiCall.memory.rewriteBoss": "Rewrite member memories",
   "apiCall.memory.rewriteAny": "Rewrite memories",
   "apiCall.rooms.create": "Create a room",
   "apiCall.rooms.createNamed": "Create room {name}",
@@ -1016,8 +1016,8 @@ export const en = {
   "common.sender.cronjob": "{name} · schedule",
   "cards.userMessage.expand": "Expand message",
   "cards.userMessage.collapse": "Collapse message",
-  "cards.userMessage.toRemoteBoss": "To remote boss",
-  "cards.userMessage.toRemoteBossNamed": 'To remote boss "{name}"',
+  "cards.userMessage.toRemoteBoss": "To remote member",
+  "cards.userMessage.toRemoteBossNamed": 'To remote member "{name}"',
   "cards.userMessage.editAndBranch": "Edit & branch",
   "cards.thinking.label": "Thinking...",
   "cards.toolCall.input": "Input",
@@ -1243,8 +1243,8 @@ export const en = {
   "office.tabs.roomSettings": "Double-click for room settings",
   "office.tabs.closeEmptyRoom": "Close empty room",
   "office.tabs.newRoom": "Create new room",
-  "office.tabs.onlineUsers.one": "{count} online user",
-  "office.tabs.onlineUsers.other": "{count} online users",
+  "office.tabs.onlineUsers.one": "{count} online member",
+  "office.tabs.onlineUsers.other": "{count} online members",
   "office.zoom.in": "Zoom in",
   "office.zoom.out": "Zoom out",
   "office.zoom.reset": "Reset view (0)",
@@ -1623,10 +1623,10 @@ export const en = {
   "commands.help.tipPhoneVpn":
     "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
   "commands.help.tipInviteFunnel":
-    "Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see {url}), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
+    "Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see {url}), an office owner can open Settings → Office → Invites and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
   "commands.help.tipPhoneOrigin": "Isomux works on your phone: open {origin}.",
   "commands.help.tipInvite":
-    "The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
+    "An office owner can open Settings → Office → Invites and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
   "commands.help.tipTerminal":
     "The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
   "commands.help.tipHooks":
@@ -1963,7 +1963,7 @@ export const en = {
   "storageReport.locationOfficeState": "office state",
   "storageReport.locationNotSetUp": "{label} (not set up)",
   "storageReport.ownerOnly":
-    "_The per-agent breakdown and the paths are owner-only._",
+    "_The per-agent breakdown and the paths are office-owner-only._",
   "storageReport.biggestAgents": "Biggest agents",
   "storageReport.columnAgent": "Agent",
   "storageReport.columnTranscripts": "Transcripts",
@@ -1974,7 +1974,7 @@ export const en = {
   "storageReport.showing":
     "_Showing the {shown} largest of {total} agents with stored data._",
   "storageReport.nothingDeleted":
-    "_Nothing here is deleted automatically. Transcripts and attachments are only removed when the owner asks for it._",
+    "_Nothing here is deleted automatically. Transcripts and attachments are only removed when an office owner asks for it._",
   "storageReport.unknownSize": "unknown size",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
@@ -1996,7 +1996,7 @@ export const en = {
   "preAuth.login.alreadySignedIn":
     "Already signed in elsewhere? Create invite links for your other devices in Settings.",
   "preAuth.login.askOwner": "Otherwise, ask the office owner for one.",
-  "preAuth.login.noOwner": "No owner has been set up for this office yet.",
+  "preAuth.login.noOwner": "No office owner has been set up yet.",
   "preAuth.login.claimHere": "Open {link} to claim ownership.",
   "preAuth.login.claimHereLink": "this office's home page",
   "preAuth.login.sshHint":
@@ -2005,7 +2005,7 @@ export const en = {
     "You're the first person to claim this office. Pick a display name; it'll appear next to anything you say.",
   "preAuth.claim.ogDescription": "Claim ownership of a new Isomux office.",
   "preAuth.claim.errorOwnerExists":
-    "This office already has an owner. Refresh and sign in with an invite link instead.",
+    "An office owner already exists. Refresh and sign in with an invite link instead.",
   "preAuth.claim.errorName":
     "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).",
   "preAuth.invite.titleAccept": "accept invite",
@@ -2027,17 +2027,17 @@ export const en = {
   "preAuth.inviteError.consumed": "This invite has already been used.",
   "preAuth.inviteError.expired": "This invite has expired.",
   "preAuth.inviteError.roleMismatch":
-    "This invite can't be accepted because the existing user has a different role. Ask the owner to mint a new invite.",
+    "This invite can't be accepted because the existing member has a different role. Ask an office owner to mint a new invite.",
   "preAuth.inviteError.ownerExists":
-    "This office already has an owner. Bootstrap invites stop working once the office has been claimed.",
+    "An office owner already exists. Bootstrap invites stop working once the office has been claimed.",
   "preAuth.inviteError.generic": "This invite is no longer valid.",
-  "preAuth.conflict.heading": "This invite is for a different user",
+  "preAuth.conflict.heading": "This invite is for a different member",
   "preAuth.conflict.body":
     "You are signed in as {current}. This invite is for {invitee}: open it on their device or in a separate browser profile.",
   "preAuth.signOutBlocked.title": "sign out blocked",
   "preAuth.signOutBlocked.heading": "Sign out blocked",
   "preAuth.signOutBlocked.lastOwnerSession":
-    "Sign out refused: this is the last active owner session in the office. Mint an additional invite for yourself and accept it on another device first, then retry.",
+    "Sign out refused: this is the last active office-owner session. Mint an additional invite for yourself and accept it on another device first, then retry.",
   "demo.banner.short":
     "This is a demo. To connect real Claude, Codex, and OpenCode agents:",
   "demo.banner.long":

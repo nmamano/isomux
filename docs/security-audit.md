@@ -11,7 +11,7 @@ navTitle: Security audit
 This audit was performed in collaboration by an **Anthropic Claude Opus 4.7 (Max-effort) agent** and an **OpenAI GPT-5.5 (xhigh-thinking) agent**. The Opus agent drove the review: read the auth-relevant modules, framed the threat model, drafted the findings, and authored this document. The GPT-5.5 agent acted as an independent reviewer: scrutinized scope and findings, calibrated severities, fact-checked claims, and signed off on the final wording. Both agents are Large-Language-Model-based and operate as conversational coding agents inside the Isomux office they audited; their interaction was via the office's inter-agent messaging API. The work was directed by Isomux's primary author (Nil Mamano).
 
 **Date:** 2026-05-17.
-**Scope:** External-access risk - can a party who was **not** intentionally given an invite URL gain access to the office? Specifically: forge a session/invite, intercept a legitimate token, exploit a CSRF/CSWSH gap to ride an authenticated user's session, or escalate from same-host non-operator context. What an invited member can do **inside** the office is out of primary scope; several internal authorization gaps are surfaced separately in **Appendix C** for future reference.
+**Scope:** External-access risk - can a party who was **not** intentionally given an invite URL gain access to the office? Specifically: forge a session/invite, intercept a legitimate token, exploit a CSRF/CSWSH gap to ride an authenticated member's session, or escalate from same-host non-operator context. What an invited member can do **inside** the office is out of primary scope; several internal authorization gaps are surfaced separately in **Appendix C** for future reference.
 **Out of scope:** What invited members can do once inside the office; OS-level isolation between members; agent-runtime safety hooks; denial-of-service; supply-chain.
 **Methodology:** Static code review of the auth-related modules (Appendix A). Implementation cross-checked against `docs/access-and-invites.md`. Findings were independently reviewed.
 
@@ -23,9 +23,9 @@ This audit was performed in collaboration by an **Anthropic Claude Opus 4.7 (Max
 
 The residual external-access risk concentrates around **invite-URL handling**: an invite URL is a bearer token, and it appears in places the original recipient does not fully control (the recipient's browser history, the delivery channel). Invite TTLs are capped at 24 hours for owner-issued invites and 1 hour for self-device invites; `Referrer-Policy: no-referrer` is set on the invite-accept page so the token cannot leak via the Referer header; and the first-owner claim flow is served on the loopback interface.
 
-A separate **shared-device** risk applies to anyone who opens Isomux on a computer they don't control: the session cookie persists for up to 1 year, and the next user of the browser has full access if the invited user forgot to sign out. The mitigation is per-device revocation from the Access pane, which propagates within ~1 second over the active WebSocket.
+A separate **shared-device** risk applies to anyone who opens Isomux on a computer they don't control: the session cookie persists for up to 1 year, and the next member who uses the browser has full access if the invited member forgot to sign out. The mitigation is per-device revocation from the Access pane, which propagates within ~1 second over the active WebSocket.
 
-**This audit does not cover what an authenticated member can do once inside the office.** Several internal authorization gaps (cronjobs and file attachments accessible across rooms, uploaded HTML executing in the same origin, etc.) are surfaced in Appendix C as a forward-looking inventory but are explicitly out of the primary scope of this document. If your trust model treats every invited user as equally privileged for everything in the office (the documented model in `docs/access-and-invites.md`), the answer to "is Isomux safe?" is the TL;DR above. If your trust model relies on the room ACL to keep members separated, read Appendix C first.
+**This audit does not cover what an authenticated member can do once inside the office.** Several internal authorization gaps (cronjobs and file attachments accessible across rooms, uploaded HTML executing in the same origin, etc.) are surfaced in Appendix C as a forward-looking inventory but are explicitly out of the primary scope of this document. If your trust model treats every invited member as equally privileged for everything in the office (the documented model in `docs/access-and-invites.md`), the answer to "is Isomux safe?" is the TL;DR above. If your trust model relies on the room ACL to keep members separated, read Appendix C first.
 
 ---
 
@@ -46,7 +46,7 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 - No valid session cookie.
 - No valid invite URL - the attacker may try to acquire one through leakage.
 - Standard internet-attacker primitives: control of a malicious domain the victim can be lured to; ability to send phishing links; ability to MITM unencrypted traffic on the network path; ability to read any data the victim's browser auto-attaches to a top-level navigation.
-- (Conditional) Access to a device the invited user has used (shared computer, family device, cloud-synced browser history, recovered backup). Relevant for invite-URL retention and for the shared-device cookie persistence.
+- (Conditional) Access to a device the invited member has used (shared computer, family device, cloud-synced browser history, recovered backup). Relevant for invite-URL retention and for the shared-device cookie persistence.
 
 ### 3.2 Attacker goals (in scope)
 
@@ -60,7 +60,7 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 - An authenticated member intentionally or accidentally elevating their privileges, reading other members' data, or mutating shared state in ways the room ACL was expected to prevent. Preserved in **Appendix C**.
 - An authenticated member uploading malicious content that another member opens (cross-member XSS). Preserved in Appendix C.
-- A same-host process running as the isomux Linux user impersonating an agent. Preserved in Appendix C.
+- A same-host process running as the isomux Linux account impersonating an agent. Preserved in Appendix C.
 
 ---
 
@@ -90,7 +90,7 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 - `server/auth-middleware.ts` - `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; first-owner claim responses omit `Referrer-Policy` because their URL contains no bearer token (`securityHeaders({ tokenInUrl: false })`).
 - `server/auth.ts` - one-time consumption.
 
-**Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next user, a forgotten-to-log-out chat archive) can act on it.
+**Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next member, a forgotten-to-log-out chat archive) can act on it.
 
 ---
 
@@ -98,9 +98,9 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 **Severity:** Low (the lifetime is a deliberate product choice).
 
-**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next user of the device - who may not be an intended invitee - has full access in the original user's role and identity without ever needing the invite URL or the cookie value.
+**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next member who uses the device - who may not be an intended invitee - has full access in the original member's role and identity without ever needing the invite URL or the cookie value.
 
-The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts`) defend against every cross-site attack; they do not defend against the next user of the same physical browser.
+The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts`) defend against every cross-site attack; they do not defend against the next member who uses the same physical browser.
 
 **Affected files & lines.**
 
@@ -121,7 +121,7 @@ The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attrib
 
 **Description.** `peekInvite` (`server/auth.ts`) returns one of three distinct errors - `not_found`, `consumed`, `expired` - and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
 
-**Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate user loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not currently implemented.
+**Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate member loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not currently implemented.
 
 ---
 
@@ -270,7 +270,7 @@ Raw tokens are never logged. `safePrefix` (`server/auth.ts`) is used for the few
 
 ### 7.4 Cookie revocation latency
 
-A revoked session is force-closed within ~1 second on any active WebSocket (per-message recheck + notify-then-close). For an HTTP-only attacker (no WebSocket) the next HTTP request returns 401 immediately. Revocation is effectively synchronous from the legitimate user's perspective.
+A revoked session is force-closed within ~1 second on any active WebSocket (per-message recheck + notify-then-close). For an HTTP-only attacker (no WebSocket) the next HTTP request returns 401 immediately. Revocation is effectively synchronous from the legitimate member's perspective.
 
 ### 7.5 Vendor telemetry
 
@@ -299,7 +299,7 @@ Reference document: `docs/access-and-invites.md`.
 ## Appendix B - Methodology
 
 - **Static code review.** No dynamic testing, no exploit PoCs executed against a live instance.
-- **Threat model construction.** Built from `docs/access-and-invites.md` and module-level comments in `server/auth.ts`. Scope limited to external (non-invited) access risk per the project's primary use case (small-team self-hosted offices where every invited user is trusted equally).
+- **Threat model construction.** Built from `docs/access-and-invites.md` and module-level comments in `server/auth.ts`. Scope limited to external (non-invited) access risk per the project's primary use case (small-team self-hosted offices where every invited member is trusted equally).
 - **Findings prioritization.** Severity reflects exploit preconditions, blast radius, and the gap between current behavior and the documented intent.
 - **Pair review.** Produced by a pair-programming workflow with two LLM-based coding agents (Anthropic Claude Opus 4.7 Max-effort + OpenAI GPT-5.5 xhigh-thinking) acting in driver/reviewer roles. Findings, severities, and final wording were independently scrutinized.
 
@@ -307,15 +307,15 @@ Reference document: `docs/access-and-invites.md`.
 
 ## Appendix C - Internal authorization gaps (out of primary scope)
 
-Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited user is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
+Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited member is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
 
 ### C.1 Cronjob metadata and run transcripts are office-wide-readable
 
-- Cronjob config and run transcripts are readable by every authenticated user. The full cronjob list is delivered to each session on connect (office-wide metadata read by design), and the cron read routes (`cron.list`, `cron.get`, `cron.listRuns`, `cron.listAllRuns`, `cron.getRun`) require only `cron:read`, which every authenticated user holds, so any member can read any creator's config and runs.
+- Cronjob config and run transcripts are readable by every authenticated member. The full cronjob list is delivered to each session on connect (office-wide metadata read by design), and the cron read routes (`cron.list`, `cron.get`, `cron.listRuns`, `cron.listAllRuns`, `cron.getRun`) require only `cron:read`, which every authenticated member holds, so any member can read any creator's config and runs.
 - Run transcripts execute with the creator's env and can contain their secrets, so transcript read, not metadata, is the sharp edge here.
 - The legacy `GET /cronjobs/*` read route was a trusted same-host (loopback) bypass: a process on the server read cronjob metadata and transcripts without a token. **Resolved (2026-07-30):** the route is retired; `/api/cronjobs*` requires `cron:read`, so the office-wide-read gap below is now the only one left here.
 
-Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.delete`/`cron.runNow`) require the creator or an office owner (`cronjobOwnerOrOfficeOwner`, keyed on the stored `userId`); the shared cron prompt (`cron.setPrompt`) requires an office owner; create (`cron.create`) is open to any authenticated user.
+Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.delete`/`cron.runNow`) require the creator or an office owner (`cronjobOwnerOrOfficeOwner`, keyed on the stored `userId`); the shared cron prompt (`cron.setPrompt`) requires an office owner; create (`cron.create`) is open to any authenticated member.
 
 **If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read).
 
@@ -356,10 +356,10 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 Unlike C.1 through C.6, this is an intentional mechanism rather than a gap. It is documented here because it is the one place an agent's narrow default authority (C.4) is widened on purpose.
 
-- By default an agent's bearer token carries only its own loopback surface: messaging other agents as itself, the shared task board, and the self-affordances on its own chat. An office owner (for any agent), or an agent's manager (for the agents that user spawned), can opt an agent into **privileged** operator access. This widens the token to a curated subset of the spawning user's capabilities: driving other agents' sessions (resume, new-conversation, send-now, cancel, lifecycle), full cron management over the cronjobs that user created, and room management (creating rooms office-wide, and renaming, configuring, or closing the rooms the spawning user can access).
+- By default an agent's bearer token carries only its own loopback surface: messaging other agents as itself, the shared task board, and the self-affordances on its own chat. An office owner (for any agent), or an agent's manager (for the agents that member spawned), can opt an agent into **privileged** operator access. This widens the token to a curated subset of the spawning member's capabilities: driving other agents' sessions (resume, new-conversation, send-now, cancel, lifecycle), full cron management over the cronjobs that member created, and room management (creating rooms office-wide, and renaming, configuring, or closing the rooms the spawning member can access).
 - **The identity scope stays `agent`.** Privilege only adds capabilities; it never changes scope. A privileged agent's outbound messages still attribute to the agent, and the routes gated on `scope === "user"` stay unreachable to it: invite minting, login-session administration, user-record and access administration, office-wide settings, and the cronjob prompt. Room management is the room-level grant above; office-level administration is not part of it.
-- **Authority is a subset of the spawning user's.** Each added capability reaches only what that user could already reach from the UI: the room operations are scoped to the rooms the spawning user can access (room-create adds the new room to that user's and the owners' access lists, exactly as that user creating it would), and cron is limited to the jobs that user owns. A privileged agent gains no office-owner powers and no cross-user reach. The conferral itself is gated the same way: a member may privilege only the agents they manage, never another member's, and no agent (privileged or not) can set the flag.
-- **Blast radius.** The flip side of the subset bound: a privileged agent inherits its spawning user's destructive reach. A compromised or prompt-injected one can spam-create rooms and close any shared room that user can access (which evicts co-members), on top of the destructive operations the operator set already implies (killing agents, rewriting files). All of it is bounded by that user's own ability and is the accepted cost of granting operator access, not a new boundary. Grant it deliberately, as you would hand over your own operator seat.
+- **Authority is a subset of the spawning member's.** Each added capability reaches only what that member could already reach from the UI: the room operations are scoped to the rooms the spawning member can access (room-create adds the new room to that member's and the office owners' access lists, exactly as that member creating it would), and cron is limited to the jobs that member owns. A privileged agent gains no office-owner powers and no cross-member reach. The conferral itself is gated the same way: a member may privilege only the agents they manage, never another member's, and no agent (privileged or not) can set the flag.
+- **Blast radius.** The flip side of the subset bound: a privileged agent inherits its spawning member's destructive reach. A compromised or prompt-injected one can spam-create rooms and close any shared room that member can access (which evicts co-members), on top of the destructive operations the operator set already implies (killing agents, rewriting files). All of it is bounded by that member's own ability and is the accepted cost of granting operator access, not a new boundary. Grant it deliberately, as you would hand over your own operator seat.
 - This does not change the external-access surface assessed in Sections 1 through 5: the token is still injected only into a local agent subprocess and is never minted to an external party. The privileged set deliberately excludes the credential-minting (invite) and login-session paths, so a confused or compromised privileged agent cannot bootstrap durable or owner-equivalent access.
 
 ---

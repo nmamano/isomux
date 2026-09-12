@@ -418,7 +418,7 @@ export function BookshelfTall() {
       ))}
       {/* A leaning frame on top, holding the office cat's formal portrait:
           dark ground, gold mount, a ruff. The office keeps a pet in every
-          room, so the lobby hangs the boss. */}
+          room, so the lobby hangs the member. */}
       <path
         d={poly([
           [-8, 0, h],

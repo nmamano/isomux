@@ -246,7 +246,7 @@ const pub: RouteAuth = { kind: "public" };
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
 // Capability-free agent routes also use this shorthand. APP stays outside;
-// remote-boss API identities use their issuing user's room projection.
+// remote-member API identities use their issuing user's room projection.
 const agentParam = (name: string): Guard => {
   const roomAccess = requiresRoomAccess({ kind: "paramAgentId", name });
   return (ctx) => {
@@ -595,7 +595,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // Its OWN capability (`log:read`) rather than office:read, which plain agent
   // tokens do not carry - see the Capability union in identity/index.ts. The
   // guard widens an AGENT's reach past its own chat to any agent in a room its
-  // boss can access; logSearchAccess documents why that is sound for a read.
+  // member can access; logSearchAccess documents why that is sound for a read.
   defineRoute<void, LogsResp>({
     opId: "agents.logs",
     method: "GET",
@@ -809,7 +809,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // Settings that follow a boss across devices (reply language). Sibling of
+  // Settings that follow a member across devices (reply language). Sibling of
   // the view.* surface rather than a field on
   // users.update, because users.update is selfOrOwner and personal preferences
   // are deliberately NOT something an owner sets for a member (see

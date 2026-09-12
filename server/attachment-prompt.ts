@@ -1,4 +1,4 @@
-// Attachment prompt notices - the ONE shared convention for how boss-uploaded
+// Attachment prompt notices - the ONE shared convention for how member-uploaded
 // attachments reach an agent, identical across every backend (Claude, Codex,
 // future harnesses).
 //

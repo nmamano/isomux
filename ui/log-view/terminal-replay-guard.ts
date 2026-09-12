@@ -7,7 +7,7 @@
 // answered by writing to the PTY. So a background-colour query (OSC 11 ?) or a
 // cursor-position request (CSI 6 n) that any program left in the scrollback is
 // answered again on every mount, the shell echoes the answer at its prompt, and
-// the boss sees a line grow one `11;rgb:0a0a/0e0e/1616` per visit to the agent.
+// the member sees a line grow one `11;rgb:0a0a/0e0e/1616` per visit to the agent.
 //
 // The answer to a stale query is worthless, so the guard suppresses it. The
 // answer to a LIVE query is not - Claude Code and other TUIs probe the terminal

@@ -264,7 +264,7 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
 // pins that the one is exactly one.
 export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 
-// API set: a remote boss gets the same curated operational reach as a
+// API set: a remote member gets the same curated operational reach as a
 // privileged agent, expressed explicitly so every capability is an audit
 // decision. Identity and durable-access surfaces stay excluded: invite:manage,
 // session:manage, user:self, user:admin, office:admin, view:manage and

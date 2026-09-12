@@ -175,13 +175,13 @@ describe("buildSystemPrompt - memory affordance", () => {
     );
     expect(p).toContain("Default to not writing");
     expect(p).toContain(
-      "trim your own lines, propose the rest to a boss, or drop the note",
+      "trim your own lines, propose the rest to a member, or drop the note",
     );
     expect(p).toContain("Do not make big changes to it");
     expect(p).toContain("a fact over 400 characters of text with 422");
     expect(p).toContain("routine maintenance in your own scope");
     expect(p).toContain(
-      "In a shared scope, fix your own line and propose the rest to a boss",
+      "In a shared scope, fix your own line and propose the rest to a member",
     );
     expect(p).not.toContain("Never point a file server");
     expect(p).not.toContain("~/pau");
@@ -282,7 +282,7 @@ describe("buildSystemPrompt - reply language", () => {
 
   it("names Spanish as the boss's default and carves out code + other bosses", () => {
     const p = buildLang("es");
-    expect(p).toContain("Reply in the language bosses speak to you in");
+    expect(p).toContain("Reply in the language members speak to you in");
     expect(p).toContain(
       '"Nil" has indicated Spanish as their default language',
     );
@@ -363,7 +363,7 @@ describe("buildSystemPrompt - killed-agent discovery copy", () => {
     expect(p).toContain("/agents?killed=1");
     expect(p).toContain("killedAt");
     expect(p).toContain(
-      "Killed agents keep their logs too, and you can read those if they were your boss's",
+      "Killed agents keep their logs too, and you can read those if they were your manager's",
     );
   });
 
@@ -373,7 +373,7 @@ describe("buildSystemPrompt - killed-agent discovery copy", () => {
   it("says the killed roster is scoped differently from the live one", () => {
     const p = build();
     expect(p).toContain("scoped differently from the live one above");
-    expect(p).toContain("the agents your boss SPAWNED");
+    expect(p).toContain("the agents your manager SPAWNED");
   });
 });
 
@@ -460,7 +460,7 @@ describe("buildSystemPrompt - session hygiene", () => {
   it("gives one explicit wrap-up path for each loose-end state", () => {
     const p = build();
     expect(p).toContain(
-      "When the session goal is complete, identify loose ends and propose specific actions to close them, such as committing finished work, updating the task board, or scheduling a follow-up. Put a durable lesson where the next reader will meet it: the doc, the task record or the commit message. Write a memory line only if it passes the bar above. If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.",
+      "When the session goal is complete, identify loose ends and propose specific actions to close them, such as committing finished work, updating the task board, or scheduling a follow-up. Put a durable lesson where the next reader will meet it: the doc, the task record or the commit message. Write a memory line only if it passes the bar above. If there are no loose ends, tell the member clearly that you are ready to end the session. Do not add more commentary after this.",
     );
     expect(p).not.toContain("saving durable facts to memory");
   });
@@ -470,7 +470,7 @@ describe("buildSystemPrompt - remote boss inbox", () => {
   it("explains replies without listing remote bosses", () => {
     const prompt = build();
     expect(prompt).toContain(
-      'A boss can also access the office remotely. When they do, their messages will look like `[Boss (API token "Phone \'alerts" (pat-123))]`, where the id after the closing quote is their reply handle.',
+      'An office member can also access the office remotely. When they do, their messages will look like `[Member (API token "Phone \'alerts" (pat-123))]`, where the id after the closing quote is their reply handle.',
     );
     expect(prompt).toContain(
       "Respond to them at the remote location with POST",

@@ -87,7 +87,7 @@ function ThemeRow({
 }
 
 // A tiny 4-color chip previewing the theme's base, accent, green, and red.
-// Helps the boss recognize themes at a glance without having to read names.
+// Helps the member recognize themes at a glance without having to read names.
 function ThemeSwatch({ theme }: { theme: Theme }) {
   const colors = [
     theme.vars["--bg-base"],

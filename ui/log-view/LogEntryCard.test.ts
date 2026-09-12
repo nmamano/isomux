@@ -30,7 +30,7 @@ describe("serializeEntries", () => {
         },
       ]),
     ).toBe(
-      'Please report.\n\nWorking.\n\n[To remote boss "Laptop"] The report is ready.',
+      'Please report.\n\nWorking.\n\n[To remote member "Laptop"] The report is ready.',
     );
   });
 });

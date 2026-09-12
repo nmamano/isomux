@@ -1,10 +1,10 @@
 // Per-device local-only settings. Stored in localStorage; not synced across devices.
 //
-// `username` is the name of the boss using this browser; `device` is an
+// `username` is the name of the member using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
 // preferences (notif rooms, managed variables, language) live
 // server-side on the user record - see server/users.ts - and are edited from
-// the Settings page, so they follow a boss across devices. What stays here is what
+// the Settings page, so they follow a member across devices. What stays here is what
 // is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";

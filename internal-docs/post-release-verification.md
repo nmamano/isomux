@@ -8,7 +8,7 @@ The reason it exists: local CI and the GitHub Build workflow prove the code
 compiles and the suite passes. Neither proves a customer can install isomux
 on a clean machine and reach a working office. That gap is exactly where
 onboarding breaks, and onboarding is the highest-visibility surface the
-product has - a new user's first ten minutes.
+product has - a new member's first ten minutes.
 
 Written 2026-09-01 after v2026.9.1, whose batch changed provider sign-in,
 the welcome-agent experience, and the auth-error notice path - all of them

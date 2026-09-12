@@ -59,7 +59,7 @@ agents. This audit adds no invented OpenCode character styling.
 The code was three-backend aware in the deliberate branches above, but prose
 still contained old two-backend language.
 
-Nil approved two user-visible replacements:
+Nil approved two member-visible replacements:
 
 - `api/chat.ts` now says plugins add behavior "across agents."
 - `ui/demo-entry.tsx` now says "To connect real agents."

@@ -4,7 +4,7 @@
 //   ?layout=<id>          room layout (default empty)
 //   ?sheet=props          contact sheet of prop variants instead of a room
 //   ?v=sofa:loveseat,rug:round   per-family variant overrides for a layout
-//   ?ghosts=N             N mock boss ghosts on the layout's ghost spots
+//   ?ghosts=N             N mock member ghosts on the layout's ghost spots
 import { createRoot } from "react-dom/client";
 import { CSS } from "../../styles.ts";
 import { THEMES } from "../../themes.ts";

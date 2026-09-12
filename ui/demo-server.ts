@@ -252,7 +252,7 @@ const OFFICE_CHARACTERS: {
     topic: "Drafting team motivation speech",
     state: "waiting_for_response",
     customInstructions:
-      "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best boss. Relate everything back to team morale and family.",
+      "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best manager. Relate everything back to team morale and family.",
     agentType: "claude",
     modelFamily: "haiku",
   },

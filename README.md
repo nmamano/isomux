@@ -94,7 +94,7 @@ Visit **http://localhost:4000** in your browser.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
 - OpenCode is bundled with isomux. Choose a Free, Pay-as-you-go, or Subscription model.
 
-Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or [Render](docs/self-hosted.md#deploy-on-render).
+Want to run it on an always-on box, access from every device, and invite other members to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or [Render](docs/self-hosted.md#deploy-on-render).
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 

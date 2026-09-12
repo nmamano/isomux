@@ -9,7 +9,7 @@
 ## The idea
 
 Today an agent's useful output is a conversation. Sometimes it builds a web app,
-serves it on a port it picked, and tells the boss to go look. The app dies when
+serves it on a port it picked, and tells the member to go look. The app dies when
 the session ends, the port is folklore, and nothing outside that chat knows the
 app exists.
 
@@ -128,7 +128,7 @@ storage. The office session cookie is host-only and never reaches either.
 Access is the existing office login through the same handshake. Logged into
 isomux on your phone, apps just work; no per-app password, no tailnet
 requirement, no anonymous access. That is also the honest limit of the privacy
-question: apps are private to the office users who can already see the agent's
+question: apps are private to the office members who can already see the agent's
 room, and there is no public-app story in this direction.
 
 **Second contradiction with `port-proxy-design.md`**: it forbids recycling
@@ -179,7 +179,7 @@ Three things this needs that agent tokens do not:
 - **Rate limiting, because messages cost money.** A message wakes an agent and
   burns model tokens. An app in a loop is a bill. Per-app rate limit, and a
   visible daily cap.
-- **Labelling.** App-origin messages are not boss authority and not agent
+- **Labelling.** App-origin messages are not member authority and not agent
   authority, same rule the system prompt already states for agent-to-agent
   messages.
 
@@ -197,8 +197,8 @@ missing after a restore.
 
 None of the above happens unless agents reach for it by default. The system
 prompt's current advice - pick an uncommon port, expect the server to die with
-your session, hand the boss an SSH tunnel - gets replaced by: register the app,
-isomux runs it, give the boss the URL. Per `documentation.md` this is guidance
+your session, hand the member an SSH tunnel - gets replaced by: register the app,
+isomux runs it, give the member the URL. Per `documentation.md` this is guidance
 for every isomux deployment, so it belongs in `server/system-prompt.ts` rather
 than office memory.
 

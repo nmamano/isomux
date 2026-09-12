@@ -102,7 +102,7 @@ export const ca: Catalog = {
   "common.role": "Rol",
   "common.rooms": "Sales",
   "common.signOut": "Tanca la sessió",
-  "common.user": "Usuari",
+  "common.user": "Membre",
   "common.schedules": "Programacions",
   "common.apps": "Apps",
   "common.changeTheme": "Canvia el tema",
@@ -118,7 +118,7 @@ export const ca: Catalog = {
   "settings.backToOffice": "Torna a l'oficina",
   "settings.selectHint": "Tria una opció de la llista",
   "settings.profilesNote":
-    "Els perfils d'usuari es desen al servidor. Les teves notificacions i credencials et segueixen entre dispositius.",
+    "Els perfils d'membre es desen al servidor. Les teves notificacions i credencials et segueixen entre dispositius.",
   "settings.signOutHint": "Tanca la sessió d'aquest dispositiu",
   "settings.you": "(tu)",
   "settings.sidebar.office": "Oficina",
@@ -136,23 +136,23 @@ export const ca: Catalog = {
   "settings.sidebar.deviceLabel": "Etiqueta del dispositiu",
   "settings.sidebar.members": "Membres",
   "settings.members.editHint":
-    "Només el mateix usuari i els propietaris poden editar un usuari",
+    "Només el mateix membre i els propietaris de l'oficina poden editar un membre",
   "settings.members.onlineNow": "En línia ara",
   "settings.members.online": "en línia",
   "settings.members.onlineSessions.one": "en línia · {count} sessió",
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
-  "settings.role.owner": "propietari",
+  "settings.role.owner": "propietari de l'oficina",
   "settings.role.member": "membre",
   "settings.role.ownerHint":
-    "Propietari - pot convidar usuaris, revocar sessions i fixar l'accés a sales de cada usuari",
+    "Propietari - pot convidar membres, revocar sessions i fixar l'accés a sales de cada membre",
   "settings.role.memberHint":
-    "Membre - pot actuar a les sales que el propietari li ha permès; no pot convidar ni revocar",
+    "Membre - pot actuar a les sales que el propietari de l'oficina li ha permès; no pot convidar ni revocar",
 
   "settings.profile.identity": "Identitat",
   "settings.profile.displayName": "Nom visible",
   "settings.profile.accessHint":
-    "Accés: sales que aquest usuari pot veure i on pot actuar (ho gestiona el propietari).",
+    "Accés: sales que aquest membre pot veure i on pot actuar (ho gestiona el propietari de l'oficina).",
   "settings.profile.viewHint":
     "Mostrades: quines de les teves sales accessibles apareixen a la teva vista. Notificacions: so quan un agent d'aquella sala acaba. Una sala ha d'estar mostrada per notificar.",
   "settings.profile.roomColumn": "Sala",
@@ -165,21 +165,21 @@ export const ca: Catalog = {
   "settings.profile.agentContext": "Context per als agents",
   "settings.profile.profilePrompt": "Prompt de perfil",
   "settings.profile.profilePromptHint":
-    "(s'injecta al prompt de sistema dels agents que tens; els agents d'altres usuaris el poden consultar si necessiten context sobre tu)",
+    "(s'injecta al prompt de sistema dels agents que tens; els agents d'altres membres el poden consultar si necessiten context sobre tu)",
   "settings.profile.profilePromptTitle": "{user} · Prompt de perfil",
   "settings.profile.profilePromptExpandedHint":
-    "S'injecta al prompt de sistema dels agents d'aquest usuari; els agents d'altres usuaris el poden consultar si necessiten context sobre ell.",
+    "S'injecta al prompt de sistema dels agents d'aquest membre; els agents d'altres membres el poden consultar si necessiten context sobre ell.",
   "settings.profile.profilePromptPlaceholder":
     "Unes notes per als agents sobre qui ets, el teu rol, com t'agrada col·laborar…",
   "settings.profile.memoryHint":
-    "(fets duradors sobre aquest usuari; reescriu el fitxer tal com es mostra - una memòria per línia; {size} / {cap})",
+    "(fets duradors sobre aquest membre; reescriu el fitxer tal com es mostra - una memòria per línia; {size} / {cap})",
   "settings.profile.memoryTitle": "{user} · Memòria",
   "settings.profile.memoryPlaceholder":
-    "Alguna memòria rellevant per a aquest usuari",
+    "Alguna memòria rellevant per a aquest membre",
   "settings.profile.appearance": "Aparença",
   "settings.profile.avatarHint":
-    "(el teu fantasma a l'escena de l'oficina; els altres usuaris el veuen al costat de l'agent que estàs mirant)",
-  "settings.profile.deleteHint": "Elimina aquest usuari",
+    "(el teu fantasma a l'escena de l'oficina; els altres membres el veuen al costat de l'agent que estàs mirant)",
+  "settings.profile.deleteHint": "Elimina aquest membre",
   "settings.profile.deleteFailed": "No s'ha pogut eliminar",
   "settings.profile.roomListFailed":
     "No s'ha pogut confirmar la teva llista de sales; Mostrades no s'ha desat.",
@@ -432,14 +432,14 @@ export const ca: Catalog = {
     "Envia aquesta URL a la persona convidada. És d'un sol ús: en obrir-la al seu dispositiu, hi entra. La URL es mostra un cop - copia-la ara.",
 
   "settings.invites.intro":
-    "Afegeix un membre o un propietari: emet una URL d'invitació i envia-l'hi per un altre canal. En obrir-la es crea el seu compte i aquell dispositiu hi entra. Per a més dispositius en un compte que ja existeix, cadascú genera el seu propi enllaç des de <i>Els meus dispositius</i>.",
+    "Afegeix un membre o un propietari de l'oficina: emet una URL d'invitació i envia-l'hi per un altre canal. En obrir-la es crea el seu compte i aquell dispositiu hi entra. Per a més dispositius en un compte que ja existeix, cadascú genera el seu propi enllaç des de <i>Els meus dispositius</i>.",
   "settings.invites.issueFor": "Emet una invitació per a…",
   "settings.invites.namePlaceholder": "Nom nou (p. ex. Marc)",
   "settings.invites.existing":
     "<b>{name}</b> ja existeix, així que no cal cap invitació: per entrar amb un altre dispositiu, {name} pot generar un enllaç des d'<i>Els meus dispositius</i> a la seva configuració - o li pots emetre un enllaç de recuperació aquí sota.",
   "settings.invites.grantRoom": "Dona accés a {room}",
   "settings.invites.roomsHint":
-    "La persona convidada hi entra amb accés a les sales marcades. Deixa-les totes sense marcar per donar-li accés més tard des de la seva configuració.",
+    "La persona convidada hi entra amb accés a les sales marcades. Deixa-les totes sense marcar per donar-li accés més tard des de Configuració → Membres.",
   "settings.invites.expiryHint":
     "L'enllaç d'invitació caduca 24 h després d'emetre'l si no s'usa. Les sessions acceptades duren fins a 1 any (revocables des de la secció Sessions en qualsevol moment).",
   "settings.invites.minting": "Emetent…",
@@ -527,7 +527,7 @@ export const ca: Catalog = {
   "settings.connections.officeVars":
     "Variables per a cada agent d'aquesta oficina",
   "settings.connections.officeVarsHint":
-    "Aquestes variables es carreguen per a cada agent tret que una variable d'usuari tingui prioritat.",
+    "Aquestes variables es carreguen per a cada agent tret que una variable d'membre tingui prioritat.",
   "settings.connections.ownerManaged":
     "Les variables de tota l'oficina les gestiona una persona propietària.",
   "settings.connections.personalVars": "Variables per als agents que creo",
@@ -761,13 +761,13 @@ export const ca: Catalog = {
   "dialogs.agent.manager": "Responsable",
   "dialogs.agent.managerTitle":
     "Es fixa en crear l'agent - el responsable no es pot canviar després.",
-  "dialogs.agent.managerNoUser": "(cap usuari assignat)",
+  "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
   "dialogs.agent.managerHint":
-    "Vinculat a l'usuari que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).",
+    "Vinculat a l'membre que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).",
   "dialogs.agent.privileged": "Accés d'operador amb privilegis",
   "dialogs.agent.privilegedHint":
-    "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'usuari que el va crear. Continua actuant com l'agent, mai com l'usuari.",
+    "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'membre que el va crear. Continua actuant com l'agent, mai com l'membre.",
   "dialogs.agent.privilegedRestart":
     "En desar es reinicia la sessió de l'agent.",
   "dialogs.agent.permission.ask": "Preguntar",
@@ -962,17 +962,17 @@ export const ca: Catalog = {
   "apiCall.memory.readAgent": "Llegir les memòries d'aquest agent",
   "apiCall.memory.readRoom": "Llegir les memòries de la sala",
   "apiCall.memory.readOffice": "Llegir les memòries de l'oficina",
-  "apiCall.memory.readBoss": "Llegir les memòries del cap",
+  "apiCall.memory.readBoss": "Llegir les memòries del membre",
   "apiCall.memory.readAny": "Llegir les memòries",
   "apiCall.memory.saveAgent": "Desar una memòria per a aquest agent",
   "apiCall.memory.saveRoom": "Desar una memòria de sala",
   "apiCall.memory.saveOffice": "Desar una memòria d'oficina",
-  "apiCall.memory.saveBoss": "Desar una memòria de cap",
+  "apiCall.memory.saveBoss": "Desar una memòria de membre",
   "apiCall.memory.save": "Desar una memòria",
   "apiCall.memory.rewriteAgent": "Reescriure les memòries d'aquest agent",
   "apiCall.memory.rewriteRoom": "Reescriure les memòries de la sala",
   "apiCall.memory.rewriteOffice": "Reescriure les memòries de l'oficina",
-  "apiCall.memory.rewriteBoss": "Reescriure les memòries del cap",
+  "apiCall.memory.rewriteBoss": "Reescriure les memòries del membre",
   "apiCall.memory.rewriteAny": "Reescriure les memòries",
   "apiCall.rooms.create": "Crear una sala",
   "apiCall.rooms.createNamed": "Crear la sala {name}",
@@ -1031,8 +1031,8 @@ export const ca: Catalog = {
   "common.sender.cronjob": "{name} · programació",
   "cards.userMessage.expand": "Expandeix el missatge",
   "cards.userMessage.collapse": "Contrau el missatge",
-  "cards.userMessage.toRemoteBoss": "Al cap remot",
-  "cards.userMessage.toRemoteBossNamed": 'Al cap remot "{name}"',
+  "cards.userMessage.toRemoteBoss": "Al membre remot",
+  "cards.userMessage.toRemoteBossNamed": 'Al membre remot "{name}"',
   "cards.userMessage.editAndBranch": "Edita i ramifica",
   "cards.thinking.label": "Pensant...",
   "cards.toolCall.input": "Entrada",
@@ -1265,8 +1265,8 @@ export const ca: Catalog = {
   "office.tabs.roomSettings": "Fes doble clic per a la configuració de la sala",
   "office.tabs.closeEmptyRoom": "Tanca la sala buida",
   "office.tabs.newRoom": "Crea una sala nova",
-  "office.tabs.onlineUsers.one": "{count} usuari en línia",
-  "office.tabs.onlineUsers.other": "{count} usuaris en línia",
+  "office.tabs.onlineUsers.one": "{count} membre en línia",
+  "office.tabs.onlineUsers.other": "{count} membres en línia",
   "office.zoom.in": "Apropa",
   "office.zoom.out": "Allunya",
   "office.zoom.reset": "Restableix la vista (0)",
@@ -1648,10 +1648,10 @@ export const ca: Catalog = {
   "commands.help.tipPhoneVpn":
     "Isomux funciona al mòbil. El més fàcil és connectar-lo a la mateixa VPN (per exemple Tailscale, que és gratuïta) que la màquina on s'executa.",
   "commands.help.tipInviteFunnel":
-    "Quan l'oficina sigui accessible des de fora de la teva VPN (per exemple amb Tailscale Funnel; mira {url}), el propietari pot obrir Configuració d'usuari → Accés i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
+    "Quan l'oficina sigui accessible des de fora de la teva VPN (per exemple amb Tailscale Funnel; mira {url}), un propietari de l'oficina pot obrir Configuració → Oficina → Invitacions i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
   "commands.help.tipPhoneOrigin": "Isomux funciona al mòbil: obre {origin}.",
   "commands.help.tipInvite":
-    "El propietari pot obrir Configuració d'usuari → Accés i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
+    "Un propietari de l'oficina pot obrir Configuració → Oficina → Invitacions i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
   "commands.help.tipTerminal":
     "El terminal del plafó lateral va bé per a casos puntuals en què has d'executar alguna cosa a mà, com ara un inici de sessió.",
   "commands.help.tipHooks":
@@ -1966,7 +1966,7 @@ export const ca: Catalog = {
   "storageReport.locationOfficeState": "estat de l'oficina",
   "storageReport.locationNotSetUp": "{label} (sense configurar)",
   "storageReport.ownerOnly":
-    "_El desglossament per agent i els camins són només per al propietari._",
+    "_El desglossament per agent i els camins són només per al propietari de l'oficina._",
   "storageReport.biggestAgents": "Agents més grans",
   "storageReport.columnAgent": "Agent",
   "storageReport.columnTranscripts": "Transcripcions",
@@ -1977,7 +1977,7 @@ export const ca: Catalog = {
   "storageReport.showing":
     "_Es mostren els {shown} agents més grans de {total} amb dades desades._",
   "storageReport.nothingDeleted":
-    "_Aquí no s'esborra res automàticament. Les transcripcions i els adjunts només s'eliminen quan el propietari ho demana._",
+    "_Aquí no s'esborra res automàticament. Les transcripcions i els adjunts només s'eliminen quan el propietari de l'oficina ho demana._",
   "storageReport.unknownSize": "mida desconeguda",
 
   // --- S9: the pre-sign-in pages the server renders itself -----------------
@@ -2011,7 +2011,7 @@ export const ca: Catalog = {
   "preAuth.claim.ogDescription":
     "Reclama la propietat d'una oficina Isomux nova.",
   "preAuth.claim.errorOwnerExists":
-    "Aquesta oficina ja té propietari. Actualitza la pàgina i inicia la sessió amb un enllaç d'invitació.",
+    "Ja existeix un propietari de l'oficina. Actualitza la pàgina i inicia la sessió amb un enllaç d'invitació.",
   "preAuth.claim.errorName":
     "Tria un nom per mostrar (lletres, xifres, espais, punts, guions, apòstrofs o guions baixos).",
   "preAuth.invite.titleAccept": "acceptar la invitació",
@@ -2033,17 +2033,17 @@ export const ca: Catalog = {
   "preAuth.inviteError.consumed": "Aquesta invitació ja s'ha fet servir.",
   "preAuth.inviteError.expired": "Aquesta invitació ha caducat.",
   "preAuth.inviteError.roleMismatch":
-    "Aquesta invitació no es pot acceptar perquè l'usuari que ja existeix té un altre rol. Demana al propietari que creï una invitació nova.",
+    "Aquesta invitació no es pot acceptar perquè el membre que ja existeix té un altre rol. Demana a un propietari de l'oficina que creï una invitació nova.",
   "preAuth.inviteError.ownerExists":
-    "Aquesta oficina ja té propietari. Les invitacions inicials deixen de funcionar quan l'oficina ja està reclamada.",
+    "Ja existeix un propietari de l'oficina. Les invitacions inicials deixen de funcionar quan l'oficina ja està reclamada.",
   "preAuth.inviteError.generic": "Aquesta invitació ja no és vàlida.",
-  "preAuth.conflict.heading": "Aquesta invitació és per a un altre usuari",
+  "preAuth.conflict.heading": "Aquesta invitació és per a un altre membre",
   "preAuth.conflict.body":
     "Has iniciat la sessió com a {current}. Aquesta invitació és per a {invitee}: obre-la al seu dispositiu o en un altre perfil del navegador.",
   "preAuth.signOutBlocked.title": "tancament de sessió bloquejat",
   "preAuth.signOutBlocked.heading": "Tancament de sessió bloquejat",
   "preAuth.signOutBlocked.lastOwnerSession":
-    "Tancament de sessió rebutjat: aquesta és l'última sessió activa de propietari a l'oficina. Crea una altra invitació per a tu i accepta-la en un altre dispositiu abans de tornar-ho a provar.",
+    "Tancament de sessió rebutjat: aquesta és l'última sessió activa d'un propietari de l'oficina. Crea una altra invitació per a tu i accepta-la en un altre dispositiu abans de tornar-ho a provar.",
   "demo.banner.short":
     "Això és una demo. Per connectar agents reals de Claude, Codex i OpenCode:",
   "demo.banner.long":

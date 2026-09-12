@@ -1,5 +1,5 @@
 // Employee of the Minute for the lobby: office-wide, so the plaque names the
-// agent that acted last in ANY room the boss can see. Recovered from git tag
+// agent that acted last in ANY room the member can see. Recovered from git tag
 // eotm-plaque (task fbf4bad6), where it was per room and the office walls
 // had no space for it.
 

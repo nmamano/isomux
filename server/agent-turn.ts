@@ -278,7 +278,7 @@ export const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 
 // Fullness bands (raw percentage), ascending. Once each per conversation
 // generation, per audience: the agent-facing injected notice here, and the
-// boss-facing ephemeral chat line (agent-manager's maybeEmitUiContextNotice)
+// member-facing ephemeral chat line (agent-manager's maybeEmitUiContextNotice)
 // share the SAME bands but separate fired-sets. Kept in step with the UI color
 // bands in the design doc §3 (50 = orange/plan-around-it, 75 = red/wrap-up).
 //
@@ -301,7 +301,7 @@ export function formatContextNotice(
   const max = snap.maxTokens.toLocaleString("en-US");
   const advice =
     threshold >= 75
-      ? "Wrap up: finish or hand off current work; tell the boss a /clear is advisable."
+      ? "Wrap up: finish or hand off current work; tell the member a /clear is advisable."
       : "Budget accordingly.";
   return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;
 }
@@ -319,7 +319,7 @@ export function formatContextNotice(
 // and consumed here on the first accepted send of the conversation.
 
 // A scope this full (fraction of its cap) is worth telling the agent about.
-// At 1.0 new saves to the scope are refused; 0.8 gives the boss a chance to
+// At 1.0 new saves to the scope are refused; 0.8 gives the member a chance to
 // curate before that happens. Fills above 1 exist only on legacy files written
 // before caps were write-enforced.
 export const MEMORY_NOTICE_FILL_RATIO = 0.8;
@@ -349,8 +349,8 @@ export function formatMemoryNotice(
   return (
     `[memory check: auto-loaded memory is close to its size cap - ${listed}. ` +
     `Caps are hard: a save that would put a scope over its cap is refused. ` +
-    `Offer the boss specific trims, applying them through the memory READ + PUT API after approval. ` +
-    `Let the boss know they can also edit memory in Settings.]`
+    `Offer the member specific trims, applying them through the memory READ + PUT API after approval. ` +
+    `Let the member know they can also edit memory in Settings.]`
   );
 }
 

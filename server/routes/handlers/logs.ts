@@ -3,12 +3,12 @@
 //
 // AUTH is `log:read` + the logSearchAccess guard: a human reaches any agent in
 // a room they can access, and an AGENT token reaches ITSELF plus any agent in a
-// room its boss can access. See server/identity/guards.ts for why a bare room
+// room its member can access. See server/identity/guards.ts for why a bare room
 // check is the right shape for this READ, unlike the mutating routes next to it.
 //
 // The target need not be ALIVE. A killed agent keeps its transcripts, and the
 // whole read path below is disk-backed (nothing here consults the roster), so
-// the guard answers for a dead agent on its own rule: the boss that spawned it,
+// the guard answers for a dead agent on its own rule: the member that spawned it,
 // or an office owner.
 //
 // Read-only: nothing lands in chat, so the route emits nothing.

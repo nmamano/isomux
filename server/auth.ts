@@ -469,7 +469,7 @@ export async function mintInvite(
         if (existing)
           return {
             ok: false,
-            error: `User "${existing.name}" already exists. Manage their room access in their user settings instead of on the invite.`,
+            error: `User "${existing.name}" already exists. Manage their room access in Settings → Members instead of on the invite.`,
             code: "INVALID_ROOMS",
           };
         const liveRooms = new Set(snapshotRoomIds());

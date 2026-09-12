@@ -3,7 +3,7 @@ import { useI18n } from "../i18n.tsx";
 
 function relativeOrAbs(payload: FilePayload): string {
   // If the path is inside the cwd, show the relative form. Otherwise show
-  // the absolute path so the boss can see exactly what will open.
+  // the absolute path so the member can see exactly what will open.
   const { cwd, path } = payload;
   if (path === cwd) return path;
   const prefix = cwd.endsWith("/") ? cwd : cwd + "/";

@@ -153,7 +153,7 @@ export const publicGuard: Guard = () => ALLOW;
 export const authenticated: Guard = ({ identity }) =>
   identity.scope === "app" || identity.scope === "api" ? FORBIDDEN : ALLOW;
 
-// Capability-gated operational routes admit a remote-boss API identity. Keep
+// Capability-gated operational routes admit a remote-member API identity. Keep
 // this separate from authenticated: that guard is also the whole gate on
 // sessions.logout, which has no meaning for an API token and stays denied.
 export const operationalAuthenticated: Guard = ({ identity }) =>
@@ -498,7 +498,7 @@ export const messageSend: Guard = (ctx) => {
 // retired loopback /tasks route) answered DELETE with a 405 wall - so granting a
 // run the board would otherwise hand it a delete power it never had, over any
 // office-global task. Nothing about an unattended scheduled run wants that.
-// USER, AGENT and remote-boss API callers keep delete. An APP holds no
+// USER, AGENT and remote-member API callers keep delete. An APP holds no
 // task capability at all, so it never reaches this guard through the dispatcher
 // - named here anyway, because a guard whose deny list is "everything except
 // the scopes I happened to know about" is one new scope away from being wrong.
@@ -514,7 +514,7 @@ export const taskDelete: Guard = ({ identity }) =>
 // scheduled messages are being managed - the deliberate asymmetry with the
 // sibling send route, where `:id` is the recipient. Scope-switched like
 // messageSend:
-//   USER     → room access to the sender agent's room (a boss who can reach
+//   USER     → room access to the sender agent's room (a member who can reach
 //              the agent can inspect/cancel its outbox - same authority shape
 //              as cancelling its queued messages).
 //   AGENT    → `:id` must equal the token agent: an agent manages ONLY its own
@@ -573,26 +573,26 @@ export const conversationReset: Guard = (ctx) => {
 // Conversation-log READ (agents.logs): who may search and retrieve an agent's
 // history.
 //   USER     → room access to the target agent, exactly like every other read
-//              surface. A boss already reads these conversations in the UI.
+//              surface. A member already reads these conversations in the UI.
 //   AGENT    → ITSELF, or any agent sitting in a room accessible to its
 //              SPAWNING USER. Note that this is broader than "the caller's own
 //              room": requiresRoomAccess asks whether the principal can reach
 //              the TARGET's room, not whether the two share one, so an agent
-//              reaches every room its boss can - which is the stated scope.
+//              reaches every room its member can - which is the stated scope.
 //   CRON-RUN → deny (a run has no history, and holds no log:read anyway).
-// Plus, for a target that has been KILLED: its own boss, or an office owner.
+// Plus, for a target that has been KILLED: its own member, or an office owner.
 //
 // WHY THE BARE ROOM CHECK IS CORRECT HERE, when conversationReset above warns
 // against exactly that shape: the warning there is about a MUTATION. Clearing
 // another agent's session via a room check would be a confused-deputy
 // escalation, because hasRoomAccess keys on the agent's SPAWNING-USER id, so
-// any ordinary agent could reset every other agent its boss owns.
+// any ordinary agent could reset every other agent its member owns.
 //
-// This route is a READ, and "every agent in rooms its boss can access" is the
+// This route is a READ, and "every agent in rooms its member can access" is the
 // scope that was chosen for it deliberately - it supersedes an earlier
 // self-only design. The spawning-user keying is not an accident being exploited
-// here; it is precisely how "its boss's rooms" is expressed in this codebase.
-// Nothing becomes visible that the boss could not already read in the UI.
+// here; it is precisely how "its member's rooms" is expressed in this codebase.
+// Nothing becomes visible that the member could not already read in the UI.
 //
 // The SELF branch is checked FIRST and independently, so an agent never loses
 // access to its own history because its room's grants changed underneath it.
@@ -607,15 +607,15 @@ const logReadRoomGuard = requiresRoomAccess({
 });
 
 // Killed-agent log reach. A DIFFERENT rule from the live one,
-// not a room check against a stale room: the killed agent's own boss - the user
+// not a room check against a stale room: the killed agent's own member - the user
 // that spawned it - plus office owners, nobody else. Room grants move after a
 // kill and a dead agent's last room is a fact about the past; who spawned it is
 // not. Narrower than the live rule too: a room-mate of the killed agent gets
-// nothing here unless they share its boss.
+// nothing here unless they share its member.
 //
 // COMPOSE UNDER A SCOPE SWITCH, like agentManagerMatch: this checks the userId
 // match alone, and an AGENT identity carries its spawning user's userId - which
-// is what makes "an agent reaches its boss's killed agents" work, and what would
+// is what makes "an agent reaches its member's killed agents" work, and what would
 // leak the surface to a cron run if this were ever used bare. logSearchAccess
 // denies cron-run before reaching it.
 export const killedAgentLogAccess: Guard = (ctx) => {

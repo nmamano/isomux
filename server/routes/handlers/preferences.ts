@@ -1,5 +1,5 @@
 // Personal-preference handler (opId prefs.update). The
-// self-scoped write path for the settings that follow a boss across devices:
+// self-scoped write path for the settings that follow a member across devices:
 // reply language.
 //
 // SELF-only by construction: the route table gates it with user:self +

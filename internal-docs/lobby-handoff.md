@@ -1,7 +1,7 @@
 > Superseded behavior, 2026-09-08: the receptionist is now an ordinary agent
 > created from the Isomux Receptionist profile. Name, cwd, kill, move, prompt and
 > token use the normal paths. Its initial cwd is ~; the old directory is left
-> on disk. The first owner is its boss. Knowledge and office guidance render at
+> on disk. The first owner is its member. Knowledge and office guidance render at
 > spawn into custom instructions. The canonical lobby room has one slot and
 > persists in agents.json. Any agent can occupy it; an empty lobby stays empty
 > across restarts. The former locks, restricted token, dedicated prompt and
@@ -82,7 +82,7 @@ it.
 1. Warm wood only; six themes map to dark or light; the backdrop keeps the
    theme.
 2. Ghosts in ordinary rooms keep floating past the SE wall: that is what shows
-   which room a boss is watching.
+   which room a member is watching.
 3. In the lobby, ghosts stand at named spots and **should move around** - Nil,
    2026-09-07: the shuffling is funnier than a stable seat. So do NOT pin a
    ghost to its spot by connection id.

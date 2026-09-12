@@ -1311,7 +1311,7 @@ export function loadTasks(): TaskItem[] {
       TaskItem & { device?: string }
     >;
     // Migrate legacy `device` field → `username` (the field's actual semantics
-    // has always been "the boss's name").
+    // has always been "the member's name").
     let migrated = 0;
     for (const r of records) {
       if (r.device !== undefined && r.username === undefined) {

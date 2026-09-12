@@ -16,7 +16,7 @@ export const GHOST_LOBBY_BASE_X = 600;
 export const GHOST_LOBBY_BASE_Y = 590;
 export const GHOST_LOBBY_GAP = 52;
 
-// Stack offsets for multiple bosses focused on the same agent. Small
+// Stack offsets for multiple members focused on the same agent. Small
 // diagonal step so the second/third ghost peeks out from behind the
 // first. The cap-3-visible + N-badge logic is intentionally NOT
 // implemented in v1; a count of 4+ at one desk should be vanishingly

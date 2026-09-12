@@ -138,8 +138,8 @@ Then open `http://localhost:5173`.
 - The service is system-level: restart with `systemctl restart isomux` as root. An office on [your own hardware](#your-own-hardware) runs a user-level service instead, where the commands are `systemctl --user`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
 - Chrome backs page-preview cards, app screenshot previews, and the browser agents drive. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
-- Agent browser logins are stored under the office state root, one profile per boss. All agents managed by that boss share the profile. Anyone with room access can watch the pages. Only the managing boss can navigate, click, type, or close a page. Other bosses' agents do not load the profile. Only a manager watching the page suspends its five-minute idle close.
-- Authenticated users effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
+- Agent browser logins are stored under the office state root, one profile per member. All agents managed by that member share the profile. Anyone with room access can watch the pages. Only the manager can navigate, click, type, or close a page. Other members' agents do not load the profile. Only a manager watching the page suspends its five-minute idle close.
+- Authenticated members effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
 
 ## Your own hardware
 
@@ -177,9 +177,9 @@ The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Window
 
 ### Make the office reachable
 
-The server runs on `localhost:4000`. To use it from another device or share it with another user, you need to expose it. Two paths, depending on who needs access.
+The server runs on `localhost:4000`. To use it from another device or share it with another member, you need to expose it. Two paths, depending on who needs access.
 
-> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only - so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see [Authorize users](#authorize-users)), and (b) enable _External access_ in Settings → Office → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
+> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only - so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see [Authorize members](#authorize-members)), and (b) enable _External access_ in Settings → Office → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
 
 #### Your devices (and anyone willing to install Tailscale)
 
@@ -194,7 +194,7 @@ Rename your machine in the [Tailscale admin console](https://login.tailscale.com
 
 This works fine for _your_ devices and for collaborators you trust enough to invite onto your tailnet. Invite links work over the tailnet, but invitees have to install Tailscale and join your tailnet first. Most people, though, will not want to install Tailscale just to drop into your office - for them you need a public URL.
 
-#### Other users (public URL)
+#### Other members (public URL)
 
 The recommended path is **Tailscale Funnel**. Funnel exposes a single port on the box to the public internet over its existing `*.ts.net` hostname. Free, no domain to buy, no router port-forwarding, no inbound IP exposure. Tailscale's relay forwards an encrypted TCP tunnel between the visitor and your node; TLS terminates on your box, not at the relay, so the relay cannot read traffic in flight.
 
@@ -203,7 +203,7 @@ Trade-offs:
 - **Dependency on Tailscale's relay and control plane.** Your reachability is contingent on Tailscale's infrastructure being up and on Tailscale not changing the free tier in adverse ways.
 - **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
 
-To set this up, claim ownership of your office first ([Authorize users](#authorize-users)), then paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by reporting the public URL back to you. The final step (turning external access on inside the office) is a manual paste into the Access pane so the office's auth-state mutation goes through the documented configuration surface.
+To set this up, claim ownership of your office first ([Authorize members](#authorize-members)), then paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by reporting the public URL back to you. The final step (turning external access on inside the office) is a manual paste into the Access pane so the office's auth-state mutation goes through the documented configuration surface.
 
 ```
 Set up Tailscale Funnel so my isomux office is publicly reachable
@@ -290,7 +290,7 @@ tailscale serve --bg http://localhost:4000
 
 Visit the HTTPS URL the command prints (e.g. `https://my-mac-mini.<tailnet>.ts.net`) - voice and Android PWA install will now work from any tailnet device. To make that URL the office's own address, open the Access pane, enable _External access_, paste it into the Public URL field, save, and restart isomux.
 
-### Authorize users
+### Authorize members
 
 Isomux gates every browser request (HTTP and WebSocket) by a session cookie. No accounts, no passwords.
 
@@ -298,20 +298,20 @@ To grant someone access, mint a single-use invite link in `Settings → Office �
 
 Two roles exist:
 
-- **Owner** - can mint invites, revoke sessions, and set per-user room access.
+- **Office owner** - can mint invites, revoke sessions, and set per-user room access.
 - **Member** - can use the office in the rooms the owner permits, can't invite or revoke.
 
 To claim the office as the first owner, open `http://localhost:4000` on the host machine and submit a display name. From a different machine, tunnel in first with `ssh -L 4000:localhost:4000 <user>@<host>` and then open `http://localhost:4000` in your local browser.
 
-For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, threat model - see [access and invites](access-and-invites.md).
+For the full flow - invite TTLs, multi-device members, sign-out, owner recovery, threat model - see [access and invites](access-and-invites.md).
 
-> **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
+> **Note:** Isomux agents can run shell commands, so authenticated members effectively have shell access to the host. Only invite people you trust.
 
 > **Don't store an SSH key on the host that root accepts** - agents can read the host's files and would become root with it. See [root access](#root-access) for the check and the fix.
 
 ### Provider API keys
 
-Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
+Each member can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
 `OPENCODE_API_KEY` under Settings → You → Individual connections. Other per-user variables
 work the same way, for example, each member can set `GH_TOKEN` so their agents
 use their own GitHub credentials.

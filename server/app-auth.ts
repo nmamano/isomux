@@ -2,7 +2,7 @@
 //
 // An app lives at `hello.office.example` and the office at `office.example`.
 // The office session cookie is host-only, deliberately - that is what keeps a
-// scratch app built by an agent from being able to act as the boss - so it
+// scratch app built by an agent from being able to act as the member - so it
 // never reaches the app host, and the app host therefore has no way to know
 // who is knocking. This module is how it finds out, in three hops, none of
 // which lets the office cookie leave the office origin:

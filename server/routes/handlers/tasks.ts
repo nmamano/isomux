@@ -12,7 +12,7 @@
 // (double-signal).
 //
 // [behavior-change] tasks.create: createdBy + username come from the TOKEN
-// identity (deps.attributionFor), NEVER the request body - so the boss cannot be
+// identity (deps.attributionFor), NEVER the request body - so the member cannot be
 // spoofed. For a USER caller both equal the user's own name (today's posture);
 // for an AGENT caller createdBy is the agent name and username the owning user.
 //

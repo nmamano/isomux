@@ -368,7 +368,7 @@ export function claudeFamilySupportsAutoPermission(family: string): boolean {
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human
-// bosses or other agents; both go through the same queue and flush together
+// members or other agents; both go through the same queue and flush together
 // when the agent next transitions to an idle state. Durable:
 // the per-agent queue is mirrored to ~/.isomux/message-queues.json and
 // replayed on boot, so a restart no longer drops queued messages (delivery is
@@ -382,7 +382,7 @@ export interface QueuedMessage {
     | { kind: "cronjob"; cronjobId: string; cronjobName: string }
     // A registered app messaging the agent that built it (POST /api/app/message).
     // Only the NAME is carried, and it comes from the app's token rather than its
-    // request: an app cannot claim to be another app, an agent, or a boss. The
+    // request: an app cannot claim to be another app, an agent, or a member. The
     // name is also the reason nothing here needs escaping - app names are
     // [a-z0-9-] by registration, so no name can forge the prefix delimiters the
     // flush text uses.
@@ -700,7 +700,7 @@ export interface FilePayload {
 // Structured payload attached to LogEntry when kind === "terminal-command".
 // Emitted by POST /api/agents/:id/terminal-command. The card surfaces a
 // [Copy to terminal] button that opens the terminal side panel and types
-// the command at the prompt without executing it (boss presses Enter).
+// the command at the prompt without executing it (member presses Enter).
 export interface TerminalCommandPayload {
   command: string; // single-line shell command
 }
@@ -764,7 +764,7 @@ export interface TaskItem {
   status: TaskStatus;
   assignee?: string;
   createdBy: string; // Actor that created the record (agent name or user name)
-  username?: string; // Human boss this record is on behalf of
+  username?: string; // Human member this record is on behalf of
   createdAt: number;
   // Room this task belongs to. ABSENT/empty === office-global (visible to
   // everyone). A non-empty id scopes the task to that room: it is visible only
@@ -993,7 +993,7 @@ export interface Cronjob {
   // stable handle for env / ownership lookups. Both null for legacy
   // unowned cronjobs.
   userId: string | null;
-  username: string | null; // Human boss this record is on behalf of
+  username: string | null; // Human member this record is on behalf of
   createdAt: number;
   lastFireAt: number | null;
   nextFireAt: number;
@@ -1241,7 +1241,7 @@ export interface UserRecord {
   // Self-described member profile prompt. Auto-injected into the system
   // prompt of every agent owned by this user, so the agent has standing
   // context about who its owner is. Other agents can also look up this
-  // field for any user via ~/.isomux/users.json when a different boss
+  // field for any user via ~/.isomux/users.json when a different member
   // messages them. Optional; null/empty means no profile prompt.
   // Named "member" rather than "owner" because the field exists on every
   // user record regardless of role (member is the superset; UserRole
@@ -1332,7 +1332,7 @@ export interface PresenceInfo {
   userId: string;
   username: string;
   // Per-device label set in DeviceSettings (e.g. "Phone", "Laptop").
-  // Surfaced on the name-tag chip so other bosses can tell which of
+  // Surfaced on the name-tag chip so other members can tell which of
   // a user's devices the ghost belongs to. null when the device hasn't
   // picked a label - the chip falls back to just the username.
   device: string | null;

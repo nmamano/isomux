@@ -285,9 +285,9 @@ export function TerminalPanel({
 }: {
   agentId: string;
   onClose: () => void;
-  // When the panel mounts because the boss explicitly toggled it open we
+  // When the panel mounts because the member explicitly toggled it open we
   // grab keyboard focus (default). When the mount is a side-effect of an
-  // agent-switch restore, the boss expects to keep typing in the chat box,
+  // agent-switch restore, the member expects to keep typing in the chat box,
   // so the parent passes false. On mobile we never auto-focus on mount -
   // iOS gates the soft-keyboard on a user gesture, so we wait for a tap on
   // the terminal body before calling term.focus().

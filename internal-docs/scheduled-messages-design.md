@@ -101,7 +101,7 @@ Deterministic via the injected clock/scheduler (cronjob-manager pattern): boot c
 
 ## Out of scope for v1
 
-UI (GET endpoint leaves room for a pending panel later; post-fire the normal queue chip already shows it); user (boss) senders; recurring schedules (cronjobs cover recurring).
+UI (GET endpoint leaves room for a pending panel later; post-fire the normal queue chip already shows it); user (member) senders; recurring schedules (cronjobs cover recurring).
 
 ## Doc surfaces to update at implementation time
 

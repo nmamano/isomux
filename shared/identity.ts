@@ -1,5 +1,5 @@
 // Identity formatting helpers shared between server and UI.
-// `username` is the human boss; `device` is an optional connection-point label.
+// `username` is the human member; `device` is an optional connection-point label.
 // Old log entries (pre-migration) carry combined values like "Nil Phone" in
 // `username` with no `device` - the helpers below render them verbatim.
 
@@ -28,7 +28,7 @@ export function formatIdentity({
 }
 
 // Sender prefix for messages that come from another agent. Distinguishes
-// agent-to-agent traffic from human boss messages (which use `[Name]`) so the
+// agent-to-agent traffic from human member messages (which use `[Name]`) so the
 // receiving agent can apply different authority rules. The id is included so
 // the receiver can POST a reply directly without looking it up in
 // agents-summary.json.

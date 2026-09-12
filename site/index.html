@@ -79,7 +79,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/chatbot.css" />
-    <!-- Pre-paint theme resolution: if the user has picked a theme (either
+    <!-- Pre-paint theme resolution: if the visitor has picked a theme (either
          here on the landing or inside the embedded /demo iframe - both share
          the same localStorage origin), apply it as a data-theme attr before
          first paint so the page doesn't flash the wrong palette. With no
@@ -137,7 +137,7 @@
         }
       }
 
-      /* Explicit user override (toggle button in site/theme-toggle.js or
+      /* Explicit visitor override (toggle button in site/theme-toggle.js or
          the moon/sun inside the embedded demo iframe - both write the same
          localStorage key, and site/theme-toggle.js sets data-theme-mode
          based on the saved theme id). The data-theme-mode blocks have
@@ -170,7 +170,7 @@
 
       /* Theme toggle button (mounted by site/theme-toggle.js). Sits in the
          top-right of the page on the landing - `position: absolute` rather
-         than `fixed`, so it scrolls out of view as the user moves down the
+         than `fixed`, so it scrolls out of view as the visitor moves down the
          page instead of following along. The docs site mounts it inline in
          the topbar (`.theme-toggle--inline` overrides). */
       .theme-toggle {
@@ -1040,7 +1040,7 @@ bun run dev</pre
 
         <p style="margin-top: 20px">
           Want to run it on an always-on box, access from every device, and
-          invite other users to your office? See
+          invite other members to your office? See
           <a href="/docs/self-hosted">self-hosted setup</a> - your own hardware,
           or an unattended VPS install for a fresh server.
         </p>

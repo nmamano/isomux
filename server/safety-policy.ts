@@ -54,7 +54,7 @@ function denyMessage(reason: string, command: string): PolicyDecision {
     `BLOCKED by isomux safety hooks\n\n` +
       `Reason: ${reason}\n\n` +
       `Command: ${command}\n\n` +
-      `If this operation is truly needed, ask the user for explicit ` +
+      `If this operation is truly needed, ask the member for explicit ` +
       `permission and have them run the command manually.`,
   );
 }
@@ -104,11 +104,11 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   // Specific root/home pattern MUST come before generic pattern
   [
     /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+[/~]/,
-    "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the user to run it manually if truly needed.",
+    "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the member to run it manually if truly needed.",
   ],
   [
     /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*/,
-    "rm -rf is destructive and requires human approval. Explain what you want to delete and why, then ask the user to run the command manually.",
+    "rm -rf is destructive and requires human approval. Explain what you want to delete and why, then ask the member to run the command manually.",
   ],
   // Catch rm with separate -r and -f flags (e.g., rm -r -f, rm -f -r)
   [
@@ -874,7 +874,7 @@ function denySecretRead(target: string, tool: string): PolicyDecision {
       `Reason: "${basename(target)}" may contain secrets. Agents are not allowed ` +
       `to read sensitive files (.env, private keys, credentials, etc.).\n\n` +
       `${tool} target: ${target}\n\n` +
-      `If you need a value from this file, ask the user to provide it.`,
+      `If you need a value from this file, ask the member to provide it.`,
   );
 }
 
@@ -1737,7 +1737,7 @@ function denyMissingCwd(toolName: string, filePath: string): PolicyDecision {
       `Reason: isomux could not resolve the relative path because the tool call ` +
       `did not include a non-empty absolute agent cwd.\n\n` +
       `${toolName} target: ${filePath}\n\n` +
-      `Tell the user that the safety hook received a missing or invalid cwd, ` +
+      `Tell the member that the safety hook received a missing or invalid cwd, ` +
       `and use an absolute write target.`,
   );
 }
@@ -1748,7 +1748,7 @@ function denyUnverifiablePath(toolName: string, rule: string): PolicyDecision {
       `Reason: isomux could not tell which file ${toolName} would touch, so it could not check ` +
       `it against ${rule}. Guarded tools are denied rather than waved through when their input ` +
       `shape isn't recognized.\n\n` +
-      `Tell the user which tool and which input fields hit this, so the guard can be updated.`,
+      `Tell the member which tool and which input fields hit this, so the guard can be updated.`,
   );
 }
 
@@ -1894,7 +1894,7 @@ function denyShellPath(filePath: string, nonLiteral: boolean): PolicyDecision {
         ? `Reason: isomux could not resolve the write target because it is not a literal path.\n\n`
         : `Reason: isomux could not resolve the relative write target after a shell directory change.\n\n`) +
       `Bash target: ${filePath}\n\n` +
-      `Tell the user which shell target could not be resolved, and use an absolute write target.`,
+      `Tell the member which shell target could not be resolved, and use an absolute write target.`,
   );
 }
 
@@ -2223,7 +2223,7 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
     return denyMessage(
       `"${basename(secretTarget)}" may contain secrets. Agents are not allowed ` +
         `to read sensitive files (.env, private keys, credentials, etc.). ` +
-        `If you need a value from this file, ask the user to provide it.`,
+        `If you need a value from this file, ask the member to provide it.`,
       command,
     );
   }
@@ -2259,7 +2259,7 @@ function checkWritePaths(
         `BLOCKED by isomux safety hooks\n\n` +
           `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server.\n\n` +
           `${toolName} target: ${filePath}\n\n` +
-          `If this operation is truly needed, ask the user for explicit ` +
+          `If this operation is truly needed, ask the member for explicit ` +
           `permission and have them run the command manually.`,
       );
     }

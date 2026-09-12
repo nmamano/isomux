@@ -8,7 +8,7 @@ Isomux today has roughly five de-facto runtime categories. Each one was added fo
 
 | # | Category | Lives as | "Trigger" | "Function" |
 |---|---|---|---|---|
-| 1 | Agent turn | `agent-manager.ts` + `runAgentTurn` in `agent-turn.ts` | boss msg, queued, skill, edit-fork | `session.send` to provider CLI |
+| 1 | Agent turn | `agent-manager.ts` + `runAgentTurn` in `agent-turn.ts` | member msg, queued, skill, edit-fork | `session.send` to provider CLI |
 | 2 | HTTP routes | manual `pathname` switch in `index.ts` (~7 path families) | HTTP request | hand-written response handler |
 | 3 | Task board | HTTP routes + JSON file | POST /tasks | `addTask` / `updateTask` |
 | 4 | Cronjob | `cronjob-manager.ts` (separate scheduler) | cron expression | fresh SDK session spawn |
@@ -19,13 +19,13 @@ Five lifecycles, five observability stories. The `runAgentTurn` central helper i
 Concrete evidence the sprawl already costs us:
 
 - The "emit a card to chat" pattern is duplicated five times (`emitAgentDiff`, `emitAgentReadFile`, `emitAgentEditRequest`, `emitAgentTerminalCommand`, plus the cronjob path has its own parallel `emitCronjobRunReadFile`). Each emit-card route handler in `index.ts` re-implements its own CORS, body parsing, error shape.
-- There is no shared trace across a boss action that crosses lanes (e.g. boss types `/task add foo` → command-handler routes to task-board → notifies an agent → agent sends inter-agent message → receiver acts on it). Correlation today is via timestamps + ad-hoc logging.
+- There is no shared trace across a member action that crosses lanes (e.g. member types `/task add foo` → command-handler routes to task-board → notifies an agent → agent sends inter-agent message → receiver acts on it). Correlation today is via timestamps + ad-hoc logging.
 
 ### Before / after, at a glance
 
 ```mermaid
 flowchart TB
-    Boss([Boss])
+    Boss([Member])
     UI[Isomux UI<br/>chat + desks + side panels]
 
     subgraph Server["Isomux Server"]
@@ -64,7 +64,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    Boss([Boss])
+    Boss([Member])
 
     subgraph Engine["Isomux Engine"]
       direction TB
@@ -107,7 +107,7 @@ Apply the philosophy *inside* isomux. Do not adopt iii itself as a runtime depen
 What we adopt:
 
 - Worker / Function / Trigger as the universal internal primitive for the runtime categories above.
-- One trace per boss-originated action, propagated across all participants.
+- One trace per member-originated action, propagated across all participants.
 - "Add a worker" as the answer to new capability requests, instead of "design a new subsystem."
 
 What we do not adopt:
@@ -119,7 +119,7 @@ What we do not adopt:
 ## Goals
 
 1. Collapse the five runtime categories above into one register-and-trigger primitive.
-2. One OpenTelemetry trace per boss-originated turn, propagated through HTTP → registry → agent worker → card emit → WS broadcast.
+2. One OpenTelemetry trace per member-originated turn, propagated through HTTP → registry → agent worker → card emit → WS broadcast.
 3. New capability types can be added by registering a function with a trigger, without carving out a new subsystem.
 4. Compatibility constraint: zero change to the existing REST surface and existing agent helper endpoints (read-file, diff, edit-file, terminal-command, message) until a later explicit API version. New functionality may ship at new URLs; existing routes become thin adapters that fire the same trigger underneath.
 
@@ -131,10 +131,10 @@ The following stay traditional. They may *emit* triggers (e.g. session revoked �
 - Persistence schema and on-disk file layout (`persistence.ts`, `migrations.ts`)
 - Backups (`backup.ts`)
 - Presence (`presence.ts`)
-- The chat UX itself: desks, topics, log streams, attribution, the boss-as-conversational-counterparty metaphor
+- The chat UX itself: desks, topics, log streams, attribution, the member-as-conversational-counterparty metaphor
 - Provider CLI subprocess loops (Claude Code CLI, Codex App-Server). See "What does not collapse" below.
 
-These omissions are deliberate. Collapsing the boss into a worker, or auth into a function registration, would lose the layer that makes isomux a product instead of plumbing. iii is infrastructure; the product layer still has to live somewhere.
+These omissions are deliberate. Collapsing the member into a worker, or auth into a function registration, would lose the layer that makes isomux a product instead of plumbing. iii is infrastructure; the product layer still has to live somewhere.
 
 ## Primitives
 
@@ -245,7 +245,7 @@ Without explicit failure semantics, "trigger" is too hand-wavy to build on. Defa
 | Backpressure / concurrency | Functions are concurrent by default. A global router-level cap (default ~256 in-flight invocations across all functions) prevents a trigger storm from starving agent turns; on cap-hit, new invocations queue with a deadline and the failure stream records cap-induced timeouts separately. Single-flight per-function or per-key is a possible later add behind a config field; not v1. |
 | Authorization | Trigger router invokes a policy check before dispatch. HTTP adapter alone is not enough once `agent-call` and `direct` triggers exist: an agent worker calling `tasks::delete` needs the same authorization treatment as an HTTP DELETE would. v1 ships a coarse "who can call which function id" allowlist tied to attribution; finer-grained policy is a later add. |
 | Dead-letter | Failed invocations after retry exhaustion land in `~/.isomux/logs/triggers.jsonl`. Structured fields: `functionId`, `traceId`, `spanId`, `invokedBy`, `durationMs`, `attemptCount`, `error`. **Payloads are not logged by default**; opt-in per-function for debugging only. |
-| Ordering | Function invocations are **unordered by default**. Inter-agent messages and card emits that have user-visible ordering expectations must be modeled by their function (e.g. a per-receiver in-order queue inside `agent::message`, which already exists today). The trigger router does not provide an ordered-by-key delivery guarantee in v1. |
+| Ordering | Function invocations are **unordered by default**. Inter-agent messages and card emits that have member-visible ordering expectations must be modeled by their function (e.g. a per-receiver in-order queue inside `agent::message`, which already exists today). The trigger router does not provide an ordered-by-key delivery guarantee in v1. |
 
 ## Ownership and registration
 
@@ -259,9 +259,9 @@ Without explicit failure semantics, "trigger" is too hand-wavy to build on. Defa
 
 The success criterion for the trace propagation phase (P3 below) is concrete:
 
-A single OpenTelemetry trace must span the following chain for a boss-originated action:
+A single OpenTelemetry trace must span the following chain for a member-originated action:
 
-1. Boss UI action (e.g. "regenerate artifact") → HTTP request with `traceparent` header.
+1. Member UI action (e.g. "regenerate artifact") → HTTP request with `traceparent` header.
 2. HTTP adapter creates trace, fires `http` trigger.
 3. Trigger router invokes target function (e.g. `artifact::regenerate`).
 4. Function calls into agent worker (e.g. `agent::message` agent-call trigger).
@@ -279,7 +279,7 @@ The runtime categories from the motivation table map into the new model as follo
 
 | Old category | New shape |
 |---|---|
-| Agent turn | An `agent::turn` function on each agent worker, invoked by boss message, queued work, skill expansion, edit-fork resend, or an external `agent-call` trigger. |
+| Agent turn | An `agent::turn` function on each agent worker, invoked by member message, queued work, skill expansion, edit-fork resend, or an external `agent-call` trigger. |
 | HTTP routes | HTTP adapter consumes route registrations and fires `http` triggers. The `index.ts` `pathname` switch shrinks as route families migrate; complete dissolution is an end-state, not a near-phase deliverable. |
 | Task board | `tasks::create`, `tasks::update`, `tasks::list`, etc. functions with `http` triggers. Persistence remains the JSON file (platform service). |
 | Cronjob | A `cron` trigger driver fires cron-bound functions. The current cronjob scheduler shrinks to the trigger driver; the per-job state lives on the function side. |
@@ -290,16 +290,16 @@ The runtime categories from the motivation table map into the new model as follo
 ## What does NOT collapse
 
 - **Chat UX.** Chat messages carry persistence semantics (the LogEntry stream), attribution semantics (who said it, which device), UI subscription semantics, and conversational continuity. Reducing them to `trigger()` calls loses the experiential layer. The UI adapter subscribes to the relevant triggers, but the chat metaphor is the product, not the plumbing.
-- **The boss is not a worker.** The UI adapter mediates between boss intent and the trigger system. The boss types in chat; the adapter translates to triggers. The reverse direction (system notification → chat card) flows through the same UI adapter. Whether the UI adapter is a server-side dispatch table (v1) or a true browser-side worker (future possibility) is an open question, but the boss-is-a-human-not-a-worker invariant holds either way.
+- **The member is not a worker.** The UI adapter mediates between member intent and the trigger system. The member types in chat; the adapter translates to triggers. The reverse direction (system notification → chat card) flows through the same UI adapter. Whether the UI adapter is a server-side dispatch table (v1) or a true browser-side worker (future possibility) is an open question, but the member-is-a-human-not-a-worker invariant holds either way.
 - **Provider CLI subprocess.** We are explicitly *not* trying to make Claude Code CLI or Codex CLI become isomux workers internally. Their internal loops (slash commands, skills, plugin loading, settings.json, session state) are owned by their respective vendors. The agent worker wraps the CLI as an opaque process; trace spans stop at `session.send` and resume on observable CLI events / log emissions. Attempting to instrument inside the CLI would either fork the vendor or wrap with brittle adapters; both are bad bets.
 
 ## Migration phases
 
-Tracer-bullet style. Each phase ships a thing the boss can use, validated by feature value rather than plumbing churn.
+Tracer-bullet style. Each phase ships a thing the member can use, validated by feature value rather than plumbing churn.
 
 ### P1a: artifact panel ships, primitive allowed to be ugly
 
-Goal: ship a user-visible feature through the new primitive. Do not chase a clean primitive yet; the first consumer is allowed to expose rough edges.
+Goal: ship a member-visible feature through the new primitive. Do not chase a clean primitive yet; the first consumer is allowed to expose rough edges.
 
 Scope:
 
@@ -311,7 +311,7 @@ Scope:
   - `artifact::watch` function, `ui-subscription` trigger.
   - UI panel component that renders a sandboxed iframe of the current artifact.
 
-Acceptance: an agent POSTs an artifact, the panel renders it, the boss sees an updated version each iteration. No other subsystem touched. The primitive may be ugly.
+Acceptance: an agent POSTs an artifact, the panel renders it, the member sees an updated version each iteration. No other subsystem touched. The primitive may be ugly.
 
 Risk: medium. Most risk concentrated in primitives design churn discovered through the first consumer.
 
@@ -357,7 +357,7 @@ Scope:
 - Card emit functions and inter-agent message functions propagate trace.
 - WS broadcast includes trace id for UI correlation.
 
-Acceptance: one trace spans boss UI action → HTTP trigger → agent turn → card emit → WS event. Visible end-to-end in a Jaeger-class viewer.
+Acceptance: one trace spans member UI action → HTTP trigger → agent turn → card emit → WS event. Visible end-to-end in a Jaeger-class viewer.
 
 Risk: medium-high. OTEL adoption touches every async boundary. Failure mode is half-instrumented traces that look correct but drop spans at the seams.
 
@@ -384,10 +384,10 @@ This constraint exists because the agent helper endpoints are documented in agen
 
 ## Open questions
 
-1. **Boss attribution into trace context.** Today: WebSocket session is the source of truth for `attribution.userId`. After: does the UI adapter stamp it, or does the HTTP adapter? Same question for `agentId` on agent-call triggers.
+1. **Member attribution into trace context.** Today: WebSocket session is the source of truth for `attribution.userId`. After: does the UI adapter stamp it, or does the HTTP adapter? Same question for `agentId` on agent-call triggers.
 2. **Cron trigger driver vs existing cronjob scheduler.** Share scheduling code, or new driver that supersedes? The existing scheduler has cron-specific niceties (skipped-run records, run history) that the function-with-trigger model needs to preserve.
 3. **Out-of-process worker security.** Before we ship any external worker, we need a decision on WebSocket origin checks, auth handshake, surface area. Deferred to whenever P5+ actually picks this up.
-4. **Where does the boss fit in the engine diagram?** UI adapter mediates in v1 (server-side dispatch table). If we ever push UI to be a true browser-side worker (per the iii browser SDK pattern), this becomes a real architectural question rather than a naming one.
+4. **Where does the member fit in the engine diagram?** UI adapter mediates in v1 (server-side dispatch table). If we ever push UI to be a true browser-side worker (per the iii browser SDK pattern), this becomes a real architectural question rather than a naming one.
 5. **Provider CLI span boundary fidelity.** We accept the cap; can we improve it without forking the CLI? Possible avenues: parse `--debug` log output, intercept stdio, instrument the SDK below the CLI. Out of scope for v1; flag for later.
 6. **Authorization policy storage.** v1 ships a coarse allowlist tied to attribution. Where does the allowlist live (per-function default in source, with overrides in `office-config.json`?), and how does it interact with the per-user-isolation design's "manager" role?
 
@@ -397,7 +397,7 @@ This constraint exists because the agent helper endpoints are documented in agen
 - **Risk of feature drift.** Big refactors during active product evolution risk landing features in the old shape because the new shape is not ready yet. Mitigation: do P1 with a feature that is already wanted (artifact panel), not a feature carved out for the refactor.
 - **v0 plugin contract becomes the in-process worker case.** Existing plugins (mem0) need a small adapter at P4. This is a contract widening, not a break, but it does mean the v0 plugin doc gets a follow-up section.
 - **Provider CLI opacity caps trace fidelity.** Documented above. Real cost; not avoidable without owning the harness.
-- **OpenTelemetry adoption is a real dependency.** Adds runtime overhead, exporter configuration, and an ongoing maintenance surface. The acceptance criteria in P3 are what justifies it; if the trace fidelity is not actually used (boss never opens Jaeger), the cost is uncompensated.
+- **OpenTelemetry adoption is a real dependency.** Adds runtime overhead, exporter configuration, and an ongoing maintenance surface. The acceptance criteria in P3 are what justifies it; if the trace fidelity is not actually used (member never opens Jaeger), the cost is uncompensated.
 
 ## Risk-based sizing
 

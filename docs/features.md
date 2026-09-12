@@ -34,17 +34,17 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
-## Multi-user
+## Multiple members
 
-- **Multi-user real-time collaboration** - multiple authenticated users can chime in to the same conversation simultaneously.
-- **Invite-link access** - the owner mints an invite URL per new user, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link.
+- **Real-time collaboration** - multiple authenticated members can chime in to the same conversation simultaneously.
+- **Invite-link access** - the office owner mints an invite URL per new member, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords. Existing members add their own devices with device links from My devices; if someone is signed out of every device, an office owner can mint them a recovery link.
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
-- **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
-- **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
+- **Per-member room display** - each member picks which of their accessible rooms actually show in their own view, from the Members page.
+- **Live member presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that member's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
 - **Members chat** - a humans-only chat on the Lobby.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
-- **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
-- **Customizable ghosts** - each user picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
+- **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
+- **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
 ## Multi-device
 
@@ -98,7 +98,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` - rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](self-hosted.md#vps-install) sets up for you (runs headless, so no display is needed); everything else works without one.
-- **Agents use the browser** - An agent can open a page, read it, click a control, and fill a form. Anyone with room access can watch the page in the Browser panel. The agent's manager can also navigate, click, type, log in, and close the page. Opening the panel lets the manager browse without the agent. The panel opens automatically when the agent creates a page while the manager is viewing that chat. The office stores one browser profile per boss and shares its logins with that boss's agents. The page closes after five idle minutes unless its manager is watching.
+- **Agents use the browser** - An agent can open a page, read it, click a control, and fill a form. Anyone with room access can watch the page in the Browser panel. The agent's manager can also navigate, click, type, log in, and close the page. Opening the panel lets the manager browse without the agent. The panel opens automatically when the agent creates a page while the manager is viewing that chat. The office stores one browser profile per member and shares its logins with that member's agents. The page closes after five idle minutes unless its manager is watching.
 - `/isomux-usage` - per-agent / per-room / per-schedule token spend, scoped to the rooms you can access. The same report is available under Office Settings.
 - `/isomux-storage` - disk usage by category; owners also see the biggest agents.
 

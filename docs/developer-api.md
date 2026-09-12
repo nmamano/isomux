@@ -9,7 +9,7 @@ navTitle: Developer API
 
 The [Isomux OpenAPI specification](/openapi.json) describes the public API on isomux.com. The website currently exposes one endpoint, `POST /api/chat`, which streams answers about Isomux as server-sent events.
 
-Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in users. Each office injects exact API instructions and its bearer token into its agents. Browser clients use the office session cookie. Start with [access and invites](/docs/access-and-invites) for the authentication model and the [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) for the current source-level contract.
+Self-hosted and hosted Isomux offices also expose a room-scoped REST API for agents and signed-in members. Each office injects exact API instructions and its bearer token into its agents. Browser clients use the office session cookie. Start with [access and invites](/docs/access-and-invites) for the authentication model and the [GitHub route table](https://github.com/nmamano/isomux/blob/main/server/routes/table.ts) for the current source-level contract.
 
 `GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
 
@@ -40,11 +40,11 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
 
 The send response contains `messageId`, which is also the `id` of the send entry in the token log.
 
-For example, the agent sees a message as `[Boss (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
+For example, the agent sees a message as `[Member (API token "Phone 'alerts" (pat-123))]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
 
 ## Members chat
 
-Users, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
+Members, their API tokens and privileged agents can read and post to the office-wide members chat. Ordinary agents, scheduled runs and apps have no `chat:members` capability.
 
 - `GET /api/members-chat?before=<message-id>&limit=100` returns `messages`, `hasMore`, `readPointer`, `unread` and `pinned`. Messages are in chronological order. `pinned` holds up to 21 live pinned messages from all history, newest `pinnedAt` first; the extra entry lets a client distinguish exactly 20 from more than 20.
 - `POST /api/members-chat` accepts `{"text":"..."}`, optional uploaded `attachments`, and optional `replyTo` (an existing message id). The server stores `replyTo: {id, userName, excerpt}` on the message. The excerpt holds the first 200 Unicode characters of the target text, or its attachment names when it has no text. Edits and deletion of the target leave this snapshot unchanged. An unknown or deleted target returns `404 reply_not_found`.
@@ -139,7 +139,7 @@ name an existing user.
 server-stamped trigger. The text must fit on one line of at most 400 characters.
 The response returns `{ item, version, size, cap }`, where `size` and `cap` show
 the scope's post-write cost. A duplicate returns 409. A line or scope-cap failure
-returns 422. If a scope is full, trim your own lines, propose the rest to a boss,
+returns 422. If a scope is full, trim your own lines, propose the rest to a member,
 or drop the note; do not move it to a wider scope. Do not make big changes to
 office memory.
 

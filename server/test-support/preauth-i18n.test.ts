@@ -295,7 +295,7 @@ describe("a page that knows its reader", () => {
     });
     expect(status).toBe(409);
     expect(html).toContain('<html lang="es">');
-    expect(html).toContain("<h1>Esta invitación es para otro usuario</h1>");
+    expect(html).toContain("<h1>Esta invitación es para otro miembro</h1>");
     expect(html).toContain(
       "Has iniciado sesión como Boss. Esta invitación es para Yu: ábrela en su dispositivo o en otro perfil del navegador.",
     );
@@ -312,7 +312,7 @@ describe("a page that knows its reader", () => {
       rawSessionId: boss.rawSessionId,
     });
     expect(html).toContain('<html lang="en">');
-    expect(html).toContain("<h1>This invite is for a different user</h1>");
+    expect(html).toContain("<h1>This invite is for a different member</h1>");
     expect(html).toContain(
       "<p>You are signed in as Boss. This invite is for Yu: open it on their device or in a separate browser profile.</p>",
     );
@@ -352,7 +352,7 @@ describe("a page that knows its reader", () => {
     expect(html).toContain('<html lang="ca">');
     expect(html).toContain("<h1>Tancament de sessió bloquejat</h1>");
     expect(html).toContain(
-      "Tancament de sessió rebutjat: aquesta és l&#39;última sessió activa de propietari a l&#39;oficina.",
+      "Tancament de sessió rebutjat: aquesta és l&#39;última sessió activa d&#39;un propietari de l&#39;oficina.",
     );
     // The link text is written into the template, the refusal sentence goes
     // through escapeHtml as it always has - hence the two apostrophe spellings.

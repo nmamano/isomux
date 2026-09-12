@@ -5,7 +5,7 @@
 //   <STATE_ROOT>/memory/office.md
 //   <STATE_ROOT>/memory/rooms/<roomId>.md
 //   <STATE_ROOT>/memory/agents/<agentId>.md
-//   <STATE_ROOT>/memory/bosses/<userId>.md
+//   <STATE_ROOT>/memory/members/<userId>.md
 //   <STATE_ROOT>/memory/.oplog.jsonl   (append-only audit/recovery log)
 //
 // Each fact is one bullet line:
@@ -67,7 +67,7 @@ function nowIsoUtc(): string {
 // The author-less shape exists only when an agent writes to its OWN agent
 // scope, where the author is
 // the reader. It costs twice otherwise - once against the scope's hard size cap,
-// and again in the agent's own prompt. Every other writer (another agent, a boss,
+// and again in the agent's own prompt. Every other writer (another agent, a member,
 // a human rewrite) still gets named, because there the name carries information.
 export function formatMemoryLine(input: {
   author: string | null;

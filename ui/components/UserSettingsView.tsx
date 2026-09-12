@@ -1126,7 +1126,7 @@ function UserEditPanel({
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
-  // Boss-scoped memory for this user, edited via the unified /api/memory verbs
+  // Member-scoped memory for this user, edited via the unified /api/memory verbs
   // (load + version-guarded save), keyed by the stable userId so it survives a
   // rename. Saved separately from the user PATCH.
   const mem = useMemoryEditor("boss", user.id, true);
@@ -1151,7 +1151,7 @@ function UserEditPanel({
   const pendingDiscardActionRef = useRef<(() => void) | null>(null);
   // Holds the server's lockout-prevention reason if delete_user is refused.
   // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere -
-  // shown inline next to Delete so the boss sees why the row didn't go.
+  // shown inline next to Delete so the member sees why the row didn't go.
   const [deleteBlockedReason, setDeleteBlockedReason] = useState<string | null>(
     null,
   );
@@ -1340,7 +1340,7 @@ function UserEditPanel({
           avatarVariant,
         });
       }
-      // (2b) Boss memory is a separate version-guarded REPLACE keyed by the stable
+      // (2b) Member memory is a separate version-guarded REPLACE keyed by the stable
       // userId (rename-safe). A 409 means it changed under us - surface + keep open.
       if (memoryChanged) {
         const m = await mem.save();
