@@ -1328,29 +1328,80 @@ it("shared capture follows the best viewer demand, scales within client bounds a
   const { pool, stub } = poolWith(calls);
   let level = 0;
   const slowFrames: unknown[] = [];
-  const stop = pool.watch("adapt", f => slowFrames.push(f), () => true,
-    { maxWidth: 640, maxHeight: 400 }, () => level);
+  const stop = pool.watch(
+    "adapt",
+    (f) => slowFrames.push(f),
+    () => true,
+    { maxWidth: 640, maxHeight: 400 },
+    () => level,
+  );
   try {
     await opened(pool, "adapt");
-    const latest = () => calls.cdp.filter(c => c.method === "Page.startScreencast").at(-1)?.params;
-    expect(latest()).toMatchObject({ quality: 50, maxWidth: 640, maxHeight: 400 });
-    level = 2; pool.refreshCapture("adapt"); await Bun.sleep(0);
-    expect(latest()).toMatchObject({ quality: 20, maxWidth: 640, maxHeight: 400 });
-    level = 3; pool.refreshCapture("adapt"); await Bun.sleep(0);
-    expect(latest()).toMatchObject({ quality: 20, maxWidth: 480, maxHeight: 300 });
-    const fast = pool.watch("adapt", () => {}, () => true, { maxWidth: 640, maxHeight: 400 });
+    const latest = () =>
+      calls.cdp.filter((c) => c.method === "Page.startScreencast").at(-1)
+        ?.params;
+    expect(latest()).toMatchObject({
+      quality: 50,
+      maxWidth: 640,
+      maxHeight: 400,
+    });
+    level = 2;
+    pool.refreshCapture("adapt");
     await Bun.sleep(0);
-    expect(latest()).toMatchObject({ quality: 50, maxWidth: 640, maxHeight: 400 });
-    fast(); await Bun.sleep(0);
-    expect(latest()).toMatchObject({ quality: 20, maxWidth: 480, maxHeight: 300 });
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {data:"old",sessionId:1} as never);
+    expect(latest()).toMatchObject({
+      quality: 20,
+      maxWidth: 640,
+      maxHeight: 400,
+    });
+    level = 3;
+    pool.refreshCapture("adapt");
+    await Bun.sleep(0);
+    expect(latest()).toMatchObject({
+      quality: 20,
+      maxWidth: 480,
+      maxHeight: 300,
+    });
+    const fast = pool.watch(
+      "adapt",
+      () => {},
+      () => true,
+      { maxWidth: 640, maxHeight: 400 },
+    );
+    await Bun.sleep(0);
+    expect(latest()).toMatchObject({
+      quality: 50,
+      maxWidth: 640,
+      maxHeight: 400,
+    });
+    fast();
+    await Bun.sleep(0);
+    expect(latest()).toMatchObject({
+      quality: 20,
+      maxWidth: 480,
+      maxHeight: 300,
+    });
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", { data: "old", sessionId: 1 } as never);
     stop();
     const resized: unknown[] = [];
-    const stopResized = pool.watch("adapt", f => resized.push(f), () => true,
-      { maxWidth: 400, maxHeight: 240 }, () => level);
+    const stopResized = pool.watch(
+      "adapt",
+      (f) => resized.push(f),
+      () => true,
+      { maxWidth: 400, maxHeight: 240 },
+      () => level,
+    );
     expect(resized).toEqual([null]);
     await Bun.sleep(0);
-    expect(latest()).toMatchObject({ quality: 20, maxWidth: 300, maxHeight: 180 });
+    expect(latest()).toMatchObject({
+      quality: 20,
+      maxWidth: 300,
+      maxHeight: 180,
+    });
     stopResized();
-  } finally { stop(); await pool.shutdown(); }
+  } finally {
+    stop();
+    await pool.shutdown();
+  }
 });

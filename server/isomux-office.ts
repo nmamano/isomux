@@ -121,7 +121,10 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
-import { encodeBrowserFrame, validGeneration } from "../shared/browser-frame.ts";
+import {
+  encodeBrowserFrame,
+  validGeneration,
+} from "../shared/browser-frame.ts";
 import { BrowserFrameSender } from "./browser-frame-sender.ts";
 import {
   browserPool,
@@ -5121,7 +5124,9 @@ async function handleInboundMessage(
         break;
       case "browser_watch": {
         // Resizing replaces the watch, but preserves sustained pressure.
-        const pressure = browserWatches.get(ws.data.connectionId)?.get(cmd.agentId)?.frames.pressure;
+        const pressure = browserWatches
+          .get(ws.data.connectionId)
+          ?.get(cmd.agentId)?.frames.pressure;
         stopBrowserWatch(ws.data.connectionId, cmd.agentId);
         if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId))
           break;
@@ -5130,8 +5135,11 @@ async function handleInboundMessage(
           (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))
         )
           break;
-        if (cmd.transport !== undefined &&
-            (cmd.transport !== "jpeg-v1" || !validGeneration(cmd.generation))) break;
+        if (
+          cmd.transport !== undefined &&
+          (cmd.transport !== "jpeg-v1" || !validGeneration(cmd.generation))
+        )
+          break;
         let watches = browserWatches.get(ws.data.connectionId);
         if (!watches) {
           watches = new Map();
@@ -5148,8 +5156,12 @@ async function handleInboundMessage(
           }
           return true;
         };
-        const frames = new BrowserFrameSender(ws, canDeliver,
-          () => browserPool.refreshCapture(cmd.agentId), pressure);
+        const frames = new BrowserFrameSender(
+          ws,
+          canDeliver,
+          () => browserPool.refreshCapture(cmd.agentId),
+          pressure,
+        );
         const stop = browserPool.watch(
           cmd.agentId,
           (frame) => {
@@ -5170,16 +5182,19 @@ async function handleInboundMessage(
             if (!state.available) frames.clear();
             if (frame)
               frames.send(
-                cmd.transport === "jpeg-v1" ? encodeBrowserFrame({
-                  agentId: cmd.agentId,
-                  generation: cmd.generation!,
-                  width: frame.width, height: frame.height,
-                  jpeg: Buffer.from(frame.data, "base64"),
-                }) : JSON.stringify({
-                  type: "browser_frame",
-                  agentId: cmd.agentId,
-                  ...frame,
-                }),
+                cmd.transport === "jpeg-v1"
+                  ? encodeBrowserFrame({
+                      agentId: cmd.agentId,
+                      generation: cmd.generation!,
+                      width: frame.width,
+                      height: frame.height,
+                      jpeg: Buffer.from(frame.data, "base64"),
+                    })
+                  : JSON.stringify({
+                      type: "browser_frame",
+                      agentId: cmd.agentId,
+                      ...frame,
+                    }),
               );
           },
           () =>

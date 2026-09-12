@@ -17,14 +17,19 @@ export class BrowserStreamPressure {
    * buffer needs 2 s of continuous pressure; recovery needs 8 s below a
    * quarter frame. The middle band resets dwell instead of changing quality. */
   sample(buffered: number, frameBytes: number, now: number): boolean {
-    const direction = buffered > frameBytes ? 1 : buffered <= frameBytes / 4 ? -1 : 0;
+    const direction =
+      buffered > frameBytes ? 1 : buffered <= frameBytes / 4 ? -1 : 0;
     if (direction !== this.direction) {
       this.direction = direction;
       this.since = now;
     }
-    if (!direction || now - this.since < (direction > 0 ? 2000 : 8000)) return false;
+    if (!direction || now - this.since < (direction > 0 ? 2000 : 8000))
+      return false;
     this.since = now;
-    const next = Math.max(0, Math.min(BROWSER_CAPTURE_STEPS.length - 1, this.level + direction));
+    const next = Math.max(
+      0,
+      Math.min(BROWSER_CAPTURE_STEPS.length - 1, this.level + direction),
+    );
     if (next === this.level) return false;
     this.level = next;
     return true;

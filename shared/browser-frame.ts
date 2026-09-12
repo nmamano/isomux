@@ -14,7 +14,9 @@ export interface BinaryBrowserFrame {
   jpeg: Uint8Array<ArrayBuffer>;
 }
 
-export function encodeBrowserFrame(frame: BinaryBrowserFrame): Uint8Array<ArrayBuffer> {
+export function encodeBrowserFrame(
+  frame: BinaryBrowserFrame,
+): Uint8Array<ArrayBuffer> {
   const id = encoder.encode(frame.agentId);
   if (!id.length || id.length > 65535 || !validGeneration(frame.generation))
     throw new Error("Invalid browser frame identity");
@@ -37,18 +39,31 @@ export function validGeneration(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
-export function decodeBrowserFrame(data: ArrayBuffer | Uint8Array<ArrayBuffer>): BinaryBrowserFrame | null {
+export function decodeBrowserFrame(
+  data: ArrayBuffer | Uint8Array<ArrayBuffer>,
+): BinaryBrowserFrame | null {
   const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
   if (bytes.byteLength < HEADER) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint32(0) !== MAGIC || view.getUint8(4) !== 1 || view.getUint8(5) !== 1)
+  if (
+    view.getUint32(0) !== MAGIC ||
+    view.getUint8(4) !== 1 ||
+    view.getUint8(5) !== 1
+  )
     return null;
   const idLength = view.getUint16(6);
   const generation = view.getFloat64(8);
-  const width = view.getUint32(16), height = view.getUint32(20);
+  const width = view.getUint32(16),
+    height = view.getUint32(20);
   const jpegLength = view.getUint32(24);
-  if (!idLength || HEADER + idLength + jpegLength !== bytes.byteLength ||
-      jpegLength < 2 || !validGeneration(generation) || !width || !height)
+  if (
+    !idLength ||
+    HEADER + idLength + jpegLength !== bytes.byteLength ||
+    jpegLength < 2 ||
+    !validGeneration(generation) ||
+    !width ||
+    !height
+  )
     return null;
   try {
     const agentId = decoder.decode(bytes.subarray(HEADER, HEADER + idLength));

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { addRawListener, removeRawListener, addBinaryListener, removeBinaryListener, send } from "../ws.ts";
+import {
+  addRawListener,
+  removeRawListener,
+  addBinaryListener,
+  removeBinaryListener,
+  send,
+} from "../ws.ts";
 import { useI18n } from "../i18n.tsx";
 import {
   BROWSER_MIN_DIM,
@@ -9,9 +15,14 @@ import {
   type ServerMessage,
 } from "../../shared/types.ts";
 
-import { decodeBrowserFrame, type BinaryBrowserFrame } from "../../shared/browser-frame.ts";
+import {
+  decodeBrowserFrame,
+  type BinaryBrowserFrame,
+} from "../../shared/browser-frame.ts";
 
-type Frame = { data: string; width: number; height: number } | BinaryBrowserFrame;
+type Frame =
+  | { data: string; width: number; height: number }
+  | BinaryBrowserFrame;
 let nextWatchGeneration = 0;
 
 /** Mounted only for the chat being viewed; background chats cannot open a panel. */
@@ -107,7 +118,11 @@ export function BrowserPanel({
         decoding = false;
         decode();
       };
-      const paint = (image: CanvasImageSource, width: number, height: number) => {
+      const paint = (
+        image: CanvasImageSource,
+        width: number,
+        height: number,
+      ) => {
         if (!alive || epoch !== generation || !surfaceRef.current) return;
         const canvas = surfaceRef.current;
         if (canvas.width !== width) canvas.width = width;
@@ -121,28 +136,41 @@ export function BrowserPanel({
       };
       if ("jpeg" in frame) {
         void createImageBitmap(new Blob([frame.jpeg], { type: "image/jpeg" }))
-          .then((bitmap) => {
-            decodeFailures = 0;
-            // A decode can finish after resize, close or unmount. Every
-            // resolved bitmap is owned here, even when painting is skipped.
-            try { paint(bitmap, bitmap.width, bitmap.height); }
-            catch {}
-            finally { bitmap.close(); }
-          }, () => {
-            // One corrupt frame does not change transport. Repeated decoder
-            // failure uses the same JSON/Image path as an older browser.
-            if (alive && epoch === generation && ++decodeFailures >= 3) {
-              binary = false;
-              subscribe();
-            }
-          })
+          .then(
+            (bitmap) => {
+              decodeFailures = 0;
+              // A decode can finish after resize, close or unmount. Every
+              // resolved bitmap is owned here, even when painting is skipped.
+              try {
+                paint(bitmap, bitmap.width, bitmap.height);
+              } catch {
+              } finally {
+                bitmap.close();
+              }
+            },
+            () => {
+              // One corrupt frame does not change transport. Repeated decoder
+              // failure uses the same JSON/Image path as an older browser.
+              if (alive && epoch === generation && ++decodeFailures >= 3) {
+                binary = false;
+                subscribe();
+              }
+            },
+          )
           .finally(finish);
         return;
       }
       const image = new Image();
       image.onload = () => {
-        try { paint(image, image.naturalWidth || frame.width, image.naturalHeight || frame.height); }
-        finally { finish(); }
+        try {
+          paint(
+            image,
+            image.naturalWidth || frame.width,
+            image.naturalHeight || frame.height,
+          );
+        } finally {
+          finish();
+        }
       };
       image.onerror = finish;
       image.src = `data:image/jpeg;base64,${frame.data}`;
@@ -152,7 +180,9 @@ export function BrowserPanel({
       generation++;
       pending = null;
       send({
-        ...(binary ? { transport: "jpeg-v1" as const, generation: watchGeneration } : {}),
+        ...(binary
+          ? { transport: "jpeg-v1" as const, generation: watchGeneration }
+          : {}),
         type: "browser_watch",
         agentId,
         watching: true,
@@ -228,8 +258,14 @@ export function BrowserPanel({
     };
     const binaryListener = (raw: ArrayBuffer) => {
       const frame = decodeBrowserFrame(raw);
-      if (!binary || !frame || !acceptsFrames || frame.agentId !== agentId ||
-          frame.generation !== watchGeneration) return;
+      if (
+        !binary ||
+        !frame ||
+        !acceptsFrames ||
+        frame.agentId !== agentId ||
+        frame.generation !== watchGeneration
+      )
+        return;
       pending = frame;
       decode();
     };

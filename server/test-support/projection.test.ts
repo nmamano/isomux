@@ -1609,44 +1609,88 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
 it("browser transport opt-in isolates binary from legacy, log, terminal and API-token sockets and rechecks access", async () => {
   server = await boot();
   const roomId = server.agentManager.getRooms()[0].id;
-  const manager = await server.seedOwner("Boss"), member = await server.seedMember("Mia");
+  const manager = await server.seedOwner("Boss"),
+    member = await server.seedMember("Mia");
   await setAccess(server, manager.rawSessionId, member.username, [roomId]);
   const agent = await spawnIn(server, "Binary", roomId, manager);
   const binary = await connectSettled(server, member.rawSessionId);
   const legacy = await connectSettled(server, manager.rawSessionId);
   const logs = await connectSettled(server, manager.rawSessionId);
   const terminal = await connectSettled(server, manager.rawSessionId);
-  expect(server.agentManager._testSeedTerminalBuffer(agent.id, "terminal backlog")).toBe(true);
-  terminal.send({type:"terminal_open",agentId:agent.id});
+  expect(
+    server.agentManager._testSeedTerminalBuffer(agent.id, "terminal backlog"),
+  ).toBe(true);
+  terminal.send({ type: "terminal_open", agentId: agent.id });
   await terminal.waitFor("terminal_output");
-  expect(bag(logs).some(m => m.type === "full_state")).toBe(true);
-  const token = await mintApiToken({userId:getUserByName(manager.username)!.id,name:"Stream",expiresInDays:null});
-  const api = await server.connectWs("", {headers:{Authorization:`Bearer ${token.token}`,Origin:""}});
+  expect(bag(logs).some((m) => m.type === "full_state")).toBe(true);
+  const token = await mintApiToken({
+    userId: getUserByName(manager.username)!.id,
+    name: "Stream",
+    expiresInDays: null,
+  });
+  const api = await server.connectWs("", {
+    headers: { Authorization: `Bearer ${token.token}`, Origin: "" },
+  });
   const received = new Map<TestSocket, ArrayBuffer[]>();
-  for (const socket of [binary,legacy,logs,terminal,api]) {
-    const data: ArrayBuffer[] = []; received.set(socket,data);
+  for (const socket of [binary, legacy, logs, terminal, api]) {
+    const data: ArrayBuffer[] = [];
+    received.set(socket, data);
     socket.raw.binaryType = "arraybuffer";
-    socket.raw.addEventListener("message", e => {if(e.data instanceof ArrayBuffer) data.push(e.data);});
+    socket.raw.addEventListener("message", (e) => {
+      if (e.data instanceof ArrayBuffer) data.push(e.data);
+    });
   }
   const original = browserPool.watch.bind(browserPool);
   const listeners: Parameters<typeof browserPool.watch>[1][] = [];
-  browserPool.watch = (_id, listener) => {listeners.push(listener); return () => {};};
+  browserPool.watch = (_id, listener) => {
+    listeners.push(listener);
+    return () => {};
+  };
   try {
-    binary.send({type:"browser_watch",agentId:agent.id,watching:true,transport:"jpeg-v1",generation:17});
-    legacy.send({type:"browser_watch",agentId:agent.id,watching:true});
-    api.send({type:"browser_watch",agentId:agent.id,watching:true,transport:"jpeg-v1",generation:17});
-    await pingPong(binary); await pingPong(legacy);
+    binary.send({
+      type: "browser_watch",
+      agentId: agent.id,
+      watching: true,
+      transport: "jpeg-v1",
+      generation: 17,
+    });
+    legacy.send({ type: "browser_watch", agentId: agent.id, watching: true });
+    api.send({
+      type: "browser_watch",
+      agentId: agent.id,
+      watching: true,
+      transport: "jpeg-v1",
+      generation: 17,
+    });
+    await pingPong(binary);
+    await pingPong(legacy);
     expect(listeners).toHaveLength(2);
-    for (const listener of listeners) listener({data:"/9j/2Q==",width:1280,height:800});
-    await pingPong(binary); await pingPong(legacy);
+    for (const listener of listeners)
+      listener({ data: "/9j/2Q==", width: 1280, height: 800 });
+    await pingPong(binary);
+    await pingPong(legacy);
     expect(received.get(binary)).toHaveLength(1);
-    expect(decodeBrowserFrame(received.get(binary)![0])).toMatchObject({agentId:agent.id,generation:17,width:1280,height:800});
-    expect(bag(binary).filter(m => m.type === "browser_frame")).toHaveLength(0);
-    expect(bag(legacy).filter(m => m.type === "browser_frame")).toHaveLength(1);
-    for (const socket of [legacy,logs,terminal,api]) expect(received.get(socket)).toEqual([]);
+    expect(decodeBrowserFrame(received.get(binary)![0])).toMatchObject({
+      agentId: agent.id,
+      generation: 17,
+      width: 1280,
+      height: 800,
+    });
+    expect(bag(binary).filter((m) => m.type === "browser_frame")).toHaveLength(
+      0,
+    );
+    expect(bag(legacy).filter((m) => m.type === "browser_frame")).toHaveLength(
+      1,
+    );
+    for (const socket of [legacy, logs, terminal, api])
+      expect(received.get(socket)).toEqual([]);
     await setAccess(server, manager.rawSessionId, member.username, []);
-    for (const listener of listeners) listener({data:"/9j/2Q==",width:1280,height:800});
-    await pingPong(binary); await pingPong(legacy);
+    for (const listener of listeners)
+      listener({ data: "/9j/2Q==", width: 1280, height: 800 });
+    await pingPong(binary);
+    await pingPong(legacy);
     expect(received.get(binary)).toHaveLength(1);
-  } finally {browserPool.watch = original;}
+  } finally {
+    browserPool.watch = original;
+  }
 });

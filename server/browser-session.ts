@@ -593,7 +593,11 @@ export class BrowserPool {
     listener(null);
     if (session) {
       const bounds = this.captureBounds(agentId, session);
-      if (session.lastFrame && session.captureSize === `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}`)
+      if (
+        session.lastFrame &&
+        session.captureSize ===
+          `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}`
+      )
         listener(session.lastFrame);
       this.refreshPresence(agentId, session);
       void this.startScreencast(agentId, session);
@@ -661,10 +665,24 @@ export class BrowserPool {
     const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(
       (listener) => {
         const bound = this.viewerBounds.get(listener) ?? {};
-        const step = BROWSER_CAPTURE_STEPS[this.viewerLevels.get(listener)?.() ?? 0] ?? BROWSER_CAPTURE_STEPS[0];
+        const step =
+          BROWSER_CAPTURE_STEPS[this.viewerLevels.get(listener)?.() ?? 0] ??
+          BROWSER_CAPTURE_STEPS[0];
         return {
-          maxWidth: Math.max(1, Math.round(Math.min(viewport.width, bound.maxWidth ?? viewport.width) * step.scale)),
-          maxHeight: Math.max(1, Math.round(Math.min(viewport.height, bound.maxHeight ?? viewport.height) * step.scale)),
+          maxWidth: Math.max(
+            1,
+            Math.round(
+              Math.min(viewport.width, bound.maxWidth ?? viewport.width) *
+                step.scale,
+            ),
+          ),
+          maxHeight: Math.max(
+            1,
+            Math.round(
+              Math.min(viewport.height, bound.maxHeight ?? viewport.height) *
+                step.scale,
+            ),
+          ),
           quality: step.quality,
         };
       },

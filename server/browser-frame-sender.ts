@@ -25,14 +25,24 @@ export class BrowserFrameSender {
 
   samplePressure(now = performance.now()): void {
     if (this.stopped || !this.frameBytes) return;
-    if (!this.canDeliver()) { this.stop(); return; }
-    if (this.pressure.sample(this.socket.getBufferedAmount(), this.frameBytes, now))
+    if (!this.canDeliver()) {
+      this.stop();
+      return;
+    }
+    if (
+      this.pressure.sample(
+        this.socket.getBufferedAmount(),
+        this.frameBytes,
+        now,
+      )
+    )
       this.onPressure?.();
   }
 
   send(frame: string | Uint8Array): void {
     if (this.stopped) return;
-    this.frameBytes = typeof frame === "string" ? Buffer.byteLength(frame) : frame.byteLength;
+    this.frameBytes =
+      typeof frame === "string" ? Buffer.byteLength(frame) : frame.byteLength;
     this.pending = frame;
     this.flush();
   }
@@ -44,7 +54,12 @@ export class BrowserFrameSender {
       this.stop();
       return;
     }
-    if (this.socket.getBufferedAmount() > (typeof this.pending === "string" ? Buffer.byteLength(this.pending) : this.pending.byteLength))
+    if (
+      this.socket.getBufferedAmount() >
+      (typeof this.pending === "string"
+        ? Buffer.byteLength(this.pending)
+        : this.pending.byteLength)
+    )
       return;
     const frame = this.pending;
     this.pending = undefined;
