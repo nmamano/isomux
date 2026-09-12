@@ -4679,6 +4679,12 @@ function emitAgentEvent(event: AgentEvent): void {
         prompt: event.prompt,
       });
       break;
+    case "room_pet_updated":
+      liveEmit("room_pet_updated", {
+        roomId: event.roomId,
+        pet: event.pet,
+      });
+      break;
     case "room_skin_updated":
       liveEmit("room_skin_updated", {
         roomId: event.roomId,

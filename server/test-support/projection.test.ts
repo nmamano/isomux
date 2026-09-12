@@ -1327,6 +1327,40 @@ describe("agent_removed room-ACL (task 03382535 - 3b.3 flip of the broadcast-all
   });
 });
 
+describe("room_pet_updated room-ACL (emitted through the registry, not the bridge)", () => {
+  it("a pet change reaches a member restricted to that room, and not one who cannot see it", async () => {
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+
+    // Hidden-room change first, visible-room change second; the second one
+    // arriving on the member socket is the barrier for the first.
+    expect(server.agentManager.setRoomPet(r2, { species: "dog", coat: 0 })).toBe(true);
+    expect(server.agentManager.setRoomPet(r1, { species: "rabbit", coat: 0 })).toBe(true);
+
+    await waitForMessageWhere(
+      ownerSock,
+      (m) => m.type === "room_pet_updated" && m.roomId === r2,
+    );
+    const visible = await waitForMessageWhere(
+      memberSock,
+      (m) => m.type === "room_pet_updated" && m.roomId === r1,
+    );
+    expect((visible as { pet?: { species?: string } }).pet?.species).toBe("rabbit");
+    expect(
+      bag(memberSock).some(
+        (m) => m.type === "room_pet_updated" && m.roomId === r2,
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("killed-agent summary ACL (Phase 1.2)", () => {
   it("killed summaries are filtered by lastRoomId per recipient; killed_agent_added is suppressed for the restricted member", async () => {
     server = await boot();
