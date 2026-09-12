@@ -1191,7 +1191,8 @@ export const ca: Catalog = {
   "panels.browser.address": "Adreça",
   "panels.browser.go": "Ves-hi",
   "panels.browser.loading": "Carregant…",
-  "panels.browser.readOnly": "Només lectura. El responsable de l’agent controla aquesta pàgina.",
+  "panels.browser.readOnly":
+    "Només lectura. El responsable de l’agent controla aquesta pàgina.",
   "panels.browser.empty": "No hi ha cap pàgina oberta.",
   "panels.browser.title": "Navegador",
   "panels.browser.close": "Tanca el navegador",

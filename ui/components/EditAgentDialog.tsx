@@ -1030,404 +1030,371 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   const engineSettingsBlock = (
     <div className="agent-engine-settings">
-                <label style={{ ...labelStyle, marginTop: 12 }}>
-                  {isCodex
-                    ? t("common.field.approvalPolicy")
-                    : t("common.field.permissionMode")}
-                </label>
-                <select
-                  value={permissionMode}
-                  onChange={(e) => {
-                    cancelPendingTemplateModelResolution();
-                    setPermissionMode(
-                      e.target.value as AgentInfo["permissionMode"],
-                    );
-                  }}
-                  style={{
-                    ...inputStyle,
-                    appearance: "none",
-                    cursor: "pointer",
-                  }}
-                >
-                  {isOpenCode ? (
-                    <>
-                      <option value="default">
-                        {t("dialogs.agent.permission.ask")}
-                      </option>
-                      <option value="bypassPermissions">
-                        {t("dialogs.agent.permission.bypassAll")}
-                      </option>
-                    </>
-                  ) : isCodex ? (
-                    <>
-                      <option value="untrusted">
-                        {t("dialogs.agent.permission.codexUntrusted")}
-                      </option>
-                      <option value="on-request">
-                        {t("dialogs.agent.permission.codexOnRequest")}
-                      </option>
-                      <option value="never">
-                        {t("common.permission.codexNever")}
-                      </option>
-                    </>
-                  ) : (
-                    <>
-                      {claudeFamilySupportsAutoPermission(modelFamily) && (
-                        <option value="auto">
-                          {t("dialogs.agent.permission.claudeAuto")}
-                        </option>
-                      )}
-                      <option value="default">
-                        {t("dialogs.agent.permission.claudeDefault")}
-                      </option>
-                      <option value="acceptEdits">
-                        {t("dialogs.agent.permission.claudeAcceptEdits")}
-                      </option>
-                      <option value="bypassPermissions">
-                        {t("common.permission.claudeBypass")}
-                      </option>
-                    </>
-                  )}
-                </select>
+      <label style={{ ...labelStyle, marginTop: 12 }}>
+        {isCodex
+          ? t("common.field.approvalPolicy")
+          : t("common.field.permissionMode")}
+      </label>
+      <select
+        value={permissionMode}
+        onChange={(e) => {
+          cancelPendingTemplateModelResolution();
+          setPermissionMode(e.target.value as AgentInfo["permissionMode"]);
+        }}
+        style={{
+          ...inputStyle,
+          appearance: "none",
+          cursor: "pointer",
+        }}
+      >
+        {isOpenCode ? (
+          <>
+            <option value="default">{t("dialogs.agent.permission.ask")}</option>
+            <option value="bypassPermissions">
+              {t("dialogs.agent.permission.bypassAll")}
+            </option>
+          </>
+        ) : isCodex ? (
+          <>
+            <option value="untrusted">
+              {t("dialogs.agent.permission.codexUntrusted")}
+            </option>
+            <option value="on-request">
+              {t("dialogs.agent.permission.codexOnRequest")}
+            </option>
+            <option value="never">{t("common.permission.codexNever")}</option>
+          </>
+        ) : (
+          <>
+            {claudeFamilySupportsAutoPermission(modelFamily) && (
+              <option value="auto">
+                {t("dialogs.agent.permission.claudeAuto")}
+              </option>
+            )}
+            <option value="default">
+              {t("dialogs.agent.permission.claudeDefault")}
+            </option>
+            <option value="acceptEdits">
+              {t("dialogs.agent.permission.claudeAcceptEdits")}
+            </option>
+            <option value="bypassPermissions">
+              {t("common.permission.claudeBypass")}
+            </option>
+          </>
+        )}
+      </select>
 
-                {isCodex && (
-                  <>
-                    <label style={{ ...labelStyle, marginTop: 12 }}>
-                      {t("common.field.sandbox")}
-                    </label>
-                    <select
-                      value={codexSandbox}
-                      onChange={(e) =>
-                        setCodexSandbox(e.target.value as CodexSandboxMode)
-                      }
-                      style={{
-                        ...inputStyle,
-                        appearance: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <option value="read-only">
-                        {t("common.sandbox.readOnly")}
-                      </option>
-                      <option value="workspace-write">
-                        {t("common.sandbox.workspaceWrite")}
-                      </option>
-                      <option value="danger-full-access">
-                        {t("common.sandbox.dangerFullAccess")}
-                      </option>
-                    </select>
-                  </>
-                )}
+      {isCodex && (
+        <>
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            {t("common.field.sandbox")}
+          </label>
+          <select
+            value={codexSandbox}
+            onChange={(e) =>
+              setCodexSandbox(e.target.value as CodexSandboxMode)
+            }
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="read-only">{t("common.sandbox.readOnly")}</option>
+            <option value="workspace-write">
+              {t("common.sandbox.workspaceWrite")}
+            </option>
+            <option value="danger-full-access">
+              {t("common.sandbox.dangerFullAccess")}
+            </option>
+          </select>
+        </>
+      )}
 
-                <label style={{ ...labelStyle, marginTop: 12 }}>
-                  {t("common.field.model")}
-                </label>
-                {(() => {
-                  // Codex model options come from the server (auth-aware via
-                  // model/list). On fetch failure OR an empty list we fall back to the
-                  // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
-                  // fetched list would otherwise render a zero-option select). Claude
-                  // uses the static MODEL_FAMILIES list either way.
-                  const backendFetched =
-                    usesBackendModels &&
-                    backendModels &&
-                    backendModels.length > 0;
-                  const backendVisible = backendFetched
-                    ? backendModels.filter((m) => !m.hidden)
-                    : null;
-                  const pickerModels = backendVisible
-                    ? partitionBackendModelsForPicker(
-                        backendVisible,
-                        isOpenCode,
-                      )
-                    : null;
-                  // Pin the stored model as an extra option whenever the rendered
-                  // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
-                  // editing never silently drops a value not offered on this login.
-                  const renderedModelIds = backendVisible
-                    ? backendVisible.map((m) => m.id)
-                    : CODEX_MODELS.map((m) => m.value);
-                  const storedNotInList =
-                    !isSpawn &&
-                    usesBackendModels &&
-                    !renderedModelIds.includes(modelFamily);
-                  return (
-                    <>
-                      <select
-                        value={modelFamily}
-                        onChange={(e) => {
-                          cancelPendingTemplateModelResolution();
-                          const next = e.target.value;
-                          setModelFamily(next);
-                          if (
-                            !isCodex &&
-                            !claudeFamilySupportsAutoPermission(next) &&
-                            permissionMode === "auto"
-                          )
-                            setPermissionMode("bypassPermissions");
-                          if (
-                            !isCodex &&
-                            !claudeFamilySupportsMaxEffort(next) &&
-                            effort === "max"
-                          )
-                            // Same coercion target the server's validateEffort uses
-                            // for an invalid Claude "max".
-                            setEffort(DEFAULT_EFFORT);
-                          // Dynamic backends keep only an effort the selected
-                          // model advertises. OpenCode has no reported default,
-                          // so its enum-ordered first option is the fallback.
-                          if ((isCodex || isOpenCode) && backendVisible) {
-                            const picked = backendVisible.find(
-                              (m) => m.id === next,
-                            );
-                            if (picked) {
-                              if (isCodex && picked.defaultEffort) {
-                                const supported = new Set(
-                                  picked.supportedEfforts.map((o) => o.level),
-                                );
-                                if (!supported.has(effort))
-                                  setEffort(
-                                    picked.defaultEffort as EffortLevel,
-                                  );
-                              } else if (isOpenCode) {
-                                const nextEffort = selectSupportedEffort(
-                                  effort,
-                                  picked.supportedEfforts,
-                                );
-                                if (nextEffort && nextEffort !== effort)
-                                  setEffort(nextEffort);
-                              }
-                            }
-                          }
-                        }}
-                        style={{
-                          ...inputStyle,
-                          appearance: "none",
-                          cursor: modelSelectCursor(
-                            usesBackendModels,
-                            modelsLoading,
-                          ),
-                        }}
-                        disabled={usesBackendModels && modelsLoading}
-                      >
-                        {usesBackendModels ? (
-                          <>
-                            {/* OpenCode picker order: Free, then
+      <label style={{ ...labelStyle, marginTop: 12 }}>
+        {t("common.field.model")}
+      </label>
+      {(() => {
+        // Codex model options come from the server (auth-aware via
+        // model/list). On fetch failure OR an empty list we fall back to the
+        // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
+        // fetched list would otherwise render a zero-option select). Claude
+        // uses the static MODEL_FAMILIES list either way.
+        const backendFetched =
+          usesBackendModels && backendModels && backendModels.length > 0;
+        const backendVisible = backendFetched
+          ? backendModels.filter((m) => !m.hidden)
+          : null;
+        const pickerModels = backendVisible
+          ? partitionBackendModelsForPicker(backendVisible, isOpenCode)
+          : null;
+        // Pin the stored model as an extra option whenever the rendered
+        // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
+        // editing never silently drops a value not offered on this login.
+        const renderedModelIds = backendVisible
+          ? backendVisible.map((m) => m.id)
+          : CODEX_MODELS.map((m) => m.value);
+        const storedNotInList =
+          !isSpawn &&
+          usesBackendModels &&
+          !renderedModelIds.includes(modelFamily);
+        return (
+          <>
+            <select
+              value={modelFamily}
+              onChange={(e) => {
+                cancelPendingTemplateModelResolution();
+                const next = e.target.value;
+                setModelFamily(next);
+                if (
+                  !isCodex &&
+                  !claudeFamilySupportsAutoPermission(next) &&
+                  permissionMode === "auto"
+                )
+                  setPermissionMode("bypassPermissions");
+                if (
+                  !isCodex &&
+                  !claudeFamilySupportsMaxEffort(next) &&
+                  effort === "max"
+                )
+                  // Same coercion target the server's validateEffort uses
+                  // for an invalid Claude "max".
+                  setEffort(DEFAULT_EFFORT);
+                // Dynamic backends keep only an effort the selected
+                // model advertises. OpenCode has no reported default,
+                // so its enum-ordered first option is the fallback.
+                if ((isCodex || isOpenCode) && backendVisible) {
+                  const picked = backendVisible.find((m) => m.id === next);
+                  if (picked) {
+                    if (isCodex && picked.defaultEffort) {
+                      const supported = new Set(
+                        picked.supportedEfforts.map((o) => o.level),
+                      );
+                      if (!supported.has(effort))
+                        setEffort(picked.defaultEffort as EffortLevel);
+                    } else if (isOpenCode) {
+                      const nextEffort = selectSupportedEffort(
+                        effort,
+                        picked.supportedEfforts,
+                      );
+                      if (nextEffort && nextEffort !== effort)
+                        setEffort(nextEffort);
+                    }
+                  }
+                }
+              }}
+              style={{
+                ...inputStyle,
+                appearance: "none",
+                cursor: modelSelectCursor(usesBackendModels, modelsLoading),
+              }}
+              disabled={usesBackendModels && modelsLoading}
+            >
+              {usesBackendModels ? (
+                <>
+                  {/* OpenCode picker order: Free, then
                                 Pay-as-you-go, then Subscription. */}
-                            {pickerModels && pickerModels.free.length > 0 && (
-                              <optgroup
-                                label={t("dialogs.agent.modelTier.free")}
-                              >
-                                {pickerModels.free.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.label}
-                                  </option>
-                                ))}
-                              </optgroup>
-                            )}
-                            {pickerModels ? (
-                              isOpenCode ? (
-                                <>
-                                  {pickerModels.available.length > 0 && (
-                                    <optgroup
-                                      label={t("dialogs.agent.modelTier.payg")}
-                                    >
-                                      {pickerModels.available.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                          {m.label}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  )}
-                                  {pickerModels.subscription.length > 0 && (
-                                    <optgroup
-                                      label={t(
-                                        "dialogs.agent.modelTier.subscription",
-                                      )}
-                                    >
-                                      {pickerModels.subscription.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                          {m.label}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  )}
-                                </>
-                              ) : (
-                                pickerModels.available.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.label}
-                                  </option>
-                                ))
-                              )
-                            ) : isCodex ? (
-                              CODEX_MODELS.map((m) => (
-                                <option key={m.value} value={m.value}>
-                                  {m.label}
-                                </option>
-                              ))
-                            ) : null}
-                            {storedNotInList && (
-                              <option key={modelFamily} value={modelFamily}>
-                                {t("common.model.currentOption")}
+                  {pickerModels && pickerModels.free.length > 0 && (
+                    <optgroup label={t("dialogs.agent.modelTier.free")}>
+                      {pickerModels.free.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {pickerModels ? (
+                    isOpenCode ? (
+                      <>
+                        {pickerModels.available.length > 0 && (
+                          <optgroup label={t("dialogs.agent.modelTier.payg")}>
+                            {pickerModels.available.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.label}
                               </option>
-                            )}
-                          </>
-                        ) : (
-                          MODEL_FAMILIES.map((m) => (
-                            <option key={m.family} value={m.family}>
-                              {m.label} ({modelVersionLabel(m.family)})
-                            </option>
-                          ))
+                            ))}
+                          </optgroup>
                         )}
-                      </select>
-                      {/* Only claim the login lacks the model once the check
+                        {pickerModels.subscription.length > 0 && (
+                          <optgroup
+                            label={t("dialogs.agent.modelTier.subscription")}
+                          >
+                            {pickerModels.subscription.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.label}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </>
+                    ) : (
+                      pickerModels.available.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))
+                    )
+                  ) : isCodex ? (
+                    CODEX_MODELS.map((m) => (
+                      <option key={m.value} value={m.value}>
+                        {m.label}
+                      </option>
+                    ))
+                  ) : null}
+                  {storedNotInList && (
+                    <option key={modelFamily} value={modelFamily}>
+                      {t("common.model.currentOption")}
+                    </option>
+                  )}
+                </>
+              ) : (
+                MODEL_FAMILIES.map((m) => (
+                  <option key={m.family} value={m.family}>
+                    {m.label} ({modelVersionLabel(m.family)})
+                  </option>
+                ))
+              )}
+            </select>
+            {/* Only claim the login lacks the model once the check
                           has settled - while the list loads, the fallback
                           list is wrong for backend-model logins and the
                           message flashes on every open. */}
-                      {!isSpawn &&
-                        usesBackendModels &&
-                        storedNotInList &&
-                        !modelsLoading &&
-                        (backendVisible !== null || modelsError !== null) && (
-                          <p
-                            style={{
-                              fontSize: 12,
-                              color: "#ff6b6b",
-                              margin: "3px 0 0",
-                            }}
-                          >
-                            {t("common.model.currentIs", {
-                              model: familyDisplayLabel(modelFamily),
-                            })}{" "}
-                            {modelsError
-                              ? t("common.model.checkFailed")
-                              : t("common.model.notOffered")}
-                          </p>
-                        )}
-                    </>
-                  );
-                })()}
-                {usesBackendModels && modelsLoading && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: "var(--orange)",
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    {modelsStarting && isOpenCode
-                      ? t("common.model.startingOpenCode")
-                      : t("common.model.loading")}
-                  </p>
-                )}
-                {usesBackendModels && modelsError && !modelsLoading && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      color: "#ff6b6b",
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    {modelListErrorMessage(i18n, isOpenCode, modelsError)}
-                  </p>
-                )}
-                {isOpenCode &&
-                  !modelsLoading &&
-                  !modelsError &&
-                  backendModels?.filter((model) => !model.hidden).length ===
-                    0 && (
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#ff6b6b",
-                        margin: "3px 0 0",
-                      }}
-                    >
-                      {t("common.model.noneConnected")}
-                    </p>
-                  )}
-                {openCodeCatalogRejectsSelection && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      color: "#ff6b6b",
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    {t("common.model.selectConnected")}
-                  </p>
-                )}
+            {!isSpawn &&
+              usesBackendModels &&
+              storedNotInList &&
+              !modelsLoading &&
+              (backendVisible !== null || modelsError !== null) && (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#ff6b6b",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {t("common.model.currentIs", {
+                    model: familyDisplayLabel(modelFamily),
+                  })}{" "}
+                  {modelsError
+                    ? t("common.model.checkFailed")
+                    : t("common.model.notOffered")}
+                </p>
+              )}
+          </>
+        );
+      })()}
+      {usesBackendModels && modelsLoading && (
+        <p
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: "var(--orange)",
+            margin: "3px 0 0",
+          }}
+        >
+          {modelsStarting && isOpenCode
+            ? t("common.model.startingOpenCode")
+            : t("common.model.loading")}
+        </p>
+      )}
+      {usesBackendModels && modelsError && !modelsLoading && (
+        <p
+          style={{
+            fontSize: 12,
+            color: "#ff6b6b",
+            margin: "3px 0 0",
+          }}
+        >
+          {modelListErrorMessage(i18n, isOpenCode, modelsError)}
+        </p>
+      )}
+      {isOpenCode &&
+        !modelsLoading &&
+        !modelsError &&
+        backendModels?.filter((model) => !model.hidden).length === 0 && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "#ff6b6b",
+              margin: "3px 0 0",
+            }}
+          >
+            {t("common.model.noneConnected")}
+          </p>
+        )}
+      {openCodeCatalogRejectsSelection && (
+        <p
+          style={{
+            fontSize: 12,
+            color: "#ff6b6b",
+            margin: "3px 0 0",
+          }}
+        >
+          {t("common.model.selectConnected")}
+        </p>
+      )}
 
-                {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
-                  <>
-                    <label style={{ ...labelStyle, marginTop: 12 }}>
-                      {t("common.field.effort")}
-                    </label>
-                    {(() => {
-                      // For Codex we use the selected model's supportedReasoningEfforts
-                      // when available; otherwise we fall back to the global EFFORT_LEVELS
-                      // with the same backend/family filter we used pre-fetch. The words
-                      // come from the catalog either way (effortLabel), including for a
-                      // level the table does not carry, which renders as its own id.
-                      let effortLevels: { level: string }[];
-                      if (isOpenCode) {
-                        effortLevels = selectedOpenCodeEfforts;
-                      } else if (isCodex && backendModels) {
-                        const picked = backendModels.find(
-                          (m) => m.id === modelFamily,
-                        );
-                        if (picked && picked.supportedEfforts.length > 0) {
-                          effortLevels = picked.supportedEfforts.map((o) => ({
-                            level: o.level,
-                          }));
-                        } else {
-                          // Codex model with no supportedEfforts reported: fall back to
-                          // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
-                          // across Codex models - e.g. luna lacks ultra; the dynamic
-                          // per-model list is the real source when available).
-                          effortLevels = EFFORT_LEVELS.filter(
-                            (opt) =>
-                              opt.level !== "max" && opt.level !== "ultra",
-                          ).map((o) => ({ level: o.level }));
-                        }
-                      } else {
-                        effortLevels = EFFORT_LEVELS.filter((opt) => {
-                          if (opt.level === "max")
-                            return (
-                              !isCodex &&
-                              claudeFamilySupportsMaxEffort(modelFamily)
-                            );
-                          if (opt.level === "minimal") return isCodex;
-                          if (opt.level === "ultra") return false; // per-model Codex list only
-                          return true;
-                        }).map((o) => ({ level: o.level }));
-                      }
-                      return (
-                        <select
-                          value={effort}
-                          onChange={(e) => {
-                            cancelPendingTemplateModelResolution();
-                            setEffort(e.target.value as EffortLevel);
-                          }}
-                          style={{
-                            ...inputStyle,
-                            appearance: "none",
-                            cursor: "pointer",
-                          }}
-                        >
-                          {effortLevels.map((opt) => (
-                            <option key={opt.level} value={opt.level}>
-                              {effortLabel(i18n, opt.level)}
-                            </option>
-                          ))}
-                        </select>
-                      );
-                    })()}
-                  </>
-                )}
-              </div>
+      {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
+        <>
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            {t("common.field.effort")}
+          </label>
+          {(() => {
+            // For Codex we use the selected model's supportedReasoningEfforts
+            // when available; otherwise we fall back to the global EFFORT_LEVELS
+            // with the same backend/family filter we used pre-fetch. The words
+            // come from the catalog either way (effortLabel), including for a
+            // level the table does not carry, which renders as its own id.
+            let effortLevels: { level: string }[];
+            if (isOpenCode) {
+              effortLevels = selectedOpenCodeEfforts;
+            } else if (isCodex && backendModels) {
+              const picked = backendModels.find((m) => m.id === modelFamily);
+              if (picked && picked.supportedEfforts.length > 0) {
+                effortLevels = picked.supportedEfforts.map((o) => ({
+                  level: o.level,
+                }));
+              } else {
+                // Codex model with no supportedEfforts reported: fall back to
+                // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
+                // across Codex models - e.g. luna lacks ultra; the dynamic
+                // per-model list is the real source when available).
+                effortLevels = EFFORT_LEVELS.filter(
+                  (opt) => opt.level !== "max" && opt.level !== "ultra",
+                ).map((o) => ({ level: o.level }));
+              }
+            } else {
+              effortLevels = EFFORT_LEVELS.filter((opt) => {
+                if (opt.level === "max")
+                  return !isCodex && claudeFamilySupportsMaxEffort(modelFamily);
+                if (opt.level === "minimal") return isCodex;
+                if (opt.level === "ultra") return false; // per-model Codex list only
+                return true;
+              }).map((o) => ({ level: o.level }));
+            }
+            return (
+              <select
+                value={effort}
+                onChange={(e) => {
+                  cancelPendingTemplateModelResolution();
+                  setEffort(e.target.value as EffortLevel);
+                }}
+                style={{
+                  ...inputStyle,
+                  appearance: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {effortLevels.map((opt) => (
+                  <option key={opt.level} value={opt.level}>
+                    {effortLabel(i18n, opt.level)}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
+        </>
+      )}
+    </div>
   );
 
   const moveToRoomBlock = !isSpawn && roomCount > 1 && (
@@ -1467,8 +1434,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 opacity: isFull ? 0.5 : 1,
               }}
             >
-              {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })}{" "}
-              ({roomAgentCount}/8)
+              {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })} (
+              {roomAgentCount}/8)
             </button>
           );
         })}
@@ -1597,620 +1564,628 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
           <div className="agent-dialog-grid">
             {isSpawn && (
-                <section className="agent-settings-group spawn-template-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.group.template")}
-                  </h4>
-                  <p
+              <section className="agent-settings-group spawn-template-section">
+                <h4 className="agent-settings-group-title">
+                  {t("dialogs.agent.group.template")}
+                </h4>
+                <p
+                  style={{
+                    ...dialogHint,
+                    margin: "3px 0 8px",
+                  }}
+                >
+                  {t("dialogs.agent.templateHint")}
+                </p>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile
+                      ? "repeat(2, minmax(0, 1fr))"
+                      : "repeat(3, minmax(0, 1fr))",
+                    gap: 6,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={applyBlankTemplate}
+                    aria-pressed={selectedTemplateKey === null}
                     style={{
-                      ...dialogHint,
-                      margin: "3px 0 8px",
+                      ...templateCardStyle(selectedTemplateKey === null, false),
+                      gridColumn: "1 / -1",
                     }}
                   >
-                    {t("dialogs.agent.templateHint")}
-                  </p>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "repeat(2, minmax(0, 1fr))"
-                        : "repeat(3, minmax(0, 1fr))",
-                      gap: 6,
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={applyBlankTemplate}
-                      aria-pressed={selectedTemplateKey === null}
-                      style={{
-                        ...templateCardStyle(
-                          selectedTemplateKey === null,
-                          false,
-                        ),
-                        gridColumn: "1 / -1",
-                      }}
-                    >
-                      <span style={templateCardTextStyle}>
-                        <span style={templateCardTitleStyle}>
-                          {t("dialogs.agent.blank")}
-                        </span>
-                        <span style={templateCardDescriptionStyle}>
-                          {t("dialogs.agent.blankHint")}
-                        </span>
+                    <span style={templateCardTextStyle}>
+                      <span style={templateCardTitleStyle}>
+                        {t("dialogs.agent.blank")}
                       </span>
-                    </button>
-                    {AGENT_TEMPLATES.map((template) => {
-                      const selected = selectedTemplateKey === template.key;
-                      return (
-                        <button
-                          key={template.key}
-                          type="button"
-                          onClick={() => applyTemplate(template)}
-                          aria-pressed={selected}
-                          style={templateCardStyle(
-                            selected,
-                            false,
-                            template.group,
-                          )}
-                        >
-                          <span style={templateAvatarStyle} aria-hidden="true">
-                            <Character
-                              state="idle"
-                              outfit={template.outfit}
-                              portrait
-                              height={44}
-                            />
+                      <span style={templateCardDescriptionStyle}>
+                        {t("dialogs.agent.blankHint")}
+                      </span>
+                    </span>
+                  </button>
+                  {AGENT_TEMPLATES.map((template) => {
+                    const selected = selectedTemplateKey === template.key;
+                    return (
+                      <button
+                        key={template.key}
+                        type="button"
+                        onClick={() => applyTemplate(template)}
+                        aria-pressed={selected}
+                        style={templateCardStyle(
+                          selected,
+                          false,
+                          template.group,
+                        )}
+                      >
+                        <span style={templateAvatarStyle} aria-hidden="true">
+                          <Character
+                            state="idle"
+                            outfit={template.outfit}
+                            portrait
+                            height={44}
+                          />
+                        </span>
+                        <span style={templateCardTextStyle}>
+                          <span style={templateCardTitleStyle}>
+                            {t(template.labelKey)}
                           </span>
-                          <span style={templateCardTextStyle}>
-                            <span style={templateCardTitleStyle}>
-                              {t(template.labelKey)}
-                            </span>
-                            <span style={templateCardDescriptionStyle}>
-                              {t(template.descriptionKey)}
-                            </span>
+                          <span style={templateCardDescriptionStyle}>
+                            {t(template.descriptionKey)}
                           </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             <div className="agent-dialog-columns">
               <div className="agent-dialog-left-column">
                 <section className="agent-settings-group agent-identity-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.group.identity")}
-                </h4>
-                <label style={labelStyle}>{t("common.name")}</label>
-                {/* Mobile autofocus would scroll the engine and templates out of view
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.group.identity")}
+                  </h4>
+                  <label style={labelStyle}>{t("common.name")}</label>
+                  {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
-                <input
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    if (nameError) setNameError(null);
-                  }}
-                  placeholder={
-                    isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
-                  }
-                  autoFocus={isSpawn && !isMobile}
-                  style={
-                    nameError
-                      ? { ...inputStyle, borderColor: "#ff6b6b" }
-                      : inputStyle
-                  }
-                />
-                {nameError && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      color: "#ff6b6b",
-                      margin: "4px 0 0",
-                    }}
-                  >
-                    {nameError}
-                  </p>
-                )}
-
-              </section>
-                <section className="agent-settings-group agent-appearance-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.appearance")}
-                </h4>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 16,
-                    marginBottom: 10,
-                  }}
-                >
-                  <div
-                    data-outfit-preview
-                    style={{
-                      width: 52,
-                      height: 70,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Character state="idle" outfit={outfit} />
-                  </div>
-                  <button
-                    onClick={() => setOutfit(makeRandomOutfit())}
-                    style={randomBtnStyle}
-                  >
-                    {t("dialogs.agent.randomize")}
-                  </button>
-                </div>
-
-                <label style={labelStyle} htmlFor="agent-costume">
-                  {t("dialogs.agent.costume")}
-                </label>
-                <select
-                  id="agent-costume"
-                  value={costumeOf(outfit.costume)}
-                  onChange={(e) =>
-                    setOutfit({ ...outfit, costume: costumeOf(e.target.value) })
-                  }
-                  style={{ ...inputStyle, marginBottom: 10 }}
-                >
-                  {COSTUMES.map((costume) => (
-                    <option key={costume} value={costume}>
-                      {t(`dialogs.agent.costume.${costume}`)}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Skin Color */}
-                <div
-                  style={{
-                    ...dialogHint,
-                    marginBottom: 4,
-                  }}
-                >
-                  {t("dialogs.agent.skin")}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 4,
-                    marginBottom: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {SKIN_COLORS.map((c) => (
-                    <div
-                      key={c}
-                      onClick={() => setOutfit({ ...outfit, skin: c })}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 6,
-                        background: c,
-                        cursor: "pointer",
-                        border:
-                          outfit.skin === c
-                            ? "2px solid var(--text-primary)"
-                            : "2px solid transparent",
-                      }}
-                    />
-                  ))}
-                </div>
-
-                {/* Shirt Color */}
-                <div
-                  style={{
-                    ...dialogHint,
-                    marginBottom: 4,
-                  }}
-                >
-                  {t("dialogs.agent.shirt")}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 4,
-                    marginBottom: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {SHIRT_COLORS.map((c) => (
-                    <div
-                      key={c}
-                      onClick={() => setOutfit({ ...outfit, color: c })}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 6,
-                        background: c,
-                        cursor: "pointer",
-                        border:
-                          outfit.color === c
-                            ? "2px solid var(--text-primary)"
-                            : "2px solid transparent",
-                      }}
-                    />
-                  ))}
-                </div>
-
-                {/* Hair Color */}
-                <div
-                  style={{
-                    ...dialogHint,
-                    marginBottom: 4,
-                  }}
-                >
-                  {t("dialogs.agent.hairColor")}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    gap: 4,
-                    marginBottom: 8,
-                    flexWrap: "wrap",
-                  }}
-                >
-                  {HAIR_COLORS.map((c) => (
-                    <div
-                      key={c}
-                      onClick={() => setOutfit({ ...outfit, hair: c })}
-                      style={{
-                        width: 24,
-                        height: 24,
-                        borderRadius: 6,
-                        background: c,
-                        cursor: "pointer",
-                        border:
-                          outfit.hair === c
-                            ? "2px solid var(--text-primary)"
-                            : "2px solid transparent",
-                      }}
-                    />
-                  ))}
-                </div>
-
-                {/* Hair Style & Hat */}
-                <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        ...dialogHint,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {t("dialogs.agent.hairStyle")}
-                    </div>
-                    <select
-                      value={outfit.hairStyle ?? "short"}
-                      onChange={(e) =>
-                        setOutfit({
-                          ...outfit,
-                          hairStyle: e.target.value as AgentOutfit["hairStyle"],
-                        })
-                      }
-                      style={selectStyle}
-                    >
-                      {HAIR_STYLES.map((s) => (
-                        <option key={s} value={s}>
-                          {hairStyleLabels(i18n)[s]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        ...dialogHint,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {t("dialogs.agent.hat")}
-                    </div>
-                    <select
-                      value={outfit.hat}
-                      onChange={(e) =>
-                        setOutfit({
-                          ...outfit,
-                          hat: e.target.value as AgentOutfit["hat"],
-                        })
-                      }
-                      style={selectStyle}
-                    >
-                      {HATS.map((h) => (
-                        <option key={h} value={h}>
-                          {hatLabels(i18n)[h]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Beard & Accessory */}
-                <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        ...dialogHint,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {t("dialogs.agent.beard")}
-                    </div>
-                    <select
-                      value={outfit.beard ?? "none"}
-                      onChange={(e) =>
-                        setOutfit({
-                          ...outfit,
-                          beard: e.target.value as AgentOutfit["beard"],
-                        })
-                      }
-                      style={selectStyle}
-                    >
-                      {BEARDS.map((b) => (
-                        <option key={b} value={b}>
-                          {beardLabels(i18n)[b]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div
-                      style={{
-                        ...dialogHint,
-                        marginBottom: 4,
-                      }}
-                    >
-                      {t("dialogs.agent.accessory")}
-                    </div>
-                    <select
-                      value={outfit.accessory ?? "none"}
-                      onChange={(e) =>
-                        setOutfit({
-                          ...outfit,
-                          accessory:
-                            e.target.value === "none"
-                              ? null
-                              : (e.target.value as AgentOutfit["accessory"]),
-                        })
-                      }
-                      style={selectStyle}
-                    >
-                      {ACCESSORIES.map((a) => (
-                        <option key={a ?? "none"} value={a ?? "none"}>
-                          {accessoryLabels(i18n)[a ?? "none"]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              </section>
-                <section className="agent-settings-group agent-workspace-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.group.workspace")}
-                </h4>
-
-                <label style={{ ...labelStyle, marginTop: 12 }}>
-                  {t("common.field.workingDirectory")}
-                </label>
-                <div style={{ display: "flex", gap: 6 }}>
                   <input
-                    value={cwd}
+                    value={name}
                     onChange={(e) => {
-                      setCwd(e.target.value);
-                      if (cwdError) setCwdError(null);
+                      setName(e.target.value);
+                      if (nameError) setNameError(null);
                     }}
+                    placeholder={
+                      isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
+                    }
+                    autoFocus={isSpawn && !isMobile}
                     style={
-                      cwdError
+                      nameError
                         ? { ...inputStyle, borderColor: "#ff6b6b" }
                         : inputStyle
                     }
                   />
-                  {recentCwds.length > 0 && (
-                    <button
-                      type="button"
-                      aria-expanded={showRecentCwds}
-                      aria-controls="recent-cwd-suggestions"
-                      onClick={() => setShowRecentCwds((shown) => !shown)}
-                      style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+                  {nameError && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#ff6b6b",
+                        margin: "4px 0 0",
+                      }}
                     >
-                      {t("dialogs.agent.recent")}
-                    </button>
+                      {nameError}
+                    </p>
                   )}
-                </div>
-                {cwdError && (
-                  <p
-                    style={{
-                      fontSize: 12,
-                      color: "#ff6b6b",
-                      margin: "4px 0 0",
-                    }}
-                  >
-                    {cwdError}
-                  </p>
-                )}
-                {showRecentCwds && recentCwds.length > 0 && (
+                </section>
+                <section className="agent-settings-group agent-appearance-section">
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.appearance")}
+                  </h4>
                   <div
-                    id="recent-cwd-suggestions"
                     style={{
                       display: "flex",
-                      flexWrap: "wrap",
-                      gap: 4,
-                      marginTop: 6,
+                      alignItems: "center",
+                      gap: 16,
+                      marginBottom: 10,
                     }}
                   >
-                    {recentCwds.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => {
-                          setCwd(c);
-                          setShowRecentCwds(false);
-                          if (cwdError) setCwdError(null);
-                        }}
-                        style={chipStyle}
-                      >
-                        {shortenCwd(c)}
-                      </button>
-                    ))}
+                    <div
+                      data-outfit-preview
+                      style={{
+                        width: 52,
+                        height: 70,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Character state="idle" outfit={outfit} />
+                    </div>
+                    <button
+                      onClick={() => setOutfit(makeRandomOutfit())}
+                      style={randomBtnStyle}
+                    >
+                      {t("dialogs.agent.randomize")}
+                    </button>
                   </div>
-                )}
-                {!isSpawn && (
-                  <p
-                    style={{
-                      ...dialogHint,
-                      color: "var(--text-ghost)",
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    {t("common.nextConversation")}
-                  </p>
-                )}
-                {moveToRoomBlock}
 
-              </section>
-              </div>
-              <div className="agent-dialog-right-column">
-                <section className="agent-settings-group agent-engine-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.group.engine")}
-                </h4>
-              {isSpawn ? (
-                <div className="agent-engine-control">
-                  <label style={labelStyle}>{t("common.field.engine")}</label>
-                  <div className="spawn-engine-options">
-                    {ENGINE_OPTIONS.map((option) => {
-                      const selected = targetEngine === option.agentType;
-                      return (
-                        <button
-                          key={option.agentType}
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => setTargetEngine(option.agentType)}
-                          style={{
-                            background: selected
-                              ? "var(--bg-hover)"
-                              : "var(--bg-surface)",
-                            border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
-                            borderRadius: 8,
-                            padding: "12px 14px",
-                            textAlign: "left",
-                            cursor: "pointer",
-                            color: "var(--text-primary)",
-                            boxShadow: selected
-                              ? `0 0 0 1px ${option.accent}`
-                              : "none",
-                          }}
-                        >
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              marginBottom: 4,
-                            }}
-                          >
-                            {option.label}
-                          </span>
-                          <span
-                            style={{
-                              display: "block",
-                              fontSize: 12,
-                              color: "var(--text-dim)",
-                              lineHeight: 1.4,
-                            }}
-                          >
-                            {t(option.blurbKey)}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* Editable in edit mode: switching starts a fresh conversation
-                on the new engine. The current conversation stays in resume
-                history, and the settings use the new engine's options. */
-                <div className="agent-engine-control">
-                  <label style={labelStyle}>{t("common.field.engine")}</label>
+                  <label style={labelStyle} htmlFor="agent-costume">
+                    {t("dialogs.agent.costume")}
+                  </label>
                   <select
-                    value={targetEngine}
+                    id="agent-costume"
+                    value={costumeOf(outfit.costume)}
                     onChange={(e) =>
-                      setTargetEngine(e.target.value as AgentBackendType)
+                      setOutfit({
+                        ...outfit,
+                        costume: costumeOf(e.target.value),
+                      })
                     }
-                    style={{
-                      ...inputStyle,
-                      appearance: "none",
-                      cursor: "pointer",
-                    }}
+                    style={{ ...inputStyle, marginBottom: 10 }}
                   >
-                    {ENGINE_OPTIONS.map((option) => (
-                      <option key={option.agentType} value={option.agentType}>
-                        {option.label}
+                    {COSTUMES.map((costume) => (
+                      <option key={costume} value={costume}>
+                        {t(`dialogs.agent.costume.${costume}`)}
                       </option>
                     ))}
                   </select>
-                  {targetEngine !== agentType && (
+
+                  {/* Skin Color */}
+                  <div
+                    style={{
+                      ...dialogHint,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {t("dialogs.agent.skin")}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 4,
+                      marginBottom: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {SKIN_COLORS.map((c) => (
+                      <div
+                        key={c}
+                        onClick={() => setOutfit({ ...outfit, skin: c })}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 6,
+                          background: c,
+                          cursor: "pointer",
+                          border:
+                            outfit.skin === c
+                              ? "2px solid var(--text-primary)"
+                              : "2px solid transparent",
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Shirt Color */}
+                  <div
+                    style={{
+                      ...dialogHint,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {t("dialogs.agent.shirt")}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 4,
+                      marginBottom: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {SHIRT_COLORS.map((c) => (
+                      <div
+                        key={c}
+                        onClick={() => setOutfit({ ...outfit, color: c })}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 6,
+                          background: c,
+                          cursor: "pointer",
+                          border:
+                            outfit.color === c
+                              ? "2px solid var(--text-primary)"
+                              : "2px solid transparent",
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Hair Color */}
+                  <div
+                    style={{
+                      ...dialogHint,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {t("dialogs.agent.hairColor")}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 4,
+                      marginBottom: 8,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {HAIR_COLORS.map((c) => (
+                      <div
+                        key={c}
+                        onClick={() => setOutfit({ ...outfit, hair: c })}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 6,
+                          background: c,
+                          cursor: "pointer",
+                          border:
+                            outfit.hair === c
+                              ? "2px solid var(--text-primary)"
+                              : "2px solid transparent",
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Hair Style & Hat */}
+                  <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          ...dialogHint,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {t("dialogs.agent.hairStyle")}
+                      </div>
+                      <select
+                        value={outfit.hairStyle ?? "short"}
+                        onChange={(e) =>
+                          setOutfit({
+                            ...outfit,
+                            hairStyle: e.target
+                              .value as AgentOutfit["hairStyle"],
+                          })
+                        }
+                        style={selectStyle}
+                      >
+                        {HAIR_STYLES.map((s) => (
+                          <option key={s} value={s}>
+                            {hairStyleLabels(i18n)[s]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          ...dialogHint,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {t("dialogs.agent.hat")}
+                      </div>
+                      <select
+                        value={outfit.hat}
+                        onChange={(e) =>
+                          setOutfit({
+                            ...outfit,
+                            hat: e.target.value as AgentOutfit["hat"],
+                          })
+                        }
+                        style={selectStyle}
+                      >
+                        {HATS.map((h) => (
+                          <option key={h} value={h}>
+                            {hatLabels(i18n)[h]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Beard & Accessory */}
+                  <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          ...dialogHint,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {t("dialogs.agent.beard")}
+                      </div>
+                      <select
+                        value={outfit.beard ?? "none"}
+                        onChange={(e) =>
+                          setOutfit({
+                            ...outfit,
+                            beard: e.target.value as AgentOutfit["beard"],
+                          })
+                        }
+                        style={selectStyle}
+                      >
+                        {BEARDS.map((b) => (
+                          <option key={b} value={b}>
+                            {beardLabels(i18n)[b]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          ...dialogHint,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {t("dialogs.agent.accessory")}
+                      </div>
+                      <select
+                        value={outfit.accessory ?? "none"}
+                        onChange={(e) =>
+                          setOutfit({
+                            ...outfit,
+                            accessory:
+                              e.target.value === "none"
+                                ? null
+                                : (e.target.value as AgentOutfit["accessory"]),
+                          })
+                        }
+                        style={selectStyle}
+                      >
+                        {ACCESSORIES.map((a) => (
+                          <option key={a ?? "none"} value={a ?? "none"}>
+                            {accessoryLabels(i18n)[a ?? "none"]}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </section>
+                <section className="agent-settings-group agent-workspace-section">
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.group.workspace")}
+                  </h4>
+
+                  <label style={{ ...labelStyle, marginTop: 12 }}>
+                    {t("common.field.workingDirectory")}
+                  </label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      value={cwd}
+                      onChange={(e) => {
+                        setCwd(e.target.value);
+                        if (cwdError) setCwdError(null);
+                      }}
+                      style={
+                        cwdError
+                          ? { ...inputStyle, borderColor: "#ff6b6b" }
+                          : inputStyle
+                      }
+                    />
+                    {recentCwds.length > 0 && (
+                      <button
+                        type="button"
+                        aria-expanded={showRecentCwds}
+                        aria-controls="recent-cwd-suggestions"
+                        onClick={() => setShowRecentCwds((shown) => !shown)}
+                        style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+                      >
+                        {t("dialogs.agent.recent")}
+                      </button>
+                    )}
+                  </div>
+                  {cwdError && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#ff6b6b",
+                        margin: "4px 0 0",
+                      }}
+                    >
+                      {cwdError}
+                    </p>
+                  )}
+                  {showRecentCwds && recentCwds.length > 0 && (
+                    <div
+                      id="recent-cwd-suggestions"
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 4,
+                        marginTop: 6,
+                      }}
+                    >
+                      {recentCwds.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => {
+                            setCwd(c);
+                            setShowRecentCwds(false);
+                            if (cwdError) setCwdError(null);
+                          }}
+                          style={chipStyle}
+                        >
+                          {shortenCwd(c)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!isSpawn && (
                     <p
                       style={{
                         ...dialogHint,
-                        margin: "6px 0 0",
-                        lineHeight: 1.4,
+                        color: "var(--text-ghost)",
+                        margin: "3px 0 0",
                       }}
                     >
-                      {t("dialogs.agent.engineSwitchHint", {
-                        engine:
-                          ENGINE_OPTIONS.find(
-                            (option) => option.agentType === targetEngine,
-                          )?.label ?? targetEngine,
-                      })}
+                      {t("common.nextConversation")}
                     </p>
                   )}
-                </div>
-              )}
-              {engineSettingsBlock}
-              </section>
+                  {moveToRoomBlock}
+                </section>
+              </div>
+              <div className="agent-dialog-right-column">
+                <section className="agent-settings-group agent-engine-section">
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.group.engine")}
+                  </h4>
+                  {isSpawn ? (
+                    <div className="agent-engine-control">
+                      <label style={labelStyle}>
+                        {t("common.field.engine")}
+                      </label>
+                      <div className="spawn-engine-options">
+                        {ENGINE_OPTIONS.map((option) => {
+                          const selected = targetEngine === option.agentType;
+                          return (
+                            <button
+                              key={option.agentType}
+                              type="button"
+                              aria-pressed={selected}
+                              onClick={() => setTargetEngine(option.agentType)}
+                              style={{
+                                background: selected
+                                  ? "var(--bg-hover)"
+                                  : "var(--bg-surface)",
+                                border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
+                                borderRadius: 8,
+                                padding: "12px 14px",
+                                textAlign: "left",
+                                cursor: "pointer",
+                                color: "var(--text-primary)",
+                                boxShadow: selected
+                                  ? `0 0 0 1px ${option.accent}`
+                                  : "none",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: "block",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  marginBottom: 4,
+                                }}
+                              >
+                                {option.label}
+                              </span>
+                              <span
+                                style={{
+                                  display: "block",
+                                  fontSize: 12,
+                                  color: "var(--text-dim)",
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                {t(option.blurbKey)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    /* Editable in edit mode: switching starts a fresh conversation
+                on the new engine. The current conversation stays in resume
+                history, and the settings use the new engine's options. */
+                    <div className="agent-engine-control">
+                      <label style={labelStyle}>
+                        {t("common.field.engine")}
+                      </label>
+                      <select
+                        value={targetEngine}
+                        onChange={(e) =>
+                          setTargetEngine(e.target.value as AgentBackendType)
+                        }
+                        style={{
+                          ...inputStyle,
+                          appearance: "none",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {ENGINE_OPTIONS.map((option) => (
+                          <option
+                            key={option.agentType}
+                            value={option.agentType}
+                          >
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      {targetEngine !== agentType && (
+                        <p
+                          style={{
+                            ...dialogHint,
+                            margin: "6px 0 0",
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {t("dialogs.agent.engineSwitchHint", {
+                            engine:
+                              ENGINE_OPTIONS.find(
+                                (option) => option.agentType === targetEngine,
+                              )?.label ?? targetEngine,
+                          })}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {engineSettingsBlock}
+                </section>
                 <section className="agent-settings-group agent-instructions-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.group.instructions")}
-                </h4>
-              <label style={{ ...labelStyle, marginTop: 14 }}>
-                {t("dialogs.agent.customInstructions")}{" "}
-                <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                  {t("dialogs.agent.optional")}
-                </span>
-              </label>
-              <ExpandableTextarea
-                title={t("dialogs.agent.customInstructions")}
-                hint={t("dialogs.agent.customInstructionsHint")}
-                value={customInstructions}
-                onChange={setCustomInstructions}
-                placeholder={t("dialogs.agent.customInstructionsPlaceholder")}
-                rows={3}
-                style={{ ...inputStyle, resize: "vertical" }}
-              />
-              <p
-                style={{ ...dialogHint, margin: "3px 0 10px" }}
-              >
-                {t("dialogs.agent.customInstructionsHint")}
-                {!isSpawn && ` ${t("common.nextConversation")}`}
-              </p>
-              {!isSpawn && <SystemPromptButton agentId={agent!.id} />}
-              </section>
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.group.instructions")}
+                  </h4>
+                  <label style={{ ...labelStyle, marginTop: 14 }}>
+                    {t("dialogs.agent.customInstructions")}{" "}
+                    <span
+                      style={{ fontWeight: 400, color: "var(--text-ghost)" }}
+                    >
+                      {t("dialogs.agent.optional")}
+                    </span>
+                  </label>
+                  <ExpandableTextarea
+                    title={t("dialogs.agent.customInstructions")}
+                    hint={t("dialogs.agent.customInstructionsHint")}
+                    value={customInstructions}
+                    onChange={setCustomInstructions}
+                    placeholder={t(
+                      "dialogs.agent.customInstructionsPlaceholder",
+                    )}
+                    rows={3}
+                    style={{ ...inputStyle, resize: "vertical" }}
+                  />
+                  <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
+                    {t("dialogs.agent.customInstructionsHint")}
+                    {!isSpawn && ` ${t("common.nextConversation")}`}
+                  </p>
+                  {!isSpawn && <SystemPromptButton agentId={agent!.id} />}
+                </section>
               </div>
             </div>
-          <section className="agent-settings-group agent-access-section">
-                <h4 className="agent-settings-group-title">
-                  {t("dialogs.agent.group.access")}
-                </h4>
+            <section className="agent-settings-group agent-access-section">
+              <h4 className="agent-settings-group-title">
+                {t("dialogs.agent.group.access")}
+              </h4>
 
-                {/* Manager - set at spawn, immutable. Rendered as a read-only
+              {/* Manager - set at spawn, immutable. Rendered as a read-only
                 badge in both spawn and edit modes so there's no UX
                 divergence on which user the agent is bound to. Style
                 matches the Engine badge (also locked at spawn). On spawn
                 the value comes from the device's bound username; on edit
                 it comes from the agent's persisted user record. */}
-                <div className="agent-manager-field">
+              <div className="agent-manager-field">
                 <label style={{ ...labelStyle, marginTop: 12 }}>
                   {t("dialogs.agent.manager")}
                 </label>
@@ -2243,9 +2218,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 >
                   {t("dialogs.agent.managerHint")}
                 </p>
-                </div>
+              </div>
 
-                {/* Privileged operator access. Grants this agent its spawning user's
+              {/* Privileged operator access. Grants this agent its spawning user's
               room-scoped operator powers (drive other agents' sessions: resume,
               new conversation, send-now, lifecycle; plus cron over the user's own
               jobs). Scope stays the agent - it never posts as the user. Conferred
@@ -2253,39 +2228,37 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               re-mints its token and restarts its session, like a model change.
               Shown only to a user who may actually set it (owner, or the agent's
               manager - see canTogglePrivilege). */}
-                {canTogglePrivilege && (
-                  <div className="agent-privileged-field">
-                    <label
-                      htmlFor="agent-privileged"
-                      style={{ ...labelStyle, marginTop: 14 }}
-                    >
-                      {t("dialogs.agent.privileged")}
-                    </label>
-                    <label
-                      className="agent-privileged-control"
-                      htmlFor="agent-privileged"
-                    >
-                      <input
-                        id="agent-privileged"
-                        type="checkbox"
-                        checked={privileged}
-                        onChange={(e) => setPrivileged(e.target.checked)}
-                        style={{ cursor: "pointer", margin: 0 }}
-                      />
-                    </label>
-                    <p
-                      style={{ ...dialogHint, margin: "5px 0 0" }}
-                    >
-                      {t("dialogs.agent.privilegedHint")}
-                      {!isSpawn &&
-                        privileged !== (agent!.privileged ?? false) &&
-                        ` ${t("dialogs.agent.privilegedRestart")}`}
-                    </p>
-                  </div>
-                )}
-              </section>
+              {canTogglePrivilege && (
+                <div className="agent-privileged-field">
+                  <label
+                    htmlFor="agent-privileged"
+                    style={{ ...labelStyle, marginTop: 14 }}
+                  >
+                    {t("dialogs.agent.privileged")}
+                  </label>
+                  <label
+                    className="agent-privileged-control"
+                    htmlFor="agent-privileged"
+                  >
+                    <input
+                      id="agent-privileged"
+                      type="checkbox"
+                      checked={privileged}
+                      onChange={(e) => setPrivileged(e.target.checked)}
+                      style={{ cursor: "pointer", margin: 0 }}
+                    />
+                  </label>
+                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                    {t("dialogs.agent.privilegedHint")}
+                    {!isSpawn &&
+                      privileged !== (agent!.privileged ?? false) &&
+                      ` ${t("dialogs.agent.privilegedRestart")}`}
+                  </p>
+                </div>
+              )}
+            </section>
 
-          {memoryBlock}
+            {memoryBlock}
           </div>
 
           {isSpawn && killedAgents.length > 0 && (
@@ -2343,7 +2316,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               )}
             </section>
           )}
-
         </div>
         {/* Action footer. The discard prompt lives here rather than over the
             form so it sits next to the buttons that trigger it, and so it can't

@@ -49,16 +49,20 @@ it("saves a changed look on its own, and carries the name when both move", async
   await act(async () => {});
   const select = view.getByLabelText("Room look") as HTMLSelectElement;
   expect(select.value).toBe("office");
-  expect((view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
-    .disabled).toBe(true);
+  expect(
+    (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
 
   await act(async () =>
     fireEvent.change(select, { target: { value: "hospital" } }),
   );
   // A look the reader has not saved yet is an unsaved change, so Cancel wakes
   // up and the discard guard has something to guard.
-  expect((view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
-    .disabled).toBe(false);
+  expect(
+    (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
 
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "Save" })),

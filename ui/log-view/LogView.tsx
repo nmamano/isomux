@@ -774,8 +774,13 @@ export function LogView({
   const editorOpen = sidePanel === "editor";
   const browserOpen = sidePanel === "browser";
   const canOpenBrowser = true;
-  const canDriveBrowser = !!agent.userId && sessionContext?.userId === agent.userId;
-  const autoOpenBrowser = useCallback(() => dispatch({type: "set_side_panel", agentId: agent.id, panel: "browser"}), [agent.id, dispatch]);
+  const canDriveBrowser =
+    !!agent.userId && sessionContext?.userId === agent.userId;
+  const autoOpenBrowser = useCallback(
+    () =>
+      dispatch({ type: "set_side_panel", agentId: agent.id, panel: "browser" }),
+    [agent.id, dispatch],
+  );
   useBrowserAutoOpen(agent.id, canDriveBrowser, autoOpenBrowser);
   const [terminalWidth, setTerminalWidth] = useState<number>(() =>
     readPanelWidth("terminal", 500),
@@ -3486,7 +3491,7 @@ export function LogView({
           }}
         >
           <BrowserPanel
-              canDrive={canDriveBrowser}
+            canDrive={canDriveBrowser}
             agentId={agent.id}
             onClose={() => setBrowserOpen(false)}
           />

@@ -170,11 +170,7 @@ function chooseWeekly(view: View): void {
   });
 }
 
-function checkCostume(
-  view: View,
-  label: string,
-  construction: string,
-): void {
+function checkCostume(view: View, label: string, construction: string): void {
   const select = view.getByLabelText(label) as HTMLSelectElement;
   expect(Array.from(select.options).map((option) => option.text)).toContain(
     construction,

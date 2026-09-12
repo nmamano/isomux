@@ -1194,7 +1194,8 @@ export const es: Catalog = {
   "panels.browser.address": "Dirección",
   "panels.browser.go": "Ir",
   "panels.browser.loading": "Cargando…",
-  "panels.browser.readOnly": "Solo lectura. El responsable del agente controla esta página.",
+  "panels.browser.readOnly":
+    "Solo lectura. El responsable del agente controla esta página.",
   "panels.browser.empty": "No hay ninguna página abierta.",
   "panels.browser.title": "Navegador",
   "panels.browser.close": "Cerrar el navegador",

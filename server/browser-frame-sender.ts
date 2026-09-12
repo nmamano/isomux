@@ -4,7 +4,13 @@ export class BrowserFrameSender {
   private pending: string | undefined;
   private stopped = false;
 
-  constructor(private readonly socket: { send(data: string): unknown; getBufferedAmount(): number }, private readonly canDeliver: () => boolean) {}
+  constructor(
+    private readonly socket: {
+      send(data: string): unknown;
+      getBufferedAmount(): number;
+    },
+    private readonly canDeliver: () => boolean,
+  ) {}
 
   send(frame: string): void {
     if (this.stopped) return;
@@ -15,12 +21,19 @@ export class BrowserFrameSender {
   flush(): void {
     if (this.stopped || this.pending === undefined) return;
     // Authorization can change while a frame waits for drain.
-    if (!this.canDeliver()) { this.stop(); return; }
-    if (this.socket.getBufferedAmount() > Buffer.byteLength(this.pending)) return;
+    if (!this.canDeliver()) {
+      this.stop();
+      return;
+    }
+    if (this.socket.getBufferedAmount() > Buffer.byteLength(this.pending))
+      return;
     const frame = this.pending;
     this.pending = undefined;
     this.socket.send(frame);
   }
 
-  stop(): void { this.stopped = true; this.pending = undefined; }
+  stop(): void {
+    this.stopped = true;
+    this.pending = undefined;
+  }
 }

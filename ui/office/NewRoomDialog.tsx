@@ -54,8 +54,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
           return;
         }
         const step = event.shiftKey ? -1 : 1;
-        const next =
-          (current + step + focusOrder.length) % focusOrder.length;
+        const next = (current + step + focusOrder.length) % focusOrder.length;
         focusOrder[next].current?.focus();
       }
     }
@@ -79,8 +78,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
       // The default look is the absence of the field, so a room opened without
       // touching the control carries no skin at all - the same record every
       // room had before skins existed.
-      const body: RoomCreateReq =
-        skin === DEFAULT_ROOM_SKIN ? {} : { skin };
+      const body: RoomCreateReq = skin === DEFAULT_ROOM_SKIN ? {} : { skin };
       const { room } = await apiFetch<{ room: RoomWire }>(
         "POST",
         "/api/rooms",

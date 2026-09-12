@@ -339,7 +339,7 @@ export class TurnSupersededError extends Error {
 // message itself should already be user-actionable (install hint, login
 // prompt, etc.) - it's surfaced verbatim with no "Error:" prefix.
 //
-  // `command` is an optional shell command the member can run to resolve the
+// `command` is an optional shell command the member can run to resolve the
 // not-configured state (install command, login command). When present, the
 // catch site emits a terminal-command card alongside the system message so
 // the user can click [Copy to terminal] instead of retyping it.

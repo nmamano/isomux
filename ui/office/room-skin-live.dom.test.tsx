@@ -32,7 +32,11 @@ it("repaints when the room's skin changes under it, and again when it clears", a
   expect(layers()).toHaveLength(2);
 
   await act(async () =>
-    fixture.dispatch({ type: "room_skin_updated", roomId: "plain", skin: null }),
+    fixture.dispatch({
+      type: "room_skin_updated",
+      roomId: "plain",
+      skin: null,
+    }),
   );
   expect(floor()).toBe("");
   expect(layers()).toHaveLength(0);

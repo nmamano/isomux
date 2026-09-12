@@ -26,9 +26,7 @@ export function isRoomSkin(value: unknown): value is RoomSkin {
  *  and a skin this build does not know both fall back to the office, so a room
  *  written by a newer version - or hand-edited - draws a room rather than
  *  nothing. */
-export function effectiveRoomSkin(room?: {
-  skin?: RoomSkin | null;
-}): RoomSkin {
+export function effectiveRoomSkin(room?: { skin?: RoomSkin | null }): RoomSkin {
   const skin = room?.skin;
   return isRoomSkin(skin) ? skin : DEFAULT_ROOM_SKIN;
 }

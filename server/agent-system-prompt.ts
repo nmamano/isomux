@@ -9,7 +9,9 @@ export function buildAgentSystemPrompt(
   room: RoomWire,
   officeConfig: OfficeSettings,
 ): string {
-  const ownerRecord = agent.username ? getUserByName(agent.username) : undefined;
+  const ownerRecord = agent.username
+    ? getUserByName(agent.username)
+    : undefined;
   return buildSystemPrompt(
     agent.name,
     agent.id,

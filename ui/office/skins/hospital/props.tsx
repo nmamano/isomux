@@ -109,13 +109,7 @@ function poly(pts: Array<{ x: number; y: number }>, lift = 0) {
 /** One bed: a mattress on a frame, a pillow at the head, a blanket over the
  *  foot half, and a rail at each end. Drawn from the two floor axes, so it
  *  stands on the grid the tiles and the desks stand on. */
-function Bed({
-  at,
-  c,
-}: {
-  at: { x: number; y: number };
-  c: HospitalColors;
-}) {
+function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
   const foot = point(at, 1, 0);
   const head = point(at, -1, 0);
   // Floor rectangle, then the same rectangle lifted to mattress height.
@@ -261,7 +255,13 @@ function Bed({
 
 /** The drip stand beside the far bed: a wheeled base, a pole, a hook and a
  *  half-full bag with its line running down. */
-function IvStand({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
+function IvStand({
+  at,
+  c,
+}: {
+  at: { x: number; y: number };
+  c: HospitalColors;
+}) {
   const poleTop = at.y - 88;
   return (
     <g aria-hidden="true">
@@ -330,7 +330,13 @@ function IvStand({ at, c }: { at: { x: number; y: number }; c: HospitalColors })
 
 /** The cubicle curtain, gathered against its rail beside the far bed's head -
  *  which is how a curtain stands when nobody has pulled it round. */
-function Curtain({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
+function Curtain({
+  at,
+  c,
+}: {
+  at: { x: number; y: number };
+  c: HospitalColors;
+}) {
   const top = at.y - 100;
   // The rail runs along the floor axis the beds are laid on, so the curtain
   // hangs square to them rather than across the grid, and each fold hangs from
@@ -382,13 +388,7 @@ export function HospitalProps() {
   return (
     <g data-skin-layer="hospital-props">
       <defs>
-        <filter
-          id="hospital-soft"
-          x="-40%"
-          y="-40%"
-          width="180%"
-          height="180%"
-        >
+        <filter id="hospital-soft" x="-40%" y="-40%" width="180%" height="180%">
           <feGaussianBlur stdDeviation="3.2" />
         </filter>
       </defs>

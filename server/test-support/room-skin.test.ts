@@ -67,9 +67,9 @@ describe("OfficeState.createRoom", () => {
     const state = new OfficeState({ rooms: rooms("room-a") });
     const [event] = state.createRoom("Ward", "hospital");
     expect(event.type).toBe("room_created");
-    expect(
-      event.type === "room_created" ? event.room.skin : undefined,
-    ).toBe("hospital");
+    expect(event.type === "room_created" ? event.room.skin : undefined).toBe(
+      "hospital",
+    );
   });
 
   // An absent skin leaves the field off the record rather than writing
@@ -104,7 +104,13 @@ describe("the room skin survives a round trip through the disk", () => {
   // createProductionAgentManager.
   it("a skin already in agents.json reaches the rooms at boot", () => {
     const seeded: Room[] = [
-      { id: "aaaa0001", name: "Ward", prompt: null, skin: "hospital", agents: [] },
+      {
+        id: "aaaa0001",
+        name: "Ward",
+        prompt: null,
+        skin: "hospital",
+        agents: [],
+      },
     ];
     // The fixture has to carry the skin before the save, or the assertion after
     // the load proves nothing.

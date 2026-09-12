@@ -794,7 +794,8 @@ export const en = {
   "dialogs.agent.group.access": "Access",
   "dialogs.agent.group.restore": "Restore",
   "dialogs.agent.optional": "(optional)",
-  "dialogs.agent.customInstructionsHint": "Personal system prompt for this agent.",
+  "dialogs.agent.customInstructionsHint":
+    "Personal system prompt for this agent.",
   "dialogs.agent.showSystemPrompt": "Show full system prompt",
   "dialogs.agent.systemPromptTitle": "Full system prompt",
   "dialogs.agent.systemPromptLoadFailed": "Could not load the system prompt.",
@@ -1171,7 +1172,8 @@ export const en = {
   "panels.browser.address": "Address",
   "panels.browser.go": "Go",
   "panels.browser.loading": "Loading…",
-  "panels.browser.readOnly": "View only. The agent’s manager controls this page.",
+  "panels.browser.readOnly":
+    "View only. The agent’s manager controls this page.",
   "panels.browser.empty": "No page is open.",
   "panels.browser.title": "Browser",
   "panels.browser.close": "Close browser",

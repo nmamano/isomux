@@ -62,7 +62,12 @@ import type {
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { defaultFindBrowser, BROWSER_CANDIDATES } from "./preview-capture.ts";
-import { BROWSER_MIN_DIM, BROWSER_MAX_DIM, type BrowserHumanInput, type BrowserNavigation } from "../shared/types.ts";
+import {
+  BROWSER_MIN_DIM,
+  BROWSER_MAX_DIM,
+  type BrowserHumanInput,
+  type BrowserNavigation,
+} from "../shared/types.ts";
 
 /** How long an agent's context survives with no browser call. */
 export const BROWSER_IDLE_MS = 5 * 60 * 1000;
@@ -378,8 +383,14 @@ export class BrowserPool {
   private readonly backstopMs: number;
   private readonly stateRoot: string;
   private readonly profileChains = new Map<string, Promise<unknown>>();
-  private readonly viewerBounds = new Map<BrowserFrameListener, {maxWidth?:number;maxHeight?:number}>();
-  private readonly managerViewers = new Map<BrowserFrameListener, () => boolean>();
+  private readonly viewerBounds = new Map<
+    BrowserFrameListener,
+    { maxWidth?: number; maxHeight?: number }
+  >();
+  private readonly managerViewers = new Map<
+    BrowserFrameListener,
+    () => boolean
+  >();
   private readonly frameListeners = new Map<
     string,
     Set<BrowserFrameListener>
@@ -560,7 +571,12 @@ export class BrowserPool {
     return [...this.sessions.keys()];
   }
 
-  watch(agentId: string, listener: BrowserFrameListener, isManager: () => boolean = () => true, bounds: {maxWidth?:number;maxHeight?:number} = {}): () => void {
+  watch(
+    agentId: string,
+    listener: BrowserFrameListener,
+    isManager: () => boolean = () => true,
+    bounds: { maxWidth?: number; maxHeight?: number } = {},
+  ): () => void {
     this.viewerBounds.set(listener, bounds);
     this.managerViewers.set(listener, isManager);
     let listeners = this.frameListeners.get(agentId);
@@ -626,11 +642,22 @@ export class BrowserPool {
   }
 
   private captureBounds(agentId: string, session: AgentSession) {
-    const viewport = session.page.viewportSize() ?? {width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT};
-    const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(listener => this.viewerBounds.get(listener) ?? {});
+    const viewport = session.page.viewportSize() ?? {
+      width: DEFAULT_WIDTH,
+      height: DEFAULT_HEIGHT,
+    };
+    const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(
+      (listener) => this.viewerBounds.get(listener) ?? {},
+    );
     return {
-      maxWidth: Math.min(viewport.width, Math.max(...viewers.map(bound => bound.maxWidth ?? viewport.width))),
-      maxHeight: Math.min(viewport.height, Math.max(...viewers.map(bound => bound.maxHeight ?? viewport.height))),
+      maxWidth: Math.min(
+        viewport.width,
+        Math.max(...viewers.map((bound) => bound.maxWidth ?? viewport.width)),
+      ),
+      maxHeight: Math.min(
+        viewport.height,
+        Math.max(...viewers.map((bound) => bound.maxHeight ?? viewport.height)),
+      ),
     };
   }
 
@@ -649,7 +676,9 @@ export class BrowserPool {
         return;
       }
       session.screencast = cdp;
-      cdp.on("Page.frameNavigated", () => { void this.updateStatus(agentId, session); });
+      cdp.on("Page.frameNavigated", () => {
+        void this.updateStatus(agentId, session);
+      });
       await cdp.send("Page.enable");
       await this.updateStatus(agentId, session);
       let receivedFrame = false;
@@ -678,7 +707,8 @@ export class BrowserPool {
           this.publishFrame(agentId, session, frame);
         },
       );
-      if (session.screencast !== cdp || !this.frameListeners.get(agentId)?.size) return;
+      if (session.screencast !== cdp || !this.frameListeners.get(agentId)?.size)
+        return;
       const bounds = this.captureBounds(agentId, session);
       session.captureSize = `${bounds.maxWidth}x${bounds.maxHeight}`;
       await cdp.send("Page.startScreencast", {
@@ -690,13 +720,32 @@ export class BrowserPool {
       // A static tab can emit no initial frame with everyNthFrame > 1.
       // Seed the view once, but never replace a newer screencast frame.
       if (!receivedFrame) {
-        const viewport = session.page.viewportSize() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
-        const shot = await cdp.send("Page.captureScreenshot", {
-          format: "jpeg", quality: 50,
-          clip: { x: 0, y: 0, ...viewport, scale: Math.min(bounds.maxWidth / viewport.width, bounds.maxHeight / viewport.height) },
-        }).catch(() => null);
-        if (shot?.data && !receivedFrame && session.screencast === cdp && this.sessions.get(agentId) === session) {
-          this.publishFrame(agentId, session, {data:shot.data,...viewport});
+        const viewport = session.page.viewportSize() ?? {
+          width: DEFAULT_WIDTH,
+          height: DEFAULT_HEIGHT,
+        };
+        const shot = await cdp
+          .send("Page.captureScreenshot", {
+            format: "jpeg",
+            quality: 50,
+            clip: {
+              x: 0,
+              y: 0,
+              ...viewport,
+              scale: Math.min(
+                bounds.maxWidth / viewport.width,
+                bounds.maxHeight / viewport.height,
+              ),
+            },
+          })
+          .catch(() => null);
+        if (
+          shot?.data &&
+          !receivedFrame &&
+          session.screencast === cdp &&
+          this.sessions.get(agentId) === session
+        ) {
+          this.publishFrame(agentId, session, { data: shot.data, ...viewport });
         }
       }
     } catch {
@@ -706,9 +755,14 @@ export class BrowserPool {
     }
   }
 
-  private publishFrame(agentId: string, session: AgentSession, frame: BrowserFrame): void {
+  private publishFrame(
+    agentId: string,
+    session: AgentSession,
+    frame: BrowserFrame,
+  ): void {
     session.lastFrame = frame;
-    for (const listener of this.frameListeners.get(agentId) ?? []) listener(frame);
+    for (const listener of this.frameListeners.get(agentId) ?? [])
+      listener(frame);
   }
 
   private async stopScreencast(session?: AgentSession): Promise<void> {
@@ -814,7 +868,10 @@ export class BrowserPool {
     session.heldByManager = this.hasManagerViewer(agentId);
     session.timer = setTimeout(() => {
       // Recheck even on a static page with no new capture frames.
-      if (this.hasManagerViewer(agentId)) { this.touch(agentId, session); return; }
+      if (this.hasManagerViewer(agentId)) {
+        this.touch(agentId, session);
+        return;
+      }
       void this.close(agentId).catch((err: unknown) => {
         console.error(
           `[browser] could not persist idle profile for ${agentId}:`,
@@ -827,46 +884,68 @@ export class BrowserPool {
   }
 
   private hasManagerViewer(agentId: string): boolean {
-    return [...(this.frameListeners.get(agentId) ?? [])].some(listener => this.managerViewers.get(listener)?.());
+    return [...(this.frameListeners.get(agentId) ?? [])].some((listener) =>
+      this.managerViewers.get(listener)?.(),
+    );
   }
 
   private refreshPresence(agentId: string, session: AgentSession): void {
-    if (this.hasManagerViewer(agentId) !== session.heldByManager) this.touch(agentId, session);
+    if (this.hasManagerViewer(agentId) !== session.heldByManager)
+      this.touch(agentId, session);
   }
 
   status(agentId: string): { available: boolean; url: string; title: string } {
     const session = this.sessions.get(agentId);
-    if (!session || session.page.isClosed()) return { available: false, url: "", title: "" };
+    if (!session || session.page.isClosed())
+      return { available: false, url: "", title: "" };
     return { available: true, url: session.page.url(), title: session.title };
   }
 
-  private async updateStatus(agentId: string, session: AgentSession): Promise<void> {
+  private async updateStatus(
+    agentId: string,
+    session: AgentSession,
+  ): Promise<void> {
     const page = session.page;
     const title = await page.title().catch(() => "");
     if (this.sessions.get(agentId) !== session || session.page !== page) return;
     session.title = title;
-    for (const listener of this.frameListeners.get(agentId) ?? []) listener(null);
+    for (const listener of this.frameListeners.get(agentId) ?? [])
+      listener(null);
   }
 
   /** Navigation shares the agent queue; pointer and keyboard input remain immediate. */
-  async humanNavigate(agentId: string, input: BrowserNavigation, profileId: string): Promise<BrowserResult> {
-    if (input.action === "goto") return this.run(agentId, { action: "goto", url: input.url }, profileId);
-    if (input.action === "close") return this.run(agentId, { action: "close" }, profileId);
+  async humanNavigate(
+    agentId: string,
+    input: BrowserNavigation,
+    profileId: string,
+  ): Promise<BrowserResult> {
+    if (input.action === "goto")
+      return this.run(agentId, { action: "goto", url: input.url }, profileId);
+    if (input.action === "close")
+      return this.run(agentId, { action: "close" }, profileId);
     return this.serialize(agentId, async () => {
       if (input.action === "open") {
-        const session = await this.ensureSession(agentId, profileId, {width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT});
+        const session = await this.ensureSession(agentId, profileId, {
+          width: DEFAULT_WIDTH,
+          height: DEFAULT_HEIGHT,
+        });
         if ("ok" in session) return session;
         await this.updateStatus(agentId, session);
         return { ok: true, url: session.page.url(), title: session.title };
       }
       const session = this.sessions.get(agentId);
-      if (!session || session.page.isClosed()) return fail(400, "no_page", "no page is open");
+      if (!session || session.page.isClosed())
+        return fail(400, "no_page", "no page is open");
       this.touch(agentId, session);
       let work: Promise<unknown> | undefined;
       try {
         const options = { timeout: this.actionMs, waitUntil: "load" as const };
-        work = input.action === "back" ? session.page.goBack(options)
-          : input.action === "forward" ? session.page.goForward(options) : session.page.reload(options);
+        work =
+          input.action === "back"
+            ? session.page.goBack(options)
+            : input.action === "forward"
+              ? session.page.goForward(options)
+              : session.page.reload(options);
         await withDeadline(work, this.backstopMs);
         session.opened = session.page.url() !== "about:blank";
         await this.updateStatus(agentId, session);
@@ -876,7 +955,11 @@ export class BrowserPool {
           await this.closeNow(agentId);
           if (work) await work.catch(() => {});
         }
-        return fail(500, error instanceof DeadlineError ? "action_timeout" : "action_failed", error instanceof Error ? error.message.split("\n")[0] : String(error));
+        return fail(
+          500,
+          error instanceof DeadlineError ? "action_timeout" : "action_failed",
+          error instanceof Error ? error.message.split("\n")[0] : String(error),
+        );
       }
     });
   }
@@ -1062,7 +1145,8 @@ export class BrowserPool {
       return { ok: true, url: "", title: "", closed: true };
     }
 
-    const createdPage = params.action === "goto" && !this.status(agentId).available;
+    const createdPage =
+      params.action === "goto" && !this.status(agentId).available;
     const session = await this.ensureSession(
       agentId,
       profileId,
@@ -1217,14 +1301,18 @@ function cap(value: string, max: number): string {
 
 // Card provenance, matching preview-capture: origin + pathname, never the query
 // string, which can carry a token an agent pasted into a URL.
-export function describeShot(raw: string): { filename: string; caption: string } {
+export function describeShot(raw: string): {
+  filename: string;
+  caption: string;
+} {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
     return { filename: "page.png", caption: "" };
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return {filename:"page.png",caption:""};
+  if (url.protocol !== "http:" && url.protocol !== "https:")
+    return { filename: "page.png", caption: "" };
   const path = url.pathname === "/" ? "" : url.pathname;
   const slug =
     `${url.host}${path}`.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(0, 80) ||
@@ -1244,7 +1332,12 @@ interface ParsedParams {
 }
 
 export function validBrowserBound(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= MIN_DIM && value <= MAX_DIM;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= MIN_DIM &&
+    value <= MAX_DIM
+  );
 }
 
 export function parseBrowserParams(

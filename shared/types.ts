@@ -1610,7 +1610,15 @@ export type ServerMessage =
       width: number;
       height: number;
     }
-  | { type: "browser_status"; agentId: string; available: boolean; url?: string; title?: string; busy?: boolean; error?: string }
+  | {
+      type: "browser_status";
+      agentId: string;
+      available: boolean;
+      url?: string;
+      title?: string;
+      busy?: boolean;
+      error?: string;
+    }
   | { type: "browser_action"; agentId: string }
   | {
       type: "editor_external_change";
@@ -1726,7 +1734,13 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "terminal_restart"; agentId: string }
-  | { type: "browser_watch"; agentId: string; watching: boolean; maxWidth?: number; maxHeight?: number }
+  | {
+      type: "browser_watch";
+      agentId: string;
+      watching: boolean;
+      maxWidth?: number;
+      maxHeight?: number;
+    }
   | {
       type: "browser_input";
       agentId: string;

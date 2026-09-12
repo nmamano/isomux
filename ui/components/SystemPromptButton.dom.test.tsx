@@ -2,7 +2,8 @@ import { describe, expect, it, jest } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
-const { act, render, fireEvent, waitFor } = await import("@testing-library/react");
+const { act, render, fireEvent, waitFor } =
+  await import("@testing-library/react");
 const { setApiShim } = await import("../api.ts");
 const { SystemPromptButton } = await import("./SystemPromptButton.tsx");
 const { isExpandedEditorOpen } = await import("./ExpandableTextarea.tsx");
@@ -22,19 +23,25 @@ describe("SystemPromptButton", () => {
     });
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Show full system prompt" }));
+      fireEvent.click(
+        view.getByRole("button", { name: "Show full system prompt" }),
+      );
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(view.getByText("Prompt body", { exact: false }) !== null).toBe(true),
+      expect(view.getByText("Prompt body", { exact: false }) !== null).toBe(
+        true,
+      ),
     );
     expect(calls).toEqual(["GET /api/agents/agent-1/system-prompt"]);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
       "Full system prompt",
     );
-    expect(view.getByText("Prompt body", { exact: false }).getAttribute("aria-readonly")).toBe(
-      "true",
-    );
+    expect(
+      view
+        .getByText("Prompt body", { exact: false })
+        .getAttribute("aria-readonly"),
+    ).toBe("true");
     jest.useFakeTimers();
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Copy" }));
@@ -58,16 +65,20 @@ describe("SystemPromptButton", () => {
     });
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Show full system prompt" }));
+      fireEvent.click(
+        view.getByRole("button", { name: "Show full system prompt" }),
+      );
       await Promise.resolve();
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(view.getByText("Could not load the system prompt.") !== null).toBe(true),
+      expect(view.getByText("Could not load the system prompt.") !== null).toBe(
+        true,
+      ),
     );
-    expect(view.getByRole("button", { name: "Copy" }).hasAttribute("disabled")).toBe(
-      true,
-    );
+    expect(
+      view.getByRole("button", { name: "Copy" }).hasAttribute("disabled"),
+    ).toBe(true);
     fireEvent.click(view.getByRole("button", { name: "Close" }));
     expect(view.queryByRole("dialog") === null).toBe(true);
     view.unmount();
@@ -77,7 +88,9 @@ describe("SystemPromptButton", () => {
     setApiShim(async () => ({ prompt: "Prompt body" }));
     const view = render(<SystemPromptButton agentId="agent-1" />);
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: "Show full system prompt" }));
+      fireEvent.click(
+        view.getByRole("button", { name: "Show full system prompt" }),
+      );
       await Promise.resolve();
     });
     await waitFor(() => expect(view.getByRole("dialog") !== null).toBe(true));

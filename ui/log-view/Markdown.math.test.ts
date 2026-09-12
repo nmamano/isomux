@@ -49,10 +49,7 @@ describe("renderMarkdown math", () => {
   });
 
   it("does not render math delimiters inside code", () => {
-    const html = renderMarkdown(
-      EN,
-      "`$x$`\n\n```text\n$$x^2$$\n```",
-    );
+    const html = renderMarkdown(EN, "`$x$`\n\n```text\n$$x^2$$\n```");
     expect(html).not.toContain('class="katex-math"');
     expect(html).toContain("$x$");
     expect(html).toContain("$$x^2$$");
@@ -62,8 +59,14 @@ describe("renderMarkdown math", () => {
     const cases = [
       ["Use $$ to open display math.", "Use $$ to open display math."],
       ["Run echo $$ to print the pid.", "Run echo $$ to print the pid."],
-      [String.raw`An index like a\[0\] is fine.`, "An index like a[0] is fine."],
-      [String.raw`Write \[ to open display math.`, "Write [ to open display math."],
+      [
+        String.raw`An index like a\[0\] is fine.`,
+        "An index like a[0] is fine.",
+      ],
+      [
+        String.raw`Write \[ to open display math.`,
+        "Write [ to open display math.",
+      ],
     ];
     for (const [source, rendered] of cases) {
       const html = renderMarkdown(EN, source);

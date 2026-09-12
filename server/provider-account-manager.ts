@@ -587,7 +587,8 @@ export class ProviderAccountManager {
             ok: false,
             status: 409,
             code: "shared_login_in_progress",
-            message: "Another member is signing in to this shared Codex account.",
+            message:
+              "Another member is signing in to this shared Codex account.",
           };
     const client = this.clientFor(target);
     try {

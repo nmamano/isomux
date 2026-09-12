@@ -98,9 +98,7 @@ marked.use({
       level: "block",
       start(src: string) {
         const match = /\n\$\$[\s\S]+?\$\$[ \t]*(?:\n|$)/.exec(src);
-        return match
-          ? match.index + match[0].indexOf("$$")
-          : undefined;
+        return match ? match.index + match[0].indexOf("$$") : undefined;
       },
       tokenizer(src: string) {
         const match = /^\$\$([\s\S]+?)\$\$(?:[ \t]*(?:\n|$))/.exec(src);
@@ -116,9 +114,7 @@ marked.use({
       level: "block",
       start(src: string) {
         const match = /\n\\\[[\s\S]+?\\\][ \t]*(?:\n|$)/.exec(src);
-        return match
-          ? match.index + match[0].indexOf("\\[")
-          : undefined;
+        return match ? match.index + match[0].indexOf("\\[") : undefined;
       },
       tokenizer(src: string) {
         const match = /^\\\[([\s\S]+?)\\\](?:[ \t]*(?:\n|$))/.exec(src);

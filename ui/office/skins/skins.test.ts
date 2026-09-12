@@ -100,6 +100,7 @@ test("an unknown or absent skin draws the office", () => {
   expect(effectiveRoomSkin({ skin: "clinic" as RoomSkin })).toBe(
     DEFAULT_ROOM_SKIN,
   );
-  expect(ROOM_SKIN_MODULES[effectiveRoomSkin({ skin: "clinic" as RoomSkin })])
-    .toBeDefined();
+  expect(
+    ROOM_SKIN_MODULES[effectiveRoomSkin({ skin: "clinic" as RoomSkin })],
+  ).toBeDefined();
 });

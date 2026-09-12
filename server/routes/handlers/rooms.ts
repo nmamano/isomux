@@ -36,10 +36,7 @@ import {
 } from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
 import { parseRoomPet, type RoomPet } from "../../../shared/pets.ts";
-import {
-  parseRoomSkin,
-  type RoomSkin,
-} from "../../../shared/room-skins.ts";
+import { parseRoomSkin, type RoomSkin } from "../../../shared/room-skins.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
@@ -145,7 +142,11 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       // whatever is in the body. An unknown room falls through to the normal
       // flow and still ends at the 404 below.
       if (hasSkin && deps.takesSkin(ctx.params.roomId) === "no") {
-        return fail(422, "skin_not_supported", "the lobby does not take a skin");
+        return fail(
+          422,
+          "skin_not_supported",
+          "the lobby does not take a skin",
+        );
       }
       let name = "";
       if (hasName) {

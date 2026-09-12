@@ -35,14 +35,14 @@ $$\int_0^1 x\,dx$$`}
     expect(view.container.querySelectorAll(".katex").length).toBe(2);
   });
   expect(view.container.querySelectorAll("math").length).toBe(2);
-  expect(view.container.querySelector(".katex-html")?.getAttribute("aria-hidden")).toBe(
-    "true",
-  );
+  expect(
+    view.container.querySelector(".katex-html")?.getAttribute("aria-hidden"),
+  ).toBe("true");
   expect(view.container.querySelector(".katex-html [style]") !== null).toBe(
     true,
   );
   const loadedStylesheet = document.head.querySelector<HTMLLinkElement>(
-    'link[data-katex-stylesheet]',
+    "link[data-katex-stylesheet]",
   );
   expect(loadedStylesheet !== null).toBe(true);
   expect(loadedStylesheet?.href.endsWith("/katex/katex.min.css")).toBe(true);

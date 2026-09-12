@@ -30,16 +30,22 @@ export function SystemPromptButton({ agentId }: { agentId: string }) {
 
   return (
     <>
-      <button type="button" onClick={() => void showPrompt()} style={dialogCancelBtn}>
+      <button
+        type="button"
+        onClick={() => void showPrompt()}
+        style={dialogCancelBtn}
+      >
         {t("dialogs.agent.showSystemPrompt")}
       </button>
-      {open && <SystemPromptModal
-        prompt={prompt}
-        error={error}
-        copied={copied}
-        onCopy={() => prompt !== null && void copy(prompt)}
-        onClose={() => setOpen(false)}
-      />}
+      {open && (
+        <SystemPromptModal
+          prompt={prompt}
+          error={error}
+          copied={copied}
+          onCopy={() => prompt !== null && void copy(prompt)}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }
@@ -71,79 +77,82 @@ function SystemPromptModal({
 
   return (
     <Portal>
-        <div
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) onClose();
-          }}
+      <div
+        role="presentation"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 1100,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 20,
+          background: "rgba(0,0,0,0.62)",
+        }}
+      >
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("dialogs.agent.systemPromptTitle")}
           style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1100,
+            width: "min(900px, 100%)",
+            maxHeight: "min(760px, calc(100dvh - 40px))",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            flexDirection: "column",
+            gap: 14,
             padding: 20,
-            background: "rgba(0,0,0,0.62)",
+            border: "1px solid var(--border-light)",
+            borderRadius: 12,
+            background: "var(--bg-overlay)",
+            boxShadow: "0 20px 60px var(--shadow-heavy)",
           }}
         >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("dialogs.agent.systemPromptTitle")}
+          <h3 style={{ margin: 0, fontSize: 17 }}>
+            {t("dialogs.agent.systemPromptTitle")}
+          </h3>
+          <pre
+            aria-readonly="true"
             style={{
-              width: "min(900px, 100%)",
-              maxHeight: "min(760px, calc(100dvh - 40px))",
-              display: "flex",
-              flexDirection: "column",
-              gap: 14,
-              padding: 20,
-              border: "1px solid var(--border-light)",
-              borderRadius: 12,
-              background: "var(--bg-overlay)",
-              boxShadow: "0 20px 60px var(--shadow-heavy)",
+              minHeight: 220,
+              margin: 0,
+              padding: 14,
+              overflow: "auto",
+              whiteSpace: "pre-wrap",
+              overflowWrap: "anywhere",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-code)",
+              color: error ? "var(--red)" : "var(--text-primary)",
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 12,
+              lineHeight: 1.5,
             }}
           >
-            <h3 style={{ margin: 0, fontSize: 17 }}>
-              {t("dialogs.agent.systemPromptTitle")}
-            </h3>
-            <pre
-              aria-readonly="true"
+            {error
+              ? t("dialogs.agent.systemPromptLoadFailed")
+              : (prompt ?? t("common.loading"))}
+          </pre>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button
+              type="button"
+              disabled={prompt === null || error}
+              onClick={onCopy}
               style={{
-                minHeight: 220,
-                margin: 0,
-                padding: 14,
-                overflow: "auto",
-                whiteSpace: "pre-wrap",
-                overflowWrap: "anywhere",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                background: "var(--bg-code)",
-                color: error ? "var(--red)" : "var(--text-primary)",
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 12,
-                lineHeight: 1.5,
+                ...dialogSaveBtn,
+                opacity: prompt === null || error ? 0.5 : 1,
               }}
             >
-              {error
-                ? t("dialogs.agent.systemPromptLoadFailed")
-                : (prompt ?? t("common.loading"))}
-            </pre>
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button
-                type="button"
-                disabled={prompt === null || error}
-                onClick={onCopy}
-                style={{ ...dialogSaveBtn, opacity: prompt === null || error ? 0.5 : 1 }}
-              >
-                {copied ? t("common.copiedNotice") : t("common.copy")}
-              </button>
-              <button type="button" onClick={onClose} style={dialogCancelBtn}>
-                {t("common.close")}
-              </button>
-            </div>
-          </section>
-        </div>
+              {copied ? t("common.copiedNotice") : t("common.copy")}
+            </button>
+            <button type="button" onClick={onClose} style={dialogCancelBtn}>
+              {t("common.close")}
+            </button>
+          </div>
+        </section>
+      </div>
     </Portal>
   );
 }

@@ -122,7 +122,12 @@ import {
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
 import { BrowserFrameSender } from "./browser-frame-sender.ts";
-import { browserPool, describeShot, parseBrowserParams, validBrowserBound } from "./browser-session.ts";
+import {
+  browserPool,
+  describeShot,
+  parseBrowserParams,
+  validBrowserBound,
+} from "./browser-session.ts";
 import {
   browserSessionDiagnostic,
   buildPublicOrigin,
@@ -891,7 +896,10 @@ let executorDeps: ExecutorDeps;
 // connectionId (resolved back to a socket by the connectionId emit projection).
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
-const browserWatches = new Map<string, Map<string, { stop: () => void; frames: BrowserFrameSender }>>();
+const browserWatches = new Map<
+  string,
+  Map<string, { stop: () => void; frames: BrowserFrameSender }>
+>();
 
 function managesAgent(session: SessionLookup, agentId: string): boolean {
   return agentManager.getAgent(agentId)?.userId === session.userId;
@@ -901,8 +909,11 @@ function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
   if (input.kind === "navigate") {
-    if (input.action === "goto") return parseBrowserParams({ action: "goto", url: input.url }).ok;
-    return ["open", "back", "forward", "reload", "close"].includes(String(input.action));
+    if (input.action === "goto")
+      return parseBrowserParams({ action: "goto", url: input.url }).ok;
+    return ["open", "back", "forward", "reload", "close"].includes(
+      String(input.action),
+    );
   }
   if (input.kind === "mouse") {
     return (
@@ -4596,7 +4607,8 @@ function emitAgentEvent(event: AgentEvent): void {
   switch (event.type) {
     case "browser_action": {
       const userId = agentManager.getAgent(event.agentId)?.userId;
-      if (userId) liveEmit("browser_action", { agentId: event.agentId }, { userId });
+      if (userId)
+        liveEmit("browser_action", { agentId: event.agentId }, { userId });
       break;
     }
     case "log_entry":
@@ -4816,7 +4828,11 @@ function routeAgentEventToWs(
       break;
     }
     case "browser_action": {
-      if (managesAgent(session, event.agentId) && agentVisibleForSession(session, event.agentId)) ws.send(JSON.stringify(event));
+      if (
+        managesAgent(session, event.agentId) &&
+        agentVisibleForSession(session, event.agentId)
+      )
+        ws.send(JSON.stringify(event));
       break;
     }
     case "clear_logs":
@@ -5104,8 +5120,13 @@ async function handleInboundMessage(
         break;
       case "browser_watch": {
         stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId)) break;
-        if ((cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) || (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))) break;
+        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId))
+          break;
+        if (
+          (cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) ||
+          (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))
+        )
+          break;
         let watches = browserWatches.get(ws.data.connectionId);
         if (!watches) {
           watches = new Map();
@@ -5123,14 +5144,37 @@ async function handleInboundMessage(
           return true;
         };
         const frames = new BrowserFrameSender(ws, canDeliver);
-        const stop = browserPool.watch(cmd.agentId, (frame) => {
-          if (!canDeliver()) return;
-          const state = browserPool.status(cmd.agentId);
-          const status = JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...state,
-            url: managesAgent(ws.data.session, cmd.agentId) ? state.url : describeShot(state.url).caption });
-          if (status !== previousStatus) { ws.send(status); previousStatus = status; }
-          if (frame) frames.send(JSON.stringify({ type: "browser_frame", agentId: cmd.agentId, ...frame }));
-        }, () => managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId), {maxWidth:cmd.maxWidth,maxHeight:cmd.maxHeight});
+        const stop = browserPool.watch(
+          cmd.agentId,
+          (frame) => {
+            if (!canDeliver()) return;
+            const state = browserPool.status(cmd.agentId);
+            const status = JSON.stringify({
+              type: "browser_status",
+              agentId: cmd.agentId,
+              ...state,
+              url: managesAgent(ws.data.session, cmd.agentId)
+                ? state.url
+                : describeShot(state.url).caption,
+            });
+            if (status !== previousStatus) {
+              ws.send(status);
+              previousStatus = status;
+            }
+            if (frame)
+              frames.send(
+                JSON.stringify({
+                  type: "browser_frame",
+                  agentId: cmd.agentId,
+                  ...frame,
+                }),
+              );
+          },
+          () =>
+            managesAgent(ws.data.session, cmd.agentId) &&
+            agentVisibleForSession(ws.data.session, cmd.agentId),
+          { maxWidth: cmd.maxWidth, maxHeight: cmd.maxHeight },
+        );
         watches.set(cmd.agentId, { stop, frames });
         break;
       }
@@ -5143,10 +5187,29 @@ async function handleInboundMessage(
         )
           break;
         if (cmd.input.kind === "navigate") {
-          ws.send(JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...browserPool.status(cmd.agentId), busy: true }));
-          const result = await browserPool.humanNavigate(cmd.agentId, cmd.input, session.userId);
+          ws.send(
+            JSON.stringify({
+              type: "browser_status",
+              agentId: cmd.agentId,
+              ...browserPool.status(cmd.agentId),
+              busy: true,
+            }),
+          );
+          const result = await browserPool.humanNavigate(
+            cmd.agentId,
+            cmd.input,
+            session.userId,
+          );
           if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId)) {
-            ws.send(JSON.stringify({ type: "browser_status", agentId: cmd.agentId, ...browserPool.status(cmd.agentId), busy: false, ...(!result.ok ? {error: result.error} : {}) }));
+            ws.send(
+              JSON.stringify({
+                type: "browser_status",
+                agentId: cmd.agentId,
+                ...browserPool.status(cmd.agentId),
+                busy: false,
+                ...(!result.ok ? { error: result.error } : {}),
+              }),
+            );
           }
         } else await browserPool.humanInput(cmd.agentId, cmd.input);
         break;
@@ -6075,7 +6138,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       drain(socket) {
         if (socket.data.kind === "api" || socket.data.kind === "app") return;
         const ws = socket as ServerWebSocket<OfficeWsData>;
-        for (const watch of browserWatches.get(ws.data.connectionId)?.values() ?? []) watch.frames.flush();
+        for (const watch of browserWatches
+          .get(ws.data.connectionId)
+          ?.values() ?? [])
+          watch.frames.flush();
       },
       close(socket, code, reason) {
         if (socket.data.kind === "api") {
