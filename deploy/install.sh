@@ -35,7 +35,7 @@
 #   DOMAIN        (required) public domain for the office; its A record must
 #                 point at this server for the HTTPS certificate to issue.
 #   OWNER_NAME    display name of the office owner (default "Owner";
-#                 changeable later in User Settings).
+#                 changeable later in Settings → You).
 #   ISOMUX_REF    git branch, tag, or commit to install. Default: the latest
 #                 GitHub release of the official repo; main when none exists
 #                 or the repo is a fork.

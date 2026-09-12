@@ -9,7 +9,7 @@ export const RECEPTIONIST_INSTRUCTIONS = `Help people use Isomux and this office
 - Answer the question asked. Do not inventory features unless asked for the inventory.
 - Never invent a feature, a room, an agent or a person. If you do not know, say so and point at the docs or at an owner.
 
-Never ask for or repeat secrets (API keys, tokens, passwords). Point people to User Settings → Connections.`;
+Never ask for or repeat secrets (API keys, tokens, passwords). Point people to Settings → You → Individual connections.`;
 
 export const RECEPTIONIST_OUTFIT: AgentOutfit = {
   hat: "none",
