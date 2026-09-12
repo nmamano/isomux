@@ -308,3 +308,155 @@ with pending replacement rather than failed image loads. It does not prove
 all causes of the larger upstream latency. Short ImageBitmap and local-data-URL
 probes are in `bitmap-probe.log` and `data-url-probe.log`; neither substitutes
 for the final interleaved table. The local-data-URL prototype is not shipped.
+
+## Three decode paths: keep ImageBitmap
+
+Task b5abd8cc, measured 2026-09-12 UTC on
+`18e0da8cd0dd650e3f12f740413cea239afcfa6e`. **No product code change.**
+Object URL fails the decision rule; the current decoder and fallback stay.
+
+The loopback fixture uses the same moving 1280x800 canvas, click marker,
+650 CSS-pixel production panel and 640x400 decoded surface as above. J is the
+pinned `0bbd92b4` JSON/Image baseline; B is current binary/ImageBitmap; O is
+current binary/object-URL/Image. A Bun `onLoad` build transform removes O's
+bitmap branch, including its fallback, and uses Image/onload with the same
+paint helper, pending slot and epoch guard. It revokes the URL after paint in
+`finally`, or on error. Arrival lookup completes before revoke. The decision
+requires zero errors in all arms. No product file changed to make O.
+
+The batch order is **JBO, BOJ, OJB, OBJ, BJO, JOB**, with 25 clicks per window
+and 150 per arm. Each arm occupies each position twice; each directed adjacent
+pair occurs twice within blocks. Startup and settle procedures are the same;
+actual gaps vary with process startup/teardown. Each run uses a fresh viewer
+without an office profile, with separate 2 GiB target and viewer scopes.
+The order balances position and within-block carryover, not shared-box load.
+
+All 18 pre-window CDP viewer queries report Chrome 151.0.7922.137, ANGLE
+SwiftShader Device (Subzero), driver 5.0.0, GPU compositing `disabled_software`.
+Every log retains its full `viewerBackend`; `report-five.json` retains device,
+version and compositing per run. No member browser with a real GPU was measured.
+
+The primary endpoint is **immediately after `drawImage` returns**, before
+marker readback. J and O retain `onload`, without `image.decode()`. The earlier
+2026-09-12 bandwidth table stops before draw and is not a fourth data point.
+Neither endpoint measures display presentation. Readback is timed separately;
+it falls outside latency but can affect later scheduling.
+
+The timing rule, recorded in `decision-four.txt` at 06:16 UTC before the run,
+requires O's pooled arrival-to-draw-complete median to be at least 25% **and**
+5 ms below B, p95 no worse, and median improvement in at least four of six
+blocks. `decision-five.txt` also requires 150 matching click/leg samples per
+arm, zero errors, identical binary envelopes and O bytes/frame within 1% of B.
+Its recorded 32-byte envelope is an arithmetic slip: `bench` has five bytes,
+so both arms' same encoder and id give **33 bytes**. The decision file remains
+unchanged; its identical-envelope criterion is satisfied. No repeat is allowed
+to seek a better result.
+
+The following tables are the 2026-09-12 loopback receiver measurement. Rates
+use pooled bytes/frames divided by receiver-window time, excluding
+websocket/TCP/TLS overhead. Quantiles select floor(n * fraction) from sorted
+samples: 150 clicks/legs, all timed draws, or marker readbacks as labelled.
+Medians of separate legs do not add to the total median.
+
+| Arm | Message bytes/frame | Mbit/s | Delivered / painted fps | Click to draw complete median / p95 ms |
+| --- | --- | --- | --- | --- |
+| json | 36,432 | 4.32 | 14.82 / 14.50 | 230.6 / 512.8 |
+| binary | 27,292 | 3.32 | 15.22 / 14.40 | 217.3 / 610.2 |
+| object | 27,303 | 3.45 | 15.81 / 14.28 | 241.2 / 590.3 |
+
+| Receiver-clock measure | JSON / Image | Binary / ImageBitmap | Binary / object URL / Image |
+| --- | --- | --- | --- |
+| Mouse send to changed-frame arrival median / p95 ms | 213.9 / 501.7 | 176.7 / 566.6 | 181.9 / 514.0 |
+| Arrival to before draw median / p95 ms | 7.0 / 37.4 | 23.7 / 92.6 | 30.2 / 145.0 |
+| drawImage duration (all timed draws) median / p95 ms | 0.1 / 3.7 | 0.1 / 1.0 | 0.1 / 1.9 |
+| Arrival to draw complete median / p95 ms | 8.1 / 44.5 | 24.1 / 92.6 | 30.5 / 145.0 |
+| Marker readback duration (outside latency) median / p95 ms | 7.3 / 70.0 | 0.4 / 5.8 | 6.9 / 39.4 |
+
+| Block / arm | Window UTC (2026-09-12) | Window load | Scope load | Arrival to draw complete median / p95 ms |
+| --- | --- | --- | --- | --- |
+| 1 / json | 06:19:55 → 06:20:08 | 9.05 → 9.56 | 8.72 → 9.56 | 7.1 / 59.4 |
+| 1 / binary | 06:20:22 → 06:20:38 | 10.64 → 11.87 | 9.13 → 11.87 | 30.2 / 126.7 |
+| 1 / object | 06:20:54 → 06:21:10 | 12.18 → 12.87 | 11.88 → 12.87 | 53.1 / 192.0 |
+| 2 / binary | 06:21:21 → 06:21:30 | 13.07 → 12.08 | 13.60 → 12.08 | 21.2 / 79.6 |
+| 2 / object | 06:21:43 → 06:21:56 | 12.75 → 12.37 | 12.47 → 12.37 | 42.9 / 208.1 |
+| 2 / json | 06:22:11 → 06:22:22 | 13.06 → 11.85 | 11.70 → 11.85 | 6.7 / 17.8 |
+| 3 / object | 06:22:31 → 06:22:43 | 11.72 → 11.67 | 11.87 → 11.67 | 21.2 / 85.4 |
+| 3 / json | 06:22:57 → 06:23:10 | 11.51 → 12.10 | 11.22 → 12.10 | 15.7 / 51.4 |
+| 3 / binary | 06:23:22 → 06:23:36 | 12.94 → 12.16 | 13.37 → 12.16 | 24.1 / 121.8 |
+| 4 / object | 06:23:50 → 06:24:01 | 12.44 → 12.44 | 11.43 → 12.44 | 18.8 / 82.3 |
+| 4 / binary | 06:24:16 → 06:24:26 | 12.73 → 11.92 | 11.92 → 11.92 | 17.2 / 41.7 |
+| 4 / json | 06:24:39 → 06:24:51 | 14.41 → 14.77 | 14.01 → 14.77 | 7.0 / 25.5 |
+| 5 / binary | 06:25:04 → 06:25:17 | 14.76 → 13.39 | 14.31 → 13.39 | 26.5 / 99.1 |
+| 5 / json | 06:25:31 → 06:25:44 | 13.31 → 13.95 | 13.11 → 13.95 | 5.8 / 22.9 |
+| 5 / object | 06:26:00 → 06:26:13 | 12.40 → 11.50 | 12.71 → 11.50 | 31.2 / 123.2 |
+| 6 / json | 06:26:25 → 06:26:37 | 12.28 → 12.33 | 10.74 → 12.33 | 7.6 / 35.4 |
+| 6 / object | 06:26:50 → 06:27:04 | 11.52 → 11.38 | 11.82 → 11.38 | 26.2 / 123.4 |
+| 6 / binary | 06:27:17 → 06:27:28 | 10.60 → 9.95 | 11.09 → 9.95 | 25.0 / 73.4 |
+
+| Arm | Click / send-arrival / arrival-draw samples | Decode errors / pending replacements | Timed draws / marker readbacks |
+| --- | --- | --- | --- |
+| json | 150 / 150 / 150 | 0 / 21 | 1052 / 560 |
+| binary | 150 / 150 / 150 | 0 / 59 | 1043 / 586 |
+| object | 150 / 150 / 150 | 0 / 114 | 1086 / 607 |
+
+
+Window and scope loads are the box's one-minute averages at both ends; logs
+retain all three averages and scope timestamps. Mean window endpoint load is
+J 12.35, B 12.18, O 12.10. All 3,495 buffer samples are zero (J 1,135; B 1,126;
+O 1,234), so the pressure ladder stays at rung 0. CPU is not compared here.
+
+B and O's envelopes are 28 header bytes plus the five-byte `bench` id. Their
+received JPEG payloads therefore average 27,258.7 and 27,269.5 bytes (message
+size minus 33). Mean message sizes differ by 0.039% between these independent
+animated captures. Source-window JPEG means are J 27,253.6, B 27,258.8 and
+O 27,267.9 bytes; that window differs slightly from receiver counting and
+cannot yield an exact JSON envelope by subtraction. J carries base64, JSON
+and the inherited `frameIndex` trace field. O saves 25.06% of message
+bytes/frame versus J. Object URLs add one URL allocation and revoke per decode;
+this run makes no thread claim.
+
+O's arrival-to-draw-complete median/p95 is **30.5/145.0 ms**, versus B's
+**24.1/92.6** and J's **8.1/44.5**. O improves in only one of six blocks and
+fails the median and p95 criteria. No decoder change ships.
+
+B is faster overall than J in this run: **217.3 versus 230.6 ms** median.
+Its changed frame arrives about 37 ms sooner (176.7 versus 213.9), while its
+arrival-to-draw leg is about 16 ms longer. The earlier run's total went the
+other way. With changed endpoints and shared-box variation, neither run
+establishes an overall speed advantage; the bandwidth saving and ordering of
+the arrival-to-draw medians persist.
+
+The arrival-to-draw leg is **not an isolated decode measurement**. It includes
+pending-slot wait. Pending replacements are J 21, B 59 and O 114; the binary
+arms also deliver more frames. Arrival rate and superseding can affect this
+leg, and this confound remains unresolved. Removing ImageBitmap did not remove
+the extra cost, so ImageBitmap alone cannot explain it. The cause remains open
+between Blob loading, pending-slot wait and scheduling. This does not prove a
+cost from binary framing or say that a member browser with a GPU pays it.
+
+Draw medians are 0.1 ms in all arms, but readback medians differ: J 7.3, B 0.4,
+O 6.9 ms. Readback can flush deferred canvas work; these latency endpoints do
+not capture total rendering cost.
+
+The old 05:17 Blob arm received 11.27 fps against JSON's 17.91; here O receives
+15.81, B 15.22 and J 14.82. The old deficit was in receipt rate, before the
+arrival-to-draw leg it was used to judge, and this object-URL run does not
+reproduce it. Both the old `f7aae820` arm and O create an Image per frame and
+revoke after onload paint; effect-scoped versus frame-local URL ownership is
+structural under serial decoding. This run changes order and endpoint, but
+neither that nor the code difference establishes the old delta's cause. The
+old dated rows remain; this run supersedes them for the decoder decision.
+
+Evidence: `/home/nil/nil/browser-bandwidth-evidence/`, `five-*-{json,binary,object}`
+logs, click/buffer CSVs and injected `-panel.tsx` files; `five-benchmark.ts`,
+`five-panel.tsx`, `three-bridge.cjs`, `compare-five.sh`, `decision-{four,five}.txt`,
+`report-five.{py,json}` and `tables-five.md`. Script imports point at this
+worktree and must point at the reproduction checkout. The file prefix is an
+instrument revision, not an arm count. No dependency was added.
+
+On 2026-09-12, `three-*` stopped on the timing-review blocker and `four-*` was
+lost to process teardown during an interrupted chat turn after two completed
+windows. Both remain excluded. The independent transient-unit launch first
+failed before timing because Bun was absent from PATH (`five-launch-failure.log`).
+After supplying PATH, all 18 `five-*` windows and the batch ended `exit=0`.
+No measurement was repeated to select a better result.
