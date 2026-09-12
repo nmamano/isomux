@@ -1392,7 +1392,8 @@ export const en = {
   "apps.delete": "delete",
   "apps.cancel": "cancel",
   "apps.logEmpty": "Nothing in the log yet.",
-  "apps.confirmDelete": "Delete {name}? Its data directory will be kept.",
+  "apps.confirmDelete":
+    "Delete {name}? Its data is not erased: it moves to {path} on the office's disk.",
   "tasks.status.open": "Open",
   "tasks.status.inProgress": "In Progress",
   "tasks.status.backlog": "Backlog",

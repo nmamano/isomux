@@ -1423,7 +1423,7 @@ export const es: Catalog = {
   "apps.cancel": "cancelar",
   "apps.logEmpty": "Aún no hay nada en el registro.",
   "apps.confirmDelete":
-    "¿Eliminar {name}? Su directorio de datos se conservará.",
+    "¿Eliminar {name}? Sus datos no se borran: se mueven a {path} en el disco de la oficina.",
   "tasks.status.open": "Abierta",
   "tasks.status.inProgress": "En curso",
   "tasks.status.backlog": "Pendiente",

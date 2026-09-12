@@ -98,6 +98,8 @@ Want to run it on an always-on box, access from every device, and invite other u
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 
+Already a hosted customer? [Sign in at cloud.isomux.com](https://cloud.isomux.com).
+
 ## How it works
 
 Curious about the internals? [Read how it works](docs/how-it-works.md).

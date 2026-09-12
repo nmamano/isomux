@@ -588,6 +588,15 @@ const ACTION_FAILED: Record<"start" | "stop" | "restart", ErrorKey> = {
   restart: "apps.actionFailed.restart",
 };
 
+// Where a deleted app's data directory ends up: the registry moves it under
+// `.retired` next to the other apps' data instead of erasing it (Nil's ruling,
+// 2026-09-10: no automatic deletion, ever). Shown in the delete confirmation so
+// the member knows the data stays on the office's disk and where.
+export function retiredDirOf(dataDir: string): string {
+  const cut = dataDir.lastIndexOf("/");
+  return `${cut > 0 ? dataDir.slice(0, cut) : dataDir}/.retired`;
+}
+
 export function AppsView({
   onClose,
   onFocusAgent,
@@ -1162,7 +1171,10 @@ export function AppsView({
             }}
           >
             <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-              {t("apps.confirmDelete", { name: confirmDelete.name })}
+              {t("apps.confirmDelete", {
+                name: confirmDelete.name,
+                path: retiredDirOf(confirmDelete.dataDir),
+              })}
             </div>
             <div
               style={{

@@ -1420,7 +1420,7 @@ export const ca: Catalog = {
   "apps.cancel": "cancel·la",
   "apps.logEmpty": "Encara no hi ha res al registre.",
   "apps.confirmDelete":
-    "Vols eliminar {name}? El seu directori de dades es conservarà.",
+    "Vols eliminar {name}? Les seves dades no s'esborren: es mouen a {path} al disc de l'oficina.",
   "tasks.status.open": "Oberta",
   "tasks.status.inProgress": "En curs",
   "tasks.status.backlog": "Pendent",
