@@ -16,6 +16,7 @@ import { useAppState, useDispatch, useTheme, useFeatures } from "../store.tsx";
 import { Floor, WallDoors, Walls } from "./Floor.tsx";
 import { NewRoomDialog } from "./NewRoomDialog.tsx";
 import { RoomProps } from "./RoomProps.tsx";
+import { useRoomSkinVars } from "./skins/index.tsx";
 import { GroundShadows } from "./GroundShadows.tsx";
 import { Seasonal } from "./Seasonal.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
@@ -266,6 +267,11 @@ export function OfficeView({
   }
   const i18n = useI18n();
   const { t } = i18n;
+  // The current room's skin, as theme-variable overrides for the scene
+  // container below. The scene already paints its floor and its walls from
+  // these, so a skin repaints them with no branch in the drawing; the tab bar,
+  // the HUD and the panels sit outside that container and never see them.
+  const skinVars = useRoomSkinVars();
   const newRoomDoor = embed
     ? null
     : {
@@ -566,6 +572,9 @@ export function OfficeView({
               // eslint-disable-next-line react-hooks/refs
               ref={viewport.setContent}
               style={{
+                // Custom properties are legal in an inline style but absent
+                // from CSSProperties, the same cast Ghost.tsx makes.
+                ...(skinVars as React.CSSProperties),
                 position: "absolute",
                 left: "50%",
                 top: embed

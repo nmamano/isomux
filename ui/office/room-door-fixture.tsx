@@ -14,11 +14,13 @@ const { PRODUCTION_FEATURES } = await import("../../shared/features.ts");
 export const room = (
   id: string,
   name = id,
+  skin?: import("../../shared/room-skins.ts").RoomSkin,
 ): import("../../shared/types.ts").RoomWire => ({
   id,
   name,
   prompt: null,
   canCloseWhenEmpty: true,
+  ...(skin ? { skin } : {}),
 });
 const { SceneDecorationContext } = await import("./scene-decoration.tsx");
 let decorateScene = true;

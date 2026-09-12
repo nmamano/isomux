@@ -1,4 +1,5 @@
 import type { RoomPet } from "./pets.ts";
+import type { RoomSkin } from "./room-skins.ts";
 import type {
   AgentInfo,
   AgentOutfit,
@@ -39,6 +40,7 @@ export type OfficeEvent =
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
+  | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -466,7 +468,10 @@ export class OfficeState {
     return events;
   }
 
-  createRoom(name?: string): OfficeEvent[] {
+  // `skin` absent (or null) creates the room in the office look, which is what
+  // every room created before skins existed carries - the field stays off the
+  // record rather than being written as "office".
+  createRoom(name?: string, skin?: RoomSkin | null): OfficeEvent[] {
     const existingIds = this._rooms.map((r) => r.id);
     const displayName = (name || `Room ${this.ordinaryRooms.length + 1}`)
       .trim()
@@ -477,6 +482,7 @@ export class OfficeState {
       prompt: null,
       // The first ordinary room stays protected even when the lobby came first.
       canCloseWhenEmpty: this.ordinaryRooms.length > 0,
+      ...(skin ? { skin } : {}),
     };
     this._rooms.push(room);
     const events: OfficeEvent[] = [{ type: "room_created", room }];
@@ -598,6 +604,20 @@ export class OfficeState {
     if (idx < 0) return [];
     this._rooms[idx] = { ...this._rooms[idx], pet };
     const events: OfficeEvent[] = [{ type: "room_pet_updated", roomId, pet }];
+    this.emitEvents(events);
+    return events;
+  }
+
+  /** Sets the room's skin; null clears it back to the office look. Shaped like
+   *  setRoomPet above it: unknown room writes nothing and emits nothing. The
+   *  lobby draws its own scene and takes no skin, so it writes nothing either -
+   *  the route turns that into its own answer, distinct from "no such room". */
+  setRoomSkin(roomId: string, skin: RoomSkin | null): OfficeEvent[] {
+    const idx = this._rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) return [];
+    if (this._rooms[idx].type === "lobby") return [];
+    this._rooms[idx] = { ...this._rooms[idx], skin };
+    const events: OfficeEvent[] = [{ type: "room_skin_updated", roomId, skin }];
     this.emitEvents(events);
     return events;
   }

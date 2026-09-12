@@ -145,6 +145,18 @@ office memory.
 raw file. Use the version from GET. A stale version returns 409. REPLACE is the
 curation path and does not apply the 400-character APPEND limit.
 
+## Update a room
+
+`PATCH /api/rooms/<roomId>` is a partial update over a room's cosmetic fields.
+Send `name`, `pet`, `skin`, or any mix; each is applied only when the body
+carries it.
+
+`skin` is the look the room is drawn in: `"office"` (the default) or
+`"hospital"`. `null` restores the office look. An unknown value returns 422
+`invalid_skin`. The lobby draws its own scene and takes no skin: it returns 422
+`skin_not_supported` whatever the value is. `POST /api/rooms` takes the same
+`skin` at creation.
+
 API failures use JSON with an `error` object:
 
 ```json

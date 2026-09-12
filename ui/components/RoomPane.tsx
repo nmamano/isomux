@@ -14,6 +14,11 @@ import {
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
+import {
+  ROOM_SKIN_IDS,
+  effectiveRoomSkin,
+  type RoomSkin,
+} from "../../shared/room-skins.ts";
 
 // One room's settings, as a pane. Mounted keyed by roomId, so switching rooms
 // in the sidebar remounts it and no field can carry across.
@@ -42,6 +47,10 @@ export function RoomPane({
     agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
+  // The look the room is drawn in. Captured at mount like `name`, and saved
+  // through the same PATCH - the two are the room's cosmetic fields and travel
+  // together. The lobby draws its own scene, so it has no control at all.
+  const [skin, setSkin] = useState<RoomSkin>(() => effectiveRoomSkin(room));
   // What the fields held when they last agreed with the server - captured at
   // hydration, reset on save. Dirtiness is measured against THIS, never
   // against the store snapshot: the prompt comes from the version-guarded GET
@@ -51,6 +60,9 @@ export function RoomPane({
   // shape useMemoryEditor already uses for mem.dirty.
   const [baselineName, setBaselineName] = useState(room?.name ?? "");
   const [baselinePrompt, setBaselinePrompt] = useState("");
+  const [baselineSkin, setBaselineSkin] = useState<RoomSkin>(() =>
+    effectiveRoomSkin(room),
+  );
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
   const hasRoomMemory = room != null && room.type !== "lobby";
@@ -93,16 +105,24 @@ export function RoomPane({
     if (!trimmedName || settingsVersion == null) return;
     setSaving(true);
     setError(null);
-    // Rename is an independent, cosmetic field; fire-and-forget, parity with the
-    // old WS rename_room, which never blocked the save. It shares the settings
-    // PUT's room:manage guard, so a rename that would 403 already fails the
-    // settings save below - no separate error surface needed.
-    if (room && trimmedName !== room.name) {
-      const renameBody: RoomRenameReq = { name: trimmedName };
-      apiFetch<void>("PATCH", `/api/rooms/${roomId}`, renameBody).catch(
-        () => {},
-      );
-    }
+    // One PATCH for whichever cosmetic fields moved: a skin change with an
+    // untouched name has to reach the server too, and both can ride the same
+    // partial update.
+    //
+    // It is AWAITED inside the save below, not fired and forgotten. Forgotten,
+    // a rejected PATCH left the pane saying "Saved" over a look the server
+    // never took, and the baseline advanced, so the reader's change was gone
+    // with nothing on screen to say so. Now a rejection reaches the same error
+    // line as any other failure and the baselines stay where they were, so
+    // Save tries the identical body again.
+    const skinChanged = room != null && skin !== baselineSkin;
+    const renameBody: RoomRenameReq | null =
+      room && (trimmedName !== room.name || skinChanged)
+        ? {
+            ...(trimmedName !== room.name ? { name: trimmedName } : {}),
+            ...(skinChanged ? { skin } : {}),
+          }
+        : null;
     // The settings save drives the pane: success settles it to "Saved", an
     // ApiError shows inline. Memory is a separate version-guarded REPLACE on
     // /api/memory.
@@ -112,6 +132,12 @@ export function RoomPane({
     };
     void (async () => {
       try {
+        // Before the settings PUT, which spends the version token: a failure
+        // here must leave that token unspent, or the retry the reader is being
+        // asked to make would come back as a version conflict.
+        if (renameBody) {
+          await apiFetch<void>("PATCH", `/api/rooms/${roomId}`, renameBody);
+        }
         await apiFetch<void>(
           "PUT",
           `/api/rooms/${roomId}/settings`,
@@ -146,6 +172,7 @@ export function RoomPane({
           setError(t("settings.room.reloadFailed"));
         }
         setBaselineName(trimmedName);
+        setBaselineSkin(skin);
         setSavedAt(Date.now());
         const m = await mem.save();
         if (!m.ok) {
@@ -178,7 +205,9 @@ export function RoomPane({
   // dirty-capable; without this a sidebar click drops all three in silence.
   const dirty =
     (settingsLoaded &&
-      (name.trim() !== baselineName || prompt !== baselinePrompt)) ||
+      (name.trim() !== baselineName ||
+        prompt !== baselinePrompt ||
+        skin !== baselineSkin)) ||
     mem.dirty;
   useEffect(() => {
     if (closeRef) {
@@ -238,6 +267,31 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
+            <label
+              htmlFor="room-skin"
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 14,
+                marginBottom: 5,
+              }}
+            >
+              {t("office.skin.label")}
+            </label>
+            <select
+              id="room-skin"
+              value={skin}
+              onChange={(e) => setSkin(e.target.value as RoomSkin)}
+              style={inputStyle}
+            >
+              {ROOM_SKIN_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {t(`office.skin.${id}`)}
+                </option>
+              ))}
+            </select>
           </>
         )}
 
@@ -359,6 +413,7 @@ export function RoomPane({
               onClick={() => {
                 setName(baselineName);
                 setPrompt(baselinePrompt);
+                setSkin(baselineSkin);
                 mem.reset();
                 setError(null);
               }}

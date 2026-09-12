@@ -316,3 +316,178 @@ describe("rooms.rename REST - the pet field", () => {
     expect(srv.agentManager.getRooms()[0].name).toBe(before);
   });
 });
+
+// The skin is the room's look. It rides the same partial update as the pet, so
+// the pairs that matter are the same ones - "skin alone does not blank the
+// name", "a rejected skin writes nothing" - plus the one the pet has no need
+// for: the lobby draws its own scene and takes no skin at all, and refusing
+// that is not the same answer as "no such room".
+describe("rooms REST - the skin field", () => {
+  it("create with a skin -> 201 and the room carries it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const res = await req(srv, "POST", "/api/rooms", {
+      body: { name: "Ward", skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const room = (res.body as { room: { id: string; skin?: string } }).room;
+    expect(room.skin).toBe("hospital");
+    expect(
+      srv.agentManager.getRooms().find((r) => r.id === room.id)?.skin,
+    ).toBe("hospital");
+  });
+
+  // The default look is the ABSENCE of the field, so a room created without one
+  // has the same record every room had before skins existed.
+  it("create without a skin -> 201 and the field stays off the record", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const res = await req(srv, "POST", "/api/rooms", {
+      body: { name: "Plain" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const room = (res.body as { room: { id: string; skin?: string } }).room;
+    expect(room.skin).toBeUndefined();
+  });
+
+  it("create with an unknown skin -> 422 invalid_skin and no room", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const before = srv.agentManager.getRooms().length;
+    const res = await req(srv, "POST", "/api/rooms", {
+      body: { name: "Clinic", skin: "clinic" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_skin");
+    expect(srv.agentManager.getRooms().length).toBe(before);
+  });
+
+  it("skin alone -> 204; the skin is set and the name is untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const before = srv.agentManager.getRooms()[0].name;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].skin).toBe("hospital");
+    expect(srv.agentManager.getRooms()[0].name).toBe(before);
+  });
+
+  it("name and skin in one body -> 204; both applied", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { name: "Ward", skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].name).toBe("Ward");
+    expect(srv.agentManager.getRooms()[0].skin).toBe("hospital");
+  });
+
+  it("skin null clears back to the office look -> 204", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: { skin: null },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getRooms()[0].skin).toBe(null);
+  });
+
+  it("an unknown skin -> 422 invalid_skin, and an accompanying name stays unwritten", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const before = srv.agentManager.getRooms()[0].name;
+    for (const skin of ["clinic", "", 7, {}]) {
+      const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+        body: { name: "Should not stick", skin },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("invalid_skin");
+    }
+    expect(srv.agentManager.getRooms()[0].name).toBe(before);
+    expect(srv.agentManager.getRooms()[0].skin ?? null).toBe(null);
+  });
+
+  // Hiding the control in the settings pane is not the rule; this is.
+  it("the lobby takes no skin -> 422 skin_not_supported, and nothing is written", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    srv.agentManager.ensureLobby();
+    const res = await req(srv, "PATCH", "/api/rooms/lobby", {
+      body: { skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("skin_not_supported");
+    expect(
+      srv.agentManager.getRooms().find((r) => r.id === "lobby")?.skin ?? null,
+    ).toBe(null);
+  });
+
+  // The order is the rule, not just the outcome (Nil via Isomux PM,
+  // 2026-09-12): the room is asked whether it takes a skin BEFORE the value is
+  // looked at, so a reader who sends nonsense to the lobby is told the lobby
+  // takes no skin rather than being sent to fix the value first.
+  it("the lobby refuses before the value is validated", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    srv.agentManager.ensureLobby();
+    const res = await req(srv, "PATCH", "/api/rooms/lobby", {
+      body: { skin: "clinic" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("skin_not_supported");
+  });
+
+  it("an unknown room is still a 404, not the lobby's answer", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const res = await req(srv, "PATCH", "/api/rooms/deadbeef", {
+      body: { skin: "hospital" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(404);
+    expect(errCode(res.body)).toBe("room_not_found");
+  });
+
+  it("a body with none of the three fields -> 422", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "PATCH", `/api/rooms/${id}`, {
+      body: {},
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_request");
+  });
+});

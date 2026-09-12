@@ -10,6 +10,7 @@
 // propagates here at compile time.
 
 import type { RoomPet } from "./pets.ts";
+import type { RoomSkin } from "./room-skins.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -461,14 +462,21 @@ export interface EditorSaveReq {
 
 export interface RoomCreateReq {
   name?: string;
+  // The look the new room is drawn in. Absent creates it in the office look,
+  // which is what every room drew before skins existed.
+  skin?: RoomSkin | null;
 }
 
 export interface RoomRenameReq {
-  // Both fields are optional and independent: the picker sends only `pet`, the
-  // settings dialog sends only `name`. A body carrying neither is malformed.
+  // All three fields are optional and independent: the picker sends only `pet`,
+  // the settings pane sends a name, a skin, or both. A body carrying none of
+  // them is malformed.
   name?: string;
   // null clears the room's pet back to the default. Absent leaves it alone.
   pet?: RoomPet | null;
+  // null clears the room's skin back to the office look. Absent leaves it
+  // alone. The lobby draws its own scene and takes no skin.
+  skin?: RoomSkin | null;
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings

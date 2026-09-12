@@ -2945,8 +2945,8 @@ function buildExecutorDeps(
   // Both re-push presence to keep the room-mutation→presence invariant uniform.
   register(
     roomsHandlers({
-      create: ({ name, creatorUserId }) => {
-        const newRoomId = agentManager.createRoom(name);
+      create: ({ name, skin, creatorUserId }) => {
+        const newRoomId = agentManager.createRoom(name, skin);
         const creator = creatorUserId ? getUserById(creatorUserId) : undefined;
         if (
           creator &&
@@ -3028,6 +3028,12 @@ function buildExecutorDeps(
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
       setPet: (roomId, pet) => agentManager.setRoomPet(roomId, pet),
+      takesSkin: (roomId) => {
+        const room = agentManager.getRooms().find((r) => r.id === roomId);
+        if (!room) return "unknown";
+        return room.type === "lobby" ? "no" : "yes";
+      },
+      setSkin: (roomId, skin) => agentManager.setRoomSkin(roomId, skin),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),
@@ -4644,6 +4650,12 @@ function emitAgentEvent(event: AgentEvent): void {
       liveEmit("room_settings_updated", {
         roomId: event.roomId,
         prompt: event.prompt,
+      });
+      break;
+    case "room_skin_updated":
+      liveEmit("room_skin_updated", {
+        roomId: event.roomId,
+        skin: event.skin,
       });
       break;
     case "room_closed":

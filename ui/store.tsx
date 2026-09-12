@@ -1,5 +1,6 @@
 import { recentMembersChatPins } from "../shared/members-chat.ts";
 import type { RoomPet } from "../shared/pets.ts";
+import type { RoomSkin } from "../shared/room-skins.ts";
 import {
   createContext,
   useContext,
@@ -331,6 +332,7 @@ type Action =
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
+  | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   | { type: "users_admin_list"; users: UserRecord[] }
@@ -1017,6 +1019,12 @@ export function reducer(state: AppState, action: Action): AppState {
     case "room_pet_updated": {
       const newRooms = state.rooms.map((r) =>
         r.id === action.roomId ? { ...r, pet: action.pet } : r,
+      );
+      return { ...state, rooms: newRooms };
+    }
+    case "room_skin_updated": {
+      const newRooms = state.rooms.map((r) =>
+        r.id === action.roomId ? { ...r, skin: action.skin } : r,
       );
       return { ...state, rooms: newRooms };
     }

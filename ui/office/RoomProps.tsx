@@ -12,6 +12,8 @@ import { useAppState } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { RoomRenameReq } from "../../shared/contract-shapes.ts";
 import { PetPicker } from "./PetPicker.tsx";
+import { SkinProps, useCurrentRoomSkin } from "./skins/index.tsx";
+import type { RoomSkin } from "../../shared/room-skins.ts";
 
 // Every sleeper is drawn curled on the cushion, centred on (0,0), facing left,
 // about 34 wide and 20 tall so the bed fits them all. Each one breathes on the
@@ -654,6 +656,7 @@ export function RoomProps() {
   const room = rooms.find((r) => r.id === currentRoomId);
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
   const pet = room?.pet ?? null;
+  const skin = useCurrentRoomSkin();
 
   // No optimistic write: the room projection broadcasts room_pet_updated to
   // every client, so the scene repaints from the same event everyone else gets.
@@ -670,7 +673,11 @@ export function RoomProps() {
 
   return (
     <>
-      <PropsScene pet={pet} onPetClick={(x, y) => setPicker({ x, y })} />
+      <PropsScene
+        pet={pet}
+        skin={skin}
+        onPetClick={(x, y) => setPicker({ x, y })}
+      />
       {picker && (
         <PetPicker
           x={picker.x}
@@ -690,9 +697,11 @@ export function RoomProps() {
 // the prop SVG.
 const PropsScene = memo(function PropsScene({
   pet,
+  skin,
   onPetClick,
 }: {
   pet: RoomPet | null;
+  skin: RoomSkin;
   onPetClick: (x: number, y: number) => void;
 }) {
   return (
@@ -703,6 +712,10 @@ const PropsScene = memo(function PropsScene({
       viewBox={`${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`}
       overflow="visible"
     >
+      {/* Whatever this room's skin stands on the floor. First in the props
+          layer, so the plant and the pet below stay in front of it. */}
+      <SkinProps skin={skin} />
+
       {/* Potted plant - west corner of office. Drawn in ui/office/plants.tsx,
           which the window plant and the desk plants also draw from. */}
       <g transform="translate(-245, 212) scale(1.5)">

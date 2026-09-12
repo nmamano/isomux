@@ -1,5 +1,6 @@
 import { redactLogEntry } from "./log-redaction.ts";
 import type { RoomPet } from "../shared/pets.ts";
+import type { RoomSkin } from "../shared/room-skins.ts";
 import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -769,6 +770,11 @@ export interface Room {
   // every agents.json written before the picker existed has no such key, and
   // this repo has self-hosters whose files must load unchanged.
   pet?: RoomPet | null;
+  // The look the room is drawn in, or absent/null for the office look. Optional
+  // for the same reason as `pet`: every agents.json written before skins
+  // existed has no such key, and this repo has self-hosters whose files must
+  // load unchanged.
+  skin?: RoomSkin | null;
   agents: PersistedAgent[];
 }
 

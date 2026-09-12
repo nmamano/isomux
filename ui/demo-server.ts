@@ -4,6 +4,7 @@ import {
 } from "../shared/members-chat.ts";
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
+import type { RoomSkin } from "../shared/room-skins.ts";
 import { detectBrowserLanguage } from "../shared/languages.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 import { displayLanguage } from "./preference-form.ts";
@@ -160,6 +161,13 @@ const demoManagedEnv: Record<string, Record<string, string>> = {};
 let demoManagedOfficeEnv: Record<string, string> = {};
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
+// The look each demo room is drawn in, by the same index. The Annex carries the
+// hospital skin so the demo shows a skinned room without a visitor having to
+// change one.
+export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
+  undefined,
+  "hospital",
+];
 
 export function setEmbedMode() {
   embedMode = true;
@@ -446,7 +454,8 @@ function seedOffice() {
     throw new Error("Every demo room needs an explicit name");
   }
   state.renameRoom(state.rooms[0].id, DEMO_ROOM_NAMES[0]);
-  for (let i = 1; i <= maxRoom; i++) state.createRoom(DEMO_ROOM_NAMES[i]);
+  for (let i = 1; i <= maxRoom; i++)
+    state.createRoom(DEMO_ROOM_NAMES[i], DEMO_ROOM_SKINS[i]);
 
   for (const char of chars) {
     const id = `demo-${char.name.toLowerCase().replace(/\s+/g, "-")}`;
@@ -1239,6 +1248,13 @@ function emitEvents(events: OfficeEvent[]) {
           pet: event.pet,
         });
         break;
+      case "room_skin_updated":
+        shimEmit({
+          type: "room_skin_updated",
+          roomId: event.roomId,
+          skin: event.skin,
+        });
+        break;
       case "room_closed":
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
@@ -1957,7 +1973,7 @@ export async function demoApi(
     // owner and reaches every room by rule, matching the production no-fan-out.
     case "POST /api/rooms": {
       const b = (body ?? {}) as RoomCreateReq;
-      const events = state.createRoom(b.name);
+      const events = state.createRoom(b.name, b.skin);
       emitEvents(events);
       const created = events.find((e) => e.type === "room_created");
       return { room: created?.room };
@@ -2457,10 +2473,11 @@ export async function demoApi(
     const id = decodeURIComponent(roomIdMatch[1]);
     if (method === "PATCH") {
       const b = (body ?? {}) as RoomRenameReq;
-      // PATCH is a partial update: the settings dialog sends a name, the pet
-      // picker sends a pet, and either may arrive alone.
+      // PATCH is a partial update: the settings pane sends a name, a skin or
+      // both, the pet picker sends a pet, and any of them may arrive alone.
       if (typeof b.name === "string") emitEvents(state.renameRoom(id, b.name));
       if (b.pet !== undefined) emitEvents(state.setRoomPet(id, b.pet));
+      if (b.skin !== undefined) emitEvents(state.setRoomSkin(id, b.skin));
       return undefined;
     }
     emitEvents(state.closeRoom(id));

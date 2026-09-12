@@ -115,3 +115,65 @@ it("restores opener focus on cancel but leaves it behind after creating a room",
     opener.remove();
   }
 });
+
+// The dialog grew a control, and its Tab trap is hand-written: a control the
+// ring does not list is a control a keyboard cannot reach.
+it("keeps the look in the Tab ring and sends it with the new room", async () => {
+  let body: unknown;
+  setApiShim(async (_method, _path, sent) => {
+    body = sent;
+    return {
+      room: {
+        id: "ward",
+        name: "Room 2",
+        prompt: null,
+        canCloseWhenEmpty: true,
+        skin: "hospital",
+      },
+    };
+  });
+  const view = render(<NewRoomDialog onClose={() => {}} />);
+  const look = view.getByLabelText("Room look") as HTMLSelectElement;
+  const cancel = view.getByRole("button", { name: "Cancel" });
+  const confirm = view.getByRole("button", { name: "Open room" });
+  expect(look.value).toBe("office");
+  expect(document.activeElement).toBe(cancel);
+  fireEvent.keyDown(cancel, { key: "Tab", bubbles: true });
+  expect(document.activeElement).toBe(confirm);
+  fireEvent.keyDown(confirm, { key: "Tab", bubbles: true });
+  expect(document.activeElement).toBe(look);
+  fireEvent.keyDown(look, { key: "Tab", bubbles: true });
+  expect(document.activeElement).toBe(cancel);
+  fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true, bubbles: true });
+  expect(document.activeElement).toBe(look);
+  fireEvent.keyDown(look, { key: "Tab", shiftKey: true, bubbles: true });
+  expect(document.activeElement).toBe(confirm);
+
+  fireEvent.change(look, { target: { value: "hospital" } });
+  await act(async () => fireEvent.click(confirm));
+  expect(body).toEqual({ skin: "hospital" });
+  view.unmount();
+});
+
+// The office look is the absence of the field, so opening a room without
+// touching the control writes the record every room had before skins existed.
+it("sends no skin at all when the look is left alone", async () => {
+  let body: unknown = "unset";
+  setApiShim(async (_method, _path, sent) => {
+    body = sent;
+    return {
+      room: {
+        id: "plain",
+        name: "Room 3",
+        prompt: null,
+        canCloseWhenEmpty: true,
+      },
+    };
+  });
+  const view = render(<NewRoomDialog onClose={() => {}} />);
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: "Open room" })),
+  );
+  expect(body).toEqual({});
+  view.unmount();
+});

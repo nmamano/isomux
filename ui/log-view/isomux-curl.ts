@@ -1110,6 +1110,8 @@ export function humanizeIsomuxRequest(
           return t("apiCall.rooms.rename", { name: truncateLabel(name, 24) });
         if (req.bodyFields?.some((f) => f.key === "pet"))
           return t("apiCall.rooms.setPet");
+        if (req.bodyFields?.some((f) => f.key === "skin"))
+          return t("apiCall.rooms.setSkin");
         return t("apiCall.rooms.update");
       }
       if (m === "DELETE") return t("apiCall.rooms.close");

@@ -19,6 +19,7 @@ import {
   BLOSSOM_TONES,
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
+import { SkinWalls } from "./skins/index.tsx";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -1782,6 +1783,12 @@ export function Walls({
           opacity="0.25"
         />
       </g>
+
+      {/* Whatever this room's skin hangs on the walls. Last inside this svg and
+          so over the wall planes, but still before WallDoors, which is a later
+          sibling - a band along the bottom of a wall must not paint over a door
+          swinging out of it. */}
+      <SkinWalls />
     </svg>
   );
 }

@@ -3,6 +3,7 @@ import {
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
 import type { RoomPet } from "../shared/pets.ts";
+import type { RoomSkin } from "../shared/room-skins.ts";
 import type {
   AgentBackendType,
   AgentChoiceInteraction,
@@ -1547,8 +1548,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     for (const event of events) eventHandler(event);
   }
 
-  function createRoom(name?: string): string {
-    const events = officeState.createRoom(name);
+  function createRoom(name?: string, skin?: RoomSkin | null): string {
+    const events = officeState.createRoom(name, skin);
     const created = events.find((e) => e.type === "room_created");
     if (!created) throw new Error("failed to create room");
     for (const event of events) eventHandler(event);
@@ -1581,6 +1582,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     for (const event of events) eventHandler(event);
     persistAll();
     return true;
+  }
+
+  /** Sets the room's skin; null clears it back to the office look. Like the pet
+   *  this changes nothing an agent can read, so no session or prompt is rebuilt.
+   *  The lobby draws its own scene and takes no skin, and the caller has to tell
+   *  that apart from an unknown room, so this reports which one it was rather
+   *  than a bare boolean. */
+  function setRoomSkin(
+    roomId: string,
+    skin: RoomSkin | null,
+  ): "ok" | "room_not_found" | "skin_not_supported" {
+    const room = officeState.rooms.find((r) => r.id === roomId);
+    if (!room) return "room_not_found";
+    if (room.type === "lobby") return "skin_not_supported";
+    const events = officeState.setRoomSkin(roomId, skin);
+    if (events.length === 0) return "room_not_found";
+    for (const event of events) eventHandler(event);
+    persistAll();
+    return "ok";
   }
 
   function moveAgent(agentId: string, targetRoomId: string): boolean {
@@ -1740,6 +1760,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       name: r.name,
       prompt: r.prompt,
       pet: r.pet ?? null,
+      skin: r.skin ?? null,
       type: r.type,
       ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
         ? { defaultAgentPending: true as const }
@@ -8803,6 +8824,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     closeRoom,
     renameRoom,
     setRoomPet,
+    setRoomSkin,
     moveAgent,
     getAllAgents,
     getUsageReportData,
@@ -8906,6 +8928,7 @@ export function createProductionAgentManager(overrides?: {
             name: r.name,
             prompt: r.prompt,
             pet: r.pet ?? null,
+            skin: r.skin ?? null,
             type: r.type,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],

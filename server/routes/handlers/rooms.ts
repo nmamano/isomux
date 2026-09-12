@@ -36,13 +36,21 @@ import {
 } from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
 import { parseRoomPet, type RoomPet } from "../../../shared/pets.ts";
+import {
+  parseRoomSkin,
+  type RoomSkin,
+} from "../../../shared/room-skins.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
   // self-grants + receives a projected full_state; owners reach it by rule),
   // refreshes presence, and returns the created room's wire shape. `name` absent
   // defaults the room name in the core.
-  create(input: { name?: string; creatorUserId: string | null }): {
+  create(input: {
+    name?: string;
+    skin?: RoomSkin | null;
+    creatorUserId: string | null;
+  }): {
     room: RoomWire;
   };
   // Closes a room, strips the dead roomId from every user's allowedRooms/
@@ -54,6 +62,19 @@ export interface RoomsDeps {
   // Sets a room's pet; null clears it back to the default. Returns false if the
   // room does not exist (→ 404).
   setPet(roomId: string, pet: RoomPet | null): boolean;
+  // Whether the room at this id takes a skin at all. Read BEFORE any value is
+  // validated, so the lobby answers the same way whatever the body carries; an
+  // unknown room answers "unknown" and the request runs its normal course, so
+  // this never becomes an existence oracle.
+  takesSkin(roomId: string): "yes" | "no" | "unknown";
+  // Sets a room's skin; null clears it back to the office look. Reports which
+  // of the two refusals happened, because they are different answers: an
+  // unknown room is a 404, and the lobby - which draws its own scene and takes
+  // no skin - is a 422.
+  setSkin(
+    roomId: string,
+    skin: RoomSkin | null,
+  ): "ok" | "room_not_found" | "skin_not_supported";
   // Reads a room's settings (the prompt; null means no prompt set) plus the
   // prompt's optimistic-concurrency version. Returns null if the room does not
   // exist (→ 404).
@@ -76,10 +97,16 @@ export interface RoomsDeps {
 export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
   return {
     "rooms.create": (ctx) => {
-      const b = (ctx.body ?? {}) as { name?: unknown };
+      const b = (ctx.body ?? {}) as { name?: unknown; skin?: unknown };
       const name = typeof b.name === "string" ? b.name : undefined;
+      // Absent and null both create the room in the office look, so the new
+      // room's record carries no skin key - the same shape every room written
+      // before skins existed has.
+      const parsedSkin = parseRoomSkin(b.skin);
+      if (!parsedSkin.ok) return fail(422, "invalid_skin", parsedSkin.reason);
       const { room } = deps.create({
         name,
+        skin: parsedSkin.skin,
         creatorUserId: ctx.identity.userId,
       });
       return created({ room });
@@ -90,23 +117,35 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         ? noContent()
         : fail(404, "room_not_found", "Room not found"),
 
-    // PATCH is a PARTIAL update over two independent fields, so the old
+    // PATCH is a PARTIAL update over three independent fields, so the old
     // `if (!name) 422` guard could not simply grow a pet branch: a body of
     // {"pet":...} is legal and carries no name, and running the rename with an
     // absent name would have renamed the room to nothing. Each field is applied
     // only when the body actually carries it.
     "rooms.rename": (ctx) => {
-      const b = (ctx.body ?? {}) as { name?: unknown; pet?: unknown };
-      // The two tests differ on purpose and both are right over JSON: a name is
-      // absent or a string, but `pet` carries meaning when it is present AND
-      // null - that is how a client clears it - so presence is the question,
-      // not the value.
+      const b = (ctx.body ?? {}) as {
+        name?: unknown;
+        pet?: unknown;
+        skin?: unknown;
+      };
+      // The tests differ on purpose and all are right over JSON: a name is
+      // absent or a string, but `pet` and `skin` carry meaning when they are
+      // present AND null - that is how a client clears them - so presence is
+      // the question, not the value.
       const hasName = b.name !== undefined;
       const hasPet = "pet" in b;
+      const hasSkin = "skin" in b;
       // Shape checks only (never an existence oracle): a malformed body is not
       // a comment on whether the room exists.
-      if (!hasName && !hasPet) {
-        return fail(422, "invalid_request", "name or pet is required");
+      if (!hasName && !hasPet && !hasSkin) {
+        return fail(422, "invalid_request", "name, pet or skin is required");
+      }
+      // The lobby's refusal is decided before any value is looked at (Nil via
+      // Isomux PM, 2026-09-12), so PATCHing the lobby answers the same way
+      // whatever is in the body. An unknown room falls through to the normal
+      // flow and still ends at the 404 below.
+      if (hasSkin && deps.takesSkin(ctx.params.roomId) === "no") {
+        return fail(422, "skin_not_supported", "the lobby does not take a skin");
       }
       let name = "";
       if (hasName) {
@@ -119,13 +158,35 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         if (!parsed.ok) return fail(422, "invalid_pet", parsed.reason);
         pet = parsed.pet;
       }
-      // One 404 for the whole request: both writes hit the same room, so the
-      // first miss answers for both and neither has run.
+      let skin: RoomSkin | null = null;
+      if (hasSkin) {
+        const parsed = parseRoomSkin(b.skin);
+        if (!parsed.ok) return fail(422, "invalid_skin", parsed.reason);
+        skin = parsed.skin;
+      }
+      // One 404 for the whole request: every write hits the same room, so the
+      // first miss answers for all of them and none has run.
       if (hasName && !deps.rename(ctx.params.roomId, name)) {
         return fail(404, "room_not_found", "Room not found");
       }
       if (hasPet && !deps.setPet(ctx.params.roomId, pet)) {
         return fail(404, "room_not_found", "Room not found");
+      }
+      if (hasSkin) {
+        const result = deps.setSkin(ctx.params.roomId, skin);
+        // Kept behind the early check above: OfficeState refuses the lobby on
+        // its own, and its refusal has to surface as what it is rather than as
+        // a misleading 404 if it is ever reached another way.
+        if (result === "skin_not_supported") {
+          return fail(
+            422,
+            "skin_not_supported",
+            "the lobby does not take a skin",
+          );
+        }
+        if (result !== "ok") {
+          return fail(404, "room_not_found", "Room not found");
+        }
       }
       return noContent();
     },

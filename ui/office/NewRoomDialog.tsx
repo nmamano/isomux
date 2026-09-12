@@ -4,7 +4,17 @@ import type { RoomWire } from "../../shared/types.ts";
 import { apiFetch } from "../api.ts";
 import { useDispatch } from "../store.tsx";
 import { useI18n } from "../i18n.tsx";
-import { dialogCancelBtn, dialogSaveBtn } from "../components/dialog-styles.ts";
+import {
+  dialogCancelBtn,
+  dialogInput,
+  dialogSaveBtn,
+} from "../components/dialog-styles.ts";
+import {
+  DEFAULT_ROOM_SKIN,
+  ROOM_SKIN_IDS,
+  type RoomSkin,
+} from "../../shared/room-skins.ts";
+import type { RoomCreateReq } from "../../shared/contract-shapes.ts";
 
 export function NewRoomDialog({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
@@ -13,6 +23,8 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
   const [failed, setFailed] = useState(false);
   const submitting = useRef(false);
   const opened = useRef(false);
+  const [skin, setSkin] = useState<RoomSkin>(DEFAULT_ROOM_SKIN);
+  const skinRef = useRef<HTMLSelectElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -28,9 +40,23 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
       if (event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
-        if (document.activeElement === cancelRef.current)
-          confirmRef.current?.focus();
-        else cancelRef.current?.focus();
+        // The dialog traps Tab by hand, so every control it grows has to be
+        // listed here or the keyboard cannot reach it. In DOM order, which is
+        // the order a reader expects Tab to take.
+        const focusOrder = [skinRef, cancelRef, confirmRef];
+        const current = focusOrder.findIndex(
+          (ref) => ref.current === document.activeElement,
+        );
+        // Focus outside the ring (or nowhere) re-enters at Cancel, which is
+        // also where the dialog opens.
+        if (current < 0) {
+          cancelRef.current?.focus();
+          return;
+        }
+        const step = event.shiftKey ? -1 : 1;
+        const next =
+          (current + step + focusOrder.length) % focusOrder.length;
+        focusOrder[next].current?.focus();
       }
     }
     window.addEventListener("keydown", onKey, true);
@@ -50,10 +76,15 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
     setPending(true);
     setFailed(false);
     try {
+      // The default look is the absence of the field, so a room opened without
+      // touching the control carries no skin at all - the same record every
+      // room had before skins existed.
+      const body: RoomCreateReq =
+        skin === DEFAULT_ROOM_SKIN ? {} : { skin };
       const { room } = await apiFetch<{ room: RoomWire }>(
         "POST",
         "/api/rooms",
-        {},
+        body,
       );
       // The HTTP response can precede the owner's broadcast or the member's
       // projected full_state. Install the room before selecting it.
@@ -110,6 +141,33 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
             {t("office.newRoom.failed")}
           </p>
         )}
+        <label
+          htmlFor="new-room-skin"
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            marginTop: 18,
+            marginBottom: 5,
+          }}
+        >
+          {t("office.skin.label")}
+        </label>
+        <select
+          ref={skinRef}
+          id="new-room-skin"
+          value={skin}
+          disabled={pending}
+          onChange={(e) => setSkin(e.target.value as RoomSkin)}
+          style={dialogInput}
+        >
+          {ROOM_SKIN_IDS.map((id) => (
+            <option key={id} value={id}>
+              {t(`office.skin.${id}`)}
+            </option>
+          ))}
+        </select>
         <div
           style={{
             display: "flex",
