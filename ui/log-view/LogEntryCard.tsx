@@ -31,6 +31,7 @@ import {
   isFoldedToolResult,
   isomuxRequestForToolCall,
 } from "./tool-call-groups.ts";
+import { formatDateTime } from "../../shared/i18n/time.ts";
 
 function EditIcon() {
   return (
@@ -507,6 +508,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           agentId={entry.agentId}
           canEdit={canEdit && fromHuman}
           onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined}
+          timestamp={entry.timestamp}
         />
       );
     }
@@ -525,6 +527,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           outgoing
           agentId={entry.agentId}
           canEdit={false}
+          timestamp={entry.timestamp}
         />
       );
     }
@@ -535,6 +538,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
+          timestamp={entry.timestamp}
         />
       );
     case "thinking": {
@@ -691,6 +695,27 @@ export const LogEntryCard = memo(function LogEntryCard({
   }
 });
 
+function EntryTimestamp({ timestamp }: { timestamp: number }) {
+  const { language } = useI18n();
+  return (
+    <time
+      dateTime={new Date(timestamp).toISOString()}
+      title={new Date(timestamp).toISOString()}
+      data-message-timestamp=""
+      style={{
+        color: "var(--text-ghost)",
+        fontSize: 10,
+        fontWeight: 400,
+        letterSpacing: "normal",
+        textTransform: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {formatDateTime(language, timestamp, "dateTime")}
+    </time>
+  );
+}
+
 export function RawToolCallGroupCard({
   entries,
   isLastInTurn,
@@ -819,6 +844,7 @@ export function UserMessage({
   editTitle,
   canEdit,
   onEdit,
+  timestamp,
 }: {
   variant?: "members-chat";
   hideAuthor?: boolean;
@@ -852,6 +878,7 @@ export function UserMessage({
   editTitle?: string;
   canEdit?: boolean;
   onEdit?: () => void;
+  timestamp?: number;
 }) {
   const { t } = useI18n();
   const getText = useCallback(() => content, [content]);
@@ -904,6 +931,9 @@ export function UserMessage({
         <div
           data-members-chat-author={compact ? "" : undefined}
           style={{
+            ...(!compact && timestamp !== undefined
+              ? { display: "flex", alignItems: "baseline", gap: 8 }
+              : {}),
             fontSize: compact ? 12 : isMobile ? 12 : 10,
             fontWeight: 600,
             color: accentColor,
@@ -917,6 +947,9 @@ export function UserMessage({
           {compact
             ? (username ?? t("common.you"))
             : (username ?? t("common.you")).toUpperCase()}
+          {!compact && timestamp !== undefined && (
+            <EntryTimestamp timestamp={timestamp} />
+          )}
         </div>
       )}
       {beforeContent}
@@ -1192,11 +1225,13 @@ function AssistantText({
   isLastInTurn,
   turnEntries,
   isMobile,
+  timestamp,
 }: {
   content: string;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
+  timestamp: number;
 }) {
   const i18n = useI18n();
   const getText = useCallback(() => content, [content]);
@@ -1212,6 +1247,9 @@ function AssistantText({
         fontSize: isMobile ? 15 : undefined,
       }}
     >
+      <div style={{ marginBottom: 4 }}>
+        <EntryTimestamp timestamp={timestamp} />
+      </div>
       <Markdown content={content} />
       <div
         style={{

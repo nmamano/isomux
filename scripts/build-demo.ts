@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, rmSync } from "node:fs";
 
 const OUT_DIR = "site/demo";
 
@@ -19,3 +19,12 @@ for (const entrypoint of ["ui/demo-entry.tsx", "ui/demo-app-entry.tsx"]) {
 copyFileSync("ui/demo.html", `${OUT_DIR}/index.html`);
 copyFileSync("ui/demo-app.html", `${OUT_DIR}/app.html`);
 copyFileSync("node_modules/@xterm/xterm/css/xterm.css", `${OUT_DIR}/xterm.css`);
+rmSync(`${OUT_DIR}/katex`, { recursive: true, force: true });
+mkdirSync(`${OUT_DIR}/katex/fonts`, { recursive: true });
+copyFileSync(
+  "node_modules/katex/dist/katex.min.css",
+  `${OUT_DIR}/katex/katex.min.css`,
+);
+cpSync("node_modules/katex/dist/fonts", `${OUT_DIR}/katex/fonts`, {
+  recursive: true,
+});

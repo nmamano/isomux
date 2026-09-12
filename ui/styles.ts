@@ -59,6 +59,7 @@ ${emitThemesCss()}
   .md-content p:last-child { margin-bottom: 0; }
   .md-content strong { color: var(--text-primary); font-weight: 600; }
   .md-content em { color: var(--text-dim); }
+  .md-content .katex-math[data-katex-display="true"] { display: block; overflow-x: auto; overflow-y: hidden; }
   .md-content h1, .md-content h2, .md-content h3, .md-content h4 {
     color: var(--text-primary); margin: 12px 0 6px 0; font-weight: 600;
   }

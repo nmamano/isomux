@@ -75,6 +75,123 @@ renderer.link = ({ href, title, text }) => {
 };
 marked.use({ renderer });
 
+const escapeHtmlAttr = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+function mathPlaceholder(source: string, displayMode: boolean): string {
+  const escaped = escapeHtmlAttr(source);
+  return `<span class="katex-math" data-katex-source="${escaped}" data-katex-display="${displayMode}">${escaped}</span>`;
+}
+
+// Math is a marked extension instead of a text preprocessor, so marked gives
+// code spans and fenced code blocks their normal precedence. Dollar-delimited
+// inline math keeps currency-like text literal: neither edge may touch
+// whitespace, and a closing dollar followed by a digit is not a delimiter.
+marked.use({
+  extensions: [
+    {
+      name: "displayMathDollar",
+      level: "block",
+      start(src: string) {
+        const match = /\n\$\$[\s\S]+?\$\$[ \t]*(?:\n|$)/.exec(src);
+        return match
+          ? match.index + match[0].indexOf("$$")
+          : undefined;
+      },
+      tokenizer(src: string) {
+        const match = /^\$\$([\s\S]+?)\$\$(?:[ \t]*(?:\n|$))/.exec(src);
+        if (!match) return undefined;
+        return { type: "displayMathDollar", raw: match[0], source: match[1] };
+      },
+      renderer(token) {
+        return `${mathPlaceholder((token as unknown as { source: string }).source, true)}\n`;
+      },
+    },
+    {
+      name: "displayMathBracket",
+      level: "block",
+      start(src: string) {
+        const match = /\n\\\[[\s\S]+?\\\][ \t]*(?:\n|$)/.exec(src);
+        return match
+          ? match.index + match[0].indexOf("\\[")
+          : undefined;
+      },
+      tokenizer(src: string) {
+        const match = /^\\\[([\s\S]+?)\\\](?:[ \t]*(?:\n|$))/.exec(src);
+        if (!match) return undefined;
+        return { type: "displayMathBracket", raw: match[0], source: match[1] };
+      },
+      renderer(token) {
+        return `${mathPlaceholder((token as unknown as { source: string }).source, true)}\n`;
+      },
+    },
+    {
+      name: "inlineMathParen",
+      level: "inline",
+      start: (src: string) => src.indexOf("\\("),
+      tokenizer(src: string) {
+        const match = /^\\\(([\s\S]+?)\\\)/.exec(src);
+        if (!match) return undefined;
+        return { type: "inlineMathParen", raw: match[0], source: match[1] };
+      },
+      renderer(token) {
+        return mathPlaceholder(
+          (token as unknown as { source: string }).source,
+          false,
+        );
+      },
+    },
+    {
+      name: "inlineMathDollar",
+      level: "inline",
+      start: (src: string) => src.indexOf("$"),
+      tokenizer(src: string) {
+        const match = /^\$(?![\s$])([\s\S]*?[^\s$])\$(?!\d)/.exec(src);
+        if (!match) return undefined;
+        return { type: "inlineMathDollar", raw: match[0], source: match[1] };
+      },
+      renderer(token) {
+        return mathPlaceholder(
+          (token as unknown as { source: string }).source,
+          false,
+        );
+      },
+    },
+  ],
+});
+
+// Register after the single-dollar extension because marked gives the latest
+// inline extension precedence. This keeps $$...$$ together when it appears in
+// prose instead of letting the $...$ tokenizer consume three of its dollars.
+marked.use({
+  extensions: [
+    {
+      name: "inlineDisplayMathDollar",
+      level: "inline",
+      start: (src: string) => src.indexOf("$$"),
+      tokenizer(src: string) {
+        const match = /^\$\$(?![\s$])([\s\S]*?[^\s$])\$\$/.exec(src);
+        if (!match) return undefined;
+        return {
+          type: "inlineDisplayMathDollar",
+          raw: match[0],
+          source: match[1],
+        };
+      },
+      renderer(token) {
+        return mathPlaceholder(
+          (token as unknown as { source: string }).source,
+          true,
+        );
+      },
+    },
+  ],
+});
+
 // Capture ```mermaid fenced blocks before the default fenced-code tokenizer.
 // Emits a <div class="mermaid-wrapper"> containing an empty <div class="mermaid">
 // whose data-mermaid-source attribute holds the diagram source. The React
@@ -82,12 +199,6 @@ marked.use({ renderer });
 // rendered SVG. Carrying the source on a data attribute (rather than as the
 // div's textContent) means the effect can safely overwrite the div's
 // contents without losing the source, e.g. if the effect ever re-fires.
-const escapeHtmlAttr = (s: string) =>
-  s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 marked.use({
   extensions: [
     {
@@ -164,6 +275,7 @@ marked.use({
 // Lazy singleton: mermaid is ~1MB minified, so we only fetch it the first
 // time a message containing a mermaid block reaches the renderer.
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+let katexPromise: Promise<typeof import("katex").default> | null = null;
 // Monotonically-unique per-render id. Mermaid uses the id we pass to render()
 // as a prefix for internal SVG defs/markers/clipPath etc., and same-document
 // id collisions cause url(#...) refs to resolve to the wrong element. A
@@ -188,6 +300,22 @@ function getMermaid() {
     });
   }
   return mermaidPromise;
+}
+
+function getKatex() {
+  if (!katexPromise) katexPromise = import("katex").then((mod) => mod.default);
+  return katexPromise;
+}
+
+function ensureKatexStylesheet() {
+  if (document.querySelector("link[data-katex-stylesheet]")) return;
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
+  link.dataset.katexStylesheet = "";
+  const demoPath =
+    location.pathname === "/demo" || location.pathname.startsWith("/demo/");
+  link.href = `${demoPath ? "/demo" : ""}/katex/katex.min.css`;
+  document.head.appendChild(link);
 }
 
 const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>`;
@@ -358,6 +486,42 @@ export function Markdown({ content }: { content: string }) {
       cancelled = true;
     };
   }, [html, i18n]);
+
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const nodes = Array.from(
+      root.querySelectorAll<HTMLElement>(".katex-math:not([data-processed])"),
+    );
+    if (nodes.length === 0) return;
+    ensureKatexStylesheet();
+    let cancelled = false;
+    getKatex()
+      .then((katex) => {
+        if (cancelled) return;
+        for (const node of nodes) {
+          const source = node.dataset.katexSource ?? "";
+          try {
+            node.innerHTML = katex.renderToString(source, {
+              displayMode: node.dataset.katexDisplay === "true",
+              throwOnError: false,
+              trust: false,
+              output: "htmlAndMathml",
+            });
+          } catch {
+            node.dataset.katexError = "";
+          } finally {
+            node.dataset.processed = "";
+          }
+        }
+      })
+      .catch(() => {
+        // Keep every source visible when the lazy chunk cannot load.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [html]);
 
   return (
     <div

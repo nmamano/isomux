@@ -5,6 +5,7 @@ site/demo/demo-app-entry.js
 site/demo/index.html
 site/demo/app.html
 site/demo/xterm.css
+site/demo/katex/
 site/docs/
 site/sitemap.xml
 site/_agent/docs/
