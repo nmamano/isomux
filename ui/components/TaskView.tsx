@@ -13,6 +13,10 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 
 type SortField =
   | "status"
@@ -152,6 +156,13 @@ function TaskDetailPanel({
     : sortedAgents.slice(0, MAX_ASSIGNEE_SUGGESTIONS);
   const [title, setTitle] = useState(task?.title || initialTitle || "");
   const [description, setDescription] = useState(task?.description || "");
+  // The description is focused on open in create mode (ExpandableTextarea
+  // owns the element, so autoFocus goes through a ref).
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    if (mode === "create") descriptionRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [priority, setPriority] = useState<TaskPriority | "">(
     task?.priority || "",
   );
@@ -462,14 +473,19 @@ function TaskDetailPanel({
 
         <div>
           <label style={labelStyle}>{t("tasks.field.description")}</label>
-          <textarea
-            autoFocus={mode === "create"}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            style={{ ...inputStyle, resize: "vertical" }}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
+          {/* Expandable like the memory and prompt editors: the corner button
+              reopens this same field near-fullscreen, bound to the same state,
+              so a long task description can be read and written in comfort. */}
+          <div onKeyDown={(e) => e.stopPropagation()}>
+            <ExpandableTextarea
+              textareaRef={descriptionRef}
+              title={t("tasks.field.description")}
+              value={description}
+              onChange={setDescription}
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
@@ -837,6 +853,8 @@ export function TaskView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // An expanded description editor consumes Escape itself.
+        if (isExpandedEditorOpen()) return;
         e.stopPropagation();
         if (panelOpen) {
           tryClosePanel();
