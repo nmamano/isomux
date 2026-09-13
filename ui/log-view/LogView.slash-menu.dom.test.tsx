@@ -65,7 +65,7 @@ it("opens the grouped skills menu from a leading slash draft and preserves it on
   expect(textarea.value).toBe("/ver");
   expect(view.getByText("Member") !== null).toBe(true);
   expect(view.getByText("/verify") !== null).toBe(true);
-  expect(view.container.querySelector('input[placeholder]') === null).toBe(
+  expect(view.container.querySelector("input[placeholder]") === null).toBe(
     true,
   );
   fireEvent.keyDown(textarea, { key: "Escape" });

@@ -375,9 +375,7 @@ describe("the log view chrome", () => {
   it("opens resume from the empty state and ends a populated conversation through slash commands", () => {
     commandCalls.length = 0;
     const view = render(logView(null, []));
-    fireEvent.click(
-      view.getByRole("button", { name: ANCHOR.emptyResume.en }),
-    );
+    fireEvent.click(view.getByRole("button", { name: ANCHOR.emptyResume.en }));
     expect(commandCalls.at(-1)).toEqual({
       method: "POST",
       path: "/api/agents/a1/messages",

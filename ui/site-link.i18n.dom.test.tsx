@@ -42,9 +42,9 @@ function openedBy(language: Language, sign: "on" | "off"): string[] {
     es: "Abrir isomux.com",
     ca: "Obre isomux.com",
   }[language];
-  expect(view.container.querySelector(`.neon-sign-${sign} title`)?.textContent).toBe(
-    tooltip,
-  );
+  expect(
+    view.container.querySelector(`.neon-sign-${sign} title`)?.textContent,
+  ).toBe(tooltip);
   const target = view.container.querySelector(
     `.neon-sign-${sign} rect[data-no-pan]`,
   );

@@ -128,9 +128,7 @@ export function agentUserSkillRoots(
   env: { [key: string]: string | undefined } | undefined,
   claudeSourceRoot = join(homedir(), ".claude"),
   codexSourceRoot = join(homedir(), ".codex"),
-  personalClaudeRoot = userId
-    ? personalProviderHome(userId, "claude")
-    : null,
+  personalClaudeRoot = userId ? personalProviderHome(userId, "claude") : null,
   personalCodexRoot = userId ? personalProviderHome(userId, "codex") : null,
 ): UserSkillRoot[] {
   const claudeRoot = env?.CLAUDE_CONFIG_DIR || claudeSourceRoot;

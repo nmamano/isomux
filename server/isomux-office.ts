@@ -913,8 +913,12 @@ function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
   if (input.kind === "viewport")
-    return input.width !== undefined && input.height !== undefined &&
-      validBrowserBound(input.width) && validBrowserBound(input.height);
+    return (
+      input.width !== undefined &&
+      input.height !== undefined &&
+      validBrowserBound(input.width) &&
+      validBrowserBound(input.height)
+    );
   if (input.kind === "navigate") {
     if (input.action === "goto")
       return parseBrowserParams({ action: "goto", url: input.url }).ok;

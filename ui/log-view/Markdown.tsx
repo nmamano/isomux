@@ -25,10 +25,7 @@ import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { sanitizeSvg } from "./svg-sanitize.ts";
-import {
-  taskChipLabel,
-  type TaskMap,
-} from "./task-links.tsx";
+import { taskChipLabel, type TaskMap } from "./task-links.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -389,45 +386,48 @@ export function Markdown({
   // and never serves a copy button labelled in the old one.
   const html = useMemo(() => renderMarkdown(i18n, content), [i18n, content]);
 
-  const onClick = useCallback(async (e: React.MouseEvent) => {
-    const taskChip = (e.target as HTMLElement).closest<HTMLElement>(
-      ".task-id-chip[data-task-id]",
-    );
-    if (taskChip?.dataset.taskId && onOpenTask) {
-      e.preventDefault();
+  const onClick = useCallback(
+    async (e: React.MouseEvent) => {
+      const taskChip = (e.target as HTMLElement).closest<HTMLElement>(
+        ".task-id-chip[data-task-id]",
+      );
+      if (taskChip?.dataset.taskId && onOpenTask) {
+        e.preventDefault();
+        e.stopPropagation();
+        onOpenTask(taskChip.dataset.taskId);
+        return;
+      }
+      const btn = (e.target as HTMLElement).closest(".code-copy-btn");
+      if (!btn) return;
       e.stopPropagation();
-      onOpenTask(taskChip.dataset.taskId);
-      return;
-    }
-    const btn = (e.target as HTMLElement).closest(".code-copy-btn");
-    if (!btn) return;
-    e.stopPropagation();
-    const wrapper = btn.closest(".code-block-wrapper");
-    const pre = wrapper?.querySelector("pre");
-    if (!pre) return;
-    const code = pre.querySelector("code");
-    const text = code ? (code.textContent ?? "") : (pre.textContent ?? "");
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    btn.innerHTML = CHECK_SVG;
-    (btn as HTMLElement).style.color = "var(--green)";
-    (btn as HTMLElement).style.background = "var(--green-bg)";
-    setTimeout(() => {
-      btn.innerHTML = COPY_SVG;
-      (btn as HTMLElement).style.color = "";
-      (btn as HTMLElement).style.background = "";
-    }, 1500);
-  }, [onOpenTask]);
+      const wrapper = btn.closest(".code-block-wrapper");
+      const pre = wrapper?.querySelector("pre");
+      if (!pre) return;
+      const code = pre.querySelector("code");
+      const text = code ? (code.textContent ?? "") : (pre.textContent ?? "");
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      btn.innerHTML = CHECK_SVG;
+      (btn as HTMLElement).style.color = "var(--green)";
+      (btn as HTMLElement).style.background = "var(--green-bg)";
+      setTimeout(() => {
+        btn.innerHTML = COPY_SVG;
+        (btn as HTMLElement).style.color = "";
+        (btn as HTMLElement).style.background = "";
+      }, 1500);
+    },
+    [onOpenTask],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -458,7 +458,9 @@ export function Markdown({
   useLayoutEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    for (const current of root.querySelectorAll<HTMLElement>("[data-task-id]")) {
+    for (const current of root.querySelectorAll<HTMLElement>(
+      "[data-task-id]",
+    )) {
       const id = current.dataset.taskId;
       const task = id ? tasks.get(id) : undefined;
       if (!task || !onOpenTask) {

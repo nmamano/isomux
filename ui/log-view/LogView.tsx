@@ -71,10 +71,7 @@ import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import { getDevice } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
-import {
-  SkillsPopover,
-  type CommandEntry,
-} from "./SkillsPopover.tsx";
+import { SkillsPopover, type CommandEntry } from "./SkillsPopover.tsx";
 import type { TaskMap } from "./task-links.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
@@ -2892,7 +2889,10 @@ export function LogView({
                   value={input}
                   onPaste={handlePaste}
                   onChange={(e) => {
-                    if (!e.target.value.startsWith("/") || !input.startsWith("/"))
+                    if (
+                      !e.target.value.startsWith("/") ||
+                      !input.startsWith("/")
+                    )
                       setSlashMenuDismissed(false);
                     setInput(e.target.value);
                     autoResize(e.target);

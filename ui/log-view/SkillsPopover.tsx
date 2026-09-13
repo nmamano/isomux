@@ -99,7 +99,10 @@ export function SkillsPopover({
     () => buildSkillsMenuGroups({ skills, commands, counts, filter }),
     [skills, commands, filter, counts],
   );
-  const entries = useMemo(() => groups.flatMap((group) => group.skills), [groups]);
+  const entries = useMemo(
+    () => groups.flatMap((group) => group.skills),
+    [groups],
+  );
   const q = filter.trim().toLowerCase();
   const exactIndex = q
     ? entries.findIndex((entry) => entry.name.toLowerCase() === q)
@@ -113,7 +116,8 @@ export function SkillsPopover({
 
   useEffect(() => {
     const selected = entries[selectedIndex];
-    if (selected) rowRefs.current.get(selected.name)?.scrollIntoView({ block: "nearest" });
+    if (selected)
+      rowRefs.current.get(selected.name)?.scrollIntoView({ block: "nearest" });
   }, [entries, selectedIndex]);
 
   useEffect(() => {
@@ -170,55 +174,57 @@ export function SkillsPopover({
         maxHeight: isMobile ? "45vh" : 320,
       }}
     >
-      {!draftMode && <div
-        style={{
-          padding: 8,
-          borderBottom: "1px solid var(--border)",
-          flexShrink: 0,
-        }}
-      >
-        <input
-          ref={filterRef}
-          value={localFilter}
-          onChange={(e) => {
-            setLocalFilter(e.target.value);
-            setSelection(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing || entries.length === 0) return;
-            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
-              e.preventDefault();
-              const nextIndex =
-                e.key === "ArrowUp"
-                  ? (selectedIndex - 1 + entries.length) % entries.length
-                  : (selectedIndex + 1) % entries.length;
-              setSelection({ filter, name: entries[nextIndex].name });
-              return;
-            }
-            if (e.key === "Enter") {
-              const selected = entries[selectedIndex];
-              if (!selected) return;
-              e.preventDefault();
-              onPick(selected.name, selected.autoRun);
-            }
-          }}
-          placeholder={t("logView.skills.filter")}
+      {!draftMode && (
+        <div
           style={{
-            width: "100%",
-            boxSizing: "border-box",
-            padding: "4px 8px",
-            background: "var(--bg-base)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            outline: "none",
-            color: "var(--text-secondary)",
-            fontFamily: "'JetBrains Mono',monospace",
-            // 16px on mobile keeps iOS Safari from auto-zooming on focus.
-            fontSize: isMobile ? 16 : 12,
-            caretColor: "var(--green)",
+            padding: 8,
+            borderBottom: "1px solid var(--border)",
+            flexShrink: 0,
           }}
-        />
-      </div>}
+        >
+          <input
+            ref={filterRef}
+            value={localFilter}
+            onChange={(e) => {
+              setLocalFilter(e.target.value);
+              setSelection(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || entries.length === 0) return;
+              if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                e.preventDefault();
+                const nextIndex =
+                  e.key === "ArrowUp"
+                    ? (selectedIndex - 1 + entries.length) % entries.length
+                    : (selectedIndex + 1) % entries.length;
+                setSelection({ filter, name: entries[nextIndex].name });
+                return;
+              }
+              if (e.key === "Enter") {
+                const selected = entries[selectedIndex];
+                if (!selected) return;
+                e.preventDefault();
+                onPick(selected.name, selected.autoRun);
+              }
+            }}
+            placeholder={t("logView.skills.filter")}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              padding: "4px 8px",
+              background: "var(--bg-base)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              outline: "none",
+              color: "var(--text-secondary)",
+              fontFamily: "'JetBrains Mono',monospace",
+              // 16px on mobile keeps iOS Safari from auto-zooming on focus.
+              fontSize: isMobile ? 16 : 12,
+              caretColor: "var(--green)",
+            }}
+          />
+        </div>
+      )}
       <div style={{ overflowY: "auto", minHeight: 0 }}>
         {groups.length === 0 && (
           <div

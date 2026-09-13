@@ -83,11 +83,7 @@ it("opens a visible task chip in an unfiltered board detail", async () => {
     ]),
   } as unknown as typeof initialState;
   const view = render(
-    createElement(
-      StateCtx.Provider,
-      { value: state },
-      createElement(App),
-    ),
+    createElement(StateCtx.Provider, { value: state }, createElement(App)),
   );
   const chips = view.getAllByRole("button", {
     name: "P0 - Task hashes open the…",
@@ -125,5 +121,4 @@ it("opens a visible task chip in an unfiltered board detail", async () => {
     'select:has(option[value="active"])',
   ) as HTMLSelectElement;
   expect(reopenedStatus.value).toBe("active");
-
 });

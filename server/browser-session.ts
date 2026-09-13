@@ -802,7 +802,11 @@ export class BrowserPool {
   ): void {
     if (session.resizing) return;
     const viewport = session.page.viewportSize();
-    if (viewport && (frame.width !== viewport.width || frame.height !== viewport.height)) return;
+    if (
+      viewport &&
+      (frame.width !== viewport.width || frame.height !== viewport.height)
+    )
+      return;
     session.lastFrame = frame;
     for (const listener of this.frameListeners.get(agentId) ?? [])
       listener(frame);
@@ -833,7 +837,10 @@ export class BrowserPool {
         if (!session || session.page.isClosed()) return false;
         const viewport = {
           width: Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(input.width))),
-          height: Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(input.height))),
+          height: Math.max(
+            MIN_DIM,
+            Math.min(MAX_DIM, Math.round(input.height)),
+          ),
         };
         const old = session.page.viewportSize();
         if (old?.width === viewport.width && old.height === viewport.height)
@@ -964,12 +971,21 @@ export class BrowserPool {
       this.touch(agentId, session);
   }
 
-  status(agentId: string): { available: boolean; url: string; title: string; resizing?: boolean } {
+  status(agentId: string): {
+    available: boolean;
+    url: string;
+    title: string;
+    resizing?: boolean;
+  } {
     const session = this.sessions.get(agentId);
     if (!session || session.page.isClosed())
       return { available: false, url: "", title: "" };
-    return { available: true, url: session.page.url(), title: session.title,
-      ...(session.resizing ? { resizing: true } : {}) };
+    return {
+      available: true,
+      url: session.page.url(),
+      title: session.title,
+      ...(session.resizing ? { resizing: true } : {}),
+    };
   }
 
   private async updateStatus(

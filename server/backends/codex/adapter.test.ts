@@ -2436,7 +2436,8 @@ describe("codex subscription usage", () => {
       rateLimits: snapshot(),
     });
     const first = await session.getSubscriptionUsage();
-    if (first.kind !== "usage") throw new Error(`expected usage, got ${first.kind}`);
+    if (first.kind !== "usage")
+      throw new Error(`expected usage, got ${first.kind}`);
     const usage = first.usage;
     expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({

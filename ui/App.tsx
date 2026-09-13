@@ -17,10 +17,7 @@ import {
   UserSettingsView,
   type Selection as SettingsTarget,
 } from "./components/UserSettingsView.tsx";
-import {
-  TaskView,
-  type TaskOpenRequest,
-} from "./components/TaskView.tsx";
+import { TaskView, type TaskOpenRequest } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";

@@ -217,9 +217,16 @@ export function BrowserPanel({
                 maxHeight: bound(rect.height),
               };
               const cssBound = (value: number) =>
-                Math.max(BROWSER_MIN_DIM, Math.min(BROWSER_MAX_DIM, Math.round(value)));
-              const page = { width: cssBound(rect.width), height: cssBound(rect.height) };
-              const pageChanged = page.width !== pageBounds.current?.width ||
+                Math.max(
+                  BROWSER_MIN_DIM,
+                  Math.min(BROWSER_MAX_DIM, Math.round(value)),
+                );
+              const page = {
+                width: cssBound(rect.width),
+                height: cssBound(rect.height),
+              };
+              const pageChanged =
+                page.width !== pageBounds.current?.width ||
                 page.height !== pageBounds.current?.height;
               pageBounds.current = page;
               if (
@@ -326,8 +333,12 @@ export function BrowserPanel({
     const rect = event.currentTarget.getBoundingClientRect();
     const scale = Math.min(rect.width / size.width, rect.height / size.height);
     if (!scale) return null;
-    const x = (event.clientX - rect.left - (rect.width - size.width * scale) / 2) / scale;
-    const y = (event.clientY - rect.top - (rect.height - size.height * scale) / 2) / scale;
+    const x =
+      (event.clientX - rect.left - (rect.width - size.width * scale) / 2) /
+      scale;
+    const y =
+      (event.clientY - rect.top - (rect.height - size.height * scale) / 2) /
+      scale;
     if (x < 0 || y < 0 || x > size.width || y > size.height) return null;
     return { x, y };
   };

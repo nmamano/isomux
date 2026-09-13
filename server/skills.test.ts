@@ -73,11 +73,13 @@ describe("effective Claude home skill agreement", () => {
       personal,
     );
     const listed = discoverUserSkills(orderedRoots).map((item) => item.name);
-    expect(lstatSync(join(personal, "skills", "external-only")).isSymbolicLink()).toBe(
-      true,
-    );
     expect(
-      lstatSync(join(personal, "commands", "external-command.md")).isSymbolicLink(),
+      lstatSync(join(personal, "skills", "external-only")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      lstatSync(
+        join(personal, "commands", "external-command.md"),
+      ).isSymbolicLink(),
     ).toBe(true);
     expect(listed).toContain("external-only");
     expect(listed).toContain("external-command");
@@ -102,10 +104,14 @@ describe("effective Claude home skill agreement", () => {
       join(personal, "skills", "outside-link"),
       "dir",
     );
-    exposePersonalProviderSkills("claude", userId, personal, external, personal);
-    expect(existsSync(join(personal, "skills", "external-only"))).toBe(
-      false,
+    exposePersonalProviderSkills(
+      "claude",
+      userId,
+      personal,
+      external,
+      personal,
     );
+    expect(existsSync(join(personal, "skills", "external-only"))).toBe(false);
     expect(existsSync(join(personal, "skills", "outside-link"))).toBe(true);
     expect(resolveSkillPrompt("clash", root("cwd"), orderedRoots)).toBe(
       "personal clash prompt",
@@ -117,10 +123,16 @@ describe("effective Claude home skill agreement", () => {
       join(personal, "skills", "cross-box"),
       "dir",
     );
-    exposePersonalProviderSkills("claude", userId, personal, external, personal);
-    expect(
-      readlinkSync(join(personal, "skills", "cross-box")),
-    ).toBe(join(external, "skills", "cross-box"));
+    exposePersonalProviderSkills(
+      "claude",
+      userId,
+      personal,
+      external,
+      personal,
+    );
+    expect(readlinkSync(join(personal, "skills", "cross-box"))).toBe(
+      join(external, "skills", "cross-box"),
+    );
   });
 
   it("exposes external Codex skills without Claude commands", () => {
@@ -139,9 +151,7 @@ describe("effective Claude home skill agreement", () => {
       external,
       personal,
     );
-    const listed = discoverUserSkills(orderedRoots).map(
-      (item) => item.name,
-    );
+    const listed = discoverUserSkills(orderedRoots).map((item) => item.name);
     expect(listed).toContain("codex-only");
     expect(listed).not.toContain("claude-command");
     expect(resolveSkillPrompt("codex-only", root("cwd"), orderedRoots)).toBe(
@@ -173,9 +183,9 @@ describe("effective Claude home skill agreement", () => {
       ),
     ).toEqual([{ root: selected, includeCommands: true }]);
     expect(existsSync(join(selected, "skills", "must-not-leak"))).toBe(false);
-    expect(
-      existsSync(join(expectedPersonal, "skills", "must-not-leak")),
-    ).toBe(false);
+    expect(existsSync(join(expectedPersonal, "skills", "must-not-leak"))).toBe(
+      false,
+    );
 
     const selectedCodex = root("explicit-codex-home");
     const expectedPersonalCodex = root("expected-personal-codex");

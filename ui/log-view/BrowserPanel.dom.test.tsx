@@ -25,24 +25,83 @@ afterAll(() =>
 describe("BrowserPanel", () => {
   it("maps input through the contained image and ignores the margins", () => {
     const sent: ClientCommand[] = [];
-    setShim(command => sent.push(command));
-    const view = render(<BrowserPanel agentId="contain" canDrive onClose={() => {}} />);
-    act(() => shimEmit({ type: "browser_frame", agentId: "contain", data: "jpeg", width: 800, height: 400 }));
+    setShim((command) => sent.push(command));
+    const view = render(
+      <BrowserPanel agentId="contain" canDrive onClose={() => {}} />,
+    );
+    act(() =>
+      shimEmit({
+        type: "browser_frame",
+        agentId: "contain",
+        data: "jpeg",
+        width: 800,
+        height: 400,
+      }),
+    );
     const canvas = view.getByRole("application");
     for (const shape of [
-      { width: 400, height: 400, margin: [200, 50], points: [[0,100,0,0], [400,100,800,0], [0,300,0,400], [400,300,800,400], [200,200,400,200]] },
-      { width: 800, height: 200, margin: [50, 100], points: [[200,0,0,0], [600,0,800,0], [200,200,0,400], [600,200,800,400], [400,100,400,200]] },
+      {
+        width: 400,
+        height: 400,
+        margin: [200, 50],
+        points: [
+          [0, 100, 0, 0],
+          [400, 100, 800, 0],
+          [0, 300, 0, 400],
+          [400, 300, 800, 400],
+          [200, 200, 400, 200],
+        ],
+      },
+      {
+        width: 800,
+        height: 200,
+        margin: [50, 100],
+        points: [
+          [200, 0, 0, 0],
+          [600, 0, 800, 0],
+          [200, 200, 0, 400],
+          [600, 200, 800, 400],
+          [400, 100, 400, 200],
+        ],
+      },
     ]) {
-      Object.defineProperty(canvas, "getBoundingClientRect", { configurable: true, value: () => ({ left: 0, top: 0, width: shape.width, height: shape.height }) });
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({
+          left: 0,
+          top: 0,
+          width: shape.width,
+          height: shape.height,
+        }),
+      });
       sent.length = 0;
-      fireEvent.mouseDown(canvas, { clientX: shape.margin[0], clientY: shape.margin[1] });
-      fireEvent(canvas, Object.assign(new Event("wheel", { bubbles: true }), { clientX: shape.margin[0], clientY: shape.margin[1], deltaY: 16 }));
+      fireEvent.mouseDown(canvas, {
+        clientX: shape.margin[0],
+        clientY: shape.margin[1],
+      });
+      fireEvent(
+        canvas,
+        Object.assign(new Event("wheel", { bubbles: true }), {
+          clientX: shape.margin[0],
+          clientY: shape.margin[1],
+          deltaY: 16,
+        }),
+      );
       expect(sent).toEqual([]);
       for (const [clientX, clientY, x, y] of shape.points) {
         fireEvent.mouseDown(canvas, { clientX, clientY });
         expect(sent.at(-1)).toMatchObject({ input: { kind: "mouse", x, y } });
-        fireEvent(canvas, Object.assign(new Event("wheel", { bubbles: true }), { clientX, clientY, deltaY: 16 }));
-        expect(sent.at(-1)).toMatchObject({ input: { event: "mouseWheel", x, y, deltaY: 16 } });
+        fireEvent(
+          canvas,
+          Object.assign(new Event("wheel", { bubbles: true }), {
+            clientX,
+            clientY,
+            deltaY: 16,
+          }),
+        );
+        expect(sent.at(-1)).toMatchObject({
+          input: { event: "mouseWheel", x, y, deltaY: 16 },
+        });
       }
     }
     view.unmount();
@@ -208,7 +267,9 @@ describe("BrowserPanel", () => {
       configurable: true,
     });
     const view = render(<BrowserPanel agentId="retina" onClose={() => {}} />);
-    act(() => shimEmit({ type: "browser_status", agentId: "retina", available: true }));
+    act(() =>
+      shimEmit({ type: "browser_status", agentId: "retina", available: true }),
+    );
     const emit = (width: number) =>
       resize(
         [{ contentRect: { width, height: 240 } } as ResizeObserverEntry],
@@ -248,34 +309,75 @@ describe("BrowserPanel", () => {
 
   it("debounces manager CSS viewport changes separately from device-pixel capture", async () => {
     const sent: ClientCommand[] = [];
-    setShim(command => sent.push(command));
+    setShim((command) => sent.push(command));
     const original = globalThis.ResizeObserver;
     const ratio = window.devicePixelRatio;
     let resize!: ResizeObserverCallback;
     globalThis.ResizeObserver = class {
-      constructor(callback: ResizeObserverCallback) { resize = callback; }
-      observe() {} unobserve() {} disconnect() {}
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
     };
-    Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
-    const view = render(<BrowserPanel agentId="manager-size" canDrive onClose={() => {}} />);
-    const emit = (width: number) => resize(
-      [{ contentRect: { width, height: 700 } } as ResizeObserverEntry], {} as ResizeObserver);
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 2,
+      configurable: true,
+    });
+    const view = render(
+      <BrowserPanel agentId="manager-size" canDrive onClose={() => {}} />,
+    );
+    const emit = (width: number) =>
+      resize(
+        [{ contentRect: { width, height: 700 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
     try {
-      act(() => { emit(380); emit(390); });
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 170)); });
-      expect(sent.filter(m => m.type === "browser_input" && m.input.kind === "viewport")).toEqual([]);
-      act(() => shimEmit({ type: "browser_status", agentId: "manager-size", available: true }));
-      expect(sent.at(-1)).toEqual({ type: "browser_input", agentId: "manager-size",
-        input: { kind: "viewport", width: 390, height: 700 } });
-      expect(sent.filter(m => m.type === "browser_watch").at(-1)).toMatchObject({ maxWidth: 784, maxHeight: 1408 });
+      act(() => {
+        emit(380);
+        emit(390);
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 170));
+      });
+      expect(
+        sent.filter(
+          (m) => m.type === "browser_input" && m.input.kind === "viewport",
+        ),
+      ).toEqual([]);
+      act(() =>
+        shimEmit({
+          type: "browser_status",
+          agentId: "manager-size",
+          available: true,
+        }),
+      );
+      expect(sent.at(-1)).toEqual({
+        type: "browser_input",
+        agentId: "manager-size",
+        input: { kind: "viewport", width: 390, height: 700 },
+      });
+      expect(
+        sent.filter((m) => m.type === "browser_watch").at(-1),
+      ).toMatchObject({ maxWidth: 784, maxHeight: 1408 });
       // Both widths round to the same capture demand; CSS resize still reaches the page.
       act(() => emit(391));
-      await act(async () => { await new Promise(resolve => setTimeout(resolve, 170)); });
-      expect(sent.at(-1)).toEqual({ type: "browser_input", agentId: "manager-size",
-        input: { kind: "viewport", width: 391, height: 700 } });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 170));
+      });
+      expect(sent.at(-1)).toEqual({
+        type: "browser_input",
+        agentId: "manager-size",
+        input: { kind: "viewport", width: 391, height: 700 },
+      });
     } finally {
-      view.unmount(); globalThis.ResizeObserver = original;
-      Object.defineProperty(window, "devicePixelRatio", { value: ratio, configurable: true });
+      view.unmount();
+      globalThis.ResizeObserver = original;
+      Object.defineProperty(window, "devicePixelRatio", {
+        value: ratio,
+        configurable: true,
+      });
     }
   });
 
@@ -587,20 +689,59 @@ it("two viewport barriers reject old in-flight binary paints for managers and ro
   const { encodeBrowserFrame } = await import("../../shared/browser-frame.ts");
   for (const canDrive of [true, false]) {
     const jobs: Array<(bitmap: ImageBitmap) => void> = [];
-    globalThis.createImageBitmap = () => new Promise<ImageBitmap>(resolve => jobs.push(resolve));
+    globalThis.createImageBitmap = () =>
+      new Promise<ImageBitmap>((resolve) => jobs.push(resolve));
     const sent: ClientCommand[] = [];
-    setShim(command => sent.push(command));
-    const view = render(<BrowserPanel agentId="barrier" canDrive={canDrive} onClose={() => {}} />);
-    const watch = sent.find(m => m.type === "browser_watch") as Extract<ClientCommand, { type: "browser_watch" }>;
-    let paints = 0, closed = 0;
+    setShim((command) => sent.push(command));
+    const view = render(
+      <BrowserPanel agentId="barrier" canDrive={canDrive} onClose={() => {}} />,
+    );
+    const watch = sent.find((m) => m.type === "browser_watch") as Extract<
+      ClientCommand,
+      { type: "browser_watch" }
+    >;
+    let paints = 0,
+      closed = 0;
     const canvas = view.container.querySelector("canvas")!;
-    Object.defineProperty(canvas, "getContext", { value: () => ({ drawImage() { paints++; } }) });
-    const status = (resizing = false) => act(() => shimEmit({ type: "browser_status", agentId: "barrier", available: true, resizing }));
-    const emit = () => act(() => shimEmitBinary(encodeBrowserFrame({ agentId: "barrier", generation: watch.generation!, width: 1280, height: 800, jpeg: new Uint8Array([255, 216, 1, 255, 217]) }).buffer));
-    const resolve = async (index: number) => act(async () => {
-      jobs[index]({ width: 640, height: 400, close() { closed++; } });
-      await Promise.resolve();
+    Object.defineProperty(canvas, "getContext", {
+      value: () => ({
+        drawImage() {
+          paints++;
+        },
+      }),
     });
+    const status = (resizing = false) =>
+      act(() =>
+        shimEmit({
+          type: "browser_status",
+          agentId: "barrier",
+          available: true,
+          resizing,
+        }),
+      );
+    const emit = () =>
+      act(() =>
+        shimEmitBinary(
+          encodeBrowserFrame({
+            agentId: "barrier",
+            generation: watch.generation!,
+            width: 1280,
+            height: 800,
+            jpeg: new Uint8Array([255, 216, 1, 255, 217]),
+          }).buffer,
+        ),
+      );
+    const resolve = async (index: number) =>
+      act(async () => {
+        jobs[index]({
+          width: 640,
+          height: 400,
+          close() {
+            closed++;
+          },
+        });
+        await Promise.resolve();
+      });
     try {
       status();
       for (let round = 0; round < 2; round++) {
@@ -617,7 +758,13 @@ it("two viewport barriers reject old in-flight binary paints for managers and ro
         expect(paints).toBe(round + 1);
       }
       expect(closed).toBe(4);
-      expect(sent.filter(m => m.type === "browser_input" && m.input.kind === "viewport")).toEqual([]);
-    } finally { view.unmount(); }
+      expect(
+        sent.filter(
+          (m) => m.type === "browser_input" && m.input.kind === "viewport",
+        ),
+      ).toEqual([]);
+    } finally {
+      view.unmount();
+    }
   }
 });

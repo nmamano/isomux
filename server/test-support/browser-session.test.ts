@@ -1006,7 +1006,9 @@ describe("BrowserPool", () => {
     let viewport = { width: 1280, height: 800 };
     const { pool } = poolWith(calls, {
       viewportSize: () => viewport,
-      setViewportSize: async (next: typeof viewport) => { viewport = next; },
+      setViewportSize: async (next: typeof viewport) => {
+        viewport = next;
+      },
     });
     const edges: boolean[] = [];
     const stop = pool.watch("a", () => {
@@ -1021,40 +1023,62 @@ describe("BrowserPool", () => {
       ]);
       expect(viewport).toEqual({ width: 390, height: 700 });
       expect(edges).toEqual([false, true, false, true, false]);
-      expect(calls.cdp.filter(c => c.method === "Page.startScreencast").at(-1)?.params)
-        .toMatchObject({ maxWidth: 390, maxHeight: 700 });
+      expect(
+        calls.cdp.filter((c) => c.method === "Page.startScreencast").at(-1)
+          ?.params,
+      ).toMatchObject({ maxWidth: 390, maxHeight: 700 });
       await pool.humanInput("a", { kind: "viewport", width: 1, height: 3000 });
       expect(viewport).toEqual({ width: 320, height: 2560 });
       await pool.run("a", { action: "text" });
       expect(viewport).toEqual({ width: 320, height: 2560 });
-    } finally { stop(); await pool.shutdown(); }
+    } finally {
+      stop();
+      await pool.shutdown();
+    }
   });
 
   it("drops mismatched frame metadata without caching it and publishes matching frames", async () => {
     const calls = freshCalls();
     const { pool, stub } = poolWith(calls);
     const frames: unknown[] = [];
-    const stops = [pool.watch("a", frame => { if (frame) frames.push(frame); })];
+    const stops = [
+      pool.watch("a", (frame) => {
+        if (frame) frames.push(frame);
+      }),
+    ];
     try {
       await opened(pool, "a");
       const emit = (data: string, width: number, height: number) => {
         stub.cdpSessions[0].emit("Page.screencastFrame", {
-          data, sessionId: 1, metadata: { deviceWidth: width, deviceHeight: height },
+          data,
+          sessionId: 1,
+          metadata: { deviceWidth: width, deviceHeight: height },
         } as never);
       };
       // Test each axis independently; metadata must not be replaced by the viewport.
-      for (const [width, height] of [[640, 800], [1280, 480]]) {
+      for (const [width, height] of [
+        [640, 800],
+        [1280, 480],
+      ]) {
         emit("stale", width, height);
         expect(frames).toEqual([]);
         const late: unknown[] = [];
-        stops.push(pool.watch("a", frame => { if (frame) late.push(frame); }));
+        stops.push(
+          pool.watch("a", (frame) => {
+            if (frame) late.push(frame);
+          }),
+        );
         expect(late).toEqual([]); // a rejected frame must not become lastFrame
       }
       emit("current", 1280, 800);
       const expected = { data: "current", width: 1280, height: 800 };
       expect(frames).toEqual([expected]);
       const late: unknown[] = [];
-      stops.push(pool.watch("a", frame => { if (frame) late.push(frame); }));
+      stops.push(
+        pool.watch("a", (frame) => {
+          if (frame) late.push(frame);
+        }),
+      );
       expect(late).toEqual([expected]); // a matching frame must become lastFrame
     } finally {
       for (const stop of stops) stop();

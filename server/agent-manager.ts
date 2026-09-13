@@ -4866,8 +4866,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     info: Pick<AgentInfo, "agentType" | "userId">,
     env: { [key: string]: string | undefined } | undefined,
   ): UserSkillRoot[] {
-    const claudeRoot =
-      env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const claudeRoot = env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
     const codexRoot = env?.CODEX_HOME || join(homedir(), ".codex");
     return agentUserSkillRoots(
       info.agentType,

@@ -796,7 +796,8 @@ describe("live browser profile authorization", () => {
     let pageViewport = { width: 1280, height: 800 };
     browserPool.humanInput = async (_id, input) => {
       calls.push(input.kind);
-      if (input.kind === "viewport") pageViewport = { width: input.width, height: input.height };
+      if (input.kind === "viewport")
+        pageViewport = { width: input.width, height: input.height };
       return true;
     };
     browserPool.humanNavigate = async (_id, input) => {
@@ -842,7 +843,8 @@ describe("live browser profile authorization", () => {
         { kind: "viewport", width: 319, height: 900 },
         { kind: "viewport", width: 650, height: 2561 },
         { kind: "viewport", width: 650.5, height: 900 },
-      ]) managerSocket.send({ type: "browser_input", agentId: agent.id, input });
+      ])
+        managerSocket.send({ type: "browser_input", agentId: agent.id, input });
       await pingPong(managerSocket);
       expect(calls).toEqual([]);
       server.agentManager.getAgent(agent.id)!.userId = getUserByName(

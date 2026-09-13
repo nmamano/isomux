@@ -54,9 +54,9 @@ it("updates a chip from the live task map without rebuilding the message", () =>
   view.rerender(
     <Markdown
       content={task.id}
-      tasks={new Map([
-        [task.id, { ...task, priority: "P1", title: "Renamed task" }],
-      ])}
+      tasks={
+        new Map([[task.id, { ...task, priority: "P1", title: "Renamed task" }]])
+      }
       onOpenTask={onOpenTask}
     />,
   );

@@ -808,9 +808,7 @@ export function TaskView({
 
   useEffect(() => {
     if (!openTaskRequest) return;
-    const requestedTask = tasks.find(
-      (task) => task.id === openTaskRequest.id,
-    );
+    const requestedTask = tasks.find((task) => task.id === openTaskRequest.id);
     if (!requestedTask) return;
     onTaskOpenRequestHandled?.();
     // An external navigation request intentionally reconfigures this view.
