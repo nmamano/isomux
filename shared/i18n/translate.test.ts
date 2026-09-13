@@ -78,7 +78,9 @@ describe("pluralIn", () => {
     );
     for (const { code } of SUPPORTED_LANGUAGES) {
       expect(pick(code, 1)).toBe(
-        PAIRS[code][code === "zh" ? "agents.count.other" : "agents.count.one"]!.replace("{count}", "1"),
+        PAIRS[code][
+          code === "zh" ? "agents.count.other" : "agents.count.one"
+        ]!.replace("{count}", "1"),
       );
       for (const n of [0, 2, 21]) {
         expect(pick(code, n)).toBe(

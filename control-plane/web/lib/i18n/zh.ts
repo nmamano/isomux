@@ -20,14 +20,17 @@ export const zh: Catalog = {
   "signup.heading": "设置办公室",
   "signup.continue": "继续注册",
   "signup.officeName": "办公室名称",
-  "signup.addressPreview": "办公室地址将为 <name>{hostname}</name>。设置后无法更改。",
+  "signup.addressPreview":
+    "办公室地址将为 <name>{hostname}</name>。设置后无法更改。",
   "signup.choosePlan": "选择办公室",
   "signup.planChangeNote": "目前尚不支持在注册后更改套餐。",
   "signup.couponLabel": "优惠码（可选）",
   "signup.couponHint": "如果收到了优惠码，请在此输入。",
   "signup.keyLabel": "保存服务器管理员密钥",
-  "signup.keyNote": "此密钥用于访问整个服务器，而不仅是 Isomux 办公室。以管理员身份安装软件、管理或修复服务器时都需要此密钥。它在浏览器本地生成，仅向你显示。请将其保存在只有你能访问的位置。设置后，我们会移除自己的服务器访问权限，因此之后无法生成新密钥。",
-  "signup.keyHowTo": "<label>使用方法：</label>这是 SSH 私钥。聊天机器人可以指导你通过终端使用它访问服务器，本地计算机上运行的智能体也可以用它代为访问服务器。",
+  "signup.keyNote":
+    "此密钥用于访问整个服务器，而不仅是 Isomux 办公室。以管理员身份安装软件、管理或修复服务器时都需要此密钥。它在浏览器本地生成，仅向你显示。请将其保存在只有你能访问的位置。设置后，我们会移除自己的服务器访问权限，因此之后无法生成新密钥。",
+  "signup.keyHowTo":
+    "<label>使用方法：</label>这是 SSH 私钥。聊天机器人可以指导你通过终端使用它访问服务器，本地计算机上运行的智能体也可以用它代为访问服务器。",
   "signup.keyHidden": "私钥已隐藏",
   "signup.keyHide": "隐藏私钥",
   "signup.keyReveal": "显示私钥",
@@ -36,11 +39,14 @@ export const zh: Catalog = {
   "signup.keyDownload": "下载私钥",
   "signup.keySaved": "我已保存",
   "signup.saveKeyReason": "请先保存服务器管理员密钥，再继续。",
-  "signup.cryptoError": "浏览器无法在此页面上创建或复制服务器管理员密钥。请使用当前版本的浏览器，通过 HTTPS 打开注册页面后重试。",
-  "signup.clipboardError": "浏览器无法复制服务器管理员密钥。请显示密钥，然后从字段中选择密钥。",
+  "signup.cryptoError":
+    "浏览器无法在此页面上创建或复制服务器管理员密钥。请使用当前版本的浏览器，通过 HTTPS 打开注册页面后重试。",
+  "signup.clipboardError":
+    "浏览器无法复制服务器管理员密钥。请显示密钥，然后从字段中选择密钥。",
   "signup.checkoutError": "暂时无法打开付款页面。请稍后重试。",
   "signup.refusedError": "无法继续注册。请重新加载页面后重试。",
-  "policy.notice": "付款前，请阅读 <terms>Terms of Service</terms>、<privacy>Privacy Policy</privacy> 和 <refund>Refund Policy</refund>。",
+  "policy.notice":
+    "付款前，请阅读 <terms>Terms of Service</terms>、<privacy>Privacy Policy</privacy> 和 <refund>Refund Policy</refund>。",
   "plan.priceLine": "每{period} {amount}",
   "plan.period.month": "月",
   "steps.labelWaitingForPayment": "正在等待付款",
@@ -86,33 +92,41 @@ export const zh: Catalog = {
   "office.sshAccess": "SSH 访问命令：<cmd>{command}</cmd>",
   "office.attention.heading": "我们需要检查设置",
   "office.attention.seen": "（我们已看到）",
-  "office.attention.note": "无需采取任何操作。我们已收到通知。如果 12 小时后仍显示此消息，请发送邮件至 <mail>{address}</mail>。",
-  "attention.labelInactivityDeadline": "某个步骤耗时超过预期。我们将继续设置办公室。",
+  "office.attention.note":
+    "无需采取任何操作。我们已收到通知。如果 12 小时后仍显示此消息，请发送邮件至 <mail>{address}</mail>。",
+  "attention.labelInactivityDeadline":
+    "某个步骤耗时超过预期。我们将继续设置办公室。",
   "attention.labelAbsoluteDeadline": "某个步骤已超过时限。我们将检查设置。",
   "attention.labelOperationCondition": "某个步骤需要我们处理。我们将检查设置。",
   "office.access.notStarted": "Hosted Isomux Provisioning 尚未持有服务器密钥。",
   "office.access.gone": "Hosted Isomux Provisioning 已不再持有服务器密钥。",
-  "office.access.needsAttention": "Hosted Isomux Provisioning 无法确认是否仍持有服务器密钥。",
-  "office.access.holdsUntil": "Hosted Isomux Provisioning 持有服务器临时密钥，最晚保留至 {date}。",
+  "office.access.needsAttention":
+    "Hosted Isomux Provisioning 无法确认是否仍持有服务器密钥。",
+  "office.access.holdsUntil":
+    "Hosted Isomux Provisioning 持有服务器临时密钥，最晚保留至 {date}。",
   "office.access.holds": "Hosted Isomux Provisioning 持有服务器临时密钥。",
   "office.invite.heading": "获取所有者邀请",
   "office.invite.notYet": "请等待办公室开始提供服务。",
   "office.invite.get": "获取我的所有者邀请",
   "office.invite.resend": "发送新邀请给我",
   "office.invite.resendCaveat": "新邀请会替换上一个邀请，使其失效。",
-  "office.invite.closed": "Hosted Isomux Provisioning 已无法为此办公室创建邀请。如果无法进入，请联系支持人员。",
+  "office.invite.closed":
+    "Hosted Isomux Provisioning 已无法为此办公室创建邀请。如果无法进入，请联系支持人员。",
   "office.invite.asking": "正在请求邀请…",
   "office.invite.failed": "无法准备邀请。请再次请求。",
   "office.invite.waiting": "正在准备邀请。这需要几秒钟。",
   "office.invite.gone": "该邀请已不可用",
   "office.invite.slow": "准备邀请的时间超过预期。请再次请求。",
   "office.invite.askFailed": "暂时无法请求邀请。",
-  "office.invite.linkNote": "请在将用于办公室的浏览器配置档案中打开（不要使用无痕模式）。链接只能使用一次，并在五分钟后失效；如果错过，请请求新链接。之后可以在办公室内添加其他设备。",
-  "office.signIn.shownOnce": "登录链接只显示一次，且不会保留。如果仍需登录，请在上方请求新链接。",
+  "office.invite.linkNote":
+    "请在将用于办公室的浏览器配置档案中打开（不要使用无痕模式）。链接只能使用一次，并在五分钟后失效；如果错过，请请求新链接。之后可以在办公室内添加其他设备。",
+  "office.signIn.shownOnce":
+    "登录链接只显示一次，且不会保留。如果仍需登录，请在上方请求新链接。",
   "office.signIn.adopted": "在上方打开办公室，确认此浏览器可以正常使用。",
   "office.signIn.pending": "邀请准备好后，登录链接将显示在此处。",
   "office.handoff.heading": "确认可以访问办公室，再移除我们的访问权限",
-  "office.handoff.warning": "请先在此浏览器中打开办公室，再继续。移除后，Hosted Isomux Provisioning 无法再创建所有者邀请。",
+  "office.handoff.warning":
+    "请先在此浏览器中打开办公室，再继续。移除后，Hosted Isomux Provisioning 无法再创建所有者邀请。",
   "office.handoff.confirm": "点击确认办公室已在此浏览器中打开。",
   "office.handoff.inviteRequired": "请先获取所有者邀请并打开办公室，再确认。",
   "office.handoff.remove": "移除 Hosted Isomux Provisioning 访问权限",
@@ -121,12 +135,16 @@ export const zh: Catalog = {
   "office.handoff.failedLower": "暂时无法移除我们的访问权限。",
   "office.handoff.failed": "暂时无法移除我们的访问权限。",
   "office.revocation.heading": "移除访问权限",
-  "office.revocation.done": "Hosted Isomux Provisioning 已不再持有服务器密钥。我们尝试使用该密钥重新连接并被拒绝，由此确认了这一点。",
-  "office.revocation.failed": "我们未能移除密钥，已请工作人员完成此操作。服务器自身的到期机制仍会在上方所示的最晚日期移除密钥。",
-  "office.revocation.checking": "我们正在移除密钥，但尚未确认完成。已请工作人员检查。服务器自身的到期机制仍会在上方所示的最晚日期移除密钥。",
+  "office.revocation.done":
+    "Hosted Isomux Provisioning 已不再持有服务器密钥。我们尝试使用该密钥重新连接并被拒绝，由此确认了这一点。",
+  "office.revocation.failed":
+    "我们未能移除密钥，已请工作人员完成此操作。服务器自身的到期机制仍会在上方所示的最晚日期移除密钥。",
+  "office.revocation.checking":
+    "我们正在移除密钥，但尚未确认完成。已请工作人员检查。服务器自身的到期机制仍会在上方所示的最晚日期移除密钥。",
   "office.revocation.removing": "我们正在从服务器中移除密钥。",
   "office.livenessHeading": "是否有响应？",
-  "office.liveness.unreachable": "办公室在最近 {strikes} 次检查中均未响应：{words}。我们已收到报告。",
+  "office.liveness.unreachable":
+    "办公室在最近 {strikes} 次检查中均未响应：{words}。我们已收到报告。",
   "office.liveness.strike": "上次检查未能连通：{words}。",
   "office.liveness.ok": "刚刚检查：{words}。",
   "liveness.labelDns": "正在等待域名解析",
@@ -136,7 +154,8 @@ export const zh: Catalog = {
   "liveness.labelReadyz": "正在等待办公室报告就绪",
   "liveness.labelOk": "办公室正在提供服务",
   "office.restartHeading": "重启",
-  "office.restartCaveat": "重启会关闭并重新启动整个服务器，而不仅是 isomux。这会中断所有正在运行的智能体，需要几分钟。",
+  "office.restartCaveat":
+    "重启会关闭并重新启动整个服务器，而不仅是 isomux。这会中断所有正在运行的智能体，需要几分钟。",
   "office.restart": "重启我的服务器",
   "office.restarting": "正在重启…",
   "office.action.restartServer": "重启服务器",
@@ -147,23 +166,37 @@ export const zh: Catalog = {
   "office.plan.noCharge": "，不收费",
   "office.plan.periodEnds": "本期于 {date} 结束",
   "office.plan.nextInvoice": "下次发票日期为 {date}",
-  "office.cancel.pendingCancel": "我们已请求 Stripe 取消订阅。Stripe 确认后，此页面会更新。",
-  "office.cancel.pendingUncancel": "我们已请求 Stripe 保留订阅。Stripe 确认后，此页面会更新。",
+  "office.cancel.pendingCancel":
+    "我们已请求 Stripe 取消订阅。Stripe 确认后，此页面会更新。",
+  "office.cancel.pendingUncancel":
+    "我们已请求 Stripe 保留订阅。Stripe 确认后，此页面会更新。",
   "office.cancel.ended": "此办公室已删除。",
-  "office.cancel.reinstatePending": "等待付款期间，办公室将保持关机状态。请在 {deadline} 之前完成付款，以恢复同一个办公室。",
-  "office.cancel.reinstateExpired": "已到恢复截止时间。此付款已无法恢复办公室。",
-  "office.cancel.suspended": "办公室已关机。请在 {date} 之前重新订阅以恢复办公室，或联系支持人员获取免费的临时访问权限，以导出数据。{date} 之后，办公室将无法恢复。",
+  "office.cancel.reinstatePending":
+    "等待付款期间，办公室将保持关机状态。请在 {deadline} 之前完成付款，以恢复同一个办公室。",
+  "office.cancel.reinstateExpired":
+    "已到恢复截止时间。此付款已无法恢复办公室。",
+  "office.cancel.suspended":
+    "办公室已关机。请在 {date} 之前重新订阅以恢复办公室，或联系支持人员获取免费的临时访问权限，以导出数据。{date} 之后，办公室将无法恢复。",
   "office.cancel.retentionEnded": "此办公室的保留期已结束，无法再恢复。",
-  "office.cancel.powerOffLaunch": "订阅已于 {endedAt} 结束。办公室正在关机。请在 {date} 之前重新订阅以恢复办公室，或联系支持人员获取免费的临时访问权限，以导出数据。{date} 之后，办公室将无法恢复。",
-  "office.cancel.restartRefusedLaunch": "无法重启此办公室。办公室控制台会显示当前可用的选项。",
-  "office.cancel.grace": "订阅已于 {endedAt} 结束。办公室将继续提供服务至 {graceEnd}，以便导出工作内容。之后服务器将关机。",
-  "office.cancel.restartRefused": "办公室暂停后无法在此重启。如需帮助，请联系支持人员。",
-  "office.cancel.scheduledLaunch": "订阅计划于 {date} 结束。办公室会在已付款的期限内运行，期满后关机。",
-  "office.cancel.scheduledLaunchRetention": "我们会保留服务器数据 14 天。在此期间，重新订阅可恢复同一个办公室，也可以联系支持人员获取免费的临时访问权限，以导出数据。之后办公室将无法恢复。",
-  "office.cancel.scheduled": "订阅计划于 {date} 结束。办公室将继续提供服务至 {date}，然后再延长 7 天至 {graceEnd}。",
-  "office.cancel.scheduledAfter": "{graceEnd} 之后服务器将关机。数据会在服务器上保留一个日历月，然后服务器将被永久删除。",
+  "office.cancel.powerOffLaunch":
+    "订阅已于 {endedAt} 结束。办公室正在关机。请在 {date} 之前重新订阅以恢复办公室，或联系支持人员获取免费的临时访问权限，以导出数据。{date} 之后，办公室将无法恢复。",
+  "office.cancel.restartRefusedLaunch":
+    "无法重启此办公室。办公室控制台会显示当前可用的选项。",
+  "office.cancel.grace":
+    "订阅已于 {endedAt} 结束。办公室将继续提供服务至 {graceEnd}，以便导出工作内容。之后服务器将关机。",
+  "office.cancel.restartRefused":
+    "办公室暂停后无法在此重启。如需帮助，请联系支持人员。",
+  "office.cancel.scheduledLaunch":
+    "订阅计划于 {date} 结束。办公室会在已付款的期限内运行，期满后关机。",
+  "office.cancel.scheduledLaunchRetention":
+    "我们会保留服务器数据 14 天。在此期间，重新订阅可恢复同一个办公室，也可以联系支持人员获取免费的临时访问权限，以导出数据。之后办公室将无法恢复。",
+  "office.cancel.scheduled":
+    "订阅计划于 {date} 结束。办公室将继续提供服务至 {date}，然后再延长 7 天至 {graceEnd}。",
+  "office.cancel.scheduledAfter":
+    "{graceEnd} 之后服务器将关机。数据会在服务器上保留一个日历月，然后服务器将被永久删除。",
   "office.cancel.keep": "保留我的办公室",
-  "office.cancel.keepCaveat": "保留办公室意味着订阅将于 {date} 续订，并继续正常计费。",
+  "office.cancel.keepCaveat":
+    "保留办公室意味着订阅将于 {date} 续订，并继续正常计费。",
   "office.cancel.caveat": "取消后，办公室会继续运行至已付款期限结束。",
   "office.cancel.cancel": "取消我的办公室",
   "office.cancel.planFailedLower": "暂时无法更改套餐。",
@@ -171,14 +204,17 @@ export const zh: Catalog = {
   "office.reinstate.failedLower": "无法打开恢复付款页面。",
   "office.reinstate.return": "返回付款",
   "office.reinstate.reinstate": "恢复此办公室",
-  "office.refundNotice": "首次付款后 7 天内，可发送邮件至 {address} 申请全额退款。如果退款，我们不会为日后恢复而保留服务器数据 14 天。",
+  "office.refundNotice":
+    "首次付款后 7 天内，可发送邮件至 {address} 申请全额退款。如果退款，我们不会为日后恢复而保留服务器数据 14 天。",
   "errors.reference": "参考编号：{reference}。",
   "errors.checkoutReservedConfiguration": "无法打开付款页面。名称已保留。",
   "errors.paymentsConfiguration": "付款功能目前不可用。",
-  "errors.checkoutReservedTransient": "暂时无法打开付款页面。名称已保留，请稍后重试。",
+  "errors.checkoutReservedTransient":
+    "暂时无法打开付款页面。名称已保留，请稍后重试。",
   "errors.reinstatementTransient": "暂时无法打开恢复付款页面。请稍后重试。",
-  "errors.billingChangeAmbiguous": "无法向付款提供方确认更改。请稍后查看，再决定是否重试。",
+  "errors.billingChangeAmbiguous":
+    "无法向付款提供方确认更改。请稍后查看，再决定是否重试。",
   "errors.providerTransient": "暂时无法连接付款提供方。请稍后重试。",
   "errors.checkoutSessionUnavailable": "暂时无法检查付款页面，请稍后重试。",
-  "errors.checkoutSessionUnsaved": "暂时无法保存付款页面，请稍后重试。"
+  "errors.checkoutSessionUnsaved": "暂时无法保存付款页面，请稍后重试。",
 };

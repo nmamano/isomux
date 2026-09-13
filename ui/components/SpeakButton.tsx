@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
-import { isSupportedLanguage, languageLabelFor, type SupportedLanguageCode } from "../../shared/languages.ts";
+import {
+  isSupportedLanguage,
+  languageLabelFor,
+  type SupportedLanguageCode,
+} from "../../shared/languages.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
   PlainMessageKey,
@@ -19,7 +23,9 @@ const LANGUAGE_NAME_KEYS: Record<SupportedLanguageCode, PlainMessageKey> = {
 
 function spokenLanguageName(i18n: Translator, locale: string): string {
   const primary = locale.split("-")[0]?.toLowerCase() ?? "";
-  const key = isSupportedLanguage(primary) ? LANGUAGE_NAME_KEYS[primary] : undefined;
+  const key = isSupportedLanguage(primary)
+    ? LANGUAGE_NAME_KEYS[primary]
+    : undefined;
   return key ? i18n.t(key) : languageLabelFor(locale);
 }
 

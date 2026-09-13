@@ -7,7 +7,13 @@ const { act, render, fireEvent } = await import("@testing-library/react");
 const { SkillsPopover } = await import("./SkillsPopover.tsx");
 const { setApiShim } = await import("../api.ts");
 
-function installVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
+function installVisualViewport({
+  height,
+  offsetTop,
+}: {
+  height: number;
+  offsetTop: number;
+}) {
   const listeners = new Map<string, Set<EventListener>>();
   const viewport = {
     height,
@@ -21,7 +27,8 @@ function installVisualViewport({ height, offsetTop }: { height: number; offsetTo
       listeners.get(type)?.delete(listener);
     },
     dispatch(type: string) {
-      for (const listener of listeners.get(type) ?? []) listener(new Event(type));
+      for (const listener of listeners.get(type) ?? [])
+        listener(new Event(type));
     },
   };
   Object.defineProperty(window, "visualViewport", {
@@ -137,11 +144,12 @@ it("fits the mobile menu to the visual viewport and contains list scrolling", ()
     />,
   );
   const popover = view.container.firstElementChild as HTMLDivElement;
-  popover.getBoundingClientRect = () =>
-    ({ bottom: 330 }) as DOMRect;
+  popover.getBoundingClientRect = () => ({ bottom: 330 }) as DOMRect;
   act(() => viewport.dispatch("resize"));
 
   expect(popover.style.maxHeight).toBe("162px");
-  const list = view.container.querySelector("[data-skills-scroll]") as HTMLDivElement;
+  const list = view.container.querySelector(
+    "[data-skills-scroll]",
+  ) as HTMLDivElement;
   expect(list.style.overscrollBehavior).toBe("contain");
 });

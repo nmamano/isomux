@@ -19,7 +19,12 @@ import { zh } from "./zh";
 
 export type { Catalog, MessageKey };
 
-export const CATALOGS: Record<SupportedLanguageCode, Catalog> = { en, es, ca, zh };
+export const CATALOGS: Record<SupportedLanguageCode, Catalog> = {
+  en,
+  es,
+  ca,
+  zh,
+};
 
 /** Values for the `{name}` placeholders of one message. */
 export type Params = Record<string, string | number>;

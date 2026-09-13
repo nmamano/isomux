@@ -75,8 +75,18 @@
       failed: "Algo ha ido mal. Inténtalo otra vez.",
     },
     zh: {
-      pageStarters: ["总结此页面", "这里没有介绍哪些内容？", "这与 Isomux 的其他部分有什么关系？", "Isomux 是什么？"],
-      starters: ["Isomux 是什么？", "如何开始使用？", "有哪些功能？", "可以在手机上使用吗？"],
+      pageStarters: [
+        "总结此页面",
+        "这里没有介绍哪些内容？",
+        "这与 Isomux 的其他部分有什么关系？",
+        "Isomux 是什么？",
+      ],
+      starters: [
+        "Isomux 是什么？",
+        "如何开始使用？",
+        "有哪些功能？",
+        "可以在手机上使用吗？",
+      ],
       pageIntro: "可以向我询问此页面或 Isomux！",
       intro: "可以向我询问任何 Isomux 问题！",
       header: "询问 Isomux",

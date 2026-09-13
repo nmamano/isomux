@@ -23,7 +23,10 @@ const ES = "Conversación borrada.";
 const CA = "Conversa esborrada.";
 const KEY = "systemEntries.conversationCleared" as const;
 
-function seed(name: string, language: "en" | "es" | "ca" | "zh" | null): string {
+function seed(
+  name: string,
+  language: "en" | "es" | "ca" | "zh" | null,
+): string {
   const user = claimUser(name);
   updateUserById(user.id, { language });
   return user.id;

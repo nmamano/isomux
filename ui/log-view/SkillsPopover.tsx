@@ -105,7 +105,10 @@ export function SkillsPopover({
       if (popoverBottom === undefined) return;
       const visibleSpaceAbove = popoverBottom - viewport.offsetTop - 8;
       setMobileMaxHeight(
-        Math.max(0, Math.floor(Math.min(viewport.height * 0.45, visibleSpaceAbove))),
+        Math.max(
+          0,
+          Math.floor(Math.min(viewport.height * 0.45, visibleSpaceAbove)),
+        ),
       );
     };
     update();

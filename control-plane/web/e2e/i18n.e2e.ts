@@ -311,9 +311,16 @@ async function main(): Promise<void> {
         signupCa.includes('<main lang="ca">'),
     );
     const signupZh = await fetchPage("/signup", "zh-CN", null);
-    check("/signup renders Simplified Chinese from the header", signupZh.includes("设置办公室") && signupZh.includes('<main lang="zh">'));
+    check(
+      "/signup renders Simplified Chinese from the header",
+      signupZh.includes("设置办公室") && signupZh.includes('<main lang="zh">'),
+    );
     const officeZh = await fetchPage(`/office/${officeName}`, "en", "zh");
-    check("/office renders Simplified Chinese from the cookie", officeZh.includes('<main lang="zh">') && officeZh.includes("办公室尚未就绪。"));
+    check(
+      "/office renders Simplified Chinese from the cookie",
+      officeZh.includes('<main lang="zh">') &&
+        officeZh.includes("办公室尚未就绪。"),
+    );
     const signupFr = await fetchPage("/signup", "fr-FR,fr;q=0.9", null);
     check(
       "/signup falls back to English for a language we do not serve",

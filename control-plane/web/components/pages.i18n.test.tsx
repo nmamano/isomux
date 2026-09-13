@@ -316,10 +316,14 @@ describe("the office page", () => {
 test("Chinese covers signup, signed-out home and the customer dashboard", () => {
   const i18n = webTranslatorFor("zh");
   expect(renderToStaticMarkup(<SignedOut i18n={i18n} />)).toContain("登录");
-  const signup = renderToStaticMarkup(<SignupForm language="zh" domain="isomux.app" initialName="" plans={[]} />);
+  const signup = renderToStaticMarkup(
+    <SignupForm language="zh" domain="isomux.app" initialName="" plans={[]} />,
+  );
   expect(signup).toContain("选择办公室");
   expect(signup).toContain("私钥已隐藏");
-  const dashboard = renderToStaticMarkup(<Dashboard i18n={i18n} email="lin@example.com" offices={[]} />);
+  const dashboard = renderToStaticMarkup(
+    <Dashboard i18n={i18n} email="lin@example.com" offices={[]} />,
+  );
   expect(dashboard).toContain("已以 lin@example.com 身份登录");
   expect(dashboard).toContain("还没有办公室。");
 });

@@ -37,8 +37,20 @@ type Row = {
 };
 
 const PAGES: Row[] = [
-  { lang: "zh", family: "index", file: "zh/index.html", url: "https://isomux.com/zh", self: "/zh" },
-  { lang: "zh", family: "hosted", file: "zh/hosted.html", url: "https://isomux.com/zh/hosted", self: "/zh/hosted" },
+  {
+    lang: "zh",
+    family: "index",
+    file: "zh/index.html",
+    url: "https://isomux.com/zh",
+    self: "/zh",
+  },
+  {
+    lang: "zh",
+    family: "hosted",
+    file: "zh/hosted.html",
+    url: "https://isomux.com/zh/hosted",
+    self: "/zh/hosted",
+  },
   {
     lang: "en",
     family: "index",
@@ -289,7 +301,12 @@ function servesAFile(pathname: string): boolean {
 
 describe("public site in four languages", () => {
   it("SITE_LANGUAGE_PATH matches the paths the pages are actually served at", () => {
-    expect(SITE_LANGUAGE_PATH).toEqual({ en: "", es: "/es", ca: "/ca", zh: "/zh" });
+    expect(SITE_LANGUAGE_PATH).toEqual({
+      en: "",
+      es: "/es",
+      ca: "/ca",
+      zh: "/zh",
+    });
     for (const row of PAGES) {
       const prefix = SITE_LANGUAGE_PATH[row.lang as "en" | "es" | "ca" | "zh"];
       const suffix = row.family === "hosted" ? "/hosted" : "";

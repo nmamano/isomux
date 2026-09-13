@@ -496,5 +496,7 @@ describe("buildSystemPrompt - remote boss inbox", () => {
 });
 
 it("uses Simplified Chinese as the manager reply language", () => {
-  expect(buildLang("zh")).toContain('"Nil" has indicated Simplified Chinese as their default language');
+  expect(buildLang("zh")).toContain(
+    '"Nil" has indicated Simplified Chinese as their default language',
+  );
 });

@@ -65,7 +65,8 @@ export const zh: Catalog = {
   "common.memory": "记忆",
   "common.memoryEditorHint": "此编辑器会按显示的内容重写文件。每行写一条记忆。",
   "common.saveFailed": "保存失败",
-  "common.memoryConflict": "记忆在打开后发生了变化。请重新打开对话框以编辑最新版本。",
+  "common.memoryConflict":
+    "记忆在打开后发生了变化。请重新打开对话框以编辑最新版本。",
   "common.memorySaveFailed": "记忆保存失败",
   "common.unread": "未读",
   "common.roomFallback": "房间 {number}",
@@ -99,14 +100,17 @@ export const zh: Catalog = {
   "common.schedules": "定时任务",
   "common.apps": "App",
   "common.changeTheme": "更改主题",
-  "preferences.intro": "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「我的设备」。",
+  "preferences.intro":
+    "这些设置会同步到登录的所有设备。仅适用于此浏览器的设置位于「我的设备」。",
   "preferences.language": "语言",
-  "preferences.languageHint": "智能体回复以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。界面的其余部分目前仍使用英语。",
+  "preferences.languageHint":
+    "智能体回复以及语音输入和播放使用的语言。智能体会在下一次对话中采用此设置。界面的其余部分目前仍使用英语。",
   "preferences.saved": "已保存。",
   "preferences.saveFailed": "无法保存",
   "settings.backToOffice": "返回办公室",
   "settings.selectHint": "从列表中选择一项设置",
-  "settings.profilesNote": "成员的个人资料存储在服务器上。通知和凭据会在设备间同步。",
+  "settings.profilesNote":
+    "成员的个人资料存储在服务器上。通知和凭据会在设备间同步。",
   "settings.signOutHint": "结束此设备的会话",
   "settings.you": "（你）",
   "settings.sidebar.office": "办公室",
@@ -131,12 +135,16 @@ export const zh: Catalog = {
   "settings.members.lastSeen": "上次在线：{when}",
   "settings.role.owner": "办公室所有者",
   "settings.role.member": "成员",
-  "settings.role.ownerHint": "办公室所有者：可以邀请成员、撤销会话，以及设置各成员的房间访问权限",
-  "settings.role.memberHint": "成员：可以在办公室所有者授权的房间中操作；不能邀请成员或撤销会话",
+  "settings.role.ownerHint":
+    "办公室所有者：可以邀请成员、撤销会话，以及设置各成员的房间访问权限",
+  "settings.role.memberHint":
+    "成员：可以在办公室所有者授权的房间中操作；不能邀请成员或撤销会话",
   "settings.profile.identity": "身份",
   "settings.profile.displayName": "显示名称",
-  "settings.profile.accessHint": "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
-  "settings.profile.viewHint": "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体完成任务时播放声音。房间必须显示才能发出通知。",
+  "settings.profile.accessHint":
+    "访问权限：此成员可以查看和操作的房间（由办公室所有者管理）。",
+  "settings.profile.viewHint":
+    "显示：在个人视图中显示哪些有权访问的房间。通知：房间中的智能体完成任务时播放声音。房间必须显示才能发出通知。",
   "settings.profile.roomColumn": "房间",
   "settings.profile.accessColumn": "访问权限",
   "settings.profile.displayedColumn": "显示",
@@ -146,36 +154,48 @@ export const zh: Catalog = {
   "settings.profile.notificationsFor": "{room} 的通知",
   "settings.profile.agentContext": "智能体上下文",
   "settings.profile.profilePrompt": "个人资料提示词",
-  "settings.profile.profilePromptHint": "（自动加入所拥有智能体的系统提示词；其他成员的智能体在需要了解你的背景时可以查阅）",
+  "settings.profile.profilePromptHint":
+    "（自动加入所拥有智能体的系统提示词；其他成员的智能体在需要了解你的背景时可以查阅）",
   "settings.profile.profilePromptTitle": "{user} · 个人资料提示词",
-  "settings.profile.profilePromptExpandedHint": "自动加入此成员所拥有智能体的系统提示词；其他成员的智能体在需要了解此成员的背景时可以查阅。",
-  "settings.profile.profilePromptPlaceholder": "向智能体介绍你的身份、角色和协作偏好…",
-  "settings.profile.memoryHint": "（此成员范围内的长期信息；按显示的内容重写文件，每行一条记忆；{size} / {cap}）",
+  "settings.profile.profilePromptExpandedHint":
+    "自动加入此成员所拥有智能体的系统提示词；其他成员的智能体在需要了解此成员的背景时可以查阅。",
+  "settings.profile.profilePromptPlaceholder":
+    "向智能体介绍你的身份、角色和协作偏好…",
+  "settings.profile.memoryHint":
+    "（此成员范围内的长期信息；按显示的内容重写文件，每行一条记忆；{size} / {cap}）",
   "settings.profile.memoryTitle": "{user} · 记忆",
   "settings.profile.memoryPlaceholder": "与此成员相关的记忆",
   "settings.profile.appearance": "外观",
-  "settings.profile.avatarHint": "（办公室场景中代表你的幽灵；其他成员会在你正在查看的智能体旁边看到它）",
+  "settings.profile.avatarHint":
+    "（办公室场景中代表你的幽灵；其他成员会在你正在查看的智能体旁边看到它）",
   "settings.profile.deleteHint": "删除此成员",
   "settings.profile.deleteFailed": "删除失败",
   "settings.profile.roomListFailed": "无法确认房间列表；未保存「显示」设置。",
   "settings.office.title": "办公室设置",
   "settings.office.intro": "点击办公室墙上的通风口可打开此页面。",
-  "settings.office.viewOnly": "仅供查看。只有办公室所有者可以编辑办公室通用设置。",
+  "settings.office.viewOnly":
+    "仅供查看。只有办公室所有者可以编辑办公室通用设置。",
   "settings.office.name": "办公室名称",
   "settings.office.nameHint": "（可选，显示在浏览器标签页中）",
   "settings.office.namePlaceholder": "Nil 的办公室",
   "settings.office.rulesHint": "（所有智能体的系统提示词）",
   "settings.office.rulesTitle": "办公室规则",
-  "settings.office.rulesExpandedHint": "所有智能体的系统提示词。更改将在下一次对话中生效。",
-  "settings.office.rulesPlaceholder": "例如：始终编写测试。使用 TypeScript。保持简洁。",
+  "settings.office.rulesExpandedHint":
+    "所有智能体的系统提示词。更改将在下一次对话中生效。",
+  "settings.office.rulesPlaceholder":
+    "例如：始终编写测试。使用 TypeScript。保持简洁。",
   "settings.office.experimental": "实验功能",
   "settings.office.browserPanel": "浏览器面板（实验功能）",
-  "settings.office.browserPanelHint": "在智能体聊天中显示实时浏览器面板。默认关闭。",
-  "settings.office.memoryHint": "（办公室通用的长期信息；原始行；{size} / {cap}）",
+  "settings.office.browserPanelHint":
+    "在智能体聊天中显示实时浏览器面板。默认关闭。",
+  "settings.office.memoryHint":
+    "（办公室通用的长期信息；原始行；{size} / {cap}）",
   "settings.office.memoryTitle": "办公室记忆",
   "settings.office.memoryPlaceholder": "与整个办公室相关的记忆",
-  "settings.office.reloadFailed": "已保存，但此页面无法重新加载办公室。请先选择其他行，再返回继续编辑。",
-  "settings.office.conflict": "此页面加载后，办公室设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
+  "settings.office.reloadFailed":
+    "已保存，但此页面无法重新加载办公室。请先选择其他行，再返回继续编辑。",
+  "settings.office.conflict":
+    "此页面加载后，办公室设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.office.loadedVariables.one": "已加载 {count} 个变量。",
   "settings.office.loadedVariables.other": "已加载 {count} 个变量。",
   "settings.office.discardConfirm": "放弃对办公室未保存的更改？",
@@ -185,17 +205,23 @@ export const zh: Catalog = {
   "settings.room.prompt": "房间提示词",
   "settings.room.promptHint": "（可选，附加在办公室提示词之后）",
   "settings.room.promptTitle": "{room} · 房间提示词",
-  "settings.room.promptPlaceholder": "例如：你在营销房间中。请使用我们的品牌语气。",
-  "settings.room.promptNote": "更改将在下一次对话中生效。请在「办公室通用连接」或「个人连接」中设置环境变量。",
+  "settings.room.promptPlaceholder":
+    "例如：你在营销房间中。请使用我们的品牌语气。",
+  "settings.room.promptNote":
+    "更改将在下一次对话中生效。请在「办公室通用连接」或「个人连接」中设置环境变量。",
   "settings.room.memoryHint": "（此房间的长期信息；原始行；{size} / {cap}）",
   "settings.room.memoryTitle": "{room} · 记忆",
   "settings.room.memoryPlaceholder": "与此房间相关的记忆",
-  "settings.room.reloadFailed": "已保存，但此页面无法重新加载房间。请先选择其他行，再返回继续编辑。",
-  "settings.room.conflict": "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
+  "settings.room.reloadFailed":
+    "已保存，但此页面无法重新加载房间。请先选择其他行，再返回继续编辑。",
+  "settings.room.conflict":
+    "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
   "settings.room.discardConfirm": "放弃对此房间未保存的更改？",
-  "settings.theme.intro": "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
-  "settings.device.intro": "存储在此浏览器中。向智能体说明所用的设备（例如「手机」或「笔记本电脑」），以便智能体调整回复。",
+  "settings.theme.intro":
+    "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
+  "settings.device.intro":
+    "存储在此浏览器中。向智能体说明所用的设备（例如「手机」或「笔记本电脑」），以便智能体调整回复。",
   "settings.device.label": "设备标签",
   "settings.device.optional": "（可选）",
   "settings.device.placeholder": "手机、笔记本电脑…",
@@ -203,8 +229,10 @@ export const zh: Catalog = {
   "settings.devices.title": "我的设备",
   "settings.devices.outstandingLinks": "尚未使用的设备链接",
   "settings.devices.activeSessions": "我的活动会话",
-  "settings.devices.generateHint": "生成一次性链接，在另一台设备上登录你的账户。链接在 1 小时后过期；生成新链接会替换上一个链接。",
-  "settings.devices.generateWarning": "任何获得链接的人都可以在链接过期或被使用前以你的身份登录。请像保护一次性密码一样保护它，只在自己的设备上打开。",
+  "settings.devices.generateHint":
+    "生成一次性链接，在另一台设备上登录你的账户。链接在 1 小时后过期；生成新链接会替换上一个链接。",
+  "settings.devices.generateWarning":
+    "任何获得链接的人都可以在链接过期或被使用前以你的身份登录。请像保护一次性密码一样保护它，只在自己的设备上打开。",
   "settings.devices.generating": "正在生成…",
   "settings.devices.generate": "生成设备链接",
   "settings.devices.generateFailed": "生成设备链接失败",
@@ -216,9 +244,12 @@ export const zh: Catalog = {
   "settings.update.toUpdate": "更新步骤：",
   "settings.update.stepPull": "拉取最新更改",
   "settings.update.stepInstall": "运行 <code>bun install</code>",
-  "settings.update.stepRestart": "重启 isomux 使更新生效。开发环境：<code>bun run dev</code>。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
-  "settings.update.tip": "提示：点击复制按钮将此通知复制到剪贴板，再请任意智能体处理。",
-  "settings.update.requested": "如果几分钟后仍无变化，请检查服务器上更新程序的状态文件。",
+  "settings.update.stepRestart":
+    "重启 isomux 使更新生效。开发环境：<code>bun run dev</code>。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
+  "settings.update.tip":
+    "提示：点击复制按钮将此通知复制到剪贴板，再请任意智能体处理。",
+  "settings.update.requested":
+    "如果几分钟后仍无变化，请检查服务器上更新程序的状态文件。",
   "settings.update.waiting": "请保持此窗格打开，直到服务器重启。",
   "settings.update.done": "更新已完成。请刷新浏览器以加载更新后的页面。",
   "settings.update.refreshBrowser": "刷新浏览器",
@@ -240,7 +271,8 @@ export const zh: Catalog = {
   "settings.update.updating": "正在更新…",
   "settings.update.gotIt": "知道了",
   "settings.usage.title": "办公室用量",
-  "settings.usage.intro": "此处不显示订阅套餐的限额。此页面报告 Isomux 记录的 token 用量和估算费用。",
+  "settings.usage.intro":
+    "此处不显示订阅套餐的限额。此页面报告 Isomux 记录的 token 用量和估算费用。",
   "settings.usage.scoped": "仅限有权访问的房间。不包括定时任务的用量。",
   "settings.usage.loadFailed": "无法加载用量。",
   "settings.usage.agents": "智能体用量",
@@ -279,41 +311,52 @@ export const zh: Catalog = {
   "settings.storage.previewFailed": "清理请求失败。",
   "settings.storage.deleteFailed": "删除请求失败。",
   "settings.storage.deleteDidNotRun": "未执行删除。没有移除任何内容。",
-  "settings.storage.leaveConfirm": "清理仍在运行。现在离开会丢失唯一的删除报告。仍要离开？",
+  "settings.storage.leaveConfirm":
+    "清理仍在运行。现在离开会丢失唯一的删除报告。仍要离开？",
   "settings.storage.deleteSection": "删除旧文件",
   "settings.storage.deleteWarningLead": "这会从此机器上永久删除文件。",
-  "settings.storage.deleteWarningBody": "无法撤销，也没有回收站。只有运行此清理操作时，才会删除旧对话和附件。",
+  "settings.storage.deleteWarningBody":
+    "无法撤销，也没有回收站。只有运行此清理操作时，才会删除旧对话和附件。",
   "settings.storage.whatToDelete": "要删除的内容",
   "settings.storage.olderThan": "早于",
   "settings.storage.daysHint": "天。最近有过改动的内容会保留。",
   "settings.storage.keepPerAgent": "每个智能体始终保留",
-  "settings.storage.keepHint": "个最新对话，无论其存在多久。设为 0 则不按此条件保留任何对话。",
+  "settings.storage.keepHint":
+    "个最新对话，无论其存在多久。设为 0 则不按此条件保留任何对话。",
   "settings.storage.preview": "预览将删除的内容",
   "settings.storage.measuring": "正在测量…",
   "settings.storage.onDisk": "磁盘上的内容",
-  "settings.storage.totalSplit": "<strong>共 {total}</strong>，其中办公室状态占 {state}，状态目录之外占 {outside}。",
-  "settings.storage.totalAllState": "<strong>共 {total}</strong>，全部为办公室状态。",
+  "settings.storage.totalSplit":
+    "<strong>共 {total}</strong>，其中办公室状态占 {state}，状态目录之外占 {outside}。",
+  "settings.storage.totalAllState":
+    "<strong>共 {total}</strong>，全部为办公室状态。",
   "settings.storage.measured": "测量时间：{when}。",
   "settings.storage.totalOfficeState": "办公室状态合计",
   "settings.storage.outsideOfficeState": "办公室状态之外",
   "settings.storage.none": "无",
-  "settings.storage.outsideNote": "备份和更新快照位于办公室状态目录之外，因此列在其小计之后。「无」表示此机器上未配置该位置。",
+  "settings.storage.outsideNote":
+    "备份和更新快照位于办公室状态目录之外，因此列在其小计之后。「无」表示此机器上未配置该位置。",
   "settings.storage.backupUnavailable": "无法获取备份状态。",
   "settings.storage.noBackupYet": "尚未运行任何备份。",
   "settings.storage.lastBackupOk": "上次备份时间为 {when}，已成功。",
   "settings.storage.lastBackupFailed": "上次备份时间为 {when}，已失败。",
-  "settings.storage.lastBackupFailedWith": "上次备份时间为 {when}，已失败：{error}",
-  "settings.storage.backupKeeping": "在 <code>{destDir}</code> 中保留 {retention}。",
+  "settings.storage.lastBackupFailedWith":
+    "上次备份时间为 {when}，已失败：{error}",
+  "settings.storage.backupKeeping":
+    "在 <code>{destDir}</code> 中保留 {retention}。",
   "settings.storage.planCount": "将删除 {count} 个{target}，释放 {size}。",
-  "settings.storage.planEmpty": "没有符合条件的内容。没有存在足够长时间的{target}可供删除。",
+  "settings.storage.planEmpty":
+    "没有符合条件的内容。没有存在足够长时间的{target}可供删除。",
   "settings.storage.planPreviewNote": "尚未删除任何内容，这只是预览。",
   "settings.storage.skippedRow": "保留 {count} 个（{size}）：{reason}",
   "settings.storage.sampleRow": "{path}：{size}，已存在 {age} 天",
   "settings.storage.sampleMore": "…以及另外 {count} 个。",
-  "settings.storage.queueUnreadable": "Isomux 无法读取待发送消息队列，因此无法确定哪些附件仍需随未送达的消息发送。在队列恢复可读之前，不会删除任何内容。",
+  "settings.storage.queueUnreadable":
+    "Isomux 无法读取待发送消息队列，因此无法确定哪些附件仍需随未送达的消息发送。在队列恢复可读之前，不会删除任何内容。",
   "settings.storage.deleteCount": "永久删除 {count} 个{target}",
   "settings.storage.cannotUndo": "此操作无法撤销。",
-  "settings.storage.confirmBody": "预览发现此机器上有 {size} 的{target}可删除。如果在这些文件写入后运行过备份，备份中可能有另一份副本。Isomux 会在删除前重新扫描。不再符合条件或未通过安全检查的文件会保留，因此最终数量可能与此预览不同。",
+  "settings.storage.confirmBody":
+    "预览发现此机器上有 {size} 的{target}可删除。如果在这些文件写入后运行过备份，备份中可能有另一份副本。Isomux 会在删除前重新扫描。不再符合条件或未通过安全检查的文件会保留，因此最终数量可能与此预览不同。",
   "settings.storage.confirmPlaceholder": "输入 DELETE 以确认",
   "settings.storage.deleting": "正在删除…",
   "settings.storage.deletePermanently": "永久删除",
@@ -327,20 +370,27 @@ export const zh: Catalog = {
   "settings.access.inviteUrl": "邀请 URL",
   "settings.access.copyUrl": "复制 URL",
   "settings.access.urlCopied": "已复制！",
-  "settings.access.clipboardBlocked": "剪贴板被阻止。已选中上方的 URL，请手动复制。",
-  "settings.access.sendUrl": "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
-  "settings.invites.intro": "添加新成员或办公室所有者：生成邀请 URL，再通过其他渠道发送给对方。打开链接会创建账户并登录该设备。已有账户的成员可在<i>我的设备</i>中自行生成设备链接，用于登录其他设备。",
+  "settings.access.clipboardBlocked":
+    "剪贴板被阻止。已选中上方的 URL，请手动复制。",
+  "settings.access.sendUrl":
+    "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
+  "settings.invites.intro":
+    "添加新成员或办公室所有者：生成邀请 URL，再通过其他渠道发送给对方。打开链接会创建账户并登录该设备。已有账户的成员可在<i>我的设备</i>中自行生成设备链接，用于登录其他设备。",
   "settings.invites.issueFor": "为以下成员发出邀请…",
   "settings.invites.namePlaceholder": "新用户名（例如 Marc）",
-  "settings.invites.existing": "<b>{name}</b> 已存在，无需邀请。要登录其他设备，{name} 可以在自己的设置中通过<i>我的设备</i>生成设备链接，也可以由你在下方生成恢复链接。",
+  "settings.invites.existing":
+    "<b>{name}</b> 已存在，无需邀请。要登录其他设备，{name} 可以在自己的设置中通过<i>我的设备</i>生成设备链接，也可以由你在下方生成恢复链接。",
   "settings.invites.grantRoom": "授予 {room} 的访问权限",
-  "settings.invites.roomsHint": "受邀者将获得选中房间的访问权限。全部不选，则可稍后从「设置 → 成员」中授予权限。",
-  "settings.invites.expiryHint": "邀请链接若未使用，将在发出 24 小时后过期。接受邀请后建立的会话最长持续 1 年（可随时从「会话」部分撤销）。",
+  "settings.invites.roomsHint":
+    "受邀者将获得选中房间的访问权限。全部不选，则可稍后从「设置 → 成员」中授予权限。",
+  "settings.invites.expiryHint":
+    "邀请链接若未使用，将在发出 24 小时后过期。接受邀请后建立的会话最长持续 1 年（可随时从「会话」部分撤销）。",
   "settings.invites.minting": "正在生成…",
   "settings.invites.issue": "发出邀请",
   "settings.invites.mintFailed": "生成邀请失败",
   "settings.invites.recovery": "恢复访问",
-  "settings.invites.recoveryHint": "帮助已有成员恢复访问。设备链接可自行生成，但在所有设备上都已退出登录的成员无法自行生成链接。请在此选择成员，再通过其他渠道发送链接。链接在 24 小时后过期；生成新链接会替换其上一个链接。",
+  "settings.invites.recoveryHint":
+    "帮助已有成员恢复访问。设备链接可自行生成，但在所有设备上都已退出登录的成员无法自行生成链接。请在此选择成员，再通过其他渠道发送链接。链接在 24 小时后过期；生成新链接会替换其上一个链接。",
   "settings.invites.selectUser": "选择成员…",
   "settings.invites.mintRecovery": "生成恢复链接",
   "settings.invites.recoveryFailed": "生成恢复链接失败",
@@ -348,29 +398,42 @@ export const zh: Catalog = {
   "settings.invites.columnFor": "受邀者",
   "settings.invites.columnExpires": "过期时间",
   "settings.invites.bootstrap": "（初始设置）",
-  "settings.sessions.intro": "所有成员已登录此办公室的设备。撤销会话会使该设备退出登录。新成员通过「邀请」部分获得邀请；已有成员可在<i>我的设备</i>中自行添加设备。",
+  "settings.sessions.intro":
+    "所有成员已登录此办公室的设备。撤销会话会使该设备退出登录。新成员通过「邀请」部分获得邀请；已有成员可在<i>我的设备</i>中自行添加设备。",
   "settings.sessions.columnLastSeen": "上次在线",
   "settings.sessions.columnCreated": "创建时间",
   "settings.sessions.currentSession": "当前会话",
-  "settings.sessions.currentSessionHint": "使用侧栏底部的「退出登录」结束当前会话。",
+  "settings.sessions.currentSessionHint":
+    "使用侧栏底部的「退出登录」结束当前会话。",
   "settings.sessions.expiryInactivity": "闲置后过期",
   "settings.sessions.expiryLatest": "最晚过期时间",
-  "settings.externalAccess.managed": "Isomux 托管服务管理此办公室的地址，无法更改。",
-  "settings.externalAccess.intro": "控制是否允许从主机之外访问此办公室。邀请链接和已登录设备位于「邀请」和「会话」部分。",
+  "settings.externalAccess.managed":
+    "Isomux 托管服务管理此办公室的地址，无法更改。",
+  "settings.externalAccess.intro":
+    "控制是否允许从主机之外访问此办公室。邀请链接和已登录设备位于「邀请」和「会话」部分。",
   "settings.externalAccess.title": "外部访问",
-  "settings.externalAccess.loopback": "当前仅监听回环地址。可以从本机访问办公室，也可以从其他机器通过 SSH 隧道访问。",
-  "settings.externalAccess.external": "当前正在对外监听。可以从公共 URL 可解析的任何位置访问办公室。",
+  "settings.externalAccess.loopback":
+    "当前仅监听回环地址。可以从本机访问办公室，也可以从其他机器通过 SSH 隧道访问。",
+  "settings.externalAccess.external":
+    "当前正在对外监听。可以从公共 URL 可解析的任何位置访问办公室。",
   "settings.externalAccess.enable": "启用外部访问",
   "settings.externalAccess.publicUrl": "公共 URL",
-  "settings.externalAccess.urlHint": "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 isomux 以应用更改。",
-  "settings.externalAccess.envInvalid": "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN</code>，但它不是有效的公共源地址，因此服务器会忽略它。请从环境文件中移除它，或将其设为 <code>{pattern}</code> 或 <code>{localhost}</code>。",
-  "settings.externalAccess.envMatches": "注意：环境中设置的 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> 与此公共 URL 一致。此环境变量已弃用，请在保存此办公室配置值后从环境文件中移除它。",
-  "settings.externalAccess.envConflict": "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code>。重启后，它会覆盖此处保存的任何不同值。因此，在将此 URL 改为与环境值一致或从服务环境中移除此变量之前，保存将被拒绝。",
+  "settings.externalAccess.urlHint":
+    "格式：{pattern}（在笔记本电脑或手机上打开的地址）。保存本身不会更改当前运行的服务器的绑定地址，请重启 isomux 以应用更改。",
+  "settings.externalAccess.envInvalid":
+    "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN</code>，但它不是有效的公共源地址，因此服务器会忽略它。请从环境文件中移除它，或将其设为 <code>{pattern}</code> 或 <code>{localhost}</code>。",
+  "settings.externalAccess.envMatches":
+    "注意：环境中设置的 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code> 与此公共 URL 一致。此环境变量已弃用，请在保存此办公室配置值后从环境文件中移除它。",
+  "settings.externalAccess.envConflict":
+    "注意：环境中设置了 <code>ISOMUX_PUBLIC_ORIGIN={origin}</code>。重启后，它会覆盖此处保存的任何不同值。因此，在将此 URL 改为与环境值一致或从服务环境中移除此变量之前，保存将被拒绝。",
   "settings.externalAccess.discardPrompt": "放弃未保存的外部访问更改？",
   "settings.externalAccess.updateFailed": "更新设置失败",
-  "settings.externalAccess.restartNote": "已保存。请重启 isomux 使新绑定生效。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
-  "settings.externalAccess.signInAfterRestart": "重启后，请在需要通过公共地址访问的设备上打开此 URL。（链接在生成 1 小时后过期。）",
-  "settings.apiTokens.intro": "通过脚本和自动化操作办公室，并读取智能体的回复。令牌具有与你相同的能力，但不能更改谁可以进入办公室。请参阅<link>开发者 API 指南</link>，了解令牌可执行的全部操作。",
+  "settings.externalAccess.restartNote":
+    "已保存。请重启 isomux 使新绑定生效。用户服务：<code>systemctl --user restart isomux</code>。系统服务：<code>sudo systemctl restart isomux</code>。",
+  "settings.externalAccess.signInAfterRestart":
+    "重启后，请在需要通过公共地址访问的设备上打开此 URL。（链接在生成 1 小时后过期。）",
+  "settings.apiTokens.intro":
+    "通过脚本和自动化操作办公室，并读取智能体的回复。令牌具有与你相同的能力，但不能更改谁可以进入办公室。请参阅<link>开发者 API 指南</link>，了解令牌可执行的全部操作。",
   "settings.apiTokens.howToUse": "使用方法",
   "settings.apiTokens.namePlaceholder": "笔记本电脑脚本",
   "settings.apiTokens.expiresAfter": "过期时限",
@@ -388,25 +451,35 @@ export const zh: Catalog = {
   "settings.apiTokens.loadFailed": "加载 API 令牌失败",
   "settings.apiTokens.createFailed": "创建 API 令牌失败",
   "settings.apiTokens.revokeFailed": "撤销 API 令牌失败",
-  "settings.connections.officeIntro": "此办公室中所有智能体使用的账户和变量。凭据由提供方存储，我们不存储。",
-  "settings.connections.personalIntro": "你创建的智能体使用的账户和变量。这些设置会覆盖办公室设置。凭据由提供方存储，我们不存储。",
+  "settings.connections.officeIntro":
+    "此办公室中所有智能体使用的账户和变量。凭据由提供方存储，我们不存储。",
+  "settings.connections.personalIntro":
+    "你创建的智能体使用的账户和变量。这些设置会覆盖办公室设置。凭据由提供方存储，我们不存储。",
   "settings.connections.refresh": "刷新",
   "settings.connections.refreshing": "正在刷新…",
   "settings.connections.checkFailed": "无法检查提供方账户。",
   "settings.connections.envTitle": "环境变量",
   "settings.connections.officeVars": "此办公室中所有智能体的变量",
-  "settings.connections.officeVarsHint": "这些变量会为所有智能体加载，除非被成员变量覆盖。",
+  "settings.connections.officeVarsHint":
+    "这些变量会为所有智能体加载，除非被成员变量覆盖。",
   "settings.connections.ownerManaged": "办公室通用变量由办公室所有者管理。",
   "settings.connections.personalVars": "我创建的智能体的变量",
-  "settings.connections.personalVarsHint": "这些变量会为你创建的智能体加载，并覆盖办公室通用变量。",
-  "settings.connections.providerKeyNote": "添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code> 以使用提供方 API 密钥。其他成员级变量的工作方式相同。例如，每位成员可以设置 <code>GH_TOKEN</code>，让其智能体使用自己的 GitHub 凭据。然后对智能体执行 <code>/clear</code> 以应用更改。",
-  "settings.connections.crossLinkFromOffice": "个人登录和变量位于<link>你 → 个人连接</link>，会覆盖这些设置。",
-  "settings.connections.crossLinkFromPersonal": "这些设置所覆盖的办公室通用登录和变量位于<link>办公室 → 办公室通用连接</link>。",
-  "settings.connections.bedrockHint": "想连接 Bedrock？请阅读<link>此处</link>。",
-  "settings.signIn.apiKeyNote": "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
+  "settings.connections.personalVarsHint":
+    "这些变量会为你创建的智能体加载，并覆盖办公室通用变量。",
+  "settings.connections.providerKeyNote":
+    "添加 <code>ANTHROPIC_API_KEY</code>、<code>OPENAI_API_KEY</code> 或 <code>OPENCODE_API_KEY</code> 以使用提供方 API 密钥。其他成员级变量的工作方式相同。例如，每位成员可以设置 <code>GH_TOKEN</code>，让其智能体使用自己的 GitHub 凭据。然后对智能体执行 <code>/clear</code> 以应用更改。",
+  "settings.connections.crossLinkFromOffice":
+    "个人登录和变量位于<link>你 → 个人连接</link>，会覆盖这些设置。",
+  "settings.connections.crossLinkFromPersonal":
+    "这些设置所覆盖的办公室通用登录和变量位于<link>办公室 → 办公室通用连接</link>。",
+  "settings.connections.bedrockHint":
+    "想连接 Bedrock？请阅读<link>此处</link>。",
+  "settings.signIn.apiKeyNote":
+    "想使用 API 令牌？请查看「设置 → 你 → 个人连接」。",
   "settings.signIn.scopeOffice": "办公室通用：为此办公室中的所有智能体登录",
   "settings.signIn.scopePersonal": "个人：为我创建的智能体登录",
-  "settings.signIn.officeHint": "办公室中的所有智能体都会使用此订阅，但已设置<link>个人连接</link>的成员所创建的智能体除外。",
+  "settings.signIn.officeHint":
+    "办公室中的所有智能体都会使用此订阅，但已设置<link>个人连接</link>的成员所创建的智能体除外。",
   "settings.signIn.personalHint": "为你的智能体使用独立账户。",
   "settings.signIn.status": "状态：",
   "settings.signIn.checking": "正在检查连接…",
@@ -419,15 +492,18 @@ export const zh: Catalog = {
   "settings.signIn.submitFailed": "无法提交 Claude 验证码。",
   "settings.signIn.cancelFailed": "无法取消登录。",
   "settings.signIn.signOutFailed": "无法退出 {provider} 登录。",
-  "settings.signIn.externalWarning": "这会在此机器上退出 {provider} 登录，包括办公室之外的环境。",
+  "settings.signIn.externalWarning":
+    "这会在此机器上退出 {provider} 登录，包括办公室之外的环境。",
   "settings.signIn.directoryWarning": "这会从所选的账户目录中移除登录信息。",
   "settings.signIn.pasteCode": "粘贴 Claude 提供的验证码：",
   "settings.signIn.submitCode": "提交验证码",
   "settings.signIn.cancelSignIn": "取消登录",
   "settings.signIn.signingIn": "正在登录…",
   "settings.signIn.signIn": "登录",
-  "settings.signIn.codexHint": "登录时会获得一个一次性验证码，需在 OpenAI 页面上输入。该页面会在新标签页中打开，也可以在其他设备上打开。",
-  "settings.signIn.claudeHint": "Claude 会在浏览器中打开。登录后，请在此粘贴验证码。",
+  "settings.signIn.codexHint":
+    "登录时会获得一个一次性验证码，需在 OpenAI 页面上输入。该页面会在新标签页中打开，也可以在其他设备上打开。",
+  "settings.signIn.claudeHint":
+    "Claude 会在浏览器中打开。登录后，请在此粘贴验证码。",
   "settings.signIn.linkNotOpen": "链接没有打开？",
   "settings.signIn.linkCopied": "链接已复制",
   "settings.signIn.copyLink": "复制登录链接",
@@ -452,7 +528,8 @@ export const zh: Catalog = {
   "settings.env.saved": "变量已保存",
   "settings.env.duplicate": "变量名必须唯一。",
   "settings.memberConnections.title": "个人连接",
-  "settings.memberConnections.hint": "此成员的智能体所用的个人提供方状态和变量名。",
+  "settings.memberConnections.hint":
+    "此成员的智能体所用的个人提供方状态和变量名。",
   "settings.memberConnections.loadFailed": "无法加载连接。",
   "settings.memberConnections.unknown": "无法检查状态。",
   "settings.memberConnections.empty": "没有变量。",
@@ -461,8 +538,10 @@ export const zh: Catalog = {
   "dialogs.textarea.done": "完成",
   "dialogs.schedulePrompt.title": "定时任务设置",
   "dialogs.schedulePrompt.rulesHint": "（所有定时任务的系统提示词）",
-  "dialogs.schedulePrompt.rulesPlaceholder": "例如：始终将发现写入 Markdown 文件。保持简短。",
-  "dialogs.schedulePrompt.appliedNextRun": "将在下次运行时应用；正在运行的任务使用其已记录的快照。",
+  "dialogs.schedulePrompt.rulesPlaceholder":
+    "例如：始终将发现写入 Markdown 文件。保持简短。",
+  "dialogs.schedulePrompt.appliedNextRun":
+    "将在下次运行时应用；正在运行的任务使用其已记录的快照。",
   "common.field.engine": "引擎",
   "common.field.model": "模型",
   "common.field.effort": "推理强度",
@@ -491,10 +570,14 @@ export const zh: Catalog = {
   "common.model.noneConnected": "OpenCode 在此环境中没有已连接的提供方模型。",
   "common.model.selectConnected": "请在保存前选择一个已连接的 OpenCode 模型。",
   "common.model.loadFailed": "加载模型失败",
-  "common.model.openCodeListFailed": "OpenCode 无法列出模型。请重新打开此对话框。",
-  "common.model.codexNotSignedIn": "Codex 尚未登录。请打开一个 Codex 智能体，点击其发出的登录卡片，再重新打开此对话框。（也可以在环境中设置 OPENAI_API_KEY。）",
-  "common.model.openCodeLoadFailed": "无法加载 OpenCode 模型 {detail}。请重新打开此对话框重试。",
-  "common.model.listLoadFailed": "无法加载模型列表 {detail}。正在显示备用列表，部分选项可能不适用于此账户。",
+  "common.model.openCodeListFailed":
+    "OpenCode 无法列出模型。请重新打开此对话框。",
+  "common.model.codexNotSignedIn":
+    "Codex 尚未登录。请打开一个 Codex 智能体，点击其发出的登录卡片，再重新打开此对话框。（也可以在环境中设置 OPENAI_API_KEY。）",
+  "common.model.openCodeLoadFailed":
+    "无法加载 OpenCode 模型 {detail}。请重新打开此对话框重试。",
+  "common.model.listLoadFailed":
+    "无法加载模型列表 {detail}。正在显示备用列表，部分选项可能不适用于此账户。",
   "dialogs.schedule.titleNew": "新建定时任务",
   "dialogs.schedule.titleEdit": "编辑定时任务",
   "dialogs.schedule.namePlaceholder": "每日摘要",
@@ -514,11 +597,14 @@ export const zh: Catalog = {
   "dialogs.schedule.serverLocal": "时间以服务器本地时间为准。",
   "dialogs.schedule.prompt": "提示词",
   "dialogs.schedule.promptTitle": "定时任务提示词",
-  "dialogs.schedule.promptPlaceholder": "例如：「总结各智能体昨天完成的工作。」",
+  "dialogs.schedule.promptPlaceholder":
+    "例如：「总结各智能体昨天完成的工作。」",
   "dialogs.schedule.promptEmpty": "提示词不能为空。",
   "dialogs.schedule.permissionUnattended": "允许项目工具（无人值守）",
-  "dialogs.schedule.permissionHintOpenCode": "允许使用 shell 和编辑工具。禁止委派任务和提问。",
-  "dialogs.schedule.permissionHint": "定时任务无人值守运行，不提供需要人工批准的模式。",
+  "dialogs.schedule.permissionHintOpenCode":
+    "允许使用 shell 和编辑工具。禁止委派任务和提问。",
+  "dialogs.schedule.permissionHint":
+    "定时任务无人值守运行，不提供需要人工批准的模式。",
   "dialogs.schedule.enabled": "已启用（取消勾选可暂停，无需删除）",
   "dialogs.schedule.create": "创建",
   "dialogs.agent.titleSpawn": "创建新智能体",
@@ -527,7 +613,8 @@ export const zh: Catalog = {
   "dialogs.agent.engineBlurb.claude": "使用 Claude Code 登录账户。",
   "dialogs.agent.engineBlurb.codex": "使用 ChatGPT 登录账户。",
   "dialogs.agent.engineBlurb.opencode": "使用通过 OpenCode 配置的模型。",
-  "dialogs.agent.engineSwitchHint": "切换到 {engine} 会开始新对话。当前对话会保留在此智能体的可恢复历史中。",
+  "dialogs.agent.engineSwitchHint":
+    "切换到 {engine} 会开始新对话。当前对话会保留在此智能体的可恢复历史中。",
   "dialogs.agent.templateHint": "模板会填充下方字段。每项建议都可以编辑。",
   "dialogs.agent.blank": "空白",
   "dialogs.agent.blankHint": "自行设置智能体。",
@@ -576,9 +663,11 @@ export const zh: Catalog = {
   "dialogs.agent.managerTitle": "创建时设置，智能体创建后无法更改负责人。",
   "dialogs.agent.managerNoUser": "（未指定成员）",
   "dialogs.agent.managerUnowned": "（无所有者）",
-  "dialogs.agent.managerHint": "智能体使用此成员的提供方连接和个人变量。请查看「设置 → 你 → 个人连接」。",
+  "dialogs.agent.managerHint":
+    "智能体使用此成员的提供方连接和个人变量。请查看「设置 → 你 → 个人连接」。",
   "dialogs.agent.privileged": "特权操作权限",
-  "dialogs.agent.privilegedHint": "允许此智能体使用创建成员的房间范围权限，操作其他智能体的会话（继续、新对话、立即发送），并管理自己的定时任务。它仍以智能体身份操作，绝不以成员身份操作。",
+  "dialogs.agent.privilegedHint":
+    "允许此智能体使用创建成员的房间范围权限，操作其他智能体的会话（继续、新对话、立即发送），并管理自己的定时任务。它仍以智能体身份操作，绝不以成员身份操作。",
   "dialogs.agent.privilegedRestart": "保存会重启智能体的会话。",
   "dialogs.agent.permission.ask": "询问",
   "dialogs.agent.permission.bypassAll": "跳过所有权限检查",
@@ -597,8 +686,10 @@ export const zh: Catalog = {
   "dialogs.agent.group.template": "模板",
   "dialogs.agent.group.identity": "身份",
   "common.instructionsAndMemory": "指令和记忆",
-  "dialogs.agent.spawnPreviewHint": "智能体 ID 将在创建时分配。此预览使用「new-agent」。",
-  "dialogs.agent.cwdHint": "智能体开始工作的文件夹。智能体也可以访问此文件夹之外的文件。",
+  "dialogs.agent.spawnPreviewHint":
+    "智能体 ID 将在创建时分配。此预览使用「new-agent」。",
+  "dialogs.agent.cwdHint":
+    "智能体开始工作的文件夹。智能体也可以访问此文件夹之外的文件。",
   "dialogs.agent.memoryStartsEmpty": "初始记忆为空。",
   "dialogs.agent.group.engine": "模型和行为",
   "dialogs.agent.group.workspace": "工作区",
@@ -610,18 +701,21 @@ export const zh: Catalog = {
   "dialogs.agent.showSystemPrompt": "显示完整系统提示词",
   "dialogs.agent.systemPromptTitle": "完整系统提示词",
   "dialogs.agent.systemPromptLoadFailed": "无法加载系统提示词。",
-  "dialogs.agent.customInstructionsPlaceholder": "例如：「你是后端专家。始终编写测试。」",
+  "dialogs.agent.customInstructionsPlaceholder":
+    "例如：「你是后端专家。始终编写测试。」",
   "dialogs.agent.revive": "恢复已终止的智能体",
   "dialogs.agent.reviving": "正在恢复…",
   "dialogs.agent.reviveFailed": "恢复失败",
   "dialogs.agent.moveToRoom": "移至房间",
   "dialogs.agent.invalidDirectory": "目录无效",
-  "dialogs.agent.staleInstructions": "自定义指令在打开后发生了变化。请重新打开对话框以编辑最新版本。",
+  "dialogs.agent.staleInstructions":
+    "自定义指令在打开后发生了变化。请重新打开对话框以编辑最新版本。",
   "dialogs.agent.spawn": "创建",
   "templates.moneyPlanner.label": "财务规划师",
   "templates.moneyPlanner.description": "规划支出、储蓄、目标和财务决策。",
   "templates.sideProjectBuilder.label": "业余项目构建助手",
-  "templates.sideProjectBuilder.description": "将初步想法变成可以发布的小产品。",
+  "templates.sideProjectBuilder.description":
+    "将初步想法变成可以发布的小产品。",
   "templates.healthNavigator.label": "健康导航助手",
   "templates.healthNavigator.description": "整理健康信息，为就医做准备。",
   "templates.lifeCoach.label": "生活教练",
@@ -633,13 +727,17 @@ export const zh: Catalog = {
   "templates.cityGuide.label": "城市向导",
   "templates.cityGuide.description": "发现好去处，按你的探索方式制定计划。",
   "templates.todoListAssistant.label": "待办清单助手",
-  "templates.todoListAssistant.description": "将各项承诺整理成持续有用的个人管理系统。",
+  "templates.todoListAssistant.description":
+    "将各项承诺整理成持续有用的个人管理系统。",
   "templates.codeReviewer.label": "代码审查员",
-  "templates.codeReviewer.description": "找出有实际影响的缺陷，说明具体修复方法。",
+  "templates.codeReviewer.description":
+    "找出有实际影响的缺陷，说明具体修复方法。",
   "templates.relationshipAdvisor.label": "人际关系顾问",
-  "templates.relationshipAdvisor.description": "理清沟通方式、需求和下一步行动。",
+  "templates.relationshipAdvisor.description":
+    "理清沟通方式、需求和下一步行动。",
   "templates.jobSearchCoach.label": "求职教练",
-  "templates.jobSearchCoach.description": "明确求职方向，改进申请材料和面试表现。",
+  "templates.jobSearchCoach.description":
+    "明确求职方向，改进申请材料和面试表现。",
   "templates.tripPlanner.label": "旅行规划师",
   "templates.tripPlanner.description": "根据兴趣和限制制定可行的旅行计划。",
   "apiCall.membersChat.read": "读取成员聊天",
@@ -818,13 +916,15 @@ export const zh: Catalog = {
   "cards.toolResult.showMore": "显示更多",
   "cards.toolResult.showLess": "显示更少",
   "cards.fileView.fullSize": "原始大小",
-  "cards.fileView.earlierAttachment": "智能体查看了此聊天中较早附加的文件。点击显示。",
+  "cards.fileView.earlierAttachment":
+    "智能体查看了此聊天中较早附加的文件。点击显示。",
   "cards.editRequest.open": "在编辑器中打开",
   "cards.editRequest.openHint": "在编辑器侧面板中打开 {path}",
   "cards.terminalCommand.copy": "复制到终端",
   "cards.tool.noOutput": "（无输出）",
   "cards.tool.morePaths": "{path} 及另外 {count} 个",
-  "cards.terminalCommand.copyHint": "打开终端面板，在提示符处输入此命令（不会自动执行）",
+  "cards.terminalCommand.copyHint":
+    "打开终端面板，在提示符处输入此命令（不会自动执行）",
   "cards.markdown.mermaidError": "Mermaid 错误",
   "cards.markdown.mermaidLoadFailed": "加载 mermaid 失败",
   "cards.diff.status.added": "已添加",
@@ -833,9 +933,11 @@ export const zh: Catalog = {
   "cards.diff.status.copied": "已复制",
   "cards.diff.status.untracked": "未跟踪",
   "cards.diff.status.binary": "二进制",
-  "cards.diff.reasonTruncated": "总补丁超过 2 MB，因此差异内容未发送到浏览器。请缩小工作树范围后重新运行 /isomux-diff，或在编辑器中打开此文件。",
+  "cards.diff.reasonTruncated":
+    "总补丁超过 2 MB，因此差异内容未发送到浏览器。请缩小工作树范围后重新运行 /isomux-diff，或在编辑器中打开此文件。",
   "cards.diff.reasonBinary": "二进制文件，没有可显示的文本差异。",
-  "cards.diff.reasonUntracked": "未跟踪的文件过大，无法生成补丁（>1 MB）。请在编辑器中打开，或执行 `git add` 后重新运行。",
+  "cards.diff.reasonUntracked":
+    "未跟踪的文件过大，无法生成补丁（>1 MB）。请在编辑器中打开，或执行 `git add` 后重新运行。",
   "cards.diff.reasonNoPatch": "此文件没有补丁内容。",
   "cards.diff.closeHint": "关闭 (Esc)",
   "cards.diff.openTruncated": "打开（未发送补丁）",
@@ -850,7 +952,8 @@ export const zh: Catalog = {
   "cards.diff.headerLine": "{files}中新增 {additions} 行，删除 {deletions} 行",
   "cards.diff.fileCount.one": "{count} 个文件",
   "cards.diff.fileCount.other": "{count} 个文件",
-  "contextBattery.detail": "上下文：已使用 {tokens} / {maxTokens} 个 token（剩余 {remaining}%）。",
+  "contextBattery.detail":
+    "上下文：已使用 {tokens} / {maxTokens} 个 token（剩余 {remaining}%）。",
   "contextBattery.nudge": "可以请智能体收尾，或使用 /clear 开始新会话。",
   "contextBattery.unknown": "尚未测量上下文用量。智能体完成一轮回复后会更新。",
   "contextBattery.ariaKnown": "上下文电量剩余 {remaining}%。点击查看详情。",
@@ -886,7 +989,8 @@ export const zh: Catalog = {
   "logView.lastMessagePrefix": "↑ 你：",
   "logView.emptyStart": "发送消息以开始对话，或",
   "logView.emptyResume": "继续过去的对话",
-  "logView.sendFailedBanner": "无法发送，正在重新连接。消息仍在输入框中；提示条消失后请重试。",
+  "logView.sendFailedBanner":
+    "无法发送，正在重新连接。消息仍在输入框中；提示条消失后请重试。",
   "logView.attachTooLarge": "文件过大（最大 200MB）",
   "logView.attachUploading": "正在上传…",
   "logView.attachFiles": "添加附件",
@@ -894,7 +998,8 @@ export const zh: Catalog = {
   "logView.composer.type": "输入消息，或输入 / 查看命令…",
   "logView.composer.typeShort": "输入消息…",
   "logView.composer.queueShort": "输入消息以加入队列…",
-  "logView.composer.queueLong": "输入消息以加入队列，当前轮次结束后发送 · 按 {modifier}Enter 立即发送",
+  "logView.composer.queueLong":
+    "输入消息以加入队列，当前轮次结束后发送 · 按 {modifier}Enter 立即发送",
   "logView.composer.editing": "正在编辑上方消息…",
   "logView.composer.queue": "将消息加入队列",
   "logView.cite.label": "引用",
@@ -910,7 +1015,8 @@ export const zh: Catalog = {
   "logView.skills.group.project": "项目",
   "logView.skills.group.plugin": "插件",
   "logView.voice.talkHint": "点击说话（按住 Ctrl+Space）",
-  "logView.voice.blocked": "语音输入被阻止。请在浏览器中检查此网站的麦克风权限。",
+  "logView.voice.blocked":
+    "语音输入被阻止。请在浏览器中检查此网站的麦克风权限。",
   "logView.voice.noMicrophone": "未找到麦克风。",
   "logView.voice.network": "语音输入无法连接语音服务。",
   "logView.voice.failed": "语音输入失败。",
@@ -922,8 +1028,10 @@ export const zh: Catalog = {
   "logView.voice.language.ca": "加泰罗尼亚语",
   "logView.voice.language.zh": "简体中文",
   "logView.voice.httpsTitle": "语音输入需要 HTTPS",
-  "logView.voice.httpsStep1": "在 <console>Tailscale 管理控制台</console>的 DNS 页面中启用 HTTPS，再在主机上运行以下命令（使用内置终端）：",
-  "logView.voice.httpsStep2": "访问 Tailscale 显示的 HTTPS URL（例如 <url>{example}</url>）。",
+  "logView.voice.httpsStep1":
+    "在 <console>Tailscale 管理控制台</console>的 DNS 页面中启用 HTTPS，再在主机上运行以下命令（使用内置终端）：",
+  "logView.voice.httpsStep2":
+    "访问 Tailscale 显示的 HTTPS URL（例如 <url>{example}</url>）。",
   "panels.resizer.label": "调整侧面板大小",
   "panels.terminal.ready": "就绪",
   "panels.terminal.busy": "忙碌：{process}",
@@ -957,9 +1065,11 @@ export const zh: Catalog = {
   "panels.editor.saveHint": "按 Ctrl+S 保存",
   "panels.editor.saved": "已保存",
   "panels.editor.recentlyOpened": "最近打开",
-  "panels.editor.staleBanner": "文件在打开后已在磁盘上更改。重新加载会丢弃当前编辑。",
+  "panels.editor.staleBanner":
+    "文件在打开后已在磁盘上更改。重新加载会丢弃当前编辑。",
   "panels.editor.externalBanner": "文件已在外部更改，重新加载会丢失当前编辑。",
-  "panels.editor.deletedBanner": "文件已从磁盘删除。保存会根据此缓冲区重新创建文件。",
+  "panels.editor.deletedBanner":
+    "文件已从磁盘删除。保存会根据此缓冲区重新创建文件。",
   "panels.editor.overwrite": "覆盖",
   "panels.editor.reload": "重新加载",
   "panels.editor.saveToRecreate": "保存以重新创建",
@@ -971,14 +1081,17 @@ export const zh: Catalog = {
   "subscription.caveat": "此用量适用于整个账户，而非单个智能体。",
   "subscription.chooserHint": "数字所跟踪的限额：",
   "subscription.autoChoice": "自动（最受限制的限额）",
-  "subscription.unknown": "尚未报告套餐用量。智能体完成一轮回复后会更新；没有套餐限额的会话（API 密钥、Bedrock、Vertex）不会报告此用量。",
+  "subscription.unknown":
+    "尚未报告套餐用量。智能体完成一轮回复后会更新；没有套餐限额的会话（API 密钥、Bedrock、Vertex）不会报告此用量。",
   "subscription.readingAge": "读数获取于 {age} 前。",
   "subscription.ariaTracked": "{label} 套餐额度已用 {used}%。点击查看详情。",
-  "subscription.ariaTrackedPinned": "{label} 套餐额度已用 {used}%，已固定。点击查看详情。",
+  "subscription.ariaTrackedPinned":
+    "{label} 套餐额度已用 {used}%，已固定。点击查看详情。",
   "subscription.ariaUnknown": "尚未报告套餐用量。点击查看详情。",
   "subscription.window.used": "{label}：已用 {percent}%",
   "subscription.window.usedResets": "{label}：已用 {percent}%，于 {at} 重置",
-  "subscription.window.usedResetsIn": "{label}：已用 {percent}%，于 {at} 重置（{duration} 后）",
+  "subscription.window.usedResetsIn":
+    "{label}：已用 {percent}%，于 {at} 重置（{duration} 后）",
   "subscription.duration.hours.one": "{count} 小时",
   "subscription.duration.hours.other": "{count} 小时",
   "subscription.duration.minutes": "{count} 分钟",
@@ -986,7 +1099,8 @@ export const zh: Catalog = {
   "subscription.duration.hoursMinutes": "{hours} {minutes}",
   "logView.editAgent": "编辑智能体",
   "panels.editor.noFileOpen": "未打开文件",
-  "panels.editor.emptyHint": "未打开文件。请使用 <code>{command}</code>，或让智能体发送文件。",
+  "panels.editor.emptyHint":
+    "未打开文件。请使用 <code>{command}</code>，或让智能体发送文件。",
   "logView.queue.count": "{count} 条已加入队列",
   "logView.queue.chip": "已加入队列 · {label}",
   "logView.queue.attachments.one": "{count} 个附件",
@@ -1105,7 +1219,8 @@ export const zh: Catalog = {
   "schedules.trigger.scheduled": "定时",
   "schedules.runNumber": "运行记录 #{id}",
   "schedules.promptLabel": "提示词",
-  "schedules.snapshot": "cwd：{cwd} · 模型：{model} · 推理强度：{effort} · 权限：{permission}",
+  "schedules.snapshot":
+    "cwd：{cwd} · 模型：{model} · 推理强度：{effort} · 权限：{permission}",
   "schedules.errorLine": "错误：{reason}",
   "schedules.runSkipped": "本次运行已跳过。",
   "schedules.noEntries": "没有日志记录。",
@@ -1159,7 +1274,8 @@ export const zh: Catalog = {
   "apps.delete": "删除",
   "apps.cancel": "取消",
   "apps.logEmpty": "日志中还没有内容。",
-  "apps.confirmDelete": "删除 {name}？数据不会被擦除，而会移至办公室磁盘上的 {path}。",
+  "apps.confirmDelete":
+    "删除 {name}？数据不会被擦除，而会移至办公室磁盘上的 {path}。",
   "tasks.status.open": "未开始",
   "tasks.status.inProgress": "进行中",
   "tasks.status.backlog": "待办",
@@ -1230,13 +1346,17 @@ export const zh: Catalog = {
   "commands.logout.description": "管理登录或退出登录",
   "commands.isomuxAllHands.description": "汇总所有智能体及其对话",
   "commands.isomuxSystemPrompt.description": "显示此智能体收到的完整系统提示词",
-  "commands.isomuxCronjobSystemPrompt.description": "显示定时任务收到的系统提示词（传入名称或 ID）",
-  "commands.isomuxDiff.description": "查看智能体 cwd 中未提交的更改（也可传入目录）",
-  "commands.isomuxEdit.description": "在编辑器侧面板中打开文件（相对于 cwd、绝对路径或 ~/...）",
+  "commands.isomuxCronjobSystemPrompt.description":
+    "显示定时任务收到的系统提示词（传入名称或 ID）",
+  "commands.isomuxDiff.description":
+    "查看智能体 cwd 中未提交的更改（也可传入目录）",
+  "commands.isomuxEdit.description":
+    "在编辑器侧面板中打开文件（相对于 cwd、绝对路径或 ~/...）",
   "commands.isomuxUsage.description": "各智能体、房间和定时任务的 token 消耗",
   "commands.isomuxStorage.description": "按类别显示办公室使用的磁盘空间",
   "commands.compact.description": "压缩上下文",
-  "commands.compact.message": "Isomux 尚不支持 `/compact`。SDK 会自动压缩上下文。",
+  "commands.compact.message":
+    "Isomux 尚不支持 `/compact`。SDK 会自动压缩上下文。",
   "commands.branch.description": "将对话派生到新会话",
   "commands.fork.description": "将对话派生到新会话",
   "commands.export.description": "将对话导出到文件",
@@ -1249,7 +1369,8 @@ export const zh: Catalog = {
   "commands.effort.description": "设置推理强度",
   "commands.advisor.description": "切换顾问模式",
   "commands.cost.description": "token 用量和费用估算",
-  "commands.cost.message": "`/cost` 是 Claude Code 面向 API 用户的命令。Isomux 使用订阅计费。",
+  "commands.cost.message":
+    "`/cost` 是 Claude Code 面向 API 用户的命令。Isomux 使用订阅计费。",
   "commands.usage.description": "查看订阅和办公室用量的位置",
   "commands.stats.description": "随时间变化的使用情况",
   "commands.extraUsage.description": "额外用量选项",
@@ -1278,7 +1399,8 @@ export const zh: Catalog = {
   "commands.vim.description": "切换 vim 快捷键",
   "commands.terminalSetup.description": "配置终端集成",
   "commands.reloadPlugins.description": "重新加载已安装的插件",
-  "commands.reloadPlugins.message": "要重新加载插件，请打开内置终端（点击智能体工位上的终端图标），运行 `claude`，然后输入 `/reload-plugins`。",
+  "commands.reloadPlugins.message":
+    "要重新加载插件，请打开内置终端（点击智能体工位上的终端图标），运行 `claude`，然后输入 `/reload-plugins`。",
   "commands.tasks.description": "列出或管理后台任务",
   "commands.bashes.description": "列出或管理后台任务",
   "commands.doctor.description": "检查安装状态",
@@ -1298,18 +1420,21 @@ export const zh: Catalog = {
   "commands.teleport.description": "将会话转移到另一台设备",
   "commands.remoteEnv.description": "配置远程环境",
   "commands.exit.description": "退出 Claude Code",
-  "commands.exit.message": "请使用 Isomux 界面管理智能体。`/exit` 仅在 Claude Code CLI 中有效。",
+  "commands.exit.message":
+    "请使用 Isomux 界面管理智能体。`/exit` 仅在 Claude Code CLI 中有效。",
   "commands.stickers.description": "趣味贴纸",
   "commands.upgrade.description": "升级 Claude Code",
   "commands.plugin.description": "管理插件",
-  "commands.plugin.message": "管理插件需要直接使用 Claude Code CLI。\n\n管理步骤：\n1. 打开内置终端（点击智能体工位上的终端图标）\n2. 运行 `claude`\n3. 输入 `/plugin`，浏览、安装、启用或禁用插件\n\n常用命令：\n- `/plugin`：交互式插件管理器（浏览、安装、启用或禁用）\n- `{addCommand}`：按名称安装插件\n- `/plugin marketplace add owner/repo`：添加社区市场\n\n安装插件后，在 Claude 会话中运行 `/reload-plugins` 以激活插件。",
+  "commands.plugin.message":
+    "管理插件需要直接使用 Claude Code CLI。\n\n管理步骤：\n1. 打开内置终端（点击智能体工位上的终端图标）\n2. 运行 `claude`\n3. 输入 `/plugin`，浏览、安装、启用或禁用插件\n\n常用命令：\n- `/plugin`：交互式插件管理器（浏览、安装、启用或禁用）\n- `{addCommand}`：按名称安装插件\n- `/plugin marketplace add owner/repo`：添加社区市场\n\n安装插件后，在 Claude 会话中运行 `/reload-plugins` 以激活插件。",
   "commands.batch.description": "拆分任务，交由使用 worktree 的智能体并行执行",
   "commands.claudeApi.description": "加载所检测语言的 API/SDK 参考资料",
   "commands.claudeInChrome.description": "自动操作 Chrome 浏览器",
   "commands.debug.description": "根据调试日志诊断会话或工具问题",
   "commands.keybindingsHelp.description": "自定义键盘快捷键",
   "commands.loop.description": "按周期计划运行提示词",
-  "commands.loop.message": "不提供原生支持；请查看「定时任务」页面或定时消息是否适合此用途",
+  "commands.loop.message":
+    "不提供原生支持；请查看「定时任务」页面或定时消息是否适合此用途",
   "commands.loremIpsum.description": "生成占位文本",
   "commands.review.description": "审查代码中的缺陷、逻辑和边界情况",
   "commands.schedule.description": "创建按 cron 计划运行的远程智能体",
@@ -1319,17 +1444,23 @@ export const zh: Catalog = {
   "commands.stuck.description": "诊断卡住或缓慢的会话",
   "commands.ultrareview.description": "全面深入地审查 PR",
   "commands.updateConfig.description": "配置 settings.json",
-  "commands.unsupported.hardcoded": "`/{name}`（{description}）是 Claude Code 命令，但 Isomux 不支持。",
-  "commands.unsupported.bundledSkill": "`/{name}`（{description}）是 Claude Code 内置技能，但 Isomux 不支持。可以创建自己的技能文件来覆盖它。",
+  "commands.unsupported.hardcoded":
+    "`/{name}`（{description}）是 Claude Code 命令，但 Isomux 不支持。",
+  "commands.unsupported.bundledSkill":
+    "`/{name}`（{description}）是 Claude Code 内置技能，但 Isomux 不支持。可以创建自己的技能文件来覆盖它。",
   "commands.unsupported.notAvailable": "Isomux 中无法使用 `/{name}`。",
-  "commands.unsupported.unknownCommand": "未知命令 `/{name}`。输入 `/help` 查看可用命令。",
+  "commands.unsupported.unknownCommand":
+    "未知命令 `/{name}`。输入 `/help` 查看可用命令。",
   "commands.clear.failed": "清除对话失败：{error}",
   "commands.clear.done": "对话已清除。",
-  "commands.context.header": "**{model}**：{used} / {max} 个 token（{percent}%）",
+  "commands.context.header":
+    "**{model}**：{used} / {max} 个 token（{percent}%）",
   "commands.context.noSession": "没有活动会话。",
   "commands.context.unavailable": "无法获取此会话的上下文用量。",
-  "commands.context.staleUnavailable": "实时测量不可用。显示上次保存的读数，采样于 {age}。",
-  "commands.context.staleFailed": "实时测量失败。显示上次保存的读数，采样于 {age}。",
+  "commands.context.staleUnavailable":
+    "实时测量不可用。显示上次保存的读数，采样于 {age}。",
+  "commands.context.staleFailed":
+    "实时测量失败。显示上次保存的读数，采样于 {age}。",
   "commands.context.ageUnderMinute": "不到一分钟前",
   "commands.context.ageMinutes": "{minutes} 分钟前",
   "commands.context.ageHoursMinutes": "{hours} 小时 {minutes} 分钟前",
@@ -1338,19 +1469,28 @@ export const zh: Catalog = {
   "commands.context.memoryFile": "{path}（{tokens} 个 token）",
   "commands.context.systemPrompt": "**系统提示词：**",
   "commands.context.systemPromptSection": "{name}：{tokens} 个 token",
-  "commands.context.autoCompact": "在 {percent}% 时自动压缩（{tokens} 个 token）",
+  "commands.context.autoCompact":
+    "在 {percent}% 时自动压缩（{tokens} 个 token）",
   "commands.context.failed": "获取上下文用量失败：{error}",
   "commands.help.docs": "**文档：** {url}",
   "commands.help.tips": "**提示：**",
-  "commands.help.tipAgents": "智能体可以互相查看状态和发送消息。直接提出要求即可，也可以使用 `/second-opinion`、`/pair-programming` 等技能。",
-  "commands.help.tipQueue": "智能体忙碌时也可以输入消息：消息会加入队列，在智能体空闲时发送。点击「立即发送」或按 Ctrl/Cmd+Enter 可打断当前工作并立即发送。",
-  "commands.help.tipVoice": "使用语音转文字可更快输入提示词。快捷键是 ctrl+space。说出标点名称会输入对应标点，例如「问号」「逗号」「句号」「换行」等。",
-  "commands.help.tipPhoneVpn": "Isomux 可在手机上使用。最简单的方法是让手机与运行 Isomux 的机器连接到同一 VPN（例如免费的 Tailscale）。",
-  "commands.help.tipInviteFunnel": "办公室可从 VPN 之外访问后（例如通过 Tailscale Funnel，参见 {url}），办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
+  "commands.help.tipAgents":
+    "智能体可以互相查看状态和发送消息。直接提出要求即可，也可以使用 `/second-opinion`、`/pair-programming` 等技能。",
+  "commands.help.tipQueue":
+    "智能体忙碌时也可以输入消息：消息会加入队列，在智能体空闲时发送。点击「立即发送」或按 Ctrl/Cmd+Enter 可打断当前工作并立即发送。",
+  "commands.help.tipVoice":
+    "使用语音转文字可更快输入提示词。快捷键是 ctrl+space。说出标点名称会输入对应标点，例如「问号」「逗号」「句号」「换行」等。",
+  "commands.help.tipPhoneVpn":
+    "Isomux 可在手机上使用。最简单的方法是让手机与运行 Isomux 的机器连接到同一 VPN（例如免费的 Tailscale）。",
+  "commands.help.tipInviteFunnel":
+    "办公室可从 VPN 之外访问后（例如通过 Tailscale Funnel，参见 {url}），办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
   "commands.help.tipPhoneOrigin": "Isomux 可在手机上使用：打开 {origin}。",
-  "commands.help.tipInvite": "办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
-  "commands.help.tipTerminal": "内置侧面板终端适合需要手动运行命令的一次性操作，例如身份验证流程。",
-  "commands.help.tipHooks": "Isomux 为 Claude 智能体提供工具调用前的安全钩子，以防止破坏性命令。Codex 智能体没有对应的钩子。",
+  "commands.help.tipInvite":
+    "办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
+  "commands.help.tipTerminal":
+    "内置侧面板终端适合需要手动运行命令的一次性操作，例如身份验证流程。",
+  "commands.help.tipHooks":
+    "Isomux 为 Claude 智能体提供工具调用前的安全钩子，以防止破坏性命令。Codex 智能体没有对应的钩子。",
   "commands.help.commands": "**命令：**",
   "commands.help.aliasGroup": "{primary}（或 {others}）",
   "commands.help.skillsUser": "用户技能",
@@ -1362,41 +1502,53 @@ export const zh: Catalog = {
   "commands.resume.header": "继续过去的对话：",
   "commands.resume.noOthers": "没有其他可继续的会话。",
   "commands.resume.branched": "（已创建分支）",
-  "commands.model.openCodeUnsupported": "打开智能体设置，选择一个已连接的 OpenCode 模型。",
+  "commands.model.openCodeUnsupported":
+    "打开智能体设置，选择一个已连接的 OpenCode 模型。",
   "commands.model.header": "切换模型（当前：**{current}**）：",
-  "commands.effort.openCodeSettings": "对于提供推理强度选项的 OpenCode 模型，可以在智能体设置中选择。",
+  "commands.effort.openCodeSettings":
+    "对于提供推理强度选项的 OpenCode 模型，可以在智能体设置中选择。",
   "commands.effort.header": "切换推理强度（当前：**{current}**）：",
   "commands.isomuxAllHands.room": "**=== 房间 {number} ===**",
   "commands.isomuxAllHands.me": "**（我）**",
   "commands.isomuxAllHands.desk": "工位 {number}",
   "commands.isomuxAllHands.topic": "话题：{topic}",
-  "commands.isomuxAllHands.footer": "如需了解某个智能体或对话的更多信息，请询问你的智能体。",
-  "commands.isomuxSystemPrompt.header": "**完整系统提示词** *（反映当前设置；在下一次对话中生效）*",
+  "commands.isomuxAllHands.footer":
+    "如需了解某个智能体或对话的更多信息，请询问你的智能体。",
+  "commands.isomuxSystemPrompt.header":
+    "**完整系统提示词** *（反映当前设置；在下一次对话中生效）*",
   "commands.isomuxCronjobSystemPrompt.usage": "用法：{usage}",
   "commands.isomuxCronjobSystemPrompt.noSchedules": "尚未配置定时任务。",
   "commands.isomuxCronjobSystemPrompt.known": "已知定时任务：",
-  "commands.isomuxCronjobSystemPrompt.ambiguous": "多个定时任务名为「{query}」。请使用 ID 重新运行：",
-  "commands.isomuxCronjobSystemPrompt.noMatch": "没有与 `{query}` 匹配的定时任务。可运行不带参数的 `/isomux-cronjob-system-prompt` 列出定时任务。",
-  "commands.isomuxCronjobSystemPrompt.header": "**定时任务「{name}」的系统提示词和首条用户消息** *（反映当前设置；在下次运行时生效）*",
+  "commands.isomuxCronjobSystemPrompt.ambiguous":
+    "多个定时任务名为「{query}」。请使用 ID 重新运行：",
+  "commands.isomuxCronjobSystemPrompt.noMatch":
+    "没有与 `{query}` 匹配的定时任务。可运行不带参数的 `/isomux-cronjob-system-prompt` 列出定时任务。",
+  "commands.isomuxCronjobSystemPrompt.header":
+    "**定时任务「{name}」的系统提示词和首条用户消息** *（反映当前设置；在下次运行时生效）*",
   "commands.isomuxCronjobSystemPrompt.firstUserMessage": "首条用户消息：",
-  "commands.isomuxEdit.usage": "用法：{usage}。路径可以是相对路径（相对于 {cwd} 解析）、绝对路径或 `~/...`。",
+  "commands.isomuxEdit.usage":
+    "用法：{usage}。路径可以是相对路径（相对于 {cwd} 解析）、绝对路径或 `~/...`。",
   "commands.isomuxEdit.emptyPath": "路径为空。",
   "commands.isomuxEdit.notFound": "`{path}` 不存在。",
   "commands.isomuxEdit.notFile": "`{path}` 不是文件。",
   "commands.isomuxEdit.binary": "`{path}` 是二进制文件，编辑器面板仅支持文本。",
-  "commands.isomuxEdit.tooLarge": "`{path}` 大小为 {size}，超过编辑器面板的 1 MB 限制。",
+  "commands.isomuxEdit.tooLarge":
+    "`{path}` 大小为 {size}，超过编辑器面板的 1 MB 限制。",
   "commands.isomuxEdit.ioError": "打开 `{path}` 失败：{message}",
   "commands.isomuxDiff.notDirectory": "`{path}` 不是目录。",
   "commands.isomuxDiff.notRepo": "`{path}` 不是 git 仓库。",
   "commands.isomuxDiff.gitError": "在 `{path}` 中运行 git diff 失败：",
   "commands.isomuxDiff.clean": "`{path}` 中的工作树干净，没有未提交的更改。",
   "commands.usage.heading": "**此处不显示订阅套餐限额。**",
-  "commands.usage.intro": "要检查 Claude 或 ChatGPT 订阅额度，请打开内置终端，然后：",
+  "commands.usage.intro":
+    "要检查 Claude 或 ChatGPT 订阅额度，请打开内置终端，然后：",
   "commands.usage.claude": "启动 `claude`，再输入 `/usage`",
   "commands.usage.codex": "启动 `~/.isomux/bin/codex`，再输入 `/status`",
-  "commands.usage.office": "办公室级 token 消耗（按智能体、房间或定时任务）请参见 `/isomux-usage`。",
+  "commands.usage.office":
+    "办公室级 token 消耗（按智能体、房间或定时任务）请参见 `/isomux-usage`。",
   "commands.usage.codexCardOmitted": "已省略 Codex `/status` 卡片：{error}",
-  "commands.isomuxStorage.forbidden": "只有已登录的办公室成员可以查看存储用量。",
+  "commands.isomuxStorage.forbidden":
+    "只有已登录的办公室成员可以查看存储用量。",
   "commands.skill.queueFailed": "无法将 {command} 加入队列：{error}",
   "commands.skill.error": "技能错误：{error}",
   "choices.resume.title": "继续对话",
@@ -1406,58 +1558,85 @@ export const zh: Catalog = {
   "choices.model.instruction": "回复数字以切换，回复其他内容则取消。",
   "choices.effort.title": "切换推理强度",
   "choices.permission.title": "请求使用 {tool}",
-  "choices.permission.instruction": "选择一个选项，或输入其他消息，以该消息作为拒绝理由。",
+  "choices.permission.instruction":
+    "选择一个选项，或输入其他消息，以该消息作为拒绝理由。",
   "choices.permission.reply": "回复：",
   "choices.permission.allowOnce": "允许，仅此一次",
   "choices.permission.deny": "拒绝",
-  "choices.permission.allowPrefix": "允许，并在此会话中不再询问以 `{prefix}` 开头的命令",
-  "choices.permission.prefixHint": "回复 `{replySpec}` 以选择允许的范围，例如 `{index} {example}`。",
-  "choices.permission.denyByMessage": "也可以输入其他消息，以该消息作为拒绝理由。",
+  "choices.permission.allowPrefix":
+    "允许，并在此会话中不再询问以 `{prefix}` 开头的命令",
+  "choices.permission.prefixHint":
+    "回复 `{replySpec}` 以选择允许的范围，例如 `{index} {example}`。",
+  "choices.permission.denyByMessage":
+    "也可以输入其他消息，以该消息作为拒绝理由。",
   "systemEntries.conversationCleared": "对话已清除。",
   "systemEntries.newConversation": "新对话已开始。",
   "systemEntries.agentStopped": "智能体已停止：{status}。",
-  "systemEntries.backendFailure.stoppedDuringTurn": "智能体后端在本轮运行中停止。对话已保存，可以继续。",
-  "systemEntries.backendFailure.sigterm": "智能体后端被 SIGTERM 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
-  "systemEntries.backendFailure.sigkill": "智能体后端被 SIGKILL 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
-  "systemEntries.backendFailure.signal": "智能体后端被信号 {signal} 停止（退出码 {code}）。对话已保存，可以继续。",
-  "systemEntries.backendFailure.providerCapacity": "模型提供方已达到容量上限。这是提供方的问题，与此账户的订阅或速率限额无关。请稍等一分钟后重试，或选择其他模型。对话已保存，可以继续。",
-  "systemEntries.agentReady": "智能体「{name}」已就绪。工作目录为 {cwd}。权限模式：{mode}。",
+  "systemEntries.backendFailure.stoppedDuringTurn":
+    "智能体后端在本轮运行中停止。对话已保存，可以继续。",
+  "systemEntries.backendFailure.sigterm":
+    "智能体后端被 SIGTERM 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
+  "systemEntries.backendFailure.sigkill":
+    "智能体后端被 SIGKILL 终止（退出码 {code}）。可能是此机器的内存不足保护所致。对话已保存，可以继续。",
+  "systemEntries.backendFailure.signal":
+    "智能体后端被信号 {signal} 停止（退出码 {code}）。对话已保存，可以继续。",
+  "systemEntries.backendFailure.providerCapacity":
+    "模型提供方已达到容量上限。这是提供方的问题，与此账户的订阅或速率限额无关。请稍等一分钟后重试，或选择其他模型。对话已保存，可以继续。",
+  "systemEntries.agentReady":
+    "智能体「{name}」已就绪。工作目录为 {cwd}。权限模式：{mode}。",
   "systemEntries.streamError": "流式传输错误：{error}",
   "systemEntries.startFailed": "启动失败：{error}",
   "systemEntries.interrupted": "智能体已被打断。",
   "systemEntries.wake.idle": "已继续会话（此前在空闲时释放以节省内存）。",
   "systemEntries.wake.afterRestart": "服务器重启后，已继续会话。",
   "systemEntries.wake.afterBackendEnded": "后端意外结束后，已继续会话。",
-  "systemEntries.wake.inFlightWarning": "当时正在执行的命令可能已部分运行；重试前请核实其影响。",
-  "systemEntries.wake.shutdownRejection": "上方的「user rejected」结果由关闭流程产生，并非来自人类。",
+  "systemEntries.wake.inFlightWarning":
+    "当时正在执行的命令可能已部分运行；重试前请核实其影响。",
+  "systemEntries.wake.shutdownRejection":
+    "上方的「user rejected」结果由关闭流程产生，并非来自人类。",
   "systemEntries.wake.resumedBeforeFlush": "已在发送队列消息之前继续原会话。",
-  "systemEntries.wake.resumedAfterUnexpectedEnd": "原会话意外结束后，已重新继续该会话。",
-  "systemEntries.codexInterruptExited": "Codex 在中断期间退出，正在建立新会话。",
-  "systemEntries.codexInterruptExitedWithError": "Codex 在中断期间退出：{error}",
+  "systemEntries.wake.resumedAfterUnexpectedEnd":
+    "原会话意外结束后，已重新继续该会话。",
+  "systemEntries.codexInterruptExited":
+    "Codex 在中断期间退出，正在建立新会话。",
+  "systemEntries.codexInterruptExitedWithError":
+    "Codex 在中断期间退出：{error}",
   "systemEntries.previousInterrupted": "上一条回复被中断。",
-  "systemEntries.interruptedPermissionDenied": "智能体已被打断；待处理的权限请求已被拒绝。",
-  "systemEntries.interruptedPermissionRestarted": "智能体已被打断；无法拒绝待处理的权限请求，因此已重启智能体后端；对话已保留。",
+  "systemEntries.interruptedPermissionDenied":
+    "智能体已被打断；待处理的权限请求已被拒绝。",
+  "systemEntries.interruptedPermissionRestarted":
+    "智能体已被打断；无法拒绝待处理的权限请求，因此已重启智能体后端；对话已保留。",
   "systemEntries.interruptHandlerFailed": "中断处理失败：{error}",
-  "systemEntries.codexInterruptFallback": "Codex 未及时响应中断，改为使用新会话。",
+  "systemEntries.codexInterruptFallback":
+    "Codex 未及时响应中断，改为使用新会话。",
   "systemEntries.deliveryStalled": "消息传送停滞，正在恢复。",
-  "systemEntries.freshSessionAfterRestoreFailure": "已开始新会话（无法恢复原会话）。",
+  "systemEntries.freshSessionAfterRestoreFailure":
+    "已开始新会话（无法恢复原会话）。",
   "systemEntries.freshSessionBeforeFlush": "已在发送队列消息之前开始新会话。",
   "systemEntries.flushStartFailed": "无法启动会话以发送队列消息：{error}",
-  "systemEntries.restartingForSettings": "正在重启会话以应用设置；队列消息将在重启后发送。",
+  "systemEntries.restartingForSettings":
+    "正在重启会话以应用设置；队列消息将在重启后发送。",
   "systemEntries.flushError": "发送队列消息时出错：{error}",
   "systemEntries.genericError": "错误：{error}",
-  "systemEntries.restoreOnStartupFailed": "启动时恢复失败：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
+  "systemEntries.restoreOnStartupFailed":
+    "启动时恢复失败：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.flushInterrupted": "会话更改中断了队列消息发送，将重试。",
-  "systemEntries.sessionStartFailed": "无法启动会话：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
+  "systemEntries.sessionStartFailed":
+    "无法启动会话：{error}\n输入 /clear 开始新会话，或输入 /resume 选择其他会话。",
   "systemEntries.queueFailed": "无法将消息加入队列：{error}",
-  "systemEntries.queueCleared.notConfigured.one": "后端未配置，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.notConfigured.other": "后端未配置，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.switching.one": "切换到其他会话时，已清除 {count} 条队列消息。",
-  "systemEntries.queueCleared.switching.other": "切换到其他会话时，已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.notConfigured.one":
+    "后端未配置，已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.notConfigured.other":
+    "后端未配置，已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.switching.one":
+    "切换到其他会话时，已清除 {count} 条队列消息。",
+  "systemEntries.queueCleared.switching.other":
+    "切换到其他会话时，已清除 {count} 条队列消息。",
   "systemEntries.contextCompacted": "上下文已压缩：{summary}",
   "systemEntries.contextCompactedNoSummary": "上下文已压缩。",
   "systemEntries.toolCallDenied": "工具调用被拒绝：{tool}",
-  "systemEntries.toolCallDeniedWithReason": "工具调用被拒绝：{tool}（{reason}）",
+  "systemEntries.toolCallDeniedWithReason":
+    "工具调用被拒绝：{tool}（{reason}）",
   "systemEntries.inputRequest": "后端请求了 Isomux 无法安全显示的交互式输入。",
   "systemEntries.permissionRequested": "请求 {tool} 的权限。输入：{input}。",
   "systemEntries.diffEmptyCommit": "`{commit}` 未引入文件更改（空提交？）。",
@@ -1473,17 +1652,21 @@ export const zh: Catalog = {
   "systemEntries.permissionOutcome.failed": "处理失败",
   "systemEntries.permissionChoice": "权限选择：{label}。",
   "systemEntries.permissionGrantedOnce": "权限已获准（仅一次）。",
-  "systemEntries.permissionGrantedPersistent": "权限已获准（已为此会话添加规则）。",
+  "systemEntries.permissionGrantedPersistent":
+    "权限已获准（已为此会话添加规则）。",
   "systemEntries.permissionDenied": "权限被拒绝。",
-  "systemEntries.permissionDeniedWithReason": "权限被拒绝，理由已转发给智能体。",
+  "systemEntries.permissionDeniedWithReason":
+    "权限被拒绝，理由已转发给智能体。",
   "systemEntries.permissionSessionGone": "无法处理权限请求，会话已不存在。",
   "systemEntries.permissionResolveFailed": "处理权限请求失败：{error}",
   "systemEntries.resumedSession": "已继续会话：{label}",
   "systemEntries.resumeFailed": "继续失败：{error}",
   "systemEntries.resumeCancelled": "已取消继续会话。",
-  "systemEntries.resumeCwdUnavailable": "会话保存的目录 `{stored}` 不可用（{error}）；将在 `{previous}` 中继续。",
+  "systemEntries.resumeCwdUnavailable":
+    "会话保存的目录 `{stored}` 不可用（{error}）；将在 `{previous}` 中继续。",
   "systemEntries.alreadyUsing": "已在使用 {label}。",
-  "systemEntries.modelSwitched": "模型已切换为 {label}。智能体的上下文可能仍称其为其他模型，正确模型显示在顶部栏中。",
+  "systemEntries.modelSwitched":
+    "模型已切换为 {label}。智能体的上下文可能仍称其为其他模型，正确模型显示在顶部栏中。",
   "systemEntries.modelCancelled": "已取消模型选择。",
   "systemEntries.effortSwitched": "推理强度已切换为{label}。",
   "systemEntries.effortCancelled": "已取消推理强度选择。",
@@ -1492,14 +1675,19 @@ export const zh: Catalog = {
   "systemEntries.editBusy": "智能体忙碌时无法编辑。",
   "systemEntries.editNotFound": "无法编辑：未找到消息。",
   "systemEntries.editNoSession": "无法编辑：没有活动会话。",
-  "systemEntries.editPendingInteraction": "有待处理的交互式命令时，无法编辑此提示词。请先回答或取消该命令。",
-  "systemEntries.editNotSent": "无法编辑：此消息未发送给智能体，且之后已有新消息。请发送新消息。",
+  "systemEntries.editPendingInteraction":
+    "有待处理的交互式命令时，无法编辑此提示词。请先回答或取消该命令。",
+  "systemEntries.editNotSent":
+    "无法编辑：此消息未发送给智能体，且之后已有新消息。请发送新消息。",
   "systemEntries.editNotLocated": "无法编辑：无法在后端会话中找到消息。",
-  "systemEntries.editOtherSession": "此消息属于其他会话（「{label}」）。请先使用 /resume 切换到该会话，再编辑。",
-  "systemEntries.cwdMoveBackFailed": "警告：cwd 更改失败后，无法将会话文件移回 {previous}，文件现在位于 {target}；恢复文件之前，继续会话可能失败。",
+  "systemEntries.editOtherSession":
+    "此消息属于其他会话（「{label}」）。请先使用 /resume 切换到该会话，再编辑。",
+  "systemEntries.cwdMoveBackFailed":
+    "警告：cwd 更改失败后，无法将会话文件移回 {previous}，文件现在位于 {target}；恢复文件之前，继续会话可能失败。",
   "systemEntries.fileOpenFailed": "打开 `{path}` 失败：{message}",
   "systemEntries.fileReadFailed": "读取 `{path}` 失败：{message}",
-  "systemEntries.fileTooLargeToDisplay": "`{path}` 大小为 {size}，超过显示限制（{limit} MB）。",
+  "systemEntries.fileTooLargeToDisplay":
+    "`{path}` 大小为 {size}，超过显示限制（{limit} MB）。",
   "systemEntries.fileSaveFailed": "保存 `{path}` 以供显示失败。",
   "systemEntries.diffFailed": "在 `{path}` 中运行 git diff 失败：",
   "systemEntries.diffBadDir": "无法比较 `{path}`：{message}。",
@@ -1507,17 +1695,24 @@ export const zh: Catalog = {
   "systemEntries.claudeAuth.checking": "Claude 拒绝了凭据。正在检查连接…",
   "systemEntries.claudeAuth.officeLocation": "设置 → 办公室 → 办公室通用连接",
   "systemEntries.claudeAuth.personalLocation": "设置 → 你 → 个人连接",
-  "systemEntries.claudeAuth.disconnected": "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
-  "systemEntries.claudeAuth.pinned": "此对话沿用开始时的 Claude 账户。请开始新对话（`/clear`）以使用新账户。",
+  "systemEntries.claudeAuth.disconnected":
+    "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
+  "systemEntries.claudeAuth.pinned":
+    "此对话沿用开始时的 Claude 账户。请开始新对话（`/clear`）以使用新账户。",
   "systemEntries.claudeSession.invalid": "无法访问此 Claude 对话。",
-  "systemEntries.claudeSession.missing": "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。请使用 /resume 选择其他对话，或开始新对话。",
-  "systemEntries.claudeAuth.connected": "此对话可能仍在使用开始时的凭据。请开始新对话（`/clear`）以使用当前 Claude 登录。",
-  "systemEntries.claudeAuth.incomplete": "Claude 连接检查未能完成。请重试请求，或在设置中登录 Claude。",
-  "systemEntries.signInRequired": "{provider} 未登录，无法处理此消息。请在下方登录以继续。",
+  "systemEntries.claudeSession.missing":
+    "无法继续 Claude 会话 {session}…：未找到其文件。已检查路径：{paths}。请使用 /resume 选择其他对话，或开始新对话。",
+  "systemEntries.claudeAuth.connected":
+    "此对话可能仍在使用开始时的凭据。请开始新对话（`/clear`）以使用当前 Claude 登录。",
+  "systemEntries.claudeAuth.incomplete":
+    "Claude 连接检查未能完成。请重试请求，或在设置中登录 Claude。",
+  "systemEntries.signInRequired":
+    "{provider} 未登录，无法处理此消息。请在下方登录以继续。",
   "systemEntries.manageSignIn": "在下方管理 {provider} 登录。",
   "systemEntries.alreadySignedIn": "已经登录。在下方管理 {provider} 登录。",
   "systemEntries.signOutOpenCode": "OpenCode 智能体不提供退出登录功能。",
-  "systemEntries.signOutNoScope": "无法确定此 {provider} 账户的范围，因此不能退出登录。",
+  "systemEntries.signOutNoScope":
+    "无法确定此 {provider} 账户的范围，因此不能退出登录。",
   "systemEntries.runInTerminal": "在内置终端中运行 `{command}`。",
   "updateNotice.pill.updateAvailable": "有可用更新",
   "updateNotice.pill.newRelease": "新版本",
@@ -1528,17 +1723,23 @@ export const zh: Catalog = {
   "updateNotice.identity.noLatest": "当前使用 {running}。",
   "updateNotice.identity.current": "当前使用 {running}（最新版本）。",
   "updateNotice.identity.behind": "当前使用 {running}；{latest} 已发布。",
-  "updateNotice.identity.aheadTagged": "当前使用 {running}（比最新发布版本 {latest} 更新）。",
-  "updateNotice.identity.aheadUntagged": "当前使用 {running}，已超出最新发布版本（{latest}）。",
-  "updateNotice.identity.unknown": "当前使用 {running}。最新发布版本为 {latest}；",
+  "updateNotice.identity.aheadTagged":
+    "当前使用 {running}（比最新发布版本 {latest} 更新）。",
+  "updateNotice.identity.aheadUntagged":
+    "当前使用 {running}，已超出最新发布版本（{latest}）。",
+  "updateNotice.identity.unknown":
+    "当前使用 {running}。最新发布版本为 {latest}；",
   "updateNotice.drift.beyond.one": "main 在此之后还有 {count} 个提交。",
   "updateNotice.drift.beyond.other": "main 在此之后还有 {count} 个提交。",
   "updateNotice.drift.newer.one": "main 有 {count} 个更新的提交。",
   "updateNotice.drift.newer.other": "main 有 {count} 个更新的提交。",
-  "updateNotice.drift.bleedingEdge.one": "如需最前沿的版本，main 有 {count} 个更新的提交。",
-  "updateNotice.drift.bleedingEdge.other": "如需最前沿的版本，main 有 {count} 个更新的提交。",
+  "updateNotice.drift.bleedingEdge.one":
+    "如需最前沿的版本，main 有 {count} 个更新的提交。",
+  "updateNotice.drift.bleedingEdge.other":
+    "如需最前沿的版本，main 有 {count} 个更新的提交。",
   "storageReport.heading": "Isomux 存储",
-  "storageReport.totalWithOutside": "**共 {total}：**办公室状态占 {stateRoot}，{locations} 中另有 {outside}。",
+  "storageReport.totalWithOutside":
+    "**共 {total}：**办公室状态占 {stateRoot}，{locations} 中另有 {outside}。",
   "storageReport.totalOnly": "**共 {total}**，全部为办公室状态。",
   "storageReport.locationsJoin": "和",
   "storageReport.measured": "_测量于 {age}。_",
@@ -1548,7 +1749,8 @@ export const zh: Catalog = {
   "storageReport.none": "无",
   "storageReport.totalOfficeState": "办公室状态合计",
   "storageReport.total": "合计",
-  "storageReport.outsideNote": "_备份和更新快照位于办公室状态目录之外，因此列在其小计之后。「无」表示此机器上未配置该位置。_",
+  "storageReport.outsideNote":
+    "_备份和更新快照位于办公室状态目录之外，因此列在其小计之后。「无」表示此机器上未配置该位置。_",
   "storageReport.locations": "_位置：{paths}。_",
   "storageReport.locationOfficeState": "办公室状态",
   "storageReport.locationNotSetUp": "{label}（未配置）",
@@ -1560,8 +1762,10 @@ export const zh: Catalog = {
   "storageReport.columnSessions": "会话",
   "storageReport.columnLastActivity": "上次活动",
   "storageReport.killed": "_（已终止）_",
-  "storageReport.showing": "_显示有存储数据的 {total} 个智能体中占用空间最多的 {shown} 个。_",
-  "storageReport.nothingDeleted": "_此处的内容不会自动删除。只有办公室所有者要求时，才会移除对话记录和附件。_",
+  "storageReport.showing":
+    "_显示有存储数据的 {total} 个智能体中占用空间最多的 {shown} 个。_",
+  "storageReport.nothingDeleted":
+    "_此处的内容不会自动删除。只有办公室所有者要求时，才会移除对话记录和附件。_",
   "storageReport.unknownSize": "大小未知",
   "common.continue": "继续",
   "common.displayName": "显示名称",
@@ -1572,39 +1776,55 @@ export const zh: Catalog = {
   "common.ogTitleFirstTimeSetup": "Isomux：首次设置",
   "preAuth.login.title": "登录",
   "preAuth.login.openInvite": "打开邀请链接，在此设备上登录。",
-  "preAuth.login.alreadySignedIn": "已在其他设备上登录？请在设置中为其他设备创建邀请链接。",
+  "preAuth.login.alreadySignedIn":
+    "已在其他设备上登录？请在设置中为其他设备创建邀请链接。",
   "preAuth.login.askOwner": "否则，请向办公室所有者索取链接。",
   "preAuth.login.noOwner": "尚未设置办公室所有者。",
   "preAuth.login.claimHere": "打开 {link} 以认领所有权。",
   "preAuth.login.claimHereLink": "此办公室的首页",
-  "preAuth.login.sshHint": "如果要从其他机器访问此办公室，需要先建立 SSH 隧道（认领表单只能通过回环地址访问）。服务器启动日志中列出了确切的 {command} 命令。",
-  "preAuth.claim.intro": "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",
+  "preAuth.login.sshHint":
+    "如果要从其他机器访问此办公室，需要先建立 SSH 隧道（认领表单只能通过回环地址访问）。服务器启动日志中列出了确切的 {command} 命令。",
+  "preAuth.claim.intro":
+    "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",
   "preAuth.claim.ogDescription": "认领新 Isomux 办公室的所有权。",
-  "preAuth.claim.errorOwnerExists": "办公室所有者已存在。请刷新页面并使用邀请链接登录。",
-  "preAuth.claim.errorName": "请选择显示名称（字母、数字、空格、句点、连字符、撇号或下划线）。",
+  "preAuth.claim.errorOwnerExists":
+    "办公室所有者已存在。请刷新页面并使用邀请链接登录。",
+  "preAuth.claim.errorName":
+    "请选择显示名称（字母、数字、空格、句点、连字符、撇号或下划线）。",
   "preAuth.invite.titleAccept": "接受邀请",
-  "preAuth.invite.bootstrapIntro": "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",
+  "preAuth.invite.bootstrapIntro":
+    "你是第一个认领此办公室的人。请选择显示名称，它会出现在你发送的所有内容旁边。",
   "preAuth.invite.heading": "打开 Isomux 邀请",
   "preAuth.invite.headingNamed": "打开 Isomux 办公室「{office}」的邀请",
   "preAuth.invite.clickHint": "点击下方按钮将在此设备上登录。",
   "preAuth.invite.accept": "接受并继续",
   "preAuth.invite.errorName": "请选择显示名称。",
   "preAuth.invite.ogTitleAccept": "Isomux：接受邀请",
-  "preAuth.invite.ogDescriptionSetup": "打开此链接以认领 Isomux 办公室的所有权。",
-  "preAuth.invite.ogDescriptionAccept": "打开此链接，在此设备上登录 Isomux 办公室。",
+  "preAuth.invite.ogDescriptionSetup":
+    "打开此链接以认领 Isomux 办公室的所有权。",
+  "preAuth.invite.ogDescriptionAccept":
+    "打开此链接，在此设备上登录 Isomux 办公室。",
   "preAuth.inviteError.heading": "邀请不可用",
   "preAuth.inviteError.consumed": "此邀请已被使用。",
   "preAuth.inviteError.expired": "此邀请已过期。",
-  "preAuth.inviteError.roleMismatch": "现有成员的角色不同，无法接受此邀请。请让办公室所有者生成新邀请。",
-  "preAuth.inviteError.ownerExists": "办公室所有者已存在。办公室被认领后，初始设置邀请不再有效。",
+  "preAuth.inviteError.roleMismatch":
+    "现有成员的角色不同，无法接受此邀请。请让办公室所有者生成新邀请。",
+  "preAuth.inviteError.ownerExists":
+    "办公室所有者已存在。办公室被认领后，初始设置邀请不再有效。",
   "preAuth.inviteError.generic": "此邀请已失效。",
   "preAuth.conflict.heading": "此邀请属于其他成员",
-  "preAuth.conflict.body": "当前以 {current} 身份登录。此邀请属于 {invitee}，请在对方设备上或独立的浏览器配置档案中打开。",
+  "preAuth.conflict.body":
+    "当前以 {current} 身份登录。此邀请属于 {invitee}，请在对方设备上或独立的浏览器配置档案中打开。",
   "preAuth.signOutBlocked.title": "退出登录被阻止",
   "preAuth.signOutBlocked.heading": "退出登录被阻止",
-  "preAuth.signOutBlocked.lastOwnerSession": "退出登录被拒绝：这是最后一个活动的办公室所有者会话。请先为自己生成另一个邀请，在其他设备上接受后再重试。",
-  "demo.banner.short": "这是演示。要连接真实的 Claude、Codex 和 OpenCode 智能体：",
-  "demo.banner.long": "这是演示办公室。要连接真实的 Claude、Codex 和 OpenCode 智能体：",
-  "demo.reply": "这是演示，消息并未实际发送给 Claude。要正式使用 Isomux，请按照 [isomux.com](https://isomux.com) 上的设置说明操作。",
-  "demo.receptionistReply": "欢迎来到大厅。在真实办公室中，我会回答有关 Isomux 和此办公室的问题。这是演示，没有向模型发送任何内容。"
+  "preAuth.signOutBlocked.lastOwnerSession":
+    "退出登录被拒绝：这是最后一个活动的办公室所有者会话。请先为自己生成另一个邀请，在其他设备上接受后再重试。",
+  "demo.banner.short":
+    "这是演示。要连接真实的 Claude、Codex 和 OpenCode 智能体：",
+  "demo.banner.long":
+    "这是演示办公室。要连接真实的 Claude、Codex 和 OpenCode 智能体：",
+  "demo.reply":
+    "这是演示，消息并未实际发送给 Claude。要正式使用 Isomux，请按照 [isomux.com](https://isomux.com) 上的设置说明操作。",
+  "demo.receptionistReply":
+    "欢迎来到大厅。在真实办公室中，我会回答有关 Isomux 和此办公室的问题。这是演示，没有向模型发送任何内容。",
 };
