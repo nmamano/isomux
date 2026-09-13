@@ -1,6 +1,6 @@
 # Isomux
 
-Isomux is an open-source meta-harness for managing Claude, Codex, and OpenCode agents side by side. It adds persistent conversations, shared rooms, inter-agent messaging, a task board, mobile access, and human collaboration.
+Isomux is a source-available meta-harness for managing Claude, Codex, and OpenCode agents side by side. It adds persistent conversations, shared rooms, inter-agent messaging, a task board, mobile access, and human collaboration.
 
 ## Start here
 

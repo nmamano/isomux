@@ -2,7 +2,7 @@
 
 **A meta-harness** where agents act like coworkers, not throwaway sessions.
 
-free · open source · no account needed · works with your subscriptions
+free for personal use · source-available · no account needed · works with your subscriptions
 
 - [isomux.com](https://isomux.com): setup instructions and a live demo
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
@@ -49,8 +49,11 @@ See the [full feature list](docs/features.md).
 
 ## Self-hosted and hosted
 
-The open-source app in this repo is the complete office: run it on your own
-computer or server, with your own provider accounts.
+The source-available app in this repo is the complete office: run it on your
+own computer or server, with your own provider accounts. Personal,
+non-commercial use is free; company production use needs a
+[commercial license](COMMERCIAL-LICENSE.md). Releases through v2026.9.10 remain
+available under the MIT License in [NOTICE](NOTICE).
 
 The repo also contains the website and the provisioning and billing system for
 [Hosted Isomux](https://isomux.com/hosted), our managed option for people who do

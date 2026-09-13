@@ -54,7 +54,7 @@ Keep these consistent across all surfaces below.
 - **Status:** published when this change merges. All three pages have canonical URLs and appear in the sitemap. The pages do not state an effective date - choose one at launch.
 - **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law. Refunds - the first-week refund, failure-to-deliver refund, exclusions, and the request path.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
-- **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms`, `/hosted-privacy`, and `/hosted-refund` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project. The landing and hosted-page footers, `site/llms.txt`, and the generated sitemap link all three.
+- **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms`, `/hosted-privacy`, and `/hosted-refund` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not the source-available isomux program. The landing and hosted-page footers, `site/llms.txt`, and the generated sitemap link all three.
 - **Language:** English only, in every language of the site, and named as the governing text.
 - **Operator runbook:** `internal-docs/support-runbook.md`; update it when the refund terms, billing records, Stripe operator path, or customer portal status changes.
 
@@ -147,7 +147,7 @@ Keep these consistent across all surfaces below.
 
 - **File:** `profile/README.md` in a separate repo, `github.com/isomux/.github`. Renders on `github.com/isomux` as the org's public landing.
 - **Audience:** Developers landing on the org page.
-- **Structure:** tagline, the free/open-source line, the office clip (`profile/office.gif`, served from this repo), a trimmed `## Coworkers...` list taken from the main README, and a links list (isomux.com, the docs, the source repo, the blog post, Discord).
+- **Structure:** tagline, the free-for-personal-use/source-available line, the office clip (`profile/office.gif`, served from this repo), a trimmed `## Coworkers...` list taken from the main README, and a links list (isomux.com, the docs, the source repo, the blog post, Discord).
 - **Update when:** the headline tagline changes (keep aligned with the README's first line), the `Coworkers...` bullets change (section 1), or the showcase clip is replaced. Rare.
 - **Deploy note:** lives in a separate repo; push directly, no CI. If the main repo is ever transferred from `nmamano/isomux` to `isomux/isomux`, update the source-code link here too.
 
