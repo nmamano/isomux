@@ -1149,12 +1149,6 @@ export const ca: Catalog = {
   "logView.skills.group.bundled": "Inclosos",
   "logView.skills.group.project": "Projecte",
   "logView.skills.group.plugin": "Plugin",
-  "logView.skills.origin.user": "habilitat d'usuari",
-  "logView.skills.origin.project": "habilitat de projecte",
-  "logView.skills.origin.plugin": "habilitat de plugin",
-  "logView.skills.origin.isomux": "habilitat inclosa a isomux",
-  "logView.skills.origin.claude": "habilitat de claude",
-  "logView.skills.origin.unknown": "habilitat",
   "logView.voice.talkHint": "Fes clic per parlar (Ctrl+Espai per mantenir)",
   "logView.voice.blocked":
     "L'entrada de veu està bloquejada. Revisa el permís del micròfon per a aquest lloc al teu navegador.",

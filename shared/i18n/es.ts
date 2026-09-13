@@ -1152,12 +1152,6 @@ export const es: Catalog = {
   "logView.skills.group.bundled": "Incluidos",
   "logView.skills.group.project": "Proyecto",
   "logView.skills.group.plugin": "Plugin",
-  "logView.skills.origin.user": "habilidad de usuario",
-  "logView.skills.origin.project": "habilidad de proyecto",
-  "logView.skills.origin.plugin": "habilidad de plugin",
-  "logView.skills.origin.isomux": "habilidad incluida en isomux",
-  "logView.skills.origin.claude": "habilidad de claude",
-  "logView.skills.origin.unknown": "habilidad",
   "logView.voice.talkHint": "Haz clic para hablar (Ctrl+Espacio para mantener)",
   "logView.voice.blocked":
     "La entrada de voz está bloqueada. Revisa el permiso del micrófono para este sitio en tu navegador.",

@@ -17,7 +17,10 @@ import {
   UserSettingsView,
   type Selection as SettingsTarget,
 } from "./components/UserSettingsView.tsx";
-import { TaskView } from "./components/TaskView.tsx";
+import {
+  TaskView,
+  type TaskOpenRequest,
+} from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { AppsView } from "./components/AppsView.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
@@ -149,6 +152,8 @@ export function App({ routing = true }: { routing?: boolean }) {
     null,
   );
   const [tasksOpen, setTasksOpen] = useState(bootPage === "tasks");
+  const [taskOpenRequest, setTaskOpenRequest] =
+    useState<TaskOpenRequest | null>(null);
   const [cronjobsOpen, setCronjobsOpen] = useState(bootPage === "cronjobs");
   const [appsOpen, setAppsOpen] = useState(bootPage === "apps");
 
@@ -480,9 +485,20 @@ export function App({ routing = true }: { routing?: boolean }) {
   // replaceState in the sync effect below) and a subsequent Back/Escape from
   // the chat still lands on the office.
   const closeTasks = useCallback(() => {
+    setTaskOpenRequest(null);
     if (tasksOverChat) setTasksOpen(false);
     else goHome();
   }, [tasksOverChat, goHome]);
+
+  const openTasks = useCallback(() => {
+    setTaskOpenRequest(null);
+    setTasksOpen(true);
+  }, []);
+
+  const openTask = useCallback((id: string) => {
+    setTaskOpenRequest({ id });
+    setTasksOpen(true);
+  }, []);
 
   // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
   useEffect(() => {
@@ -701,6 +717,8 @@ export function App({ routing = true }: { routing?: boolean }) {
       ) : page === "tasks" ? (
         <TaskView
           onClose={closeTasks}
+          openTaskRequest={taskOpenRequest}
+          onTaskOpenRequestHandled={() => setTaskOpenRequest(null)}
           onFocusAgent={(agentId) => {
             setTasksOpen(false);
             dispatch({ type: "focus", agentId });
@@ -723,7 +741,8 @@ export function App({ routing = true }: { routing?: boolean }) {
           logs={logs.get(focusedAgent.id) ?? []}
           onBack={goHome}
           onEditAgent={() => setEditAgent(focusedAgent)}
-          onOpenTasks={() => setTasksOpen(true)}
+          onOpenTasks={openTasks}
+          onOpenTask={openTask}
           onSwipeLeft={swipeAgentNext}
           onSwipeRight={swipeAgentPrev}
         />
@@ -745,7 +764,7 @@ export function App({ routing = true }: { routing?: boolean }) {
           onOpenThemePicker={() =>
             openSettings({ kind: "section", section: "theme" })
           }
-          onOpenTasks={() => setTasksOpen(true)}
+          onOpenTasks={openTasks}
           onOpenCronjobs={() => setCronjobsOpen(true)}
           onOpenApps={() => setAppsOpen(true)}
           onOpenUpdate={() =>

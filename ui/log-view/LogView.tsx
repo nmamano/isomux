@@ -71,7 +71,11 @@ import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import { getDevice } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
-import { SkillsPopover } from "./SkillsPopover.tsx";
+import {
+  SkillsPopover,
+  type CommandEntry,
+} from "./SkillsPopover.tsx";
+import type { TaskMap } from "./task-links.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
 import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
@@ -688,6 +692,7 @@ export function LogView({
   onBack,
   onEditAgent,
   onOpenTasks,
+  onOpenTask,
   onSwipeLeft,
   onSwipeRight,
 }: {
@@ -696,6 +701,7 @@ export function LogView({
   onBack: () => void;
   onEditAgent: () => void;
   onOpenTasks?: () => void;
+  onOpenTask?: (id: string) => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
@@ -713,7 +719,12 @@ export function LogView({
     sessionContext,
     interactions,
     providerAccounts,
+    tasks,
   } = useAppState();
+  const taskMap: TaskMap = useMemo(
+    () => new Map(tasks.map((task) => [task.id, task])),
+    [tasks],
+  );
   const interaction = interactions.find((item) => item.agentId === agent.id);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
@@ -749,8 +760,8 @@ export function LogView({
     });
   }, []);
   const speechLocale = useSpeechLocale();
-  const [selectedIdx, setSelectedIdx] = useState(0);
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [editingTopic, setEditingTopic] = useState(false);
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
@@ -1030,19 +1041,10 @@ export function LogView({
     return () => vv.removeEventListener("resize", update);
   }, [isMobile]);
 
-  // Build merged command list for autocomplete, with origin labels and descriptions
+  // Build the full popover's command list with localized descriptions.
   const agentCmds = slashCommands.get(agent.id);
-  const { allCommands, skillOrigins, commandDescriptions } = useMemo(() => {
-    const cmds: string[] = [];
-    const origins = new Map<string, string>(); // name → origin label
-    const descs = new Map<string, string>(); // name → description
-    const originLabels: Record<string, string> = {
-      user: i18n.t("logView.skills.origin.user"),
-      project: i18n.t("logView.skills.origin.project"),
-      plugin: i18n.t("logView.skills.origin.plugin"),
-      isomux: i18n.t("logView.skills.origin.isomux"),
-      claude: i18n.t("logView.skills.origin.claude"),
-    };
+  const menuCommands = useMemo(() => {
+    const commands: CommandEntry[] = [];
     if (agentCmds) {
       for (const c of agentCmds.commands) {
         // Handle both old string format and new { name, description } format
@@ -1057,40 +1059,18 @@ export function LogView({
           : typeof c === "string"
             ? undefined
             : c.description;
-        cmds.push(name);
-        if (desc) descs.set(name, desc);
-      }
-      for (const s of agentCmds.skills) {
-        if (!cmds.includes(s.name)) cmds.push(s.name);
-        origins.set(
-          s.name,
-          originLabels[s.origin] ?? i18n.t("logView.skills.origin.unknown"),
-        );
-        if (s.description) descs.set(s.name, s.description);
+        commands.push({
+          ...(typeof c === "string" ? { name } : c),
+          description: desc,
+        });
       }
     }
-    return {
-      allCommands: cmds.sort(),
-      skillOrigins: origins,
-      commandDescriptions: descs,
-    };
-    // i18n in the deps: the origin labels come from the catalog, so a language
-    // switch must rebuild them (the translator keeps one identity per language).
+    return commands;
   }, [agentCmds, i18n]);
 
-  const showAutocomplete =
-    input.startsWith("/") && !input.includes(" ") && input.length > 0;
-  const partial = input.slice(1).toLowerCase();
-  const filteredCommands = useMemo(() => {
-    if (!showAutocomplete) return [];
-    if (partial === "") return allCommands;
-    return allCommands.filter((c) => c.toLowerCase().startsWith(partial));
-  }, [showAutocomplete, partial, allCommands]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSelectedIdx(0);
-  }, [filteredCommands.length, partial]);
+  const slashDraft =
+    input.startsWith("/") && !input.includes(" ") ? input : null;
+  const showSlashMenu = slashDraft !== null && !slashMenuDismissed;
 
   // Re-enable auto-scroll when logs are cleared (e.g. /resume, /clear)
   const prevLogsLen = useRef(logs.length);
@@ -1844,14 +1824,26 @@ export function LogView({
   // same fire-and-forget POST as handleSend, with the bare `/name` as the
   // message - instead of being copied into the draft. Everything else (skills,
   // and commands that take an argument) inserts `/name ` at the caret so the
-  // user can type the rest. The popover only opens on an empty composer, so
-  // auto-run never discards typed text.
+  // user can type the rest. Draft-driven picks replace only the slash token;
+  // the menu closes before arguments can be present.
   function handleSkillPick(name: string, autoRun?: boolean) {
+    const pickedFromDraft = showSlashMenu;
     // Only a literal true executes - any other value (mixed-version or replay
     // wire data) falls through to the safe insert path.
     if (autoRun === true) {
       setSkillsOpen(false);
+      if (pickedFromDraft) {
+        setSlashMenuDismissed(true);
+        setInput("");
+      }
       runSlashCommand(`/${name}`);
+      return;
+    }
+    if (pickedFromDraft) {
+      setSkillsOpen(false);
+      setSlashMenuDismissed(true);
+      setInput(`/${name} `);
+      requestAnimationFrame(() => textareaRef.current?.focus());
       return;
     }
     const current = inputRef.current;
@@ -2588,6 +2580,8 @@ export function LogView({
                       onCopyToTerminal={
                         features.terminal ? copyToTerminal : undefined
                       }
+                      tasks={taskMap}
+                      onOpenTask={onOpenTask}
                     />
                   )}
                   {(entry.metadata?.providerLogin === "codex" ||
@@ -2795,13 +2789,17 @@ export function LogView({
                 ))}
               </div>
             )}
-            {skillsOpen && input.trim() === "" && (
+            {(skillsOpen || showSlashMenu) && (
               <SkillsPopover
                 skills={agentCmds?.skills ?? []}
-                commands={agentCmds?.commands ?? []}
+                commands={menuCommands}
                 isMobile={isMobile}
+                draftFilter={showSlashMenu ? input.slice(1) : undefined}
                 onPick={handleSkillPick}
-                onClose={() => setSkillsOpen(false)}
+                onClose={() => {
+                  setSkillsOpen(false);
+                  if (showSlashMenu) setSlashMenuDismissed(true);
+                }}
               />
             )}
             <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
@@ -2889,100 +2887,13 @@ export function LogView({
                 &#10095;
               </span>
               <div style={{ flex: 1, position: "relative", top: -2 }}>
-                {showAutocomplete && filteredCommands.length > 0 && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      bottom: "100%",
-                      left: 0,
-                      right: 0,
-                      marginBottom: 4,
-                      background: "var(--bg-surface)",
-                      border: "1px solid var(--border-medium)",
-                      borderRadius: 8,
-                      maxHeight: 200,
-                      overflowY: "auto",
-                      boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
-                      zIndex: 10,
-                    }}
-                  >
-                    {filteredCommands.map((cmd, i) => {
-                      const originLabel = skillOrigins.get(cmd);
-                      const desc = commandDescriptions.get(cmd);
-                      return (
-                        <div
-                          key={cmd}
-                          ref={
-                            i === selectedIdx
-                              ? (el) => el?.scrollIntoView({ block: "nearest" })
-                              : undefined
-                          }
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setInput(`/${cmd} `);
-                            textareaRef.current?.focus();
-                          }}
-                          onMouseEnter={() => setSelectedIdx(i)}
-                          style={{
-                            padding: "6px 12px",
-                            cursor: "pointer",
-                            background:
-                              i === selectedIdx
-                                ? "var(--bg-subtle)"
-                                : "transparent",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: "var(--green)",
-                              fontFamily: "'JetBrains Mono',monospace",
-                              fontSize: 13,
-                              fontWeight: 600,
-                              flexShrink: 0,
-                            }}
-                          >
-                            /{cmd}
-                          </span>
-                          {originLabel && (
-                            <span
-                              style={{
-                                fontSize: 10,
-                                color: "var(--text-ghost)",
-                                background: "var(--bg-base)",
-                                padding: "1px 6px",
-                                borderRadius: 4,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {originLabel}
-                            </span>
-                          )}
-                          {desc && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                color: "var(--text-ghost)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                              }}
-                            >
-                              {desc}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onPaste={handlePaste}
                   onChange={(e) => {
+                    if (!e.target.value.startsWith("/") || !input.startsWith("/"))
+                      setSlashMenuDismissed(false);
                     setInput(e.target.value);
                     autoResize(e.target);
                   }}
@@ -2991,46 +2902,6 @@ export function LogView({
                     // the composition consume Enter and other keys; we don't
                     // want to send, autocomplete, or abort mid-composition.
                     if (e.nativeEvent.isComposing) return;
-                    if (showAutocomplete && filteredCommands.length > 0) {
-                      if (e.key === "ArrowUp") {
-                        e.preventDefault();
-                        setSelectedIdx((prev) =>
-                          prev > 0 ? prev - 1 : filteredCommands.length - 1,
-                        );
-                        return;
-                      }
-                      if (e.key === "ArrowDown") {
-                        e.preventDefault();
-                        setSelectedIdx((prev) =>
-                          prev < filteredCommands.length - 1 ? prev + 1 : 0,
-                        );
-                        return;
-                      }
-                      if (e.key === "Tab") {
-                        e.preventDefault();
-                        const selected = filteredCommands[selectedIdx];
-                        if (selected) {
-                          setInput(`/${selected} `);
-                        }
-                        return;
-                      }
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        const selected = filteredCommands[selectedIdx];
-                        // If exact match, send it; otherwise autocomplete
-                        if (selected && partial === selected.toLowerCase()) {
-                          // Exact match - fall through to send
-                        } else if (selected) {
-                          e.preventDefault();
-                          setInput(`/${selected} `);
-                          return;
-                        }
-                      }
-                      if (e.key === "Escape") {
-                        e.preventDefault();
-                        setInput("");
-                        return;
-                      }
-                    }
                     if (
                       e.key === "Enter" &&
                       (e.ctrlKey || e.metaKey) &&

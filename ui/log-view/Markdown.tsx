@@ -25,6 +25,10 @@ import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { sanitizeSvg } from "./svg-sanitize.ts";
+import {
+  taskChipLabel,
+  type TaskMap,
+} from "./task-links.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -74,6 +78,32 @@ renderer.link = ({ href, title, text }) => {
   return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
 };
 marked.use({ renderer });
+
+// Task ids become neutral placeholders at parse time. The tokenizer cannot
+// see the reader's ACL-filtered task map, so the layout effect below upgrades
+// only ids that resolve. Marked keeps this tokenizer out of code blocks and
+// code spans; the inLink guard keeps link text unchanged too.
+marked.use({
+  extensions: [
+    {
+      name: "taskId",
+      level: "inline",
+      start(src: string) {
+        return src.search(/\b[0-9a-f]{8}\b/);
+      },
+      tokenizer(src: string) {
+        if (this.lexer.state.inLink) return;
+        const match = /^\b[0-9a-f]{8}\b/.exec(src);
+        if (!match) return;
+        return { type: "taskId", raw: match[0], id: match[0] };
+      },
+      renderer(token) {
+        const id = token.id as string;
+        return `<span data-task-id="${id}">${id}</span>`;
+      },
+    },
+  ],
+});
 
 const escapeHtmlAttr = (s: string) =>
   s
@@ -342,7 +372,17 @@ export function renderMarkdown(i18n: Translator, content: string): string {
   }
 }
 
-export function Markdown({ content }: { content: string }) {
+const EMPTY_TASKS: TaskMap = new Map();
+
+export function Markdown({
+  content,
+  tasks = EMPTY_TASKS,
+  onOpenTask,
+}: {
+  content: string;
+  tasks?: TaskMap;
+  onOpenTask?: (id: string) => void;
+}) {
   const i18n = useI18n();
   // i18n in the deps, not just content: the translator keeps one identity per
   // language, so this re-renders the html when the reader switches language
@@ -350,6 +390,15 @@ export function Markdown({ content }: { content: string }) {
   const html = useMemo(() => renderMarkdown(i18n, content), [i18n, content]);
 
   const onClick = useCallback(async (e: React.MouseEvent) => {
+    const taskChip = (e.target as HTMLElement).closest<HTMLElement>(
+      ".task-id-chip[data-task-id]",
+    );
+    if (taskChip?.dataset.taskId && onOpenTask) {
+      e.preventDefault();
+      e.stopPropagation();
+      onOpenTask(taskChip.dataset.taskId);
+      return;
+    }
     const btn = (e.target as HTMLElement).closest(".code-copy-btn");
     if (!btn) return;
     e.stopPropagation();
@@ -378,7 +427,7 @@ export function Markdown({ content }: { content: string }) {
       (btn as HTMLElement).style.color = "";
       (btn as HTMLElement).style.background = "";
     }, 1500);
-  }, []);
+  }, [onOpenTask]);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -405,6 +454,33 @@ export function Markdown({ content }: { content: string }) {
     for (const node of root.querySelectorAll<HTMLElement>(".mermaid"))
       node.dataset.loading = i18n.t("cards.markdown.rendering");
   }, [html, i18n]);
+
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    for (const current of root.querySelectorAll<HTMLElement>("[data-task-id]")) {
+      const id = current.dataset.taskId;
+      const task = id ? tasks.get(id) : undefined;
+      if (!task || !onOpenTask) {
+        if (current.tagName === "SPAN") continue;
+        const plain = document.createElement("span");
+        plain.dataset.taskId = id ?? "";
+        plain.textContent = id ?? current.textContent;
+        current.replaceWith(plain);
+        continue;
+      }
+      const chip =
+        current.tagName === "BUTTON"
+          ? (current as HTMLButtonElement)
+          : document.createElement("button");
+      chip.type = "button";
+      chip.className = "task-id-chip";
+      chip.dataset.taskId = id;
+      chip.title = task.title;
+      chip.textContent = taskChipLabel(task);
+      if (chip !== current) current.replaceWith(chip);
+    }
+  }, [html, tasks, onOpenTask]);
 
   // After every html change, find any unprocessed mermaid blocks and hand
   // them to the lazy-loaded mermaid library one at a time. We use

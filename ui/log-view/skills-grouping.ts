@@ -138,6 +138,8 @@ export function buildSkillsMenuGroups(input: {
     .filter((e) => e.entry.count > 0)
     .sort(
       (a, b) =>
+        Number(b.entry.name.toLowerCase().includes(q)) -
+          Number(a.entry.name.toLowerCase().includes(q)) ||
         b.entry.count - a.entry.count ||
         a.entry.name.localeCompare(b.entry.name),
     )
@@ -158,7 +160,12 @@ export function buildSkillsMenuGroups(input: {
   }
   for (const [key, list] of byGroup) {
     if (key === "most-used") continue; // already count-ordered
-    list.sort((a, b) => a.name.localeCompare(b.name));
+    list.sort(
+      (a, b) =>
+        Number(b.name.toLowerCase().includes(q)) -
+          Number(a.name.toLowerCase().includes(q)) ||
+        a.name.localeCompare(b.name),
+    );
   }
   return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
     key: g,

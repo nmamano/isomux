@@ -23,6 +23,7 @@ import { SpeakButton } from "../components/SpeakButton.tsx";
 import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { SystemPromptButton } from "../components/SystemPromptButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
+import { PlainTaskText, type TaskMap } from "./task-links.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
@@ -452,6 +453,8 @@ export const LogEntryCard = memo(function LogEntryCard({
   onSubmitEdit,
   onOpenInEditor,
   onCopyToTerminal,
+  tasks,
+  onOpenTask,
   messageExpanded,
   onToggleMessage,
 }: {
@@ -468,6 +471,8 @@ export const LogEntryCard = memo(function LogEntryCard({
   onSubmitEdit?: (entryId: string, newText: string) => void;
   onOpenInEditor?: (path: string) => void;
   onCopyToTerminal?: (command: string) => void;
+  tasks?: TaskMap;
+  onOpenTask?: (id: string) => void;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -492,6 +497,15 @@ export const LogEntryCard = memo(function LogEntryCard({
       return (
         <UserMessage
           content={entry.content}
+          renderedContent={
+            tasks && onOpenTask ? (
+              <PlainTaskText
+                content={entry.content}
+                tasks={tasks}
+                onOpen={onOpenTask}
+              />
+            ) : undefined
+          }
           isMobile={isMobile}
           username={senderLabel}
           fromNonHuman={!fromHuman}
@@ -519,6 +533,15 @@ export const LogEntryCard = memo(function LogEntryCard({
       return (
         <UserMessage
           content={entry.content}
+          renderedContent={
+            tasks && onOpenTask ? (
+              <PlainTaskText
+                content={entry.content}
+                tasks={tasks}
+                onOpen={onOpenTask}
+              />
+            ) : undefined
+          }
           isMobile={isMobile}
           username={
             typeof recipient === "string"
@@ -541,6 +564,8 @@ export const LogEntryCard = memo(function LogEntryCard({
           turnEntries={turnEntries}
           isMobile={isMobile}
           timestamp={entry.timestamp}
+          tasks={tasks}
+          onOpenTask={onOpenTask}
         />
       );
     case "thinking": {
@@ -1296,12 +1321,16 @@ function AssistantText({
   turnEntries,
   isMobile,
   timestamp,
+  tasks,
+  onOpenTask,
 }: {
   content: string;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
   timestamp: number;
+  tasks?: TaskMap;
+  onOpenTask?: (id: string) => void;
 }) {
   const i18n = useI18n();
   const getText = useCallback(() => content, [content]);
@@ -1323,7 +1352,7 @@ function AssistantText({
           <CopyButton getText={() => serializeEntries(i18n, turnEntries)} />
         )}
       </BubbleCorner>
-      <Markdown content={content} />
+      <Markdown content={content} tasks={tasks} onOpenTask={onOpenTask} />
     </div>
   );
 }

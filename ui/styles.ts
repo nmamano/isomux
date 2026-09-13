@@ -101,6 +101,14 @@ ${emitThemesCss()}
   .md-content li { margin: 2px 0; }
   .md-content a { color: var(--accent); text-decoration: none; }
   .md-content a:hover { text-decoration: underline; }
+  .task-id-chip {
+    display: inline-flex; align-items: center; max-width: 100%;
+    padding: 1px 6px; border: 1px solid var(--border-medium); border-radius: 5px;
+    background: var(--bg-subtle); color: var(--accent); cursor: pointer;
+    font: inherit; font-size: 0.9em; line-height: 1.35; vertical-align: baseline;
+  }
+  .task-id-chip:hover { background: var(--bg-hover); }
+  .task-id-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .md-content blockquote {
     border-left: 3px solid var(--border-light); margin: 8px 0; padding: 4px 12px; color: var(--text-dim);
   }

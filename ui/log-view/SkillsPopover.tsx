@@ -19,18 +19,28 @@ export function SkillsPopover({
   skills,
   commands,
   isMobile,
+  draftFilter,
   onPick,
   onClose,
 }: {
   skills: SkillInfo[];
   commands: CommandEntry[];
   isMobile: boolean;
+  /** When supplied, the composer draft owns filtering and keeps focus. */
+  draftFilter?: string;
   onPick: (name: string, autoRun?: boolean) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
-  const [filter, setFilter] = useState("");
+  const [localFilter, setLocalFilter] = useState("");
+  const filter = draftFilter ?? localFilter;
+  const draftMode = draftFilter !== undefined;
+  const [selection, setSelection] = useState<{
+    filter: string;
+    name: string;
+  } | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const { t } = useI18n();
   // The viewing user's per-skill use counters (server-side so they follow the
   // user across devices). Fetched fresh on every open; until
@@ -64,7 +74,10 @@ export function SkillsPopover({
       onClose();
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
     }
     document.addEventListener("pointerdown", onOutside, true);
     document.addEventListener("touchstart", onOutside, true);
@@ -79,13 +92,62 @@ export function SkillsPopover({
   // Autofocus the filter box on desktop. Skipped on mobile: focusing a text
   // input pops the soft keyboard over the list the user is trying to browse.
   useEffect(() => {
-    if (!isMobile) filterRef.current?.focus();
-  }, [isMobile]);
+    if (!isMobile && !draftMode) filterRef.current?.focus();
+  }, [isMobile, draftMode]);
 
   const groups = useMemo(
     () => buildSkillsMenuGroups({ skills, commands, counts, filter }),
     [skills, commands, filter, counts],
   );
+  const entries = useMemo(() => groups.flatMap((group) => group.skills), [groups]);
+  const q = filter.trim().toLowerCase();
+  const exactIndex = q
+    ? entries.findIndex((entry) => entry.name.toLowerCase() === q)
+    : -1;
+  const rememberedIndex =
+    selection?.filter === filter
+      ? entries.findIndex((entry) => entry.name === selection.name)
+      : -1;
+  const selectedIndex =
+    rememberedIndex >= 0 ? rememberedIndex : Math.max(0, exactIndex);
+
+  useEffect(() => {
+    const selected = entries[selectedIndex];
+    if (selected) rowRefs.current.get(selected.name)?.scrollIntoView({ block: "nearest" });
+  }, [entries, selectedIndex]);
+
+  useEffect(() => {
+    if (!draftMode) return;
+    function onDraftKeyDown(e: KeyboardEvent) {
+      if (e.isComposing) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (entries.length === 0) return;
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        const nextIndex =
+          e.key === "ArrowUp"
+            ? (selectedIndex - 1 + entries.length) % entries.length
+            : (selectedIndex + 1) % entries.length;
+        setSelection({ filter, name: entries[nextIndex].name });
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey) {
+        const selected = entries[selectedIndex];
+        if (!selected) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onPick(selected.name, selected.autoRun);
+      }
+    }
+    document.addEventListener("keydown", onDraftKeyDown, true);
+    return () => document.removeEventListener("keydown", onDraftKeyDown, true);
+  }, [draftMode, entries, filter, selectedIndex, onClose, onPick]);
 
   return (
     <div
@@ -108,7 +170,7 @@ export function SkillsPopover({
         maxHeight: isMobile ? "45vh" : 320,
       }}
     >
-      <div
+      {!draftMode && <div
         style={{
           padding: 8,
           borderBottom: "1px solid var(--border)",
@@ -117,8 +179,29 @@ export function SkillsPopover({
       >
         <input
           ref={filterRef}
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          value={localFilter}
+          onChange={(e) => {
+            setLocalFilter(e.target.value);
+            setSelection(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || entries.length === 0) return;
+            if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+              e.preventDefault();
+              const nextIndex =
+                e.key === "ArrowUp"
+                  ? (selectedIndex - 1 + entries.length) % entries.length
+                  : (selectedIndex + 1) % entries.length;
+              setSelection({ filter, name: entries[nextIndex].name });
+              return;
+            }
+            if (e.key === "Enter") {
+              const selected = entries[selectedIndex];
+              if (!selected) return;
+              e.preventDefault();
+              onPick(selected.name, selected.autoRun);
+            }
+          }}
           placeholder={t("logView.skills.filter")}
           style={{
             width: "100%",
@@ -135,7 +218,7 @@ export function SkillsPopover({
             caretColor: "var(--green)",
           }}
         />
-      </div>
+      </div>}
       <div style={{ overflowY: "auto", minHeight: 0 }}>
         {groups.length === 0 && (
           <div
@@ -165,27 +248,30 @@ export function SkillsPopover({
             {group.skills.map((s) => (
               <div
                 key={s.name}
+                ref={(node) => {
+                  if (node) rowRefs.current.set(s.name, node);
+                  else rowRefs.current.delete(s.name);
+                }}
                 // preventDefault on mousedown keeps focus where it is (filter
                 // box or textarea) so the click doesn't cause a blur-flash;
                 // the parent refocuses the textarea after inserting.
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onPick(s.name, s.autoRun)}
+                onMouseEnter={() => setSelection({ filter, name: s.name })}
                 // Desktop: full description via native hover tooltip. Mobile
                 // has no hover, so the full description renders inline below.
                 title={!isMobile ? s.description : undefined}
                 style={{
                   padding: isMobile ? "8px 12px" : "5px 12px",
+                  background:
+                    entries[selectedIndex] === s
+                      ? "var(--bg-subtle)"
+                      : "transparent",
                   cursor: "pointer",
                   display: "flex",
                   flexDirection: isMobile ? "column" : "row",
                   alignItems: isMobile ? "stretch" : "center",
                   gap: isMobile ? 2 : 8,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--bg-subtle)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
                 }}
               >
                 <span

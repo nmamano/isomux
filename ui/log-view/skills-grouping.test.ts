@@ -131,4 +131,25 @@ describe("buildSkillsMenuGroups", () => {
     expect(names(groups, "most-used")).toEqual(["tdd"]);
     expect(groups.find((g) => g.key === "commands")).toBeUndefined();
   });
+
+  it("keeps the Most used group first when another group has an exact match", () => {
+    const groups = build({
+      commands: [cmd("restore")],
+      skills: [skill("re")],
+      counts: { restore: 50 },
+      filter: "re",
+    });
+    expect(groups.map((group) => group.key)).toEqual(["most-used", "user"]);
+  });
+
+  it("ranks name matches before description-only matches within a group", () => {
+    const groups = build({
+      commands: [
+        { name: "clear", description: "Restore an old session" },
+        { name: "restore", description: "Open history" },
+      ],
+      filter: "re",
+    });
+    expect(names(groups, "commands")).toEqual(["restore", "clear"]);
+  });
 });

@@ -34,6 +34,10 @@ type PendingNav =
   | { kind: "select"; id: string }
   | { kind: "create"; title: string };
 
+export interface TaskOpenRequest {
+  id: string;
+}
+
 import { useI18n } from "../i18n.tsx";
 import { timeSince } from "../../shared/i18n/time.ts";
 import type { MessageKey, Translator } from "../../shared/i18n/translate.ts";
@@ -722,9 +726,13 @@ function TaskDetailPanel({
 export function TaskView({
   onClose,
   onFocusAgent,
+  openTaskRequest,
+  onTaskOpenRequestHandled,
 }: {
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
+  openTaskRequest?: TaskOpenRequest | null;
+  onTaskOpenRequestHandled?: () => void;
 }) {
   const {
     tasks,
@@ -797,6 +805,36 @@ export function TaskView({
       closeRef.current();
     }
   }
+
+  useEffect(() => {
+    if (!openTaskRequest) return;
+    const requestedTask = tasks.find(
+      (task) => task.id === openTaskRequest.id,
+    );
+    if (!requestedTask) return;
+    onTaskOpenRequestHandled?.();
+    // An external navigation request intentionally reconfigures this view.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRoomScope(requestedTask.roomId ?? "global");
+    setFilterStatus("all");
+    setSearch("");
+    setFilterAssignee("");
+    if (requestedTask.id === selectedId && !creating) return;
+    if (panelOpen) {
+      pendingNavRef.current = { kind: "select", id: requestedTask.id };
+      closeRef.current?.();
+      return;
+    }
+    setCreating(false);
+    setSelectedId(requestedTask.id);
+  }, [
+    openTaskRequest,
+    onTaskOpenRequestHandled,
+    tasks,
+    selectedId,
+    creating,
+    panelOpen,
+  ]);
 
   // The user backed out of a discard prompt, so the close that some action
   // (row click / quick-add Enter) requested is no longer happening. Drop the

@@ -1133,12 +1133,6 @@ export const en = {
   "logView.skills.group.bundled": "Bundled",
   "logView.skills.group.project": "Project",
   "logView.skills.group.plugin": "Plugin",
-  "logView.skills.origin.user": "user skill",
-  "logView.skills.origin.project": "project skill",
-  "logView.skills.origin.plugin": "plugin skill",
-  "logView.skills.origin.isomux": "isomux-bundled skill",
-  "logView.skills.origin.claude": "claude skill",
-  "logView.skills.origin.unknown": "skill",
   "logView.voice.talkHint": "Click to talk (Ctrl+Space to hold)",
   "logView.voice.blocked":
     "Voice input is blocked. Check this site's microphone permission in your browser.",
