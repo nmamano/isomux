@@ -964,7 +964,7 @@ export const en = {
   "apiCall.memory.readAny": "Read memories",
   "apiCall.memory.saveAgent": "Save a memory for this agent",
   "apiCall.memory.saveRoom": "Save a room memory",
-  "apiCall.memory.saveOffice": "Save a office memory",
+  "apiCall.memory.saveOffice": "Save an office memory",
   "apiCall.memory.saveBoss": "Save a member memory",
   "apiCall.memory.save": "Save a memory",
   "apiCall.memory.rewriteAgent": "Rewrite memories for this agent",
