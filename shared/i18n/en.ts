@@ -1092,6 +1092,7 @@ export const en = {
   "logView.interaction.current": "Current",
   "logView.interaction.failed": "Could not apply that choice.",
   "logView.nav.agentTitle": "Agent settings",
+  "logView.nav.copyTitle": "Copy the entire chat",
   "logView.nav.avatarTitle": "View avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Open file editor (Ctrl+E)",

@@ -1065,8 +1065,20 @@ export function LogView({
     return commands;
   }, [agentCmds, i18n]);
 
+  // The slash token is the text between "/" and the first whitespace (space,
+  // newline or tab); anything after it is ignored by the filter. Once the
+  // token is an exact skill or command name and whitespace follows, the
+  // member is typing arguments and the menu stays out of the way.
+  const slashToken = input.startsWith("/")
+    ? input.slice(1).split(/\s/, 1)[0]
+    : null;
+  const slashHasArgs = slashToken !== null && /\s/.test(input);
+  const slashExact =
+    slashToken !== null &&
+    ((agentCmds?.skills ?? []).some((s) => s.name === slashToken) ||
+      menuCommands.some((c) => c.name === slashToken));
   const slashDraft =
-    input.startsWith("/") && !input.includes(" ") ? input : null;
+    slashToken !== null && !(slashHasArgs && slashExact) ? slashToken : null;
   const showSlashMenu = slashDraft !== null && !slashMenuDismissed;
 
   // Re-enable auto-scroll when logs are cleared (e.g. /resume, /clear)
@@ -1396,6 +1408,7 @@ export function LogView({
             id: "copy",
             icon: copied ? CheckIcon : CopyIcon,
             label: i18n.t(copied ? "common.copied" : "common.copy"),
+            title: i18n.t("logView.nav.copyTitle"),
             onClick: handleCopy,
             active: copied,
           },
@@ -2371,6 +2384,76 @@ export function LogView({
             </div>
           )}
 
+          {/* Pinned line + messages share one positioned box so the portrait
+          can float over both. */}
+          <div
+            style={{
+              flex: 1,
+              minHeight: 0,
+              display: "flex",
+              flexDirection: "column",
+              position: "relative",
+            }}
+          >
+            {/* Floating agent portrait: absolute in this wrapper, outside the
+            scroll container, so the pinned "you:" line appearing above the
+            messages does not move it (Nil, 2026-09-13). Only mounted when
+            visible, so the backdrop-filter element is not in any layer tree
+            when hidden (suspected to deactivate selections on layout
+            commit). */}
+            {showAvatar && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: isMobile ? 12 : 16,
+                  right: isMobile ? 12 : 24,
+                  zIndex: 10,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "center",
+                }}
+              >
+                <MiniGhostCluster
+                  presences={presences}
+                  selfConnectionId={sessionContext?.connectionId ?? null}
+                  size={30}
+                  max={3}
+                  overlap={-8}
+                  paintedHitTest
+                  filter={(presence) =>
+                    presence.viewMode === "log" &&
+                    presence.focusedAgentId === agent.id
+                  }
+                  ghostStyle={{
+                    transform: `translateY(${ghostBodyBottomOffset(30)}px)`,
+                  }}
+                />
+                <div
+                  onClick={onEditAgent}
+                  style={{
+                    width: 62,
+                    height: 78,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: 8,
+                    border: `2px solid ${modelStyle.border}`,
+                    background: modelStyle.bg,
+                    backdropFilter: "blur(8px)",
+                    WebkitBackdropFilter: "blur(8px)",
+                    cursor: "pointer",
+                    transition: "opacity 0.2s",
+                  }}
+                  title={i18n.t("logView.editAgent")}
+                >
+                  <Character
+                    key={agent.state}
+                    state={agent.state}
+                    outfit={agent.outfit}
+                  />
+                </div>
+              </div>
+            )}
           {/* Pinned user message - sits between the header and the messages
           when no user_message is currently visible in the scroll viewport.
           Click scrolls the conversation back to that message. */}
@@ -2383,6 +2466,8 @@ export function LogView({
                 alignItems: "center",
                 gap: 8,
                 padding: isMobile ? "6px 12px" : "6px 24px",
+                // Keep the ellipsized text and the arrow clear of the portrait.
+                paddingRight: showAvatar ? (isMobile ? 12 : 24) + 70 : undefined,
                 background: "var(--bg-subtle)",
                 borderBottom: "1px solid var(--border)",
                 cursor: "pointer",
@@ -2438,66 +2523,6 @@ export function LogView({
               position: "relative",
             }}
           >
-            {/* Floating agent portrait - only mount when visible, so the
-            backdrop-filter element doesn't sit in the scroll
-            container's layer tree when hidden (suspected to deactivate
-            selections on layout commit). */}
-            {showAvatar && (
-              <div
-                style={{
-                  position: "sticky",
-                  top: isMobile ? 12 : 16,
-                  float: "none",
-                  width: "fit-content",
-                  height: 0,
-                  marginLeft: "auto",
-                  zIndex: 10,
-                  display: "flex",
-                  alignItems: "flex-start",
-                  justifyContent: "center",
-                }}
-              >
-                <MiniGhostCluster
-                  presences={presences}
-                  selfConnectionId={sessionContext?.connectionId ?? null}
-                  size={30}
-                  max={3}
-                  overlap={-8}
-                  paintedHitTest
-                  filter={(presence) =>
-                    presence.viewMode === "log" &&
-                    presence.focusedAgentId === agent.id
-                  }
-                  ghostStyle={{
-                    transform: `translateY(${ghostBodyBottomOffset(30)}px)`,
-                  }}
-                />
-                <div
-                  onClick={onEditAgent}
-                  style={{
-                    width: 62,
-                    height: 78,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    borderRadius: 8,
-                    border: `2px solid ${modelStyle.border}`,
-                    background: modelStyle.bg,
-                    backdropFilter: "blur(8px)",
-                    WebkitBackdropFilter: "blur(8px)",
-                    cursor: "pointer",
-                    transition: "opacity 0.2s",
-                  }}
-                  title={i18n.t("logView.editAgent")}
-                >
-                  <Character
-                    key={agent.state}
-                    state={agent.state}
-                    outfit={agent.outfit}
-                  />
-                </div>
-              </div>
-            )}
             {logs.length === 0 && (
               <div
                 style={{
@@ -2607,6 +2632,7 @@ export function LogView({
               stateChangedAt={stateChangedAt.get(agent.id)}
               agentId={agent.id}
             />
+          </div>
           </div>
 
           {/* Input */}
@@ -2791,7 +2817,7 @@ export function LogView({
                 skills={agentCmds?.skills ?? []}
                 commands={menuCommands}
                 isMobile={isMobile}
-                draftFilter={showSlashMenu ? input.slice(1) : undefined}
+                draftFilter={showSlashMenu ? (slashDraft ?? "") : undefined}
                 onPick={handleSkillPick}
                 onClose={() => {
                   setSkillsOpen(false);

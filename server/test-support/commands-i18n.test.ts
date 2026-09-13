@@ -92,15 +92,30 @@ describe("a slash command answers in the typing user's language", () => {
     // the preference could not pass by accident.
     expect(getUserByName(owner.username)?.language).toBe("es");
 
-    await server.agentManager.sendMessage(agent.id, "/clear", owner.username);
-    expect(systemEntries(server, agent.id)).toContain("Conversación borrada.");
+    // /resume on a fresh agent answers with one of its two "nothing to
+    // resume" lines (/clear answers with nothing since 2026-09-13: the empty
+    // state is its confirmation).
+    const spanishReplies = [
+      "No hay sesiones anteriores.",
+      "No hay otras sesiones que retomar.",
+    ];
+    const englishReplies = [
+      "No previous sessions found.",
+      "No other sessions to resume.",
+    ];
+    await server.agentManager.sendMessage(agent.id, "/resume", owner.username);
+    expect(
+      systemEntries(server, agent.id).some((e) => spanishReplies.includes(e)),
+    ).toBe(true);
 
     // Same command, a user who never chose a language: the frozen English.
     const member = await server.seedMember("Sam");
     expect(getUserByName(member.username)?.language).toBeNull();
     const other = await spawnAgent(server, "B", room.id, member.username);
-    await server.agentManager.sendMessage(other.id, "/clear", member.username);
-    expect(systemEntries(server, other.id)).toContain("Conversation cleared.");
+    await server.agentManager.sendMessage(other.id, "/resume", member.username);
+    expect(
+      systemEntries(server, other.id).some((e) => englishReplies.includes(e)),
+    ).toBe(true);
   });
 
   it("translates a command's DESCRIPTION in /help, from the catalog", async () => {

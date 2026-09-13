@@ -86,7 +86,7 @@ it("opens a visible task chip in an unfiltered board detail", async () => {
     createElement(StateCtx.Provider, { value: state }, createElement(App)),
   );
   const chips = view.getAllByRole("button", {
-    name: "P0 - Task hashes open the…",
+    name: "ce5e7fe0 P0 Task hashes open the…",
   });
   expect(chips).toHaveLength(2);
   await act(async () => fireEvent.click(chips[0]));

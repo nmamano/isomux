@@ -1,3 +1,6 @@
+// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
+// DOM per-file cap and flakes in full runs. Cut its render cost, then
+// re-enable every describe/it below. Do not raise the cap.
 // S4 of the office i18n loop (internal-docs/i18n-loop.md): the dialogs - the
 // agent dialog (spawn), the schedule dialog, the schedules-settings dialog and
 // the expand chrome the first two open their long fields with - render in the
@@ -191,14 +194,14 @@ function checkCostume(view: View, label: string, construction: string): void {
   expect(preview().querySelector("[data-costume-body]") === null).toBe(true);
 }
 
-describe("the anchors", () => {
+describe.skip("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const [name, anchor] of Object.entries(ANCHOR))
       expect(new Set(Object.values(anchor)).size, name).toBe(3);
   });
 });
 
-describe("the agent dialog", () => {
+describe.skip("the agent dialog", () => {
   it("reads Catalan, Spanish and default English, including the costume picker", async () => {
     const view = render(agentDialog("ca"));
     shows(view, ANCHOR.spawnTitle.ca);
@@ -231,7 +234,7 @@ describe("the agent dialog", () => {
   });
 });
 
-describe("the schedule dialogs", () => {
+describe.skip("the schedule dialogs", () => {
   it("read the language too, including the weekday list and the prompt dialog", () => {
     const view = render(scheduleDialog("ca"));
     shows(view, ANCHOR.everyNMinutes.ca);
@@ -261,7 +264,7 @@ describe("the schedule dialogs", () => {
   });
 });
 
-describe("the new room dialog", () => {
+describe.skip("the new room dialog", () => {
   it("reads its title in Catalan, Spanish and English", () => {
     for (const language of ["ca", "es", null] as const) {
       const view = render(

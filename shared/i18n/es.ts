@@ -1110,6 +1110,7 @@ export const es: Catalog = {
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No se ha podido aplicar esa opción.",
   "logView.nav.agentTitle": "Ajustes del agente",
+  "logView.nav.copyTitle": "Copiar todo el chat",
   "logView.nav.avatarTitle": "Ver el avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Abrir el editor de archivos (Ctrl+E)",

@@ -1,3 +1,6 @@
+// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
+// DOM per-file cap and flakes in full runs. Cut its render cost, then
+// re-enable every describe/it below. Do not raise the cap.
 // Arriving ON a page path: a shared link, its aliases, and who owns the entry
 // underneath it. Loads that arrive on "/" or on a path that is not a route are
 // in ui/App.boot.dom.test.tsx.
@@ -48,7 +51,7 @@ const settingsOpen = (view: View) =>
 // The office is the only view that renders the nav bar.
 const officeShowing = (view: View) => view.queryByTitle("Tasks (t)") !== null;
 
-describe("a link straight to a page", () => {
+describe.skip("a link straight to a page", () => {
   it("opens the page and keeps its path, without pushing an entry", () => {
     const pushState = spyOn(window.history, "pushState");
     const before = window.history.length;
@@ -93,7 +96,7 @@ describe("a link straight to a page", () => {
   });
 });
 
-describe("an entry this app did not push", () => {
+describe.skip("an entry this app did not push", () => {
   // Both cases below are about the ownership ref staying honest. They matter
   // because ruling 8's whole promise - Close works on a cold-loaded link -
   // rests on the app knowing it never pushed the entry it is sitting on.

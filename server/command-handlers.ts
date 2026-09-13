@@ -314,7 +314,8 @@ export function createCommandHandling(deps: HandlerDeps) {
         topicStale: false,
       }))
         deps.emit(event);
-      deps.emitEphemeralLog(agentId, "system", t("commands.clear.done"));
+      // No ephemeral "Conversation cleared." line either: the empty state's
+      // start-or-resume sentence is the confirmation (Nil, 2026-09-13).
       deps.updateState(agentId, "idle");
       deps.persistAll();
       return true;

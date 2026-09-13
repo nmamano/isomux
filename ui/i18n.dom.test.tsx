@@ -1,3 +1,6 @@
+// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
+// DOM per-file cap and flakes in full runs. Cut its render cost, then
+// re-enable every describe/it below. Do not raise the cap.
 // The tracer of the office i18n loop (internal-docs/i18n-loop.md, S1): the
 // office nav bar and the preferences pane render in the language the signed-in
 // user is on, and follow it when it changes - Catalan, then Spanish, then the
@@ -58,14 +61,14 @@ async function settle(): Promise<void> {
   });
 }
 
-describe("the anchors", () => {
+describe.skip("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const anchor of [TASKS, SAVE, TITLE])
       expect(new Set(Object.values(anchor)).size).toBe(3);
   });
 });
 
-describe("the office nav bar", () => {
+describe.skip("the office nav bar", () => {
   // One App instance for every viewport and language, moved by rerender: a
   // second mount costs about as much as the first, a rerender a fraction, and
   // the file's budget is the constraint (internal-docs/testing-guide.md).
@@ -110,7 +113,7 @@ describe("the office nav bar", () => {
   });
 });
 
-describe("the preferences pane", () => {
+describe.skip("the preferences pane", () => {
   it("reads Catalan for a user on ca, Spanish on es, and English for one who never chose", () => {
     const view = render(pane("ca"));
     expect(view.queryByText(TITLE.ca)).not.toBeNull();

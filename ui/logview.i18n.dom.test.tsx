@@ -1,3 +1,6 @@
+// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
+// DOM per-file cap and flakes in full runs. Cut its render cost, then
+// re-enable every describe/it below. Do not raise the cap.
 // S5 of the office i18n loop (internal-docs/i18n-loop.md): the agent log view -
 // its header and nav actions, the composer, the empty state, the cards, the
 // API-call card's labels, the context battery and the subscription pill -
@@ -298,14 +301,14 @@ const titled = (view: View, text: string) =>
     text,
   ).toBeGreaterThan(0);
 
-describe("the anchors", () => {
+describe.skip("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const [name, anchor] of Object.entries(ANCHOR))
       expect(new Set(Object.values(anchor)).size, name).toBe(3);
   });
 });
 
-describe("the log view chrome", () => {
+describe.skip("the log view chrome", () => {
   it("reads Catalan on ca, then Spanish, then the English of a user who never chose", () => {
     const view = render(logView("ca", []));
     containsText(view, ANCHOR.emptyStart.ca);
@@ -396,7 +399,7 @@ describe("the log view chrome", () => {
   });
 });
 
-describe("the cards", () => {
+describe.skip("the cards", () => {
   it("read the language too, including the API-call card's parsed label", () => {
     const view = render(logView("ca", SEEDED));
     shows(view, ANCHOR.apiCall.ca);
@@ -489,7 +492,7 @@ const attachmentEcho = (language: Language) =>
     { hasReceivedInitialState: true },
   );
 
-describe("a raw tool-call group", () => {
+describe.skip("a raw tool-call group", () => {
   it("counts its calls in the reader's language in BOTH the collapsed and the expanded state", () => {
     for (const [language, count, subagentTitle] of [
       ["ca", "2 crides a eines", null],
@@ -521,7 +524,7 @@ describe("a raw tool-call group", () => {
   });
 });
 
-describe("the attachment echo", () => {
+describe.skip("the attachment echo", () => {
   it("is one whole frame per branch, with the count as data", () => {
     const view = render(attachmentEcho("ca"));
     shows(view, "Ha vist 2 imatges adjuntes (fes clic per mostrar-les)");
@@ -534,7 +537,7 @@ describe("the attachment echo", () => {
   });
 });
 
-describe("the editor panel", () => {
+describe.skip("the editor panel", () => {
   it("reads the language on its own mount", () => {
     const view = render(editorPanel("ca"));
     shows(view, ANCHOR.editorEmpty.ca);

@@ -1108,6 +1108,7 @@ export const ca: Catalog = {
   "logView.interaction.current": "Actual",
   "logView.interaction.failed": "No s'ha pogut aplicar aquesta opció.",
   "logView.nav.agentTitle": "Configuració de l'agent",
+  "logView.nav.copyTitle": "Copia tot el xat",
   "logView.nav.avatarTitle": "Mostra l'avatar",
   "logView.nav.editor": "Editor",
   "logView.nav.editorTitle": "Obre l'editor de fitxers (Ctrl+E)",

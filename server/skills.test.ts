@@ -241,9 +241,11 @@ describe("effective Claude home skill agreement", () => {
     ]);
   });
 
-  it("gives OpenCode the exact ordered Claude roots", () => {
+  it("gives OpenCode the ordered Claude roots, then the Codex sources", () => {
     const personalClaude = root("opencode-personal-claude");
     const boxClaude = root("opencode-box-claude");
+    const personalCodex = root("opencode-personal-codex");
+    const boxCodex = root("opencode-box-codex");
 
     expect(
       agentUserSkillRoots(
@@ -251,13 +253,15 @@ describe("effective Claude home skill agreement", () => {
         "opencode-user",
         { CLAUDE_CONFIG_DIR: personalClaude },
         boxClaude,
-        root("unused-box-codex"),
+        boxCodex,
         personalClaude,
-        root("unused-personal-codex"),
+        personalCodex,
       ),
     ).toEqual([
       { root: personalClaude, includeCommands: true },
       { root: boxClaude, includeCommands: true },
+      { root: personalCodex, includeCommands: false },
+      { root: boxCodex, includeCommands: false },
     ]);
   });
 

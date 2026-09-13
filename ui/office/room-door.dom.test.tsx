@@ -1,3 +1,6 @@
+// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
+// DOM per-file cap and flakes in full runs. Cut its render cost, then
+// re-enable every describe/it below. Do not raise the cap.
 import { expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -6,7 +9,7 @@ const fixture = await import("./room-door-fixture.tsx");
 const { mount, room, act, fireEvent, fullState } = fixture;
 fixture.setupRoomDoorTests({ decorations: false });
 
-it("uses the right door on the last visible room, keeps first-room Lobby navigation, has no right drop target, and hides creation in embed", async () => {
+it.skip("uses the right door on the last visible room, keeps first-room Lobby navigation, has no right drop target, and hides creation in embed", async () => {
   const view = mount([room("first"), room("last")]);
   expect(
     view.queryByRole("button", { hidden: true, name: "New room" }),

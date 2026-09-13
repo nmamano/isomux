@@ -3962,11 +3962,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ) {
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
-            addLogEntry(
-              agentId,
-              "system",
-              logWords(agentId)("systemEntries.conversationCleared"),
-            );
+            // No "Conversation cleared." entry: an empty log shows the
+            // start-or-resume sentence, which is the confirmation (Nil,
+            // 2026-09-13).
             // New thread id on an old conversation = conversation boundary
             // (e.g. the fresh thread of a committed Codex cwd change). Usually
             // redundant with an earlier reset at the semantic call site;

@@ -131,7 +131,14 @@ export function agentUserSkillRoots(
   personalClaudeRoot = userId ? personalProviderHome(userId, "claude") : null,
   personalCodexRoot = userId ? personalProviderHome(userId, "codex") : null,
 ): UserSkillRoot[] {
-  const claudeRoot = env?.CLAUDE_CONFIG_DIR || claudeSourceRoot;
+  // Every backend sees the same user skills from every source (Nil's
+  // backend-independence rule, 2026-09-13): the agent's own provider roots
+  // first, then the other provider's. The own provider's effective root comes
+  // from the launch env; the other provider's defaults to the member's
+  // personal home when there is one, so its box root joins too.
+  const claudeRoot =
+    env?.CLAUDE_CONFIG_DIR ||
+    (agentType !== "codex" ? claudeSourceRoot : (personalClaudeRoot ?? claudeSourceRoot));
   const claudeRoots = providerUserSkillRoots(
     "claude",
     userId,
@@ -139,19 +146,20 @@ export function agentUserSkillRoots(
     claudeSourceRoot,
     personalClaudeRoot,
   );
-  if (agentType !== "codex") return claudeRoots;
-
-  const codexRoot = env?.CODEX_HOME || codexSourceRoot;
-  const roots = [
-    ...providerUserSkillRoots(
-      "codex",
-      userId,
-      codexRoot,
-      codexSourceRoot,
-      personalCodexRoot,
-    ),
-    ...claudeRoots,
-  ];
+  const codexRoot =
+    env?.CODEX_HOME ||
+    (agentType === "codex" ? codexSourceRoot : (personalCodexRoot ?? codexSourceRoot));
+  const codexRoots = providerUserSkillRoots(
+    "codex",
+    userId,
+    codexRoot,
+    codexSourceRoot,
+    personalCodexRoot,
+  );
+  const roots =
+    agentType === "codex"
+      ? [...codexRoots, ...claudeRoots]
+      : [...claudeRoots, ...codexRoots];
   const unique: UserSkillRoot[] = [];
   for (const source of roots) {
     const existing = unique.find(
