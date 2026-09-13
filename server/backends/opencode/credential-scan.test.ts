@@ -3,9 +3,11 @@ import { join, relative } from "node:path";
 import { scanCredentialCanaries } from "./credential-scan";
 
 const repoRoot = join(import.meta.dir, "../../..");
+// Only surfaces that still change: the frozen August gate evidence under
+// internal-docs/opencode-gate/evidence was scanned once and is not re-scanned
+// on every run (Nil, 2026-09-13).
 const committedArtifactRoots = [
   join(import.meta.dir, "fixtures"),
-  join(repoRoot, "internal-docs/opencode-gate/evidence"),
   join(import.meta.dir, "start-server.ts"),
   join(import.meta.dir, "supervisor.ts"),
 ];
@@ -13,7 +15,7 @@ const committedArtifactRoots = [
 async function committedArtifacts() {
   const files: Array<{ path: string; text: string }> = [];
   for (const root of committedArtifactRoots) {
-    if (!root.endsWith("fixtures") && !root.endsWith("evidence")) {
+    if (!root.endsWith("fixtures")) {
       files.push({
         path: relative(repoRoot, root),
         text: await Bun.file(root).text(),
@@ -47,34 +49,8 @@ describe("OpenCode committed credential scan", () => {
       ),
     ).toEqual([{ className: control.className, path: "direct-input" }]);
 
-    const allowedCanaryHits: Record<string, string[]> = {
-      // Recorded raw pre-redaction provider response.
-      "internal-docs/opencode-gate/evidence/auth-error-events.jsonl": [
-        "provider response header",
-      ],
-      // Recorded pre-redaction provider response projected into the probe result.
-      "internal-docs/opencode-gate/evidence/auth-error-results.json": [
-        "provider response header",
-      ],
-      // Historical scan metadata necessarily names every canary it searched for.
-      "internal-docs/opencode-gate/evidence/secret-scan-results.json": [
-        "provider credential",
-        "V1 server password",
-        "V2 server password",
-        "provider response header",
-      ],
-    };
-    const expectedHits = Object.entries(allowedCanaryHits)
-      .flatMap(([path, classes]) =>
-        classes.map((className) => ({ className, path })),
-      )
-      .sort((a, b) =>
-        `${a.path}:${a.className}`.localeCompare(`${b.path}:${b.className}`),
-      );
-    const hits = scanCredentialCanaries(await committedArtifacts()).sort(
-      (a, b) =>
-        `${a.path}:${a.className}`.localeCompare(`${b.path}:${b.className}`),
-    );
-    expect(hits).toEqual(expectedHits);
+    // The live surfaces carry no canary at all. (The frozen gate evidence had
+    // recorded, documented hits; it is no longer scanned.)
+    expect(scanCredentialCanaries(await committedArtifacts())).toEqual([]);
   });
 });

@@ -6,8 +6,7 @@ production adapter. The runnable harness, its `package.json` and lockfile
 were removed on 2026-09-13 (Nil): its pinned V2 beta carried two Dependabot
 advisories that no published version can clear, and the measurement is
 complete. Recover the harness from git history (commit ab0fe75d or earlier)
-if the gate ever needs re-running. `server/backends/opencode/credential-scan.test.ts`
-still reads `evidence/`, so those files stay.
+if the gate ever needs re-running.
 
 The gate uses only scratch repositories and profiles under `/tmp`. It drives
 model-dependent checks through a deterministic local OpenAI-compatible mock.
