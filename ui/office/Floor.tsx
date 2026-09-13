@@ -740,6 +740,7 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
       }}
       style={{ cursor: "pointer", pointerEvents: "auto" }}
     >
+      <title>{door.label}</title>
       <style>{DOOR_FOCUS_CSS + DOOR_AJAR_CSS}</style>
       <g transform={`translate(${origin.x}, ${origin.y})`}>
         {/* The room on the other side: this room's own wall and floor
@@ -1143,6 +1144,7 @@ export function Walls({
         }}
         style={{ cursor: "pointer", pointerEvents: "auto" }}
       >
+        <title>{t("common.changeTheme")}</title>
         {/* Four-sided wall opening, with its depth visible inside. */}
         <path
           d="M-290 120 L-140 45 L-140 -50 L-290 25 Z"
@@ -1279,6 +1281,7 @@ export function Walls({
         onClick={onOpenTasks}
         style={{ cursor: "pointer", pointerEvents: "auto" }}
       >
+        <title>{t("nav.tasksShortcut")}</title>
         {/* Board frame */}
         <rect
           x="-50"
@@ -1478,6 +1481,7 @@ export function Walls({
             : undefined
         }
       >
+        {onOpenCronjobs && <title>{t("common.schedules")}</title>}
         {/* Slightly larger transparent hit area for forgiving clicks */}
         {onOpenCronjobs && (
           <circle cx="0" cy="0" r={R + 4} fill="transparent" />
@@ -1573,6 +1577,7 @@ export function Walls({
           filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})`,
         }}
       >
+        <title>{t("office.openWebsite")}</title>
         {/* Hit area */}
         <rect
           data-no-pan
@@ -1642,6 +1647,7 @@ export function Walls({
       </g>
       {/* Off (light mode) */}
       <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
+        <title>{t("office.openWebsite")}</title>
         {/* Hit area */}
         <rect
           data-no-pan
@@ -1709,7 +1715,7 @@ export function Walls({
             : undefined
         }
       >
-        {onOpenSettings && <title>{t("common.settings")}</title>}
+        {onOpenSettings && <title>{t("nav.settingsShortcut")}</title>}
         {onOpenSettings && (
           <rect x="-29" y="-22" width="58" height="44" fill="transparent" />
         )}
@@ -1806,7 +1812,7 @@ export function AppsWallScreen({ onOpenApps }: { onOpenApps?: () => void }) {
         onOpenApps ? { cursor: "pointer", pointerEvents: "auto" } : undefined
       }
     >
-      {onOpenApps && <title>{t("common.apps")}</title>}
+      {onOpenApps && <title>{t("nav.appsShortcut")}</title>}
       <rect
         x="-30"
         y="-32"

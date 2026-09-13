@@ -64,6 +64,7 @@ export function MobileHeader({
         {updateAvailable && (
           <span
             onClick={onOpenUpdate}
+            title={t("updateNotice.title.newRelease")}
             style={{
               width: 32,
               height: 32,

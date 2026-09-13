@@ -360,6 +360,7 @@ export function OfficeView({
       id: "cronjobs",
       icon: ClockIcon,
       label: t("common.schedules"),
+      title: t("common.schedules"),
       onClick: onOpenCronjobs,
     },
     {
@@ -442,7 +443,7 @@ export function OfficeView({
                 title={
                   updateInfo?.mode === "commit"
                     ? buildCommitNotice(i18n, updateInfo)?.notice
-                    : undefined
+                    : t("updateNotice.title.newRelease")
                 }
                 style={{
                   fontSize: 11,

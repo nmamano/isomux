@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Portal } from "./Portal.tsx";
+import { useI18n } from "../i18n.tsx";
 
 export type NavAction = {
   id: string;
@@ -55,6 +56,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
 }
 
 function MobileActions({ actions }: { actions: NavAction[] }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -93,6 +95,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
       <button
         ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
+        title={t("common.moreActions")}
         style={{
           background: "var(--btn-surface)",
           border: "1px solid var(--border)",
@@ -126,6 +129,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
             {actions.map((a) => (
               <button
                 key={a.id}
+                title={a.title ?? a.label}
                 onClick={() => {
                   setOpen(false);
                   a.onClick();

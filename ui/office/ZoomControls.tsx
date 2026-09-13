@@ -108,14 +108,14 @@ export function ZoomControls({
     >
       <ZoomButton
         onClick={onZoomIn}
-        title={t("office.zoom.in")}
+        title={t("office.zoom.inShortcut")}
         aria-label={t("office.zoom.in")}
       >
         +
       </ZoomButton>
       <ZoomButton
         onClick={onZoomOut}
-        title={t("office.zoom.out")}
+        title={t("office.zoom.outShortcut")}
         aria-label={t("office.zoom.out")}
       >
         -

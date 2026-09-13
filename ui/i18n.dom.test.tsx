@@ -72,28 +72,32 @@ describe("the office nav bar", () => {
   it("reads Catalan on ca, Spanish on es, English for one who never chose, on desktop and phone", () => {
     const view = render(app("ca"));
 
-    // Every desktop action of OfficeView, label and title, once in Catalan.
-    // Shortcut titles include the key; Schedules keeps its label.
-    for (const title of [
-      "Tasques (t)",
-      "Programacions",
-      "Apps (a)",
-      "Configuració (s)",
-    ])
-      expect(view.queryByTitle(title), title).not.toBeNull();
+    // Every desktop action has one Catalan tooltip in this lobby fixture.
+    // Shortcut titles include the key; Schedules has no shortcut. The room's
+    // matching wall controls are asserted in site-link.i18n.dom.test.tsx.
+    for (const [title, count] of [
+      ["Tasques (t)", 1],
+      ["Programacions", 1],
+      ["Apps (a)", 1],
+      ["Configuració (s)", 1],
+    ] as const)
+      expect(view.queryAllByTitle(title).length, title).toBe(count);
     // The vent in the scene carries the same word as its SVG title, so the
     // label is not the only match.
     expect(view.queryAllByText("Configuració").length).toBeGreaterThan(0);
     expect(view.queryByText("Tema")).not.toBeNull();
-    expect(view.queryByTitle("Canvia el tema")).not.toBeNull();
+    expect(view.queryAllByTitle("Canvia el tema").length).toBe(1);
+    expect(view.queryByTitle("Apropa (+)")).not.toBeNull();
+    expect(view.queryByTitle("Allunya (-)")).not.toBeNull();
+    expect(view.queryByTitle("Restableix la vista (0)")).not.toBeNull();
     expect(view.queryByTitle("Tasks (t)")).toBeNull();
 
     view.rerender(app("es"));
-    expect(view.queryByTitle("Tareas (t)")).not.toBeNull();
+    expect(view.queryAllByTitle("Tareas (t)").length).toBe(1);
     expect(view.queryByTitle("Tasques (t)")).toBeNull();
 
     view.rerender(app(null));
-    expect(view.queryByTitle("Tasks (t)")).not.toBeNull();
+    expect(view.queryAllByTitle("Tasks (t)").length).toBe(1);
     expect(view.queryByTitle("Tareas (t)")).toBeNull();
 
     // The phone menu keeps the office actions without a view toggle.

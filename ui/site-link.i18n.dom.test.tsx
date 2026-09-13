@@ -37,6 +37,14 @@ function openedBy(language: Language, sign: "on" | "off"): string[] {
   };
 
   const view = render(onLanguage(language, <Walls />));
+  const tooltip = {
+    en: "Open isomux.com",
+    es: "Abrir isomux.com",
+    ca: "Obre isomux.com",
+  }[language];
+  expect(view.container.querySelector(`.neon-sign-${sign} title`)?.textContent).toBe(
+    tooltip,
+  );
   const target = view.container.querySelector(
     `.neon-sign-${sign} rect[data-no-pan]`,
   );
@@ -49,6 +57,36 @@ function openedBy(language: Language, sign: "on" | "off"): string[] {
 }
 
 describe("the office's link to the public site", () => {
+  it("labels every interactive wall control and includes available shortcuts", () => {
+    const noop = () => {};
+    const view = render(
+      onLanguage(
+        "en",
+        <Walls
+          onToggleTheme={noop}
+          onOpenTasks={noop}
+          onOpenCronjobs={noop}
+          onOpenApps={noop}
+          onOpenSettings={noop}
+        />,
+      ),
+    );
+    const svgTitles = Array.from(view.container.querySelectorAll("title")).map(
+      (node) => node.textContent,
+    );
+    for (const title of [
+      "Change theme",
+      "Tasks (t)",
+      "Schedules",
+      "Apps (a)",
+      "Settings (s)",
+    ])
+      expect(svgTitles.filter((text) => text === title).length, title).toBe(1);
+    expect(svgTitles.filter((text) => text === "Open isomux.com").length).toBe(
+      2,
+    );
+  });
+
   it("opens the English landing for a boss on English", () => {
     expect(openedBy("en", "on")).toEqual(["https://isomux.com"]);
     expect(openedBy("en", "off")).toEqual(["https://isomux.com"]);

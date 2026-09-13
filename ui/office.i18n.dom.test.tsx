@@ -169,7 +169,7 @@ const ANCHOR = {
     en: "Create new room",
   },
   // The scene's zoom control.
-  zoomIn: { ca: "Apropa", es: "Acercar", en: "Zoom in" },
+  zoomIn: { ca: "Apropa (+)", es: "Acercar (+)", en: "Zoom in (+)" },
   // The nameplate badge on an agent parked for an answer, which is the word
   // ui/pending-prompt.ts now supplies as a key.
   badge: { ca: "permís", es: "permiso", en: "permission" },

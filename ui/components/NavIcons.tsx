@@ -221,6 +221,23 @@ export const CheckIcon = (
   </svg>
 );
 
+export const EndConversationIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+    <path d="M5.5 5.5l5 5M10.5 5.5l-5 5" />
+  </svg>
+);
+
 export const ClockIcon = (
   <svg
     width="15"

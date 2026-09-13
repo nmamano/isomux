@@ -60,6 +60,7 @@ import {
   BrowserIcon,
   CopyIcon,
   CheckIcon,
+  EndConversationIcon,
 } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
@@ -272,6 +273,7 @@ function ActivityIndicator({
       {showAbort && (
         <button
           onClick={() => sendAbortDebounced(agentId)}
+          title={t("logView.abortTitle")}
           style={{
             marginLeft: 8,
             padding: "2px 10px",
@@ -1383,6 +1385,22 @@ export function LogView({
     copyTimer.current = setTimeout(() => setCopied(false), 1500);
   }, [getConversationText]);
 
+  const runSlashCommand = useCallback(
+    (command: string) => {
+      if (!connected) {
+        setSendError(true);
+        return;
+      }
+      apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+        text: command,
+        device: device || undefined,
+      }).catch(() => {});
+      setSendError(false);
+      setAutoScroll(true);
+    },
+    [agent.id, connected, device],
+  );
+
   const baseAgentActions: NavAction[] = [
     ...(onOpenTasks
       ? [
@@ -1403,6 +1421,13 @@ export function LogView({
             label: i18n.t(copied ? "common.copied" : "common.copy"),
             onClick: handleCopy,
             active: copied,
+          },
+          {
+            id: "endConversation",
+            icon: EndConversationIcon,
+            label: i18n.t("logView.nav.endConversation"),
+            title: i18n.t("logView.nav.endConversationTitle"),
+            onClick: () => runSlashCommand("/clear"),
           },
         ]
       : []),
@@ -1826,16 +1851,7 @@ export function LogView({
     // wire data) falls through to the safe insert path.
     if (autoRun === true) {
       setSkillsOpen(false);
-      if (!connected) {
-        setSendError(true);
-        return;
-      }
-      apiFetch("POST", `/api/agents/${agent.id}/messages`, {
-        text: `/${name}`,
-        device: device || undefined,
-      }).catch(() => {});
-      setSendError(false);
-      setAutoScroll(true);
+      runSlashCommand(`/${name}`);
       return;
     }
     const current = inputRef.current;
@@ -1962,6 +1978,7 @@ export function LogView({
         >
           <button
             onClick={onBack}
+            title={i18n.t("logView.backToOfficeTitle")}
             style={{
               display: "flex",
               alignItems: "center",
@@ -2433,7 +2450,7 @@ export function LogView({
             }}
           >
             {/* Floating agent portrait - only mount when visible, so the
-            sticky+backdrop-filter element doesn't sit in the scroll
+            backdrop-filter element doesn't sit in the scroll
             container's layer tree when hidden (suspected to deactivate
             selections on layout commit). */}
             {showAvatar && (
@@ -2441,12 +2458,13 @@ export function LogView({
                 style={{
                   position: "sticky",
                   top: isMobile ? 12 : 16,
-                  float: "right",
-                  marginRight: 0,
+                  float: "none",
+                  width: "fit-content",
+                  height: 0,
+                  marginLeft: "auto",
                   zIndex: 10,
-                  height: 78,
                   display: "flex",
-                  alignItems: "flex-end",
+                  alignItems: "flex-start",
                   justifyContent: "center",
                 }}
               >
@@ -2499,9 +2517,29 @@ export function LogView({
                   marginTop: 40,
                 }}
               >
-                {connected
-                  ? i18n.t("logView.empty")
-                  : i18n.t("common.loadingDots")}
+                {connected ? (
+                  <>
+                    {i18n.t("logView.emptyStart")}{" "}
+                    <button
+                      type="button"
+                      onClick={() => runSlashCommand("/resume")}
+                      style={{
+                        padding: 0,
+                        border: "none",
+                        background: "none",
+                        color: "var(--accent)",
+                        cursor: "pointer",
+                        font: "inherit",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      {i18n.t("logView.emptyResume")}
+                    </button>
+                    .
+                  </>
+                ) : (
+                  i18n.t("common.loadingDots")
+                )}
               </div>
             )}
             {logs.map((entry) => {
@@ -3290,7 +3328,7 @@ export function LogView({
                       justifyContent: "center",
                       lineHeight: 1,
                     }}
-                    title={i18n.t("logView.abort")}
+                    title={i18n.t("logView.abortTitle")}
                   >
                     ■
                   </button>

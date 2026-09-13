@@ -19,7 +19,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, render } = await import("@testing-library/react");
+const { act, fireEvent, render } = await import("@testing-library/react");
 const { LogView } = await import("./log-view/LogView.tsx");
 const { LogEntryCard, RawToolCallGroupCard } =
   await import("./log-view/LogEntryCard.tsx");
@@ -37,8 +37,13 @@ type LogEntry = import("../shared/types.ts").LogEntry;
 // file it is told to open. Nothing else here reaches the API: an unlisted path
 // rejects, so a surface that lost its own copy fails its anchor rather than
 // passing quietly.
-setApiShim(async (_method, path) => {
+const commandCalls: Array<{ method: string; path: string; body: unknown }> = [];
+setApiShim(async (method, path, body) => {
   if (path === "/api/skill-usage") return { counts: {} };
+  if (path === "/api/agents/a1/messages") {
+    commandCalls.push({ method, path, body });
+    return { messageId: "" };
+  }
   throw new Error(`no shim for ${path}`);
 });
 afterAll(() => setApiShim(null));
@@ -122,17 +127,22 @@ const SEEDED: LogEntry[] = [
   }),
 ];
 
-const logView = (language: Language, logs: LogEntry[]) =>
+const logView = (
+  language: Language,
+  logs: LogEntry[],
+  agent: AgentInfo = AGENT,
+  stateOver: Record<string, unknown> = {},
+) =>
   onLanguage(
     language,
     createElement(LogView, {
-      agent: AGENT,
+      agent,
       logs,
       onBack: () => {},
       onEditAgent: () => {},
     }),
     {
-      agents: [AGENT],
+      agents: [agent],
       rooms: [
         { id: "r1", name: "Room", prompt: null, canCloseWhenEmpty: true },
       ],
@@ -140,6 +150,7 @@ const logView = (language: Language, logs: LogEntry[]) =>
       // The empty state says "send a message" only when the socket is up;
       // offline it says the view is still loading.
       connected: true,
+      ...stateOver,
     },
   );
 
@@ -157,10 +168,15 @@ const editorPanel = (language: Language) =>
 // One anchor per surface, each a string only that surface shows.
 const ANCHOR = {
   // The empty conversation.
-  empty: {
-    ca: "Envia un missatge per començar una conversa.",
-    es: "Envía un mensaje para empezar una conversación.",
-    en: "Send a message to start a conversation.",
+  emptyStart: {
+    ca: "Envia un missatge per començar una conversa o",
+    es: "Envía un mensaje para empezar una conversación o",
+    en: "Send a message to start a conversation or",
+  },
+  emptyResume: {
+    ca: "reprèn-ne una d'anterior",
+    es: "reanuda una anterior",
+    en: "resume a past one",
   },
   // The composer's placeholder on a desktop viewport with an idle agent.
   composer: {
@@ -192,6 +208,16 @@ const ANCHOR = {
     ca: "Obre el navegador en directe",
     es: "Abrir el navegador en directo",
     en: "Open live browser",
+  },
+  abort: {
+    ca: "Avorta (Ctrl+C)",
+    es: "Abortar (Ctrl+C)",
+    en: "Abort (Ctrl+C)",
+  },
+  sendNow: {
+    ca: "Envia ara els missatges en cua - interromp el torn actual (Ctrl+Enter)",
+    es: "Enviar ahora los mensajes en cola - interrumpe el turno actual (Ctrl+Enter)",
+    en: "Send queued messages now - interrupts the current turn (Ctrl+Enter)",
   },
   // The context battery with no reading, by its accessible name.
   battery: {
@@ -282,44 +308,93 @@ describe("the anchors", () => {
 describe("the log view chrome", () => {
   it("reads Catalan on ca, then Spanish, then the English of a user who never chose", () => {
     const view = render(logView("ca", []));
-    shows(view, ANCHOR.empty.ca);
+    containsText(view, ANCHOR.emptyStart.ca);
+    shows(view, ANCHOR.emptyResume.ca);
     shows(view, ANCHOR.pendingPrompt.ca);
     shows(view, ANCHOR.queueChip.ca);
     shows(view, ANCHOR.queueAttachments.ca);
     titled(view, ANCHOR.editAgent.ca);
     titled(view, ANCHOR.openTerminal.ca);
     titled(view, ANCHOR.openBrowser.ca);
+    titled(view, ANCHOR.sendNow.ca);
     labelled(view, ANCHOR.battery.ca);
     labelled(view, ANCHOR.pill.ca);
     expect(
       view.queryByPlaceholderText(ANCHOR.composer.ca),
       "composer",
     ).not.toBeNull();
-    expect(view.queryByText(ANCHOR.empty.en)).toBeNull();
+    expect(view.queryByText(ANCHOR.emptyResume.en)).toBeNull();
 
     view.rerender(logView("es", []));
-    shows(view, ANCHOR.empty.es);
+    containsText(view, ANCHOR.emptyStart.es);
+    shows(view, ANCHOR.emptyResume.es);
     shows(view, ANCHOR.pendingPrompt.es);
     shows(view, ANCHOR.queueChip.es);
     shows(view, ANCHOR.queueAttachments.es);
     titled(view, ANCHOR.editAgent.es);
     titled(view, ANCHOR.openBrowser.es);
+    titled(view, ANCHOR.sendNow.es);
     labelled(view, ANCHOR.battery.es);
     labelled(view, ANCHOR.pill.es);
     expect(view.queryByPlaceholderText(ANCHOR.composer.es)).not.toBeNull();
-    expect(view.queryByText(ANCHOR.empty.ca)).toBeNull();
+    expect(view.queryByText(ANCHOR.emptyResume.ca)).toBeNull();
 
     view.rerender(logView(null, []));
-    shows(view, ANCHOR.empty.en);
+    containsText(view, ANCHOR.emptyStart.en);
+    shows(view, ANCHOR.emptyResume.en);
     shows(view, ANCHOR.pendingPrompt.en);
     shows(view, ANCHOR.queueChip.en);
     shows(view, ANCHOR.queueAttachments.en);
     titled(view, ANCHOR.editAgent.en);
     titled(view, ANCHOR.openTerminal.en);
     titled(view, ANCHOR.openBrowser.en);
+    titled(view, ANCHOR.sendNow.en);
     labelled(view, ANCHOR.battery.en);
     labelled(view, ANCHOR.pill.en);
     expect(view.queryByPlaceholderText(ANCHOR.composer.en)).not.toBeNull();
+  });
+
+  it("keeps the escalated Abort label short and shows its shortcut in a tooltip", () => {
+    const busyAgent = { ...AGENT, state: "thinking", queue: [] } as AgentInfo;
+    const stateOver = {
+      stateChangedAt: new Map([[busyAgent.id, Date.now() - 3 * 60 * 1000]]),
+    };
+    const view = render(logView("ca", [], busyAgent, stateOver));
+    titled(view, ANCHOR.abort.ca);
+    expect(view.getByRole("button", { name: "Avorta" })).not.toBeNull();
+
+    view.rerender(logView("es", [], busyAgent, stateOver));
+    titled(view, ANCHOR.abort.es);
+    expect(view.getByRole("button", { name: "Abortar" })).not.toBeNull();
+
+    view.rerender(logView(null, [], busyAgent, stateOver));
+    titled(view, ANCHOR.abort.en);
+    expect(view.getByRole("button", { name: "Abort" })).not.toBeNull();
+  });
+
+  it("opens resume from the empty state and ends a populated conversation through slash commands", () => {
+    commandCalls.length = 0;
+    const view = render(logView(null, []));
+    fireEvent.click(
+      view.getByRole("button", { name: ANCHOR.emptyResume.en }),
+    );
+    expect(commandCalls.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agents/a1/messages",
+      body: { text: "/resume" },
+    });
+
+    view.rerender(logView(null, SEEDED));
+    fireEvent.click(
+      view.getByTitle(
+        "End conversation. You can resume it later with /resume.",
+      ),
+    );
+    expect(commandCalls.at(-1)).toEqual({
+      method: "POST",
+      path: "/api/agents/a1/messages",
+      body: { text: "/clear" },
+    });
   });
 });
 
