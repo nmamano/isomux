@@ -23,7 +23,7 @@ const ES = "Conversación borrada.";
 const CA = "Conversa esborrada.";
 const KEY = "systemEntries.conversationCleared" as const;
 
-function seed(name: string, language: "en" | "es" | "ca" | null): string {
+function seed(name: string, language: "en" | "es" | "ca" | "zh" | null): string {
   const user = claimUser(name);
   updateUserById(user.id, { language });
   return user.id;
@@ -147,4 +147,11 @@ describe("translatorForRequest - the pre-sign-in pages", () => {
     expect(translatorForRequest(null, "fr").t(KEY)).toBe(EN);
     expect(translatorForRequest(null, null).t(KEY)).toBe(EN);
   });
+});
+
+it("uses Chinese for a member by name, ID and direct preference", () => {
+  const id = seed("Lin", "zh");
+  expect(translatorForUsername("Lin").t(KEY)).toBe("对话已清除。");
+  expect(translatorForUserId(id).t(KEY)).toBe("对话已清除。");
+  expect(translatorForLanguage("zh").t(KEY)).toBe("对话已清除。");
 });

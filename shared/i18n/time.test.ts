@@ -293,3 +293,10 @@ describe("timeUntilFine", () => {
     });
   });
 });
+
+it("formats Chinese relative and local absolute times", () => {
+  expect(timeSince("zh", NOW - 5 * MINUTE, NOW)).toEqual({ kind: "formatted", text: "5分钟前" });
+  const local = new Date(2024, 7, 1, 11, 0).getTime();
+  expect(absoluteTime("zh", local)).toBe("2024/8/1 11:00");
+  expect(formatDateTime("zh", local, "monthDay")).toBe("8月1日");
+});

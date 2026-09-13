@@ -1177,6 +1177,7 @@ export const es: Catalog = {
   "logView.voice.language.en": "inglés",
   "logView.voice.language.es": "español",
   "logView.voice.language.ca": "catalán",
+  "logView.voice.language.zh": "Chino simplificado",
   "logView.voice.httpsTitle": "La entrada de voz necesita HTTPS",
   "logView.voice.httpsStep1":
     "Activa HTTPS en tu <console>consola de administración de Tailscale</console> (página DNS), y luego ejecuta esto en el host (usa la terminal integrada):",

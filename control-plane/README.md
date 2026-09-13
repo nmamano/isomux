@@ -3119,14 +3119,14 @@ webhook path out of the storefront's module graph.
 - No webhook processing. Deliveries stay with `billing-cli.ts serve`, exactly as
   slice 3 built them. No operator actions either: 4a is the read side.
 
-### The customer pages in Spanish and Catalan
+### The customer pages in Spanish, Catalan and Simplified Chinese
 
 Added 2026-09-06. A customer reads sign-in, the landing dashboard, sign-up, the
-office page and every payment refusal in English, Spanish or Catalan. `app/ops`
+office page and every payment refusal in English, Spanish, Catalan or Simplified Chinese. `app/ops`
 is English and carries no language switch: it is an operator surface.
 
-The catalogs are `web/lib/i18n/` - a typed English source of truth with `es` and
-`ca` as complete records over its keys, plus `translatorFor`, `{name}`
+The catalogs are `web/lib/i18n/` - a typed English source of truth with `es`,
+`ca` and `zh` as complete records over its keys, plus `translatorFor`, `{name}`
 interpolation, `Intl.PluralRules` for the one/other pairs, and `rich()` for a
 sentence with a link inside it. **It is a copy of `shared/i18n/`, not an import**,
 because `web-boundary.test.ts` refuses any `../..` import outside its allow list.
@@ -3145,7 +3145,7 @@ Two resolution paths, because the pages render two different ways:
 - `/` and `/signin` are prerendered under `dynamic = "error"` so a CDN can hold
   them. They cannot read a request at all, so they paint English and move to the
   reader's language after hydration (`useLanguage`, which reads the cookie and
-  then `navigator.languages` in order). A visitor on Spanish or Catalan reads one
+  then `navigator.languages` in order). A visitor on Spanish, Catalan or Simplified Chinese reads one
   frame of English; that is the price of the shell being cacheable.
 
 `<html lang>` in `app/layout.tsx` is a static `"en"` and cannot be anything else:

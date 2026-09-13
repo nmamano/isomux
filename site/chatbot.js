@@ -1,5 +1,5 @@
-// Shared chat widget. Loaded by site/index.html (landing chatbot), its Spanish
-// and Catalan copies under site/es and site/ca, and the per-page docs chatbot
+// Shared chat widget. Loaded by site/index.html (landing chatbot), its Spanish,
+// Catalan and Simplified Chinese copies under site/es, site/ca and site/zh, and the per-page docs chatbot
 // rendered by scripts/build-docs.ts.
 //
 // Page-specific context: if `window.__docContext` is set (a string of raw
@@ -23,11 +23,11 @@
   const pageContext =
     typeof window.__docContext === "string" ? window.__docContext.trim() : "";
   // Which page kind /api/chat is told about. A language copy of a page lives
-  // under its own directory (site/es, site/ca), so the prefix comes off before
+  // under its own directory (site/es, site/ca, site/zh), so the prefix comes off before
   // the classification: /es/hosted is the hosted page, not the landing. Keep
   // the codes in step with SUPPORTED_LANGUAGES in shared/languages.ts; English
   // has no prefix.
-  const LANGUAGE_PREFIX = /^\/(?:es|ca)(?=\/|$)/;
+  const LANGUAGE_PREFIX = /^\/(?:es|ca|zh)(?=\/|$)/;
   const pagePath = window.location.pathname.replace(LANGUAGE_PREFIX, "");
   const page = pagePath.startsWith("/hosted") ? "hosted" : "main";
 
@@ -73,6 +73,17 @@
       powered: "Funciona con Claude",
       noCredits: "El chatbot se ha quedado sin crédito. ¡Inténtalo más tarde!",
       failed: "Algo ha ido mal. Inténtalo otra vez.",
+    },
+    zh: {
+      pageStarters: ["总结此页面", "这里没有介绍哪些内容？", "这与 Isomux 的其他部分有什么关系？", "Isomux 是什么？"],
+      starters: ["Isomux 是什么？", "如何开始使用？", "有哪些功能？", "可以在手机上使用吗？"],
+      pageIntro: "可以向我询问此页面或 Isomux！",
+      intro: "可以向我询问任何 Isomux 问题！",
+      header: "询问 Isomux",
+      placeholder: "输入消息…",
+      powered: "由 Claude 提供支持",
+      noCredits: "聊天机器人的额度已用完。请稍后重试！",
+      failed: "出现错误。请重试。",
     },
     ca: {
       pageStarters: [

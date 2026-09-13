@@ -1,5 +1,5 @@
-// The six public pages: site/index.html and site/hosted.html in English, and
-// their Spanish and Catalan copies under site/es and site/ca.
+// The eight public pages: site/index.html and site/hosted.html in English, and
+// their Spanish, Catalan and Simplified Chinese copies under site/es, site/ca and site/zh.
 //
 // The copies are full static files, not a template render, so nothing but a
 // check like this stops them drifting from the English: a link that stayed
@@ -37,6 +37,8 @@ type Row = {
 };
 
 const PAGES: Row[] = [
+  { lang: "zh", family: "index", file: "zh/index.html", url: "https://isomux.com/zh", self: "/zh" },
+  { lang: "zh", family: "hosted", file: "zh/hosted.html", url: "https://isomux.com/zh/hosted", self: "/zh/hosted" },
   {
     lang: "en",
     family: "index",
@@ -81,18 +83,20 @@ const PAGES: Row[] = [
   },
 ];
 
-// What each family's four alternate links must say, on all three of its pages.
+// What each family's five alternate links must say, on all four of its pages.
 const ALTERNATES: Record<Row["family"], Record<string, string>> = {
   index: {
     en: "https://isomux.com/",
     es: "https://isomux.com/es",
     ca: "https://isomux.com/ca",
+    zh: "https://isomux.com/zh",
     "x-default": "https://isomux.com/",
   },
   hosted: {
     en: "https://isomux.com/hosted",
     es: "https://isomux.com/es/hosted",
     ca: "https://isomux.com/ca/hosted",
+    zh: "https://isomux.com/zh/hosted",
     "x-default": "https://isomux.com/hosted",
   },
 };
@@ -132,6 +136,7 @@ const SENTINELS: Record<Row["family"], string[]> = {
 // They exist in English only and the English text governs, so the sentence has
 // to appear in every language rather than only where an English reader lands.
 const LEGAL_NOTE: Record<string, string> = {
+  zh: "我们的 Terms、Privacy Policy 和 Refund Policy 仅提供英文版本，以英文文本为准。",
   en: "Our Terms, Privacy Policy and Refund Policy are in English only. The English text is the one that governs.",
   es: "Nuestros Términos, Política de Privacidad y Política de Reembolsos están solo en inglés. El texto en inglés es el que rige.",
   ca: "Els nostres Termes, Política de Privacitat i Política de Reemborsaments només són en anglès. El text en anglès és el que regeix.",
@@ -223,13 +228,14 @@ function switchItems(block: string): SwitchItem[] {
   });
 }
 
-/** What the switch must say on `row`: three links, this page's own marked. */
+/** What the switch must say on `row`: four links, this page's own marked. */
 function expectedSwitch(row: Row): SwitchItem[] {
   const suffix = row.family === "hosted" ? "/hosted" : "";
   return [
     ["en", "", "English"],
     ["es", "/es", "Español"],
     ["ca", "/ca", "Català"],
+    ["zh", "/zh", "简体中文"],
   ].map(([code, prefix, text]) => ({
     href: prefix + suffix || "/",
     hreflang: code,
@@ -281,11 +287,11 @@ function servesAFile(pathname: string): boolean {
   });
 }
 
-describe("public site in three languages", () => {
+describe("public site in four languages", () => {
   it("SITE_LANGUAGE_PATH matches the paths the pages are actually served at", () => {
-    expect(SITE_LANGUAGE_PATH).toEqual({ en: "", es: "/es", ca: "/ca" });
+    expect(SITE_LANGUAGE_PATH).toEqual({ en: "", es: "/es", ca: "/ca", zh: "/zh" });
     for (const row of PAGES) {
-      const prefix = SITE_LANGUAGE_PATH[row.lang as "en" | "es" | "ca"];
+      const prefix = SITE_LANGUAGE_PATH[row.lang as "en" | "es" | "ca" | "zh"];
       const suffix = row.family === "hosted" ? "/hosted" : "";
       expect(`https://isomux.com${prefix}${suffix}`).toBe(
         row.family === "hosted" || row.lang !== "en"
@@ -319,13 +325,13 @@ describe("public site in three languages", () => {
       expect(tw[0].content).toBe(row.url);
     });
 
-    it(`${name} carries the four alternate links of its family, once each`, () => {
+    it(`${name} carries the five alternate links of its family, once each`, () => {
       const alternates = tags(read(row), "link").filter(
         (l) => l.rel === "alternate",
       );
       // Counted before the map is built: a duplicate hreflang with a wrong URL
       // followed by the right one collapses into a correct-looking map.
-      expect(alternates.length).toBe(4);
+      expect(alternates.length).toBe(5);
       const found = Object.fromEntries(
         alternates.map((l) => [l.hreflang, l.href]),
       );

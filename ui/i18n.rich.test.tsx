@@ -112,3 +112,9 @@ describe("uiTranslatorFor", () => {
     expect(uiTranslatorFor("es")).not.toBe(ca);
   });
 });
+
+it("renders Chinese rich text while preserving code and interpolated paths", () => {
+  expect(html(uiTranslatorFor("zh").rich("settings.storage.backupKeeping", {
+    retention: "3", destDir: "/var/backups", code,
+  }))).toBe("<p>在 <code>/var/backups</code> 中保留 3。</p>");
+});

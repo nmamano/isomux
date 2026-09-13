@@ -1,8 +1,8 @@
 // Where isomux.com serves each language.
 //
-// The public site is six static pages: the landing and the hosted page, each
-// in English, Spanish and Catalan. English sits at the root; the other two sit
-// under a language directory. This module is the one place that says so, so
+// The public site has a landing page and a hosted page in every supported
+// language. English sits at the root; every other language sits under its own
+// language directory. This module keeps those paths in one place, so
 // the office (ui/office/Floor.tsx, which sends a member to the site) and the
 // page checker (scripts/site-i18n-check.test.ts) cannot drift apart.
 //
@@ -24,6 +24,7 @@ export const SITE_LANGUAGE_PATH: Record<SupportedLanguageCode, string> = {
   en: "",
   es: "/es",
   ca: "/ca",
+  zh: "/zh",
 };
 
 /** The landing page in `language`, absolute. */

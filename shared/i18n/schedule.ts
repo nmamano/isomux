@@ -14,7 +14,7 @@
 //
 // The clock is NOT an Intl time: an hour and a minute of a schedule are two
 // numbers, not an instant, and Intl would turn "09:00" into "09:00 AM" in
-// English. A zero-padded 24-hour clock reads the same in all three languages
+// English. A zero-padded 24-hour clock reads the same in all supported languages
 // and keeps the English frozen.
 //
 // Unlike its neighbours here, this module DOES take a translator: its output is

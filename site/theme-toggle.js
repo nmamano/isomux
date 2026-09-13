@@ -66,6 +66,7 @@
   const SWITCH_LABEL = {
     en: { dark: "Switch to dark mode", light: "Switch to light mode" },
     es: { dark: "Cambiar al modo oscuro", light: "Cambiar al modo claro" },
+    zh: { dark: "切换到深色模式", light: "切换到浅色模式" },
     ca: { dark: "Canviar al mode fosc", light: "Canviar al mode clar" },
   };
 

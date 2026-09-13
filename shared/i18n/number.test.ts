@@ -133,3 +133,13 @@ describe("formatMoneyUSD", () => {
     expect(formatMoneyUSD("ca", 1234, 0)).toBe(`1.234${NB}USD`);
   });
 });
+
+it("formats Chinese grouping, decimals, USD and binary sizes", () => {
+  expect(formatNumber("zh", 1234567.5)).toBe("1,234,567.5");
+  expect(formatDecimal("zh", 12.3, 2)).toBe("12.30");
+  expect(formatMoneyUSD("zh", 12.34, 2)).toBe("US$12.34");
+  expect(formatBytes("zh", 1023)).toBe("1,023 B");
+  expect(formatBytes("zh", 1536)).toBe("1.5 KB");
+  expect(formatBytes("zh", 1572864)).toBe("1.5 MB");
+  expect(formatBytes("zh", 1610612736)).toBe("1.5 GB");
+});

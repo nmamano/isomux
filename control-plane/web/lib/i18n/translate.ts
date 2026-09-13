@@ -15,10 +15,11 @@ import { DEFAULT_LANGUAGE, type SupportedLanguageCode } from "./languages";
 import { en, type Catalog, type MessageKey } from "./en";
 import { es } from "./es";
 import { ca } from "./ca";
+import { zh } from "./zh";
 
 export type { Catalog, MessageKey };
 
-export const CATALOGS: Record<SupportedLanguageCode, Catalog> = { en, es, ca };
+export const CATALOGS: Record<SupportedLanguageCode, Catalog> = { en, es, ca, zh };
 
 /** Values for the `{name}` placeholders of one message. */
 export type Params = Record<string, string | number>;

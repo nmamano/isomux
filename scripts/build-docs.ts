@@ -27,19 +27,21 @@ const LANDING_SLUG = "features";
 // request is what lets www.isomux.com claim to be the original.
 const SITE_ORIGIN = "https://isomux.com";
 
-// Sitemap entries that aren't generated from docs/. The Spanish and Catalan
+// Sitemap entries that aren't generated from docs/. The Spanish, Catalan and Simplified Chinese
 // copies of the landing and hosted pages are listed as their own URLs; each
 // page declares its own language versions through its rel=alternate hreflang
-// links, which is what tells a crawler they are one page in three languages.
+// links, which is what tells a crawler they are one page in four languages.
 // The docs and the legal pages exist in English only and appear once.
 const STATIC_PATHS = [
   "/",
   "/es",
   "/ca",
+  "/zh",
   "/demo",
   "/hosted",
   "/es/hosted",
   "/ca/hosted",
+  "/zh/hosted",
   "/hosted-terms",
   "/hosted-privacy",
   "/hosted-refund",

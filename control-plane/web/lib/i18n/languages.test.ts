@@ -68,3 +68,10 @@ test("the cookie is found among other cookies, and only by its own name", () => 
   expect(languageCookieValue("isomux_lang=fr")).toBeNull();
   expect(languageCookieValue("")).toBeNull();
 });
+
+test("Chinese is supported in headers, browser lists and saved cookies", () => {
+  expect(languageFromAcceptLanguage("zh-CN, en;q=0.8")).toBe("zh");
+  expect(languageFromNavigator(["fr", "zh-Hans-CN"], "fr")).toBe("zh");
+  expect(languageFromCookie("zh")).toBe("zh");
+  expect(languageCookieValue("other=1; isomux_lang=zh")).toBe("zh");
+});

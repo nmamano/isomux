@@ -25,7 +25,7 @@ describe("the prerendered shells", () => {
       renderToStaticMarkup(<SignedOut i18n={webTranslatorFor("es")} />),
     ).toContain("Inicia sesión");
     // The product name is not copy (ruling 11) and is the same in all three.
-    for (const language of ["en", "es", "ca"] as const) {
+    for (const language of ["en", "es", "ca", "zh"] as const) {
       expect(
         renderToStaticMarkup(<SignedOut i18n={webTranslatorFor(language)} />),
       ).toContain("Hosted Isomux");
@@ -135,6 +135,7 @@ describe("the sign-up page", () => {
     for (const [language, lead] of [
       ["es", "Antes de pagar, revisa "],
       ["ca", "Abans de pagar, revisa "],
+      ["zh", "付款前，请阅读 "],
     ] as const) {
       const html = renderToStaticMarkup(<PolicyNotice language={language} />);
       expect(html).toContain(lead);
@@ -310,4 +311,15 @@ describe("the office page", () => {
     expect(html).toContain("Entry - active");
     expect(html).toContain("2026-01-02");
   });
+});
+
+test("Chinese covers signup, signed-out home and the customer dashboard", () => {
+  const i18n = webTranslatorFor("zh");
+  expect(renderToStaticMarkup(<SignedOut i18n={i18n} />)).toContain("登录");
+  const signup = renderToStaticMarkup(<SignupForm language="zh" domain="isomux.app" initialName="" plans={[]} />);
+  expect(signup).toContain("选择办公室");
+  expect(signup).toContain("私钥已隐藏");
+  const dashboard = renderToStaticMarkup(<Dashboard i18n={i18n} email="lin@example.com" offices={[]} />);
+  expect(dashboard).toContain("已以 lin@example.com 身份登录");
+  expect(dashboard).toContain("还没有办公室。");
 });

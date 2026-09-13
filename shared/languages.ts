@@ -33,6 +33,12 @@ export const SUPPORTED_LANGUAGES = [
     englishName: "Catalan",
     speechLocale: "ca-ES",
   },
+  {
+    code: "zh",
+    label: "简体中文",
+    englishName: "Simplified Chinese",
+    speechLocale: "zh-CN",
+  },
 ] as const;
 
 export type SupportedLanguageCode =

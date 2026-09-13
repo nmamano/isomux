@@ -54,6 +54,13 @@ function openChat(lang: string): string {
 }
 
 describe("the chat widget's own labels", () => {
+  it("reads Chinese on a Chinese page", () => {
+    const html = openChat("zh");
+    expect(html).toContain("询问 Isomux");
+    expect(html).toContain('placeholder="输入消息…"');
+    expect(html).toContain("有哪些功能？");
+    expect(html).toContain("由 Claude 提供支持");
+  });
   it("reads English on an English page", () => {
     const html = openChat("en");
     expect(html).toContain("Ask about Isomux");
@@ -122,6 +129,7 @@ describe("the page kind the widget reports to /api/chat", () => {
     expect((await outbound("/hosted", "en")).page).toBe("hosted");
     expect((await outbound("/es/hosted", "es")).page).toBe("hosted");
     expect((await outbound("/ca/hosted", "ca")).page).toBe("hosted");
+    expect((await outbound("/zh/hosted", "zh")).page).toBe("hosted");
   });
 
   it("reports the landing from every language's copy of it", async () => {
@@ -130,6 +138,8 @@ describe("the page kind the widget reports to /api/chat", () => {
     expect((await outbound("/es/", "es")).page).toBe("main");
     expect((await outbound("/ca", "ca")).page).toBe("main");
     expect((await outbound("/ca/", "ca")).page).toBe("main");
+    expect((await outbound("/zh", "zh")).page).toBe("main");
+    expect((await outbound("/zh/", "zh")).page).toBe("main");
   });
 
   it("reports the landing from a docs page, as it always has", async () => {
@@ -160,6 +170,7 @@ describe("the theme toggle's own label", () => {
     expect(label("en", "light")).toBe("Switch to dark mode");
     expect(label("es", "light")).toBe("Cambiar al modo oscuro");
     expect(label("ca", "light")).toBe("Canviar al mode fosc");
+    expect(label("zh", "light")).toBe("切换到深色模式");
     expect(label("de", "light")).toBe("Switch to dark mode");
   });
 
@@ -167,6 +178,7 @@ describe("the theme toggle's own label", () => {
     expect(label("en", "dark")).toBe("Switch to light mode");
     expect(label("es", "dark")).toBe("Cambiar al modo claro");
     expect(label("ca", "dark")).toBe("Canviar al mode clar");
+    expect(label("zh", "dark")).toBe("切换到浅色模式");
     expect(label("de", "dark")).toBe("Switch to light mode");
   });
 

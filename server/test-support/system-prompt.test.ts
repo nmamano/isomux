@@ -494,3 +494,7 @@ describe("buildSystemPrompt - remote boss inbox", () => {
     expect(prompt).not.toContain("live API tokens at conversation start are");
   });
 });
+
+it("uses Simplified Chinese as the manager reply language", () => {
+  expect(buildLang("zh")).toContain('"Nil" has indicated Simplified Chinese as their default language');
+});

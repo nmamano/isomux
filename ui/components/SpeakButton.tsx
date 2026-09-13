@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
-import { languageLabelFor } from "../../shared/languages.ts";
+import { isSupportedLanguage, languageLabelFor, type SupportedLanguageCode } from "../../shared/languages.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
   PlainMessageKey,
@@ -10,14 +10,16 @@ import type {
 // The name of the language the voice would speak, in the reader's own
 // language. An unsupported locale has no catalog entry, so it keeps the raw
 // tag languageLabelFor already falls back to.
-const LANGUAGE_NAME_KEYS: Record<string, PlainMessageKey> = {
+const LANGUAGE_NAME_KEYS: Record<SupportedLanguageCode, PlainMessageKey> = {
   en: "logView.voice.language.en",
   es: "logView.voice.language.es",
   ca: "logView.voice.language.ca",
+  zh: "logView.voice.language.zh",
 };
 
 function spokenLanguageName(i18n: Translator, locale: string): string {
-  const key = LANGUAGE_NAME_KEYS[locale.split("-")[0]?.toLowerCase() ?? ""];
+  const primary = locale.split("-")[0]?.toLowerCase() ?? "";
+  const key = isSupportedLanguage(primary) ? LANGUAGE_NAME_KEYS[primary] : undefined;
   return key ? i18n.t(key) : languageLabelFor(locale);
 }
 

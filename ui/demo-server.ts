@@ -1109,7 +1109,7 @@ function seedUsers() {
   const firstRoomId = roomIds[0] ?? null;
   const now = Date.now();
   const usedIds = new Set<string>();
-  // `?lang=es` (or `ca`) presets the demo's language: the Spanish and Catalan
+  // `?lang=es`, `ca` or `zh` presets the demo's language: the translated
   // landing pages link and embed the demo with it, so a visitor who chose a
   // language on the site is not bounced back to the browser's. The seeder also
   // runs under bun test, where there is no window, so the read is guarded.

@@ -7,8 +7,8 @@ import { webTranslatorFor } from "../lib/i18n/rich";
  *
  * THE POLICY NAMES STAY ENGLISH in every language, because they name specific
  * English documents: the hosted Terms of Service, Privacy Policy and Refund
- * Policy are the governing text and have no Spanish or Catalan version. A
- * translated name would promise one.
+ * Policy are the governing text and exist only in English. A translated name
+ * would promise a translated document.
  */
 function policyLink(href: string) {
   return (chunk: ReactNode) => (

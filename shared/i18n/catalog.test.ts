@@ -219,3 +219,10 @@ describe("the command registry and the catalog", () => {
       expect(commands[name], name).toBeDefined();
   });
 });
+
+it("Chinese plural pairs have identical wording", () => {
+  for (const key of Object.keys(CATALOGS.en).filter((key) => key.endsWith(".one"))) {
+    const zh = CATALOGS.zh as Record<string, string>;
+    expect(zh[key]).toBe(zh[key.slice(0, -4) + ".other"]);
+  }
+});

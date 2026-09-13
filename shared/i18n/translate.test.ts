@@ -52,6 +52,10 @@ describe("pluralIn", () => {
       "agents.count.one": "{count} agente",
       "agents.count.other": "{count} agentes",
     },
+    zh: {
+      "agents.count.one": "unused singular {count}",
+      "agents.count.other": "{count} 个智能体",
+    },
     ca: {
       "agents.count.one": "{count} agent",
       "agents.count.other": "{count} agents",
@@ -66,7 +70,7 @@ describe("pluralIn", () => {
       count,
     );
 
-  it("picks one for 1 and other for 0, 2 and 21 in every offered language", () => {
+  it("uses each offered language’s plural category, including Chinese other at 1", () => {
     // The offered languages, not a hand list: a fourth language with different
     // plural rules has to be looked at here.
     expect(Object.keys(PAIRS).sort()).toEqual(
@@ -74,7 +78,7 @@ describe("pluralIn", () => {
     );
     for (const { code } of SUPPORTED_LANGUAGES) {
       expect(pick(code, 1)).toBe(
-        PAIRS[code]["agents.count.one"]!.replace("{count}", "1"),
+        PAIRS[code][code === "zh" ? "agents.count.other" : "agents.count.one"]!.replace("{count}", "1"),
       );
       for (const n of [0, 2, 21]) {
         expect(pick(code, n)).toBe(
@@ -149,4 +153,12 @@ describe("translatorFor", () => {
     // @ts-expect-error nav.tasks has no placeholder, so t() takes no params.
     expect(t("common.tasks", { name: "x" })).toBe("Tasks");
   });
+});
+
+it("Chinese always selects other, including a count of one", () => {
+  const t = translatorFor("zh");
+  for (const count of [0, 1, 2, 11, 100]) {
+    expect(t.tn("membersChat.unreadCount", count)).toBe(`未读消息：${count}`);
+    expect(new Intl.PluralRules("zh").select(count)).toBe("other");
+  }
 });

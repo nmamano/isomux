@@ -1156,6 +1156,7 @@ export const en = {
   "logView.voice.language.en": "English",
   "logView.voice.language.es": "Spanish",
   "logView.voice.language.ca": "Catalan",
+  "logView.voice.language.zh": "Simplified Chinese",
   "logView.voice.httpsTitle": "Voice input requires HTTPS",
   "logView.voice.httpsStep1":
     "Enable HTTPS in your <console>Tailscale admin console</console> (DNS page), then run these on the host (use the built-in terminal):",

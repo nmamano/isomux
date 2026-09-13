@@ -37,3 +37,8 @@ describe("site urls", () => {
     );
   });
 });
+
+it("links Chinese readers to both Chinese pages", () => {
+  expect(landingUrl("zh")).toBe("https://isomux.com/zh");
+  expect(hostedUrl("zh")).toBe("https://isomux.com/zh/hosted");
+});

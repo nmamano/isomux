@@ -14,7 +14,7 @@ import { scheduleText, weekdayName } from "./schedule.ts";
 import { translatorFor } from "./translate.ts";
 import { humanizeSchedule, type Schedule } from "../types.ts";
 
-type Language = "en" | "es" | "ca";
+type Language = "en" | "es" | "ca" | "zh";
 
 const say = (language: Language, schedule: Schedule) =>
   scheduleText(language, translatorFor(language).t, schedule);
@@ -64,7 +64,7 @@ describe("scheduleText", () => {
   // "9:00 AM", which ruling 6 does not allow.
   it("keeps a zero-padded 24-hour clock in every language", () => {
     const early: Schedule = { type: "daily", hour: 7, minute: 5 };
-    for (const language of ["en", "es", "ca"] as const)
+    for (const language of ["en", "es", "ca", "zh"] as const)
       expect(say(language, early), language).toContain("07:05");
   });
 });
@@ -87,4 +87,16 @@ describe("the English and humanizeSchedule", () => {
         humanizeSchedule(schedule),
       );
   });
+});
+
+it("uses Chinese schedule sentences and Intl weekday names", () => {
+  const t = translatorFor("zh").t;
+  expect(weekdayName("zh", 0)).toBe("周日");
+  expect(weekdayName("zh", 6)).toBe("周六");
+  expect(scheduleText("zh", t, DAILY)).toBe("每天 09:00");
+  expect(scheduleText("zh", t, WEEKLY)).toBe("每周一 17:30");
+  expect(scheduleText("zh", t, EVERY_MINUTES)).toBe("每 45 分钟");
+  expect(scheduleText("zh", t, EVERY_HOURS)).toBe("每 3 小时");
+  expect(scheduleText("zh", t, EVERY_MIXED)).toBe("每 2 小时 30 分钟");
+  expect(t("dialogs.schedule.weekday.sunday")).toBe("星期日");
 });

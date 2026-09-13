@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// The scripted browser transcript for S11: the storefront in three languages.
+// The scripted browser transcript for S11: the storefront in four languages.
 //
 // It drives a REAL browser against a REAL dev server, and prints a transcript
 // rather than assertions alone, the way `signup-flow.e2e.ts` does. What the unit
@@ -310,6 +310,10 @@ async function main(): Promise<void> {
       signupCa.includes("Configura la teva oficina") &&
         signupCa.includes('<main lang="ca">'),
     );
+    const signupZh = await fetchPage("/signup", "zh-CN", null);
+    check("/signup renders Simplified Chinese from the header", signupZh.includes("设置办公室") && signupZh.includes('<main lang="zh">'));
+    const officeZh = await fetchPage(`/office/${officeName}`, "en", "zh");
+    check("/office renders Simplified Chinese from the cookie", officeZh.includes('<main lang="zh">') && officeZh.includes("办公室尚未就绪。"));
     const signupFr = await fetchPage("/signup", "fr-FR,fr;q=0.9", null);
     check(
       "/signup falls back to English for a language we do not serve",

@@ -10,10 +10,11 @@ import * as path from "node:path";
 import { en } from "./en";
 import { es } from "./es";
 import { ca } from "./ca";
+import { zh } from "./zh";
 import { CATALOGS, translatorFor } from "./translate";
 import { SUPPORTED_LANGUAGES } from "./languages";
 
-const OTHERS = { es, ca } as const;
+const OTHERS = { es, ca, zh } as const;
 const KEYS = Object.keys(en) as (keyof typeof en)[];
 
 function placeholders(text: string): string[] {
@@ -178,7 +179,7 @@ test("a key an id can reach takes no placeholder", () => {
  */
 test("every key has a caller in the app's source", () => {
   const root = path.join(import.meta.dir, "..", "..");
-  const CATALOGS = new Set(["en.ts", "es.ts", "ca.ts"]);
+  const CATALOGS = new Set(["en.ts", "es.ts", "ca.ts", "zh.ts"]);
   const sources: string[] = [];
   const walk = (dir: string): void => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

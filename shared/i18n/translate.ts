@@ -17,10 +17,11 @@ import { DEFAULT_LANGUAGE, type SupportedLanguageCode } from "../languages.ts";
 import { en, type Catalog, type MessageKey } from "./en.ts";
 import { es } from "./es.ts";
 import { ca } from "./ca.ts";
+import { zh } from "./zh.ts";
 
 export type { Catalog, MessageKey };
 
-export const CATALOGS: Record<SupportedLanguageCode, Catalog> = { en, es, ca };
+export const CATALOGS: Record<SupportedLanguageCode, Catalog> = { en, es, ca, zh };
 
 /** Values for the `{name}` placeholders of one message. */
 export type Params = Record<string, string | number>;

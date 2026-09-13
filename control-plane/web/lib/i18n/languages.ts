@@ -14,6 +14,7 @@ export const SUPPORTED_LANGUAGES = [
   { code: "en", label: "English" },
   { code: "es", label: "Español" },
   { code: "ca", label: "Català" },
+  { code: "zh", label: "简体中文" },
 ] as const;
 
 export type SupportedLanguageCode =
