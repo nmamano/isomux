@@ -237,12 +237,17 @@ describe("API token conversation log", () => {
     );
     expect(sent.ok).toBe(true);
     if (!sent.ok) throw new Error("send failed");
+    // The send tells its caller when the office took the message, and it is
+    // the same instant the log keeps: a client outside the office pairs its
+    // own send with the reply's time without reading the log first.
+    expect(typeof sent.sentAt).toBe("number");
     await inboxMessage(apiToken.id, "reply");
     const initial = await readInbox(apiToken.id);
     expect(initial.entries).toMatchObject([
       {
         direction: "to_agent",
         id: sent.messageId,
+        sentAt: sent.sentAt,
         sequence: 1,
         targetAgentId: "a2",
         targetAgentName: "Second",

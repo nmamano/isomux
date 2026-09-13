@@ -275,6 +275,11 @@ type AgentMessageAck = {
   queued?: boolean;
   steered?: boolean;
   steerDeclined?: SteerDeclineReason;
+  // API-token senders only: the office's own timestamp on this message, the
+  // same value its `to_agent` log entry carries. A client outside the office
+  // reads when the office took the message from the send itself, instead of
+  // draining the log to find out.
+  sentAt?: number;
 };
 // Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
 // handle plus the normalized (UTC RFC3339) delivery time - never a fake empty

@@ -120,7 +120,8 @@ export interface ConversationDeps {
     device: string,
     tokenId: string,
   ): Promise<
-    Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }
+    | Exclude<UserSendAcceptance, { ok: true }>
+    | { ok: true; messageId: string; sentAt: number }
   >;
   // AGENT inter-agent send. Builds the structured sender server-side (blocks
   // prefix-injection / identity spoof) and enqueues; returns the discriminated
@@ -453,7 +454,7 @@ export function conversationHandlers(
           ctx.identity.apiTokenId ?? "",
         );
         if (!r.ok) return fail(r.status, r.code, r.message);
-        return ok({ messageId: r.messageId });
+        return ok({ messageId: r.messageId, sentAt: r.sentAt });
       }
       // USER path: fire-and-forget. Empty text is allowed when attachments carry
       // the content (the composer sends an image with no caption). The ack body

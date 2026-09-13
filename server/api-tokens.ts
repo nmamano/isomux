@@ -565,7 +565,8 @@ export async function sendApiTokenMessage(
   },
   send: () => Promise<UserSendAcceptance>,
 ): Promise<
-  Exclude<UserSendAcceptance, { ok: true }> | { ok: true; messageId: string }
+  | Exclude<UserSendAcceptance, { ok: true }>
+  | { ok: true; messageId: string; sentAt: number }
 > {
   return mutate(async () => {
     ensureLoaded();
@@ -581,14 +582,18 @@ export async function sendApiTokenMessage(
     const result = await send();
     if (!result.ok) return result;
     const id = randomBytes(8).toString("hex");
+    // The one timestamp the office puts on this message. It goes back to the
+    // sender as well as into the log, so a client outside the office learns
+    // when the office took the message without draining its log to find out.
+    const sentAt = Date.now();
     commitEntry(record, {
       ...target,
       direction: "to_agent",
       id,
-      sentAt: Date.now(),
+      sentAt,
       sequence: record.lastSequence + 1,
     });
-    return { ok: true, messageId: id };
+    return { ok: true, messageId: id, sentAt };
   });
 }
 

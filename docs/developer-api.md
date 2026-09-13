@@ -104,6 +104,8 @@ curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
 
 `after` is the last sequence the client has saved and processed; it defaults to 0 and must be a nonnegative safe integer. The response contains `entries`, `firstSequence`, `latestSequence`, `previouslyDrainedAt`, and `drainedAt`. Each read returns up to 500 entries with `sequence > after`, in sequence order. The client reads again from the last sequence it received until it reaches `latestSequence`. A cursor at or beyond `latestSequence` returns an empty `entries` array.
 
+The send in the other direction - a client POSTing to `/api/agents/<id>/messages` with its token - answers with `messageId` and `sentAt`, the office's own timestamp on that message. It is the same instant the send's `to_agent` entry carries, so a client pairs its send with the agent's reply, and the time between them, without reading the log at all.
+
 Every entry has `direction`, `sequence`, `id`, `sentAt`, and `text`. A `to_agent` entry records the token's send with `targetAgentId`, `targetAgentName`, and `targetRoomName`; its `id` matches the send response's `messageId`. A `from_agent` entry records a reply with `senderAgentId`, `senderAgentName`, and `senderRoomName`.
 
 `latestSequence` is the last assigned sequence for the token, including entries removed by storage pruning; it is not the end of the page. `firstSequence` is the oldest sequence still in the log, or `latestSequence` when the log is empty. Both are 0 for a new token. The read timestamps keep their existing names: `drainedAt` is the current read time and `previouslyDrainedAt` is the previous read time, or `null`. These timestamps and `sentAt` are milliseconds since the Unix epoch.
