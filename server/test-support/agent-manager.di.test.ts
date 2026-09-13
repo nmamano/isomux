@@ -36,6 +36,7 @@ import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { join } from "node:path";
+import { lstatSync, mkdirSync, writeFileSync } from "node:fs";
 import { loadavg } from "node:os";
 import {
   createAgentManager,
@@ -168,10 +169,18 @@ describe("AgentManager DI (temp-state isolated)", () => {
     const fake = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
     });
+    const boxClaude = join(STATE_ROOT, "fixture-box-claude");
+    const boxSkill = join(boxClaude, "skills", "fixture-skill");
+    mkdirSync(boxSkill, { recursive: true });
+    writeFileSync(join(boxSkill, "SKILL.md"), "fixture prompt");
     const mgr = createAgentManager({
       resolveBackend: () => fake,
       officeState: new OfficeState({ rooms: rooms("room-personal-home") }),
       initialRooms: [],
+      providerSkillSourceRoots: {
+        claude: boxClaude,
+        codex: join(STATE_ROOT, "fixture-box-codex"),
+      },
     });
     mgr.configureAgentTurnDeps();
     const previousProvider = setPersonalProviderActiveProvider(
@@ -197,6 +206,15 @@ describe("AgentManager DI (temp-state isolated)", () => {
       expect(fake.lastSession?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
         personalProviderHome("01a19e7b", "claude"),
       );
+      expect(
+        lstatSync(
+          join(
+            personalProviderHome("01a19e7b", "claude"),
+            "skills",
+            "fixture-skill",
+          ),
+        ).isSymbolicLink(),
+      ).toBe(true);
     } finally {
       setPersonalProviderActiveProvider(previousProvider);
     }

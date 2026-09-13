@@ -160,14 +160,16 @@ in code (`server/backends/claude.ts:1344`), so the home move does not remove
 them. Codex writes its safety-hook config in
 `server/backends/codex/safety-hook-install.ts:227,377`.
 
-**Isomux's loader today:** `server/skills.ts:90,134,144,292` scans STATE_ROOT
-skills, the selected Claude root's skills/commands, cwd `.isomux/skills`,
-`.agents/skills`, `.claude/skills`/commands, registered Claude plugin install
-paths, and bundled skills. Menu and prompt resolution share that precedence;
-`server/agent-manager.ts:1882` supplies the root for all engines. It does not
-walk repository parents or add home `.agents/skills` and external Codex skills.
-Codex emits empty slashCommands (`server/backends/codex/adapter.ts:817,835`),
-so native model discovery alone does not fill Isomux's menu.
+**Isomux's loader after the personal-skill continuity change:**
+`server/skills.ts` scans STATE_ROOT skills first. A personal Claude root is
+followed by the box `~/.claude`; a personal Codex root is followed by the box
+`~/.codex`, then the Claude roots that agent already received. Office and
+explicit roots do not gain a box-home fallback. The same ordered root list
+feeds menu discovery and prompt resolution. Personal sessions also maintain
+per-entry links for native provider discovery; personal entries win and stale
+box-home links are removed. Project and bundled precedence remains unchanged.
+Plugin discovery still reads its former single Claude root. The loader does not
+walk repository parents or add home `.agents/skills`.
 
 Recommend one ordered list for menu, execution and native skill exposure:
 keep existing precedence; include office/effective-root skills, then named

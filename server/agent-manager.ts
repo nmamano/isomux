@@ -133,7 +133,12 @@ import {
   discoverPluginSkills,
   discoverBundledSkills,
   deduplicateSkills,
+  type UserSkillRoot,
 } from "./skills.ts";
+import {
+  agentUserSkillRoots,
+  exposePersonalProviderSkills,
+} from "./provider-skill-links.ts";
 import {
   buildUsageReportData,
   findUsageAtFork,
@@ -268,6 +273,9 @@ export interface ManagerDeps {
     body: unknown,
     profileId: string | null,
   ) => Promise<BrowserResult>;
+  // Production supplies the box provider homes. Tests omit this field so
+  // fixtures never read the real member home.
+  providerSkillSourceRoots?: { claude: string; codex: string };
 }
 
 export function detectAuthErrorForEnvironment(
@@ -2079,6 +2087,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     } catch {
       discoveryEnv = undefined;
     }
+    const discoverySkillRoots = userSkillRootsForInfo(info, discoveryEnv);
     const sessionManager = new SessionManager<ManagedAgent>(
       p.id,
       sessionManagerDeps,
@@ -2089,9 +2098,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sessionManager,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
-        ...discoverUserSkills(
-          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
-        ),
+        ...discoverUserSkills(discoverySkillRoots),
         ...discoverProjectSkills(p.cwd),
         ...discoverPluginSkills(
           discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
@@ -3963,7 +3970,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
         const discoveredSkills = managed
           ? [
-              ...discoverUserSkills(claudeConfigDirFor(managed)),
+              ...discoverUserSkills(userSkillRootsFor(managed)),
               ...discoverProjectSkills(managed.info.cwd),
               ...discoverPluginSkills(claudeConfigDirFor(managed)),
               ...discoverBundledSkills(),
@@ -4776,6 +4783,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
   }
 
+  function userSkillRootsForInfo(
+    info: Pick<AgentInfo, "agentType" | "userId">,
+    env: { [key: string]: string | undefined } | undefined,
+  ): UserSkillRoot[] {
+    const claudeRoot =
+      env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    const codexRoot = env?.CODEX_HOME || join(homedir(), ".codex");
+    return agentUserSkillRoots(
+      info.agentType,
+      info.userId,
+      env,
+      deps.providerSkillSourceRoots?.claude ?? claudeRoot,
+      deps.providerSkillSourceRoots?.codex ?? codexRoot,
+    );
+  }
+
+  function userSkillRootsFor(managed: ManagedAgent): UserSkillRoot[] {
+    return userSkillRootsForInfo(managed.info, buildSessionEnv(managed));
+  }
+
   // The only author of the environment used to launch a shared OpenCode
   // server. Discovery and agent sessions both call this boundary, so whichever
   // one reaches a cold profile first supplies identical process input. The
@@ -4942,6 +4969,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
     const env = buildSessionEnv(managed, resumeSessionId ?? null);
+    const provider =
+      managed.info.agentType === "codex"
+        ? "codex"
+        : managed.info.agentType === "claude"
+          ? "claude"
+          : null;
+    const effectiveRoot =
+      provider === "codex"
+        ? env?.CODEX_HOME || join(homedir(), ".codex")
+        : env?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+    if (managed.info.userId && provider) {
+      exposePersonalProviderSkills(
+        provider,
+        managed.info.userId,
+        effectiveRoot,
+        deps.providerSkillSourceRoots?.[provider] ?? effectiveRoot,
+      );
+    }
     if (resumeSessionId) {
       const resumeError = getBackend(
         managed.info.agentType,
@@ -5101,15 +5146,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       id,
       sessionManagerDeps,
     );
+    const initialEnv = buildEnvForUserId(info.userId);
+    const initialSkillRoots = userSkillRootsForInfo(info, initialEnv);
     const managed: ManagedAgent = {
       info,
       sessionManager,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
-        ...discoverUserSkills(
-          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
-            join(homedir(), ".claude"),
-        ),
+        ...discoverUserSkills(initialSkillRoots),
         ...discoverProjectSkills(resolvedCwd),
         ...discoverPluginSkills(
           buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
@@ -5285,6 +5329,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // productionStorageRoots() is the single answer to "what counts as isomux
     // storage", shared by the route and the /isomux-storage command.
     getStorageUsage: () => measureStorageCached(productionStorageRoots()),
+    userSkillRootsFor,
     claudeConfigDirFor,
   });
 
@@ -8945,6 +8990,10 @@ export function createProductionAgentManager(overrides?: {
     initialRooms: initialLoadedAgents,
     listProviderAccounts: overrides?.listProviderAccounts,
     effectiveProviderAccountTarget: overrides?.effectiveProviderAccountTarget,
+    providerSkillSourceRoots: {
+      claude: join(homedir(), ".claude"),
+      codex: join(homedir(), ".codex"),
+    },
   });
   // Production-only global registration (kept out of createAgentManager so DI
   // tests don't clobber this env-loader process-global).

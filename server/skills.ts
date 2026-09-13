@@ -2,7 +2,7 @@ import type { SkillInfo } from "../shared/types.ts";
 import { join } from "path";
 import { homedir } from "os";
 import { STATE_ROOT } from "./config.ts";
-import { existsSync, readdirSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 
 // Shape of ~/.claude/plugins/installed_plugins.json that we care about.
 interface PluginManifest {
@@ -11,6 +11,18 @@ interface PluginManifest {
 
 // Bundled skills are available to all users, independent of their config.
 export const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
+
+export interface UserSkillRoot {
+  root: string;
+  includeCommands: boolean;
+}
+
+function normalizeUserSkillRoots(
+  roots: UserSkillRoot[] | string,
+  includeCommands = true,
+): UserSkillRoot[] {
+  return typeof roots === "string" ? [{ root: roots, includeCommands }] : roots;
+}
 
 function extractSkillDescription(filePath: string): string | undefined {
   try {
@@ -57,7 +69,13 @@ function scanSkillsDir(
   if (!existsSync(dir)) return;
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) {
+      let isDirectory = entry.isDirectory();
+      if (!isDirectory && entry.isSymbolicLink()) {
+        try {
+          isDirectory = statSync(join(dir, entry.name)).isDirectory();
+        } catch {}
+      }
+      if (isDirectory) {
         const description = extractSkillDescription(
           join(dir, entry.name, "SKILL.md"),
         );
@@ -75,7 +93,13 @@ function scanCommandsDir(
   if (!existsSync(dir)) return;
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith(".md")) {
+      let isFile = entry.isFile();
+      if (!isFile && entry.isSymbolicLink()) {
+        try {
+          isFile = statSync(join(dir, entry.name)).isFile();
+        } catch {}
+      }
+      if (isFile && entry.name.endsWith(".md")) {
         const description = extractSkillDescription(join(dir, entry.name));
         skills.push({
           name: entry.name.replace(/\.md$/, ""),
@@ -88,12 +112,18 @@ function scanCommandsDir(
 }
 
 export function discoverUserSkills(
-  claudeConfigDir = join(homedir(), ".claude"),
+  roots: UserSkillRoot[] | string = [
+    { root: join(homedir(), ".claude"), includeCommands: true },
+  ],
+  includeCommands = true,
 ): SkillInfo[] {
   const skills: SkillInfo[] = [];
   scanSkillsDir(join(STATE_ROOT, "skills"), "user", skills);
-  scanSkillsDir(join(claudeConfigDir, "skills"), "user", skills);
-  scanCommandsDir(join(claudeConfigDir, "commands"), "user", skills);
+  for (const source of normalizeUserSkillRoots(roots, includeCommands)) {
+    scanSkillsDir(join(source.root, "skills"), "user", skills);
+    if (source.includeCommands)
+      scanCommandsDir(join(source.root, "commands"), "user", skills);
+  }
   return skills;
 }
 
@@ -274,35 +304,37 @@ function resolvePluginSkillPrompt(
   );
 }
 
-// Resolve a skill name to its prompt text, checking skill dirs in priority
-// order. Mirrors the discovery order: backend-agnostic dirs (.isomux,
-// .agents) first, then Claude-specific (.claude); user globals before
-// project locals; plugins are namespaced separately.
-//
-// Priority:
-//   1. ~/.isomux/skills/<name>/SKILL.md          (global user, isomux)
-//   2. ~/.claude/skills/<name>/SKILL.md          (global user, claude)
-//   3. ~/.claude/commands/<name>.md              (global user, claude commands)
-//   4. <cwd>/.isomux/skills/<name>/SKILL.md      (project, isomux)
-//   5. <cwd>/.agents/skills/<name>/SKILL.md      (project, .agents)
-//   6. <cwd>/.claude/skills/<name>/SKILL.md      (project, claude)
-//   7. <cwd>/.claude/commands/<name>.md          (project, claude commands)
-//   8. Bundled isomux skills (server/skills/)
+// Resolve a skill name to its prompt text. This uses the same ordered user
+// roots as discovery, then project-local and bundled skills. The first match
+// wins in both paths; plugin-namespaced skills are resolved separately.
 // Plugin-namespaced skills ("pluginName:skillName") short-circuit above the list.
 export function resolveSkillPrompt(
   name: string,
   cwd: string,
-  claudeConfigDir = join(homedir(), ".claude"),
+  roots: UserSkillRoot[] | string = [
+    { root: join(homedir(), ".claude"), includeCommands: true },
+  ],
+  includeCommands = true,
+  pluginRoot?: string,
 ): string | null {
+  const normalizedRoots = normalizeUserSkillRoots(roots, includeCommands);
   if (name.includes(":")) {
     const [pluginName, skillName] = name.split(":", 2);
-    return resolvePluginSkillPrompt(pluginName, skillName, claudeConfigDir);
+    return resolvePluginSkillPrompt(
+      pluginName,
+      skillName,
+      pluginRoot ?? normalizedRoots[0]?.root ?? join(homedir(), ".claude"),
+    );
   }
 
   const candidates = [
     join(STATE_ROOT, "skills", name, "SKILL.md"),
-    join(claudeConfigDir, "skills", name, "SKILL.md"),
-    join(claudeConfigDir, "commands", `${name}.md`),
+    ...normalizedRoots.flatMap((source) => [
+      join(source.root, "skills", name, "SKILL.md"),
+      ...(source.includeCommands
+        ? [join(source.root, "commands", `${name}.md`)]
+        : []),
+    ]),
     join(cwd, ".isomux", "skills", name, "SKILL.md"),
     join(cwd, ".agents", "skills", name, "SKILL.md"),
     join(cwd, ".claude", "skills", name, "SKILL.md"),

@@ -35,7 +35,7 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
-import { resolveSkillPrompt } from "./skills.ts";
+import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
 import { recordSkillUse } from "./skill-usage.ts";
 import {
   ensureCodexWrapperScript,
@@ -246,6 +246,7 @@ interface HandlerDeps {
   // pinned without walking a real state root, and so the refusal path can be
   // proven not to measure at all.
   getStorageUsage: () => StorageUsage;
+  userSkillRootsFor: (managed: ManagedAgent) => UserSkillRoot[];
   claudeConfigDirFor: (managed: ManagedAgent) => string;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
@@ -1320,6 +1321,8 @@ export function createCommandHandling(deps: HandlerDeps) {
     const skillPrompt = resolveSkillPrompt(
       cmd,
       managed.info.cwd,
+      deps.userSkillRootsFor(managed),
+      true,
       deps.claudeConfigDirFor(managed),
     );
     if (skillPrompt) {

@@ -319,6 +319,8 @@ use their own GitHub credentials.
 Office variables load for every agent. Personal variables override office
 values.
 
+When a member signs in with a personal Claude or Codex account, Isomux keeps that login in a personal home. Skills in that home take priority; skills in the service account's `~/.claude/skills` and `~/.codex/skills`, and commands in `~/.claude/commands`, stay available. Isomux links them into the personal home, so edits take effect without an import.
+
 ## Deploy on Render
 
 [Render](https://render.com) runs the office as one Docker web service on a paid compute plan with a persistent disk. The `render.yaml` at the root of the isomux repository declares that service, and Render reads it when you create a Blueprint.

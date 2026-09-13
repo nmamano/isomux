@@ -112,7 +112,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - Start with a blank-canvas agent or choose from 12 templates like Side Project Builder, Money Planner, and Health Navigator.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
-- **User skills** from `~/.claude/skills/` and project commands.
+- **User skills** from personal Claude and Codex homes, the service account's skill folders, and project commands. A personal copy wins when names clash.
 
 ### Schedules
 
