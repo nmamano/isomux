@@ -3,9 +3,33 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { render, fireEvent } = await import("@testing-library/react");
+const { act, render, fireEvent } = await import("@testing-library/react");
 const { SkillsPopover } = await import("./SkillsPopover.tsx");
 const { setApiShim } = await import("../api.ts");
+
+function installVisualViewport({ height, offsetTop }: { height: number; offsetTop: number }) {
+  const listeners = new Map<string, Set<EventListener>>();
+  const viewport = {
+    height,
+    offsetTop,
+    addEventListener(type: string, listener: EventListener) {
+      const set = listeners.get(type) ?? new Set<EventListener>();
+      set.add(listener);
+      listeners.set(type, set);
+    },
+    removeEventListener(type: string, listener: EventListener) {
+      listeners.get(type)?.delete(listener);
+    },
+    dispatch(type: string) {
+      for (const listener of listeners.get(type) ?? []) listener(new Event(type));
+    },
+  };
+  Object.defineProperty(window, "visualViewport", {
+    configurable: true,
+    value: viewport,
+  });
+  return viewport;
+}
 
 // Keep usage loading pending: these tests cover menu interaction, and a late
 // resolved fetch would schedule setCounts after a standalone test has ended.
@@ -98,4 +122,26 @@ it("selects an exact name even when it is in a later group", () => {
   );
   fireEvent.keyDown(document.body, { key: "Enter" });
   expect(onPick).toHaveBeenCalledWith("re", undefined);
+});
+
+it("fits the mobile menu to the visual viewport and contains list scrolling", () => {
+  const viewport = installVisualViewport({ height: 360, offsetTop: 40 });
+  const view = render(
+    <SkillsPopover
+      skills={[{ name: "verify", origin: "user" }]}
+      commands={[]}
+      isMobile={true}
+      draftFilter=""
+      onPick={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  const popover = view.container.firstElementChild as HTMLDivElement;
+  popover.getBoundingClientRect = () =>
+    ({ bottom: 330 }) as DOMRect;
+  act(() => viewport.dispatch("resize"));
+
+  expect(popover.style.maxHeight).toBe("162px");
+  const list = view.container.querySelector("[data-skills-scroll]") as HTMLDivElement;
+  expect(list.style.overscrollBehavior).toBe("contain");
 });

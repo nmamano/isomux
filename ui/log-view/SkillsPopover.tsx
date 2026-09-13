@@ -41,6 +41,7 @@ export function SkillsPopover({
     name: string;
   } | null>(null);
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
+  const [mobileMaxHeight, setMobileMaxHeight] = useState<number | null>(null);
   const { t } = useI18n();
   // The viewing user's per-skill use counters (server-side so they follow the
   // user across devices). Fetched fresh on every open; until
@@ -94,6 +95,27 @@ export function SkillsPopover({
   useEffect(() => {
     if (!isMobile && !draftMode) filterRef.current?.focus();
   }, [isMobile, draftMode]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const update = () => {
+      const popoverBottom = ref.current?.getBoundingClientRect().bottom;
+      if (popoverBottom === undefined) return;
+      const visibleSpaceAbove = popoverBottom - viewport.offsetTop - 8;
+      setMobileMaxHeight(
+        Math.max(0, Math.floor(Math.min(viewport.height * 0.45, visibleSpaceAbove))),
+      );
+    };
+    update();
+    viewport.addEventListener("resize", update);
+    viewport.addEventListener("scroll", update);
+    return () => {
+      viewport.removeEventListener("resize", update);
+      viewport.removeEventListener("scroll", update);
+    };
+  }, [isMobile]);
 
   const groups = useMemo(
     () => buildSkillsMenuGroups({ skills, commands, counts, filter }),
@@ -171,7 +193,7 @@ export function SkillsPopover({
         zIndex: 10,
         display: "flex",
         flexDirection: "column",
-        maxHeight: isMobile ? "45vh" : 320,
+        maxHeight: isMobile ? (mobileMaxHeight ?? "45vh") : 320,
       }}
     >
       {!draftMode && (
@@ -225,7 +247,14 @@ export function SkillsPopover({
           />
         </div>
       )}
-      <div style={{ overflowY: "auto", minHeight: 0 }}>
+      <div
+        data-skills-scroll
+        style={{
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          minHeight: 0,
+        }}
+      >
         {groups.length === 0 && (
           <div
             style={{
