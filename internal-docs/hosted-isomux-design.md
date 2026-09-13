@@ -13,7 +13,7 @@ which does exactly this for OpenClaw.
 ## Domains (decided with Nil, 2026-07-19)
 
 - **Control plane: `cloud.isomux.com`** - subdomain of the existing brand
-  (the GitLab/Grafana pattern: apex = the open-source product, `cloud.` =
+  (the GitLab/Grafana pattern: apex = the source-available product, `cloud.` =
   the managed version). No standalone brand: oneclickclaw needed one
   because they host someone else's product; we host our own.
 - **Customer instances: `<name>.isomux.app`** - a separate apex, NOT under
