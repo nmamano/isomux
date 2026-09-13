@@ -11,7 +11,7 @@ import {
 } from "../components/dialog-styles.ts";
 import {
   DEFAULT_ROOM_SKIN,
-  ROOM_SKIN_IDS,
+  SELECTABLE_ROOM_SKIN_IDS,
   type RoomSkin,
 } from "../../shared/room-skins.ts";
 import type { RoomCreateReq } from "../../shared/contract-shapes.ts";
@@ -160,7 +160,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
           onChange={(e) => setSkin(e.target.value as RoomSkin)}
           style={dialogInput}
         >
-          {ROOM_SKIN_IDS.map((id) => (
+          {SELECTABLE_ROOM_SKIN_IDS.map((id) => (
             <option key={id} value={id}>
               {t(`office.skin.${id}`)}
             </option>

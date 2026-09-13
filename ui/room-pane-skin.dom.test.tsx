@@ -39,23 +39,27 @@ const patches = () =>
 // never moved - the pane used to send nothing at all unless the name changed.
 it("saves a changed look on its own, and carries the name when both move", async () => {
   calls.length = 0;
+  // The room starts on a skin the pickers no longer offer, which is the only
+  // way a look can still CHANGE while one id is selectable: its own skin stays
+  // in its list, so hospital -> office is a real edit through the real control.
   const view = mount({
     id: "ward",
     name: "Ward",
     type: "office",
     prompt: null,
     canCloseWhenEmpty: true,
+    skin: "hospital",
   });
   await act(async () => {});
   const select = view.getByLabelText("Room look") as HTMLSelectElement;
-  expect(select.value).toBe("office");
+  expect(select.value).toBe("hospital");
   expect(
     (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
       .disabled,
   ).toBe(true);
 
   await act(async () =>
-    fireEvent.change(select, { target: { value: "hospital" } }),
+    fireEvent.change(select, { target: { value: "office" } }),
   );
   // A look the reader has not saved yet is an unsaved change, so Cancel wakes
   // up and the discard guard has something to guard.
@@ -68,24 +72,41 @@ it("saves a changed look on its own, and carries the name when both move", async
     fireEvent.click(view.getByRole("button", { name: "Save" })),
   );
   expect(patches()).toHaveLength(1);
-  expect(patches()[0].body).toEqual({ skin: "hospital" });
+  expect(patches()[0].body).toEqual({ skin: "office" });
 
+  view.unmount();
+
+  // Both moving at once is its own mount: this room has one change available
+  // to it (its held-back skin -> the offered one), so the two cases cannot
+  // share a pane.
+  calls.length = 0;
+  const both = mount({
+    id: "ward",
+    name: "Ward",
+    type: "office",
+    prompt: null,
+    canCloseWhenEmpty: true,
+    skin: "hospital",
+  });
+  await act(async () => {});
   await act(async () =>
     // The name input has no label association of its own (it predates this
     // pane's labelled controls), so it is queried as the pane's one text input.
-    fireEvent.change(view.container.querySelector("input")!, {
+    fireEvent.change(both.container.querySelector("input")!, {
       target: { value: "Ward B" },
     }),
   );
   await act(async () =>
-    fireEvent.change(select, { target: { value: "office" } }),
+    fireEvent.change(both.getByLabelText("Room look"), {
+      target: { value: "office" },
+    }),
   );
   await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "Save" })),
+    fireEvent.click(both.getByRole("button", { name: "Save" })),
   );
-  expect(patches()).toHaveLength(2);
-  expect(patches()[1].body).toEqual({ name: "Ward B", skin: "office" });
-  view.unmount();
+  expect(patches()).toHaveLength(1);
+  expect(patches()[0].body).toEqual({ name: "Ward B", skin: "office" });
+  both.unmount();
 });
 
 it("shows the room's stored look, and sends no PATCH when it is untouched", async () => {
@@ -115,17 +136,20 @@ it("shows the room's stored look, and sends no PATCH when it is untouched", asyn
 it("keeps a rejected look dirty, says so, and retries the same body", async () => {
   calls.length = 0;
   patchFails = true;
+  // Same reason as the first case: the room's own held-back skin is what makes
+  // a change reachable while one id is offered.
   const view = mount({
     id: "ward",
     name: "Ward",
     type: "office",
     prompt: null,
     canCloseWhenEmpty: true,
+    skin: "hospital",
   });
   await act(async () => {});
   const select = view.getByLabelText("Room look") as HTMLSelectElement;
   await act(async () =>
-    fireEvent.change(select, { target: { value: "hospital" } }),
+    fireEvent.change(select, { target: { value: "office" } }),
   );
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "Save" })),
@@ -135,7 +159,7 @@ it("keeps a rejected look dirty, says so, and retries the same body", async () =
   expect(view.getByRole("button", { name: "Save" })).toBeTruthy();
   // The reader's change is still theirs: the field holds it, and Cancel is
   // live because the pane is still dirty.
-  expect(select.value).toBe("hospital");
+  expect(select.value).toBe("office");
   expect(
     (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
       .disabled,
@@ -151,7 +175,7 @@ it("keeps a rejected look dirty, says so, and retries the same body", async () =
     fireEvent.click(view.getByRole("button", { name: "Save" })),
   );
   expect(patches()).toHaveLength(2);
-  expect(patches()[1].body).toEqual({ skin: "hospital" });
+  expect(patches()[1].body).toEqual({ skin: "office" });
   expect(view.getByRole("button", { name: "Saved" })).toBeTruthy();
   view.unmount();
 });

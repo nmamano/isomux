@@ -9,6 +9,13 @@
 
 export const ROOM_SKIN_IDS = ["office", "hospital"] as const;
 
+/** The skins the pickers offer. A subset of ROOM_SKIN_IDS, because a skin can
+ *  exist, validate and draw before its drawing is good enough to offer: the
+ *  hospital is held back until Nil signs it off (2026-09-12). The stored value
+ *  is the id, never the displayed name, so a label can change without touching
+ *  a room record. */
+export const SELECTABLE_ROOM_SKIN_IDS: readonly RoomSkin[] = ["office"];
+
 export type RoomSkin = (typeof ROOM_SKIN_IDS)[number];
 
 /** What a room draws when its skin is null or absent: the office, which is the

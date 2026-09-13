@@ -15,7 +15,7 @@ import {
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
-  ROOM_SKIN_IDS,
+  SELECTABLE_ROOM_SKIN_IDS,
   effectiveRoomSkin,
   type RoomSkin,
 } from "../../shared/room-skins.ts";
@@ -286,7 +286,14 @@ export function RoomPane({
               onChange={(e) => setSkin(e.target.value as RoomSkin)}
               style={inputStyle}
             >
-              {ROOM_SKIN_IDS.map((id) => (
+              {/* The offered list, plus whatever this room is already drawn in:
+                  a skin can be held back from the pickers while rooms still
+                  carry it, and a select whose value has no option renders
+                  blank. */}
+              {(SELECTABLE_ROOM_SKIN_IDS.includes(skin)
+                ? SELECTABLE_ROOM_SKIN_IDS
+                : [...SELECTABLE_ROOM_SKIN_IDS, skin]
+              ).map((id) => (
                 <option key={id} value={id}>
                   {t(`office.skin.${id}`)}
                 </option>
