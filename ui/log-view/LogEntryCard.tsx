@@ -20,6 +20,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 import type { Translator } from "../../shared/i18n/translate.ts";
 import { SpeakButton } from "../components/SpeakButton.tsx";
+import { InlineMarkdown } from "../members-chat/InlineMarkdown.tsx";
 import { SystemPromptButton } from "../components/SystemPromptButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
@@ -613,7 +614,11 @@ export const LogEntryCard = memo(function LogEntryCard({
               fontSize: 12,
             }}
           >
-            <span>{entry.content}</span>
+            <span>
+              {/* The header is a translated string carrying bold and italic
+                  markup; a plain span showed the asterisks. */}
+              <InlineMarkdown content={entry.content} />
+            </span>
             <SystemPromptButton agentId={entry.agentId} />
           </div>
         );

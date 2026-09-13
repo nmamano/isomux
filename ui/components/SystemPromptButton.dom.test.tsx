@@ -127,4 +127,30 @@ describe("system-prompt log marker", () => {
     setApiShim(null);
     await new Promise<void>((resolve) => setImmediate(resolve));
   });
+
+  it("renders the header's bold and italic markup instead of its asterisks", async () => {
+    const view = render(
+      <LogEntryCard
+        entry={{
+          id: "entry-2",
+          agentId: "agent-1",
+          timestamp: 1,
+          kind: "system",
+          content:
+            "**Full system prompt** *(reflects current settings; takes effect on next conversation)*",
+          metadata: { systemPrompt: true },
+        }}
+      />,
+    );
+    expect(view.container.textContent).not.toContain("*");
+    expect(view.container.querySelector("strong")?.textContent).toBe(
+      "Full system prompt",
+    );
+    expect(view.container.querySelector("em")?.textContent).toBe(
+      "(reflects current settings; takes effect on next conversation)",
+    );
+    view.unmount();
+    setApiShim(null);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  });
 });
