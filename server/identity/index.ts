@@ -127,7 +127,8 @@ export interface Identity {
 }
 
 // USER (browser) set: every capability except the two agent-identity ones and
-// app:message (a person messages an agent by typing in its chat).
+// app:message (a person messages an agent by typing in its chat). `log:read`
+// also covers read-only context and subscription checks for reachable agents.
 // Owner vs member is NOT expressed here - both humans hold this full set and
 // owner-only routes are blocked for members by the officeOwner guard, not by a
 // missing capability.
@@ -161,8 +162,9 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 
 // AGENT set: the loopback surface plus the global task board, isomux-memory,
 // and the app registry. An agent can message as itself, use the task board and
-// shared memory, register and manage its user's apps, read conversation logs it
-// can reach, and use the self-affordances on its own chat. It cannot spawn/kill,
+// shared memory, register and manage its user's apps, read conversation logs
+// and usage checks it can reach, and use the self-affordances on its own chat.
+// It cannot spawn/kill,
 // touch settings, mint invites, mutate cronjobs, or read cronjob transcripts -
 // those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
@@ -272,7 +274,8 @@ export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 // managed environment routes: their own values, and - when that user is an
 // office owner - the name-only read of another user's variables. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
-// token is its issuing user, not an office participant. These exclusions are
+// token is its issuing user, not an office participant. Its `log:read` covers
+// conversation logs plus context and subscription checks. These exclusions are
 // defense in depth, not a shell boundary - agent:manage can spawn an agent that
 // runs commands. Decide every future capability here; never spread another set.
 export const API_CAPABILITIES: readonly Capability[] = [

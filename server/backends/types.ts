@@ -339,6 +339,10 @@ export type SubscriptionUsageResult =
       // make old data look new. Injected backends may omit it; the manager
       // falls back to receipt time for them.
       observedAtMs?: number;
+      // True when this invocation waited for a provider request to complete.
+      // A pushed snapshot may still have an older observedAtMs when it
+      // overtakes that request, but the on-demand refresh itself succeeded.
+      refreshed?: boolean;
     }
   | { kind: "unavailable" }
   | { kind: "unknown" };
@@ -358,11 +362,12 @@ export interface BackendSession {
   // Implementations must swallow their own errors and resolve "unknown"
   // rather than reject - the Claude side rides an explicitly experimental SDK
   // API, and a future change there must degrade to a stale-or-hidden pill,
-  // never a crash. Backends are also free to serve a cached value here: this
-  // is called on every cumulative-usage event, so the COST policy lives with
-  // whoever pays it (Claude throttles its control RPC internally; Codex is
-  // reading rate limits the app-server already pushed).
-  getSubscriptionUsage(): Promise<SubscriptionUsageResult>;
+  // never a crash. Periodic sampling may use a backend cache because this is
+  // called on every cumulative-usage event. An on-demand self-check sets
+  // forceRefresh so the backend asks the provider before it answers.
+  getSubscriptionUsage(options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult>;
 
   // Send a user turn. Attachments are never inlined: each becomes one
   // path-notice text line (shared convention in server/attachment-prompt.ts)

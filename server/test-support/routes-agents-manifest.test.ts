@@ -369,6 +369,51 @@ describe("GET /agents (discovery manifest)", () => {
 });
 
 describe("GET /agents projection (room ACL)", () => {
+  it("gives context and subscription checks the same room reach as logs", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mem");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const r2 = srv.agentManager.createRoom("Members Only");
+    await setAccess(srv, owner.rawSessionId, member.username, [r2]);
+    const hidden = await spawnOwnedBy(
+      srv,
+      "Hidden",
+      r1,
+      0,
+      owner.username,
+    );
+    const visible = await spawnOwnedBy(
+      srv,
+      "Visible",
+      r2,
+      1,
+      owner.username,
+    );
+    const caller = await spawnOwnedBy(
+      srv,
+      "Caller",
+      r2,
+      2,
+      member.username,
+    );
+    const headers = { Authorization: `Bearer ${bearerFor(caller.id)}` };
+
+    for (const suffix of ["context", "subscription"] as const) {
+      expect(
+        (
+          await srv.http(`/api/agents/${visible.id}/${suffix}`, { headers })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await srv.http(`/api/agents/${hidden.id}/${suffix}`, { headers })
+        ).status,
+      ).toBe(403);
+    }
+  });
+
   it("bearer identities are projected to their user's rooms", async () => {
     const srv = await startTestServer();
     server = srv;

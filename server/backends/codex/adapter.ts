@@ -715,7 +715,9 @@ export class CodexSession implements BackendSession {
   // thing, and blending two meters would invent a number.
   private rateLimitBuckets = new Map<string, RateLimitSnapshot>();
   private rateLimitObservedAtMs = new Map<string, number>();
-  private rateLimitsReadInFlight: Promise<void> | null = null;
+  private rateLimitBucketRevision = new Map<string, number>();
+  private rateLimitsRevision = 0;
+  private rateLimitsReadInFlight: Promise<boolean> | null = null;
   // Set once a read has come back (successfully or not). Distinguishes "no
   // rate-limit data because nothing has been asked or pushed yet" (unknown)
   // from "asked, and this account reports none" (authoritative).
@@ -1178,14 +1180,15 @@ export class CodexSession implements BackendSession {
     };
   }
 
-  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
-    // Codex PUSHES rate limits, so the common path is a pure cache read - no
-    // throttling needed and none applied. The read request only covers the gap
-    // before the first notification arrives (a freshly spawned agent that
-    // hasn't run a turn yet); the generated docs point at exactly that
-    // sequencing, rolling updates being meant to merge into the most recent
-    // `account/rateLimits/read` response.
-    if (this.rateLimitBuckets.size === 0) await this.readRateLimitsOnce();
+  async getSubscriptionUsage(options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult> {
+    // Periodic samples use pushed data. An on-demand self-check always asks
+    // app-server, while concurrent callers still share one request.
+    const refreshed =
+      options?.forceRefresh || this.rateLimitBuckets.size === 0
+        ? await this.readRateLimits()
+        : false;
     const bucket = pickCodexLimitBucket(this.rateLimitBuckets);
     if (bucket) {
       const normalized = normalizeCodexSubscriptionUsage(bucket.snapshot);
@@ -1197,6 +1200,7 @@ export class CodexSession implements BackendSession {
       return {
         ...normalized,
         observedAtMs,
+        refreshed: options?.forceRefresh && refreshed ? true : undefined,
       };
     }
     // No data. Only authoritative once a read actually came back: before that
@@ -1225,6 +1229,7 @@ export class CodexSession implements BackendSession {
     // This is the receipt time of the merged snapshot. Nullable fields that
     // the sparse push omits can still come from an older snapshot.
     this.rateLimitObservedAtMs.set(key, Date.now());
+    this.rateLimitBucketRevision.set(key, ++this.rateLimitsRevision);
   }
 
   // Fold a `account/rateLimits/read` response in as an OLDER baseline. It was
@@ -1242,45 +1247,74 @@ export class CodexSession implements BackendSession {
     // `{ codex: {limitId: null, ...} }` entry files under "codex" and not
     // under the legacy bucket, where it could lose selection.
     keyOverride?: string,
+    requestRevision = this.rateLimitsRevision,
   ): void {
     const key = keyOverride ?? codexLimitKey(baseline);
-    const newer = this.rateLimitBuckets.get(key);
+    const current = this.rateLimitBuckets.get(key);
+    const currentIsNewer =
+      (this.rateLimitBucketRevision.get(key) ?? 0) > requestRevision;
     this.rateLimitBuckets.set(
       key,
-      newer ? mergeRateLimitSnapshots(baseline, newer) : baseline,
+      !current
+        ? baseline
+        : currentIsNewer
+          ? mergeRateLimitSnapshots(baseline, current)
+          : mergeRateLimitSnapshots(current, baseline),
     );
-    if (!newer) this.rateLimitObservedAtMs.set(key, Date.now());
+    if (!currentIsNewer) {
+      this.rateLimitObservedAtMs.set(key, Date.now());
+      this.rateLimitBucketRevision.set(key, ++this.rateLimitsRevision);
+    }
   }
 
   // `account/rateLimits/read`, deduped so concurrent refreshes share one
   // request. Failures are swallowed - the caller reports "unknown" and keeps
   // whatever it had. Deliberately re-attemptable on a later call, so a user
   // who signs in mid-session starts seeing the pill without a restart.
-  private readRateLimitsOnce(): Promise<void> {
+  private readRateLimits(): Promise<boolean> {
     if (this.rateLimitsReadInFlight) return this.rateLimitsReadInFlight;
-    const inFlight: Promise<void> = (async () => {
+    const inFlight: Promise<boolean> = (async () => {
       try {
         await this.bootstrapPromise;
-        if (this.closed || this.bootstrapError) return;
+        if (this.closed || this.bootstrapError) return false;
+        const requestRevision = this.rateLimitsRevision;
         const resp = await this.client.request<GetAccountRateLimitsResponse>(
           "account/rateLimits/read",
         );
         this.rateLimitsReadSettled = true;
+        // A completed read is authoritative for every bucket that existed
+        // before it began. Remove those snapshots before folding in the
+        // response, but preserve any push that arrived while the read waited.
+        for (const key of this.rateLimitBuckets.keys()) {
+          if ((this.rateLimitBucketRevision.get(key) ?? 0) > requestRevision)
+            continue;
+          this.rateLimitBuckets.delete(key);
+          this.rateLimitObservedAtMs.delete(key);
+          this.rateLimitBucketRevision.delete(key);
+        }
         // Everything here is an OLDER baseline than anything pushed while the
         // request was in flight - see mergeRateLimitsBaseline. The historical
         // single-bucket view has no map key of its own, so it files under its
         // own limitId (or the legacy key); the keyed entries file under their
         // MAP key, which is the authoritative metered id.
-        if (resp?.rateLimits) this.mergeRateLimitsBaseline(resp.rateLimits);
+        if (resp?.rateLimits)
+          this.mergeRateLimitsBaseline(
+            resp.rateLimits,
+            undefined,
+            requestRevision,
+          );
         for (const [limitId, snap] of Object.entries(
           resp?.rateLimitsByLimitId ?? {},
         )) {
-          if (snap) this.mergeRateLimitsBaseline(snap, limitId);
+          if (snap)
+            this.mergeRateLimitsBaseline(snap, limitId, requestRevision);
         }
+        return true;
       } catch {
         // Unauthenticated, API-key-only, or an app-server that doesn't know
         // the method. Not settled: we learned nothing, so the pill keeps
         // whatever it was showing instead of being cleared.
+        return false;
       }
     })().finally(() => {
       if (this.rateLimitsReadInFlight === inFlight) {

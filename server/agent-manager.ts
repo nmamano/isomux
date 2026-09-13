@@ -3824,7 +3824,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     };
     let result: SubscriptionUsageResult = { kind: "unknown" };
     try {
-      result = await session.getSubscriptionUsage();
+      result = await session.getSubscriptionUsage({ forceRefresh: true });
     } catch {
       // Treat an unexpected rejection as a transient failed refresh.
     }
@@ -3846,7 +3846,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const fresh =
       result.kind === "usage" &&
       !accountChanged &&
-      (result.observedAtMs ?? snap.sampledAtMs) >= refreshStartedAtMs;
+      (result.refreshed === true ||
+        (result.refreshed === undefined &&
+          (result.observedAtMs ?? snap.sampledAtMs) >= refreshStartedAtMs));
     return fresh
       ? {
           available: true,
@@ -3859,10 +3861,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ...snap,
           ageMs: Math.max(0, Date.now() - snap.observedAtMs),
           freshness: "cached",
-          staleReason:
-            !accountChanged && result.kind === "usage"
-              ? "not_reasked"
-              : "refresh_failed",
+          staleReason: "refresh_failed",
         };
   }
 

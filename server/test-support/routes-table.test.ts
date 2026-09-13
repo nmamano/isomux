@@ -600,8 +600,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.browser": { caps: ["self:affordance"], emits: ["log_entry"] },
-  "agents.contextUsage": { caps: ["self:affordance"], emits: [] },
-  "agents.subscriptionUsage": { caps: ["self:affordance"], emits: [] },
+  "agents.contextUsage": { caps: ["log:read"], emits: [] },
+  "agents.subscriptionUsage": { caps: ["log:read"], emits: [] },
   // Conversation-log search + retrieval. Its OWN capability, deliberately NOT
   // office:read (which plain agent tokens do not carry) and not self:affordance
   // (the scope reaches past the caller's own chat). Read-only, so no emits.
@@ -1047,6 +1047,8 @@ const API_REACHABLE_OPIDS = [
   "agents.handoff",
   "agents.resume",
   "agents.listSessions",
+  "agents.contextUsage",
+  "agents.subscriptionUsage",
   "agents.logs",
   "agents.openFile",
   "agents.saveFile",
@@ -1112,6 +1114,68 @@ const API_REACHABLE_OPIDS = [
   "storage.usage",
   "usage.read",
 ];
+
+describe("route table: usage checks use log-read scope", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u-owner",
+    cronjobCreatorUserId: () => "u-owner",
+    appOwnerUserId: () => "u-owner",
+    isOfficeOwnerUserId: () => false,
+    agentManagerUserId: () => "u-owner",
+    killedAgentManagerUserId: () => "u-owner",
+  };
+  const identities: Identity[] = [
+    {
+      scope: "user",
+      userId: "u-owner",
+      role: "member",
+      capabilities: USER_CAPABILITIES,
+    },
+    {
+      scope: "api",
+      userId: "u-owner",
+      role: "member",
+      apiTokenId: "pat-1",
+      apiTokenName: "Remote",
+      capabilities: API_CAPABILITIES,
+    },
+    {
+      scope: "agent",
+      userId: "u-owner",
+      role: "member",
+      agentId: "a-caller",
+      capabilities: AGENT_CAPABILITIES,
+    },
+    {
+      scope: "cron-run",
+      userId: "u-owner",
+      role: "member",
+      cronjobId: "job-1",
+      runId: "run-1",
+      capabilities: RUN_CAPABILITIES,
+    },
+    {
+      scope: "app",
+      userId: "u-owner",
+      role: "member",
+      appName: "hello",
+      capabilities: APP_CAPABILITIES,
+    },
+  ];
+
+  it("allows user, API and agent scopes; denies cron-run and app scopes", () => {
+    for (const opId of ["agents.contextUsage", "agents.subscriptionUsage"]) {
+      const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
+      const outcomes = identities.map(
+        (identity) =>
+          runAuthorize(route.auth, identity, { id: "a-target" }, {}, deps).ok,
+      );
+      expect(outcomes).toEqual([true, true, true, false, false]);
+    }
+  });
+});
 
 describe("route table: an API identity authorizes exactly the remote-boss surface", () => {
   const apiIdentity: Identity = {

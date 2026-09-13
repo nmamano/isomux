@@ -196,7 +196,9 @@ export interface SdkConversation {
   /** Per-session context-usage breakdown for /context, or null when unavailable. */
   getContextUsage(): Promise<ContextUsage | null>;
   /** Plan-allowance usage of the signed-in claude.ai account (tri-state; see SubscriptionUsageResult). */
-  getSubscriptionUsage(): Promise<SubscriptionUsageResult>;
+  getSubscriptionUsage(options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult>;
 }
 
 export interface SdkOneShotOptions {
@@ -522,7 +524,7 @@ export function wrapV1Query(
         return null;
       }
     },
-    async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+    async getSubscriptionUsage(options): Promise<SubscriptionUsageResult> {
       const usage = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
       // Absent method = the SDK renamed or dropped the experimental API. That
       // is authoritative in its own way: we will never learn a number here, so
@@ -531,13 +533,22 @@ export function wrapV1Query(
       // Serve the recent answer instead of paying for a fresh RPC, and
       // single-flight concurrent callers onto one request. The interval is
       // measured INITIATION to initiation: `now` is captured before the call
-      // and stamped on the result, so a slow response can't stretch the gap to
-      // "RPC duration + 60s".
+      // and stored in the throttle cache, so a slow response can't stretch the
+      // gap to "RPC duration + 60s". observedAtMs is the later receipt time.
       const now = Date.now();
-      if (lastUsage && now - lastUsage.atMs < CLAUDE_USAGE_MIN_INTERVAL_MS) {
+      if (
+        !options?.forceRefresh &&
+        lastUsage &&
+        now - lastUsage.atMs < CLAUDE_USAGE_MIN_INTERVAL_MS
+      ) {
         return lastUsage.result;
       }
-      if (usageInFlight) return usageInFlight;
+      if (usageInFlight) {
+        const result = await usageInFlight;
+        return options?.forceRefresh && result.kind === "usage"
+          ? { ...result, refreshed: true }
+          : result;
+      }
       const call: Promise<SubscriptionUsageResult> = (async () => {
         try {
           const normalized = normalizeClaudeSubscriptionUsage(
@@ -545,7 +556,10 @@ export function wrapV1Query(
           );
           const result: SubscriptionUsageResult =
             normalized.kind === "usage"
-              ? { ...normalized, observedAtMs: now }
+              ? {
+                  ...normalized,
+                  observedAtMs: Date.now(),
+                }
               : normalized;
           lastUsage = { atMs: now, result };
           return result;
@@ -558,7 +572,10 @@ export function wrapV1Query(
         if (usageInFlight === call) usageInFlight = null;
       });
       usageInFlight = call;
-      return call;
+      const result = await call;
+      return options?.forceRefresh && result.kind === "usage"
+        ? { ...result, refreshed: true }
+        : result;
     },
   };
 }
@@ -871,8 +888,10 @@ export class ClaudeSession implements BackendSession {
     return this.conversation.getContextUsage();
   }
 
-  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
-    return this.conversation.getSubscriptionUsage();
+  async getSubscriptionUsage(options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult> {
+    return this.conversation.getSubscriptionUsage(options);
   }
 
   close(): void {

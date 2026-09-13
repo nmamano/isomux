@@ -591,14 +591,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
   }),
-  // Context-window fullness self-check (internal-docs/
-  // context-fullness-visibility.md): the agent's own latest fullness sample.
+  // Context-window fullness check (internal-docs/
+  // context-fullness-visibility.md): the target agent's latest fullness sample.
   // Read-only - nothing lands in chat, so no log_entry emit.
   defineRoute<void, AgentContextUsageResp>({
     opId: "agents.contextUsage",
     method: "GET",
     path: "/api/agents/:id/context",
-    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    auth: cap("log:read", logSearchAccess),
     emits: [],
   }),
 
@@ -606,7 +606,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.subscriptionUsage",
     method: "GET",
     path: "/api/agents/:id/subscription",
-    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    auth: cap("log:read", logSearchAccess),
     emits: [],
   }),
 

@@ -274,7 +274,7 @@ export type AgentSubscriptionUsageResp =
       observedAtMs: number;
       ageMs: number;
       freshness: "cached";
-      staleReason: "no_session" | "not_reasked" | "refresh_failed";
+      staleReason: "no_session" | "refresh_failed";
     }
   | {
       available: false;

@@ -1,8 +1,11 @@
 # Subscription self-check proposal
 
-Status: design only. Nil must approve before implementation. Task cdaf6ec6.
+Status: implemented. Nil's 2026-09-13 ruling supersedes the access and refresh
+details in this proposal: the route uses the same room reach as logs, and every
+check against a live session asks the provider. OpenCode reports unavailable.
+Task cdaf6ec6 records the original proposal.
 Source review: 2026-09-09, base commit 920a89c7. Line references below refer
-to that base. This lane adds no subscription route and requires no restart.
+to that base. The original design lane added no subscription route.
 
 ## Route and access
 

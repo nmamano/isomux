@@ -106,6 +106,9 @@ class FakeQuery implements V1QueryLike {
   usageError: Error | null = null;
   usageCalls = 0;
   usageDelayMs = 0;
+  holdUsage = false;
+  private usageParked = false;
+  private releaseHeldUsage: (() => void) | null = null;
 
   private queue: SDKMessage[] = [];
   private waiter: (() => void) | null = null;
@@ -153,6 +156,15 @@ class FakeQuery implements V1QueryLike {
     return Promise.resolve(this.contextUsageResult);
   }
 
+  usageIsParked(): boolean {
+    return this.usageParked;
+  }
+
+  releaseUsage(): void {
+    this.releaseHeldUsage?.();
+    this.releaseHeldUsage = null;
+  }
+
   // Declared as an own property so a test can delete it, standing in for an
   // SDK release that renames or drops the experimental method.
   usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown> =
@@ -160,6 +172,13 @@ class FakeQuery implements V1QueryLike {
       this.usageCalls++;
       if (this.usageDelayMs > 0) {
         await new Promise((r) => setTimeout(r, this.usageDelayMs));
+      }
+      if (this.holdUsage) {
+        this.usageParked = true;
+        await new Promise<void>((resolve) => {
+          this.releaseHeldUsage = resolve;
+        });
+        this.usageParked = false;
       }
       if (this.usageError) throw this.usageError;
       return this.usageResult;
@@ -374,6 +393,57 @@ describe("wrapV1Query", () => {
         windows: [{ label: "Weekly", usedPercent: 10, resetsAtMs: null }],
       },
     });
+  });
+
+  it("getSubscriptionUsage bypasses the throttle for a forced refresh", async () => {
+    const q = new FakeQuery();
+    q.usageResult = {
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: { seven_day: { utilization: 10, resets_at: null } },
+    };
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    await conv.getSubscriptionUsage();
+    q.usageResult = {
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: { seven_day: { utilization: 99, resets_at: null } },
+    };
+    const forced = await conv.getSubscriptionUsage({ forceRefresh: true });
+    expect(q.usageCalls).toBe(2);
+    expect(forced).toMatchObject({
+      kind: "usage",
+      usage: { windows: [{ usedPercent: 99 }] },
+    });
+  });
+
+  it("dates a forced call that joins an in-flight provider read at receipt", async () => {
+    const q = new FakeQuery();
+    q.holdUsage = true;
+    q.usageResult = {
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: { seven_day: { utilization: 10, resets_at: null } },
+    };
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    const periodic = conv.getSubscriptionUsage();
+    for (let i = 0; i < 200 && !q.usageIsParked(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+    expect(q.usageIsParked()).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const forcedStartedAtMs = Date.now();
+    const forced = conv.getSubscriptionUsage({ forceRefresh: true });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    q.releaseUsage();
+    await periodic;
+    const forcedResult = await forced;
+    expect(q.usageCalls).toBe(1);
+    expect(forcedResult.kind).toBe("usage");
+    if (forcedResult.kind === "usage") {
+      expect(forcedResult.observedAtMs).toBeGreaterThan(forcedStartedAtMs);
+      expect(forcedResult.refreshed).toBe(true);
+    }
   });
 
   it("getSubscriptionUsage single-flights concurrent callers onto one RPC", async () => {

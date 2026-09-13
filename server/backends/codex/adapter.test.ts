@@ -2456,6 +2456,39 @@ describe("codex subscription usage", () => {
     }
   });
 
+  it("issues a fresh rate-limit read for every forced refresh", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: snapshot(),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    const { session } = await bootstrapped(fake);
+    await session.getSubscriptionUsage({ forceRefresh: true });
+    await session.getSubscriptionUsage({ forceRefresh: true });
+    expect(
+      fake.requests.filter((r) => r.method === "account/rateLimits/read")
+        .length,
+    ).toBe(2);
+  });
+
+  it("lets a forced read authoritatively clear older pushed limits", async () => {
+    const fake = new FakeCodexTransport();
+    const { session } = await bootstrapped(fake);
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot(),
+    });
+    expect((await session.getSubscriptionUsage()).kind).toBe("usage");
+    fake.rateLimitsReadResponse = {
+      rateLimits: null,
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    expect(
+      await session.getSubscriptionUsage({ forceRefresh: true }),
+    ).toEqual({ kind: "unavailable" });
+  });
+
   it("merges sparse updates instead of letting a null clear a known value", async () => {
     const { session, fake } = await bootstrapped();
     fake.fireNotification("account/rateLimits/updated", {
@@ -2579,6 +2612,33 @@ describe("codex subscription usage", () => {
     const result = await pending;
     expect(result.kind).toBe("usage");
     expect((await usageOf(session)).windows[0].usedPercent).toBe(55);
+  });
+
+  it("marks a forced caller that joins an overtaken read as refreshed", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: snapshot({ primary: { ...week, usedPercent: 10 } }),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    fake.holdRateLimitsRead = true;
+    const { session } = await bootstrapped(fake);
+    const periodic = session.getSubscriptionUsage();
+    for (let i = 0; i < 200 && !fake.rateLimitsReadParked(); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({ primary: { ...week, usedPercent: 55 } }),
+    });
+    const forced = session.getSubscriptionUsage({ forceRefresh: true });
+    fake.releaseRateLimitsRead();
+    await periodic;
+    const result = await forced;
+    expect(result).toMatchObject({
+      kind: "usage",
+      refreshed: true,
+      usage: { windows: [{ usedPercent: 55 }] },
+    });
   });
 
   it("lets a late read fill metadata a sparse push left null, without undoing it", async () => {

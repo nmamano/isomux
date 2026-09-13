@@ -195,7 +195,9 @@ class OpenCodeServerSession implements BackendSession {
     };
   }
 
-  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+  async getSubscriptionUsage(_options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult> {
     return { kind: "unavailable" };
   }
 
@@ -285,7 +287,9 @@ class OpenCodeTracerSession implements BackendSession {
     return null;
   }
 
-  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+  async getSubscriptionUsage(_options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult> {
     return { kind: "unavailable" };
   }
 

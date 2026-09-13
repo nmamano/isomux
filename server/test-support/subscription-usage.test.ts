@@ -612,12 +612,14 @@ describe("subscription usage", () => {
     }
   });
 
-  it("self-check preserves provider observation time on a cached adapter answer", async () => {
-    const observedAtMs = Date.now() - 5_000;
-    const answer = observedReading(42, observedAtMs);
+  it("self-check forces a provider refresh on every call", async () => {
+    const forceRefreshValues: Array<boolean | undefined> = [];
     const fake = new FakeBackend({
       session: {
-        subscriptionUsage: answer,
+        subscriptionUsage: async (options) => {
+          forceRefreshValues.push(options?.forceRefresh);
+          return reading(42);
+        },
         onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
       },
     });
@@ -629,21 +631,62 @@ describe("subscription usage", () => {
       "reading published",
     );
 
-    const first = await mgr.getAgentSubscriptionUsage(info.id);
-    const second = await mgr.getAgentSubscriptionUsage(info.id);
-    expect(first).toMatchObject({
+    forceRefreshValues.length = 0;
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
+      available: true,
+      freshness: "fresh",
+    });
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
+      available: true,
+      freshness: "fresh",
+    });
+    expect(forceRefreshValues).toEqual([true, true]);
+  });
+
+  it("self-check preserves an older provider observation time", async () => {
+    const observedAtMs = Date.now() - 5_000;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () => observedReading(42, observedAtMs),
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+
+    const result = await mgr.getAgentSubscriptionUsage(info.id);
+    expect(result).toMatchObject({ available: true, observedAtMs });
+    if (result.available) expect(result.ageMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("self-check treats a completed refresh as fresh with an older pushed observation", async () => {
+    const observedAtMs = Date.now() - 5_000;
+    const answer = observedReading(42, observedAtMs);
+    if (answer.kind !== "usage") throw new Error("expected usage reading");
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () => ({ ...answer, refreshed: true }),
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
       available: true,
       observedAtMs,
-      freshness: "cached",
-      staleReason: "not_reasked",
+      freshness: "fresh",
     });
-    expect(second).toMatchObject({
-      available: true,
-      observedAtMs,
-      freshness: "cached",
-      staleReason: "not_reasked",
-    });
-    if (second.available) expect(second.ageMs).toBeGreaterThanOrEqual(5_000);
   });
 
   it("self-check broadcasts an unchanged on-demand reading", async () => {

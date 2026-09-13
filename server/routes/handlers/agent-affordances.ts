@@ -2,10 +2,11 @@
 // of the cron RUN-affordances: read-file / diff / edit-file / terminal-command on
 // the unified REST surface (opIds agents.readFile/diff/editFile/terminalCommand).
 //
-// AGENT bearer only: the route table gates each with `self:affordance` +
-// `agentParamMustEqualTokenAgent`, so an agent can act ONLY on its OWN chat. A
-// cross-agent or unknown `:id` is a 403 at the guard (the token binds the agent),
-// NOT the legacy 404 - the intended token-auth behavior of the new route.
+// AGENT bearer only: the mutating and chat-emitting routes use
+// `self:affordance` + `agentParamMustEqualTokenAgent`, so an agent can act only
+// on its own chat. The context and subscription reads use `log:read` +
+// `logSearchAccess`, so they can inspect agents in rooms their manager can
+// access. The route table owns both policies; handlers only run after a guard.
 //
 // Sole affordance surface: the legacy loopback HTTP handlers
 // (/agents/:id/{read-file,diff,edit-file,terminal-command}) were DELETED in the
@@ -80,7 +81,7 @@ export interface AgentAffordanceDeps {
     agentId: string,
     body: unknown,
   ): Promise<BrowserAffordanceResult>;
-  // Context-fullness self-check. Never throws for "no data" - unavailability
+  // Context-fullness check. Never throws for "no data" - unavailability
   // is a structured { available: false, reason } payload, not an error.
   getAgentContextUsage(agentId: string): Promise<AgentContextUsageResp>;
   getAgentSubscriptionUsage(

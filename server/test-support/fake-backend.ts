@@ -63,7 +63,9 @@ export interface FakeSessionConfig {
   // value or its resolution timing.
   subscriptionUsage?:
     | SubscriptionUsageResult
-    | (() => Promise<SubscriptionUsageResult>);
+    | ((options?: {
+        forceRefresh?: boolean;
+      }) => Promise<SubscriptionUsageResult>);
   // Optional auto-responder invoked on each send() - lets a test script a
   // reply turn without reaching into the session mid-flight.
   onSend?: (
@@ -252,9 +254,11 @@ export class FakeSession implements BackendSession {
     return typeof v === "function" ? v() : (v ?? null);
   }
 
-  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+  async getSubscriptionUsage(options?: {
+    forceRefresh?: boolean;
+  }): Promise<SubscriptionUsageResult> {
     const v = this.subscriptionUsage;
-    if (typeof v === "function") return v();
+    if (typeof v === "function") return v(options);
     return v ?? { kind: "unknown" };
   }
 

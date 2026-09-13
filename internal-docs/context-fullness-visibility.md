@@ -82,7 +82,7 @@ Broadcast: extend `AgentInfo` (`shared/types.ts`) with an optional `contextUsage
 
 ### 2. Agent-facing surface (task 6e9d9d77)
 
-**Endpoint:** `GET /api/agents/:id/context`, defined in `server/routes/table.ts` with the existing affordance pattern (`auth: cap("self:affordance", agentParamMustEqualTokenAgent)`, bearer `ISOMUX_AGENT_TOKEN`), handler alongside the other affordances. Behavior: attempt a live `session.getContextUsage()` (subject to the same commit protocol - it also refreshes the stored snapshot with `source: "on_demand"`); fall back to the stored snapshot; else unavailable.
+**Endpoint:** `GET /api/agents/:id/context`, defined in `server/routes/table.ts` with `auth: cap("log:read", logSearchAccess)` and bearer `ISOMUX_AGENT_TOKEN`. An agent can read any agent in a room its manager can access, matching the logs route. Behavior: attempt a live `session.getContextUsage()` (subject to the same commit protocol - it also refreshes the stored snapshot with `source: "on_demand"`); fall back to the stored snapshot; else unavailable.
 
 Payload:
 

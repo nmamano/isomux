@@ -1036,23 +1036,20 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
   });
 });
 
-describe("context-fullness: auth (self:affordance + agentParamMustEqualTokenAgent)", () => {
-  it("own token 200; cross-agent token 403; user cookie 403; no identity 401", async () => {
+describe("context-fullness: auth (log:read + logSearchAccess)", () => {
+  it("own token and user cookie 200; no identity 401", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith(usage(10)) });
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
     const a = await spawnAgent(srv, "A", room.id);
-    const b = await spawnAgent(srv, "B", room.id);
     const tokenA = getAgentTokenRaw(a.id)!;
-    const tokenB = getAgentTokenRaw(b.id)!;
 
     expect((await getContext(srv, a.id, { bearer: tokenA })).status).toBe(200);
-    expect((await getContext(srv, a.id, { bearer: tokenB })).status).toBe(403);
     expect(
       (await getContext(srv, a.id, { rawSessionId: owner.rawSessionId }))
         .status,
-    ).toBe(403);
+    ).toBe(200);
     expect((await getContext(srv, a.id)).status).toBe(401);
   });
 });
