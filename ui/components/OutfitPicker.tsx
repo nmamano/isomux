@@ -1,5 +1,15 @@
 import type { AgentOutfit } from "../../shared/types.ts";
-import { COSTUMES, costumeOf, SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
+import {
+  COSTUMES,
+  costumeOf,
+  SHIRT_COLORS,
+  HAIR_COLORS,
+  SKIN_COLORS,
+  HAIR_STYLES,
+  BEARDS,
+  HATS,
+  ACCESSORIES,
+} from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
 
@@ -52,62 +62,159 @@ function beardLabels(i18n: UiTranslator): Record<AgentOutfit["beard"], string> {
   };
 }
 
-
-export function OutfitPicker({ outfit, onChange }: {
+export function OutfitPicker({
+  outfit,
+  onChange,
+}: {
   outfit: AgentOutfit;
   onChange: (outfit: AgentOutfit) => void;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
   // Remove head coverings in detail previews so each option stays visible.
-  const detail = { ...outfit, costume: "none" as const, hat: "none" as const, accessory: null };
-  function tiles(label: string, options: { id: string; label: string; selected: boolean; preview: AgentOutfit; select: () => void }[], head = false) {
-    return <fieldset className="outfit-options">
-      <legend>{label}<span className="outfit-selected-label"> · {options.find((option) => option.selected)?.label}</span></legend>
-      <div className="outfit-tiles">
-        {options.map((option) => <button key={option.id} type="button" className="outfit-tile"
-          aria-label={option.label} title={option.label} aria-pressed={option.selected} onClick={option.select}>
-          <span aria-hidden="true" className={head ? "outfit-tile-picture outfit-tile-head" : "outfit-tile-picture"}>
-            <Character state="idle" outfit={option.preview} portrait height={head ? 90 : 60} />
+  const detail = {
+    ...outfit,
+    costume: "none" as const,
+    hat: "none" as const,
+    accessory: null,
+  };
+  function tiles(
+    label: string,
+    options: {
+      id: string;
+      label: string;
+      selected: boolean;
+      preview: AgentOutfit;
+      select: () => void;
+    }[],
+    head = false,
+  ) {
+    return (
+      <fieldset className="outfit-options">
+        <legend>
+          {label}
+          <span className="outfit-selected-label">
+            {" "}
+            · {options.find((option) => option.selected)?.label}
           </span>
-        </button>)}
+        </legend>
+        <div className="outfit-tiles">
+          {options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className="outfit-tile"
+              aria-label={option.label}
+              title={option.label}
+              aria-pressed={option.selected}
+              onClick={option.select}
+            >
+              <span
+                aria-hidden="true"
+                className={
+                  head
+                    ? "outfit-tile-picture outfit-tile-head"
+                    : "outfit-tile-picture"
+                }
+              >
+                <Character
+                  state="idle"
+                  outfit={option.preview}
+                  portrait
+                  height={head ? 90 : 60}
+                />
+              </span>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+    );
+  }
+  function colors(
+    label: string,
+    values: string[],
+    field: "skin" | "color" | "hair",
+  ) {
+    return (
+      <fieldset className="outfit-options">
+        <legend>{label}</legend>
+        <div className="outfit-colors">
+          {values.map((color) => (
+            <button
+              key={color}
+              type="button"
+              aria-label={`${label} ${color}`}
+              aria-pressed={outfit[field] === color}
+              onClick={() => onChange({ ...outfit, [field]: color })}
+            >
+              <span style={{ background: color }} />
+            </button>
+          ))}
+        </div>
+      </fieldset>
+    );
+  }
+  return (
+    <div className="outfit-picker">
+      {tiles(
+        t("dialogs.agent.costume"),
+        COSTUMES.map((costume) => ({
+          id: costume,
+          label: t(`dialogs.agent.costume.${costume}`),
+          selected: costumeOf(outfit.costume) === costume,
+          preview: { ...outfit, costume },
+          select: () => onChange({ ...outfit, costume }),
+        })),
+      )}
+      <div className="agent-settings-fields">
+        {colors(t("dialogs.agent.skin"), SKIN_COLORS, "skin")}
+        {colors(t("dialogs.agent.shirt"), SHIRT_COLORS, "color")}
+        {colors(t("dialogs.agent.hairColor"), HAIR_COLORS, "hair")}
       </div>
-    </fieldset>;
-  }
-  function colors(label: string, values: string[], field: "skin" | "color" | "hair") {
-    return <fieldset className="outfit-options"><legend>{label}</legend>
-      <div className="outfit-colors">{values.map((color) => <button key={color} type="button"
-        aria-label={`${label} ${color}`} aria-pressed={outfit[field] === color}
-        onClick={() => onChange({ ...outfit, [field]: color })}>
-        <span style={{ background: color }} />
-      </button>)}</div>
-    </fieldset>;
-  }
-  return <div className="outfit-picker">
-    {tiles(t("dialogs.agent.costume"), COSTUMES.map((costume) => ({ id: costume,
-      label: t(`dialogs.agent.costume.${costume}`), selected: costumeOf(outfit.costume) === costume,
-      preview: { ...outfit, costume }, select: () => onChange({ ...outfit, costume }),
-    })))}
-    <div className="agent-settings-fields">
-      {colors(t("dialogs.agent.skin"), SKIN_COLORS, "skin")}
-      {colors(t("dialogs.agent.shirt"), SHIRT_COLORS, "color")}
-      {colors(t("dialogs.agent.hairColor"), HAIR_COLORS, "hair")}
+      {tiles(
+        t("dialogs.agent.hairStyle"),
+        HAIR_STYLES.map((hairStyle) => ({
+          id: hairStyle,
+          label: hairStyleLabels(i18n)[hairStyle],
+          selected: (outfit.hairStyle ?? "short") === hairStyle,
+          preview: { ...detail, hairStyle },
+          select: () => onChange({ ...outfit, hairStyle }),
+        })),
+        true,
+      )}
+      {tiles(
+        t("dialogs.agent.hat"),
+        HATS.map((hat) => ({
+          id: hat,
+          label: hatLabels(i18n)[hat],
+          selected: outfit.hat === hat,
+          preview: { ...detail, hat },
+          select: () => onChange({ ...outfit, hat }),
+        })),
+        true,
+      )}
+      {tiles(
+        t("dialogs.agent.beard"),
+        BEARDS.map((beard) => ({
+          id: beard,
+          label: beardLabels(i18n)[beard],
+          selected: (outfit.beard ?? "none") === beard,
+          preview: { ...detail, beard },
+          select: () => onChange({ ...outfit, beard }),
+        })),
+        true,
+      )}
+      {tiles(
+        t("dialogs.agent.accessory"),
+        ACCESSORIES.map((accessory) => ({
+          id: accessory ?? "none",
+          label: accessoryLabels(i18n)[accessory ?? "none"],
+          selected: (outfit.accessory ?? null) === accessory,
+          preview: { ...detail, accessory },
+          select: () => onChange({ ...outfit, accessory }),
+        })),
+        true,
+      )}
     </div>
-    {tiles(t("dialogs.agent.hairStyle"), HAIR_STYLES.map((hairStyle) => ({ id: hairStyle,
-      label: hairStyleLabels(i18n)[hairStyle], selected: (outfit.hairStyle ?? "short") === hairStyle,
-      preview: { ...detail, hairStyle }, select: () => onChange({ ...outfit, hairStyle }),
-    })), true)}
-    {tiles(t("dialogs.agent.hat"), HATS.map((hat) => ({ id: hat,
-      label: hatLabels(i18n)[hat], selected: outfit.hat === hat,
-      preview: { ...detail, hat }, select: () => onChange({ ...outfit, hat }),
-    })), true)}
-    {tiles(t("dialogs.agent.beard"), BEARDS.map((beard) => ({ id: beard,
-      label: beardLabels(i18n)[beard], selected: (outfit.beard ?? "none") === beard,
-      preview: { ...detail, beard }, select: () => onChange({ ...outfit, beard }),
-    })), true)}
-    {tiles(t("dialogs.agent.accessory"), ACCESSORIES.map((accessory) => ({ id: accessory ?? "none",
-      label: accessoryLabels(i18n)[accessory ?? "none"], selected: (outfit.accessory ?? null) === accessory,
-      preview: { ...detail, accessory }, select: () => onChange({ ...outfit, accessory }),
-    })), true)}
-  </div>;
+  );
 }

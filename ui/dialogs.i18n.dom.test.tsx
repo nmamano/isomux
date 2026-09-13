@@ -88,8 +88,16 @@ const ANCHOR = {
     es: "Crear un agente nuevo",
     en: "Spawn New Agent",
   },
-  identity: { ca: "Instruccions i memòria", es: "Instrucciones y memoria", en: "Instructions and memory" },
-  access: { ca: "Accés i ubicació", es: "Acceso y ubicación", en: "Access and location" },
+  identity: {
+    ca: "Instruccions i memòria",
+    es: "Instrucciones y memoria",
+    en: "Instructions and memory",
+  },
+  access: {
+    ca: "Accés i ubicació",
+    es: "Acceso y ubicación",
+    en: "Access and location",
+  },
   // The template section's blank card.
   blank: { ca: "En blanc", es: "En blanco", en: "Blank" },
   // A template card's title, which lives in the catalog keyed by template id.
@@ -176,7 +184,9 @@ function chooseWeekly(view: View): void {
 function checkCostume(view: View, label: string, construction: string): void {
   const group = view.getByRole("group", { name: new RegExp(`^${label} · `) });
   const buttons = Array.from(group.querySelectorAll("button"));
-  const selected = buttons.find((button) => button.getAttribute("aria-label") === construction)!;
+  const selected = buttons.find(
+    (button) => button.getAttribute("aria-label") === construction,
+  )!;
   expect(selected !== undefined).toBe(true);
   act(() => selected.click());
   const preview = () =>

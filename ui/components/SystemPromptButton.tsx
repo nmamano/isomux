@@ -7,7 +7,10 @@ import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
 import { Portal } from "./Portal.tsx";
 
-export function SystemPromptButton({ agentId, preview }: {
+export function SystemPromptButton({
+  agentId,
+  preview,
+}: {
   agentId?: string;
   preview?: AgentSystemPromptPreviewReq;
 }) {
@@ -24,7 +27,9 @@ export function SystemPromptButton({ agentId, preview }: {
     try {
       const result = await apiFetch<{ prompt: string }>(
         preview ? "POST" : "GET",
-        preview ? "/api/agents/system-prompt-preview" : `/api/agents/${agentId}/system-prompt`,
+        preview
+          ? "/api/agents/system-prompt-preview"
+          : `/api/agents/${agentId}/system-prompt`,
         preview,
       );
       setPrompt(result.prompt);
@@ -121,7 +126,11 @@ function SystemPromptModal({
           <h3 style={{ margin: 0, fontSize: 17 }}>
             {t("dialogs.agent.systemPromptTitle")}
           </h3>
-          {isSpawnPreview && <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("dialogs.agent.spawnPreviewHint")}</p>}
+          {isSpawnPreview && (
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+              {t("dialogs.agent.spawnPreviewHint")}
+            </p>
+          )}
           <pre
             aria-readonly="true"
             style={{

@@ -245,7 +245,9 @@ export function OfficePane({
           style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
         />
 
-        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>{t("common.instructionsAndMemory")}</h4>
+        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+          {t("common.instructionsAndMemory")}
+        </h4>
 
         <label
           style={{

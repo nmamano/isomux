@@ -20,7 +20,15 @@ import {
   familyDisplayLabel,
 } from "../../shared/types.ts";
 import { roomSlotCount } from "../../shared/desks.ts";
-import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
+import {
+  SHIRT_COLORS,
+  HAIR_COLORS,
+  SKIN_COLORS,
+  HAIR_STYLES,
+  BEARDS,
+  HATS,
+  ACCESSORIES,
+} from "../../shared/outfit-options.ts";
 import { OutfitPicker } from "./OutfitPicker.tsx";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
@@ -973,206 +981,192 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const engineSettingsBlock = (
     <div className="agent-engine-settings agent-settings-fields">
       <div>
-      <label style={{ ...labelStyle, marginTop: 12 }}>
-        {t("common.field.model")}
-      </label>
-      {(() => {
-        // Codex model options come from the server (auth-aware via
-        // model/list). On fetch failure OR an empty list we fall back to the
-        // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
-        // fetched list would otherwise render a zero-option select). Claude
-        // uses the static MODEL_FAMILIES list either way.
-        const backendFetched =
-          usesBackendModels && backendModels && backendModels.length > 0;
-        const backendVisible = backendFetched
-          ? backendModels.filter((m) => !m.hidden)
-          : null;
-        const pickerModels = backendVisible
-          ? partitionBackendModelsForPicker(backendVisible, isOpenCode)
-          : null;
-        // Pin the stored model as an extra option whenever the rendered
-        // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
-        // editing never silently drops a value not offered on this login.
-        const renderedModelIds = backendVisible
-          ? backendVisible.map((m) => m.id)
-          : CODEX_MODELS.map((m) => m.value);
-        const storedNotInList =
-          !isSpawn &&
-          usesBackendModels &&
-          !renderedModelIds.includes(modelFamily);
-        return (
-          <>
-            <select
-              value={modelFamily}
-              onChange={(e) => {
-                cancelPendingTemplateModelResolution();
-                const next = e.target.value;
-                setModelFamily(next);
-                if (
-                  !isCodex &&
-                  !claudeFamilySupportsAutoPermission(next) &&
-                  permissionMode === "auto"
-                )
-                  setPermissionMode("bypassPermissions");
-                if (
-                  !isCodex &&
-                  !claudeFamilySupportsMaxEffort(next) &&
-                  effort === "max"
-                )
-                  // Same coercion target the server's validateEffort uses
-                  // for an invalid Claude "max".
-                  setEffort(DEFAULT_EFFORT);
-                // Dynamic backends keep only an effort the selected
-                // model advertises. OpenCode has no reported default,
-                // so its enum-ordered first option is the fallback.
-                if ((isCodex || isOpenCode) && backendVisible) {
-                  const picked = backendVisible.find((m) => m.id === next);
-                  if (picked) {
-                    if (isCodex && picked.defaultEffort) {
-                      const supported = new Set(
-                        picked.supportedEfforts.map((o) => o.level),
-                      );
-                      if (!supported.has(effort))
-                        setEffort(picked.defaultEffort as EffortLevel);
-                    } else if (isOpenCode) {
-                      const nextEffort = selectSupportedEffort(
-                        effort,
-                        picked.supportedEfforts,
-                      );
-                      if (nextEffort && nextEffort !== effort)
-                        setEffort(nextEffort);
+        <label style={{ ...labelStyle, marginTop: 12 }}>
+          {t("common.field.model")}
+        </label>
+        {(() => {
+          // Codex model options come from the server (auth-aware via
+          // model/list). On fetch failure OR an empty list we fall back to the
+          // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
+          // fetched list would otherwise render a zero-option select). Claude
+          // uses the static MODEL_FAMILIES list either way.
+          const backendFetched =
+            usesBackendModels && backendModels && backendModels.length > 0;
+          const backendVisible = backendFetched
+            ? backendModels.filter((m) => !m.hidden)
+            : null;
+          const pickerModels = backendVisible
+            ? partitionBackendModelsForPicker(backendVisible, isOpenCode)
+            : null;
+          // Pin the stored model as an extra option whenever the rendered
+          // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
+          // editing never silently drops a value not offered on this login.
+          const renderedModelIds = backendVisible
+            ? backendVisible.map((m) => m.id)
+            : CODEX_MODELS.map((m) => m.value);
+          const storedNotInList =
+            !isSpawn &&
+            usesBackendModels &&
+            !renderedModelIds.includes(modelFamily);
+          return (
+            <>
+              <select
+                value={modelFamily}
+                onChange={(e) => {
+                  cancelPendingTemplateModelResolution();
+                  const next = e.target.value;
+                  setModelFamily(next);
+                  if (
+                    !isCodex &&
+                    !claudeFamilySupportsAutoPermission(next) &&
+                    permissionMode === "auto"
+                  )
+                    setPermissionMode("bypassPermissions");
+                  if (
+                    !isCodex &&
+                    !claudeFamilySupportsMaxEffort(next) &&
+                    effort === "max"
+                  )
+                    // Same coercion target the server's validateEffort uses
+                    // for an invalid Claude "max".
+                    setEffort(DEFAULT_EFFORT);
+                  // Dynamic backends keep only an effort the selected
+                  // model advertises. OpenCode has no reported default,
+                  // so its enum-ordered first option is the fallback.
+                  if ((isCodex || isOpenCode) && backendVisible) {
+                    const picked = backendVisible.find((m) => m.id === next);
+                    if (picked) {
+                      if (isCodex && picked.defaultEffort) {
+                        const supported = new Set(
+                          picked.supportedEfforts.map((o) => o.level),
+                        );
+                        if (!supported.has(effort))
+                          setEffort(picked.defaultEffort as EffortLevel);
+                      } else if (isOpenCode) {
+                        const nextEffort = selectSupportedEffort(
+                          effort,
+                          picked.supportedEfforts,
+                        );
+                        if (nextEffort && nextEffort !== effort)
+                          setEffort(nextEffort);
+                      }
                     }
                   }
-                }
-              }}
-              style={{
-                ...inputStyle,
-                appearance: "none",
-                cursor: modelSelectCursor(usesBackendModels, modelsLoading),
-              }}
-              disabled={usesBackendModels && modelsLoading}
-            >
-              {usesBackendModels ? (
-                <>
-                  {/* OpenCode picker order: Free, then
+                }}
+                style={{
+                  ...inputStyle,
+                  appearance: "none",
+                  cursor: modelSelectCursor(usesBackendModels, modelsLoading),
+                }}
+                disabled={usesBackendModels && modelsLoading}
+              >
+                {usesBackendModels ? (
+                  <>
+                    {/* OpenCode picker order: Free, then
                                 Pay-as-you-go, then Subscription. */}
-                  {pickerModels && pickerModels.free.length > 0 && (
-                    <optgroup label={t("dialogs.agent.modelTier.free")}>
-                      {pickerModels.free.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {pickerModels ? (
-                    isOpenCode ? (
-                      <>
-                        {pickerModels.available.length > 0 && (
-                          <optgroup label={t("dialogs.agent.modelTier.payg")}>
-                            {pickerModels.available.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {pickerModels.subscription.length > 0 && (
-                          <optgroup
-                            label={t("dialogs.agent.modelTier.subscription")}
-                          >
-                            {pickerModels.subscription.map((m) => (
-                              <option key={m.id} value={m.id}>
-                                {m.label}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </>
-                    ) : (
-                      pickerModels.available.map((m) => (
-                        <option key={m.id} value={m.id}>
+                    {pickerModels && pickerModels.free.length > 0 && (
+                      <optgroup label={t("dialogs.agent.modelTier.free")}>
+                        {pickerModels.free.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {pickerModels ? (
+                      isOpenCode ? (
+                        <>
+                          {pickerModels.available.length > 0 && (
+                            <optgroup label={t("dialogs.agent.modelTier.payg")}>
+                              {pickerModels.available.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {pickerModels.subscription.length > 0 && (
+                            <optgroup
+                              label={t("dialogs.agent.modelTier.subscription")}
+                            >
+                              {pickerModels.subscription.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </>
+                      ) : (
+                        pickerModels.available.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))
+                      )
+                    ) : isCodex ? (
+                      CODEX_MODELS.map((m) => (
+                        <option key={m.value} value={m.value}>
                           {m.label}
                         </option>
                       ))
-                    )
-                  ) : isCodex ? (
-                    CODEX_MODELS.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
+                    ) : null}
+                    {storedNotInList && (
+                      <option key={modelFamily} value={modelFamily}>
+                        {t("common.model.currentOption")}
                       </option>
-                    ))
-                  ) : null}
-                  {storedNotInList && (
-                    <option key={modelFamily} value={modelFamily}>
-                      {t("common.model.currentOption")}
+                    )}
+                  </>
+                ) : (
+                  MODEL_FAMILIES.map((m) => (
+                    <option key={m.family} value={m.family}>
+                      {m.label} ({modelVersionLabel(m.family)})
                     </option>
-                  )}
-                </>
-              ) : (
-                MODEL_FAMILIES.map((m) => (
-                  <option key={m.family} value={m.family}>
-                    {m.label} ({modelVersionLabel(m.family)})
-                  </option>
-                ))
-              )}
-            </select>
-            {/* Only claim the login lacks the model once the check
+                  ))
+                )}
+              </select>
+              {/* Only claim the login lacks the model once the check
                           has settled - while the list loads, the fallback
                           list is wrong for backend-model logins and the
                           message flashes on every open. */}
-            {!isSpawn &&
-              usesBackendModels &&
-              storedNotInList &&
-              !modelsLoading &&
-              (backendVisible !== null || modelsError !== null) && (
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: "#ff6b6b",
-                    margin: "3px 0 0",
-                  }}
-                >
-                  {t("common.model.currentIs", {
-                    model: familyDisplayLabel(modelFamily),
-                  })}{" "}
-                  {modelsError
-                    ? t("common.model.checkFailed")
-                    : t("common.model.notOffered")}
-                </p>
-              )}
-          </>
-        );
-      })()}
-      {usesBackendModels && modelsLoading && (
-        <p
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            color: "var(--orange)",
-            margin: "3px 0 0",
-          }}
-        >
-          {modelsStarting && isOpenCode
-            ? t("common.model.startingOpenCode")
-            : t("common.model.loading")}
-        </p>
-      )}
-      {usesBackendModels && modelsError && !modelsLoading && (
-        <p
-          style={{
-            fontSize: 12,
-            color: "#ff6b6b",
-            margin: "3px 0 0",
-          }}
-        >
-          {modelListErrorMessage(i18n, isOpenCode, modelsError)}
-        </p>
-      )}
-      {isOpenCode &&
-        !modelsLoading &&
-        !modelsError &&
-        backendModels?.filter((model) => !model.hidden).length === 0 && (
+              {!isSpawn &&
+                usesBackendModels &&
+                storedNotInList &&
+                !modelsLoading &&
+                (backendVisible !== null || modelsError !== null) && (
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "#ff6b6b",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    {t("common.model.currentIs", {
+                      model: familyDisplayLabel(modelFamily),
+                    })}{" "}
+                    {modelsError
+                      ? t("common.model.checkFailed")
+                      : t("common.model.notOffered")}
+                  </p>
+                )}
+            </>
+          );
+        })()}
+        {usesBackendModels && modelsLoading && (
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: "var(--orange)",
+              margin: "3px 0 0",
+            }}
+          >
+            {modelsStarting && isOpenCode
+              ? t("common.model.startingOpenCode")
+              : t("common.model.loading")}
+          </p>
+        )}
+        {usesBackendModels && modelsError && !modelsLoading && (
           <p
             style={{
               fontSize: 12,
@@ -1180,21 +1174,34 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               margin: "3px 0 0",
             }}
           >
-            {t("common.model.noneConnected")}
+            {modelListErrorMessage(i18n, isOpenCode, modelsError)}
           </p>
         )}
-      {openCodeCatalogRejectsSelection && (
-        <p
-          style={{
-            fontSize: 12,
-            color: "#ff6b6b",
-            margin: "3px 0 0",
-          }}
-        >
-          {t("common.model.selectConnected")}
-        </p>
-      )}
-
+        {isOpenCode &&
+          !modelsLoading &&
+          !modelsError &&
+          backendModels?.filter((model) => !model.hidden).length === 0 && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "#ff6b6b",
+                margin: "3px 0 0",
+              }}
+            >
+              {t("common.model.noneConnected")}
+            </p>
+          )}
+        {openCodeCatalogRejectsSelection && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "#ff6b6b",
+              margin: "3px 0 0",
+            }}
+          >
+            {t("common.model.selectConnected")}
+          </p>
+        )}
       </div>
       {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
         <div>
@@ -1257,61 +1264,62 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           })()}
         </div>
       )}
-            <div>
-      <label style={{ ...labelStyle, marginTop: 12 }}>
-        {isCodex
-          ? t("common.field.approvalPolicy")
-          : t("common.field.permissionMode")}
-      </label>
-      <select
-        value={permissionMode}
-        onChange={(e) => {
-          cancelPendingTemplateModelResolution();
-          setPermissionMode(e.target.value as AgentInfo["permissionMode"]);
-        }}
-        style={{
-          ...inputStyle,
-          appearance: "none",
-          cursor: "pointer",
-        }}
-      >
-        {isOpenCode ? (
-          <>
-            <option value="default">{t("dialogs.agent.permission.ask")}</option>
-            <option value="bypassPermissions">
-              {t("dialogs.agent.permission.bypassAll")}
-            </option>
-          </>
-        ) : isCodex ? (
-          <>
-            <option value="untrusted">
-              {t("dialogs.agent.permission.codexUntrusted")}
-            </option>
-            <option value="on-request">
-              {t("dialogs.agent.permission.codexOnRequest")}
-            </option>
-            <option value="never">{t("common.permission.codexNever")}</option>
-          </>
-        ) : (
-          <>
-            {claudeFamilySupportsAutoPermission(modelFamily) && (
-              <option value="auto">
-                {t("dialogs.agent.permission.claudeAuto")}
+      <div>
+        <label style={{ ...labelStyle, marginTop: 12 }}>
+          {isCodex
+            ? t("common.field.approvalPolicy")
+            : t("common.field.permissionMode")}
+        </label>
+        <select
+          value={permissionMode}
+          onChange={(e) => {
+            cancelPendingTemplateModelResolution();
+            setPermissionMode(e.target.value as AgentInfo["permissionMode"]);
+          }}
+          style={{
+            ...inputStyle,
+            appearance: "none",
+            cursor: "pointer",
+          }}
+        >
+          {isOpenCode ? (
+            <>
+              <option value="default">
+                {t("dialogs.agent.permission.ask")}
               </option>
-            )}
-            <option value="default">
-              {t("dialogs.agent.permission.claudeDefault")}
-            </option>
-            <option value="acceptEdits">
-              {t("dialogs.agent.permission.claudeAcceptEdits")}
-            </option>
-            <option value="bypassPermissions">
-              {t("common.permission.claudeBypass")}
-            </option>
-          </>
-        )}
-      </select>
-
+              <option value="bypassPermissions">
+                {t("dialogs.agent.permission.bypassAll")}
+              </option>
+            </>
+          ) : isCodex ? (
+            <>
+              <option value="untrusted">
+                {t("dialogs.agent.permission.codexUntrusted")}
+              </option>
+              <option value="on-request">
+                {t("dialogs.agent.permission.codexOnRequest")}
+              </option>
+              <option value="never">{t("common.permission.codexNever")}</option>
+            </>
+          ) : (
+            <>
+              {claudeFamilySupportsAutoPermission(modelFamily) && (
+                <option value="auto">
+                  {t("dialogs.agent.permission.claudeAuto")}
+                </option>
+              )}
+              <option value="default">
+                {t("dialogs.agent.permission.claudeDefault")}
+              </option>
+              <option value="acceptEdits">
+                {t("dialogs.agent.permission.claudeAcceptEdits")}
+              </option>
+              <option value="bypassPermissions">
+                {t("common.permission.claudeBypass")}
+              </option>
+            </>
+          )}
+        </select>
       </div>
       {isCodex && (
         <div>
@@ -1339,7 +1347,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           </select>
         </div>
       )}
-
     </div>
   );
 
@@ -1591,150 +1598,143 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 </div>
               </section>
             )}
-<section className="agent-settings-group agent-identity-section">
-                  <label style={labelStyle}>{t("common.name")}</label>
-                  {/* Mobile autofocus would scroll the engine and templates out of view
+            <section className="agent-settings-group agent-identity-section">
+              <label style={labelStyle}>{t("common.name")}</label>
+              {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
-                  <input
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      if (nameError) setNameError(null);
-                    }}
-                    placeholder={
-                      isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
-                    }
-                    autoFocus={isSpawn && !isMobile}
-                    style={
-                      nameError
-                        ? { ...inputStyle, borderColor: "#ff6b6b" }
-                        : inputStyle
-                    }
-                  />
-                  {nameError && (
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#ff6b6b",
-                        margin: "4px 0 0",
-                      }}
-                    >
-                      {nameError}
-                    </p>
-                  )}
-                </section>
-<section className="agent-settings-group agent-engine-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.group.engine")}
-                  </h4>
-                  {isSpawn ? (
-                    <div className="agent-engine-control">
-                      <label style={labelStyle}>
-                        {t("common.field.engine")}
-                      </label>
-                      <div className="spawn-engine-options">
-                        {ENGINE_OPTIONS.map((option) => {
-                          const selected = targetEngine === option.agentType;
-                          return (
-                            <button
-                              key={option.agentType}
-                              type="button"
-                              aria-pressed={selected}
-                              onClick={() => setTargetEngine(option.agentType)}
-                              style={{
-                                background: selected
-                                  ? "var(--bg-hover)"
-                                  : "var(--bg-surface)",
-                                border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
-                                borderRadius: 8,
-                                padding: "12px 14px",
-                                textAlign: "left",
-                                cursor: "pointer",
-                                color: "var(--text-primary)",
-                                boxShadow: selected
-                                  ? `0 0 0 1px ${option.accent}`
-                                  : "none",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  display: "block",
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  marginBottom: 4,
-                                }}
-                              >
-                                {option.label}
-                              </span>
-                              <span
-                                style={{
-                                  display: "block",
-                                  fontSize: 12,
-                                  color: "var(--text-dim)",
-                                  lineHeight: 1.4,
-                                }}
-                              >
-                                {t(option.blurbKey)}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ) : (
-                    /* Editable in edit mode: switching starts a fresh conversation
-                on the new engine. The current conversation stays in resume
-                history, and the settings use the new engine's options. */
-                    <div className="agent-engine-control">
-                      <label style={labelStyle}>
-                        {t("common.field.engine")}
-                      </label>
-                      <select
-                        value={targetEngine}
-                        onChange={(e) =>
-                          setTargetEngine(e.target.value as AgentBackendType)
-                        }
-                        style={{
-                          ...inputStyle,
-                          appearance: "none",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {ENGINE_OPTIONS.map((option) => (
-                          <option
-                            key={option.agentType}
-                            value={option.agentType}
-                          >
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      {targetEngine !== agentType && (
-                        <p
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
+                placeholder={
+                  isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
+                }
+                autoFocus={isSpawn && !isMobile}
+                style={
+                  nameError
+                    ? { ...inputStyle, borderColor: "#ff6b6b" }
+                    : inputStyle
+                }
+              />
+              {nameError && (
+                <p
+                  style={{
+                    fontSize: 12,
+                    color: "#ff6b6b",
+                    margin: "4px 0 0",
+                  }}
+                >
+                  {nameError}
+                </p>
+              )}
+            </section>
+            <section className="agent-settings-group agent-engine-section">
+              <h4 className="agent-settings-group-title">
+                {t("dialogs.agent.group.engine")}
+              </h4>
+              {isSpawn ? (
+                <div className="agent-engine-control">
+                  <label style={labelStyle}>{t("common.field.engine")}</label>
+                  <div className="spawn-engine-options">
+                    {ENGINE_OPTIONS.map((option) => {
+                      const selected = targetEngine === option.agentType;
+                      return (
+                        <button
+                          key={option.agentType}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setTargetEngine(option.agentType)}
                           style={{
-                            ...dialogHint,
-                            margin: "6px 0 0",
-                            lineHeight: 1.4,
+                            background: selected
+                              ? "var(--bg-hover)"
+                              : "var(--bg-surface)",
+                            border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
+                            borderRadius: 8,
+                            padding: "12px 14px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            color: "var(--text-primary)",
+                            boxShadow: selected
+                              ? `0 0 0 1px ${option.accent}`
+                              : "none",
                           }}
                         >
-                          {t("dialogs.agent.engineSwitchHint", {
-                            engine:
-                              ENGINE_OPTIONS.find(
-                                (option) => option.agentType === targetEngine,
-                              )?.label ?? targetEngine,
-                          })}
-                        </p>
-                      )}
-                    </div>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              marginBottom: 4,
+                            }}
+                          >
+                            {option.label}
+                          </span>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 12,
+                              color: "var(--text-dim)",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {t(option.blurbKey)}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Editable in edit mode: switching starts a fresh conversation
+                on the new engine. The current conversation stays in resume
+                history, and the settings use the new engine's options. */
+                <div className="agent-engine-control">
+                  <label style={labelStyle}>{t("common.field.engine")}</label>
+                  <select
+                    value={targetEngine}
+                    onChange={(e) =>
+                      setTargetEngine(e.target.value as AgentBackendType)
+                    }
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {ENGINE_OPTIONS.map((option) => (
+                      <option key={option.agentType} value={option.agentType}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  {targetEngine !== agentType && (
+                    <p
+                      style={{
+                        ...dialogHint,
+                        margin: "6px 0 0",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {t("dialogs.agent.engineSwitchHint", {
+                        engine:
+                          ENGINE_OPTIONS.find(
+                            (option) => option.agentType === targetEngine,
+                          )?.label ?? targetEngine,
+                      })}
+                    </p>
                   )}
-                  {engineSettingsBlock}
-                </section>
-<section className="agent-settings-group agent-instructions-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("common.instructionsAndMemory")}
-                  </h4>
-                  <div className="agent-settings-fields">
-                  <div>
+                </div>
+              )}
+              {engineSettingsBlock}
+            </section>
+            <section className="agent-settings-group agent-instructions-section">
+              <h4 className="agent-settings-group-title">
+                {t("common.instructionsAndMemory")}
+              </h4>
+              <div className="agent-settings-fields">
+                <div>
                   <label style={labelStyle}>
                     {t("dialogs.agent.customInstructions")}{" "}
                     <span
@@ -1758,27 +1758,32 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     {t("dialogs.agent.customInstructionsHint")}
                     {!isSpawn && ` ${t("common.nextConversation")}`}
                   </p>
-                  </div>
-                  {memoryBlock}
-                  </div>
-                  <SystemPromptButton preview={{
-                    ...(isSpawn ? {} : { agentId: agent!.id }),
-                    roomId: isSpawn ? props.roomId : agent!.roomId,
-                    name: name.trim() || (isSpawn ? `Agent ${props.deskIndex + 1}` : agent!.name),
-                    agentType: targetEngine,
-                    customInstructions,
-                    privileged,
-                    ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
-                  }} />
-                </section>
-<section className="agent-settings-group agent-access-section">
+                </div>
+                {memoryBlock}
+              </div>
+              <SystemPromptButton
+                preview={{
+                  ...(isSpawn ? {} : { agentId: agent!.id }),
+                  roomId: isSpawn ? props.roomId : agent!.roomId,
+                  name:
+                    name.trim() ||
+                    (isSpawn ? `Agent ${props.deskIndex + 1}` : agent!.name),
+                  agentType: targetEngine,
+                  customInstructions,
+                  privileged,
+                  ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
+                }}
+              />
+            </section>
+            <section className="agent-settings-group agent-access-section">
               <h4 className="agent-settings-group-title">
                 {t("dialogs.agent.group.access")}
               </h4>
 
-
               <div className="agent-settings-fields">
-              <div className="agent-directory-field">                  <label style={labelStyle}>
+                <div className="agent-directory-field">
+                  {" "}
+                  <label style={labelStyle}>
                     {t("common.field.workingDirectory")}
                   </label>
                   <div style={{ display: "flex", gap: 6 }}>
@@ -1842,7 +1847,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       ))}
                     </div>
                   )}
-                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>{t("dialogs.agent.cwdHint")}</p>
+                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                    {t("dialogs.agent.cwdHint")}
+                  </p>
                   {!isSpawn && (
                     <p
                       style={{
@@ -1854,49 +1861,52 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       {t("common.nextConversation")}
                     </p>
                   )}
-
                 </div>
-              <div className="agent-room-field">
-                <label style={labelStyle}>{t("common.rooms")}</label>
-                <p style={dialogHint}>{isSpawn ? rooms.find((room) => room.id === props.roomId)?.name : agentRoomName}</p>
-                {moveToRoomBlock}
-              </div>
-              <div className="agent-manager-field">
-                <label style={{ ...labelStyle, marginTop: 12 }}>
-                  {t("dialogs.agent.manager")}
-                </label>
-                <div
-                  title={t("dialogs.agent.managerTitle")}
-                  style={{
-                    ...inputStyle,
-                    display: "flex",
-                    alignItems: "center",
-                    color: "var(--text-muted)",
-                    fontFamily: "'JetBrains Mono',monospace",
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                    fontWeight: 600,
-                    cursor: "not-allowed",
-                    background: "var(--bg-elevated)",
-                  }}
-                >
-                  {isSpawn
-                    ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
-                    : (agent!.username ??
-                      agent!.userId ??
-                      t("dialogs.agent.managerUnowned"))}
+                <div className="agent-room-field">
+                  <label style={labelStyle}>{t("common.rooms")}</label>
+                  <p style={dialogHint}>
+                    {isSpawn
+                      ? rooms.find((room) => room.id === props.roomId)?.name
+                      : agentRoomName}
+                  </p>
+                  {moveToRoomBlock}
                 </div>
-                <p
-                  style={{
-                    ...dialogHint,
-                    margin: "3px 0 0",
-                  }}
-                >
-                  {t("dialogs.agent.managerHint")}
-                </p>
-              </div>
+                <div className="agent-manager-field">
+                  <label style={{ ...labelStyle, marginTop: 12 }}>
+                    {t("dialogs.agent.manager")}
+                  </label>
+                  <div
+                    title={t("dialogs.agent.managerTitle")}
+                    style={{
+                      ...inputStyle,
+                      display: "flex",
+                      alignItems: "center",
+                      color: "var(--text-muted)",
+                      fontFamily: "'JetBrains Mono',monospace",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.5,
+                      fontWeight: 600,
+                      cursor: "not-allowed",
+                      background: "var(--bg-elevated)",
+                    }}
+                  >
+                    {isSpawn
+                      ? (getUsername() ?? t("dialogs.agent.managerNoUser"))
+                      : (agent!.username ??
+                        agent!.userId ??
+                        t("dialogs.agent.managerUnowned"))}
+                  </div>
+                  <p
+                    style={{
+                      ...dialogHint,
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    {t("dialogs.agent.managerHint")}
+                  </p>
+                </div>
 
-              {/* Privileged operator access. Grants this agent its spawning user's
+                {/* Privileged operator access. Grants this agent its spawning user's
               room-scoped operator powers (drive other agents' sessions: resume,
               new conversation, send-now, lifecycle; plus cron over the user's own
               jobs). Scope stays the agent - it never posts as the user. Conferred
@@ -1904,70 +1914,70 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               re-mints its token and restarts its session, like a model change.
               Shown only to a user who may actually set it (owner, or the agent's
               manager - see canTogglePrivilege). */}
-              {canTogglePrivilege && (
-                <div className="agent-privileged-field">
-                  <label
-                    htmlFor="agent-privileged"
-                    style={{ ...labelStyle, marginTop: 14 }}
-                  >
-                    {t("dialogs.agent.privileged")}
-                  </label>
-                  <label
-                    className="agent-privileged-control"
-                    htmlFor="agent-privileged"
-                  >
-                    <input
-                      id="agent-privileged"
-                      type="checkbox"
-                      checked={privileged}
-                      onChange={(e) => setPrivileged(e.target.checked)}
-                      style={{ cursor: "pointer", margin: 0 }}
-                    />
-                  </label>
-                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>
-                    {t("dialogs.agent.privilegedHint")}
-                    {!isSpawn &&
-                      privileged !== (agent!.privileged ?? false) &&
-                      ` ${t("dialogs.agent.privilegedRestart")}`}
-                  </p>
-                </div>
-              )}
+                {canTogglePrivilege && (
+                  <div className="agent-privileged-field">
+                    <label
+                      htmlFor="agent-privileged"
+                      style={{ ...labelStyle, marginTop: 14 }}
+                    >
+                      {t("dialogs.agent.privileged")}
+                    </label>
+                    <label
+                      className="agent-privileged-control"
+                      htmlFor="agent-privileged"
+                    >
+                      <input
+                        id="agent-privileged"
+                        type="checkbox"
+                        checked={privileged}
+                        onChange={(e) => setPrivileged(e.target.checked)}
+                        style={{ cursor: "pointer", margin: 0 }}
+                      />
+                    </label>
+                    <p style={{ ...dialogHint, margin: "5px 0 0" }}>
+                      {t("dialogs.agent.privilegedHint")}
+                      {!isSpawn &&
+                        privileged !== (agent!.privileged ?? false) &&
+                        ` ${t("dialogs.agent.privilegedRestart")}`}
+                    </p>
+                  </div>
+                )}
               </div>
             </section>
-<section className="agent-settings-group agent-appearance-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.appearance")}
-                  </h4>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div
-                      data-outfit-preview
-                      style={{
-                        width: 52,
-                        height: 70,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Character state="idle" outfit={outfit} />
-                    </div>
-                    <button
-                      onClick={() => setOutfit(makeRandomOutfit())}
-                      style={randomBtnStyle}
-                    >
-                      {t("dialogs.agent.randomize")}
-                    </button>
-                  </div>
+            <section className="agent-settings-group agent-appearance-section">
+              <h4 className="agent-settings-group-title">
+                {t("dialogs.agent.appearance")}
+              </h4>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  marginBottom: 10,
+                }}
+              >
+                <div
+                  data-outfit-preview
+                  style={{
+                    width: 52,
+                    height: 70,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Character state="idle" outfit={outfit} />
+                </div>
+                <button
+                  onClick={() => setOutfit(makeRandomOutfit())}
+                  style={randomBtnStyle}
+                >
+                  {t("dialogs.agent.randomize")}
+                </button>
+              </div>
 
-                  <OutfitPicker outfit={outfit} onChange={setOutfit} />
-                </section>
+              <OutfitPicker outfit={outfit} onChange={setOutfit} />
+            </section>
           </div>
 
           {isSpawn && killedAgents.length > 0 && (

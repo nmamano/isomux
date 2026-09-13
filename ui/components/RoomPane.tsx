@@ -267,11 +267,12 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
-
           </>
         )}
 
-        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>{t("common.instructionsAndMemory")}</h4>
+        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+          {t("common.instructionsAndMemory")}
+        </h4>
 
         <label
           style={{
@@ -355,8 +356,14 @@ export function RoomPane({
           </>
         )}
 
-        {room.type !== "lobby" && <>
-          <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>{t("dialogs.agent.appearance")}</h4>
+        {room.type !== "lobby" && (
+          <>
+            <h4
+              className="agent-settings-group-title"
+              style={{ marginTop: 24 }}
+            >
+              {t("dialogs.agent.appearance")}
+            </h4>
             <label
               htmlFor="room-skin"
               style={{
@@ -389,7 +396,8 @@ export function RoomPane({
                 </option>
               ))}
             </select>
-        </>}
+          </>
+        )}
 
         {error && (
           <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>

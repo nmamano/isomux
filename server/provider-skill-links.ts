@@ -138,7 +138,9 @@ export function agentUserSkillRoots(
   // personal home when there is one, so its box root joins too.
   const claudeRoot =
     env?.CLAUDE_CONFIG_DIR ||
-    (agentType !== "codex" ? claudeSourceRoot : (personalClaudeRoot ?? claudeSourceRoot));
+    (agentType !== "codex"
+      ? claudeSourceRoot
+      : (personalClaudeRoot ?? claudeSourceRoot));
   const claudeRoots = providerUserSkillRoots(
     "claude",
     userId,
@@ -148,7 +150,9 @@ export function agentUserSkillRoots(
   );
   const codexRoot =
     env?.CODEX_HOME ||
-    (agentType === "codex" ? codexSourceRoot : (personalCodexRoot ?? codexSourceRoot));
+    (agentType === "codex"
+      ? codexSourceRoot
+      : (personalCodexRoot ?? codexSourceRoot));
   const codexRoots = providerUserSkillRoots(
     "codex",
     userId,

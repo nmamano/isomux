@@ -1538,17 +1538,41 @@ describe("agents.previewSystemPrompt REST", () => {
     const owner = await srv.seedOwner("Boss");
     const roomId = srv.agentManager.getRooms()[0].id;
     const manager = await srv.seedMember("Original manager");
-    const target = (await srv.agentManager.spawn("Saved name", srv.stateRoot, "default", 0,
-      undefined, roomId, undefined, undefined, undefined, manager.username, "claude", undefined,
-      getUserByName(manager.username)!.id))!;
+    const target = (await srv.agentManager.spawn(
+      "Saved name",
+      srv.stateRoot,
+      "default",
+      0,
+      undefined,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      manager.username,
+      "claude",
+      undefined,
+      getUserByName(manager.username)!.id,
+    ))!;
     const memoryDir = join(srv.stateRoot, "memory", "agents");
     mkdirSync(memoryDir, { recursive: true });
-    writeFileSync(join(memoryDir, `${target.id}.md`), "Saved memory sentinel\n");
-    const draft = { agentId: target.id, roomId, name: "Draft name sentinel", agentType: "codex",
-      customInstructions: "Draft instructions sentinel", privileged: false, memory: "Draft memory sentinel" };
-    const preview = (body: unknown) => req(srv, "POST", "/api/agents/system-prompt-preview", {
-      rawSessionId: owner.rawSessionId, body,
-    });
+    writeFileSync(
+      join(memoryDir, `${target.id}.md`),
+      "Saved memory sentinel\n",
+    );
+    const draft = {
+      agentId: target.id,
+      roomId,
+      name: "Draft name sentinel",
+      agentType: "codex",
+      customInstructions: "Draft instructions sentinel",
+      privileged: false,
+      memory: "Draft memory sentinel",
+    };
+    const preview = (body: unknown) =>
+      req(srv, "POST", "/api/agents/system-prompt-preview", {
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
     const edited = await preview(draft);
     expect(edited.status).toBe(200);
     const text = (edited.body as { prompt: string }).prompt;
@@ -1558,17 +1582,30 @@ describe("agents.previewSystemPrompt REST", () => {
     expect(text).toContain("Draft memory sentinel");
     expect(text).not.toContain("Saved memory sentinel");
     const cleared = await preview({ ...draft, memory: "" });
-    expect((cleared.body as { prompt: string }).prompt).not.toContain("Saved memory sentinel");
-    const saved = await req(srv, "GET", `/api/agents/${target.id}/system-prompt`, { rawSessionId: owner.rawSessionId });
-    expect((saved.body as { prompt: string }).prompt).toContain("Saved memory sentinel");
-    expect((saved.body as { prompt: string }).prompt).not.toContain("Draft instructions sentinel");
+    expect((cleared.body as { prompt: string }).prompt).not.toContain(
+      "Saved memory sentinel",
+    );
+    const saved = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/system-prompt`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect((saved.body as { prompt: string }).prompt).toContain(
+      "Saved memory sentinel",
+    );
+    expect((saved.body as { prompt: string }).prompt).not.toContain(
+      "Draft instructions sentinel",
+    );
     expect(srv.agentManager.getAgent(target.id)?.name).toBe("Saved name");
     const count = srv.agentManager.getAllAgents().length;
     const spawned = await preview({ ...draft, agentId: undefined });
     expect(spawned.status).toBe(200);
     expect((spawned.body as { prompt: string }).prompt).toContain("new-agent");
     expect((spawned.body as { prompt: string }).prompt).toContain("Boss");
-    expect((spawned.body as { prompt: string }).prompt).not.toContain("Draft memory sentinel");
+    expect((spawned.body as { prompt: string }).prompt).not.toContain(
+      "Draft memory sentinel",
+    );
     expect(srv.agentManager.getAllAgents().length).toBe(count);
   });
 
@@ -1578,14 +1615,32 @@ describe("agents.previewSystemPrompt REST", () => {
     const owner = await srv.seedOwner("Boss");
     const member = await srv.seedMember("Mia");
     const roomId = srv.agentManager.getRooms()[0].id;
-    const draft = { roomId, name: "Draft", agentType: "claude", customInstructions: "", privileged: false };
-    const preview = (body: unknown, rawSessionId = owner.rawSessionId) => req(srv, "POST", "/api/agents/system-prompt-preview", { rawSessionId, body });
+    const draft = {
+      roomId,
+      name: "Draft",
+      agentType: "claude",
+      customInstructions: "",
+      privileged: false,
+    };
+    const preview = (body: unknown, rawSessionId = owner.rawSessionId) =>
+      req(srv, "POST", "/api/agents/system-prompt-preview", {
+        rawSessionId,
+        body,
+      });
     expect((await preview(draft, member.rawSessionId)).status).toBe(403);
-    expect((await preview({ ...draft, agentId: "missing-agent" })).status).toBe(403);
+    expect((await preview({ ...draft, agentId: "missing-agent" })).status).toBe(
+      403,
+    );
     const otherRoom = srv.agentManager.createRoom("Other");
     const target = await spawnAt(srv, "Other room", otherRoom, 0);
     expect((await preview({ ...draft, agentId: target.id })).status).toBe(403);
-    for (const invalid of [{ memory: 42 }, { agentType: "bad" }, { name: [] }, { privileged: "true" }, { customInstructions: null }]) {
+    for (const invalid of [
+      { memory: 42 },
+      { agentType: "bad" },
+      { name: [] },
+      { privileged: "true" },
+      { customInstructions: null },
+    ]) {
       expect((await preview({ ...draft, ...invalid })).status).toBe(422);
     }
   });

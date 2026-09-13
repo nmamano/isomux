@@ -2454,185 +2454,190 @@ export function LogView({
                 </div>
               </div>
             )}
-          {/* Pinned user message - sits between the header and the messages
+            {/* Pinned user message - sits between the header and the messages
           when no user_message is currently visible in the scroll viewport.
           Click scrolls the conversation back to that message. */}
-          {pinnedMessage && (
-            <div
-              onClick={scrollToPinnedMessage}
-              title={pinnedMessage.content}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: isMobile ? "6px 12px" : "6px 24px",
-                // Keep the ellipsized text and the arrow clear of the portrait.
-                paddingRight: showAvatar ? (isMobile ? 12 : 24) + 70 : undefined,
-                background: "var(--bg-subtle)",
-                borderBottom: "1px solid var(--border)",
-                cursor: "pointer",
-                color: "var(--text-muted)",
-                fontSize: 12,
-                flexShrink: 0,
-              }}
-            >
-              <span
-                style={{
-                  color: "var(--text-ghost)",
-                  flexShrink: 0,
-                  fontWeight: 600,
-                }}
-              >
-                {i18n.t("logView.lastMessagePrefix")}
-              </span>
-              <span
-                style={{
-                  flex: 1,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  minWidth: 0,
-                }}
-              >
-                {pinnedMessage.content}
-              </span>
-              <span
-                style={{
-                  color: "var(--text-ghost)",
-                  flexShrink: 0,
-                  fontSize: 11,
-                  lineHeight: 1,
-                }}
-              >
-                ↑
-              </span>
-            </div>
-          )}
-
-          {/* Messages */}
-          <div
-            ref={messagesRef}
-            onScroll={handleScroll}
-            className="chat-messages"
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              overflowX: "hidden",
-              padding: isMobile ? "12px 12px" : "16px 24px",
-              color: "var(--text-secondary)",
-              position: "relative",
-            }}
-          >
-            {logs.length === 0 && (
+            {pinnedMessage && (
               <div
+                onClick={scrollToPinnedMessage}
+                title={pinnedMessage.content}
                 style={{
-                  color: "var(--text-ghost)",
-                  textAlign: "center",
-                  marginTop: 40,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: isMobile ? "6px 12px" : "6px 24px",
+                  // Keep the ellipsized text and the arrow clear of the portrait.
+                  paddingRight: showAvatar
+                    ? (isMobile ? 12 : 24) + 70
+                    : undefined,
+                  background: "var(--bg-subtle)",
+                  borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  flexShrink: 0,
                 }}
               >
-                {connected ? (
-                  <>
-                    {i18n.t("logView.emptyStart")}{" "}
-                    <button
-                      type="button"
-                      onClick={() => runSlashCommand("/resume")}
-                      style={{
-                        padding: 0,
-                        border: "none",
-                        background: "none",
-                        color: "var(--accent)",
-                        cursor: "pointer",
-                        font: "inherit",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      {i18n.t("logView.emptyResume")}
-                    </button>
-                    .
-                  </>
-                ) : (
-                  i18n.t("common.loadingDots")
-                )}
+                <span
+                  style={{
+                    color: "var(--text-ghost)",
+                    flexShrink: 0,
+                    fontWeight: 600,
+                  }}
+                >
+                  {i18n.t("logView.lastMessagePrefix")}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    minWidth: 0,
+                  }}
+                >
+                  {pinnedMessage.content}
+                </span>
+                <span
+                  style={{
+                    color: "var(--text-ghost)",
+                    flexShrink: 0,
+                    fontSize: 11,
+                    lineHeight: 1,
+                  }}
+                >
+                  ↑
+                </span>
               </div>
             )}
-            {logs.map((entry) => {
-              if (entry.metadata?.interactionFallback === true) return null;
-              if (groupedChildIds.has(entry.id)) return null;
-              const td = turnData.get(entry.id);
-              const rawToolGroup = rawToolGroupByFirstId.get(entry.id);
-              const canEditMsg =
-                entry.kind === "user_message" &&
-                agent.state === "waiting_for_response" &&
-                !editingLogEntryId &&
-                agent.capabilities.edit;
-              const isUserMsg =
-                entry.kind === "user_message" && senderIsHuman(entry.metadata);
-              return (
+
+            {/* Messages */}
+            <div
+              ref={messagesRef}
+              onScroll={handleScroll}
+              className="chat-messages"
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                overflowX: "hidden",
+                padding: isMobile ? "12px 12px" : "16px 24px",
+                color: "var(--text-secondary)",
+                position: "relative",
+              }}
+            >
+              {logs.length === 0 && (
                 <div
-                  key={entry.id}
-                  ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
+                  style={{
+                    color: "var(--text-ghost)",
+                    textAlign: "center",
+                    marginTop: 40,
+                  }}
                 >
-                  {rawToolGroup ? (
-                    <RawToolCallGroupCard
-                      entries={rawToolGroup.entries}
-                      isLastInTurn={td?.isLastInTurn}
-                      turnEntries={td?.turnEntries}
-                      isMobile={isMobile}
-                      onCopyToTerminal={
-                        features.terminal ? copyToTerminal : undefined
-                      }
-                    />
-                  ) : (
-                    <LogEntryCard
-                      entry={entry}
-                      messageExpanded={expandedMessages.has(entry.id)}
-                      onToggleMessage={toggleMessage}
-                      isLastInTurn={td?.isLastInTurn}
-                      turnEntries={td?.turnEntries}
-                      isMobile={isMobile}
-                      canEdit={canEditMsg}
-                      isEditing={editingLogEntryId === entry.id}
-                      onStartEdit={setEditingLogEntryId}
-                      onCancelEdit={handleCancelEdit}
-                      onSubmitEdit={handleSubmitEdit}
-                      onOpenInEditor={
-                        features.editor ? openInEditor : undefined
-                      }
-                      onCopyToTerminal={
-                        features.terminal ? copyToTerminal : undefined
-                      }
-                      tasks={taskMap}
-                      onOpenTask={onOpenTask}
-                    />
-                  )}
-                  {(entry.metadata?.providerLogin === "codex" ||
-                    entry.metadata?.providerLogin === "claude") &&
-                    agent.userId !== null &&
-                    sessionContext?.userId === agent.userId && (
-                      <ProviderSignInCard
-                        provider={entry.metadata.providerLogin}
-                        accounts={providerAccounts}
-                        showTitle={false}
-                        apiKeyNote
-                        onStartNewConversation={async () => {
-                          await apiFetch(
-                            "POST",
-                            `/api/agents/${agent.id}/new-conversation`,
-                          );
+                  {connected ? (
+                    <>
+                      {i18n.t("logView.emptyStart")}{" "}
+                      <button
+                        type="button"
+                        onClick={() => runSlashCommand("/resume")}
+                        style={{
+                          padding: 0,
+                          border: "none",
+                          background: "none",
+                          color: "var(--accent)",
+                          cursor: "pointer",
+                          font: "inherit",
+                          textDecoration: "underline",
                         }}
+                      >
+                        {i18n.t("logView.emptyResume")}
+                      </button>
+                      .
+                    </>
+                  ) : (
+                    i18n.t("common.loadingDots")
+                  )}
+                </div>
+              )}
+              {logs.map((entry) => {
+                if (entry.metadata?.interactionFallback === true) return null;
+                if (groupedChildIds.has(entry.id)) return null;
+                const td = turnData.get(entry.id);
+                const rawToolGroup = rawToolGroupByFirstId.get(entry.id);
+                const canEditMsg =
+                  entry.kind === "user_message" &&
+                  agent.state === "waiting_for_response" &&
+                  !editingLogEntryId &&
+                  agent.capabilities.edit;
+                const isUserMsg =
+                  entry.kind === "user_message" &&
+                  senderIsHuman(entry.metadata);
+                return (
+                  <div
+                    key={entry.id}
+                    ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
+                  >
+                    {rawToolGroup ? (
+                      <RawToolCallGroupCard
+                        entries={rawToolGroup.entries}
+                        isLastInTurn={td?.isLastInTurn}
+                        turnEntries={td?.turnEntries}
+                        isMobile={isMobile}
+                        onCopyToTerminal={
+                          features.terminal ? copyToTerminal : undefined
+                        }
+                      />
+                    ) : (
+                      <LogEntryCard
+                        entry={entry}
+                        messageExpanded={expandedMessages.has(entry.id)}
+                        onToggleMessage={toggleMessage}
+                        isLastInTurn={td?.isLastInTurn}
+                        turnEntries={td?.turnEntries}
+                        isMobile={isMobile}
+                        canEdit={canEditMsg}
+                        isEditing={editingLogEntryId === entry.id}
+                        onStartEdit={setEditingLogEntryId}
+                        onCancelEdit={handleCancelEdit}
+                        onSubmitEdit={handleSubmitEdit}
+                        onOpenInEditor={
+                          features.editor ? openInEditor : undefined
+                        }
+                        onCopyToTerminal={
+                          features.terminal ? copyToTerminal : undefined
+                        }
+                        tasks={taskMap}
+                        onOpenTask={onOpenTask}
                       />
                     )}
-                </div>
-              );
-            })}
-            {interaction && <ChoiceInteractionCard interaction={interaction} />}
-            <ActivityIndicator
-              state={agent.state}
-              stateChangedAt={stateChangedAt.get(agent.id)}
-              agentId={agent.id}
-            />
-          </div>
+                    {(entry.metadata?.providerLogin === "codex" ||
+                      entry.metadata?.providerLogin === "claude") &&
+                      agent.userId !== null &&
+                      sessionContext?.userId === agent.userId && (
+                        <ProviderSignInCard
+                          provider={entry.metadata.providerLogin}
+                          accounts={providerAccounts}
+                          showTitle={false}
+                          apiKeyNote
+                          onStartNewConversation={async () => {
+                            await apiFetch(
+                              "POST",
+                              `/api/agents/${agent.id}/new-conversation`,
+                            );
+                          }}
+                        />
+                      )}
+                  </div>
+                );
+              })}
+              {interaction && (
+                <ChoiceInteractionCard interaction={interaction} />
+              )}
+              <ActivityIndicator
+                state={agent.state}
+                stateChangedAt={stateChangedAt.get(agent.id)}
+                agentId={agent.id}
+              />
+            </div>
           </div>
 
           {/* Input */}

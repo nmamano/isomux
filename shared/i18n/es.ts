@@ -767,7 +767,8 @@ export const es: Catalog = {
     "Se fija al crear el agente - el responsable no se puede cambiar después.",
   "dialogs.agent.managerNoUser": "(sin miembro asignado)",
   "dialogs.agent.managerUnowned": "(sin propietario)",
-  "dialogs.agent.managerHint": "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta Ajustes → Tú → Conexiones individuales.",
+  "dialogs.agent.managerHint":
+    "El agente usa las conexiones a proveedores y las variables personales de este miembro. Consulta Ajustes → Tú → Conexiones individuales.",
   "dialogs.agent.privileged": "Acceso de operador con privilegios",
   "dialogs.agent.privilegedHint":
     "Permite a este agente dirigir las sesiones de otros agentes (reanudar, conversación nueva, enviar ahora) y gestionar sus propios cronjobs, con los permisos por sala del miembro que lo creó. Sigue actuando como el agente, nunca como el miembro.",
@@ -797,8 +798,10 @@ export const es: Catalog = {
   "dialogs.agent.group.template": "Plantilla",
   "dialogs.agent.group.identity": "Identidad",
   "common.instructionsAndMemory": "Instrucciones y memoria",
-  "dialogs.agent.spawnPreviewHint": "El ID del agente se asignará al crearlo. Esta vista previa usa «new-agent».",
-  "dialogs.agent.cwdHint": "La carpeta donde el agente empieza a trabajar. El agente también puede acceder a archivos fuera de esta carpeta.",
+  "dialogs.agent.spawnPreviewHint":
+    "El ID del agente se asignará al crearlo. Esta vista previa usa «new-agent».",
+  "dialogs.agent.cwdHint":
+    "La carpeta donde el agente empieza a trabajar. El agente también puede acceder a archivos fuera de esta carpeta.",
   "dialogs.agent.memoryStartsEmpty": "La memoria empieza vacía.",
   "dialogs.agent.group.engine": "Modelo y comportamiento",
   "dialogs.agent.group.workspace": "Espacio de trabajo",

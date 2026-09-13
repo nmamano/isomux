@@ -762,7 +762,8 @@ export const en = {
     "Set at spawn - manager cannot be changed after the agent is created.",
   "dialogs.agent.managerNoUser": "(no member assigned)",
   "dialogs.agent.managerUnowned": "(unowned)",
-  "dialogs.agent.managerHint": "The agent uses this member’s provider connections and personal variables. See Settings → You → Individual connections.",
+  "dialogs.agent.managerHint":
+    "The agent uses this member’s provider connections and personal variables. See Settings → You → Individual connections.",
   "dialogs.agent.privileged": "Privileged operator access",
   "dialogs.agent.privilegedHint":
     "Lets this agent drive other agents' sessions (resume, new conversation, send-now) and manage its own cronjobs, with the spawning member's room-scoped permissions. It still acts as the agent, never as the member.",
@@ -789,8 +790,10 @@ export const en = {
   "dialogs.agent.group.template": "Template",
   "dialogs.agent.group.identity": "Identity",
   "common.instructionsAndMemory": "Instructions and memory",
-  "dialogs.agent.spawnPreviewHint": "The agent ID will be assigned on spawn. This preview uses “new-agent”.",
-  "dialogs.agent.cwdHint": "The folder where the agent starts work. The agent can also access files outside this folder.",
+  "dialogs.agent.spawnPreviewHint":
+    "The agent ID will be assigned on spawn. This preview uses “new-agent”.",
+  "dialogs.agent.cwdHint":
+    "The folder where the agent starts work. The agent can also access files outside this folder.",
   "dialogs.agent.memoryStartsEmpty": "Memory starts empty.",
   "dialogs.agent.group.engine": "Model and behavior",
   "dialogs.agent.group.workspace": "Workspace",
