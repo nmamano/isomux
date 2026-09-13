@@ -781,7 +781,7 @@ describe("live browser profile authorization", () => {
     }
   });
 
-  it("checks the manager on each pointer, key, and navigation event", async () => {
+  it("checks the manager on each pointer, key, viewport, and navigation event", async () => {
     server = await boot();
     const roomId = server.agentManager.getRooms()[0].id;
     const manager = await server.seedOwner("Boss");
@@ -793,8 +793,10 @@ describe("live browser profile authorization", () => {
     const originalInput = browserPool.humanInput.bind(browserPool);
     const originalNavigate = browserPool.humanNavigate.bind(browserPool);
     const calls: string[] = [];
+    let pageViewport = { width: 1280, height: 800 };
     browserPool.humanInput = async (_id, input) => {
       calls.push(input.kind);
+      if (input.kind === "viewport") pageViewport = { width: input.width, height: input.height };
       return true;
     };
     browserPool.humanNavigate = async (_id, input) => {
@@ -802,6 +804,7 @@ describe("live browser profile authorization", () => {
       return { ok: true, url: "", title: "" };
     };
     const inputs = [
+      { kind: "viewport", width: 650, height: 900 },
       { kind: "key", event: "keyDown", key: "a" },
       { kind: "mouse", event: "mousePressed", x: 10, y: 10 },
       ...["open", "back", "forward", "reload", "close"].map((action) => ({
@@ -815,10 +818,13 @@ describe("live browser profile authorization", () => {
         otherSocket.send({ type: "browser_input", agentId: agent.id, input });
       await pingPong(otherSocket);
       expect(calls).toEqual([]);
+      expect(pageViewport).toEqual({ width: 1280, height: 800 });
       for (const input of inputs)
         managerSocket.send({ type: "browser_input", agentId: agent.id, input });
       await pingPong(managerSocket);
+      expect(pageViewport).toEqual({ width: 650, height: 900 });
       expect(calls).toEqual([
+        "viewport",
         "key",
         "mouse",
         "open",
@@ -829,6 +835,16 @@ describe("live browser profile authorization", () => {
         "goto",
       ]);
       calls.length = 0;
+      for (const input of [
+        { kind: "viewport", width: "650", height: 900 },
+        { kind: "viewport", width: 650 },
+        { kind: "viewport", width: null, height: 900 },
+        { kind: "viewport", width: 319, height: 900 },
+        { kind: "viewport", width: 650, height: 2561 },
+        { kind: "viewport", width: 650.5, height: 900 },
+      ]) managerSocket.send({ type: "browser_input", agentId: agent.id, input });
+      await pingPong(managerSocket);
+      expect(calls).toEqual([]);
       server.agentManager.getAgent(agent.id)!.userId = getUserByName(
         member.username,
       )!.id;

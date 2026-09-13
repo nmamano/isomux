@@ -70,6 +70,7 @@ export function BrowserPanel({
   const surfaceRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const captureBounds = useRef<{ maxWidth?: number; maxHeight?: number }>({});
+  const pageBounds = useRef<{ width: number; height: number } | null>(null);
   const motion = useRef<BrowserHumanInput | null>(null);
   const motionTick = useRef<number | null>(null);
 
@@ -101,6 +102,7 @@ export function BrowserPanel({
     let generation = 0;
     let watchGeneration = 0;
     let acceptsFrames = true;
+    let pageAvailable = false;
     let binary = typeof createImageBitmap === "function";
     let decodeFailures = 0;
     // Watch generation rejects frames from a replaced subscription (including
@@ -175,6 +177,10 @@ export function BrowserPanel({
       image.onerror = finish;
       image.src = `data:image/jpeg;base64,${frame.data}`;
     };
+    const resizePage = () => {
+      if (pageAvailable && pageBounds.current)
+        input({ kind: "viewport", ...pageBounds.current });
+    };
     const subscribe = () => {
       watchGeneration = ++nextWatchGeneration;
       generation++;
@@ -210,13 +216,22 @@ export function BrowserPanel({
                 maxWidth: bound(rect.width),
                 maxHeight: bound(rect.height),
               };
+              const cssBound = (value: number) =>
+                Math.max(BROWSER_MIN_DIM, Math.min(BROWSER_MAX_DIM, Math.round(value)));
+              const page = { width: cssBound(rect.width), height: cssBound(rect.height) };
+              const pageChanged = page.width !== pageBounds.current?.width ||
+                page.height !== pageBounds.current?.height;
+              pageBounds.current = page;
               if (
                 next.maxWidth === captureBounds.current.maxWidth &&
                 next.maxHeight === captureBounds.current.maxHeight
-              )
+              ) {
+                if (pageChanged) resizePage();
                 return;
+              }
               captureBounds.current = next;
               subscribe();
+              if (pageChanged) resizePage();
             }, 150);
           });
     if (viewportRef.current) observer?.observe(viewportRef.current);
@@ -242,7 +257,14 @@ export function BrowserPanel({
         pending = message;
         decode();
       } else if (message.type === "browser_status") {
-        acceptsFrames = message.available;
+        const opened = message.available && !pageAvailable;
+        pageAvailable = message.available;
+        if (opened) resizePage();
+        acceptsFrames = message.available && !message.resizing;
+        if (message.resizing) {
+          pending = null;
+          generation++;
+        }
         setAvailable(message.available);
         if (message.url !== undefined && !editing.current)
           setUrl(message.url === "about:blank" ? "" : message.url);
@@ -282,7 +304,7 @@ export function BrowserPanel({
       send({ type: "browser_watch", agentId, watching: false });
       removeRawListener(listener);
     };
-  }, [agentId, canDrive, navigate]);
+  }, [agentId, canDrive, input, navigate]);
 
   const flushMotion = useCallback(() => {
     if (motionTick.current !== null) cancelAnimationFrame(motionTick.current);
@@ -299,17 +321,27 @@ export function BrowserPanel({
     [agentId, canDrive],
   );
 
+  const coordinates = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!size) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const scale = Math.min(rect.width / size.width, rect.height / size.height);
+    if (!scale) return null;
+    const x = (event.clientX - rect.left - (rect.width - size.width * scale) / 2) / scale;
+    const y = (event.clientY - rect.top - (rect.height - size.height * scale) / 2) / scale;
+    if (x < 0 || y < 0 || x > size.width || y > size.height) return null;
+    return { x, y };
+  };
   const point = (
     event: React.MouseEvent<HTMLCanvasElement>,
     type: "mousePressed" | "mouseReleased" | "mouseMoved",
   ) => {
     if (!canDrive || !size) return;
-    const rect = event.currentTarget.getBoundingClientRect();
+    const position = coordinates(event);
+    if (!position) return;
     const value: BrowserHumanInput = {
       kind: "mouse",
       event: type,
-      x: ((event.clientX - rect.left) / rect.width) * size.width,
-      y: ((event.clientY - rect.top) / rect.height) * size.height,
+      ...position,
       button: type === "mouseMoved" ? "none" : "left",
       clickCount: type === "mouseMoved" ? 0 : 1,
     };
@@ -464,7 +496,6 @@ export function BrowserPanel({
           minHeight: 0,
           display: "grid",
           placeItems: "center",
-          padding: 10,
           background: "var(--bg-code)",
           overflow: "hidden",
         }}
@@ -482,12 +513,12 @@ export function BrowserPanel({
           onMouseUp={(event) => point(event, "mouseReleased")}
           onWheel={(event) => {
             if (!canDrive || !size) return;
-            const rect = event.currentTarget.getBoundingClientRect();
+            const position = coordinates(event);
+            if (!position) return;
             input({
               kind: "mouse",
               event: "mouseWheel",
-              x: ((event.clientX - rect.left) / rect.width) * size.width,
-              y: ((event.clientY - rect.top) / rect.height) * size.height,
+              ...position,
               deltaX: event.deltaX,
               deltaY: event.deltaY,
             });
@@ -518,14 +549,12 @@ export function BrowserPanel({
           }
           style={{
             display: size ? "block" : "none",
-            width: "auto",
-            maxWidth: "100%",
-            height: "auto",
-            maxHeight: "100%",
-            aspectRatio: size ? `${size.width} / ${size.height}` : undefined,
+            width: "100%",
+            height: "100%",
+            minWidth: 0,
+            minHeight: 0,
+            objectFit: "contain",
             outline: "none",
-            boxShadow: "0 0 0 1px var(--border)",
-            background: "#fff",
           }}
         />
         {!size && (

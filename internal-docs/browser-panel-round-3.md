@@ -1,5 +1,7 @@
 # Browser panel round 3
 
+Follow-up, 2026-09-13: [scroll and full-panel viewport report](browser-panel-scroll-and-fill.md) records continuous scrolling, prior art, and the new viewport sizing. The measurements below remain historical.
+
 Review report, 2026-09-12. Task 4d9138d8. The running office has not been restarted.
 
 ## Decisions

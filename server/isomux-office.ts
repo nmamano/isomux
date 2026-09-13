@@ -912,6 +912,9 @@ function managesAgent(session: SessionLookup, agentId: string): boolean {
 function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
+  if (input.kind === "viewport")
+    return input.width !== undefined && input.height !== undefined &&
+      validBrowserBound(input.width) && validBrowserBound(input.height);
   if (input.kind === "navigate") {
     if (input.action === "goto")
       return parseBrowserParams({ action: "goto", url: input.url }).ok;
@@ -5179,8 +5182,8 @@ async function handleInboundMessage(
               ws.send(status);
               previousStatus = status;
             }
-            if (!state.available) frames.clear();
-            if (frame)
+            if (!state.available || state.resizing) frames.clear();
+            if (frame && !state.resizing)
               frames.send(
                 cmd.transport === "jpeg-v1"
                   ? encodeBrowserFrame({

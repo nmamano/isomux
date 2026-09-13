@@ -350,6 +350,7 @@ interface AgentSession {
    * as a timeout instead of the documented no_page.
    */
   opened: boolean;
+  resizing?: boolean;
   title: string;
   heldByManager: boolean;
   timer: ReturnType<typeof setTimeout> | null;
@@ -636,6 +637,7 @@ export class BrowserPool {
     agentId: string,
     session: AgentSession,
   ): Promise<void> {
+    if (session.resizing) return;
     if (!this.frameListeners.get(agentId)?.size) return;
     if (session.screencastStarting) {
       await session.screencastStarting;
@@ -798,6 +800,9 @@ export class BrowserPool {
     session: AgentSession,
     frame: BrowserFrame,
   ): void {
+    if (session.resizing) return;
+    const viewport = session.page.viewportSize();
+    if (viewport && (frame.width !== viewport.width || frame.height !== viewport.height)) return;
     session.lastFrame = frame;
     for (const listener of this.frameListeners.get(agentId) ?? [])
       listener(frame);
@@ -822,6 +827,33 @@ export class BrowserPool {
     agentId: string,
     input: Exclude<BrowserHumanInput, BrowserNavigation>,
   ): Promise<boolean> {
+    if (input.kind === "viewport") {
+      return this.serialize(agentId, async () => {
+        const session = this.sessions.get(agentId);
+        if (!session || session.page.isClosed()) return false;
+        const viewport = {
+          width: Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(input.width))),
+          height: Math.max(MIN_DIM, Math.min(MAX_DIM, Math.round(input.height))),
+        };
+        const old = session.page.viewportSize();
+        if (old?.width === viewport.width && old.height === viewport.height)
+          return true;
+        this.touch(agentId, session);
+        session.resizing = true;
+        this.notifyUnavailable(agentId);
+        try {
+          if (session.screencastStarting) await session.screencastStarting;
+          await this.stopScreencast(session);
+          session.lastFrame = null;
+          await session.page.setViewportSize(viewport);
+        } finally {
+          session.resizing = false;
+          this.notifyUnavailable(agentId);
+        }
+        await this.startScreencast(agentId, session);
+        return true;
+      });
+    }
     const session = this.sessions.get(agentId);
     if (!session || !session.screencast || session.page.isClosed())
       return false;
@@ -932,11 +964,12 @@ export class BrowserPool {
       this.touch(agentId, session);
   }
 
-  status(agentId: string): { available: boolean; url: string; title: string } {
+  status(agentId: string): { available: boolean; url: string; title: string; resizing?: boolean } {
     const session = this.sessions.get(agentId);
     if (!session || session.page.isClosed())
       return { available: false, url: "", title: "" };
-    return { available: true, url: session.page.url(), title: session.title };
+    return { available: true, url: session.page.url(), title: session.title,
+      ...(session.resizing ? { resizing: true } : {}) };
   }
 
   private async updateStatus(

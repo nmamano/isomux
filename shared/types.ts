@@ -1511,6 +1511,7 @@ export type BrowserNavigation = {
 
 export type BrowserHumanInput =
   | BrowserNavigation
+  | { kind: "viewport"; width: number; height: number }
   | {
       kind: "mouse";
       event: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel";
@@ -1617,6 +1618,7 @@ export type ServerMessage =
       url?: string;
       title?: string;
       busy?: boolean;
+      resizing?: boolean;
       error?: string;
     }
   | { type: "browser_action"; agentId: string }

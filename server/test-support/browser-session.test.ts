@@ -1001,6 +1001,67 @@ describe("BrowserPool", () => {
     expect(calls.browserClosed).toBe(0);
   });
 
+  it("resizes the shared viewport in order and restarts capture at the new bounds", async () => {
+    const calls = freshCalls();
+    let viewport = { width: 1280, height: 800 };
+    const { pool } = poolWith(calls, {
+      viewportSize: () => viewport,
+      setViewportSize: async (next: typeof viewport) => { viewport = next; },
+    });
+    const edges: boolean[] = [];
+    const stop = pool.watch("a", () => {
+      const resizing = pool.status("a").resizing ?? false;
+      if (edges.at(-1) !== resizing) edges.push(resizing);
+    });
+    try {
+      await opened(pool, "a");
+      await Promise.all([
+        pool.humanInput("a", { kind: "viewport", width: 650, height: 900 }),
+        pool.humanInput("a", { kind: "viewport", width: 390, height: 700 }),
+      ]);
+      expect(viewport).toEqual({ width: 390, height: 700 });
+      expect(edges).toEqual([false, true, false, true, false]);
+      expect(calls.cdp.filter(c => c.method === "Page.startScreencast").at(-1)?.params)
+        .toMatchObject({ maxWidth: 390, maxHeight: 700 });
+      await pool.humanInput("a", { kind: "viewport", width: 1, height: 3000 });
+      expect(viewport).toEqual({ width: 320, height: 2560 });
+      await pool.run("a", { action: "text" });
+      expect(viewport).toEqual({ width: 320, height: 2560 });
+    } finally { stop(); await pool.shutdown(); }
+  });
+
+  it("drops mismatched frame metadata without caching it and publishes matching frames", async () => {
+    const calls = freshCalls();
+    const { pool, stub } = poolWith(calls);
+    const frames: unknown[] = [];
+    const stops = [pool.watch("a", frame => { if (frame) frames.push(frame); })];
+    try {
+      await opened(pool, "a");
+      const emit = (data: string, width: number, height: number) => {
+        stub.cdpSessions[0].emit("Page.screencastFrame", {
+          data, sessionId: 1, metadata: { deviceWidth: width, deviceHeight: height },
+        } as never);
+      };
+      // Test each axis independently; metadata must not be replaced by the viewport.
+      for (const [width, height] of [[640, 800], [1280, 480]]) {
+        emit("stale", width, height);
+        expect(frames).toEqual([]);
+        const late: unknown[] = [];
+        stops.push(pool.watch("a", frame => { if (frame) late.push(frame); }));
+        expect(late).toEqual([]); // a rejected frame must not become lastFrame
+      }
+      emit("current", 1280, 800);
+      const expected = { data: "current", width: 1280, height: 800 };
+      expect(frames).toEqual([expected]);
+      const late: unknown[] = [];
+      stops.push(pool.watch("a", frame => { if (frame) late.push(frame); }));
+      expect(late).toEqual([expected]); // a matching frame must become lastFrame
+    } finally {
+      for (const stop of stops) stop();
+      await pool.shutdown();
+    }
+  });
+
   it("streams frames only while a viewer is attached and dispatches human input", async () => {
     const calls = freshCalls();
     const { pool, stub } = poolWith(calls);
@@ -1019,9 +1080,9 @@ describe("BrowserPool", () => {
     stub.cdpSessions[0].emit("Page.screencastFrame", {
       data: "jpeg",
       sessionId: 7,
-      metadata: { deviceWidth: 640, deviceHeight: 480 },
+      metadata: { deviceWidth: 1280, deviceHeight: 800 },
     } as never);
-    expect(frames.at(-1)).toEqual({ data: "jpeg", width: 640, height: 480 });
+    expect(frames.at(-1)).toEqual({ data: "jpeg", width: 1280, height: 800 });
     expect(
       calls.cdp.some((call) => call.method === "Page.screencastFrameAck"),
     ).toBe(true);
