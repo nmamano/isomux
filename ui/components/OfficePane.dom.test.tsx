@@ -23,9 +23,8 @@ setApiShim(async (method, path, body) => {
     };
   if (path === "/api/office/settings" && method === "PUT") {
     savedBody = body;
-    browserPanel = !!(
-      body as { experimental?: { browserPanel?: boolean } }
-    ).experimental?.browserPanel;
+    browserPanel = !!(body as { experimental?: { browserPanel?: boolean } })
+      .experimental?.browserPanel;
     return undefined;
   }
   throw new Error(`no shim for ${method} ${path}`);

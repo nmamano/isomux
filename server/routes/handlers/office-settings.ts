@@ -83,9 +83,8 @@ export function officeSettingsHandlers(
         typeof (b.experimental as { browserPanel?: unknown }).browserPanel ===
           "boolean"
           ? {
-              browserPanel: (
-                b.experimental as { browserPanel: boolean }
-              ).browserPanel,
+              browserPanel: (b.experimental as { browserPanel: boolean })
+                .browserPanel,
             }
           : undefined;
       // The PUT replaces the whole settings blob, so it must carry the version

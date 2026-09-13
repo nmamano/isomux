@@ -2484,9 +2484,9 @@ describe("codex subscription usage", () => {
       rateLimitsByLimitId: null,
       rateLimitResetCredits: null,
     };
-    expect(
-      await session.getSubscriptionUsage({ forceRefresh: true }),
-    ).toEqual({ kind: "unavailable" });
+    expect(await session.getSubscriptionUsage({ forceRefresh: true })).toEqual({
+      kind: "unavailable",
+    });
   });
 
   it("merges sparse updates instead of letting a null clear a known value", async () => {
