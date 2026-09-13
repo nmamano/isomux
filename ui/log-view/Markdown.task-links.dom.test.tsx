@@ -30,7 +30,7 @@ it("chips only visible lowercase task ids in Markdown text", () => {
     />,
   );
   const chip = view.getByRole("button", {
-    name: "ce5e7fe0 P0 Task hashes open the…",
+    name: "ce5e7fe0 P0: Task hashes open the…",
   });
   expect(chip.getAttribute("title")).toBe(task.title);
   expect(view.container.querySelectorAll(".task-id-chip").length).toBe(1);
@@ -60,7 +60,9 @@ it("updates a chip from the live task map without rebuilding the message", () =>
       onOpenTask={onOpenTask}
     />,
   );
-  expect(view.getByRole("button").textContent).toBe("ce5e7fe0 P1 Renamed task");
+  expect(view.getByRole("button").textContent).toBe(
+    "ce5e7fe0 P1: Renamed task",
+  );
 });
 
 it("keeps code, links, long hashes, and unknown ids literal in user messages", () => {

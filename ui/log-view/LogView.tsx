@@ -2405,7 +2405,10 @@ export function LogView({
               <div
                 style={{
                   position: "absolute",
-                  top: isMobile ? 12 : 16,
+                  // Below the pinned "you:" line's band (about 30 px) whether
+                  // or not that line is showing, so it never covers the line
+                  // and never moves (Nil, 2026-09-13).
+                  top: isMobile ? 44 : 48,
                   right: isMobile ? 12 : 24,
                   zIndex: 10,
                   display: "flex",
@@ -2466,10 +2469,6 @@ export function LogView({
                   alignItems: "center",
                   gap: 8,
                   padding: isMobile ? "6px 12px" : "6px 24px",
-                  // Keep the ellipsized text and the arrow clear of the portrait.
-                  paddingRight: showAvatar
-                    ? (isMobile ? 12 : 24) + 70
-                    : undefined,
                   background: "var(--bg-subtle)",
                   borderBottom: "1px solid var(--border)",
                   cursor: "pointer",

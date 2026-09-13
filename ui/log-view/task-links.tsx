@@ -10,9 +10,8 @@ export function taskChipLabel(task: TaskItem): string {
   const words = task.title.trim().split(/\s+/).filter(Boolean);
   const shortTitle = words.slice(0, 4).join(" ");
   const suffix = words.length > 4 ? "…" : "";
-  return [task.id, task.priority ?? "", `${shortTitle}${suffix}`]
-    .filter(Boolean)
-    .join(" ");
+  const head = task.priority ? `${task.id} ${task.priority}` : task.id;
+  return `${head}: ${shortTitle}${suffix}`;
 }
 
 export function TaskChip({
