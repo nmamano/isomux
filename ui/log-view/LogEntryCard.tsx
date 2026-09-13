@@ -1275,7 +1275,20 @@ function AssistantText({
         fontSize: isMobile ? 15 : undefined,
       }}
     >
-      <div style={{ marginBottom: 4 }}>
+      {/* The reply's timestamp sits up beside the copy and read-aloud buttons
+          instead of taking a line of its own, which on a long conversation was
+          height spent on every bubble (Nil, 2026-09-12). It floats rather than
+          joining the absolutely positioned button row: the text wraps around
+          it, so it costs no line and no reserved right margin on every line
+          below. The other bubbles keep their timestamp above the text. */}
+      <div
+        style={{
+          float: "right",
+          marginLeft: 8,
+          marginRight: 32,
+          lineHeight: "20px",
+        }}
+      >
         <EntryTimestamp timestamp={timestamp} />
       </div>
       <Markdown content={content} />
