@@ -536,6 +536,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // blob + version; only the WRITE (agents.update) is capability-gated.
   "agents.readInstructions": { caps: [], emits: [] },
   "agents.readSystemPrompt": { caps: [], emits: [] },
+  // Same envelope as readSystemPrompt, computed from unsaved form fields;
+  // the room guard on the body is the access check, nothing is written.
+  "agents.previewSystemPrompt": { caps: [], emits: [] },
   "agents.setPrivileged": {
     caps: ["agent:privilege"],
     emits: ["agent_updated"],
@@ -1028,6 +1031,7 @@ const API_REACHABLE_OPIDS = [
   "agents.update",
   "agents.readInstructions",
   "agents.readSystemPrompt",
+  "agents.previewSystemPrompt",
   "agents.move",
   "agents.setTopic",
   "agents.clearTopic",

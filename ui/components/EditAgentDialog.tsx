@@ -20,17 +20,8 @@ import {
   familyDisplayLabel,
 } from "../../shared/types.ts";
 import { roomSlotCount } from "../../shared/desks.ts";
-import {
-  COSTUMES,
-  costumeOf,
-  SHIRT_COLORS,
-  HAIR_COLORS,
-  SKIN_COLORS,
-  HAIR_STYLES,
-  BEARDS,
-  HATS,
-  ACCESSORIES,
-} from "../../shared/outfit-options.ts";
+import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
+import { OutfitPicker } from "./OutfitPicker.tsx";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
@@ -38,7 +29,7 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
-import { useI18n, type UiTranslator } from "../i18n.tsx";
+import { useI18n } from "../i18n.tsx";
 import { effortLabel } from "../effort-label.ts";
 import type {
   MoveAgentReq,
@@ -167,55 +158,6 @@ export function templateValuesAfterEngineSwitch(
     backendModels,
     modelsFailed,
   );
-}
-
-// The outfit selects. The value stored on the agent is the id; only the words
-// beside it move to the catalog (internal-docs/i18n-loop.md, S4). Pure
-// functions of the translator, called during a render but not components, so
-// the translator arrives as an argument (ruling 18).
-function hairStyleLabels(
-  i18n: UiTranslator,
-): Record<AgentOutfit["hairStyle"], string> {
-  return {
-    short: i18n.t("dialogs.agent.hairStyle.short"),
-    long: i18n.t("dialogs.agent.hairStyle.long"),
-    ponytail: i18n.t("dialogs.agent.hairStyle.ponytail"),
-    bun: i18n.t("dialogs.agent.hairStyle.bun"),
-    pigtails: i18n.t("dialogs.agent.hairStyle.pigtails"),
-    curly: i18n.t("dialogs.agent.hairStyle.curly"),
-    bald: i18n.t("dialogs.agent.hairStyle.bald"),
-  };
-}
-
-function hatLabels(i18n: UiTranslator): Record<AgentOutfit["hat"], string> {
-  return {
-    none: i18n.t("dialogs.agent.hat.none"),
-    cap: i18n.t("dialogs.agent.hat.cap"),
-    beanie: i18n.t("dialogs.agent.hat.beanie"),
-    bow: i18n.t("dialogs.agent.hat.bow"),
-    headband: i18n.t("dialogs.agent.hat.headband"),
-  };
-}
-
-function accessoryLabels(i18n: UiTranslator): Record<string, string> {
-  return {
-    none: i18n.t("dialogs.agent.accessory.none"),
-    glasses: i18n.t("dialogs.agent.accessory.glasses"),
-    headphones: i18n.t("dialogs.agent.accessory.headphones"),
-    bow_tie: i18n.t("dialogs.agent.accessory.bowTie"),
-    tie: i18n.t("dialogs.agent.accessory.tie"),
-    earrings: i18n.t("dialogs.agent.accessory.earrings"),
-  };
-}
-
-function beardLabels(i18n: UiTranslator): Record<AgentOutfit["beard"], string> {
-  return {
-    none: i18n.t("dialogs.agent.beard.none"),
-    stubble: i18n.t("dialogs.agent.beard.stubble"),
-    full: i18n.t("dialogs.agent.beard.full"),
-    goatee: i18n.t("dialogs.agent.beard.goatee"),
-    mustache: i18n.t("dialogs.agent.beard.mustache"),
-  };
 }
 
 function makeRandomOutfit(): AgentOutfit {
@@ -1029,88 +971,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }
 
   const engineSettingsBlock = (
-    <div className="agent-engine-settings">
-      <label style={{ ...labelStyle, marginTop: 12 }}>
-        {isCodex
-          ? t("common.field.approvalPolicy")
-          : t("common.field.permissionMode")}
-      </label>
-      <select
-        value={permissionMode}
-        onChange={(e) => {
-          cancelPendingTemplateModelResolution();
-          setPermissionMode(e.target.value as AgentInfo["permissionMode"]);
-        }}
-        style={{
-          ...inputStyle,
-          appearance: "none",
-          cursor: "pointer",
-        }}
-      >
-        {isOpenCode ? (
-          <>
-            <option value="default">{t("dialogs.agent.permission.ask")}</option>
-            <option value="bypassPermissions">
-              {t("dialogs.agent.permission.bypassAll")}
-            </option>
-          </>
-        ) : isCodex ? (
-          <>
-            <option value="untrusted">
-              {t("dialogs.agent.permission.codexUntrusted")}
-            </option>
-            <option value="on-request">
-              {t("dialogs.agent.permission.codexOnRequest")}
-            </option>
-            <option value="never">{t("common.permission.codexNever")}</option>
-          </>
-        ) : (
-          <>
-            {claudeFamilySupportsAutoPermission(modelFamily) && (
-              <option value="auto">
-                {t("dialogs.agent.permission.claudeAuto")}
-              </option>
-            )}
-            <option value="default">
-              {t("dialogs.agent.permission.claudeDefault")}
-            </option>
-            <option value="acceptEdits">
-              {t("dialogs.agent.permission.claudeAcceptEdits")}
-            </option>
-            <option value="bypassPermissions">
-              {t("common.permission.claudeBypass")}
-            </option>
-          </>
-        )}
-      </select>
-
-      {isCodex && (
-        <>
-          <label style={{ ...labelStyle, marginTop: 12 }}>
-            {t("common.field.sandbox")}
-          </label>
-          <select
-            value={codexSandbox}
-            onChange={(e) =>
-              setCodexSandbox(e.target.value as CodexSandboxMode)
-            }
-            style={{
-              ...inputStyle,
-              appearance: "none",
-              cursor: "pointer",
-            }}
-          >
-            <option value="read-only">{t("common.sandbox.readOnly")}</option>
-            <option value="workspace-write">
-              {t("common.sandbox.workspaceWrite")}
-            </option>
-            <option value="danger-full-access">
-              {t("common.sandbox.dangerFullAccess")}
-            </option>
-          </select>
-        </>
-      )}
-
+    <div className="agent-engine-settings agent-settings-fields">
+      <div>
       <label style={{ ...labelStyle, marginTop: 12 }}>
         {t("common.field.model")}
       </label>
@@ -1333,8 +1195,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         </p>
       )}
 
+      </div>
       {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
-        <>
+        <div>
           <label style={{ ...labelStyle, marginTop: 12 }}>
             {t("common.field.effort")}
           </label>
@@ -1392,8 +1255,91 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </select>
             );
           })()}
-        </>
+        </div>
       )}
+            <div>
+      <label style={{ ...labelStyle, marginTop: 12 }}>
+        {isCodex
+          ? t("common.field.approvalPolicy")
+          : t("common.field.permissionMode")}
+      </label>
+      <select
+        value={permissionMode}
+        onChange={(e) => {
+          cancelPendingTemplateModelResolution();
+          setPermissionMode(e.target.value as AgentInfo["permissionMode"]);
+        }}
+        style={{
+          ...inputStyle,
+          appearance: "none",
+          cursor: "pointer",
+        }}
+      >
+        {isOpenCode ? (
+          <>
+            <option value="default">{t("dialogs.agent.permission.ask")}</option>
+            <option value="bypassPermissions">
+              {t("dialogs.agent.permission.bypassAll")}
+            </option>
+          </>
+        ) : isCodex ? (
+          <>
+            <option value="untrusted">
+              {t("dialogs.agent.permission.codexUntrusted")}
+            </option>
+            <option value="on-request">
+              {t("dialogs.agent.permission.codexOnRequest")}
+            </option>
+            <option value="never">{t("common.permission.codexNever")}</option>
+          </>
+        ) : (
+          <>
+            {claudeFamilySupportsAutoPermission(modelFamily) && (
+              <option value="auto">
+                {t("dialogs.agent.permission.claudeAuto")}
+              </option>
+            )}
+            <option value="default">
+              {t("dialogs.agent.permission.claudeDefault")}
+            </option>
+            <option value="acceptEdits">
+              {t("dialogs.agent.permission.claudeAcceptEdits")}
+            </option>
+            <option value="bypassPermissions">
+              {t("common.permission.claudeBypass")}
+            </option>
+          </>
+        )}
+      </select>
+
+      </div>
+      {isCodex && (
+        <div>
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            {t("common.field.sandbox")}
+          </label>
+          <select
+            value={codexSandbox}
+            onChange={(e) =>
+              setCodexSandbox(e.target.value as CodexSandboxMode)
+            }
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            <option value="read-only">{t("common.sandbox.readOnly")}</option>
+            <option value="workspace-write">
+              {t("common.sandbox.workspaceWrite")}
+            </option>
+            <option value="danger-full-access">
+              {t("common.sandbox.dangerFullAccess")}
+            </option>
+          </select>
+        </div>
+      )}
+
     </div>
   );
 
@@ -1443,15 +1389,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     </>
   );
 
-  const memoryBlock = !isSpawn && (
-    <section className="agent-settings-group agent-memory-section">
-      <h4 className="agent-settings-group-title">{t("common.memory")}</h4>
-      <p style={{ ...dialogHint, margin: "0 0 6px" }}>
-        {t("dialogs.agent.memoryHint", {
-          size: mem.size,
-          cap: mem.cap ?? "…",
-        })}
-      </p>
+  const memoryBlock = isSpawn ? (
+    <div className="agent-memory-field">
+      <label style={labelStyle}>{t("common.memory")}</label>
+      <p style={dialogHint}>{t("dialogs.agent.memoryStartsEmpty")}</p>
+    </div>
+  ) : (
+    <div className="agent-memory-field">
+      <label style={labelStyle}>{t("common.memory")}</label>
+
       <ExpandableTextarea
         title={t("dialogs.agent.memoryTitle")}
         value={mem.memory}
@@ -1461,11 +1407,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             ? t("dialogs.agent.memoryPlaceholder")
             : t("common.loadingMemory")
         }
-        rows={4}
+        rows={3}
         readOnly={!mem.loaded}
         style={{ ...inputStyle, resize: "vertical" }}
       />
-    </section>
+      <p style={{ ...dialogHint, margin: "3px 0 10px" }}>
+        {t("dialogs.agent.memoryHint", {
+          size: mem.size,
+          cap: mem.cap ?? "…",
+        })}
+      </p>
+    </div>
   );
 
   return (
@@ -1639,12 +1591,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 </div>
               </section>
             )}
-            <div className="agent-dialog-columns">
-              <div className="agent-dialog-left-column">
-                <section className="agent-settings-group agent-identity-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.group.identity")}
-                  </h4>
+<section className="agent-settings-group agent-identity-section">
                   <label style={labelStyle}>{t("common.name")}</label>
                   {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
@@ -1676,368 +1623,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     </p>
                   )}
                 </section>
-                <section className="agent-settings-group agent-appearance-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.appearance")}
-                  </h4>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 16,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <div
-                      data-outfit-preview
-                      style={{
-                        width: 52,
-                        height: 70,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Character state="idle" outfit={outfit} />
-                    </div>
-                    <button
-                      onClick={() => setOutfit(makeRandomOutfit())}
-                      style={randomBtnStyle}
-                    >
-                      {t("dialogs.agent.randomize")}
-                    </button>
-                  </div>
-
-                  <label style={labelStyle} htmlFor="agent-costume">
-                    {t("dialogs.agent.costume")}
-                  </label>
-                  <select
-                    id="agent-costume"
-                    value={costumeOf(outfit.costume)}
-                    onChange={(e) =>
-                      setOutfit({
-                        ...outfit,
-                        costume: costumeOf(e.target.value),
-                      })
-                    }
-                    style={{ ...inputStyle, marginBottom: 10 }}
-                  >
-                    {COSTUMES.map((costume) => (
-                      <option key={costume} value={costume}>
-                        {t(`dialogs.agent.costume.${costume}`)}
-                      </option>
-                    ))}
-                  </select>
-
-                  {/* Skin Color */}
-                  <div
-                    style={{
-                      ...dialogHint,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {t("dialogs.agent.skin")}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 4,
-                      marginBottom: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {SKIN_COLORS.map((c) => (
-                      <div
-                        key={c}
-                        onClick={() => setOutfit({ ...outfit, skin: c })}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: c,
-                          cursor: "pointer",
-                          border:
-                            outfit.skin === c
-                              ? "2px solid var(--text-primary)"
-                              : "2px solid transparent",
-                        }}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Shirt Color */}
-                  <div
-                    style={{
-                      ...dialogHint,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {t("dialogs.agent.shirt")}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 4,
-                      marginBottom: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {SHIRT_COLORS.map((c) => (
-                      <div
-                        key={c}
-                        onClick={() => setOutfit({ ...outfit, color: c })}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: c,
-                          cursor: "pointer",
-                          border:
-                            outfit.color === c
-                              ? "2px solid var(--text-primary)"
-                              : "2px solid transparent",
-                        }}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Hair Color */}
-                  <div
-                    style={{
-                      ...dialogHint,
-                      marginBottom: 4,
-                    }}
-                  >
-                    {t("dialogs.agent.hairColor")}
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 4,
-                      marginBottom: 8,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {HAIR_COLORS.map((c) => (
-                      <div
-                        key={c}
-                        onClick={() => setOutfit({ ...outfit, hair: c })}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 6,
-                          background: c,
-                          cursor: "pointer",
-                          border:
-                            outfit.hair === c
-                              ? "2px solid var(--text-primary)"
-                              : "2px solid transparent",
-                        }}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Hair Style & Hat */}
-                  <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          ...dialogHint,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {t("dialogs.agent.hairStyle")}
-                      </div>
-                      <select
-                        value={outfit.hairStyle ?? "short"}
-                        onChange={(e) =>
-                          setOutfit({
-                            ...outfit,
-                            hairStyle: e.target
-                              .value as AgentOutfit["hairStyle"],
-                          })
-                        }
-                        style={selectStyle}
-                      >
-                        {HAIR_STYLES.map((s) => (
-                          <option key={s} value={s}>
-                            {hairStyleLabels(i18n)[s]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          ...dialogHint,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {t("dialogs.agent.hat")}
-                      </div>
-                      <select
-                        value={outfit.hat}
-                        onChange={(e) =>
-                          setOutfit({
-                            ...outfit,
-                            hat: e.target.value as AgentOutfit["hat"],
-                          })
-                        }
-                        style={selectStyle}
-                      >
-                        {HATS.map((h) => (
-                          <option key={h} value={h}>
-                            {hatLabels(i18n)[h]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Beard & Accessory */}
-                  <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          ...dialogHint,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {t("dialogs.agent.beard")}
-                      </div>
-                      <select
-                        value={outfit.beard ?? "none"}
-                        onChange={(e) =>
-                          setOutfit({
-                            ...outfit,
-                            beard: e.target.value as AgentOutfit["beard"],
-                          })
-                        }
-                        style={selectStyle}
-                      >
-                        {BEARDS.map((b) => (
-                          <option key={b} value={b}>
-                            {beardLabels(i18n)[b]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          ...dialogHint,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {t("dialogs.agent.accessory")}
-                      </div>
-                      <select
-                        value={outfit.accessory ?? "none"}
-                        onChange={(e) =>
-                          setOutfit({
-                            ...outfit,
-                            accessory:
-                              e.target.value === "none"
-                                ? null
-                                : (e.target.value as AgentOutfit["accessory"]),
-                          })
-                        }
-                        style={selectStyle}
-                      >
-                        {ACCESSORIES.map((a) => (
-                          <option key={a ?? "none"} value={a ?? "none"}>
-                            {accessoryLabels(i18n)[a ?? "none"]}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </section>
-                <section className="agent-settings-group agent-workspace-section">
-                  <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.group.workspace")}
-                  </h4>
-
-                  <label style={{ ...labelStyle, marginTop: 12 }}>
-                    {t("common.field.workingDirectory")}
-                  </label>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input
-                      value={cwd}
-                      onChange={(e) => {
-                        setCwd(e.target.value);
-                        if (cwdError) setCwdError(null);
-                      }}
-                      style={
-                        cwdError
-                          ? { ...inputStyle, borderColor: "#ff6b6b" }
-                          : inputStyle
-                      }
-                    />
-                    {recentCwds.length > 0 && (
-                      <button
-                        type="button"
-                        aria-expanded={showRecentCwds}
-                        aria-controls="recent-cwd-suggestions"
-                        onClick={() => setShowRecentCwds((shown) => !shown)}
-                        style={{ ...dialogCancelBtn, padding: "7px 10px" }}
-                      >
-                        {t("dialogs.agent.recent")}
-                      </button>
-                    )}
-                  </div>
-                  {cwdError && (
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "#ff6b6b",
-                        margin: "4px 0 0",
-                      }}
-                    >
-                      {cwdError}
-                    </p>
-                  )}
-                  {showRecentCwds && recentCwds.length > 0 && (
-                    <div
-                      id="recent-cwd-suggestions"
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: 4,
-                        marginTop: 6,
-                      }}
-                    >
-                      {recentCwds.map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => {
-                            setCwd(c);
-                            setShowRecentCwds(false);
-                            if (cwdError) setCwdError(null);
-                          }}
-                          style={chipStyle}
-                        >
-                          {shortenCwd(c)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {!isSpawn && (
-                    <p
-                      style={{
-                        ...dialogHint,
-                        color: "var(--text-ghost)",
-                        margin: "3px 0 0",
-                      }}
-                    >
-                      {t("common.nextConversation")}
-                    </p>
-                  )}
-                  {moveToRoomBlock}
-                </section>
-              </div>
-              <div className="agent-dialog-right-column">
-                <section className="agent-settings-group agent-engine-section">
+<section className="agent-settings-group agent-engine-section">
                   <h4 className="agent-settings-group-title">
                     {t("dialogs.agent.group.engine")}
                   </h4>
@@ -2143,11 +1729,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   )}
                   {engineSettingsBlock}
                 </section>
-                <section className="agent-settings-group agent-instructions-section">
+<section className="agent-settings-group agent-instructions-section">
                   <h4 className="agent-settings-group-title">
-                    {t("dialogs.agent.group.instructions")}
+                    {t("common.instructionsAndMemory")}
                   </h4>
-                  <label style={{ ...labelStyle, marginTop: 14 }}>
+                  <div className="agent-settings-fields">
+                  <div>
+                  <label style={labelStyle}>
                     {t("dialogs.agent.customInstructions")}{" "}
                     <span
                       style={{ fontWeight: 400, color: "var(--text-ghost)" }}
@@ -2170,21 +1758,109 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     {t("dialogs.agent.customInstructionsHint")}
                     {!isSpawn && ` ${t("common.nextConversation")}`}
                   </p>
-                  {!isSpawn && <SystemPromptButton agentId={agent!.id} />}
+                  </div>
+                  {memoryBlock}
+                  </div>
+                  <SystemPromptButton preview={{
+                    ...(isSpawn ? {} : { agentId: agent!.id }),
+                    roomId: isSpawn ? props.roomId : agent!.roomId,
+                    name: name.trim() || (isSpawn ? `Agent ${props.deskIndex + 1}` : agent!.name),
+                    agentType: targetEngine,
+                    customInstructions,
+                    privileged,
+                    ...(!isSpawn && mem.loaded ? { memory: mem.memory } : {}),
+                  }} />
                 </section>
-              </div>
-            </div>
-            <section className="agent-settings-group agent-access-section">
+<section className="agent-settings-group agent-access-section">
               <h4 className="agent-settings-group-title">
                 {t("dialogs.agent.group.access")}
               </h4>
 
-              {/* Manager - set at spawn, immutable. Rendered as a read-only
-                badge in both spawn and edit modes so there's no UX
-                divergence on which user the agent is bound to. Style
-                matches the Engine badge (also locked at spawn). On spawn
-                the value comes from the device's bound username; on edit
-                it comes from the agent's persisted user record. */}
+
+              <div className="agent-settings-fields">
+              <div className="agent-directory-field">                  <label style={labelStyle}>
+                    {t("common.field.workingDirectory")}
+                  </label>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <input
+                      value={cwd}
+                      onChange={(e) => {
+                        setCwd(e.target.value);
+                        if (cwdError) setCwdError(null);
+                      }}
+                      style={
+                        cwdError
+                          ? { ...inputStyle, borderColor: "#ff6b6b" }
+                          : inputStyle
+                      }
+                    />
+                    {recentCwds.length > 0 && (
+                      <button
+                        type="button"
+                        aria-expanded={showRecentCwds}
+                        aria-controls="recent-cwd-suggestions"
+                        onClick={() => setShowRecentCwds((shown) => !shown)}
+                        style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+                      >
+                        {t("dialogs.agent.recent")}
+                      </button>
+                    )}
+                  </div>
+                  {cwdError && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#ff6b6b",
+                        margin: "4px 0 0",
+                      }}
+                    >
+                      {cwdError}
+                    </p>
+                  )}
+                  {showRecentCwds && recentCwds.length > 0 && (
+                    <div
+                      id="recent-cwd-suggestions"
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 4,
+                        marginTop: 6,
+                      }}
+                    >
+                      {recentCwds.map((c) => (
+                        <button
+                          key={c}
+                          onClick={() => {
+                            setCwd(c);
+                            setShowRecentCwds(false);
+                            if (cwdError) setCwdError(null);
+                          }}
+                          style={chipStyle}
+                        >
+                          {shortenCwd(c)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p style={{ ...dialogHint, margin: "5px 0 0" }}>{t("dialogs.agent.cwdHint")}</p>
+                  {!isSpawn && (
+                    <p
+                      style={{
+                        ...dialogHint,
+                        color: "var(--text-ghost)",
+                        margin: "3px 0 0",
+                      }}
+                    >
+                      {t("common.nextConversation")}
+                    </p>
+                  )}
+
+                </div>
+              <div className="agent-room-field">
+                <label style={labelStyle}>{t("common.rooms")}</label>
+                <p style={dialogHint}>{isSpawn ? rooms.find((room) => room.id === props.roomId)?.name : agentRoomName}</p>
+                {moveToRoomBlock}
+              </div>
               <div className="agent-manager-field">
                 <label style={{ ...labelStyle, marginTop: 12 }}>
                   {t("dialogs.agent.manager")}
@@ -2256,9 +1932,42 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </p>
                 </div>
               )}
+              </div>
             </section>
+<section className="agent-settings-group agent-appearance-section">
+                  <h4 className="agent-settings-group-title">
+                    {t("dialogs.agent.appearance")}
+                  </h4>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 16,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <div
+                      data-outfit-preview
+                      style={{
+                        width: 52,
+                        height: 70,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Character state="idle" outfit={outfit} />
+                    </div>
+                    <button
+                      onClick={() => setOutfit(makeRandomOutfit())}
+                      style={randomBtnStyle}
+                    >
+                      {t("dialogs.agent.randomize")}
+                    </button>
+                  </div>
 
-            {memoryBlock}
+                  <OutfitPicker outfit={outfit} onChange={setOutfit} />
+                </section>
           </div>
 
           {isSpawn && killedAgents.length > 0 && (
@@ -2407,13 +2116,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
 const labelStyle: React.CSSProperties = dialogLabel;
 const inputStyle: React.CSSProperties = dialogInput;
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
-  appearance: "none",
-  cursor: "pointer",
-  width: "100%",
-};
-
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const chipStyle: React.CSSProperties = dialogChip;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

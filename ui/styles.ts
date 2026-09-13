@@ -226,22 +226,31 @@ ${emitThemesCss()}
   .spawn-agent-dialog-desktop { width: min(640px, 94vw); }
   .spawn-engine-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .agent-dialog-grid { display: block; }
-  .agent-dialog-columns { display: flex; flex-direction: column; }
-  .spawn-template-section,
-  .agent-identity-section,
-  .agent-appearance-section,
-  .agent-workspace-section,
-  .agent-engine-section,
-  .agent-instructions-section,
-  .agent-access-section,
-  .agent-memory-section,
-  .agent-restore-section { margin-bottom: 20px; }
+  .agent-settings-group { margin-bottom: 24px; min-width: 0; }
   .agent-settings-group-title {
     margin: 0 0 12px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border-subtle);
     color: var(--text-primary);
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 700;
   }
+  .spawn-template-section .agent-settings-group-title { padding-top: 0; border-top: 0; }
+  .agent-settings-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px 28px; }
+  .agent-settings-fields > * { min-width: 0; }
+  .agent-instructions-section > button { margin-top: 12px; }
+  .outfit-options { border: 0; padding: 0; margin: 0 0 14px; min-width: 0; }
+  .outfit-options legend { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; padding: 0; }
+  .outfit-tiles { display: flex; flex-wrap: wrap; gap: 4px; }
+  .outfit-tile { width: 44px; height: 44px; padding: 0; flex: 0 0 44px; border: 2px solid var(--border); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); cursor: pointer; font: inherit; }
+  .outfit-tile[aria-pressed="true"], .outfit-colors button[aria-pressed="true"] { border-color: var(--accent); background-color: var(--bg-elevated); }
+  .outfit-tile:focus-visible, .outfit-colors button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .outfit-tile-picture { height: 40px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .outfit-tile-head svg { flex-shrink: 0; transform: translateY(1px); }
+  .outfit-selected-label { font-weight: 400; color: var(--text-secondary); }
+  .outfit-colors { display: flex; flex-wrap: wrap; gap: 4px; }
+  .outfit-colors button { display: grid; place-items: center; width: 36px; height: 36px; padding: 3px; border: 2px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
+  .outfit-colors button span { display: block; width: 24px; height: 24px; border-radius: 4px; }
   .agent-privileged-control {
     display: flex;
     align-items: center;
@@ -256,36 +265,10 @@ ${emitThemesCss()}
     cursor: pointer;
   }
   .agent-privileged-control input { width: 18px; height: 18px; }
-  /* Single column: Appearance stays last, after functional settings. */
-  @media (max-width: 999px) {
-    .agent-dialog-grid { display: flex; flex-direction: column; }
-    .agent-dialog-columns,
-    .agent-dialog-left-column,
-    .agent-dialog-right-column { display: contents; }
-    .spawn-template-section { order: 0; }
-    .agent-identity-section { order: 1; }
-    .agent-engine-section { order: 2; }
-    .agent-workspace-section { order: 3; }
-    .agent-instructions-section { order: 4; }
-    .agent-access-section { order: 5; }
-    .agent-memory-section { order: 6; }
-    .agent-appearance-section { order: 7; }
-  }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
-    .agent-dialog-columns {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 0 28px;
-      align-items: start;
-    }
-    .agent-access-section {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 0 28px;
-    }
-    .agent-access-section .agent-settings-group-title { grid-column: 1 / -1; }
+    .agent-settings-fields { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   }
 
   /* Copy buttons */

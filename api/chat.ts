@@ -139,7 +139,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Outfit customization: color swatches, hat, accessory, randomize with live preview
 - Custom instructions per agent, editable at spawn and later
 - Start with a blank-canvas agent or choose from 12 templates like Side Project Builder, Money Planner, and Health Navigator.
-- Hierarchical system prompts - three member-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI.
+- Hierarchical system prompts - three member-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room - useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI. The Spawn and Edit agent menus preview the full system prompt with unsaved settings; previewing saves nothing.
 
 ### Conversation View
 - Input drafts preserved when switching between agents and across page reloads

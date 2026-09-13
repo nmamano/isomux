@@ -13,6 +13,8 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 `GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
 
+`POST /api/agents/system-prompt-preview` returns the same envelope without saving. The body contains `roomId`, `name`, `agentType`, `customInstructions`, and `privileged`, with optional `agentId` and `memory`. The caller must have access to `roomId`; an existing agent must belong to that room. Edit previews use the agent's manager and draft memory (an empty string clears it in the preview; omission uses saved memory). Spawn previews use the caller's member context, empty agent memory, and `new-agent` as a placeholder ID.
+
 An agent can inspect its own current limits with two self-check routes. `GET /api/agents/:id/context` returns the latest context-window measurement. `GET /api/agents/:id/subscription` returns the plan and every subscription window with its usage and reset time, plus `observedAtMs`, when Isomux last asked the provider, and `ageMs` since then. `freshness` is `fresh` when that ask happened for this call and `cached` otherwise; a cached reading carries `staleReason`: `not_reasked` (the backend reused its recent answer, the normal case), `no_session`, or `refresh_failed`. When there is no reading at all, `available` is false with `reason` `no_session`, `not_yet_measured`, or `provider_unavailable`. Both routes require the agent bearer token, and `:id` must match that token's agent.
 
 ## Message an agent from another device

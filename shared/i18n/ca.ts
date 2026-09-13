@@ -764,8 +764,7 @@ export const ca: Catalog = {
     "Es fixa en crear l'agent - el responsable no es pot canviar després.",
   "dialogs.agent.managerNoUser": "(cap membre assignat)",
   "dialogs.agent.managerUnowned": "(sense propietari)",
-  "dialogs.agent.managerHint":
-    "Vinculat a l'membre que el crea. Determina quines variables personals es carreguen a cada sessió (mira Configuració → Tu → Connexions individuals).",
+  "dialogs.agent.managerHint": "L’agent fa servir les connexions a proveïdors i les variables personals d’aquest membre. Consulta Configuració → Tu → Connexions individuals.",
   "dialogs.agent.privileged": "Accés d'operador amb privilegis",
   "dialogs.agent.privilegedHint":
     "Permet a aquest agent dirigir les sessions d'altres agents (reprendre, conversa nova, enviar ara) i gestionar els seus propis cronjobs, amb els permisos per sala de l'membre que el va crear. Continua actuant com l'agent, mai com l'membre.",
@@ -794,10 +793,14 @@ export const ca: Catalog = {
   "dialogs.agent.customInstructions": "Instruccions personalitzades",
   "dialogs.agent.group.template": "Plantilla",
   "dialogs.agent.group.identity": "Identitat",
-  "dialogs.agent.group.engine": "Motor",
+  "common.instructionsAndMemory": "Instruccions i memòria",
+  "dialogs.agent.spawnPreviewHint": "L’ID de l’agent s’assignarà en crear-lo. Aquesta previsualització fa servir «new-agent».",
+  "dialogs.agent.cwdHint": "La carpeta on l’agent comença a treballar. L’agent també pot accedir a fitxers fora d’aquesta carpeta.",
+  "dialogs.agent.memoryStartsEmpty": "La memòria comença buida.",
+  "dialogs.agent.group.engine": "Model i comportament",
   "dialogs.agent.group.workspace": "Espai de treball",
   "dialogs.agent.group.instructions": "Instruccions",
-  "dialogs.agent.group.access": "Accés",
+  "dialogs.agent.group.access": "Accés i ubicació",
   "dialogs.agent.group.restore": "Restaurar",
   "dialogs.agent.optional": "(opcional)",
   "dialogs.agent.customInstructionsHint":

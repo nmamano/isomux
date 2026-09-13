@@ -68,6 +68,17 @@ export interface SpawnReq {
   codexSandbox?: AgentInfo["codexSandbox"];
 }
 
+// Read-only form preview. Identity comes from the existing agent or the caller.
+export interface AgentSystemPromptPreviewReq {
+  agentId?: string;
+  roomId: string;
+  name: string;
+  agentType: AgentInfo["agentType"];
+  customInstructions: string;
+  privileged: boolean;
+  memory?: string;
+}
+
 export type EditAgentReq = Partial<
   Pick<
     AgentInfo,

@@ -267,40 +267,11 @@ export function RoomPane({
               placeholder={t("settings.room.namePlaceholder")}
               style={inputStyle}
             />
-            <label
-              htmlFor="room-skin"
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 14,
-                marginBottom: 5,
-              }}
-            >
-              {t("office.skin.label")}
-            </label>
-            <select
-              id="room-skin"
-              value={skin}
-              onChange={(e) => setSkin(e.target.value as RoomSkin)}
-              style={inputStyle}
-            >
-              {/* The offered list, plus whatever this room is already drawn in:
-                  a skin can be held back from the pickers while rooms still
-                  carry it, and a select whose value has no option renders
-                  blank. */}
-              {(SELECTABLE_ROOM_SKIN_IDS.includes(skin)
-                ? SELECTABLE_ROOM_SKIN_IDS
-                : [...SELECTABLE_ROOM_SKIN_IDS, skin]
-              ).map((id) => (
-                <option key={id} value={id}>
-                  {t(`office.skin.${id}`)}
-                </option>
-              ))}
-            </select>
+
           </>
         )}
+
+        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>{t("common.instructionsAndMemory")}</h4>
 
         <label
           style={{
@@ -383,6 +354,42 @@ export function RoomPane({
             </p>
           </>
         )}
+
+        {room.type !== "lobby" && <>
+          <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>{t("dialogs.agent.appearance")}</h4>
+            <label
+              htmlFor="room-skin"
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 14,
+                marginBottom: 5,
+              }}
+            >
+              {t("office.skin.label")}
+            </label>
+            <select
+              id="room-skin"
+              value={skin}
+              onChange={(e) => setSkin(e.target.value as RoomSkin)}
+              style={inputStyle}
+            >
+              {/* The offered list, plus whatever this room is already drawn in:
+                  a skin can be held back from the pickers while rooms still
+                  carry it, and a select whose value has no option renders
+                  blank. */}
+              {(SELECTABLE_ROOM_SKIN_IDS.includes(skin)
+                ? SELECTABLE_ROOM_SKIN_IDS
+                : [...SELECTABLE_ROOM_SKIN_IDS, skin]
+              ).map((id) => (
+                <option key={id} value={id}>
+                  {t(`office.skin.${id}`)}
+                </option>
+              ))}
+            </select>
+        </>}
 
         {error && (
           <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>

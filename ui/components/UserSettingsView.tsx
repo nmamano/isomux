@@ -1649,7 +1649,7 @@ function UserEditPanel({
           </>
         ) : null}
 
-        <h5 style={sectionTitleStyle}>{t("settings.profile.agentContext")}</h5>
+        <h5 style={sectionTitleStyle}>{t("common.instructionsAndMemory")}</h5>
 
         <label style={subLabelStyle}>
           {t("settings.profile.profilePrompt")}{" "}

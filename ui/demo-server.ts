@@ -2570,6 +2570,10 @@ export async function demoApi(
         "# Isomux demo agent\n\nThis read-only preview shows the full system prompt for the selected agent.",
     };
   }
+  if (method === "POST" && pathname === "/api/agents/system-prompt-preview") {
+    const draft = body as import("../shared/contract-shapes.ts").AgentSystemPromptPreviewReq;
+    return { prompt: `# Isomux demo agent: ${draft.name}\n\nEngine: ${draft.agentType}\n\nInstructions:\n${draft.customInstructions}\n\nMemory:\n${draft.memory ?? ""}` };
+  }
   // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) - swap + broadcast.
   const swapDesksMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/swap-desks$/);
   if (swapDesksMatch && method === "POST") {

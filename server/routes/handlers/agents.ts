@@ -1,3 +1,4 @@
+import type { AgentSystemPromptPreviewReq } from "../../../shared/contract-shapes.ts";
 // Agent-lifecycle resource handlers. The agent
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
 // unified REST surface (every op caps `agent:manage`).
@@ -178,6 +179,10 @@ export interface AgentsDeps {
   // a post-guard race (-> defensive 404).
   getAgent(agentId: string): AgentInfo | undefined;
   systemPrompt(agentId: string): string | undefined;
+  previewSystemPrompt(input: AgentSystemPromptPreviewReq, identity: {
+    username: string | undefined;
+    userId: string | null;
+  }): string | undefined;
 }
 
 // Reject a present-but-wrong-typed optional agent field at the boundary, so
@@ -244,6 +249,33 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (prompt === undefined)
         return fail(404, "agent_not_found", "Agent not found");
       return ok({ prompt });
+    },
+
+    "agents.previewSystemPrompt": (ctx) => {
+      const b = (ctx.body ?? {}) as Partial<AgentSystemPromptPreviewReq>;
+      if (typeof b.roomId !== "string" || !b.roomId ||
+          typeof b.name !== "string" || !b.name.trim() ||
+          typeof b.customInstructions !== "string" ||
+          typeof b.privileged !== "boolean" ||
+          !["claude", "codex", "opencode"].includes(b.agentType ?? "") ||
+          (b.agentId !== undefined && typeof b.agentId !== "string") ||
+          (b.memory !== undefined && typeof b.memory !== "string")) {
+        return fail(422, "invalid_request", "Malformed prompt preview");
+      }
+      // The room guard grants access to roomId. An existing agent must belong
+      // to that same room; an arbitrary id must never expose another room's prompt.
+      if (b.agentId !== undefined) {
+        const agent = deps.getAgent(b.agentId);
+        if (!agent || agent.roomId !== b.roomId)
+          return fail(403, "forbidden", "Agent is not in this room");
+      }
+      const { username } = deps.attributionFor(ctx.identity);
+      const prompt = deps.previewSystemPrompt(b as AgentSystemPromptPreviewReq, {
+        username, userId: ctx.identity.userId,
+      });
+      return prompt === undefined
+        ? fail(404, "room_not_found", "Room not found")
+        : ok({ prompt });
     },
 
     "agents.move": (ctx) => {

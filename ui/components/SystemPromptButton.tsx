@@ -1,3 +1,4 @@
+import type { AgentSystemPromptPreviewReq } from "../../shared/contract-shapes.ts";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
@@ -6,7 +7,10 @@ import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
 import { Portal } from "./Portal.tsx";
 
-export function SystemPromptButton({ agentId }: { agentId: string }) {
+export function SystemPromptButton({ agentId, preview }: {
+  agentId?: string;
+  preview?: AgentSystemPromptPreviewReq;
+}) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState<string | null>(null);
@@ -19,8 +23,9 @@ export function SystemPromptButton({ agentId }: { agentId: string }) {
     setError(false);
     try {
       const result = await apiFetch<{ prompt: string }>(
-        "GET",
-        `/api/agents/${agentId}/system-prompt`,
+        preview ? "POST" : "GET",
+        preview ? "/api/agents/system-prompt-preview" : `/api/agents/${agentId}/system-prompt`,
+        preview,
       );
       setPrompt(result.prompt);
     } catch {
@@ -40,6 +45,7 @@ export function SystemPromptButton({ agentId }: { agentId: string }) {
       {open && (
         <SystemPromptModal
           prompt={prompt}
+          isSpawnPreview={!!preview && !preview.agentId}
           error={error}
           copied={copied}
           onCopy={() => prompt !== null && void copy(prompt)}
@@ -52,12 +58,14 @@ export function SystemPromptButton({ agentId }: { agentId: string }) {
 
 function SystemPromptModal({
   prompt,
+  isSpawnPreview,
   error,
   copied,
   onCopy,
   onClose,
 }: {
   prompt: string | null;
+  isSpawnPreview: boolean;
   error: boolean;
   copied: boolean;
   onCopy: () => void;
@@ -113,6 +121,7 @@ function SystemPromptModal({
           <h3 style={{ margin: 0, fontSize: 17 }}>
             {t("dialogs.agent.systemPromptTitle")}
           </h3>
+          {isSpawnPreview && <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>{t("dialogs.agent.spawnPreviewHint")}</p>}
           <pre
             aria-readonly="true"
             style={{

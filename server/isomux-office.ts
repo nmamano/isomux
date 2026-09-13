@@ -3128,6 +3128,21 @@ function buildExecutorDeps(
             )
           : undefined;
       },
+      previewSystemPrompt: (input, identity) => {
+        const existing = input.agentId ? agentManager.getAgent(input.agentId) : undefined;
+        const room = agentManager.getRooms().find((candidate) => candidate.id === input.roomId);
+        if (!room || (input.agentId && !existing)) return undefined;
+        return buildAgentSystemPrompt({
+          id: existing?.id ?? "new-agent",
+          roomId: room.id,
+          username: existing ? existing.username : identity.username ?? null,
+          userId: existing ? existing.userId : identity.userId,
+          name: input.name,
+          agentType: input.agentType,
+          customInstructions: input.customInstructions,
+          privileged: input.privileged,
+        }, room, agentManager.getOfficeSettings(), existing ? input.memory : "");
+      },
       move: (agentId, targetRoomId) => {
         const before = snapshotAppVisibility(
           (app) => app.createdByAgentId === agentId,

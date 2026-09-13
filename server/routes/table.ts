@@ -72,6 +72,7 @@ import type {
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
+  AgentSystemPromptPreviewReq,
   EditAgentReq,
   SetPrivilegedReq,
   ReviveReq,
@@ -362,6 +363,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/system-prompt",
     auth: authn(agentParam("id")),
+    emits: [],
+  }),
+  defineRoute<AgentSystemPromptPreviewReq, AgentSystemPromptRes>({
+    opId: "agents.previewSystemPrompt",
+    method: "POST",
+    path: "/api/agents/system-prompt-preview",
+    auth: authn(bodyRoom("roomId")),
     emits: [],
   }),
   // Owner-administrative privilege toggle. Its OWN route (not a field on
