@@ -150,8 +150,8 @@ Inventory evidence: [Claude directory](https://code.claude.com/docs/en/claude-di
 [Codex reference](https://learn.chatgpt.com/docs/config-file/config-reference),
 [Codex instructions](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 These current docs describe optional/version-dependent files, not an assertion
-that each exists on this box. Local SDK 0.3.257 types say omitted settingSources
-loads user/project/local (`sdk.d.ts:2057`); `server/backends/claude.ts:1318`
+that each exists on this box. Local SDK 0.3.270 types say omitted settingSources
+loads user/project/local (`sdk.d.ts:2096`); `server/backends/claude.ts:1318`
 omits it for agent sessions. Account/one-shot queries intentionally use `[]`.
 Native memory is disabled for **agent sessions** by the settings applied at
 `server/backends/claude.ts:1342` and

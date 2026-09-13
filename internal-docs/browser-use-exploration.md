@@ -33,10 +33,10 @@ is one revert.
   about macOS XPC services and browser-based auth. Source:
   `node_modules/@anthropic-ai/claude-agent-sdk/sdk.d.ts`.
 - MCP servers are a session option: `Options.mcpServers?: Record<string,
-  McpServerConfig>` (`sdk.d.ts:1802`). `strictMcpConfig` (`sdk.d.ts:2110`)
+  McpServerConfig>` (`sdk.d.ts:1813`, 0.3.270). `strictMcpConfig` (`sdk.d.ts:2145`)
   makes that option the only source.
 - A live session can list and change its MCP servers: `mcpServerStatus()`
-  (`sdk.d.ts:2741`), `setMcpServers()` (`sdk.d.ts:2874`), and
+  (`sdk.d.ts:2775`), `setMcpServers()` (`sdk.d.ts:2935`), and
   `toggleMcpServer()`. `internal-docs/per-agent-mcp-access.md` already
   describes this surface for account-level connectors.
 - Isomux passes **no** `mcpServers` option. `SdkSessionOptions`
