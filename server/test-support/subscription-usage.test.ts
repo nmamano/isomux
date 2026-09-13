@@ -83,11 +83,24 @@ function reading(
   };
 }
 
-function makeManager(fake: FakeBackend): ReturnType<typeof createAgentManager> {
+function observedReading(
+  usedPercent: number,
+  observedAtMs: number,
+): SubscriptionUsageResult {
+  const result = reading(usedPercent);
+  if (result.kind !== "usage") throw new Error("expected usage reading");
+  return { ...result, observedAtMs };
+}
+
+function makeManager(
+  fake: FakeBackend,
+  eventSink?: Parameters<typeof createAgentManager>[0]["eventSink"],
+): ReturnType<typeof createAgentManager> {
   const mgr = createAgentManager({
     resolveBackend: () => fake,
     officeState: new OfficeState({ rooms: diRooms("room-a") }),
     initialRooms: [],
+    eventSink,
   });
   mgr.configureAgentTurnDeps();
   return mgr;
@@ -411,9 +424,11 @@ describe("subscription usage", () => {
   it("clears on an engine switch, which is where the account actually changes", async () => {
     // editAgent routes an agentType change through newConversation and returns
     // early, so this is the path that has to do the clearing.
+    let samples = 0;
     const fake = new FakeBackend({
       session: {
-        subscriptionUsage: async () => reading(63),
+        subscriptionUsage: async () =>
+          ++samples === 1 ? reading(63) : { kind: "unknown" },
         onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
       },
     });
@@ -428,6 +443,8 @@ describe("subscription usage", () => {
     await mgr.editAgent(info.id, { agentType: "codex" });
     expect(mgr.getAgent(info.id)?.agentType).toBe("codex");
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
+    const selfCheck = await mgr.getAgentSubscriptionUsage(info.id);
+    expect(selfCheck.available).toBe(false);
   });
 
   it("clears when resuming a session recorded under the other engine", async () => {
@@ -520,5 +537,247 @@ describe("subscription usage", () => {
     release!(reading(63));
     await sleep(50);
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
+  });
+
+  it("self-check cannot return a reading from an account changed mid-refresh", async () => {
+    let calls = 0;
+    let release: ((value: SubscriptionUsageResult) => void) | null = null;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: () => {
+          if (++calls === 1) return Promise.resolve(reading(20));
+          return new Promise<SubscriptionUsageResult>((resolve) => {
+            release = resolve;
+          });
+        },
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample old account");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "old account reading",
+    );
+
+    const pending = mgr.getAgentSubscriptionUsage(info.id);
+    await waitUntil(() => release !== null, "self-check refresh in flight");
+    await mgr.editAgent(info.id, { agentType: "codex" });
+    release!(reading(91));
+
+    const result = await pending;
+    expect(result.available).toBe(false);
+    expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
+  });
+
+  it("self-check reads every window during an active turn", async () => {
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () => ({
+          ...reading(20, "max", [
+            { label: "5-hour", usedPercent: 40 },
+            { label: "Weekly (Fable)", usedPercent: 30 },
+          ]),
+          observedAtMs: Date.now(),
+        }),
+        onSend: () => {},
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    const queued = mgr.enqueueMessage(info.id, {
+      sender: { kind: "user", username: "Boss" },
+      text: "stay active",
+    });
+    expect(queued.ok).toBe(true);
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.state === "thinking",
+      "turn active",
+    );
+
+    const result = await mgr.getAgentSubscriptionUsage(info.id);
+    expect(result).toMatchObject({
+      available: true,
+      plan: "max",
+      primaryIndex: 1,
+      freshness: "fresh",
+    });
+    if (result.available) {
+      expect(result.windows.map((window) => window.label)).toEqual([
+        "Weekly",
+        "5-hour",
+        "Weekly (Fable)",
+      ]);
+    }
+  });
+
+  it("self-check preserves provider observation time on a cached adapter answer", async () => {
+    const observedAtMs = Date.now() - 5_000;
+    const answer = observedReading(42, observedAtMs);
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: answer,
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+
+    const first = await mgr.getAgentSubscriptionUsage(info.id);
+    const second = await mgr.getAgentSubscriptionUsage(info.id);
+    expect(first).toMatchObject({
+      available: true,
+      observedAtMs,
+      freshness: "cached",
+      staleReason: "not_reasked",
+    });
+    expect(second).toMatchObject({
+      available: true,
+      observedAtMs,
+      freshness: "cached",
+      staleReason: "not_reasked",
+    });
+    if (second.available) expect(second.ageMs).toBeGreaterThanOrEqual(5_000);
+  });
+
+  it("self-check broadcasts an unchanged on-demand reading", async () => {
+    const events: Array<{ type: string }> = [];
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: observedReading(42, Date.now() - 1_000),
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake, (event) => events.push(event));
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+    const before = events.filter(
+      (event) => event.type === "agent_updated",
+    ).length;
+
+    await mgr.getAgentSubscriptionUsage(info.id);
+
+    expect(
+      events.filter((event) => event.type === "agent_updated").length,
+    ).toBeGreaterThan(before);
+  });
+
+  it("self-check serves the last sample after a transient refresh failure", async () => {
+    const observedAtMs = Date.now() - 2_000;
+    let calls = 0;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: async () =>
+          ++calls === 1
+            ? observedReading(51, observedAtMs)
+            : { kind: "unknown" },
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
+      available: true,
+      observedAtMs,
+      freshness: "cached",
+      staleReason: "refresh_failed",
+    });
+  });
+
+  it("self-check serves a released session's cached sample", async () => {
+    const observedAtMs = Date.now() - 1_000;
+    const fake = new FakeBackend({
+      session: {
+        subscriptionUsage: observedReading(63, observedAtMs),
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await spawn(mgr);
+    await runTurn(mgr, info.id, "sample");
+    await waitUntil(
+      () => !!mgr.getAgent(info.id)?.subscriptionUsage,
+      "reading published",
+    );
+    expect(await mgr.demoteToLazy(info.id)).toBe(true);
+
+    expect(await mgr.getAgentSubscriptionUsage(info.id)).toMatchObject({
+      available: true,
+      observedAtMs,
+      freshness: "cached",
+      staleReason: "no_session",
+    });
+  });
+
+  it("self-check distinguishes no sample from provider unavailability", async () => {
+    const blankMgr = makeManager(new FakeBackend());
+    const blank = await spawn(blankMgr);
+    expect(await blankMgr.getAgentSubscriptionUsage(blank.id)).toEqual({
+      available: false,
+      reason: "no_session",
+    });
+
+    const unknownMgr = makeManager(
+      new FakeBackend({
+        session: {
+          subscriptionUsage: { kind: "unknown" },
+          onSend: () => {},
+        },
+      }),
+    );
+    const unknown = await spawn(unknownMgr);
+    expect(
+      unknownMgr.enqueueMessage(unknown.id, {
+        sender: { kind: "user", username: "Boss" },
+        text: "stay active",
+      }).ok,
+    ).toBe(true);
+    await waitUntil(
+      () => unknownMgr.getAgent(unknown.id)?.state === "thinking",
+      "unknown turn active",
+    );
+    expect(await unknownMgr.getAgentSubscriptionUsage(unknown.id)).toEqual({
+      available: false,
+      reason: "not_yet_measured",
+    });
+
+    const unavailableMgr = makeManager(
+      new FakeBackend({
+        session: {
+          subscriptionUsage: { kind: "unavailable" },
+          onSend: () => {},
+        },
+      }),
+    );
+    const unavailable = await spawn(unavailableMgr);
+    expect(
+      unavailableMgr.enqueueMessage(unavailable.id, {
+        sender: { kind: "user", username: "Boss" },
+        text: "stay active",
+      }).ok,
+    ).toBe(true);
+    await waitUntil(
+      () => unavailableMgr.getAgent(unavailable.id)?.state === "thinking",
+      "unavailable turn active",
+    );
+    expect(
+      await unavailableMgr.getAgentSubscriptionUsage(unavailable.id),
+    ).toEqual({ available: false, reason: "provider_unavailable" });
   });
 });

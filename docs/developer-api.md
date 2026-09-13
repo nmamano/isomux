@@ -13,6 +13,8 @@ Self-hosted and hosted Isomux offices also expose a room-scoped REST API for age
 
 `GET /api/agents/:id/system-prompt` returns `{ "prompt": "..." }` for a live agent. The caller must be authenticated and have access to the agent's room. Isomux returns the same `403` response for an inaccessible or unknown agent that it uses for `GET /api/agents/:id/instructions`.
 
+An agent can inspect its own current limits with two self-check routes. `GET /api/agents/:id/context` returns the latest context-window measurement. `GET /api/agents/:id/subscription` returns every subscription window, reset times, plan, primary window, cache-commit time in `sampledAtMs`, when Isomux last asked the provider in `observedAtMs`, age since that request, and fresh or cached status. A cached subscription response states whether no live session exists, the backend did not ask the provider again (`not_reasked`), or a refresh failed. `not_reasked` is the common case and is not an error. An unavailable response distinguishes no session, no measurement yet, and a provider or account with no subscription allowance. Both routes require the agent bearer token, and `:id` must match that token's agent.
+
 ## Message an agent from another device
 
 One token = one inbox = one conversation. The token talks to any number of agents; everything it sends and everything it receives lives in one append-only log for that token, in order, each entry with an increasing sequence number.

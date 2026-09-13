@@ -348,12 +348,10 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
 // seven_day leads because it's the one people mean by "my plan allowance";
 // the shorter and per-model windows follow.
 //
-// seven_day_oauth_apps is deliberately left out: it meters third-party OAuth
-// apps rather than this session. The SDK's own live gating signal
-// (SDKRateLimitInfo.rateLimitType, the field that says which limit actually
-// rejected a request) enumerates five_hour / seven_day / seven_day_opus /
-// seven_day_sonnet / overage and never oauth_apps, so surfacing it would put
-// a number on screen that can't explain anything the agent runs into.
+// A fixed window whose key the SDK's live gating signal cannot name stays out:
+// a number that cannot explain anything the agent runs into is worse than no
+// number. seven_day_oauth_apps is one such window; it meters third-party OAuth
+// apps rather than this session.
 // extra_usage (overage credits) is a different currency and stays out too.
 const CLAUDE_RATE_LIMIT_WINDOWS: { key: string; label: string }[] = [
   { key: "seven_day", label: "Weekly" },
@@ -542,7 +540,13 @@ export function wrapV1Query(
       if (usageInFlight) return usageInFlight;
       const call: Promise<SubscriptionUsageResult> = (async () => {
         try {
-          const result = normalizeClaudeSubscriptionUsage(await usage.call(q));
+          const normalized = normalizeClaudeSubscriptionUsage(
+            await usage.call(q),
+          );
+          const result: SubscriptionUsageResult =
+            normalized.kind === "usage"
+              ? { ...normalized, observedAtMs: now }
+              : normalized;
           lastUsage = { atMs: now, result };
           return result;
         } catch {

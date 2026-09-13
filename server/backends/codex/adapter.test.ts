@@ -2431,10 +2431,13 @@ describe("codex subscription usage", () => {
 
   it("serves pushed rate limits without issuing a read request", async () => {
     const { session, fake } = await bootstrapped();
+    const beforePush = Date.now();
     fake.fireNotification("account/rateLimits/updated", {
       rateLimits: snapshot(),
     });
-    const usage = await usageOf(session);
+    const first = await session.getSubscriptionUsage();
+    if (first.kind !== "usage") throw new Error(`expected usage, got ${first.kind}`);
+    const usage = first.usage;
     expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
@@ -2444,6 +2447,12 @@ describe("codex subscription usage", () => {
     expect(
       fake.requests.some((r) => r.method === "account/rateLimits/read"),
     ).toBe(false);
+    expect(first.observedAtMs).toBeGreaterThanOrEqual(beforePush);
+    const second = await session.getSubscriptionUsage();
+    expect(second.kind).toBe("usage");
+    if (second.kind === "usage") {
+      expect(second.observedAtMs).toBe(first.observedAtMs);
+    }
   });
 
   it("merges sparse updates instead of letting a null clear a known value", async () => {

@@ -174,6 +174,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 - `server/commands.ts` - the slash-command registry. Its per-command WORDS live in the catalogs (`shared/i18n/en.ts` and siblings) under `commands.<name>.description`, keyed by `shared/i18n/command-keys.ts`; both the autocomplete UI and `/help` read them from there in the reader's language.
 - `server/system-prompt.ts` `buildSystemPrompt()` - the system prompt injected into every spawned agent (called from `server/agent-manager.ts`). Update when the agent's role or capabilities change.
 - `docs/developer-api.md` also documents the discovery manifest: a desk agent has a 1-based `room`; the lobby agent has `room: null`, `roomName: "Lobby"`, and `roomId: "lobby"`. Keep both discovery aliases and the members-chat routes in sync with the runtime.
+- `docs/developer-api.md` documents the agent self-check routes for context usage and subscription allowance. Keep their authentication, response metadata, and unavailable reasons in sync with the route table and `server/system-prompt.ts`.
 - `shared/receptionist-profile.ts` and `server/receptionist-profile.ts` define and render the Isomux Receptionist profile. The renderer includes `ISOMUX_KNOWLEDGE` from `api/chat.ts` byte for byte at spawn. Office name and members are a spawn-time snapshot; the expanded text persists as normal custom instructions. `shared/agent-templates.ts` holds the template catalog. Lobby agents persist in the typed room bucket in `agents.json`.
 
 ## Quick checklist when adding a member-visible feature

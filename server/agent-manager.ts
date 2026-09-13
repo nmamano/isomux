@@ -196,6 +196,7 @@ import type {
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import type {
   AgentContextUsageResp,
+  AgentSubscriptionUsageResp,
   LogInFlightTurn,
   ManifestInFlightTurn,
 } from "../shared/contract-shapes.ts";
@@ -3728,6 +3729,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         token,
         result.kind === "usage" ? result.usage : null,
         source,
+        result.kind === "usage" ? result.observedAtMs : undefined,
       );
     })();
   }
@@ -3742,7 +3744,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     token: { gen: number; seq: number },
     usage: SubscriptionUsage | null,
-    source: "turn_completed" | "usage_update",
+    source: "turn_completed" | "usage_update" | "on_demand",
+    observedAtMs?: number,
   ): void {
     if (managed.subscriptionGen !== token.gen) return;
     if (token.seq <= managed.subscriptionCommittedSeq) return;
@@ -3760,11 +3763,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       usedPercent: Math.max(0, Math.min(100, w.usedPercent)),
       resetsAtMs: w.resetsAtMs,
     }));
+    const committedAtMs = Date.now();
     const wire: SubscriptionUsageWire = {
       plan: usage.plan,
       windows,
       primaryIndex: pickPrimaryWindow(windows),
-      sampledAtMs: Date.now(),
+      sampledAtMs: committedAtMs,
+      observedAtMs: observedAtMs ?? committedAtMs,
     };
     // Turn-boundary samples ALWAYS broadcast, even when every displayed value
     // is unchanged: the popover tells the user how old the reading is, and a
@@ -3777,6 +3782,80 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       displayedSubscriptionChanged(managed.info.subscriptionUsage, wire);
     managed.subscriptionUsage = wire;
     if (shouldBroadcast) broadcastSubscriptionUsage(managed);
+  }
+
+  async function getAgentSubscriptionUsage(
+    agentId: string,
+  ): Promise<AgentSubscriptionUsageResp> {
+    const managed = agents.get(agentId);
+    if (!managed) return { available: false, reason: "no_session" };
+    const session = managed.sessionManager.session;
+    if (!session) {
+      const snap = managed.subscriptionUsage;
+      if (!snap) {
+        return {
+          available: false,
+          reason: managed.sessionManager.sessionId
+            ? "not_yet_measured"
+            : "no_session",
+        };
+      }
+      return {
+        available: true,
+        ...snap,
+        ageMs: Math.max(0, Date.now() - snap.observedAtMs),
+        freshness: "cached",
+        staleReason: "no_session",
+      };
+    }
+
+    const refreshStartedAtMs = Date.now();
+    const token = {
+      gen: managed.subscriptionGen,
+      seq: ++managed.subscriptionSampleSeq,
+    };
+    let result: SubscriptionUsageResult = { kind: "unknown" };
+    try {
+      result = await session.getSubscriptionUsage();
+    } catch {
+      // Treat an unexpected rejection as a transient failed refresh.
+    }
+    const accountChanged = managed.subscriptionGen !== token.gen;
+    if (!accountChanged && result.kind !== "unknown") {
+      commitSubscriptionSample(
+        managed,
+        token,
+        result.kind === "usage" ? result.usage : null,
+        "on_demand",
+        result.kind === "usage" ? result.observedAtMs : undefined,
+      );
+    }
+    if (!accountChanged && result.kind === "unavailable") {
+      return { available: false, reason: "provider_unavailable" };
+    }
+    const snap = managed.subscriptionUsage;
+    if (!snap) return { available: false, reason: "not_yet_measured" };
+    const fresh =
+      result.kind === "usage" &&
+      !accountChanged &&
+      (result.observedAtMs ?? snap.sampledAtMs) >= refreshStartedAtMs;
+    return fresh
+      ? {
+          available: true,
+          ...snap,
+          ageMs: Math.max(0, Date.now() - snap.observedAtMs),
+          freshness: "fresh",
+        }
+      : {
+          available: true,
+          ...snap,
+          ageMs: Math.max(0, Date.now() - snap.observedAtMs),
+          freshness: "cached",
+          staleReason:
+            !accountChanged && result.kind === "usage"
+              ? "not_reasked"
+              : "refresh_failed",
+        };
   }
 
   // GET /api/agents/:id/context - the agent-facing self-check op. Tries a live
@@ -8905,6 +8984,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentPreviewUrl,
     runAgentBrowserAction,
     getAgentContextUsage,
+    getAgentSubscriptionUsage,
     spawn,
     enqueueMessage,
     addSystemNote,

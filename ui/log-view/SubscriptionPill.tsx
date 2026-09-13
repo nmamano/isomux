@@ -253,9 +253,9 @@ export function SubscriptionPill({
   // presenting a week-old number as current - but a fresh reading stays
   // unannotated because the line appears only when it is actually stale.
   const ageLine =
-    reading && coords && coords.atMs - reading.sampledAtMs > STALE_READING_MS
+    reading && coords && coords.atMs - reading.observedAtMs > STALE_READING_MS
       ? t("subscription.readingAge", {
-          age: formatTimeUntil(i18n, coords.atMs - reading.sampledAtMs),
+          age: formatTimeUntil(i18n, coords.atMs - reading.observedAtMs),
         })
       : null;
   const tooltip = reading

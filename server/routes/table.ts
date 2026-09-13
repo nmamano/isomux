@@ -91,6 +91,7 @@ import type {
   AffordanceBrowserReq,
   AffordanceBrowserResp,
   AgentContextUsageResp,
+  AgentSubscriptionUsageResp,
   LogsResp,
   EditorSaveReq,
   RoomCreateReq,
@@ -589,6 +590,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.contextUsage",
     method: "GET",
     path: "/api/agents/:id/context",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
+  }),
+
+  defineRoute<void, AgentSubscriptionUsageResp>({
+    opId: "agents.subscriptionUsage",
+    method: "GET",
+    path: "/api/agents/:id/subscription",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: [],
   }),

@@ -2372,6 +2372,8 @@ function buildExecutorDeps(
         agentManager.runAgentBrowserAction(agentId, body),
       getAgentContextUsage: (agentId) =>
         agentManager.getAgentContextUsage(agentId),
+      getAgentSubscriptionUsage: (agentId) =>
+        agentManager.getAgentSubscriptionUsage(agentId),
     }),
   );
 

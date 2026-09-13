@@ -234,6 +234,42 @@ export type AgentContextUsageResp =
     }
   | { available: false; reason: "no_session" | "not_yet_measured" };
 
+/** GET /api/agents/:id/subscription - the agent's account allowance. */
+export type AgentSubscriptionUsageResp =
+  | {
+      available: true;
+      plan: string | null;
+      windows: Array<{
+        label: string;
+        usedPercent: number;
+        resetsAtMs: number | null;
+      }>;
+      primaryIndex: number;
+      sampledAtMs: number;
+      observedAtMs: number;
+      ageMs: number;
+      freshness: "fresh";
+    }
+  | {
+      available: true;
+      plan: string | null;
+      windows: Array<{
+        label: string;
+        usedPercent: number;
+        resetsAtMs: number | null;
+      }>;
+      primaryIndex: number;
+      sampledAtMs: number;
+      observedAtMs: number;
+      ageMs: number;
+      freshness: "cached";
+      staleReason: "no_session" | "not_reasked" | "refresh_failed";
+    }
+  | {
+      available: false;
+      reason: "no_session" | "not_yet_measured" | "provider_unavailable";
+    };
+
 /**
  * POST /api/agents/:id/browser - drive a page in the office browser.
  * `action` picks what happens; the rest of the fields belong to that action.

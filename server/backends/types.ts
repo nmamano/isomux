@@ -331,7 +331,15 @@ export interface SubscriptionUsage {
 //                 yet). Leaves the previous reading standing, so a transient
 //                 blip can't blank a valid number.
 export type SubscriptionUsageResult =
-  | { kind: "usage"; usage: SubscriptionUsage }
+  | {
+      kind: "usage";
+      usage: SubscriptionUsage;
+      // Provider-observation time. Production adapters set this when they
+      // receive or cache the provider payload, so a later manager read cannot
+      // make old data look new. Injected backends may omit it; the manager
+      // falls back to receipt time for them.
+      observedAtMs?: number;
+    }
   | { kind: "unavailable" }
   | { kind: "unknown" };
 

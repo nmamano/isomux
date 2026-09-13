@@ -481,7 +481,11 @@ export interface SubscriptionUsageWire {
   // windows[0], because display order and "the binding window" are different
   // questions and the UI must not have to guess which it's being handed.
   primaryIndex: number;
+  // When the manager committed this cache entry.
   sampledAtMs: number;
+  // When Isomux asked the provider for the data. A backend cache replay keeps
+  // its original value, so repeated reads cannot make old data look newer.
+  observedAtMs: number;
 }
 
 // What the browser knows about an agent

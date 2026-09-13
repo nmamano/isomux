@@ -923,6 +923,7 @@ export const es: Catalog = {
   "apiCall.agents.suggestCommand": "Sugerir un comando de terminal",
   "apiCall.agents.suggestCommandDetail": "Sugerir un comando de terminal",
   "apiCall.agents.context": "Consultar el uso del contexto",
+  "apiCall.agents.subscription": "Consultar el uso de la suscripción",
   "apiCall.agents.logsSearch": "Buscar en los registros de conversación",
   "apiCall.agents.logsSearchFor": 'Buscar "{query}" en los registros de {who}',
   "apiCall.agents.logsAround":

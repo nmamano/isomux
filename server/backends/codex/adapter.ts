@@ -377,13 +377,13 @@ export function resolveCodexUpdateKey(
 // Exported for tests.
 export function pickCodexLimitBucket(
   buckets: Map<string, RateLimitSnapshot>,
-): RateLimitSnapshot | null {
-  return (
-    buckets.get(CODEX_PREFERRED_LIMIT_ID) ??
-    buckets.get(CODEX_LEGACY_LIMIT_KEY) ??
-    buckets.values().next().value ??
-    null
-  );
+): { key: string; snapshot: RateLimitSnapshot } | null {
+  for (const key of [CODEX_PREFERRED_LIMIT_ID, CODEX_LEGACY_LIMIT_KEY]) {
+    const snapshot = buckets.get(key);
+    if (snapshot) return { key, snapshot };
+  }
+  const first = buckets.entries().next().value;
+  return first ? { key: first[0], snapshot: first[1] } : null;
 }
 
 // Merge one rolling window update into what we already knew about that slot.
@@ -714,6 +714,7 @@ export class CodexSession implements BackendSession {
   // kept apart rather than flattened: an account can meter more than one
   // thing, and blending two meters would invent a number.
   private rateLimitBuckets = new Map<string, RateLimitSnapshot>();
+  private rateLimitObservedAtMs = new Map<string, number>();
   private rateLimitsReadInFlight: Promise<void> | null = null;
   // Set once a read has come back (successfully or not). Distinguishes "no
   // rate-limit data because nothing has been asked or pushed yet" (unknown)
@@ -1186,7 +1187,18 @@ export class CodexSession implements BackendSession {
     // `account/rateLimits/read` response.
     if (this.rateLimitBuckets.size === 0) await this.readRateLimitsOnce();
     const bucket = pickCodexLimitBucket(this.rateLimitBuckets);
-    if (bucket) return normalizeCodexSubscriptionUsage(bucket);
+    if (bucket) {
+      const normalized = normalizeCodexSubscriptionUsage(bucket.snapshot);
+      if (normalized.kind !== "usage") return normalized;
+      const observedAtMs = this.rateLimitObservedAtMs.get(bucket.key);
+      // Both bucket write paths stamp this map. If that invariant ever breaks,
+      // keep the manager's prior sample instead of inventing a newer time.
+      if (observedAtMs === undefined) return { kind: "unknown" };
+      return {
+        ...normalized,
+        observedAtMs,
+      };
+    }
     // No data. Only authoritative once a read actually came back: before that
     // we simply haven't asked yet, and clearing would blank a live pill on
     // every session replacement.
@@ -1210,6 +1222,9 @@ export class CodexSession implements BackendSession {
       key,
       prev ? mergeRateLimitSnapshots(prev, next) : next,
     );
+    // This is the receipt time of the merged snapshot. Nullable fields that
+    // the sparse push omits can still come from an older snapshot.
+    this.rateLimitObservedAtMs.set(key, Date.now());
   }
 
   // Fold a `account/rateLimits/read` response in as an OLDER baseline. It was
@@ -1234,6 +1249,7 @@ export class CodexSession implements BackendSession {
       key,
       newer ? mergeRateLimitSnapshots(baseline, newer) : baseline,
     );
+    if (!newer) this.rateLimitObservedAtMs.set(key, Date.now());
   }
 
   // `account/rateLimits/read`, deduped so concurrent refreshes share one

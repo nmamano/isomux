@@ -422,6 +422,7 @@ function demoSubscriptionUsage(): AgentInfo["subscriptionUsage"] {
     // The 5-hour window is the closest to its limit, so it drives the number.
     primaryIndex: 0,
     sampledAtMs: now,
+    observedAtMs: now,
   };
 }
 

@@ -920,6 +920,7 @@ export const ca: Catalog = {
   "apiCall.agents.suggestCommand": "Suggerir una ordre de terminal",
   "apiCall.agents.suggestCommandDetail": "Suggerir una ordre de terminal",
   "apiCall.agents.context": "Consultar l'ús del context",
+  "apiCall.agents.subscription": "Consultar l'ús de la subscripció",
   "apiCall.agents.logsSearch": "Cercar als registres de conversa",
   "apiCall.agents.logsSearchFor": 'Cercar "{query}" als registres de {who}',
   "apiCall.agents.logsAround":

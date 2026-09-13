@@ -911,6 +911,7 @@ export const en = {
   "apiCall.agents.suggestCommand": "Suggest terminal command",
   "apiCall.agents.suggestCommandDetail": "Suggest a terminal command",
   "apiCall.agents.context": "Check context usage",
+  "apiCall.agents.subscription": "Check subscription usage",
   "apiCall.agents.logsSearch": "Search conversation logs",
   "apiCall.agents.logsSearchFor": 'Search {who}\'s logs for "{query}"',
   "apiCall.agents.logsAround": "Read around an entry in {who}'s logs",

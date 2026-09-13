@@ -823,6 +823,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/agents/*/edit-file", "apiCall.agents.offerFile"],
   ["POST", "/api/agents/*/terminal-command", "apiCall.agents.suggestCommand"],
   ["GET", "/api/agents/*/context", "apiCall.agents.context"],
+  ["GET", "/api/agents/*/subscription", "apiCall.agents.subscription"],
   // One route, three modes (search / retrieve / list). This static label is the
   // fallback; humanizeIsomuxRequest below reads the query and says which.
   ["GET", "/api/agents/*/logs", "apiCall.agents.logsSearch"],

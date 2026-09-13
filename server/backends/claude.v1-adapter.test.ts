@@ -357,7 +357,7 @@ describe("wrapV1Query", () => {
       rate_limits: { seven_day: { utilization: 10, resets_at: null } },
     };
     const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
-    await conv.getSubscriptionUsage();
+    const first = await conv.getSubscriptionUsage();
     q.usageResult = {
       subscription_type: "max",
       rate_limits_available: true,
@@ -367,6 +367,8 @@ describe("wrapV1Query", () => {
     expect(q.usageCalls).toBe(1);
     expect(second).toEqual({
       kind: "usage",
+      observedAtMs:
+        first.kind === "usage" ? first.observedAtMs : expect.any(Number),
       usage: {
         plan: "max",
         windows: [{ label: "Weekly", usedPercent: 10, resetsAtMs: null }],
@@ -404,6 +406,7 @@ describe("wrapV1Query", () => {
     };
     expect(await conv.getSubscriptionUsage()).toEqual({
       kind: "usage",
+      observedAtMs: expect.any(Number),
       usage: {
         plan: "max",
         windows: [{ label: "Weekly", usedPercent: 8, resetsAtMs: null }],
@@ -425,6 +428,7 @@ describe("wrapV1Query", () => {
     const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
     expect(await conv.getSubscriptionUsage()).toEqual({
       kind: "usage",
+      observedAtMs: expect.any(Number),
       usage: {
         plan: "max",
         windows: [
@@ -523,6 +527,30 @@ describe("normalizeClaudeSubscriptionUsage", () => {
     expect(out.windows.map((w) => w.label)).toEqual([
       "Weekly",
       "Weekly (Fable)",
+    ]);
+  });
+
+  it("keeps the model_scoped Fable window and its pin-stable wire label", () => {
+    const out = usageOf({
+      subscription_type: "max",
+      rate_limits_available: true,
+      rate_limits: {
+        five_hour: { utilization: 17, resets_at: null },
+        seven_day: { utilization: 29, resets_at: null },
+        seven_day_opus: null,
+        seven_day_sonnet: null,
+        model_scoped: [
+          { display_name: "Fable", utilization: 43, resets_at: null },
+        ],
+      },
+    });
+    // These labels are wire identity, not only copy: the pill stores a pin's
+    // label in localStorage and uses it to resolve that pin after reordering.
+    // A label edit silently drops an existing pin back to Auto.
+    expect(out.windows).toEqual([
+      { label: "Weekly", usedPercent: 29, resetsAtMs: null },
+      { label: "5-hour", usedPercent: 17, resetsAtMs: null },
+      { label: "Weekly (Fable)", usedPercent: 43, resetsAtMs: null },
     ]);
   });
 
