@@ -2,12 +2,12 @@
 // surface. Owner-only (office:admin + officeOwner).
 //
 // What this freezes:
-//   - getSettings returns the FULL OfficeSettings incl envFile (owner-only by
-//     guard) plus the optimistic-concurrency `version` over the whole blob;
+//   - getSettings returns the editable settings without legacy envFile plus the
+//     optimistic-concurrency `version` over the whole blob;
 //     member/agent 403; no identity 401.
-//   - setSettings validates COMPLETELY before mutate/emit: an invalid env path or
-//     over-long name returns 400 and does NOT mutate state or emit (no double-
-//     signal). Valid save 204 + persists + emits office_settings_updated.
+//   - setSettings validates COMPLETELY before mutate/emit: an over-long name
+//     returns 400 and does NOT mutate state or emit. Valid save 204 + persists +
+//     emits office_settings_updated.
 //   - name omitted-vs-null at the REST boundary: omitting preserves the current
 //     name, explicit null clears it (the validate-then-apply core's semantics).
 //   - Optimistic concurrency (task 44a2c98d, mirroring memory READ→REPLACE):
@@ -15,15 +15,8 @@
 //     invalid_version); a stale version -> 409 version_conflict carrying the
 //     CURRENT version, checked BEFORE field validation (a stale writer is told
 //     to re-read first), and neither failure writes or emits. One version
-//     guards the whole blob (the PUT replaces prompt/envFile/name wholesale).
-//
-// KNOWN-LEAK BRIDGE (do NOT "fix" by accident): office_settings_updated still
-// broadcasts envFile to every browser via the legacy broadcast(event) bridge.
-// Dropping envFile from this all-event is a deferred, UI-coordinated migration
-// (the owner UI currently reads envFile from this payload), filed as a Follow-up.
-// The test below asserts the bridge STILL carries envFile so a future
-// liveEmit-conversion that drops it is a conscious, reviewed change - not a silent
-// regression mistaken for a missed strangler conversion.
+//     guards the whole blob (prompt/name/experimental; omitted newer fields are
+//     preserved for stale clients).
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -136,6 +129,7 @@ describe("routes/office.getSettings REST", () => {
     const s = r.body as OfficeSettings & { version: string };
     expect(s.prompt).toBe("P");
     expect(s.name).toBe("Acme");
+    expect(s.experimental).toEqual({ browserPanel: false });
     expect(s.envFile).toBeUndefined();
     // Optimistic-concurrency version over the whole blob, required by the PUT.
     expect(s.version).toMatch(/^[0-9a-f]{12}$/);
@@ -170,6 +164,7 @@ describe("routes/office.setSettings REST", () => {
         prompt: "office prompt",
         envFile: "/stale/tab.env",
         name: "Acme",
+        experimental: { browserPanel: true },
         version,
       },
     });
@@ -179,10 +174,12 @@ describe("routes/office.setSettings REST", () => {
     expect(s.prompt).toBe("office prompt");
     expect(s.envFile).toBe("/legacy/office.env");
     expect(s.name).toBe("Acme");
+    expect(s.experimental).toEqual({ browserPanel: true });
 
     // 3b.5 CLOSED the deferred leak: the all-audience office_settings_updated no
     // longer carries envFile (owner-only; owners read it via full_state /
-    // office.getSettings). The broadcast carries {name, prompt} only.
+    // office.getSettings). The broadcast carries the public name, prompt, and
+    // experimental settings.
     await waitUntil(
       () =>
         sock.messages.some(
@@ -193,10 +190,37 @@ describe("routes/office.setSettings REST", () => {
     );
     const evt = sock.messages.find(
       (m) => (m as { type?: string }).type === "office_settings_updated",
-    ) as { name?: string; prompt?: string; envFile?: string };
+    ) as {
+      name?: string;
+      prompt?: string;
+      envFile?: string;
+      experimental?: { browserPanel: boolean };
+    };
     expect(evt.name).toBe("Acme");
     expect(evt.prompt).toBe("office prompt");
+    expect(evt.experimental).toEqual({ browserPanel: true });
     expect(evt.envFile).toBeUndefined(); // 3b.5: envFile no longer rides the all-event
+  });
+
+  it("omitted experimental settings preserve the current Browser panel value", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    srv.agentManager.setOfficeSettings(null, null, null, {
+      browserPanel: true,
+    });
+    const r = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: "new prompt",
+        version: await officeVersion(srv, owner.rawSessionId),
+      },
+    });
+    expect(r.status).toBe(204);
+    expect(srv.agentManager.getOfficeSettings().experimental).toEqual({
+      browserPanel: true,
+    });
   });
 
   it("name over 60 chars -> 400, state untouched", async () => {
@@ -250,15 +274,14 @@ describe("routes/office.setSettings REST", () => {
       ).status,
     ).toBe(204);
     const sock = await srv.connectWs(owner.rawSessionId);
-    // A's write also carries an INVALID env path: the version guard runs first,
-    // so the stale writer hears 409 (re-read), not 400 (fix your env path).
+    // A's write also carries an over-long name: the version guard runs first,
+    // so the stale writer hears 409 (re-read), not 400 (fix the name).
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
       body: {
         prompt: "A's clobber",
-        envFile: "./relative.env",
-        name: "A",
+        name: "A".repeat(61),
         version: staleVersion,
       },
     });

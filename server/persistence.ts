@@ -995,7 +995,8 @@ export function saveRecentCwd(cwd: string) {
 // (currently `publicOrigin`, used as a fallback for `ISOMUX_PUBLIC_ORIGIN`
 // when the env var is unset - see docs/access-and-invites.md). Those keys
 // are NOT part of OfficeSettings; `loadOfficeConfig`/`saveOfficeConfig`
-// only surface prompt + envFile to the UI-mutated office state. Save uses
+// only surface prompt + envFile + name + experimental settings to the
+// UI-mutated office state. Save uses
 // a read-modify-write so sibling keys outside OfficeSettings survive UI
 // saves.
 export function loadOfficeConfig(): OfficeSettings {
@@ -1017,6 +1018,9 @@ export function loadOfficeConfig(): OfficeSettings {
           typeof parsed.name === "string" && parsed.name.trim()
             ? parsed.name.trim()
             : null,
+        experimental: {
+          browserPanel: parsed.experimental?.browserPanel === true,
+        },
       };
     }
   } catch (err) {
@@ -1034,6 +1038,7 @@ export function loadOfficeConfig(): OfficeSettings {
     prompt: legacyPrompt,
     envFile: null,
     name: null,
+    experimental: { browserPanel: false },
   };
   // Only persist if the legacy prompt actually had content - otherwise a fresh
   // install touches a new file for no reason, and the next save/set will write
@@ -1055,6 +1060,7 @@ export function saveOfficeConfig(config: OfficeSettings) {
       prompt: config.prompt,
       envFile: config.envFile,
       name: config.name,
+      experimental: config.experimental,
     };
     atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
   } catch (err) {

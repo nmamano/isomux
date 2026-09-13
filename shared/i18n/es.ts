@@ -200,6 +200,10 @@ export const es: Catalog = {
     "Prompt de sistema para todos los agentes. Los cambios se aplican en la siguiente conversación.",
   "settings.office.rulesPlaceholder":
     "p. ej. Escribe siempre tests. Usa TypeScript. Sé conciso.",
+  "settings.office.experimental": "Experimental",
+  "settings.office.browserPanel": "Panel del navegador (experimental)",
+  "settings.office.browserPanelHint":
+    "Muestra el panel del navegador en directo en los chats de los agentes. Desactivado de forma predeterminada.",
   "settings.office.memoryHint":
     "(hechos duraderos de toda la oficina; líneas en bruto; {size} / {cap})",
   "settings.office.memoryTitle": "Memoria de la oficina",

@@ -354,6 +354,18 @@ describe("buildSystemPrompt - app bind host", () => {
   });
 });
 
+describe("buildSystemPrompt - browser affordance", () => {
+  it("keeps the agent API and makes no stale Browser panel promise", () => {
+    const p = build();
+    expect(p).toContain(`/api/agents/agent-1/browser`);
+    expect(p).toContain(`/api/agents/agent-1/preview-url`);
+    expect(p).not.toContain("Anyone with room access can watch your page");
+    expect(p).not.toContain(
+      "The panel opens for your manager when you create a page",
+    );
+  });
+});
+
 describe("buildSystemPrompt - killed-agent discovery copy", () => {
   // Task 18fded2c: the log route answers for killed agents, so the prompt has to
   // say how their ids are found - the sentence Nil cut in ffb90761 was cut

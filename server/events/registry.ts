@@ -222,7 +222,11 @@ export interface EventPayloads {
   cron_run_log_entry: { entry: LogEntry };
   // TARGET: public office metadata only; `envFile` is owner-only via
   // office.getSettings and never rides this `all` event.
-  office_settings_updated: { name: string | null; prompt: string | null };
+  office_settings_updated: {
+    name: string | null;
+    prompt: string | null;
+    experimental: NonNullable<OfficeWire["experimental"]>;
+  };
   update_status: UpdateStatusWire;
 
   session_revoked: { sessionPrefix: string };

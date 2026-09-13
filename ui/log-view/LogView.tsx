@@ -717,6 +717,7 @@ export function LogView({
     interactions,
     providerAccounts,
     tasks,
+    office,
   } = useAppState();
   const taskMap: TaskMap = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
@@ -783,7 +784,7 @@ export function LogView({
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
   const browserOpen = sidePanel === "browser";
-  const canOpenBrowser = true;
+  const canOpenBrowser = office.experimental.browserPanel;
   const canDriveBrowser =
     !!agent.userId && sessionContext?.userId === agent.userId;
   const autoOpenBrowser = useCallback(
@@ -791,7 +792,12 @@ export function LogView({
       dispatch({ type: "set_side_panel", agentId: agent.id, panel: "browser" }),
     [agent.id, dispatch],
   );
-  useBrowserAutoOpen(agent.id, canDriveBrowser, autoOpenBrowser);
+  useBrowserAutoOpen(
+    agent.id,
+    canDriveBrowser,
+    canOpenBrowser,
+    autoOpenBrowser,
+  );
   const [terminalWidth, setTerminalWidth] = useState<number>(() =>
     readPanelWidth("terminal", 500),
   );

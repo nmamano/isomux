@@ -626,6 +626,29 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
   });
 });
 
+describe("reducer: experimental office settings", () => {
+  it("defaults an older full_state off and applies live Browser panel changes", () => {
+    const hydrated = reducer(initialState, {
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [],
+      killedAgents: [],
+      interactions: [],
+    });
+    expect(hydrated.office.experimental).toEqual({ browserPanel: false });
+
+    const enabled = reducer(hydrated, {
+      type: "office_settings_updated",
+      prompt: null,
+      name: null,
+      experimental: { browserPanel: true },
+    });
+    expect(enabled.office.experimental).toEqual({ browserPanel: true });
+  });
+});
+
 describe("reducer: structured choice interactions", () => {
   const interaction = {
     id: "interaction-1",

@@ -422,19 +422,32 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       prompt: "Office prompt",
       envFile: "/home/office/.env",
       name: "HQ",
+      experimental: { browserPanel: true },
     });
     expect(loadOfficeConfig()).toEqual({
       prompt: "Office prompt",
       envFile: "/home/office/.env",
       name: "HQ",
+      experimental: { browserPanel: true },
     });
 
-    saveOfficeConfig({ prompt: null, envFile: null, name: null });
+    saveOfficeConfig({
+      prompt: null,
+      envFile: null,
+      name: null,
+      experimental: { browserPanel: false },
+    });
     expect(loadOfficeConfig()).toEqual({
       prompt: null,
       envFile: null,
       name: null,
+      experimental: { browserPanel: false },
     });
+  });
+
+  it("defaults the experimental Browser panel off when an older config has no key", () => {
+    seed("office-config.json", { prompt: "P", name: "N" });
+    expect(loadOfficeConfig().experimental).toEqual({ browserPanel: false });
   });
 
   it("saveOfficeConfig preserves the server/deployment sibling keys (publicOrigin/externalAccess)", () => {
@@ -443,7 +456,12 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       externalAccess: true,
     });
     // A UI office-settings save must not clobber the deployment keys.
-    saveOfficeConfig({ prompt: "P", envFile: "/e", name: "N" });
+    saveOfficeConfig({
+      prompt: "P",
+      envFile: "/e",
+      name: "N",
+      experimental: { browserPanel: true },
+    });
 
     expect(loadServerConfig()).toEqual({
       publicOrigin: "https://office.example.com",
@@ -454,11 +472,17 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       prompt: "P",
       envFile: "/e",
       name: "N",
+      experimental: { browserPanel: true },
     });
   });
 
   it("saveServerConfig preserves the OfficeSettings sibling keys (prompt/env/name)", () => {
-    saveOfficeConfig({ prompt: "P", envFile: "/e", name: "N" });
+    saveOfficeConfig({
+      prompt: "P",
+      envFile: "/e",
+      name: "N",
+      experimental: { browserPanel: true },
+    });
     saveServerConfig({
       publicOrigin: "https://office.example.com",
       externalAccess: false,
@@ -468,6 +492,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       prompt: "P",
       envFile: "/e",
       name: "N",
+      experimental: { browserPanel: true },
     });
     expect(loadServerConfig()).toEqual({
       publicOrigin: "https://office.example.com",

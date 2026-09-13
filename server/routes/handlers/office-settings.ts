@@ -11,8 +11,9 @@
 // office_settings_updated). setSettings emits office_settings_updated via the
 // existing AgentManager event sink - the handler never emits.
 //
-// office.getSettings returns the editable prompt and display name. The legacy
-// envFile field remains persistence-only until the boot migration clears it.
+// office.getSettings returns the editable prompt, display name, and
+// experimental flags. The legacy envFile field remains persistence-only until
+// the boot migration clears it.
 //
 // name omitted-vs-null is preserved end to end: an absent `name` (a stale client
 // tab from before the field existed) PRESERVES the current name; an explicit
@@ -47,6 +48,7 @@ export interface OfficeSettingsDeps {
   applySettings(input: {
     prompt: string | null;
     name?: string | null;
+    experimental?: NonNullable<OfficeSettingsRes["experimental"]>;
     expectedVersion: string;
   }): ApplyOfficeSettingsResult;
 }
@@ -61,6 +63,7 @@ export function officeSettingsHandlers(
       const b = (ctx.body ?? {}) as {
         prompt?: unknown;
         name?: unknown;
+        experimental?: unknown;
         version?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
@@ -73,6 +76,18 @@ export function officeSettingsHandlers(
           : typeof b.name === "string"
             ? b.name
             : null;
+      const experimental =
+        b.experimental &&
+        typeof b.experimental === "object" &&
+        !Array.isArray(b.experimental) &&
+        typeof (b.experimental as { browserPanel?: unknown }).browserPanel ===
+          "boolean"
+          ? {
+              browserPanel: (
+                b.experimental as { browserPanel: boolean }
+              ).browserPanel,
+            }
+          : undefined;
       // The PUT replaces the whole settings blob, so it must carry the version
       // from a preceding GET - same rail as memory.replace.
       if (typeof b.version !== "string" || b.version.length === 0) {
@@ -85,6 +100,7 @@ export function officeSettingsHandlers(
       const r = deps.applySettings({
         prompt,
         name,
+        experimental,
         expectedVersion: b.version,
       });
       if (!r.ok) {

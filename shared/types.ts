@@ -1119,6 +1119,11 @@ export interface OfficeSettings {
   prompt: string | null;
   envFile: string | null;
   name: string | null;
+  experimental: OfficeExperimentalSettings;
+}
+
+export interface OfficeExperimentalSettings {
+  browserPanel: boolean;
 }
 
 // Office settings as PROJECTED to the wire (full_state.office / the all-audience
@@ -1128,6 +1133,9 @@ export interface OfficeSettings {
 export interface OfficeWire {
   prompt: string | null;
   name: string | null;
+  // Optional only for a new UI bundle talking to a pre-toggle server before
+  // its required restart. The store supplies the default-off value.
+  experimental?: OfficeExperimentalSettings;
   envFile?: string | null;
 }
 
@@ -1641,6 +1649,7 @@ export type ServerMessage =
       type: "office_settings_updated";
       prompt: string | null;
       name: string | null;
+      experimental?: OfficeExperimentalSettings;
     }
   // Whole-board hydration: sent on connect and when a recipient's room ACCESS
   // changes (both re-project from scratch). A single task mutation does NOT ride

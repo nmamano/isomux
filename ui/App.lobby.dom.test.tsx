@@ -31,7 +31,12 @@ for (const [label, path] of [
         lobbyOpen: true,
         hasReceivedInitialState: true,
         connected: true,
-        office: { name: "Test Office", prompt: null, envFile: null },
+        office: {
+          name: "Test Office",
+          prompt: null,
+          envFile: null,
+          experimental: { browserPanel: false },
+        },
       }),
     );
     expect(document.title).toBe("Test Office | Isomux");

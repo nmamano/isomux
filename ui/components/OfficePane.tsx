@@ -37,6 +37,9 @@ export function OfficePane({
   const readOnly = !isOwner;
   const [text, setText] = useState(office.prompt ?? "");
   const [name, setName] = useState(office.name ?? "");
+  const [browserPanel, setBrowserPanel] = useState(
+    office.experimental.browserPanel,
+  );
   // Office memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Disabled until the load resolves; saved separately from the
   // office settings PUT.
@@ -45,7 +48,7 @@ export function OfficePane({
   // memory editor): GET on open (owner-only GET, so skip for read-only members
   // - they never save), send the version back on save; a 409 means another
   // writer saved since. The token must stay coupled to the BYTES read with it,
-  // so ALL guarded fields (prompt/name - one version over the whole
+  // so ALL guarded fields (prompt/name/experimental - one version over the whole
   // blob) hydrate from the same GET response; never pair store-snapshot fields
   // with the GET's version, or a fresher server blob gets silently blessed
   // over. Until the load resolves the fields are read-only and Save stays
@@ -62,6 +65,7 @@ export function OfficePane({
   // and their pane can never be dirty.
   const [baselineName, setBaselineName] = useState("");
   const [baselinePrompt, setBaselinePrompt] = useState("");
+  const [baselineBrowserPanel, setBaselineBrowserPanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
 
@@ -75,6 +79,9 @@ export function OfficePane({
         setName(r.name ?? "");
         setBaselinePrompt(r.prompt ?? "");
         setBaselineName(r.name ?? "");
+        const nextBrowserPanel = r.experimental?.browserPanel === true;
+        setBrowserPanel(nextBrowserPanel);
+        setBaselineBrowserPanel(nextBrowserPanel);
         setSettingsVersion(r.version);
       })
       .catch(() => {
@@ -96,6 +103,7 @@ export function OfficePane({
     const body: OfficeSettingsReq = {
       prompt: text.trim() ? text : null,
       name: name.trim() || null,
+      experimental: { browserPanel },
       version: settingsVersion,
     };
     try {
@@ -116,6 +124,9 @@ export function OfficePane({
         setName(next.name ?? "");
         setBaselinePrompt(next.prompt ?? "");
         setBaselineName(next.name ?? "");
+        const nextBrowserPanel = next.experimental?.browserPanel === true;
+        setBrowserPanel(nextBrowserPanel);
+        setBaselineBrowserPanel(nextBrowserPanel);
         setSettingsVersion(next.version);
       } catch {
         // No safe token to write with: null disables Save rather than leaving
@@ -167,7 +178,10 @@ export function OfficePane({
   // all dirty-capable. A read-only member never loads, so dirty is false for
   // them and they are never asked about discarding anything.
   const dirty =
-    (settingsLoaded && (name !== baselineName || text !== baselinePrompt)) ||
+    (settingsLoaded &&
+      (name !== baselineName ||
+        text !== baselinePrompt ||
+        browserPanel !== baselineBrowserPanel)) ||
     mem.dirty;
   useEffect(() => {
     if (closeRef) {
@@ -288,6 +302,46 @@ export function OfficePane({
           {t("common.nextConversation")}
         </p>
 
+        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+          {t("settings.office.experimental")}
+        </h4>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            marginTop: 12,
+            color: "var(--text-primary)",
+            cursor: readOnly || !settingsLoaded ? "default" : "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            role="switch"
+            checked={browserPanel}
+            onChange={(e) => setBrowserPanel(e.target.checked)}
+            disabled={readOnly || !settingsLoaded}
+            aria-label={t("settings.office.browserPanel")}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            <span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+              {t("settings.office.browserPanel")}
+            </span>
+            <span
+              style={{
+                display: "block",
+                marginTop: 2,
+                fontSize: 10,
+                lineHeight: 1.4,
+                color: "var(--text-ghost)",
+              }}
+            >
+              {t("settings.office.browserPanelHint")}
+            </span>
+          </span>
+        </label>
+
         {!readOnly && (
           <>
             <label
@@ -352,6 +406,7 @@ export function OfficePane({
                 onClick={() => {
                   setName(baselineName);
                   setText(baselinePrompt);
+                  setBrowserPanel(baselineBrowserPanel);
                   mem.reset();
                   setStatus({ kind: "idle" });
                 }}

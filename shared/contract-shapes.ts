@@ -698,9 +698,13 @@ export interface OfficeSettingsReq {
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
+  // Optional so an older or stale client preserves experimental settings it
+  // did not read. A present object replaces the experimental settings blob.
+  experimental?: OfficeSettings["experimental"];
   // Token from a preceding office.getSettings read. The PUT replaces the whole
-  // settings blob (prompt/name), so ONE version guards the whole clobber
-  // surface - a mismatch is a 409 version_conflict, mirroring memory REPLACE.
+  // settings blob (prompt/name/experimental), so ONE version guards the whole
+  // clobber surface - a mismatch is a 409 version_conflict, mirroring memory
+  // REPLACE.
   version: string;
 }
 
@@ -724,6 +728,9 @@ export interface UserEnvReplaceReq {
 // office.getSettings response: the editable settings plus their
 // optimistic-concurrency version.
 export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
+  // Optional only while a new UI bundle can talk to the old server before the
+  // server-side half of an update restarts.
+  experimental?: OfficeSettings["experimental"];
   version: string;
 };
 

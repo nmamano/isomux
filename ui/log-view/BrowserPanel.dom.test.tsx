@@ -470,13 +470,24 @@ describe("BrowserPanel", () => {
   it("auto-opens only the mounted manager chat", () => {
     let opened = 0;
     const open = () => opened++;
-    function Chat({ id, manager }: { id: string; manager: boolean }) {
-      useBrowserAutoOpen(id, manager, open);
+    function Chat({
+      id,
+      manager,
+      enabled = true,
+    }: {
+      id: string;
+      manager: boolean;
+      enabled?: boolean;
+    }) {
+      useBrowserAutoOpen(id, manager, enabled, open);
       return null;
     }
     const view = render(<Chat id="active" manager />);
     act(() => shimEmit({ type: "browser_action", agentId: "background" }));
     expect(opened).toBe(0);
+    act(() => shimEmit({ type: "browser_action", agentId: "active" }));
+    expect(opened).toBe(1);
+    view.rerender(<Chat id="active" manager enabled={false} />);
     act(() => shimEmit({ type: "browser_action", agentId: "active" }));
     expect(opened).toBe(1);
     view.rerender(<Chat id="active" manager={false} />);

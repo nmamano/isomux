@@ -42,7 +42,12 @@ setApiShim(async (_method, path) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
   if (path === "/api/office/settings")
-    return { name: "", prompt: "", version: "1" };
+    return {
+      name: "",
+      prompt: "",
+      experimental: { browserPanel: false },
+      version: "1",
+    };
   if (path.startsWith("/api/rooms/") && path.endsWith("/settings"))
     return { prompt: "", version: "1" };
   if (path === "/api/usage")
@@ -187,6 +192,9 @@ describe("the settings page", () => {
     fireEvent.click(view.getByText("Descarta"));
     expect(row(view, "Oficina").getAttribute("aria-current")).toBe("true");
     expect(heading(view, "Configuració de l'oficina", "H3")).toBe(true);
+    expect(
+      view.queryByText("Tauler del navegador (experimental)"),
+    ).not.toBeNull();
 
     // The office pane's browser confirm, once its settings have hydrated and
     // the name has been edited.

@@ -215,6 +215,10 @@ export const en = {
     "System prompt for all agents. Changes take effect on next conversation.",
   "settings.office.rulesPlaceholder":
     "e.g. Always write tests. Use TypeScript. Be concise.",
+  "settings.office.experimental": "Experimental",
+  "settings.office.browserPanel": "Browser panel (experimental)",
+  "settings.office.browserPanelHint":
+    "Show the live Browser panel in agent chats. Off by default.",
   "settings.office.memoryHint":
     "(durable office-wide facts; raw lines; {size} / {cap})",
   "settings.office.memoryTitle": "Office Memory",

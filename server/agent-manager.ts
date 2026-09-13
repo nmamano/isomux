@@ -985,6 +985,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         prompt: officeState.office.prompt,
         envFile: officeState.office.envFile,
         name: officeState.office.name,
+        experimental: officeState.office.experimental,
       });
       return;
     }
@@ -1014,6 +1015,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       prompt: officeState.office.prompt,
       envFile: officeState.office.envFile,
       name: officeState.office.name,
+      experimental: officeState.office.experimental,
     };
   }
 
@@ -1065,8 +1067,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     prompt: string | null,
     envFile: string | null,
     name: string | null,
+    experimental?: OfficeSettings["experimental"],
   ) {
-    const events = officeState.setOfficeSettings(prompt, envFile, name);
+    const events = officeState.setOfficeSettings(
+      prompt,
+      envFile,
+      name,
+      experimental,
+    );
     // System prompt is rebuilt at every createSession from current office/room/agent
     // config, so the new office prompt automatically lands on the next conversation.
     for (const event of events) eventHandler(event);
@@ -9059,6 +9067,7 @@ export function createProductionAgentManager(overrides?: {
       prompt: initialOfficeConfig.prompt,
       envFile: initialOfficeConfig.envFile,
       name: initialOfficeConfig.name,
+      experimental: initialOfficeConfig.experimental,
     },
   });
   const manager = createAgentManager({

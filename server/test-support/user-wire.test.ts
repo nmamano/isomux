@@ -310,7 +310,9 @@ describe("user-wire projection leak closure (3b.5)", () => {
     const owner = await server.seedOwner("Boss");
     const mia = await server.seedMember("Mia");
     // Seed an office envFile directly (officeState stores it without validation).
-    server.agentManager.setOfficeSettings("op", "/seed/env/path", "Acme");
+    server.agentManager.setOfficeSettings("op", "/seed/env/path", "Acme", {
+      browserPanel: true,
+    });
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     const miaSock = await connectSettled(server, mia.rawSessionId);
@@ -320,22 +322,28 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expect(ownerOffice.envFile).toBe("/seed/env/path"); // owner keeps it
     expect(miaOffice.envFile).toBeUndefined(); // member never sees it
     expect(miaOffice.name).toBe("Acme"); // but does see the public fields
+    expect(ownerOffice.experimental).toEqual({ browserPanel: true });
+    expect(miaOffice.experimental).toEqual({ browserPanel: true });
 
     // The all-audience office_settings_updated carries NO envFile (both
-    // recipients). Driven via the manager core directly - the WS handler
-    // validates the env path; the WIRE stripping is what's under test here.
-    server.agentManager.setOfficeSettings("op2", "/seed/env/path", "Acme2");
+    // recipients). Driven via the manager core directly; the WIRE stripping is
+    // what's under test here.
+    server.agentManager.setOfficeSettings("op2", "/seed/env/path", "Acme2", {
+      browserPanel: false,
+    });
     const ev = await waitForWhere(
       miaSock,
       (m) => m.type === "office_settings_updated",
     );
     expect(ev.envFile).toBeUndefined();
     expect(ev.name).toBe("Acme2");
+    expect(ev.experimental).toEqual({ browserPanel: false });
     const ownerEv = await waitForWhere(
       ownerSock,
       (m) => m.type === "office_settings_updated",
     );
     expect(ownerEv.envFile).toBeUndefined(); // dropped even for owners on the all-event
+    expect(ownerEv.experimental).toEqual({ browserPanel: false });
   });
 
   it("connect hydration delivers the full self/admin records BEFORE full_state (the UI owner-roster reads depend on this order)", async () => {

@@ -155,7 +155,7 @@ Keep these consistent across all surfaces below.
 
 These aren't user-facing docs, but they do describe features and can fall out of date:
 
-- `internal-docs/browser-panel-scroll-and-fill.md` - dated scroll measurements, prior art, local-office behavior, and the viewport/bandwidth evidence for the full Browser panel. The public behavior is in `docs/features.md`, `api/chat.ts`, and the browser section of `server/system-prompt.ts`.
+- `internal-docs/browser-panel-scroll-and-fill.md` - dated scroll measurements, prior art, local-office behavior, and the viewport/bandwidth evidence for the experimental Browser panel. The public behavior is in `docs/features.md`, `docs/self-hosted.md`, and the browser section of `server/system-prompt.ts`.
 - `AGENTS.md` - developer/agent-facing overview of the codebase (read by Claude Code, Codex, and other tools that follow the AGENTS.md convention). `CLAUDE.md` is a one-line pointer to it. Update when architecture or conventions change.
 - `internal-docs/` - design documents for individual features. Historical/reference only; not expected to stay current, with two maintained exceptions (below). (Operator-facing docs live in `docs/`; see section 4.)
 - `internal-docs/backup-restore.md` - the **maintained** break-glass runbook for the daily `~/.isomux` backup: what the tarballs hold, and the stop-service / move-aside / extract / restart restore procedure. Linked from `server/backup.ts`. It stays in `internal-docs/` rather than the docs site because it is an emergency procedure for whoever runs the box, not a feature page; the one-paragraph user-facing summary lives in `docs/features.md`. Keep it current when the backup schedule, archive layout, or state-root resolution changes.

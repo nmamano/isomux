@@ -20,6 +20,7 @@ import type {
   PresenceInfo,
   UserRecord,
   OfficeWire,
+  OfficeSettings,
   AppRecord,
   AppWire,
   AppListWire,
@@ -1275,22 +1276,25 @@ async function applyAccessSettings(
 
 // Optimistic-concurrency version over the WHOLE office-settings blob. The
 // persisted envFile remains in the version until the boot import clears it.
-// clobber surface. Canonical array serialization (stable order, distinguishes
+// The public experimental flags are part of the same clobber surface.
+// Canonical array serialization (stable order, distinguishes
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
-  return versionOf(JSON.stringify([s.prompt, s.envFile, s.name]));
+  return versionOf(
+    JSON.stringify([s.prompt, s.envFile, s.name, s.experimental]),
+  );
 }
 
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
-// to re-read before hearing about field validation), then validates COMPLETELY
-// before it mutates/emits (no double-signal on an invalid env path or over-long
-// name). name === undefined PRESERVES the current name (a caller that omits it,
-// e.g. a stale tab); null or empty CLEARS it. setOfficeSettings emits
+// to re-read before hearing about field validation), then validates the name
+// before it mutates/emits. Omitted fields PRESERVE their current values for
+// stale clients. A null or empty name CLEARS it. setOfficeSettings emits
 // office_settings_updated via the sink.
 function applyOfficeSettings(input: {
   prompt: string | null;
   name?: string | null;
+  experimental?: OfficeSettings["experimental"];
   expectedVersion: string;
 }):
   | { ok: true }
@@ -1317,6 +1321,7 @@ function applyOfficeSettings(input: {
     input.prompt,
     agentManager.getOfficeSettings().envFile,
     rawName,
+    input.experimental ?? agentManager.getOfficeSettings().experimental,
   );
   return { ok: true };
 }
@@ -2955,6 +2960,7 @@ function buildExecutorDeps(
       getSettings: () => ({
         prompt: agentManager.getOfficeSettings().prompt,
         name: agentManager.getOfficeSettings().name,
+        experimental: agentManager.getOfficeSettings().experimental,
         version: officeSettingsVersion(),
       }),
       applySettings: (input) => applyOfficeSettings(input),
@@ -4266,8 +4272,17 @@ function projectOfficeFor(session: SessionLookup): OfficeWire {
   const office = agentManager.getOfficeSettings();
   const isOwner = getUserById(session.userId)?.role === "owner";
   return isOwner
-    ? { prompt: office.prompt, name: office.name, envFile: office.envFile }
-    : { prompt: office.prompt, name: office.name };
+    ? {
+        prompt: office.prompt,
+        name: office.name,
+        experimental: office.experimental,
+        envFile: office.envFile,
+      }
+    : {
+        prompt: office.prompt,
+        name: office.name,
+        experimental: office.experimental,
+      };
 }
 
 function sendProjectedFullState(
@@ -4925,13 +4940,14 @@ function wireEventSinks(): void {
       return;
     }
     // Office settings: envFile is owner-only and NEVER rides this all-audience
-    // event. Members read {prompt,name}; owners learn envFile via
+    // event. Members read {prompt,name,experimental}; owners learn envFile via
     // their full_state (owner office projection) / office.getSettings on reload.
     if (event.type === "office_settings_updated") {
       broadcast({
         type: "office_settings_updated",
         prompt: event.prompt,
         name: event.name,
+        experimental: event.experimental,
       });
       return;
     }
@@ -6533,7 +6549,12 @@ export async function startServer(
       writeManaged: writeManagedOfficeEnv,
       clearLegacyPath: () => {
         const settings = agentManager.getOfficeSettings();
-        agentManager.setOfficeSettings(settings.prompt, null, settings.name);
+        agentManager.setOfficeSettings(
+          settings.prompt,
+          null,
+          settings.name,
+          settings.experimental,
+        );
       },
     },
     log: (message) => console.error(message),

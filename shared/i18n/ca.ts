@@ -200,6 +200,10 @@ export const ca: Catalog = {
     "Prompt de sistema per a tots els agents. Els canvis s'apliquen a la conversa següent.",
   "settings.office.rulesPlaceholder":
     "p. ex. Escriu sempre tests. Fes servir TypeScript. Sigues concís.",
+  "settings.office.experimental": "Experimental",
+  "settings.office.browserPanel": "Tauler del navegador (experimental)",
+  "settings.office.browserPanelHint":
+    "Mostra el tauler del navegador en directe als xats dels agents. Desactivat per defecte.",
   "settings.office.memoryHint":
     "(fets duradors de tota l'oficina; línies en brut; {size} / {cap})",
   "settings.office.memoryTitle": "Memòria de l'oficina",

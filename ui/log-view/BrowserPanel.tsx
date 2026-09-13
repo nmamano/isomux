@@ -29,10 +29,11 @@ let nextWatchGeneration = 0;
 export function useBrowserAutoOpen(
   agentId: string,
   canDrive: boolean,
+  enabled: boolean,
   open: () => void,
 ) {
   useEffect(() => {
-    if (!canDrive) return;
+    if (!canDrive || !enabled) return;
     const listener = (raw: string) => {
       let message: ServerMessage;
       try {
@@ -45,7 +46,7 @@ export function useBrowserAutoOpen(
     };
     addRawListener(listener);
     return () => removeRawListener(listener);
-  }, [agentId, canDrive, open]);
+  }, [agentId, canDrive, enabled, open]);
 }
 
 export function BrowserPanel({
