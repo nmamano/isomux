@@ -1128,7 +1128,7 @@ export const ca: Catalog = {
   "logView.editTopic": "Fes clic per editar el tema",
   "logView.regenerateTopic": "Regenera el tema a partir de la conversa",
   "logView.noHistoryToSummarize": "No hi ha historial de conversa per resumir",
-  "logView.lastMessagePrefix": "↑ tu:",
+  "logView.lastMessagePrefix": "↑ Tu:",
   "logView.emptyStart": "Envia un missatge per començar una conversa o",
   "logView.emptyResume": "reprèn-ne una d'anterior",
   "logView.sendFailedBanner":

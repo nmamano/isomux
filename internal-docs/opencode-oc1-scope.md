@@ -163,7 +163,7 @@ not measured separately.
 Failures reported a locked database, a collision while creating the
 `workspace` table, or `ServeError`. The append-only records and reproducer are
 `opencode-gate/evidence/shared-profile-startup.jsonl` and
-`opencode-gate/harness/shared-profile-startup-probe.ts`. This rejects the exact
+`opencode-gate/harness/shared-profile-startup-probe.ts` (the harness was removed on 2026-09-13; see git history before ab0fe75d). This rejects the exact
 Codex process topology. It does not reject shared profiles after serialized
 startup.
 

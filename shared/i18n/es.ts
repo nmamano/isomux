@@ -1131,7 +1131,7 @@ export const es: Catalog = {
   "logView.regenerateTopic": "Regenerar el tema a partir de la conversación",
   "logView.noHistoryToSummarize":
     "No hay historial de conversación que resumir",
-  "logView.lastMessagePrefix": "↑ tú:",
+  "logView.lastMessagePrefix": "↑ Tú:",
   "logView.emptyStart": "Envía un mensaje para empezar una conversación o",
   "logView.emptyResume": "reanuda una anterior",
   "logView.sendFailedBanner":

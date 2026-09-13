@@ -2408,7 +2408,7 @@ export function LogView({
                   // Below the pinned "you:" line's band (about 30 px) whether
                   // or not that line is showing, so it never covers the line
                   // and never moves (Nil, 2026-09-13).
-                  top: isMobile ? 44 : 48,
+                  top: isMobile ? 32 : 36,
                   right: isMobile ? 12 : 24,
                   zIndex: 10,
                   display: "flex",

@@ -1112,7 +1112,7 @@ export const en = {
   "logView.editTopic": "Click to edit topic",
   "logView.regenerateTopic": "Regenerate topic from conversation",
   "logView.noHistoryToSummarize": "No conversation history to summarize",
-  "logView.lastMessagePrefix": "↑ you:",
+  "logView.lastMessagePrefix": "↑ You:",
   "logView.emptyStart": "Send a message to start a conversation or",
   "logView.emptyResume": "resume a past one",
   "logView.sendFailedBanner":
