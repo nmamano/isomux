@@ -744,6 +744,46 @@ function EntryTimestamp({ timestamp }: { timestamp: number }) {
   );
 }
 
+/**
+ * The date and that bubble's action buttons, as one cluster in the bubble's
+ * top right corner. Every bubble kind in the agent chat uses it, so the date
+ * reads the same way everywhere (Nil, 2026-09-12).
+ *
+ * It FLOATS rather than sitting in an absolutely positioned corner: the text
+ * wraps around it, so the date costs no line of its own and no line below it
+ * runs underneath the date or the buttons. The buttons keep their own flex
+ * row inside the cluster, so the gap that separates the date from the buttons
+ * never reaches the gap between the buttons themselves. The bubble around it
+ * needs `display: flow-root`, which makes the bubble contain the float.
+ */
+function BubbleCorner({
+  timestamp,
+  children,
+}: {
+  timestamp?: number;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        float: "right",
+        display: "flex",
+        alignItems: "center",
+        gap: TIMESTAMP_GAP,
+        marginLeft: TIMESTAMP_GAP,
+      }}
+    >
+      {timestamp !== undefined && <EntryTimestamp timestamp={timestamp} />}
+      <div style={{ display: "flex", gap: BUTTON_GAP }}>{children}</div>
+    </div>
+  );
+}
+
+// The gap between the date and the first button. The gap BETWEEN the buttons
+// is a separate number and stays what it has always been.
+const TIMESTAMP_GAP = 8;
+const BUTTON_GAP = 4;
+
 export function RawToolCallGroupCard({
   entries,
   isLastInTurn,
@@ -930,6 +970,36 @@ export function UserMessage({
   const collapsed = collapsible && !expanded;
   const accentColor = fromNonHuman ? "var(--text-muted)" : "var(--accent)";
   const edge = `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`;
+  const actions = (
+    <>
+      {canEdit && onEdit && (
+        <button
+          onClick={onEdit}
+          title={editTitle ?? t("cards.userMessage.editAndBranch")}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-ghost)",
+            padding: 2,
+            borderRadius: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "color 0.15s",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+          onMouseLeave={(e) =>
+            (e.currentTarget.style.color = "var(--text-ghost)")
+          }
+        >
+          <EditIcon />
+        </button>
+      )}
+      {extraActions}
+      <CopyButton getText={getText} />
+    </>
+  );
   return (
     <div
       title={title}
@@ -944,7 +1014,7 @@ export function UserMessage({
             ? "12px 0 12px 18px"
             : "12px 0",
         padding: compact ? "5px 10px" : "10px 14px",
-        paddingRight: compact ? 70 : 40,
+        ...(compact ? { paddingRight: 70 } : { display: "flow-root" }),
         borderRadius: 10,
         background: "var(--user-msg-bg)",
         ...(compact
@@ -955,13 +1025,11 @@ export function UserMessage({
         position: "relative",
       }}
     >
+      {!compact && <BubbleCorner timestamp={timestamp}>{actions}</BubbleCorner>}
       {!hideAuthor && (
         <div
           data-members-chat-author={compact ? "" : undefined}
           style={{
-            ...(!compact && timestamp !== undefined
-              ? { display: "flex", alignItems: "baseline", gap: 8 }
-              : {}),
             fontSize: compact ? 12 : isMobile ? 12 : 10,
             fontWeight: 600,
             color: accentColor,
@@ -975,9 +1043,6 @@ export function UserMessage({
           {compact
             ? (username ?? t("common.you"))
             : (username ?? t("common.you")).toUpperCase()}
-          {!compact && timestamp !== undefined && (
-            <EntryTimestamp timestamp={timestamp} />
-          )}
         </div>
       )}
       {beforeContent}
@@ -1055,44 +1120,21 @@ export function UserMessage({
           )}
         </button>
       )}
-      <div
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          display: "flex",
-          gap: 4,
-        }}
-      >
-        {canEdit && onEdit && (
-          <button
-            onClick={onEdit}
-            title={editTitle ?? t("cards.userMessage.editAndBranch")}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--text-ghost)",
-              padding: 2,
-              borderRadius: 4,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "color 0.15s",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "var(--accent)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "var(--text-ghost)")
-            }
-          >
-            <EditIcon />
-          </button>
-        )}
-        {extraActions}
-        <CopyButton getText={getText} />
-      </div>
+      {/* Members chat keeps its buttons in the corner, above the text, and
+          shows no date in the bubble. */}
+      {compact && (
+        <div
+          style={{
+            position: "absolute",
+            top: 8,
+            right: 8,
+            display: "flex",
+            gap: BUTTON_GAP,
+          }}
+        >
+          {actions}
+        </div>
+      )}
     </div>
   );
 }
@@ -1268,44 +1310,20 @@ function AssistantText({
       style={{
         margin: "8px 0",
         padding: "10px 14px",
-        paddingRight: 40,
         borderRadius: 10,
         background: "var(--bg-subtle)",
         position: "relative",
+        display: "flow-root",
         fontSize: isMobile ? 15 : undefined,
       }}
     >
-      {/* The reply's timestamp sits up beside the copy and read-aloud buttons
-          instead of taking a line of its own, which on a long conversation was
-          height spent on every bubble (Nil, 2026-09-12). It floats rather than
-          joining the absolutely positioned button row: the text wraps around
-          it, so it costs no line and no reserved right margin on every line
-          below. The other bubbles keep their timestamp above the text. */}
-      <div
-        style={{
-          float: "right",
-          marginLeft: 8,
-          marginRight: 32,
-          lineHeight: "20px",
-        }}
-      >
-        <EntryTimestamp timestamp={timestamp} />
-      </div>
-      <Markdown content={content} />
-      <div
-        style={{
-          position: "absolute",
-          top: 8,
-          right: 8,
-          display: "flex",
-          gap: 4,
-        }}
-      >
+      <BubbleCorner timestamp={timestamp}>
         <SpeakButton getText={getText} />
         {isLastInTurn && turnEntries && (
           <CopyButton getText={() => serializeEntries(i18n, turnEntries)} />
         )}
-      </div>
+      </BubbleCorner>
+      <Markdown content={content} />
     </div>
   );
 }
