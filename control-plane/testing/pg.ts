@@ -122,6 +122,21 @@ function serialise<T>(fn: () => Promise<T>): Promise<T> {
   return next;
 }
 
+export async function inCleanupPool<T>(
+  items: readonly T[],
+  clean: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(4, items.length) }, async () => {
+      while (next < items.length) {
+        const item = items[next++];
+        await clean(item);
+      }
+    }),
+  );
+}
+
 /** One of OUR schema names, and nothing else, quoted. */
 function quote(schema: string): string {
   if (!NAME.test(schema)) {

@@ -57,6 +57,7 @@ import {
   LOCAL_DATABASE_URL,
   PG_TEST_HOOK_TIMEOUT_MS,
   TARGET_IS_LOCAL,
+  inCleanupPool,
 } from "./testing/pg.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
@@ -200,7 +201,7 @@ async function dropRoles(
 }
 
 afterAll(async () => {
-  for (const entry of databases) {
+  await inCleanupPool(databases, async (entry) => {
     const { name, roster, probe } = entry;
     const url = new URL(LOCAL_DATABASE_URL);
     url.pathname = `/${name}`;
@@ -217,7 +218,7 @@ afterAll(async () => {
       )
       .catch(() => {});
     await admin.query(`drop database if exists ${name}`).catch(() => {});
-  }
+  });
   const testNames = databases.flatMap(({ roster, probe }) => [
     ...roster.map((entry) => entry.role),
     probe,
