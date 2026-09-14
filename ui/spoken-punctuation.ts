@@ -30,9 +30,7 @@ import {
 // Longest phrase first, so "exclamation mark" wins over any shorter phrase that
 // starts at the same spot. Interior spaces match any run of whitespace because
 // the recognizer decides on its own where to break words up.
-function alternation(
-  entries: readonly (readonly [string, string])[],
-): string {
+function alternation(entries: readonly (readonly [string, string])[]): string {
   return entries
     .map(([phrase]) => phrase)
     .sort((a, b) => b.length - a.length)
@@ -44,9 +42,7 @@ function alternation(
 
 function edge(mode: SpokenCommandData["boundaries"], side: "left" | "right") {
   if (mode === "none") return "";
-  return side === "left"
-    ? "(?<![\\p{L}\\p{N}])"
-    : "(?![\\p{L}\\p{N}])";
+  return side === "left" ? "(?<![\\p{L}\\p{N}])" : "(?![\\p{L}\\p{N}])";
 }
 
 function commandRegex(
@@ -98,7 +94,9 @@ function substitute(
   lookup: ReadonlyMap<string, string>,
   match: string,
 ): string {
-  return lookup.get(match.trim().toLocaleLowerCase().replace(/\s+/g, " ")) ?? match;
+  return (
+    lookup.get(match.trim().toLocaleLowerCase().replace(/\s+/g, " ")) ?? match
+  );
 }
 
 /** Clean up the whitespace the replaced words left behind. */
@@ -115,8 +113,9 @@ function resolveTerminal(
   commands: SpokenCommandData,
   lookup: ReadonlyMap<string, string>,
 ): string {
-  return fragment.replace(commandRegex(commands.terminal, commands, true), (m) =>
-    substitute(lookup, m),
+  return fragment.replace(
+    commandRegex(commands.terminal, commands, true),
+    (m) => substitute(lookup, m),
   );
 }
 

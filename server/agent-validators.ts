@@ -159,7 +159,11 @@ export function resolveInteractiveModelSelection(
   }
   const familyError = modelFamilyMismatchError(agentType, resolvedFamily);
   if (familyError) return { modelFamily: resolvedFamily, error: familyError };
-  if (model === undefined || resolvedFamily === undefined || resolvedFamily === "")
+  if (
+    model === undefined ||
+    resolvedFamily === undefined ||
+    resolvedFamily === ""
+  )
     return { modelFamily: resolvedFamily, error: null };
   const expected =
     agentType === "claude" && isClaudeFamily(resolvedFamily)

@@ -97,7 +97,9 @@ describe("interactive model selection validation", () => {
 
   it("accepts unknown Codex-shaped slugs but rejects Claude shapes case-insensitively", () => {
     for (const model of ["gpt-5.6-sol", "gpt-7-x"]) {
-      expect(resolveInteractiveModelSelection("codex", model, model).error).toBeNull();
+      expect(
+        resolveInteractiveModelSelection("codex", model, model).error,
+      ).toBeNull();
     }
     for (const model of ["claude-fable-5-1", "fable-5", "Opus-4"]) {
       expect(
@@ -108,25 +110,16 @@ describe("interactive model selection validation", () => {
 
   it("requires a concrete model assertion to agree with its family", () => {
     expect(
-      resolveInteractiveModelSelection(
-        "claude",
-        "fable",
-        "claude-fable-5",
-      ).error,
+      resolveInteractiveModelSelection("claude", "fable", "claude-fable-5")
+        .error,
     ).toContain('resolves to model "claude-fable-5-1"');
     expect(
-      resolveInteractiveModelSelection(
-        "claude",
-        "fable",
-        "claude-fable-5-1",
-      ).error,
+      resolveInteractiveModelSelection("claude", "fable", "claude-fable-5-1")
+        .error,
     ).toBeNull();
     expect(
-      resolveInteractiveModelSelection(
-        "codex",
-        "gpt-5.6-sol",
-        "gpt-5.6-sol",
-      ).error,
+      resolveInteractiveModelSelection("codex", "gpt-5.6-sol", "gpt-5.6-sol")
+        .error,
     ).toBeNull();
   });
 
@@ -142,11 +135,7 @@ describe("interactive model selection validation", () => {
 
   it("derives a family from model-only input", () => {
     expect(
-      resolveInteractiveModelSelection(
-        "claude",
-        undefined,
-        "claude-fable-5-1",
-      ),
+      resolveInteractiveModelSelection("claude", undefined, "claude-fable-5-1"),
     ).toEqual({ modelFamily: "fable", error: null });
     expect(
       resolveInteractiveModelSelection("codex", undefined, "gpt-7-x"),

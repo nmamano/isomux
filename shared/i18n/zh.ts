@@ -1732,8 +1732,7 @@ App 的一些原则：
   "choices.model.instruction": "回复数字以切换，回复其他内容则取消。",
   "choices.effort.title": "切换推理强度",
   "choices.cronjob.title": "选择定时任务",
-  "choices.cronjob.instruction":
-    "回复数字以查看提示词，回复其他内容则取消。",
+  "choices.cronjob.instruction": "回复数字以查看提示词，回复其他内容则取消。",
   "choices.permission.title": "请求使用 {tool}",
   "choices.permission.instruction":
     "选择一个选项，或输入其他消息，以该消息作为拒绝理由。",

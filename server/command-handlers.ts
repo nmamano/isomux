@@ -890,12 +890,10 @@ export function createCommandHandling(deps: HandlerDeps) {
       const header = t("commands.isomuxCronjobSystemPrompt.header", {
         name: target.name,
       });
-      deps.addLogEntry(
-        agentId,
-        "system",
-        header,
-        { systemPrompt: true, cronjobId: target.id },
-      );
+      deps.addLogEntry(agentId, "system", header, {
+        systemPrompt: true,
+        cronjobId: target.id,
+      });
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

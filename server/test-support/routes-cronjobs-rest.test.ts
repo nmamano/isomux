@@ -180,9 +180,9 @@ describe("routes/cron REST: reads", () => {
     });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ firstUserMessage: "p" });
-    expect(
-      (response.body as { systemPrompt: string }).systemPrompt,
-    ).toContain("Prompt source");
+    expect((response.body as { systemPrompt: string }).systemPrompt).toContain(
+      "Prompt source",
+    );
 
     expect(
       (
@@ -363,9 +363,9 @@ describe("routes/cron REST: ownership tightening", () => {
     expect(rejected.body).toMatchObject({
       error: { code: "invalid_model_family" },
     });
-    expect(loadCronjobs().find((saved) => saved.id === job.id)?.modelFamily).toBe(
-      "gpt-7-x",
-    );
+    expect(
+      loadCronjobs().find((saved) => saved.id === job.id)?.modelFamily,
+    ).toBe("gpt-7-x");
   });
 
   it("rejects an OpenCode engine switch without a provider/model", async () => {

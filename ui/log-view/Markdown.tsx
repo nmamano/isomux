@@ -25,11 +25,7 @@ import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { sanitizeSvg } from "./svg-sanitize.ts";
-import {
-  taskChipLabel,
-  taskChipSuffix,
-  type TaskMap,
-} from "./task-links.tsx";
+import { taskChipLabel, taskChipSuffix, type TaskMap } from "./task-links.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);

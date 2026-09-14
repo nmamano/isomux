@@ -4272,7 +4272,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             addLogEntry(
               agentId,
               "error",
-              logWords(agentId)("systemEntries.backendFailure.providerCapacity"),
+              logWords(agentId)(
+                "systemEntries.backendFailure.providerCapacity",
+              ),
               { backendFailureRaw: raw },
             );
             updateState(agentId, "waiting_for_response");
@@ -4353,9 +4355,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           managed.sessionManager.pendingTurn = null;
           if (isProviderCapacity)
             turn.reject(
-              new ProviderCapacityError(
-                ev.error ?? "Codex provider capacity",
-              ),
+              new ProviderCapacityError(ev.error ?? "Codex provider capacity"),
             );
           else turn.resolve();
         }

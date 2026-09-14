@@ -280,7 +280,11 @@ function start(
 }
 
 function retryClock() {
-  const pending: Array<{ delayMs: number; run: () => void; cancelled: boolean }> = [];
+  const pending: Array<{
+    delayMs: number;
+    run: () => void;
+    cancelled: boolean;
+  }> = [];
   return {
     pending,
     scheduleRetry(delayMs: number, run: () => void) {
@@ -462,22 +466,26 @@ describe("Codex paged thread history", () => {
         requests.push({ method, params });
         const cursor = (params as { cursor?: string | null })?.cursor ?? null;
         if (method === "thread/turns/list") {
-          return (cursor === null
-            ? { data: [{ id: "t1" }, { id: "t2" }], nextCursor: null }
-            : { data: [], nextCursor: null }) as T;
+          return (
+            cursor === null
+              ? { data: [{ id: "t1" }, { id: "t2" }], nextCursor: null }
+              : { data: [], nextCursor: null }
+          ) as T;
         }
-        return (cursor === null
-          ? {
-              data: [{ turnId: "t1", item: { id: "i1" } }],
-              nextCursor: "items-2",
-            }
-          : {
-              data: [
-                { turnId: "t1", item: { id: "i2" } },
-                { turnId: "t2", item: { id: "i3" } },
-              ],
-              nextCursor: null,
-            }) as T;
+        return (
+          cursor === null
+            ? {
+                data: [{ turnId: "t1", item: { id: "i1" } }],
+                nextCursor: "items-2",
+              }
+            : {
+                data: [
+                  { turnId: "t1", item: { id: "i2" } },
+                  { turnId: "t2", item: { id: "i3" } },
+                ],
+                nextCursor: null,
+              }
+        ) as T;
       },
     };
     expect(await readThreadTurns(client, "thread-1")).toEqual([
@@ -1085,7 +1093,9 @@ describe("CodexSession misc notifications", () => {
       expectKind(await nextEvent(it, "interrupted"), "turn_completed").status,
     ).toBe("interrupted");
     expect(clock.pending[0].cancelled).toBe(true);
-    expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(1);
+    expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(
+      1,
+    );
   });
 
   it("close during capacity backoff cancels retry and emits one failure", async () => {
@@ -1102,7 +1112,8 @@ describe("CodexSession misc notifications", () => {
     expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
     session.close();
     expect(
-      expectKind(await nextEvent(it, "closed failure"), "turn_completed").status,
+      expectKind(await nextEvent(it, "closed failure"), "turn_completed")
+        .status,
     ).toBe("failed");
     expect(clock.pending[0].cancelled).toBe(true);
   });

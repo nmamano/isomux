@@ -2071,8 +2071,7 @@ Cosas que puedes hacer por él:
   "systemEntries.effortSwitched":
     "Esfuerzo de razonamiento cambiado a {label}.",
   "systemEntries.effortCancelled": "Cambio de esfuerzo cancelado.",
-  "systemEntries.cronjobPickCancelled":
-    "Selección de programación cancelada.",
+  "systemEntries.cronjobPickCancelled": "Selección de programación cancelada.",
   "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
   "systemEntries.branchFailed": "No se pudo ramificar la conversación: {error}",
   "systemEntries.editBusy": "No se puede editar mientras el agente trabaja.",

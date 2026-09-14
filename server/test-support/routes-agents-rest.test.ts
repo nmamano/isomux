@@ -690,9 +690,9 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(201);
-    expect((res.body as { agent: { modelFamily: string } }).agent.modelFamily).toBe(
-      "fable",
-    );
+    expect(
+      (res.body as { agent: { modelFamily: string } }).agent.modelFamily,
+    ).toBe("fable");
   });
 
   it("spawns a dormant OpenCode agent with a composite model through REST", async () => {

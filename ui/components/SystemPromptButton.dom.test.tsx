@@ -81,7 +81,9 @@ describe("SystemPromptButton", () => {
       await Promise.resolve();
     });
     await waitFor(() =>
-      expect(view.getByText("Configured request", { exact: false })).toBeTruthy(),
+      expect(
+        view.getByText("Configured request", { exact: false }),
+      ).toBeTruthy(),
     );
     expect(calls).toEqual(["GET /api/cronjobs/cron-1/system-prompt"]);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(

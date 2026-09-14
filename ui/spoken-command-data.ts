@@ -94,9 +94,7 @@ export const SPOKEN_COMMANDS = {
   },
 } as const satisfies Record<SupportedLanguageCode, SpokenCommandData>;
 
-export function spokenCommandsFor(
-  locale: string,
-): SpokenCommandData | null {
+export function spokenCommandsFor(locale: string): SpokenCommandData | null {
   const primary = locale.split("-")[0]?.toLowerCase();
   return primary && primary in SPOKEN_COMMANDS
     ? SPOKEN_COMMANDS[primary as SupportedLanguageCode]

@@ -107,9 +107,7 @@ describe("locale command data", () => {
     expect(applySpokenPunctuation('he said "hi" to me', "en-US")).toBe(
       'he said "hi" to me',
     );
-    expect(applySpokenPunctuation("cats & dogs", "en-US")).toBe(
-      "cats & dogs",
-    );
+    expect(applySpokenPunctuation("cats & dogs", "en-US")).toBe("cats & dogs");
     expect(applySpokenPunctuation("hola ¿qué tal", "es-ES")).toBe(
       "hola ¿qué tal",
     );
@@ -124,12 +122,12 @@ describe("locale command data", () => {
   });
 
   it("matches accented phrases at both Unicode word edges", () => {
-    expect(
-      applySpokenPunctuation("signo de interrogación hola", "es-ES"),
-    ).toBe("? hola");
-    expect(
-      applySpokenPunctuation("hola signo de interrogación", "es-ES"),
-    ).toBe("hola?");
+    expect(applySpokenPunctuation("signo de interrogación hola", "es-ES")).toBe(
+      "? hola",
+    );
+    expect(applySpokenPunctuation("hola signo de interrogación", "es-ES")).toBe(
+      "hola?",
+    );
     expect(applySpokenPunctuation("obre parèntesi text", "ca-ES")).toBe(
       "(text",
     );
@@ -139,9 +137,7 @@ describe("locale command data", () => {
   });
 
   it("converts unspaced Chinese commands and hugs fullwidth marks", () => {
-    expect(applySpokenPunctuation("你好逗号世界", "zh-CN")).toBe(
-      "你好，世界",
-    );
+    expect(applySpokenPunctuation("你好逗号世界", "zh-CN")).toBe("你好，世界");
     expect(applySpokenPunctuation("左括号内容右括号", "zh-CN")).toBe(
       "（内容）",
     );
