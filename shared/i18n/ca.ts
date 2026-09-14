@@ -1832,7 +1832,7 @@ Coses que pots fer per ell:
   "commands.help.tipQueue":
     'Pots escriure mentre un agent està ocupat: els missatges es posen a la cua i surten quan queda lliure. Prem "Envia ara" o envia amb Ctrl/Cmd+Enter per interrompre i buidar la cua a l\'instant.',
   "commands.help.tipVoice":
-    'Fes servir el dictat per veu per escriure més ràpid. La drecera és ctrl+space. La puntuació dictada s\'escriu com a puntuació: digues "question mark", "comma", "period", "new line", i així.',
+    'Fes servir el dictat per veu per escriure més ràpid. La drecera és ctrl+space. Les ordres parlades segueixen l\'idioma del reconeixement. Digues "coma" o "signe d\'interrogació" per escriure el signe. Digues "enviar" tota sola per enviar l\'esborrany i continuar dictant.',
   "commands.help.tipPhoneVpn":
     "Isomux funciona al mòbil. El més fàcil és connectar-lo a la mateixa VPN (per exemple Tailscale, que és gratuïta) que la màquina on s'executa.",
   "commands.help.tipInviteFunnel":

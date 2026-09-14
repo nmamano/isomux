@@ -28,6 +28,7 @@ import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
 import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
 import {
   advanceDictationSession,
+  isSpokenSubmit,
   joinSpoken,
   reconcileDictationEdit,
   startDictationSession,
@@ -961,6 +962,13 @@ export function LogView({
   const [showMicHint, setShowMicHint] = useState(false);
   const [voiceInputError, setVoiceInputError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const handleSendRef = useRef<
+    (opts?: {
+      sendNow?: boolean;
+      text?: string;
+      keepListening?: boolean;
+    }) => boolean
+  >(() => false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   type StagedAttachment = Attachment & {
     id: string;
@@ -1552,9 +1560,10 @@ export function LogView({
   function startListening() {
     if (isListeningRef.current || !SpeechRecognition) return;
     setVoiceInputError(null);
-    isListeningRef.current = true;
-    setIsListening(true);
-    dictationRef.current = startDictationSession(inputRef.current);
+    dictationRef.current = startDictationSession(
+      inputRef.current,
+      speechLocale,
+    );
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -1565,20 +1574,26 @@ export function LogView({
     recognition.lang = speechLocale;
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimRaw = "";
-      const finalized: string[] = [];
+      let session = dictationRef.current;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalized.push(t);
+          if (isSpokenSubmit(t, speechLocale)) {
+            const finalizedSession = advanceDictationSession(session, [], "");
+            dictationRef.current = finalizedSession;
+            const sent = handleSendRef.current({
+              text: finalizedSession.display,
+              keepListening: true,
+            });
+            if (sent) session = startDictationSession("", speechLocale);
+          } else {
+            session = advanceDictationSession(session, [t], "");
+          }
         } else {
           interimRaw = joinSpoken(interimRaw, t);
         }
       }
-      dictationRef.current = advanceDictationSession(
-        dictationRef.current,
-        finalized,
-        interimRaw,
-      );
+      dictationRef.current = advanceDictationSession(session, [], interimRaw);
       dispatch({
         type: "set_draft",
         agentId: agent.id,
@@ -1604,7 +1619,18 @@ export function LogView({
       if (message) setVoiceInputError(message);
     };
     recognitionRef.current = recognition;
-    recognition.start();
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      isListeningRef.current = false;
+      setIsListening(false);
+      const message = voiceInputErrorMessage(i18n, "start-failed");
+      if (message) setVoiceInputError(message);
+      return;
+    }
+    isListeningRef.current = true;
+    setIsListening(true);
   }
 
   function stopListening(discard?: boolean) {
@@ -1897,9 +1923,13 @@ export function LogView({
     insertBlockIntoDraft(`${fence}\n${body}\n${fence}\n`);
   }
 
-  function handleSend(opts?: { sendNow?: boolean }) {
-    const text = input.trim();
-    if (hasUploading || editingLogEntryId) return;
+  function handleSend(opts?: {
+    sendNow?: boolean;
+    text?: string;
+    keepListening?: boolean;
+  }): boolean {
+    const text = (opts?.text ?? input).trim();
+    if (hasUploading || editingLogEntryId) return false;
     if (!text && validAttachments.length === 0) {
       // Ctrl/Cmd+Enter with an empty composer still means "deliver the queue
       // now" - hit the same endpoint as the Send-now button instead of
@@ -1907,7 +1937,7 @@ export function LogView({
       if (opts?.sendNow && (agent.queue ?? []).length > 0) {
         apiFetch("POST", `/api/agents/${agent.id}/send-now`).catch(() => {});
       }
-      return;
+      return false;
     }
     const attachments =
       validAttachments.length > 0
@@ -1922,7 +1952,7 @@ export function LogView({
       // (matches the old send()===false path). The top-level ConnectionBanner
       // explains the broader state.
       setSendError(true);
-      return;
+      return false;
     }
     // Fire-and-forget: the user_message echo + reply stream back over WS; the
     // ack ({ messageId: "" } for a USER send) is ignored. username is
@@ -1940,12 +1970,14 @@ export function LogView({
     setSendError(false);
     setInput("");
     setStagedAttachments([]);
-    stopListening(true);
+    if (!opts?.keepListening) stopListening(true);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
     setAutoScroll(true);
+    return true;
   }
+  handleSendRef.current = handleSend;
 
   return (
     <div

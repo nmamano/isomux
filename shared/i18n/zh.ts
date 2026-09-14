@@ -1649,7 +1649,7 @@ App 的一些原则：
   "commands.help.tipQueue":
     "智能体忙碌时也可以输入消息：消息会加入队列，在智能体空闲时发送。点击「立即发送」或按 Ctrl/Cmd+Enter 可打断当前工作并立即发送。",
   "commands.help.tipVoice":
-    "使用语音转文字可更快输入提示词。快捷键是 ctrl+space。说出标点名称会输入对应标点，例如「问号」「逗号」「句号」「换行」等。",
+    "使用语音转文字可更快输入提示词。快捷键是 ctrl+space。语音命令跟随识别语言。说“逗号”或“问号”可输入对应标点。单独说“提交”可发送草稿并继续听写。",
   "commands.help.tipPhoneVpn":
     "Isomux 可在手机上使用。最简单的方法是让手机与运行 Isomux 的机器连接到同一 VPN（例如免费的 Tailscale）。",
   "commands.help.tipInviteFunnel":

@@ -1840,7 +1840,7 @@ Cosas que puedes hacer por él:
   "commands.help.tipQueue":
     'Puedes escribir mientras un agente está ocupado: los mensajes se encolan y salen cuando queda libre. Pulsa "Enviar ahora" o envía con Ctrl/Cmd+Enter para interrumpir y vaciar la cola al momento.',
   "commands.help.tipVoice":
-    'Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. La puntuación dictada se escribe como puntuación: di "question mark", "comma", "period", "new line", y así.',
+    'Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. Los comandos hablados siguen el idioma del reconocimiento. Di "coma" o "signo de interrogación" para escribir el signo. Di "enviar" por sí solo para enviar el borrador y seguir dictando.',
   "commands.help.tipPhoneVpn":
     "Isomux funciona en el móvil. Lo más fácil es conectarlo a la misma VPN (por ejemplo Tailscale, que es gratis) que la máquina donde se ejecuta.",
   "commands.help.tipInviteFunnel":

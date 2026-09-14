@@ -1809,7 +1809,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "commands.help.tipQueue":
     'Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
   "commands.help.tipVoice":
-    'Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.',
+    'Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken commands follow the recognition language. Say "comma" or "question mark" to type the mark. Say "submit" by itself to send the draft and keep dictating.',
   "commands.help.tipPhoneVpn":
     "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
   "commands.help.tipInviteFunnel":

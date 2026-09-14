@@ -18,89 +18,142 @@
 // terminal command split that way is not - by design, since "ends the fragment"
 // is the whole signal it relies on.
 //
-// English only, matching the recognizer's hardcoded "en-US" locale.
+// The matcher is language-independent. Its command data follows the
+// recognizer's locale; an unsupported locale leaves the transcript unchanged.
 
-/** Marks that convert anywhere they appear. */
-const UNCONDITIONAL: Array<[string, string]> = [
-  ["comma", ","],
-  ["question mark", "?"],
-  ["exclamation mark", "!"],
-  ["exclamation point", "!"],
-  ["colon", ":"],
-  ["semicolon", ";"],
-  ["semi colon", ";"],
-  ["ellipsis", "..."],
-  ["open parenthesis", "("],
-  ["open paren", "("],
-  ["close parenthesis", ")"],
-  ["close paren", ")"],
-];
-
-/** Commands that convert only at the end of the fragment they arrived in. */
-const TERMINAL: Array<[string, string]> = [
-  ["period", "."],
-  ["full stop", "."],
-  ["new line", "\n"],
-  ["newline", "\n"],
-  ["new paragraph", "\n\n"],
-];
-
-const LOOKUP = new Map([...UNCONDITIONAL, ...TERMINAL]);
+import {
+  SPOKEN_COMMANDS,
+  spokenCommandsFor,
+  type SpokenCommandData,
+} from "./spoken-command-data.ts";
 
 // Longest phrase first, so "exclamation mark" wins over any shorter phrase that
 // starts at the same spot. Interior spaces match any run of whitespace because
 // the recognizer decides on its own where to break words up.
-function alternation(entries: Array<[string, string]>): string {
+function alternation(
+  entries: readonly (readonly [string, string])[],
+): string {
   return entries
     .map(([phrase]) => phrase)
     .sort((a, b) => b.length - a.length)
-    .map((phrase) => phrase.replace(/ /g, "\\s+"))
+    .map((phrase) =>
+      phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"),
+    )
     .join("|");
 }
 
-const UNCONDITIONAL_RE = new RegExp(
-  "\\b(" + alternation(UNCONDITIONAL) + ")\\b",
-  "gi",
+function edge(mode: SpokenCommandData["boundaries"], side: "left" | "right") {
+  if (mode === "none") return "";
+  return side === "left"
+    ? "(?<![\\p{L}\\p{N}])"
+    : "(?![\\p{L}\\p{N}])";
+}
+
+function commandRegex(
+  entries: readonly (readonly [string, string])[],
+  commands: SpokenCommandData,
+  terminal: boolean,
+): RegExp {
+  return new RegExp(
+    edge(commands.boundaries, "left") +
+      "(" +
+      alternation(entries) +
+      ")" +
+      edge(commands.boundaries, "right") +
+      (terminal ? "\\s*$" : ""),
+    terminal ? "iu" : "giu",
+  );
+}
+
+const replacements = Object.values(SPOKEN_COMMANDS).flatMap((commands) =>
+  [...commands.marks, ...commands.terminal].flatMap(([, replacement]) =>
+    Array.from(replacement),
+  ),
 );
-// Anchored at the end of the fragment. The trailing \s* both allows for the
-// recognizer's own trailing space and stands in for a closing word boundary, so
-// "new lines" and "periodic" don't match.
-const TERMINAL_RE = new RegExp("\\b(" + alternation(TERMINAL) + ")\\s*$", "i");
+/** Punctuation emitted by command data that attaches to what precedes it. */
+const HUGS_PREVIOUS = new Set(
+  replacements.filter((character) => !/[\p{Ps}\p{Pi}]/u.test(character)),
+);
+/** Punctuation emitted by command data that takes no space after it. */
+const HUGS_NEXT = new Set(
+  replacements.filter((character) => /[\p{Ps}\p{Pi}]/u.test(character)),
+);
 
-/** Punctuation that attaches to whatever comes before it, with no space. */
-const HUGS_PREVIOUS = /^[.,?!:;)\n]/;
-/** Text ending in one of these takes no separating space after it. */
-const HUGS_NEXT = /[(\n]$/;
+function characterClass(characters: ReadonlySet<string>): string {
+  return [...characters]
+    .map((character) => character.replace(/[\\\]\-^]/g, "\\$&"))
+    .join("");
+}
 
-function substitute(match: string): string {
-  return LOOKUP.get(match.trim().toLowerCase().replace(/\s+/g, " ")) ?? match;
+const HUGS_PREVIOUS_RE = new RegExp(
+  `[ \\t]+([${characterClass(HUGS_PREVIOUS)}])`,
+  "gu",
+);
+const HUGS_NEXT_RE = new RegExp(
+  `([${characterClass(HUGS_NEXT)}])[ \\t]+`,
+  "gu",
+);
+
+function substitute(
+  lookup: ReadonlyMap<string, string>,
+  match: string,
+): string {
+  return lookup.get(match.trim().toLocaleLowerCase().replace(/\s+/g, " ")) ?? match;
 }
 
 /** Clean up the whitespace the replaced words left behind. */
 function tidySpacing(text: string): string {
   return text
-    .replace(/[ \t]+([.,?!:;)])/g, "$1")
-    .replace(/([(])[ \t]+/g, "$1")
+    .replace(HUGS_PREVIOUS_RE, "$1")
+    .replace(HUGS_NEXT_RE, "$1")
     .replace(/[ \t]*\n[ \t]*/g, "\n");
 }
 
 /** Convert a sentence-terminal command sitting at the end of one fragment. */
-function resolveTerminal(fragment: string): string {
-  return fragment.replace(TERMINAL_RE, substitute);
+function resolveTerminal(
+  fragment: string,
+  commands: SpokenCommandData,
+  lookup: ReadonlyMap<string, string>,
+): string {
+  return fragment.replace(commandRegex(commands.terminal, commands, true), (m) =>
+    substitute(lookup, m),
+  );
 }
 
 /** Convert a run of recognizer fragments into composer text. */
-function spokenText(fragments: readonly string[]): string {
-  const joined = fragments.map(resolveTerminal).reduce(joinSpoken, "");
-  return tidySpacing(joined.replace(UNCONDITIONAL_RE, substitute));
+function spokenText(fragments: readonly string[], locale: string): string {
+  const commands = spokenCommandsFor(locale);
+  if (!commands) return fragments.reduce(joinSpoken, "");
+  const lookup = new Map([...commands.marks, ...commands.terminal]);
+  const joined = fragments
+    .map((fragment) => resolveTerminal(fragment, commands, lookup))
+    .reduce(joinSpoken, "");
+  return tidySpacing(
+    joined.replace(commandRegex(commands.marks, commands, false), (m) =>
+      substitute(lookup, m),
+    ),
+  );
 }
 
 /**
  * Replace spoken punctuation in one transcribed speech fragment with the
  * characters it names.
  */
-export function applySpokenPunctuation(fragment: string): string {
-  return spokenText([fragment]);
+export function applySpokenPunctuation(
+  fragment: string,
+  locale = "en-US",
+): string {
+  return spokenText([fragment], locale);
+}
+
+/** Whether a finalized recognizer fragment is only a submit command. */
+export function isSpokenSubmit(fragment: string, locale: string): boolean {
+  const commands = spokenCommandsFor(locale);
+  if (!commands) return false;
+  const normalized = fragment.trim().toLocaleLowerCase();
+  return commands.submit.some(
+    (phrase) => phrase.toLocaleLowerCase() === normalized,
+  );
 }
 
 /**
@@ -111,9 +164,9 @@ export function applySpokenPunctuation(fragment: string): string {
  */
 export function joinSpoken(base: string, addition: string): string {
   if (!base || !addition) return base + addition;
-  if (HUGS_PREVIOUS.test(addition))
+  if (HUGS_PREVIOUS.has(addition[0] ?? ""))
     return base.replace(/[ \t]+$/, "") + addition;
-  if (HUGS_NEXT.test(base)) return base + addition;
+  if (HUGS_NEXT.has(base.at(-1) ?? "")) return base + addition;
   if (/\s$/.test(base) || /^\s/.test(addition)) return base + addition;
   return base + " " + addition;
 }
@@ -124,11 +177,15 @@ export function joinSpoken(base: string, addition: string): string {
  * still raw and still separated, since the fragment boundaries are what the
  * sentence-terminal commands key off.
  */
-export type Dictation = { base: string; fragments: readonly string[] };
+export type Dictation = {
+  base: string;
+  fragments: readonly string[];
+  locale: string;
+};
 
 /** A session for a composer that currently holds `base`. */
-export function startDictation(base: string): Dictation {
-  return { base, fragments: [] };
+export function startDictation(base: string, locale = "en-US"): Dictation {
+  return { base, fragments: [], locale };
 }
 
 /** Fold one finalized recognizer result into the session. */
@@ -148,6 +205,7 @@ export function addFinalized(d: Dictation, transcript: string): Dictation {
 export function dictationText(d: Dictation, interimRaw: string): string {
   const spoken = spokenText(
     interimRaw ? [...d.fragments, interimRaw] : d.fragments,
+    d.locale,
   );
   return joinSpoken(d.base, spoken);
 }
@@ -162,8 +220,11 @@ export type DictationSession = {
   display: string;
 };
 
-export function startDictationSession(base: string): DictationSession {
-  return { dictation: startDictation(base), display: base };
+export function startDictationSession(
+  base: string,
+  locale = "en-US",
+): DictationSession {
+  return { dictation: startDictation(base, locale), display: base };
 }
 
 export function advanceDictationSession(
@@ -232,5 +293,5 @@ export function reconcileDictationEdit(
     // still hugs punctuation. In-place edits remain recognizer-controlled.
     rebased = joinSpoken(finalized, inserted);
   }
-  return startDictationSession(rebased);
+  return startDictationSession(rebased, session.dictation.locale);
 }

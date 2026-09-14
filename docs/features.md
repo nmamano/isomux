@@ -90,7 +90,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Right-click context menu** - resume past sessions, edit agent, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Image display** - agents can show images inline in the conversation.
-- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
+- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Spoken commands follow the recognition language when command data is available; other languages keep the transcript unchanged. Punctuation commands insert their marks, and a stand-alone submit command sends the current draft while dictation stays open.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API.
 
 ### Developer tools
