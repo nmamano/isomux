@@ -258,8 +258,12 @@ function expectedSwitch(row: Row): SwitchItem[] {
 }
 
 /** The page with its HTML comments removed. */
+// Sentinel phrases are matched against the prose a browser renders, so runs
+// of whitespace collapse to one space: prettier wraps long lines of source
+// text at its own discretion, and a phrase split across a line break is
+// still the same phrase on the page (2026-09-14: "no account needed").
 function withoutComments(html: string): string {
-  return html.replace(/<!--[\s\S]*?-->/g, "");
+  return html.replace(/<!--[\s\S]*?-->/g, "").replace(/\s+/g, " ");
 }
 
 function read(row: Row): string {
