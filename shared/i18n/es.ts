@@ -301,6 +301,9 @@ Cosas que puedes hacer por él:
   "settings.members.onlineSessions.one": "en línea · {count} sesión",
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
+  "settings.role.officeOwner": "Propietario de la oficina",
+  "settings.role.officeOwnerExplanation":
+    "Puede acceder a todas las salas, invitar a miembros y gestionar el acceso y las sesiones de los miembros.",
   "settings.role.owner": "propietario de la oficina",
   "settings.role.member": "miembro",
   "settings.role.ownerHint":
@@ -598,6 +601,16 @@ Cosas que puedes hacer por él:
 
   "settings.invites.intro":
     "Añade un miembro o un propietario de la oficina: emite una URL de invitación y envíasela por otro canal. Al abrirla se crea su cuenta y ese dispositivo entra. Para más dispositivos en una cuenta que ya existe, cada persona genera su propio enlace desde <i>Mis dispositivos</i>.",
+  "settings.invites.memberName": "Nombre del miembro (opcional)",
+  "settings.invites.memberNamePlaceholder": "p. ej. Marc",
+  "settings.invites.changeLater":
+    "Todos estos ajustes se pueden cambiar más adelante. El miembro puede editar este nombre al aceptar la invitación.",
+  "preAuth.invite.changeLater":
+    "Puedes cambiar tu nombre e idioma más adelante en Ajustes.",
+  "settings.invites.browserLanguage": "Idioma del navegador del invitado",
+  "preAuth.invite.nameTaken": "Ese nombre ya está en uso. Elige otro.",
+  "preAuth.invite.errorLanguage": "Elige un idioma.",
+  "preAuth.invite.newMember": "Nuevo miembro",
   "settings.invites.issueFor": "Emitir invitación para…",
   "settings.invites.namePlaceholder": "Nombre nuevo (p. ej. Marc)",
   "settings.invites.existing":

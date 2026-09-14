@@ -1,18 +1,14 @@
-// Owner-only "Invites" section: mint NEW-USER invite URLs and manage the
-// outstanding ones. Device links for existing accounts are self-service in
-// MyDevicesPane - an existing typed name gets an
-// inline hint and a disabled submit (the server also rejects it, 409). The
-// Recovery card is the one owner-side exception: a device link FOR an
-// existing user who is locked out of every device (invites.mintRecovery). Mounts on the Settings page (UserSettingsView) when the current
-// session's role is "owner". The other panes from the old all-in-one
-// "Access & invites" section are ExternalAccessPane and SessionsPane.
+// Owner invites create new accounts. Recovery links target existing accounts.
 
+import { OfficeOwnerCheckbox } from "./OfficeOwnerCheckbox.tsx";
 import { useMemo, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire, UserRole } from "../../shared/types.ts";
-import { type UserView } from "../user-merge.ts";
-import { lowercaseKey } from "../../shared/identity.ts";
+import {
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../../shared/languages.ts";
 import { useI18n } from "../i18n.tsx";
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import {
@@ -33,11 +29,6 @@ export function InvitesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
-      {/* Invites mint NEW users only. Device links
-          for existing accounts are self-service from each user's own
-          My devices section - owners deliberately can't mint them for
-          others. An existing typed name gets an inline hint (below) instead
-          of a mode flip. */}
       <h4 style={sectionHeader}>{t("settings.sidebar.invites")}</h4>
       <p style={hint}>
         {rich("settings.invites.intro", { i: (chunk) => <i>{chunk}</i> })}
@@ -62,8 +53,10 @@ export function InvitesPane() {
 }
 
 function IssueInviteForm() {
-  const { users, rooms, allRooms } = useAppState();
-  const { t, rich } = useI18n();
+  const { rooms, allRooms } = useAppState();
+  const { t } = useI18n();
+  const [language, setLanguage] = useState<SupportedLanguageCode | "">("");
+  const [memberPrompt, setMemberPrompt] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
   // Rooms pre-assigned to the invite: the invitee lands with access to these
@@ -77,20 +70,7 @@ function IssueInviteForm() {
   // available so the owner can grant rooms they've hidden from their own view.
   const editorRooms = allRooms.length > 0 ? allRooms : rooms;
 
-  // Existing-user detection uses the same lowercase key the server uses
-  // (lowercaseKey, not raw toLowerCase) so unicode/whitespace handling
-  // stays consistent across the two sides.
-  const existingUser: UserView | null = useMemo(() => {
-    const trimmed = name.trim();
-    if (!trimmed) return null;
-    return users.get(lowercaseKey(trimmed)) ?? null;
-  }, [users, name]);
-  const existing = existingUser !== null;
-
-  // Room grants apply only when the invite will CREATE a member record:
-  // owners reach every room by rule. The picker also hides while the typed
-  // name matches an existing user (the submit is disabled then anyway).
-  const showRoomPicker = !existing && role === "member";
+  const showRoomPicker = role === "member";
 
   function toggleGrantRoom(roomId: string) {
     setGrantRooms((prev) =>
@@ -102,12 +82,13 @@ function IssueInviteForm() {
 
   function submit() {
     const trimmed = name.trim();
-    if (!trimmed) return;
     setPending(true);
     setError(null);
     setMintedUrl(null);
     apiFetch<{ url: string; invite: InviteWire }>("POST", "/api/invites", {
-      username: trimmed,
+      label: trimmed,
+      language: language || null,
+      memberPrompt: memberPrompt.trim() || null,
       role,
       ...(showRoomPicker && grantRooms.length > 0
         ? { allowedRooms: grantRooms }
@@ -116,6 +97,8 @@ function IssueInviteForm() {
       .then((r) => {
         setMintedUrl(r.url);
         setName("");
+        setLanguage("");
+        setMemberPrompt("");
         setGrantRooms([]);
       })
       .catch((err) => {
@@ -130,42 +113,27 @@ function IssueInviteForm() {
 
   return (
     <div style={cardStyle}>
-      <label style={subLabel}>{t("settings.invites.issueFor")}</label>
+      <p style={{ ...hint, marginBottom: 12 }}>
+        {t("settings.invites.changeLater")}
+      </p>
+      <label htmlFor="invite-member-name" style={subLabel}>
+        {t("settings.invites.memberName")}
+      </label>
       <input
+        id="invite-member-name"
         value={name}
         onChange={(e) => {
           setName(e.target.value);
           setError(null);
         }}
-        placeholder={t("settings.invites.namePlaceholder")}
+        placeholder={t("settings.invites.memberNamePlaceholder")}
         maxLength={64}
         style={dialogInput}
       />
-      {/* Existing-name hint: no mode flip - invites
-          are new-user only (the server rejects existing names too), so point
-          at the self-service device-link flow instead. */}
-      {existing && (
-        <p style={{ ...hint, marginTop: 4, color: "var(--text-primary)" }}>
-          {rich("settings.invites.existing", {
-            name: existingUser.name,
-            b: (chunk) => <b>{chunk}</b>,
-            i: (chunk) => <i>{chunk}</i>,
-          })}
-        </p>
-      )}
-      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-        <label style={{ flex: 1 }}>
-          <div style={subLabel}>{t("common.role")}</div>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            style={dialogInput}
-          >
-            <option value="member">{t("settings.role.member")}</option>
-            <option value="owner">{t("settings.role.owner")}</option>
-          </select>
-        </label>
-      </div>
+      <OfficeOwnerCheckbox
+        checked={role === "owner"}
+        onChange={(checked) => setRole(checked ? "owner" : "member")}
+      />
       {showRoomPicker && (
         <div style={{ marginTop: 8 }}>
           <div style={subLabel}>{t("common.rooms")}</div>
@@ -229,6 +197,38 @@ function IssueInviteForm() {
           </p>
         </div>
       )}
+      <label style={subLabel} htmlFor="invite-language">
+        {t("preferences.language")}
+      </label>
+      <select
+        id="invite-language"
+        value={language}
+        onChange={(e) =>
+          setLanguage(e.target.value as SupportedLanguageCode | "")
+        }
+        style={dialogInput}
+      >
+        <option value="">{t("settings.invites.browserLanguage")}</option>
+        {SUPPORTED_LANGUAGES.map((l) => (
+          <option key={l.code} value={l.code}>
+            {l.label}
+          </option>
+        ))}
+      </select>
+      <label style={subLabel} htmlFor="invite-prompt">
+        {t("settings.profile.profilePrompt")}
+      </label>
+      <p style={{ ...hint, marginBottom: 6 }} id="invite-prompt-hint">
+        {t("settings.profile.profilePromptExpandedHint")}
+      </p>
+      <textarea
+        aria-describedby="invite-prompt-hint"
+        id="invite-prompt"
+        value={memberPrompt}
+        onChange={(e) => setMemberPrompt(e.target.value)}
+        rows={4}
+        style={{ ...dialogInput, resize: "vertical" }}
+      />
       <p style={{ ...hint, marginTop: 6 }}>
         {t("settings.invites.expiryHint")}
       </p>
@@ -241,10 +241,10 @@ function IssueInviteForm() {
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
           onClick={submit}
-          disabled={pending || !name.trim() || existing}
+          disabled={pending}
           style={{
             ...dialogSaveBtn,
-            opacity: pending || !name.trim() || existing ? 0.5 : 1,
+            opacity: pending ? 0.5 : 1,
           }}
         >
           {pending

@@ -47,6 +47,7 @@ export interface UsersDeps {
   update(input: {
     username: string;
     changes: UserUpdateReq;
+    identity: Identity;
   }): Promise<UserOutcome>;
   // Access grant (allowedRooms). officeOwner already passed. Prune-clamps the
   // target's existing notif/default against the new accessible set in one write;
@@ -67,6 +68,12 @@ export interface UsersDeps {
 // that is neither string nor null for the prompt would otherwise corrupt the
 // record. Absent fields (undefined) are tolerated - UserUpdateReq is a Partial.
 function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
+  if (
+    body.role !== undefined &&
+    body.role !== "member" &&
+    body.role !== "owner"
+  )
+    return "role must be member or owner";
   if (body.name !== undefined && typeof body.name !== "string") {
     return "name must be a string";
   }
@@ -102,6 +109,7 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
       const r = await deps.update({
         username: ctx.params.username,
         changes,
+        identity: ctx.identity,
       });
       if (!r.ok) return fail(r.status, r.code, r.error);
       return ok({ user: r.user });

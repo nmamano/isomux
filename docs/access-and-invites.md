@@ -33,7 +33,7 @@ On startup, the server checks `~/.isomux/users.json`. When no member has `role: 
 ================================================================
 ```
 
-Pick a display name on the form (the only flow where claimants name themselves, because there's no prior owner to have named them). Submit → cookie set → redirect to `/` → you're in.
+Pick a display name on the form. Submit → cookie set → redirect to `/` → you're in.
 
 If you don't get to it on the first boot, the same form is served on every subsequent boot until someone claims the office. The submit handler accepts only loopback peers and same-origin requests as defense-in-depth; the listener interface is the primary boundary.
 
@@ -41,11 +41,11 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `Settings` → `Office` → `Invites`:
 
-- **Issue invite**: enter the new member's name, pick a role. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
+- **Issue invite**: check **Office owner** to give owner access. Optionally add a suggested member name, a language, and member instructions. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
-Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
+Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device, confirms or changes the suggested name and language → cookie set → they're in. Names must be unique in the office and can be changed later. The language and member instructions are saved in their profile. Office owners can change a member’s owner status in Settings → Members; the office must keep at least one owner. No installs, no accounts, no passwords.
 
 A browser that is already signed in as a member cannot accept an invite for a different member (the invite is not consumed).
 
@@ -53,7 +53,7 @@ Owner-issued invite links expire 24h after issuing if unused; self-device links 
 
 ### 3. Multi-device members
 
-Invites create new members only. Typing a name that already exists shows a pointer instead of a form mode: existing members add devices themselves, with a device link from `My devices` in their own settings (the server rejects office-owner-minted invites for existing names too). The exception is recovery: someone signed out of every device can't self-serve, so an office owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per member). One member can have many simultaneous sessions (laptop + phone + tablet).
+Invites create new members only. Existing members add devices themselves, with a device link from `My devices` in their own settings. The exception is recovery: someone signed out of every device can't self-serve, so an office owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per member). One member can have many simultaneous sessions (laptop + phone + tablet).
 
 ### 4. Device links
 

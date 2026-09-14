@@ -318,6 +318,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.members.onlineSessions.one": "online · {count} session",
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
+  "settings.role.officeOwner": "Office owner",
+  "settings.role.officeOwnerExplanation":
+    "Can access all rooms, invite members, and manage member access and sessions.",
   "settings.role.owner": "office owner",
   "settings.role.member": "member",
   "settings.role.ownerHint":
@@ -600,6 +603,16 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
 
   "settings.invites.intro":
     "Add a new member or office owner: issue an invite URL and send it to them out-of-band. Opening it creates their account and signs that device in. For extra devices on an existing account, each member generates their own device link from <i>My devices</i>.",
+  "settings.invites.memberName": "Member name (optional)",
+  "settings.invites.memberNamePlaceholder": "e.g. Marc",
+  "settings.invites.changeLater":
+    "All of these settings can be changed later. The member can edit this name when they accept the invite.",
+  "preAuth.invite.changeLater":
+    "You can change your name and language later in Settings.",
+  "settings.invites.browserLanguage": "Invitee’s browser language",
+  "preAuth.invite.nameTaken": "That name is in use. Choose another name.",
+  "preAuth.invite.errorLanguage": "Choose a language.",
+  "preAuth.invite.newMember": "New member",
   "settings.invites.issueFor": "Issue invite for…",
   "settings.invites.namePlaceholder": "New username (e.g. Marc)",
   "settings.invites.existing":

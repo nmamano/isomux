@@ -191,8 +191,12 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
         {invites.map((i) => (
           <tr key={i.tokenPrefix}>
             <td style={td}>
-              {i.username ?? (
-                <i>{i.bootstrap ? t("settings.invites.bootstrap") : " - "}</i>
+              {i.label ?? i.username ?? (
+                <i>
+                  {i.bootstrap
+                    ? t("settings.invites.bootstrap")
+                    : t("preAuth.invite.newMember")}
+                </i>
               )}
             </td>
             <td style={td}>{i.role}</td>

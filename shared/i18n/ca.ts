@@ -301,6 +301,9 @@ Coses que pots fer per ell:
   "settings.members.onlineSessions.one": "en línia · {count} sessió",
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
+  "settings.role.officeOwner": "Propietari de l’oficina",
+  "settings.role.officeOwnerExplanation":
+    "Pot accedir a totes les sales, convidar membres i gestionar l’accés i les sessions dels membres.",
   "settings.role.owner": "propietari de l'oficina",
   "settings.role.member": "membre",
   "settings.role.ownerHint":
@@ -595,6 +598,16 @@ Coses que pots fer per ell:
 
   "settings.invites.intro":
     "Afegeix un membre o un propietari de l'oficina: emet una URL d'invitació i envia-l'hi per un altre canal. En obrir-la es crea el seu compte i aquell dispositiu hi entra. Per a més dispositius en un compte que ja existeix, cadascú genera el seu propi enllaç des de <i>Els meus dispositius</i>.",
+  "settings.invites.memberName": "Nom del membre (opcional)",
+  "settings.invites.memberNamePlaceholder": "p. ex. Marc",
+  "settings.invites.changeLater":
+    "Tots aquests ajustos es poden canviar més endavant. El membre pot editar aquest nom en acceptar la invitació.",
+  "preAuth.invite.changeLater":
+    "Pots canviar el teu nom i idioma més endavant a Configuració.",
+  "settings.invites.browserLanguage": "Idioma del navegador del convidat",
+  "preAuth.invite.nameTaken": "Aquest nom ja està en ús. Tria’n un altre.",
+  "preAuth.invite.errorLanguage": "Tria un idioma.",
+  "preAuth.invite.newMember": "Membre nou",
   "settings.invites.issueFor": "Emet una invitació per a…",
   "settings.invites.namePlaceholder": "Nom nou (p. ex. Marc)",
   "settings.invites.existing":

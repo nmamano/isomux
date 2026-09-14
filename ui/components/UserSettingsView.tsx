@@ -1,3 +1,4 @@
+import { OfficeOwnerCheckbox } from "./OfficeOwnerCheckbox.tsx";
 import { ordinaryRooms } from "../../shared/types.ts";
 // The full-page Settings surface (master-detail), replacing the old crowded modal
 // (UserManagementModal). Entered and exited like the Tasks page: rendered in
@@ -1055,7 +1056,7 @@ function UserEditPanel({
 }) {
   const { rooms, allRooms, sessionContext } = useAppState();
   const { t } = useI18n();
-  // Owner-only fields (currently: allowedRooms). The server rejects
+  // Owner-only fields: role and allowedRooms. The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
   // controls they can't use.
@@ -1068,6 +1069,7 @@ function UserEditPanel({
   // materialized grants), literal allowedRooms for members. Drives the self-pref
   // rendering (Notifications) and whether a save writes grants.
   const targetIsOwner = user.role === "owner";
+  const [officeOwner, setOfficeOwner] = useState(targetIsOwner);
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
   // own view, and so the Notifications list reflects every room the
@@ -1229,6 +1231,7 @@ function UserEditPanel({
   function isDirty(): boolean {
     // Name is trim-saved (see handleSave), so compare trimmed to avoid
     // false-positive dirtiness on trailing whitespace the user can't see.
+    if (isOwner && officeOwner !== targetIsOwner) return true;
     if (name.trim() !== user.name) return true;
     if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
       return true;
@@ -1308,6 +1311,7 @@ function UserEditPanel({
       : user.avatarColor;
     const memoryChanged = mem.dirty;
     const recordChanged =
+      (isOwner && officeOwner !== targetIsOwner) ||
       renamed ||
       (memberPrompt.trim() || null) !== (user.memberPrompt ?? null) ||
       normalizedColor !== user.avatarColor ||
@@ -1334,6 +1338,12 @@ function UserEditPanel({
       // (2) Record fields (name/prompt/avatar), against the original name.
       if (recordChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
+          role:
+            isOwner && officeOwner !== targetIsOwner
+              ? officeOwner
+                ? "owner"
+                : "member"
+              : undefined,
           name: renamed ? trimmed : undefined,
           memberPrompt: memberPrompt.trim() || null,
           avatarColor: normalizedColor,
@@ -1465,6 +1475,13 @@ function UserEditPanel({
           maxLength={32}
           style={{ ...inputStyle, maxWidth: 340 }}
         />
+
+        {isOwner && (
+          <OfficeOwnerCheckbox
+            checked={officeOwner}
+            onChange={setOfficeOwner}
+          />
+        )}
 
         {/* Rooms: ONE table for the three hierarchical
             per-room settings - ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.

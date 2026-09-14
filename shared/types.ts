@@ -1311,7 +1311,8 @@ export interface SessionContext {
 // the wire - only the 8-char display prefix.
 export interface InviteWire {
   tokenPrefix: string;
-  username: string | null; // null for unconsumed bootstrap invites
+  username: string | null; // null when the invitee chooses their name
+  label?: string;
   role: UserRole;
   createdBy: string | null; // null for bootstrap (no owner existed yet)
   createdAt: number;

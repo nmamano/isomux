@@ -23,9 +23,12 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { getUserById, getUserByName, hasOwner } from "./users.ts";
-import { translatorForRequest } from "./i18n.ts";
+import { translatorForLanguage, translatorForRequest } from "./i18n.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
-import type { SupportedLanguageCode } from "../shared/languages.ts";
+import {
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../shared/languages.ts";
 import {
   readBearerToken,
   identityFromSession,
@@ -374,7 +377,14 @@ export function handleInvitePeek(
   const conflict = inviteIdentityConflict(req, peek, null);
   if (conflict) return renderInviteIdentityConflict(i18n, conflict, officeName);
   return new Response(
-    renderAcceptPage(i18n, token, peek.needsName, null, officeName),
+    renderAcceptPage(
+      peek.language ? translatorForLanguage(peek.language) : i18n,
+      token,
+      peek.needsName,
+      null,
+      officeName,
+      peek,
+    ),
     {
       status: 200,
       headers: {
@@ -395,7 +405,7 @@ export async function handleAccept(
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
-  const i18n = translatorForVisitor(req);
+  let i18n = translatorForVisitor(req);
   const form = await req.formData().catch(() => null);
   const tokenField = form?.get("token");
   const nameField = form?.get("name");
@@ -403,6 +413,15 @@ export async function handleAccept(
   const name = typeof nameField === "string" ? nameField : "";
   if (!token) return renderInviteError(i18n, "not_found", officeName);
   const peek = peekInvite(token);
+  const languageField = form?.get("language");
+  const language =
+    typeof languageField === "string" ? languageField : undefined;
+  if (!("error" in peek)) {
+    const selected =
+      SUPPORTED_LANGUAGES.find((l) => l.code === language)?.code ??
+      peek.language;
+    if (selected) i18n = translatorForLanguage(selected);
+  }
   // This is an allow-list: a live browser session may accept only for the
   // same stable user. A missing target record therefore refuses rather than
   // making two unresolved values look equal. Peek errors stay on the existing
@@ -413,16 +432,33 @@ export async function handleAccept(
       return renderInviteIdentityConflict(i18n, conflict, officeName);
   }
   const ua = req.headers.get("user-agent");
-  const result = await acceptInvite(token, { userAgent: ua, chosenName: name });
+  const result = await acceptInvite(token, {
+    userAgent: ua,
+    chosenName: name,
+    language,
+  });
   if (!result.ok) {
-    if (result.error === "needs_name" || result.error === "invalid_name") {
+    if (
+      result.error === "needs_name" ||
+      result.error === "invalid_name" ||
+      result.error === "name_taken" ||
+      result.error === "invalid_language"
+    ) {
       return new Response(
         renderAcceptPage(
           i18n,
           token,
           true,
-          i18n.t("preAuth.invite.errorName"),
+          i18n.t(
+            result.error === "name_taken"
+              ? "preAuth.invite.nameTaken"
+              : result.error === "invalid_language"
+                ? "preAuth.invite.errorLanguage"
+                : "preAuth.invite.errorName",
+          ),
           officeName,
+          "error" in peek ? undefined : peek,
+          name,
         ),
         {
           status: 400,
@@ -467,6 +503,14 @@ function inviteIdentityConflict(
 ): { current: string; invitee: string } | null {
   const session = validateSession(readSessionCookie(req));
   if (!session) return null;
+  if (invite.newUser)
+    return {
+      current: session.username,
+      invitee:
+        invite.label ||
+        invite.username ||
+        translatorForVisitor(req).t("preAuth.invite.newMember"),
+    };
 
   let invitee: string;
   if (invite.username !== null) {
@@ -925,8 +969,11 @@ function renderAcceptPage(
   needsName: boolean,
   errorMsg: string | null,
   officeName: string | null,
+  invite?: InvitePeek,
+  chosenName?: string,
 ): string {
   const { t } = i18n;
+  const bootstrap = invite?.bootstrap ?? needsName;
   const safeToken = escapeAttr(token);
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
   // Open-graph metadata so chat-app link unfurlers show a readable preview
@@ -936,14 +983,14 @@ function renderAcceptPage(
   // name is intentionally NOT plumbed into OG fields - those are scraped
   // by external preview services we shouldn't leak the office name to.
   const og = {
-    title: needsName
+    title: bootstrap
       ? t("common.ogTitleFirstTimeSetup")
       : t("preAuth.invite.ogTitleAccept"),
-    description: needsName
+    description: bootstrap
       ? t("preAuth.invite.ogDescriptionSetup")
       : t("preAuth.invite.ogDescriptionAccept"),
   };
-  if (needsName) {
+  if (bootstrap) {
     // Bootstrap (or any null-username invite): invitee picks their display
     // name. The form double-purposes as the "accept" gesture, so a link
     // previewer can't burn it just by fetching the URL.
@@ -984,8 +1031,11 @@ function renderAcceptPage(
       <p>${t("preAuth.invite.clickHint")}</p>
       <form method="POST" action="/auth/accept">
         <input type="hidden" name="token" value="${safeToken}" />
-        ${err}
-        <button type="submit" autofocus>${t("preAuth.invite.accept")}</button>
+        ${needsName ? `<label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required value="${escapeAttr(chosenName ?? invite?.label ?? "")}" /></label>` : ""}
+      ${invite?.newUser ? `<label>${t("preferences.language")} <select name="language">${SUPPORTED_LANGUAGES.map((l) => `<option value="${l.code}"${l.code === i18n.language ? " selected" : ""}>${l.label}</option>`).join("")}</select></label>` : ""}
+      ${invite?.newUser ? `<p class="muted">${t("preAuth.invite.changeLater")}</p>` : ""}
+      ${err}
+        <button type="submit"${needsName ? "" : " autofocus"}>${t("preAuth.invite.accept")}</button>
       </form>
     </main>
     `,
@@ -1079,7 +1129,7 @@ function baseHtml(
   p { margin: 0.5em 0; }
   form { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
   label { display: flex; flex-direction: column; gap: 6px; }
-  input[type=text] { padding: 8px; font-size: 1rem; border: 1px solid #888; border-radius: 4px; }
+  input[type=text], select { padding: 8px; font-size: 1rem; border: 1px solid #888; border-radius: 4px; }
   button { padding: 8px 16px; font-size: 1rem; border-radius: 4px; cursor: pointer; }
   .err { color: #c33; }
 ${extraCss}

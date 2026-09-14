@@ -59,7 +59,10 @@ export interface InvitesDeps {
   // allowedRooms are optional room grants for member invites (validated in
   // the auth core: member-role + new-user only, ids must be live rooms).
   mint(input: {
-    username: string;
+    username: string | null;
+    label?: string;
+    language?: InviteMintReq["language"];
+    memberPrompt?: string | null;
     role: UserRole;
     allowedRooms?: string[];
     identity: Identity;
@@ -89,10 +92,14 @@ export function invitesHandlers(
     "invites.mint": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<InviteMintReq>;
       if (
-        typeof body.username !== "string" ||
-        body.username.trim().length === 0
+        body.username !== undefined &&
+        (typeof body.username !== "string" || !body.username.trim())
       ) {
-        return fail(400, "invalid_request", "username is required");
+        return fail(
+          400,
+          "invalid_request",
+          "username must be a non-empty string",
+        );
       }
       if (body.role !== "owner" && body.role !== "member") {
         return fail(400, "invalid_request", "role must be 'owner' or 'member'");
@@ -111,7 +118,10 @@ export function invitesHandlers(
         );
       }
       const r = await deps.mint({
-        username: body.username,
+        username: body.username ?? null,
+        label: body.label,
+        language: body.language,
+        memberPrompt: body.memberPrompt,
         role: body.role,
         allowedRooms: body.allowedRooms,
         identity: ctx.identity,

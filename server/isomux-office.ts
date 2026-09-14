@@ -978,6 +978,7 @@ function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
     case "INVALID_USERNAME":
     case "INVALID_ROLE":
     case "INVALID_ROOMS":
+    case "INVALID_PROFILE":
       return 400;
   }
 }
@@ -2495,7 +2496,15 @@ function buildExecutorDeps(
   // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
     invitesHandlers({
-      mint: async ({ username, role, allowedRooms, identity }) => {
+      mint: async ({
+        username,
+        label,
+        language,
+        memberPrompt,
+        role,
+        allowedRooms,
+        identity,
+      }) => {
         const { createdBy } = attributionFor(identity);
         // NEW users only: the auth core rejects an existing username with
         // USER_EXISTS (409). Device links for existing accounts are self-service
@@ -2505,6 +2514,9 @@ function buildExecutorDeps(
           role,
           createdBy,
           allowExisting: false,
+          label,
+          language,
+          memberPrompt,
           allowedRooms,
         });
         if (!r.ok) {
@@ -2765,7 +2777,7 @@ function buildExecutorDeps(
   );
   register(
     usersHandlers({
-      update: async ({ username, changes }) => {
+      update: async ({ username, changes, identity }) => {
         const target = getUser(username);
         if (!target) {
           return {
@@ -2775,10 +2787,42 @@ function buildExecutorDeps(
             error: `User ${username} not found`,
           };
         }
+        if (
+          changes.role !== undefined &&
+          getUserById(identity.userId ?? "")?.role !== "owner"
+        ) {
+          return {
+            ok: false,
+            status: 403,
+            code: "forbidden",
+            error: "Only an office owner can change roles.",
+          };
+        }
+        if (changes.role === "member" && wouldDeleteLeaveNoOwner(target.id)) {
+          return {
+            ok: false,
+            status: 409,
+            code: "last_owner",
+            error: "The office must have at least one office owner.",
+          };
+        }
+        const roleChanged =
+          changes.role !== undefined && changes.role !== target.role;
+        const appAudienceBefore = roleChanged
+          ? snapshotAppVisibility(() => true)
+          : null;
+        const accessible = accessibleRoomIdsFor({
+          ...target,
+          role: changes.role ?? target.role,
+        });
         // Record fields ONLY - allowedRooms/notif/default are NOT in
         // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
         // by id so a rename can't strand the write.
         const result = updateUserById(target.id, {
+          role: changes.role,
+          ...(roleChanged
+            ? { notifRooms: clampViewFields(accessible, target, {}).notifRooms }
+            : {}),
           name: changes.name,
           memberPrompt: changes.memberPrompt,
           avatarColor: changes.avatarColor,
@@ -2793,12 +2837,35 @@ function buildExecutorDeps(
             error: result.error,
           };
         }
+        if (roleChanged) {
+          for (const ws of browsers) {
+            if (ws.data.session.userId !== result.user.id) continue;
+            ws.send(
+              JSON.stringify({
+                type: "session_context",
+                context: sessionContextFor(
+                  ws.data.session,
+                  ws.data.connectionId,
+                ),
+              }),
+            );
+            ws.send(
+              JSON.stringify({
+                type: "all_rooms_list",
+                rooms:
+                  result.user.role === "owner"
+                    ? agentManager.getOrdinaryRooms()
+                    : [],
+              }),
+            );
+          }
+        }
         const renamed =
           username.toLowerCase() !== result.user.name.toLowerCase();
         // Condition the PUBLIC refresh on an actual public-field delta.
         // users.update can touch PUBLIC fields or PRIVATE-only ones. UserPublicWire
         // is id|name|role|avatarColor|avatarVariant|createdAt, and of those this
-        // route mutates only name/avatarColor/avatarVariant; prompt is private.
+        // route mutates only role/name/avatarColor/avatarVariant; prompt is private.
         // A private-only edit changes nothing in the public projection, so a public
         // user_updated/users_list would be a pure timing signal that the record
         // changed - the leak setAccess avoids. Mirror setAccess: owners always get
@@ -2807,6 +2874,7 @@ function buildExecutorDeps(
         // field actually changed. (`target` is the pre-image: updateUserById writes
         // a new record, it does not mutate the object getUser returned.)
         const publicChanged =
+          roleChanged ||
           result.user.name !== target.name ||
           result.user.avatarColor !== target.avatarColor ||
           result.user.avatarVariant !== target.avatarVariant;
@@ -2816,12 +2884,21 @@ function buildExecutorDeps(
         } else {
           emitPrivateUserRecord(result.user);
         }
-        const presenceTouched = refreshPresenceForUser(result.user.id, {
-          name: result.user.name,
-          avatarColor: result.user.avatarColor,
-          avatarVariant: result.user.avatarVariant,
-        });
-        if (presenceTouched) pushPresenceListToEachWs();
+        const presenceTouched = refreshPresenceForUser(
+          result.user.id,
+          {
+            name: result.user.name,
+            avatarColor: result.user.avatarColor,
+            avatarVariant: result.user.avatarVariant,
+          },
+          roleChanged ? accessible : undefined,
+        );
+        if (roleChanged) {
+          pushProjectedFullStateForUserId(result.user.id);
+          pushTasksForUserId(result.user.id);
+          if (appAudienceBefore) announceAppAudienceChanges(appAudienceBefore);
+        }
+        if (presenceTouched || roleChanged) pushPresenceListToEachWs();
         return { ok: true, user: result.user };
       },
       setAccess: async ({ username, allowedRooms }) => {

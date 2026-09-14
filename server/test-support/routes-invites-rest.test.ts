@@ -510,7 +510,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
 });
 
 describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => {
-  it("mint: missing username -> 400; bad role -> 400; existing user -> 409 (new-user only)", async () => {
+  it("mint: blank username -> 400; bad role -> 400; existing user -> 409 (new-user only)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -521,7 +521,7 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
         await api(srv, "/api/invites", {
           method: "POST",
           rawSessionId: owner.rawSessionId,
-          body: { role: "member" },
+          body: { username: " ", role: "member" },
         })
       ).status,
     ).toBe(400);

@@ -291,6 +291,9 @@ App 的一些原则：
   "settings.members.onlineSessions.one": "在线 · {count} 个会话",
   "settings.members.onlineSessions.other": "在线 · {count} 个会话",
   "settings.members.lastSeen": "上次在线：{when}",
+  "settings.role.officeOwner": "办公室所有者",
+  "settings.role.officeOwnerExplanation":
+    "可以访问所有房间、邀请成员，并管理成员的访问权限和会话。",
   "settings.role.owner": "办公室所有者",
   "settings.role.member": "成员",
   "settings.role.ownerHint":
@@ -534,6 +537,15 @@ App 的一些原则：
     "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
   "settings.invites.intro":
     "添加新成员或办公室所有者：生成邀请 URL，再通过其他渠道发送给对方。打开链接会创建账户并登录该设备。已有账户的成员可在<i>我的设备</i>中自行生成设备链接，用于登录其他设备。",
+  "settings.invites.memberName": "成员名称（可选）",
+  "settings.invites.memberNamePlaceholder": "例如：Marc",
+  "settings.invites.changeLater":
+    "所有这些设置以后都可以更改。成员在接受邀请时可以修改此名称。",
+  "preAuth.invite.changeLater": "你以后可以在设置中更改名称和语言。",
+  "settings.invites.browserLanguage": "受邀者的浏览器语言",
+  "preAuth.invite.nameTaken": "该名称已被使用，请另选一个。",
+  "preAuth.invite.errorLanguage": "请选择一种语言。",
+  "preAuth.invite.newMember": "新成员",
   "settings.invites.issueFor": "为以下成员发出邀请…",
   "settings.invites.namePlaceholder": "新用户名（例如 Marc）",
   "settings.invites.existing":

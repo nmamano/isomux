@@ -302,6 +302,8 @@ export function wouldDeleteLeaveNoOwner(userId: string): boolean {
 export function claimUser(
   name: string,
   initial?: {
+    language?: UserRecord["language"];
+    memberPrompt?: string | null;
     notifRooms?: NotifRoomsSetting;
     role?: UserRole;
     allowedRooms?: string[];
@@ -334,15 +336,14 @@ export function claimUser(
     // default office-order room order.
     hidden: [],
     order: [],
-    memberPrompt: null,
+    memberPrompt: normalizeMemberPrompt(initial?.memberPrompt),
     // Live-avatars defaults. Color is deterministic per user-id so the
     // same user gets a consistent hue across restarts; variant is the
     // baseline ghost shape. Both are user-editable post-creation.
     avatarColor: defaultGhostColorForUserId(id),
     avatarVariant: "classic",
-    // Personal preferences start unset: no language picked, so there is no
-    // agent clause and no behavior change.
-    language: null,
+    // Invites can seed preferences; other creation paths start unset.
+    language: normalizeLanguage(initial?.language),
   };
   users[id] = record;
   try {
@@ -355,7 +356,7 @@ export function claimUser(
 }
 
 // Fired after a role actually changes (promote or demote) via
-// setUserRoleById - the single role mutator. isomux-office.ts wires this at boot to
+// setUserRoleById or updateUserById. isomux-office.ts wires this at boot to
 // refresh the cached `ws.data.session` on the user's connected sockets, so
 // role-keyed audience selection (e.g. the owners-audience fan-out in
 // liveEmitDeps) reflects the change immediately instead of after the next
@@ -437,6 +438,7 @@ export function updateUserById(
     Pick<
       UserRecord,
       | "name"
+      | "role"
       | "notifRooms"
       | "allowedRooms"
       | "hidden"
@@ -477,11 +479,8 @@ export function updateUserById(
         ? normalizeNotifRooms(changes.notifRooms)
         : existing.notifRooms,
     createdAt: existing.createdAt,
-    // Role is not in the editable-via-update_user surface - it's set by
-    // setUserRoleById (CLI/admin path) or by claimUser on creation.
-    // Preserve existing role here so updating preferences doesn't
-    // silently downgrade an owner to member.
-    role: existing.role,
+    // The HTTP caller checks owner authority before passing a role.
+    role: changes.role ?? existing.role,
     allowedRooms:
       changes.allowedRooms !== undefined
         ? normalizeAllowedRooms(changes.allowedRooms)
@@ -525,6 +524,13 @@ export function updateUserById(
   } catch (err) {
     users[id] = existing;
     throw err;
+  }
+  if (next.role !== existing.role) {
+    try {
+      onUserRoleChangedHook(id);
+    } catch (err) {
+      console.error("[users] onUserRoleChangedHook threw:", err);
+    }
   }
   return { ok: true, user: next };
 }

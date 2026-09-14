@@ -653,6 +653,7 @@ export interface ApiTokenInboxDrainRes {
 }
 
 export type UserUpdateReq = Partial<{
+  role: UserRecord["role"];
   name: string;
   memberPrompt: string | null;
   avatarColor: string;
@@ -663,12 +664,17 @@ export interface SetAccessReq {
   allowedRooms: string[];
 }
 
-// Owner-minted invites create NEW users only: an
-// existing username is rejected server-side (409). Device links for existing
+// Owner-minted invites create NEW users only. Omit username to let the
+// invitee choose their name. The label is a suggested member name that also
+// identifies the pending invite.
+// Legacy clients can preassign a name; existing names are rejected. Device links for existing
 // accounts ride POST /api/invites/self - or, when the user is locked out of
 // every device, the owner recovery op below.
 export interface InviteMintReq {
-  username: string;
+  username?: string; // Legacy clients can still preassign a name.
+  label?: string;
+  language?: UserRecord["language"];
+  memberPrompt?: string | null;
   role: UserRecord["role"];
   // Optional room grants to attach to the invite (member invites for NEW
   // users only - owners reach every room by rule, and an existing user's

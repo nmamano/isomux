@@ -285,6 +285,7 @@ describe("auth/invites: peek never consumes", () => {
     const first = peekInvite(inv.rawToken);
     const second = peekInvite(inv.rawToken);
     expect(first).toEqual({
+      newUser: true,
       needsName: false,
       username: "Newbie",
       role: "member",

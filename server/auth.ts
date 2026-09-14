@@ -19,6 +19,10 @@ import type {
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
+import {
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../shared/languages.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import {
   claimUser,
@@ -51,7 +55,11 @@ const SESSIONS_FILE = join(ISOMUX_DIR, "sessions.json");
 interface StoredInvite {
   tokenHash: string; // sha256(rawToken) hex; the map key duplicates this for convenience
   tokenPrefix: string; // first 8 chars of the raw base64url token, kept clear for UI
-  username: string | null; // null only for bootstrap invites
+  username: string | null; // null when the invitee chooses their name
+  newUser?: true;
+  label?: string;
+  language?: SupportedLanguageCode | null;
+  memberPrompt?: string | null;
   role: UserRole;
   createdBy: string | null; // null for bootstrap
   createdAt: number;
@@ -362,7 +370,10 @@ export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
 
 export interface MintOptions {
-  username: string | null; // null only allowed for bootstrap path internally
+  username: string | null; // null lets a new invitee choose their name
+  label?: string;
+  language?: SupportedLanguageCode | null;
+  memberPrompt?: string | null;
   role: UserRole;
   createdBy: string | null;
   allowExisting: boolean;
@@ -400,7 +411,8 @@ export interface MintErr {
     | "USER_EXISTS"
     | "INVALID_ROLE"
     | "ROLE_MISMATCH"
-    | "INVALID_ROOMS";
+    | "INVALID_ROOMS"
+    | "INVALID_PROFILE";
 }
 
 // Invite TTL is the acceptance window: the URL stops being redeemable
@@ -417,13 +429,33 @@ export async function mintInvite(
   return mutate(() => {
     ensureLoaded();
     const trimmedName = opts.username?.trim() ?? null;
+    if (
+      (opts.label !== undefined &&
+        (typeof opts.label !== "string" || opts.label.length > 64)) ||
+      (opts.memberPrompt !== undefined &&
+        opts.memberPrompt !== null &&
+        typeof opts.memberPrompt !== "string") ||
+      (opts.language !== undefined &&
+        opts.language !== null &&
+        !SUPPORTED_LANGUAGES.some((l) => l.code === opts.language)) ||
+      (opts.allowExisting &&
+        (opts.label !== undefined ||
+          opts.language !== undefined ||
+          opts.memberPrompt !== undefined))
+    ) {
+      return {
+        ok: false,
+        error: "Invalid invite profile",
+        code: "INVALID_PROFILE",
+      };
+    }
     // Room grants: dedupe up-front; validated below (non-bootstrap only -
     // the bootstrap path never passes grants).
     const grantRooms = opts.allowedRooms?.length
       ? [...new Set(opts.allowedRooms)]
       : [];
     if (!opts.bootstrap) {
-      if (!trimmedName)
+      if (!trimmedName && (opts.allowExisting || opts.username !== null))
         return {
           ok: false,
           error: "Username required",
@@ -431,7 +463,7 @@ export async function mintInvite(
         };
       if (opts.role !== "owner" && opts.role !== "member")
         return { ok: false, error: "Invalid role", code: "INVALID_ROLE" };
-      const existing = getUserByName(trimmedName);
+      const existing = trimmedName ? getUserByName(trimmedName) : undefined;
       if (existing && !opts.allowExisting)
         return {
           ok: false,
@@ -508,6 +540,14 @@ export async function mintInvite(
       tokenHash: hash,
       tokenPrefix: prefix,
       username: trimmedName,
+      ...(!opts.bootstrap && !opts.allowExisting
+        ? { newUser: true as const }
+        : {}),
+      ...(opts.label?.trim() ? { label: opts.label.trim() } : {}),
+      ...(opts.language != null ? { language: opts.language } : {}),
+      ...(opts.memberPrompt?.trim()
+        ? { memberPrompt: opts.memberPrompt.trim() }
+        : {}),
       role: opts.role,
       createdBy: opts.createdBy,
       createdAt: now,
@@ -550,6 +590,9 @@ export async function mintInvite(
 // previewers / chat unfurlers / browser prefetch don't burn the one-time
 // invite - actual consumption happens on the subsequent POST.
 export interface InvitePeek {
+  language?: SupportedLanguageCode | null;
+  newUser?: true;
+  label?: string;
   needsName: boolean; // true for bootstrap or otherwise null-username invites
   username: string | null;
   role: UserRole;
@@ -573,6 +616,9 @@ export function peekInvite(
   // check is for UX, not safety.
   if (invite.bootstrap && hasOwner()) return { error: "owner_exists" };
   return {
+    ...(invite.language ? { language: invite.language } : {}),
+    ...(invite.newUser ? { newUser: true as const } : {}),
+    ...(invite.label ? { label: invite.label } : {}),
     needsName: invite.username === null,
     username: invite.username,
     role: invite.role,
@@ -598,6 +644,8 @@ export interface AcceptErr {
     | "expired"
     | "needs_name"
     | "invalid_name"
+    | "name_taken"
+    | "invalid_language"
     | "role_mismatch"
     | "owner_exists";
 }
@@ -758,11 +806,14 @@ function commitBootstrapOwnerUser(chosenName: string): {
 
 // Accept an invite token. If the invite has a pre-set username, that username
 // is bound to the new session. If the invite is a bootstrap invite, the
-// caller must supply `chosenName` (the only path where invitees pick their
-// own display name).
+// caller must supply `chosenName`. New unnamed invites use the same form.
 export async function acceptInvite(
   rawToken: string,
-  ctx: { userAgent: string | null; chosenName?: string | null },
+  ctx: {
+    userAgent: string | null;
+    chosenName?: string | null;
+    language?: string | null;
+  },
 ): Promise<AcceptOk | AcceptErr> {
   return mutate(() => {
     ensureLoaded();
@@ -786,7 +837,13 @@ export async function acceptInvite(
       return { ok: false, error: "owner_exists" };
     }
 
-    // Bootstrap path: invitee picks the display name on this request.
+    if (
+      invite.newUser &&
+      ctx.language != null &&
+      !SUPPORTED_LANGUAGES.some((l) => l.code === ctx.language)
+    )
+      return { ok: false, error: "invalid_language" };
+    // An unnamed invite asks the recipient for their display name.
     let chosenName: string | null = invite.username;
     if (invite.username === null) {
       const raw = (ctx.chosenName ?? "").trim();
@@ -817,11 +874,12 @@ export async function acceptInvite(
     // office with an owner record but no session, and the Step-1
     // owner_exists guard would block recovery on retry.
     let userRecord = getUserByName(chosenName);
-    let bootstrapRollback: (() => void) | null = null;
+    if (invite.newUser && userRecord) return { ok: false, error: "name_taken" };
+    let userRollback: (() => void) | null = null;
     if (invite.bootstrap) {
       const committed = commitBootstrapOwnerUser(chosenName);
       userRecord = committed.user;
-      bootstrapRollback = committed.rollback;
+      userRollback = committed.rollback;
     } else if (!userRecord) {
       // An owner invite seeds EMPTY grants (rule covers owner access)
       // but notifRooms from current rooms (so the new owner is notified for
@@ -837,11 +895,21 @@ export async function acceptInvite(
       );
       userRecord = claimUser(chosenName, {
         role: invite.role,
+        language: invite.newUser
+          ? ((ctx.language as SupportedLanguageCode | null | undefined) ??
+            invite.language)
+          : undefined,
+        memberPrompt: invite.memberPrompt,
         ...(invite.role === "owner" ? { notifRooms: snapshotRoomIds() } : {}),
         ...(invite.role === "member" && grantRooms.length > 0
           ? { allowedRooms: grantRooms }
           : {}),
       });
+      // Retry must still be able to create the user if persistence fails below.
+      const createdId = userRecord.id;
+      userRollback = () => {
+        deleteUserById(createdId);
+      };
     } else if (invite.allowedRooms?.length) {
       // Mint refuses grants for existing users, so reaching here means the
       // record appeared between mint and accept. Grants only seed a NEW
@@ -899,7 +967,7 @@ export async function acceptInvite(
       // Roll back the bootstrap user mutation too (created owner or
       // promoted member). Without this, a persist failure here would
       // strand the office with an owner on disk and no session.
-      if (bootstrapRollback) bootstrapRollback();
+      if (userRollback) userRollback();
       throw err;
     }
     sessions!.set(sessionHash, session);
@@ -929,7 +997,7 @@ export async function acceptInvite(
       // Bootstrap owner rollback fires regardless of the invite-revert
       // outcome - the office state on disk must not be left with an
       // owner record but no session.
-      if (bootstrapRollback) bootstrapRollback();
+      if (userRollback) userRollback();
       throw err;
     }
 
@@ -1277,6 +1345,7 @@ export function toInviteWire(v: StoredInvite): InviteWire {
   return {
     tokenPrefix: v.tokenPrefix,
     username: v.username,
+    ...(v.label ? { label: v.label } : {}),
     role: v.role,
     createdBy: v.createdBy,
     createdAt: v.createdAt,
