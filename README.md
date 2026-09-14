@@ -2,7 +2,7 @@
 
 **A meta-harness** where agents act like coworkers, not throwaway sessions.
 
-free for individuals and small teams · source-available · no account needed · works with your subscriptions
+free for small teams · source-available · no account needed · works with your subscriptions
 
 - [isomux.com](https://isomux.com): setup instructions and a live demo
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
