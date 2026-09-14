@@ -17,7 +17,7 @@ export type AgentState =
   | "stopped";
 
 // The two-step prompts an agent can be parked on, waiting for a chat reply that
-// is read as the answer. `state` cannot express this: all four
+// is read as the answer. `state` cannot express this: all of them
 // park the agent at `waiting_for_response`, which is also where an agent that
 // merely finished its turn sits. See AgentInfo.pendingPrompt.
 export type PendingPromptKind =
