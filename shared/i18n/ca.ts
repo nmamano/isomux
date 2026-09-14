@@ -986,6 +986,8 @@ Coses que pots fer per ell:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema complet",
   "dialogs.agent.systemPromptLoadFailed":
     "No s'ha pogut carregar el prompt de sistema.",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programació",
+  "dialogs.agent.showCronjobPrompt": "Mostra el prompt de la programació",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ex. "Ets un especialista en backend. Escriu sempre tests."',
   "dialogs.agent.revive": "Reactiva un agent aturat",
@@ -1168,6 +1170,7 @@ Coses que pots fer per ell:
   "apiCall.cronjobs.list": "Llistar les programacions",
   "apiCall.cronjobs.create": "Crear una programació",
   "apiCall.cronjobs.read": "Llegir una programació",
+  "apiCall.cronjobs.systemPrompt": "Llegir el prompt d'una programació",
   "apiCall.cronjobs.update": "Actualitzar una programació",
   "apiCall.cronjobs.delete": "Eliminar una programació",
   "apiCall.cronjobs.listRuns": "Llistar les execucions d'una programació",
@@ -1278,6 +1281,7 @@ Coses que pots fer per ell:
   "logView.pendingPrompt.resume": "Esperant que triïs una sessió",
   "logView.pendingPrompt.model": "Esperant que triïs un model",
   "logView.pendingPrompt.effort": "Esperant que triïs un esforç",
+  "logView.pendingPrompt.cronjob": "Esperant que triïs una programació",
   "logView.abort": "Avorta",
   "logView.abortTitle": "Avorta (Ctrl+C)",
   "logView.restartingSession": "Reiniciant la sessió...",
@@ -1490,6 +1494,7 @@ Coses que pots fer per ell:
   "office.pendingPrompt.resume": "sessió",
   "office.pendingPrompt.model": "model",
   "office.pendingPrompt.effort": "esforç",
+  "office.pendingPrompt.cronjob": "programació",
   "office.pet.default": "Predeterminada",
   "contextMenu.editAgent": "Edita l'agent...",
   "contextMenu.newConversation": "Conversa nova",
@@ -1870,10 +1875,9 @@ Coses que pots fer per ell:
     "Pregunta-ho al teu agent si vols saber més sobre qualsevol agent o conversa.",
   "commands.isomuxSystemPrompt.header":
     "**Prompt de sistema complet** *(reflecteix la configuració actual; s'aplica a la propera conversa)*",
-  "commands.isomuxCronjobSystemPrompt.usage": "Ús: {usage}",
   "commands.isomuxCronjobSystemPrompt.noSchedules":
     "No hi ha cap programació configurada.",
-  "commands.isomuxCronjobSystemPrompt.known": "Programacions conegudes:",
+  "commands.isomuxCronjobSystemPrompt.pick": "Tria una programació:",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
     'Hi ha diverses programacions que es diuen "{query}". Torna-ho a executar amb l\'id:',
   "commands.isomuxCronjobSystemPrompt.noMatch":
@@ -1920,6 +1924,9 @@ Coses que pots fer per ell:
   "choices.model.instruction":
     "Respon amb un número per canviar, o qualsevol altra cosa per cancel·lar.",
   "choices.effort.title": "Canviar l'esforç de raonament",
+  "choices.cronjob.title": "Tria una programació",
+  "choices.cronjob.instruction":
+    "Respon amb un número per veure'n el prompt o amb qualsevol altra cosa per cancel·lar.",
   "choices.permission.title": "Vol fer servir {tool}",
   "choices.permission.instruction":
     "Tria una opció, o escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
@@ -2059,6 +2066,7 @@ Coses que pots fer per ell:
   "systemEntries.modelCancelled": "Canvi de model cancel·lat.",
   "systemEntries.effortSwitched": "Esforç de raonament canviat a {label}.",
   "systemEntries.effortCancelled": "Canvi d'esforç cancel·lat.",
+  "systemEntries.cronjobPickCancelled": "Selecció de programació cancel·lada.",
   "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
   "systemEntries.branchFailed": "No s'ha pogut ramificar la conversa: {error}",
   "systemEntries.editBusy": "No es pot editar mentre l'agent treballa.",

@@ -871,6 +871,8 @@ App 的一些原则：
   "dialogs.agent.showSystemPrompt": "显示完整系统提示词",
   "dialogs.agent.systemPromptTitle": "完整系统提示词",
   "dialogs.agent.systemPromptLoadFailed": "无法加载系统提示词。",
+  "dialogs.agent.cronjobPromptTitle": "定时任务提示词",
+  "dialogs.agent.showCronjobPrompt": "显示定时任务提示词",
   "dialogs.agent.customInstructionsPlaceholder":
     "例如：「你是后端专家。始终编写测试。」",
   "dialogs.agent.revive": "恢复已终止的智能体",
@@ -1030,6 +1032,7 @@ App 的一些原则：
   "apiCall.cronjobs.list": "列出定时任务",
   "apiCall.cronjobs.create": "创建定时任务",
   "apiCall.cronjobs.read": "读取定时任务",
+  "apiCall.cronjobs.systemPrompt": "读取定时任务提示词",
   "apiCall.cronjobs.update": "更新定时任务",
   "apiCall.cronjobs.delete": "删除定时任务",
   "apiCall.cronjobs.listRuns": "列出定时任务运行记录",
@@ -1134,6 +1137,7 @@ App 的一些原则：
   "logView.pendingPrompt.resume": "正在等待选择会话",
   "logView.pendingPrompt.model": "正在等待选择模型",
   "logView.pendingPrompt.effort": "正在等待选择推理强度",
+  "logView.pendingPrompt.cronjob": "正在等待选择定时任务",
   "logView.abort": "中止",
   "logView.abortTitle": "中止 (Ctrl+C)",
   "logView.restartingSession": "正在重启会话…",
@@ -1333,6 +1337,7 @@ App 的一些原则：
   "office.pendingPrompt.resume": "会话",
   "office.pendingPrompt.model": "模型",
   "office.pendingPrompt.effort": "推理强度",
+  "office.pendingPrompt.cronjob": "定时任务",
   "office.pet.default": "默认",
   "contextMenu.editAgent": "编辑智能体…",
   "contextMenu.newConversation": "新对话",
@@ -1686,9 +1691,8 @@ App 的一些原则：
     "如需了解某个智能体或对话的更多信息，请询问你的智能体。",
   "commands.isomuxSystemPrompt.header":
     "**完整系统提示词** *（反映当前设置；在下一次对话中生效）*",
-  "commands.isomuxCronjobSystemPrompt.usage": "用法：{usage}",
   "commands.isomuxCronjobSystemPrompt.noSchedules": "尚未配置定时任务。",
-  "commands.isomuxCronjobSystemPrompt.known": "已知定时任务：",
+  "commands.isomuxCronjobSystemPrompt.pick": "选择定时任务：",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
     "多个定时任务名为「{query}」。请使用 ID 重新运行：",
   "commands.isomuxCronjobSystemPrompt.noMatch":
@@ -1727,6 +1731,9 @@ App 的一些原则：
   "choices.model.title": "切换模型",
   "choices.model.instruction": "回复数字以切换，回复其他内容则取消。",
   "choices.effort.title": "切换推理强度",
+  "choices.cronjob.title": "选择定时任务",
+  "choices.cronjob.instruction":
+    "回复数字以查看提示词，回复其他内容则取消。",
   "choices.permission.title": "请求使用 {tool}",
   "choices.permission.instruction":
     "选择一个选项，或输入其他消息，以该消息作为拒绝理由。",
@@ -1842,6 +1849,7 @@ App 的一些原则：
   "systemEntries.modelCancelled": "已取消模型选择。",
   "systemEntries.effortSwitched": "推理强度已切换为{label}。",
   "systemEntries.effortCancelled": "已取消推理强度选择。",
+  "systemEntries.cronjobPickCancelled": "已取消定时任务选择。",
   "systemEntries.branchedFrom": "派生自：{label}",
   "systemEntries.branchFailed": "派生对话失败：{error}",
   "systemEntries.editBusy": "智能体忙碌时无法编辑。",

@@ -30,7 +30,7 @@ describe("pendingPromptOf", () => {
     expect(pendingPromptOf(agentWith({}))).toBe(null);
   });
 
-  it("names each of the four prompts", () => {
+  it("names each prompt", () => {
     expect(
       pendingPromptOf(
         agentWith({
@@ -50,6 +50,20 @@ describe("pendingPromptOf", () => {
     expect(pendingPromptOf(agentWith({ pendingEffortPick: true }))).toBe(
       "effort",
     );
+    expect(
+      pendingPromptOf(
+        agentWith({
+          pendingInteraction: {
+            id: "interaction-1",
+            agentId: "agent-1",
+            kind: "cronjob",
+            title: "Choose a schedule",
+            instruction: "Choose",
+            choices: [],
+          },
+        }),
+      ),
+    ).toBe("cronjob");
   });
 
   it("reports permission first when flags overlap", () => {
@@ -74,7 +88,7 @@ describe("pendingPromptOf", () => {
   });
 
   it("agrees with inMultiStepFlow on every flag", () => {
-    // The two derive from the same four fields and are read by different
+    // The two derive from the same parked states and are read by different
     // callers (the queue gates use the boolean, the wire uses the enum). They
     // must never disagree about whether an agent is parked.
     const cases: Partial<ManagedAgent>[] = [
@@ -90,6 +104,16 @@ describe("pendingPromptOf", () => {
       { pendingResume: true },
       { pendingModelPick: true },
       { pendingEffortPick: true },
+      {
+        pendingInteraction: {
+          id: "interaction-1",
+          agentId: "agent-1",
+          kind: "cronjob",
+          title: "Choose a schedule",
+          instruction: "Choose",
+          choices: [],
+        },
+      },
     ];
     for (const flags of cases) {
       const managed = agentWith(flags);

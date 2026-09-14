@@ -20,13 +20,19 @@ export type AgentState =
 // is read as the answer. `state` cannot express this: all four
 // park the agent at `waiting_for_response`, which is also where an agent that
 // merely finished its turn sits. See AgentInfo.pendingPrompt.
-export type PendingPromptKind = "permission" | "resume" | "model" | "effort";
+export type PendingPromptKind =
+  | "permission"
+  | "resume"
+  | "model"
+  | "effort"
+  | "cronjob";
 
 export type AgentChoiceInteractionKind =
   | "permission"
   | "resume"
   | "model"
-  | "effort";
+  | "effort"
+  | "cronjob";
 
 export interface AgentChoiceInteraction {
   id: string;

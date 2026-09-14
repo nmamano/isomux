@@ -784,6 +784,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Cronjobs
   "cron.list": { caps: ["cron:read"], emits: [] },
   "cron.get": { caps: ["cron:read"], emits: [] },
+  "cron.readSystemPrompt": { caps: ["cron:read"], emits: [] },
   "cron.create": { caps: ["cron:manage"], emits: ["cronjob_added"] },
   "cron.update": { caps: ["cron:manage"], emits: ["cronjob_updated"] },
   "cron.delete": { caps: ["cron:manage"], emits: ["cronjob_deleted"] },
@@ -1100,6 +1101,7 @@ const API_REACHABLE_OPIDS = [
   "skills.usageCounts",
   "cron.list",
   "cron.get",
+  "cron.readSystemPrompt",
   "cron.create",
   "cron.update",
   "cron.delete",

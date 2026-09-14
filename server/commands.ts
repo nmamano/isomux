@@ -149,6 +149,7 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxCronjobSystemPrompt",
+    autoRun: true,
   },
   "isomux-diff": {
     type: "hardcoded",

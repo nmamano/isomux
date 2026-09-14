@@ -23,6 +23,7 @@ export const PENDING_PROMPT_BADGE: Record<
   resume: "office.pendingPrompt.resume",
   model: "office.pendingPrompt.model",
   effort: "office.pendingPrompt.effort",
+  cronjob: "office.pendingPrompt.cronjob",
 };
 
 // Header label: the full sentence, shown where the activity indicator would be
@@ -37,4 +38,5 @@ export const PENDING_PROMPT_LABEL: Record<
   resume: "logView.pendingPrompt.resume",
   model: "logView.pendingPrompt.model",
   effort: "logView.pendingPrompt.effort",
+  cronjob: "logView.pendingPrompt.cronjob",
 };

@@ -10,9 +10,11 @@ import { Portal } from "./Portal.tsx";
 export function SystemPromptButton({
   agentId,
   preview,
+  cronjobId,
 }: {
   agentId?: string;
   preview?: AgentSystemPromptPreviewReq;
+  cronjobId?: string;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -25,14 +27,26 @@ export function SystemPromptButton({
     setPrompt(null);
     setError(false);
     try {
-      const result = await apiFetch<{ prompt: string }>(
-        preview ? "POST" : "GET",
-        preview
-          ? "/api/agents/system-prompt-preview"
-          : `/api/agents/${agentId}/system-prompt`,
-        preview,
-      );
-      setPrompt(result.prompt);
+      if (cronjobId) {
+        const result = await apiFetch<{
+          systemPrompt: string;
+          firstUserMessage: string;
+        }>("GET", `/api/cronjobs/${cronjobId}/system-prompt`);
+        setPrompt(
+          `${result.systemPrompt}\n\n----\n${t(
+            "commands.isomuxCronjobSystemPrompt.firstUserMessage",
+          )}\n\n${result.firstUserMessage}`,
+        );
+      } else {
+        const result = await apiFetch<{ prompt: string }>(
+          preview ? "POST" : "GET",
+          preview
+            ? "/api/agents/system-prompt-preview"
+            : `/api/agents/${agentId}/system-prompt`,
+          preview,
+        );
+        setPrompt(result.prompt);
+      }
     } catch {
       setError(true);
     }
@@ -45,12 +59,17 @@ export function SystemPromptButton({
         onClick={() => void showPrompt()}
         style={dialogCancelBtn}
       >
-        {t("dialogs.agent.showSystemPrompt")}
+        {t(
+          cronjobId
+            ? "dialogs.agent.showCronjobPrompt"
+            : "dialogs.agent.showSystemPrompt",
+        )}
       </button>
       {open && (
         <SystemPromptModal
           prompt={prompt}
           isSpawnPreview={!!preview && !preview.agentId}
+          source={cronjobId ? "cronjob" : "agent"}
           error={error}
           copied={copied}
           onCopy={() => prompt !== null && void copy(prompt)}
@@ -64,6 +83,7 @@ export function SystemPromptButton({
 function SystemPromptModal({
   prompt,
   isSpawnPreview,
+  source,
   error,
   copied,
   onCopy,
@@ -71,6 +91,7 @@ function SystemPromptModal({
 }: {
   prompt: string | null;
   isSpawnPreview: boolean;
+  source: "agent" | "cronjob";
   error: boolean;
   copied: boolean;
   onCopy: () => void;
@@ -109,7 +130,11 @@ function SystemPromptModal({
         <section
           role="dialog"
           aria-modal="true"
-          aria-label={t("dialogs.agent.systemPromptTitle")}
+          aria-label={t(
+            source === "cronjob"
+              ? "dialogs.agent.cronjobPromptTitle"
+              : "dialogs.agent.systemPromptTitle",
+          )}
           style={{
             width: "min(900px, 100%)",
             maxHeight: "min(760px, calc(100dvh - 40px))",
@@ -124,7 +149,11 @@ function SystemPromptModal({
           }}
         >
           <h3 style={{ margin: 0, fontSize: 17 }}>
-            {t("dialogs.agent.systemPromptTitle")}
+            {t(
+              source === "cronjob"
+                ? "dialogs.agent.cronjobPromptTitle"
+                : "dialogs.agent.systemPromptTitle",
+            )}
           </h3>
           {isSpawnPreview && (
             <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>

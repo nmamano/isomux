@@ -7038,6 +7038,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
     }
 
+    if (claimedChoice?.interaction.kind === "cronjob") {
+      if (claimedChoice.value !== null) {
+        await handleSlashCommand(
+          agentId,
+          managed,
+          "isomux-cronjob-system-prompt",
+          [claimedChoice.value],
+          text,
+          username,
+          device,
+        );
+        return;
+      }
+      emitEphemeralLog(
+        agentId,
+        "system",
+        logWords(agentId, username)("systemEntries.cronjobPickCancelled"),
+      );
+    }
+
     // Intercept slash commands that are handled locally, not by the LLM
     if (text.startsWith("/")) {
       const [cmd, ...args] = text.slice(1).trim().split(/\s+/);

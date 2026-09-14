@@ -989,6 +989,8 @@ Cosas que puedes hacer por él:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema completo",
   "dialogs.agent.systemPromptLoadFailed":
     "No se pudo cargar el prompt de sistema.",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programación",
+  "dialogs.agent.showCronjobPrompt": "Mostrar prompt de la programación",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ej. "Eres un especialista en backend. Escribe siempre tests."',
   "dialogs.agent.revive": "Reactivar un agente detenido",
@@ -1171,6 +1173,7 @@ Cosas que puedes hacer por él:
   "apiCall.cronjobs.list": "Listar las programaciones",
   "apiCall.cronjobs.create": "Crear una programación",
   "apiCall.cronjobs.read": "Leer una programación",
+  "apiCall.cronjobs.systemPrompt": "Leer el prompt de una programación",
   "apiCall.cronjobs.update": "Actualizar una programación",
   "apiCall.cronjobs.delete": "Eliminar una programación",
   "apiCall.cronjobs.listRuns": "Listar las ejecuciones de una programación",
@@ -1280,6 +1283,7 @@ Cosas que puedes hacer por él:
   "logView.pendingPrompt.resume": "Esperando que elijas una sesión",
   "logView.pendingPrompt.model": "Esperando que elijas un modelo",
   "logView.pendingPrompt.effort": "Esperando que elijas un esfuerzo",
+  "logView.pendingPrompt.cronjob": "Esperando que elijas una programación",
   "logView.abort": "Abortar",
   "logView.abortTitle": "Abortar (Ctrl+C)",
   "logView.restartingSession": "Reiniciando la sesión...",
@@ -1493,6 +1497,7 @@ Cosas que puedes hacer por él:
   "office.pendingPrompt.resume": "sesión",
   "office.pendingPrompt.model": "modelo",
   "office.pendingPrompt.effort": "esfuerzo",
+  "office.pendingPrompt.cronjob": "programación",
   "office.pet.default": "Predeterminada",
   "contextMenu.editAgent": "Editar el agente...",
   "contextMenu.newConversation": "Conversación nueva",
@@ -1878,10 +1883,9 @@ Cosas que puedes hacer por él:
     "Pregunta a tu agente si quieres saber más sobre cualquier agente o conversación.",
   "commands.isomuxSystemPrompt.header":
     "**Prompt de sistema completo** *(refleja los ajustes actuales; se aplica en la próxima conversación)*",
-  "commands.isomuxCronjobSystemPrompt.usage": "Uso: {usage}",
   "commands.isomuxCronjobSystemPrompt.noSchedules":
     "No hay ninguna programación configurada.",
-  "commands.isomuxCronjobSystemPrompt.known": "Programaciones conocidas:",
+  "commands.isomuxCronjobSystemPrompt.pick": "Elige una programación:",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
     'Hay varias programaciones que se llaman "{query}". Vuelve a ejecutarlo con el id:',
   "commands.isomuxCronjobSystemPrompt.noMatch":
@@ -1927,6 +1931,9 @@ Cosas que puedes hacer por él:
   "choices.model.instruction":
     "Responde con un número para cambiar, o cualquier otra cosa para cancelar.",
   "choices.effort.title": "Cambiar el esfuerzo de razonamiento",
+  "choices.cronjob.title": "Elegir una programación",
+  "choices.cronjob.instruction":
+    "Responde con un número para ver su prompt o con cualquier otra cosa para cancelar.",
   "choices.permission.title": "Quiere usar {tool}",
   "choices.permission.instruction":
     "Elige una opción, o escribe cualquier otro mensaje para denegar con ese motivo.",
@@ -2064,6 +2071,8 @@ Cosas que puedes hacer por él:
   "systemEntries.effortSwitched":
     "Esfuerzo de razonamiento cambiado a {label}.",
   "systemEntries.effortCancelled": "Cambio de esfuerzo cancelado.",
+  "systemEntries.cronjobPickCancelled":
+    "Selección de programación cancelada.",
   "systemEntries.branchedFrom": "Ramificada a partir de: {label}",
   "systemEntries.branchFailed": "No se pudo ramificar la conversación: {error}",
   "systemEntries.editBusy": "No se puede editar mientras el agente trabaja.",

@@ -10,7 +10,8 @@ import { commands, autocompleteCommands } from "../commands.ts";
 
 // Commands whose bare `/name` invocation is complete/useful - a direct action
 // (/clear, /context) or an interactive picker that takes no argument text
-// (/model, /effort, /resume). /diff diffs the cwd with no arg.
+// (/model, /effort, /resume, /isomux-cronjob-system-prompt). /diff diffs the
+// cwd with no arg.
 const EXPECTED_AUTORUN = new Set([
   "clear",
   "context",
@@ -22,6 +23,7 @@ const EXPECTED_AUTORUN = new Set([
   "isomux-storage",
   "isomux-all-hands",
   "isomux-system-prompt",
+  "isomux-cronjob-system-prompt",
   "resume",
   "model",
   "effort",
@@ -32,7 +34,7 @@ const EXPECTED_AUTORUN = new Set([
 // Commands that need (or primarily want) an argument, so they must stay
 // copy-into-composer: a required path, or a name/id whose no-arg output is just
 // a usage/listing en route to the real selection.
-const EXPECTED_COPY = new Set(["isomux-edit", "isomux-cronjob-system-prompt"]);
+const EXPECTED_COPY = new Set(["isomux-edit"]);
 
 describe("command registry autoRun classification", () => {
   it("marks exactly the no-arg commands autoRun in the registry", () => {

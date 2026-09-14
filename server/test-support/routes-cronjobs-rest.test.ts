@@ -169,6 +169,33 @@ describe("routes/cron REST: reads", () => {
     ).toBe(404);
   });
 
+  it("GET /api/cronjobs/:id/system-prompt returns both prompt sources under the cron read guard", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss", "Prompt source");
+
+    const response = await api(srv, `/api/cronjobs/${job.id}/system-prompt`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ firstUserMessage: "p" });
+    expect(
+      (response.body as { systemPrompt: string }).systemPrompt,
+    ).toContain("Prompt source");
+
+    expect(
+      (
+        await api(srv, "/api/cronjobs/missing/system-prompt", {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(srv, `/api/cronjobs/${job.id}/system-prompt`)).status,
+    ).toBe(401);
+  });
+
   it("run reads: listRuns/listAllRuns shapes; getRun unknown -> 404", async () => {
     const srv = await startTestServer();
     server = srv;

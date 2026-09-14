@@ -2294,6 +2294,8 @@ function buildExecutorDeps(
   register(
     cronHandlers({
       listCronjobs: () => cronjobManager.listCronjobs(),
+      buildCronjobSystemPrompt: (cronjob) =>
+        cronjobManager.buildCronjobSystemPrompt(cronjob),
       createCronjob: (input) =>
         cronjobManager.addCronjob({
           ...input,

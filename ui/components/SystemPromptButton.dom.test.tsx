@@ -59,6 +59,44 @@ describe("SystemPromptButton", () => {
     view.unmount();
   });
 
+  it("opens and copies both cronjob prompt sources", async () => {
+    const calls: string[] = [];
+    setApiShim(async (method, path) => {
+      calls.push(`${method} ${path}`);
+      return {
+        systemPrompt: "Cronjob system prompt",
+        firstUserMessage: "Configured request",
+      };
+    });
+    let copied = "";
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void (copied = text) },
+    });
+    const view = render(<SystemPromptButton cronjobId="cron-1" />);
+    await act(async () => {
+      fireEvent.click(
+        view.getByRole("button", { name: "Show cronjob prompt" }),
+      );
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(view.getByText("Configured request", { exact: false })).toBeTruthy(),
+    );
+    expect(calls).toEqual(["GET /api/cronjobs/cron-1/system-prompt"]);
+    expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
+      "Cronjob prompt",
+    );
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Copy" }));
+      await Promise.resolve();
+    });
+    expect(copied).toBe(
+      "Cronjob system prompt\n\n----\nFirst user message:\n\nConfigured request",
+    );
+    view.unmount();
+  });
+
   it("shows load errors and closes from the Close button", async () => {
     setApiShim(async () => {
       throw new Error("offline");
@@ -126,6 +164,26 @@ describe("system-prompt log marker", () => {
     view.unmount();
     setApiShim(null);
     await new Promise<void>((resolve) => setImmediate(resolve));
+  });
+
+  it("renders a cronjob marker with its source-specific button", async () => {
+    const view = render(
+      <LogEntryCard
+        entry={{
+          id: "entry-cron",
+          agentId: "agent-1",
+          timestamp: 1,
+          kind: "system",
+          content: 'Cronjob prompt for "Night report"',
+          metadata: { systemPrompt: true, cronjobId: "cron-1" },
+        }}
+      />,
+    );
+    expect(view.getByText('Cronjob prompt for "Night report"')).toBeTruthy();
+    expect(
+      view.getByRole("button", { name: "Show cronjob prompt" }),
+    ).toBeTruthy();
+    view.unmount();
   });
 
   it("renders the header's bold and italic markup instead of its asterisks", async () => {

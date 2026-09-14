@@ -40,6 +40,7 @@ import type {
 
 export interface CronDeps {
   listCronjobs(): Cronjob[];
+  buildCronjobSystemPrompt(cronjob: Cronjob): string;
   createCronjob(input: {
     name: string;
     schedule: Cronjob["schedule"];
@@ -117,6 +118,16 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     "cron.get": (ctx) => {
       const job = deps.listCronjobs().find((c) => c.id === ctx.params.id);
       return job ? ok(job) : fail(404, "not_found");
+    },
+
+    "cron.readSystemPrompt": (ctx) => {
+      const job = deps.listCronjobs().find((c) => c.id === ctx.params.id);
+      return job
+        ? ok({
+            systemPrompt: deps.buildCronjobSystemPrompt(job),
+            firstUserMessage: job.prompt,
+          })
+        : fail(404, "not_found");
     },
 
     "cron.create": (ctx) => {

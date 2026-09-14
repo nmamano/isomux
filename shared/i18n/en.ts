@@ -982,6 +982,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.agent.showSystemPrompt": "Show full system prompt",
   "dialogs.agent.systemPromptTitle": "Full system prompt",
   "dialogs.agent.systemPromptLoadFailed": "Could not load the system prompt.",
+  "dialogs.agent.cronjobPromptTitle": "Cronjob prompt",
+  "dialogs.agent.showCronjobPrompt": "Show cronjob prompt",
   "dialogs.agent.customInstructionsPlaceholder":
     'e.g. "You are a backend specialist. Always write tests."',
   "dialogs.agent.revive": "Revive a killed agent",
@@ -1155,6 +1157,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.cronjobs.list": "List cronjobs",
   "apiCall.cronjobs.create": "Create a cronjob",
   "apiCall.cronjobs.read": "Read a cronjob",
+  "apiCall.cronjobs.systemPrompt": "Read a cronjob prompt",
   "apiCall.cronjobs.update": "Update a cronjob",
   "apiCall.cronjobs.delete": "Delete a cronjob",
   "apiCall.cronjobs.listRuns": "List cronjob runs",
@@ -1263,6 +1266,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "logView.pendingPrompt.resume": "Waiting for a session pick",
   "logView.pendingPrompt.model": "Waiting for a model pick",
   "logView.pendingPrompt.effort": "Waiting for an effort pick",
+  "logView.pendingPrompt.cronjob": "Waiting for a cronjob pick",
   "logView.abort": "Abort",
   "logView.abortTitle": "Abort (Ctrl+C)",
   "logView.restartingSession": "Restarting session...",
@@ -1469,6 +1473,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "office.pendingPrompt.resume": "session",
   "office.pendingPrompt.model": "model",
   "office.pendingPrompt.effort": "effort",
+  "office.pendingPrompt.cronjob": "cronjob",
   "office.pet.default": "Default",
   "contextMenu.editAgent": "Edit Agent...",
   "contextMenu.newConversation": "New Conversation",
@@ -1858,10 +1863,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "**Full system prompt** *(reflects current settings; takes effect on next conversation)*",
 
   // /isomux-cronjob-system-prompt
-  "commands.isomuxCronjobSystemPrompt.usage": "Usage: {usage}",
   "commands.isomuxCronjobSystemPrompt.noSchedules":
     "No schedules are configured.",
-  "commands.isomuxCronjobSystemPrompt.known": "Known schedules:",
+  "commands.isomuxCronjobSystemPrompt.pick": "Choose a schedule:",
   "commands.isomuxCronjobSystemPrompt.ambiguous":
     'Multiple schedules are named "{query}". Re-run with the id:',
   "commands.isomuxCronjobSystemPrompt.noMatch":
@@ -1918,6 +1922,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "choices.model.instruction":
     "Reply with a number to switch, or anything else to cancel.",
   "choices.effort.title": "Switch thinking effort",
+  "choices.cronjob.title": "Choose a schedule",
+  "choices.cronjob.instruction":
+    "Reply with a number to view its prompt, or anything else to cancel.",
   "choices.permission.title": "Wants to use {tool}",
   "choices.permission.instruction":
     "Choose an option, or type any other message to deny with that as the reason.",
@@ -2056,6 +2063,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "systemEntries.modelCancelled": "Model selection cancelled.",
   "systemEntries.effortSwitched": "Thinking effort switched to {label}.",
   "systemEntries.effortCancelled": "Effort selection cancelled.",
+  "systemEntries.cronjobPickCancelled": "Schedule selection cancelled.",
   "systemEntries.branchedFrom": "Branched from: {label}",
   "systemEntries.branchFailed": "Failed to branch conversation: {error}",
   "systemEntries.editBusy": "Cannot edit while agent is busy.",

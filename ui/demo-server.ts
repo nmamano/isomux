@@ -2580,6 +2580,20 @@ export async function demoApi(
         "# Isomux demo agent\n\nThis read-only preview shows the full system prompt for the selected agent.",
     };
   }
+  const cronjobPromptMatch = pathname.match(
+    /^\/api\/cronjobs\/([^/]+)\/system-prompt$/,
+  );
+  if (method === "GET" && cronjobPromptMatch) {
+    const cronjob = cronjobs.find(
+      (candidate) => candidate.id === decodeURIComponent(cronjobPromptMatch[1]),
+    );
+    if (!cronjob) throw new ApiError(404, "not_found", "Cronjob not found");
+    return {
+      systemPrompt:
+        "# Isomux demo cronjob\n\nThis read-only preview shows the cronjob system prompt.",
+      firstUserMessage: cronjob.prompt,
+    };
+  }
   if (method === "POST" && pathname === "/api/agents/system-prompt-preview") {
     const draft =
       body as import("../shared/contract-shapes.ts").AgentSystemPromptPreviewReq;

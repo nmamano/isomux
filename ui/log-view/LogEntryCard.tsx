@@ -645,7 +645,14 @@ export const LogEntryCard = memo(function LogEntryCard({
                   markup; a plain span showed the asterisks. */}
               <InlineMarkdown content={entry.content} />
             </span>
-            <SystemPromptButton agentId={entry.agentId} />
+            <SystemPromptButton
+              agentId={entry.agentId}
+              cronjobId={
+                typeof entry.metadata?.cronjobId === "string"
+                  ? entry.metadata.cronjobId
+                  : undefined
+              }
+            />
           </div>
         );
       }

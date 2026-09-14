@@ -34,7 +34,7 @@ import {
   unsupportedMessage,
   type CommandConfig,
 } from "./commands.ts";
-import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
+import { listCronjobs } from "./cronjob-manager.ts";
 import { resolveSkillPrompt, type UserSkillRoot } from "./skills.ts";
 import { recordSkillUse } from "./skill-usage.ts";
 import {
@@ -62,7 +62,6 @@ import { buildPublicOrigin } from "./auth.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
 const DOCS_URL = "https://isomux.com/docs";
-const CRONJOB_PROMPT_USAGE = "`/isomux-cronjob-system-prompt <name-or-id>`";
 const EDIT_USAGE = "`/isomux-edit <path>`";
 const ACCESS_DOCS_URL = "https://isomux.com/docs/access-and-invites";
 
@@ -81,9 +80,9 @@ function choiceInstruction(
   t: Translator["t"],
   kind: AgentChoiceInteractionKind,
 ): string {
-  return kind === "resume"
-    ? `\n${t("choices.resume.instruction")}`
-    : `\n${t("choices.model.instruction")}`;
+  if (kind === "resume") return `\n${t("choices.resume.instruction")}`;
+  if (kind === "cronjob") return `\n${t("choices.cronjob.instruction")}`;
+  return `\n${t("choices.model.instruction")}`;
 }
 
 function buildMeta(
@@ -833,20 +832,34 @@ export function createCommandHandling(deps: HandlerDeps) {
       const all = listCronjobs();
 
       if (!query) {
-        const lines = [
-          t("commands.isomuxCronjobSystemPrompt.usage", {
-            usage: CRONJOB_PROMPT_USAGE,
-          }),
-        ];
         if (all.length === 0) {
-          lines.push(
-            `\n${t("commands.isomuxCronjobSystemPrompt.noSchedules")}`,
+          deps.addLogEntry(
+            agentId,
+            "system",
+            t("commands.isomuxCronjobSystemPrompt.noSchedules"),
           );
-        } else {
-          lines.push(`\n${t("commands.isomuxCronjobSystemPrompt.known")}`);
-          for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);
+          deps.updateState(agentId, "waiting_for_response");
+          return true;
         }
-        deps.addLogEntry(agentId, "system", lines.join("\n"));
+        const instruction = choiceInstruction(t, "cronjob");
+        const lines = [t("commands.isomuxCronjobSystemPrompt.pick"), ""];
+        for (const [index, cronjob] of all.entries()) {
+          lines.push(`  ${index + 1}. ${cronjob.name}`);
+        }
+        lines.push(instruction);
+        deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+          interactionFallback: true,
+        });
+        deps.openChoiceInteraction(
+          agentId,
+          "cronjob",
+          t("choices.cronjob.title"),
+          instruction,
+          all.map((cronjob) => ({
+            value: cronjob.id,
+            label: cronjob.name,
+          })),
+        );
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -874,24 +887,14 @@ export function createCommandHandling(deps: HandlerDeps) {
         return true;
       }
 
-      // The cronjob receives the system prompt + the configured prompt as its
-      // first user message, so display both - that's the full initial input.
-      const systemPrompt = buildCronjobSystemPrompt(target);
-      const combined = `${systemPrompt}\n\n----\n${t(
-        "commands.isomuxCronjobSystemPrompt.firstUserMessage",
-      )}\n\n${target.prompt}`;
-      const longestRun = (combined.match(/`+/g) ?? []).reduce(
-        (m, s) => Math.max(m, s.length),
-        0,
-      );
-      const fence = "`".repeat(Math.max(3, longestRun + 1));
       const header = t("commands.isomuxCronjobSystemPrompt.header", {
         name: target.name,
       });
       deps.addLogEntry(
         agentId,
         "system",
-        `${header}\n\n${fence}plaintext\n${combined}\n${fence}`,
+        header,
+        { systemPrompt: true, cronjobId: target.id },
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;

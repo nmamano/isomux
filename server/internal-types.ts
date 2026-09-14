@@ -371,12 +371,13 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
     managed.pendingPermission ||
     managed.pendingResume ||
     managed.pendingModelPick ||
-    managed.pendingEffortPick
+    managed.pendingEffortPick ||
+    managed.pendingInteraction?.kind === "cronjob"
   );
 }
 
 // Which two-step prompt an agent is parked on, or null when it is not parked.
-// The same four flags inMultiStepFlow reduces to a boolean,
+// The same parked states inMultiStepFlow reduces to a boolean,
 // kept as a named value so the state can be SHOWN rather than only acted on: a
 // prompt-parked agent used to be indistinguishable from one whose backend had
 // died, because the prompt itself is written as an ephemeral log entry that
@@ -395,6 +396,7 @@ export function pendingPromptOf(
   if (managed.pendingResume) return "resume";
   if (managed.pendingModelPick) return "model";
   if (managed.pendingEffortPick) return "effort";
+  if (managed.pendingInteraction?.kind === "cronjob") return "cronjob";
   return null;
 }
 

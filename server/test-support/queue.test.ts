@@ -257,6 +257,205 @@ async function respondInteraction(
 }
 
 describe("structured choice interactions", () => {
+  it("picks a cronjob by click without persisting its prompt and keeps the typed shortcut", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const job = server.cronjobManager.addCronjob({
+      name: "Night report",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "CRONJOB_FIRST_MESSAGE_MARKER",
+      cwd: server.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: owner.username,
+      userId: null,
+    });
+    const pickedAgent = await spawnAgent(server, "Picker", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      pickedAgent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    const interaction = server.agentManager
+      .getPendingInteractions()
+      .find((item) => item.agentId === pickedAgent.id);
+    if (!interaction) throw new Error("cronjob interaction missing");
+    expect(interaction.kind).toBe("cronjob");
+    expect(interaction.choices).toEqual([
+      { value: job.id, label: "Night report" },
+    ]);
+    expectFallbackMatchesChoices(
+      fallbackFor(server, pickedAgent.id),
+      interaction.choices,
+    );
+
+    await respondInteraction(
+      server,
+      owner.rawSessionId,
+      pickedAgent.id,
+      interaction.id,
+      job.id,
+    );
+    await waitUntil(
+      () =>
+        server!.agentManager
+          .getAgentLogs(pickedAgent.id)
+          .some((entry) => entry.metadata?.cronjobId === job.id),
+      2_000,
+      "cronjob prompt marker",
+    );
+    const marker = server.agentManager
+      .getAgentLogs(pickedAgent.id)
+      .find((entry) => entry.metadata?.cronjobId === job.id)!;
+    expect(marker.content).toContain("Night report");
+    expect(marker.content).not.toContain("CRONJOB_FIRST_MESSAGE_MARKER");
+
+    const typedAgent = await spawnAgent(server, "Shortcut", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      typedAgent.id,
+      `/isomux-cronjob-system-prompt ${job.id}`,
+    );
+    expect(
+      server.agentManager
+        .getAgentLogs(typedAgent.id)
+        .some((entry) => entry.metadata?.cronjobId === job.id),
+    ).toBe(true);
+  });
+
+  it("reports an empty cronjob list without opening a dead interaction", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const agent = await spawnAgent(server, "Picker", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(
+      server.agentManager
+        .getAgentLogs(agent.id)
+        .some((entry) => entry.content === "No schedules are configured."),
+    ).toBe(true);
+  });
+
+  it("cancels a cronjob pick without swallowing the next message or duplicating a slash pick", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    server.cronjobManager.addCronjob({
+      name: "Night report",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "report",
+      cwd: server.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: owner.username,
+      userId: null,
+    });
+
+    const messageAgent = await spawnAgent(server, "Message cancel", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      messageAgent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    await sendHuman(server, owner.rawSessionId, messageAgent.id, "hello there");
+    // MUTANT: an unconditional cronjob handleSlashCommand call for a null
+    // choice reopens the picker. This assertion fails first on that mutant.
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, messageAgent.id).pendingPrompt).toBe(null);
+    await waitUntil(
+      () =>
+        server!.fakeBackend
+          .sessionForAgent(messageAgent.id)
+          ?.sent.some((message) => message.text.includes("hello there")) ??
+        false,
+      2_000,
+      "cancel message reaches backend",
+    );
+
+    const slashAgent = await spawnAgent(server, "Slash cancel", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      slashAgent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    const firstId = server.agentManager.getPendingInteractions()[0]?.id;
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      slashAgent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    const remaining = server.agentManager.getPendingInteractions();
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].id).not.toBe(firstId);
+  });
+
+  it("does not open a prompt marker when the selected cronjob was deleted", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const job = server.cronjobManager.addCronjob({
+      name: "Temporary",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "deleted prompt",
+      cwd: server.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: owner.username,
+      userId: null,
+    });
+    const agent = await spawnAgent(server, "Picker", room.id);
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      "/isomux-cronjob-system-prompt",
+    );
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("cronjob interaction missing");
+    server.cronjobManager.deleteCronjob(job.id);
+
+    await respondInteraction(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      interaction.id,
+      job.id,
+    );
+    await waitUntil(
+      () =>
+        server!.agentManager
+          .getAgentLogs(agent.id)
+          .some((entry) => entry.content.includes(`\`${job.id}\``)),
+      2_000,
+      "deleted cronjob message",
+    );
+    expect(
+      server.agentManager
+        .getAgentLogs(agent.id)
+        .some((entry) => entry.metadata?.cronjobId === job.id),
+      // MUTANT: resolving against the cronjob list cached when the pick opened
+      // writes a marker here even though the cronjob no longer exists.
+    ).toBe(false);
+  });
+
   it("uses semantic values and settles a double response once", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");

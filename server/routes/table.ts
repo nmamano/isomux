@@ -298,6 +298,10 @@ type AgentInstructionsRes = {
   customInstructionsVersion: string;
 };
 type AgentSystemPromptRes = { prompt: string };
+type CronjobSystemPromptRes = {
+  systemPrompt: string;
+  firstUserMessage: string;
+};
 type OkTrue = { ok: true };
 type InteractionResponseReq = { value: string };
 type InteractionResponseRes = {
@@ -1382,6 +1386,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.get",
     method: "GET",
     path: "/api/cronjobs/:id",
+    auth: cap("cron:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, CronjobSystemPromptRes>({
+    opId: "cron.readSystemPrompt",
+    method: "GET",
+    path: "/api/cronjobs/:id/system-prompt",
     auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
