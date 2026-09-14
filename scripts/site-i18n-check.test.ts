@@ -385,6 +385,21 @@ describe("public site in four languages", () => {
       expect(broken).toEqual([]);
     });
 
+    if (row.family === "hosted") {
+      it(`${name} carries its language to the storefront`, () => {
+        const cloudLinks = tags(read(row), "a")
+          .map((a) => a.href)
+          .filter((href) => href?.startsWith("https://cloud.isomux.com"));
+        expect(cloudLinks.length).toBe(2);
+        for (const href of cloudLinks) {
+          const linked = new URL(href);
+          expect(linked.searchParams.get("lang")).toBe(
+            row.lang === "en" ? null : row.lang,
+          );
+        }
+      });
+    }
+
     it(`${name} ${row.family === "hosted" ? "says" : "does not say"} which language the legal pages are in`, () => {
       const notes = blocksOf(read(row), "p", "legal-note");
       if (row.family !== "hosted") {

@@ -4,11 +4,16 @@
 // ORDER actually live.
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { resolveInBrowser, writeLanguageCookie } from "./use-language";
+import {
+  consumeLinkedLanguage,
+  resolveInBrowser,
+  writeLanguageCookie,
+} from "./use-language";
 
 const realDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
 const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
 const realLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+const realHistory = Object.getOwnPropertyDescriptor(globalThis, "history");
 
 function put(name: string, value: unknown): void {
   Object.defineProperty(globalThis, name, {
@@ -36,6 +41,93 @@ afterEach(() => {
   restore("document", realDocument);
   restore("navigator", realNavigator);
   restore("location", realLocation);
+  restore("history", realHistory);
+});
+
+describe("consumeLinkedLanguage", () => {
+  test("a supported linked choice wins, is remembered and is removed", () => {
+    const jar = { cookie: "isomux_lang=es", documentElement: { lang: "en" } };
+    put("document", jar);
+    put("navigator", { languages: ["es"], language: "es" });
+    put("location", {
+      protocol: "https:",
+      href: "https://cloud.isomux.com/?lang=ca&from=site#plans",
+    });
+    let replaced = "";
+    const state = { kept: true };
+    let replacedState: unknown;
+    put("history", {
+      state,
+      replaceState: (nextState: unknown, _unused: string, url: URL) => {
+        replacedState = nextState;
+        replaced = url.toString();
+      },
+    });
+    expect(consumeLinkedLanguage()).toBe("ca");
+    expect(jar.cookie).toContain("isomux_lang=ca");
+    expect(replaced).toBe("https://cloud.isomux.com/?from=site#plans");
+    expect(replacedState).toBe(state);
+  });
+
+  test("unknown, empty and mixed-case values do nothing", () => {
+    for (const value of ["fr", "", "ES"]) {
+      const jar = { cookie: "isomux_lang=zh", documentElement: { lang: "en" } };
+      put("document", jar);
+      put("location", {
+        protocol: "https:",
+        href: `https://cloud.isomux.com/?lang=${value}`,
+      });
+      let replaced = false;
+      put("history", {
+        state: null,
+        replaceState: () => {
+          replaced = true;
+        },
+      });
+      expect(consumeLinkedLanguage()).toBeNull();
+      expect(jar.cookie).toBe("isomux_lang=zh");
+      expect(replaced).toBe(false);
+    }
+  });
+
+  test("the first repeated value wins", () => {
+    const jar = { cookie: "", documentElement: { lang: "en" } };
+    put("document", jar);
+    put("location", {
+      protocol: "https:",
+      href: "https://cloud.isomux.com/?lang=es&lang=ca",
+    });
+    let replaced = "";
+    put("history", {
+      state: null,
+      replaceState: (_state: unknown, _unused: string, url: URL) => {
+        replaced = url.toString();
+      },
+    });
+    expect(consumeLinkedLanguage()).toBe("es");
+    expect(jar.cookie).toContain("isomux_lang=es");
+    expect(new URL(replaced).searchParams.has("lang")).toBe(false);
+  });
+
+  test("after consumption a later switch choice survives resolution", () => {
+    const jar = { cookie: "", documentElement: { lang: "en" } };
+    put("document", jar);
+    put("navigator", { languages: ["es"], language: "es" });
+    const current = {
+      protocol: "https:",
+      href: "https://cloud.isomux.com/?lang=es",
+    };
+    put("location", current);
+    put("history", {
+      state: null,
+      replaceState: (_state: unknown, _unused: string, url: URL) => {
+        current.href = url.toString();
+      },
+    });
+    expect(consumeLinkedLanguage()).toBe("es");
+    jar.cookie = "isomux_lang=en";
+    expect(consumeLinkedLanguage() ?? resolveInBrowser()).toBe("en");
+  });
 });
 
 describe("resolveInBrowser", () => {

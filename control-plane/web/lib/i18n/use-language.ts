@@ -6,6 +6,7 @@ import {
   LANGUAGE_COOKIE,
   languageFromCookie,
   languageFromNavigator,
+  isSupportedLanguage,
   type SupportedLanguageCode,
 } from "./languages";
 
@@ -15,8 +16,9 @@ import {
  * `/` and `/signin` are prerendered under `dynamic = "error"` so a CDN can hold
  * their shell, which means they never see a request and cannot read a cookie or
  * a header while they render. This is the client-side twin of
- * `languageForRequest`, and it keeps the same precedence: the switch's cookie,
- * then what the browser asks for, then English.
+ * `languageForRequest`. A supported `lang` query from isomux.com is an explicit
+ * choice, so it wins and becomes the switch's cookie. Otherwise the precedence
+ * stays the cookie, what the browser asks for, then English.
  *
  * IT RETURNS ENGLISH ON THE FIRST RENDER, always. That is not a limitation to
  * work around: the prerendered bytes are English, so any other first render
@@ -33,7 +35,7 @@ export function useLanguage(): SupportedLanguageCode {
     // reading them is the whole job of this hook. It runs once, and the first
     // render is English on purpose: see the note above.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLanguage(resolveInBrowser());
+    setLanguage(consumeLinkedLanguage() ?? resolveInBrowser());
   }, []);
   return language;
 }
@@ -41,7 +43,7 @@ export function useLanguage(): SupportedLanguageCode {
 /**
  * The cookie's value, or null when it is absent or names nothing we serve.
  *
- * NOT decoded. The only values we ever write are `en`, `es` and `ca`, which
+ * NOT decoded. The only values we ever write are supported language codes, which
  * percent-encoding cannot change, and `decodeURIComponent` THROWS on a
  * malformed sequence - so decoding an attacker-supplied or merely corrupt
  * `isomux_lang=%` would throw out of the hydration effect and take the page's
@@ -73,8 +75,26 @@ export function writeLanguageCookie(code: SupportedLanguageCode): void {
   document.cookie = `${LANGUAGE_COOKIE}=${code}; Path=/; Max-Age=${maxAge}; SameSite=Lax${secure}`;
 }
 
-/** Cookie, then the browser's ordered preferences, then English. Exported for
- * its unit test and for the language switch, which marks the active choice. */
+/**
+ * Consume a supported language carried from isomux.com.
+ *
+ * The first `lang` value wins when it is an exact supported code. After saving
+ * it, remove every `lang` value so the switch can replace the choice and reload
+ * this URL. The path, hash and all other parameters stay in place.
+ */
+export function consumeLinkedLanguage(): SupportedLanguageCode | null {
+  if (typeof document === "undefined") return null;
+  const url = new URL(location.href);
+  const linked = url.searchParams.get("lang");
+  if (!isSupportedLanguage(linked)) return null;
+  writeLanguageCookie(linked);
+  url.searchParams.delete("lang");
+  history.replaceState(history.state, "", url);
+  return linked;
+}
+
+/** Cookie, browser preferences, then English. This resolver is side-effect free
+ * and is also used by the language switch to mark the active choice. */
 export function resolveInBrowser(): SupportedLanguageCode {
   if (typeof document === "undefined") return DEFAULT_LANGUAGE;
   const chosen = languageCookieValue(document.cookie);
