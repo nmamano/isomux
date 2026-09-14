@@ -48,6 +48,7 @@ Keep a test only when all applicable rules below pass. A failed rule makes the t
 12. Repair a weak instrument when the protected stakes require it. Replace a brittle test before removing it when it is the only guard on a secret boundary or production-damage path.
 13. Use two modes for two jobs. Characterization tests freeze observed external behavior for refactor safety; new-code tests follow red-green-refactor.
 14. Avoid horizontal slicing. Do not write tests up front against speculation: ground characterization tests in observation, and let new-code tests follow implementation one behavior at a time.
+15. Do not match user-facing copy verbatim (Nil, 2026-09-14). A literal copy anchor prevents no bug and goes red on every rewrap or wording edit. Assert the behavior or structure the string stands for: the key resolves, the element is present, the page differs from its source. A literal is fine only for a protocol value: an error code, a wire label, a command name.
 
 Future test sweeps use three verdicts: **KEEP** retains a useful test, **CUT** deletes a cut candidate without a justified exception, and **REPAIR** replaces a useful guard's weak instrument before deleting the old case.
 
@@ -232,9 +233,12 @@ builds an `AppState` from `initialState` with one full user record and a
 wraps an element in `StateCtx.Provider` and `LanguageProvider` on that state.
 `over` sets anything else the test needs, such as `isMobile`. Load the fixture
 with `await import(...)` after `setUpDomTestFile()`, because it imports
-`ui/store.tsx`. `ui/i18n.dom.test.tsx` is the worked example. Assert literal
-translated text, never text read back through `translatorFor`: an oracle that
-repeats the implementation approves a wrong translation.
+`ui/store.tsx`. `ui/i18n.dom.test.tsx` is the worked example. Do not pin
+literal translated text, and do not read the expectation back through
+`translatorFor` either (an oracle that repeats the implementation approves a
+wrong translation): render the same element on `en` and on the language under
+test and assert the text changed, which proves the wiring without freezing
+copy (principle 15).
 
 `ui/settings.i18n.dom.test.tsx` is the larger example: it mounts one page and
 walks it through its panes by clicking, rather than mounting each pane. Two
