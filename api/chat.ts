@@ -58,9 +58,9 @@ const SITE_VOICE = `You are an assistant on the Isomux website (isomux.com). You
 export const ISOMUX_KNOWLEDGE = `## What is Isomux?
 Isomux (Isometric Multiplexer) is a source-available meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration, a mobile UI, and more. It gives you a browser-based UI with an isometric office where each agent sits at a desk, so you see who's working, who's idle, and who needs your attention at a glance.
 
-Free for personal use · source-available · no account needed · works with your subscriptions.
+Free for individuals and small teams · source-available · no account needed · works with your subscriptions.
 
-Licensing: Business Source License 1.1 (see LICENSE and COMMERCIAL-LICENSE.md in the repo). Production use for personal, non-commercial purposes is free, and evaluation, development and testing are free for anyone. Any other production use, including a company's internal self-hosting, needs a commercial license from Isomux LLC: llc@isomux.com. Each version converts to Apache 2.0 four years after its first release, and releases through v2026.9.10 stay under the MIT License.
+Licensing: Business Source License 1.1 (see LICENSE and COMMERCIAL-LICENSE.md in the repo). Production use is free for individuals and for organizations of up to 10 people, and evaluation, development and testing are free for anyone. Any other production use, including a larger company's internal self-hosting, needs a commercial license from Isomux LLC: llc@isomux.com (pricing on request). Each version converts to Apache 2.0 two years after its first release, and releases through v2026.9.10 stay under the MIT License.
 
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 

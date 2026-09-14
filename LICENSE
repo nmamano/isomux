@@ -10,14 +10,15 @@ Licensed Work:        Isomux, version identified by its CalVer release tag
                       The Licensed Work is (c) 2026 Isomux LLC
 
 Additional Use Grant: You may make production use of the Licensed Work for
-                      personal, non-commercial purposes. For clarity, the
+                      your own personal purposes, or for or on behalf of an
+                      organization with at most 10 people. For clarity, this
                       License already permits non-production use, including
                       evaluation, development, and testing, for any purpose.
                       Any other production use, including internal use by a
                       company or other organization on its own infrastructure,
                       requires a commercial license from Isomux LLC.
 
-Change Date:          Four years from the date the applicable version of the
+Change Date:          Two years from the date the applicable version of the
                       Licensed Work is first publicly released
 
 Change License:       Apache License, Version 2.0
