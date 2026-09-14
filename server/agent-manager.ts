@@ -160,6 +160,7 @@ import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import {
   BackendNotConfiguredError,
+  ProviderCapacityError,
   SessionSwappedError,
   TurnSupersededError,
   inMultiStepFlow,
@@ -4118,6 +4119,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           taskEvent: { taskId: ev.taskId, phase: ev.phase },
         });
         break;
+      case "provider_capacity_retry":
+        addLogEntry(
+          agentId,
+          "system",
+          logWords(agentId)("systemEntries.providerCapacityRetry", {
+            attempt: ev.attempt,
+            maxAttempts: ev.maxAttempts,
+            seconds: ev.delayMs / 1_000,
+          }),
+        );
+        break;
       case "permission_denied": {
         // Auto-mode / rule denial of a tool call, surfaced natively (the
         // denied tool_result still reaches the model). metadata
@@ -4240,6 +4252,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
         if (ev.status === "completed")
           flushPendingFreshRecoveryNotice(agentId, managed);
+        const isProviderCapacity = ev.causedByProviderCapacity === true;
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
           // status="interrupted" arrives after a member-initiated turn/interrupt.
@@ -4253,7 +4266,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             ev.status === "interrupted";
           if (isHotAbortClean)
             flushPendingFreshRecoveryNotice(agentId, managed);
-          if (!isHotAbortClean) {
+          if (isProviderCapacity) {
+            flushPendingFreshRecoveryNotice(agentId, managed);
+            const raw = ev.error ?? "Codex provider capacity";
+            addLogEntry(
+              agentId,
+              "error",
+              logWords(agentId)("systemEntries.backendFailure.providerCapacity"),
+              { backendFailureRaw: raw },
+            );
+            updateState(agentId, "waiting_for_response");
+          } else if (!isHotAbortClean) {
             // status="failed" while aborting usually means the codex subprocess
             // exited mid-interrupt (handleSubprocessExit synthesizes a failed
             // turn_completed). The state="error" flip below signals abort()'s
@@ -4328,7 +4351,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed) managed.sessionManager.clearLiveTurn(managed);
         if (turn) {
           managed.sessionManager.pendingTurn = null;
-          turn.resolve();
+          if (isProviderCapacity)
+            turn.reject(
+              new ProviderCapacityError(
+                ev.error ?? "Codex provider capacity",
+              ),
+            );
+          else turn.resolve();
         }
         break;
       }
@@ -6172,6 +6201,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           surfaceBackendNotConfigured(agentId, managed, err);
           return;
         }
+        if (err instanceof ProviderCapacityError) {
+          updateState(agentId, "waiting_for_response");
+          return;
+        }
         console.error(`Agent ${agentId} flush error:`, errMessage(err));
         addCallerFailureEntry(agentId, managed, err, (raw) =>
           logWords(agentId)("systemEntries.flushError", { error: raw }),
@@ -7088,6 +7121,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // sibling messages (preventing the cross-path updateState→flushQueue
         // duplicate emit), and transitions state to waiting_for_response.
         surfaceBackendNotConfigured(agentId, managed, err);
+        return;
+      }
+      if (err instanceof ProviderCapacityError) {
+        updateState(agentId, "waiting_for_response");
         return;
       }
       console.error(`Agent ${agentId} send error:`, errMessage(err));

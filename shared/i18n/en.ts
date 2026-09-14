@@ -1947,6 +1947,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The agent backend was stopped by signal {signal} (exit code {code}). The conversation is saved and can be resumed.",
   "systemEntries.backendFailure.providerCapacity":
     "The model provider is at capacity. That is on the provider's side, not this account's subscription or rate limits. Retry in a minute or pick another model. The conversation is saved and can be resumed.",
+  "systemEntries.providerCapacityRetry":
+    "The model provider is at capacity. Retrying in {seconds} seconds ({attempt}/{maxAttempts}).",
   "systemEntries.agentReady":
     'Agent "{name}" ready. Working in {cwd}. Permission mode: {mode}.',
   "systemEntries.streamError": "Stream error: {error}",

@@ -1952,6 +1952,8 @@ Cosas que puedes hacer por él:
     "El backend del agente se detuvo con la señal {signal} (código de salida {code}). La conversación está guardada y se puede retomar.",
   "systemEntries.backendFailure.providerCapacity":
     "El proveedor del modelo está saturado. Es un problema del lado del proveedor, no de la suscripción ni de los límites de uso de esta cuenta. Reintenta en un minuto o elige otro modelo. La conversación está guardada y se puede retomar.",
+  "systemEntries.providerCapacityRetry":
+    "El proveedor del modelo está saturado. Se reintentará en {seconds} segundos ({attempt}/{maxAttempts}).",
   "systemEntries.agentReady":
     'El agente "{name}" está listo. Trabaja en {cwd}. Modo de permisos: {mode}.',
   "systemEntries.streamError": "Error de flujo: {error}",

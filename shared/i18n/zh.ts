@@ -1752,6 +1752,8 @@ App 的一些原则：
     "智能体后端被信号 {signal} 停止（退出码 {code}）。对话已保存，可以继续。",
   "systemEntries.backendFailure.providerCapacity":
     "模型提供方已达到容量上限。这是提供方的问题，与此账户的订阅或速率限额无关。请稍等一分钟后重试，或选择其他模型。对话已保存，可以继续。",
+  "systemEntries.providerCapacityRetry":
+    "模型提供方已达到容量上限。将在 {seconds} 秒后重试（{attempt}/{maxAttempts}）。",
   "systemEntries.agentReady":
     "智能体「{name}」已就绪。工作目录为 {cwd}。权限模式：{mode}。",
   "systemEntries.streamError": "流式传输错误：{error}",

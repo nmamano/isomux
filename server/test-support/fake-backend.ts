@@ -155,6 +155,7 @@ export class FakeSession implements BackendSession {
     usage?: TokenUsage;
     cost?: number;
     error?: string;
+    causedByProviderCapacity?: boolean;
   }): void {
     if (opts?.text !== undefined) {
       this.push({ kind: "assistant_text", text: opts.text });
@@ -165,6 +166,7 @@ export class FakeSession implements BackendSession {
       usage: opts?.usage,
       cost: opts?.cost,
       error: opts?.error,
+      causedByProviderCapacity: opts?.causedByProviderCapacity,
     });
   }
 

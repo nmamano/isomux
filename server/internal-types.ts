@@ -352,6 +352,14 @@ export class BackendNotConfiguredError extends Error {
   }
 }
 
+/** A Codex turn stopped after bounded provider-capacity retries. */
+export class ProviderCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProviderCapacityError";
+  }
+}
+
 // True while the agent is part-way through a two-step pending flow (the
 // previous turn ended asking for a permission decision / resume pick / model
 // pick / effort pick). The next user message gets interpreted as the pick, so

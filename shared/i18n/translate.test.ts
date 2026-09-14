@@ -155,6 +155,17 @@ describe("translatorFor", () => {
     // @ts-expect-error nav.tasks has no placeholder, so t() takes no params.
     expect(t("common.tasks", { name: "x" })).toBe("Tasks");
   });
+
+  it("renders capacity retry numbers in Chinese without stuck placeholders", () => {
+    const text = translatorFor("zh").t("systemEntries.providerCapacityRetry", {
+      seconds: 5,
+      attempt: 1,
+      maxAttempts: 3,
+    });
+    expect(text).toContain(" 5 ");
+    expect(text).toContain("1/3");
+    expect(text).not.toMatch(/\{\w+\}/);
+  });
 });
 
 it("Chinese always selects other, including a count of one", () => {

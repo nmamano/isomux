@@ -103,6 +103,25 @@ function stateOf(srv: TestServer, id: string): string {
   return agentOf(srv, id).state;
 }
 
+function stateUpdatesSince(
+  sock: TestSocket,
+  agentId: string,
+  start: number,
+): string[] {
+  return sock.messages.slice(start).flatMap((message) => {
+    const update = message as {
+      type?: string;
+      agentId?: string;
+      changes?: { state?: string };
+    };
+    return update.type === "agent_updated" &&
+      update.agentId === agentId &&
+      typeof update.changes?.state === "string"
+      ? [update.changes.state]
+      : [];
+  });
+}
+
 function fallbackFor(srv: TestServer, agentId: string): string {
   return (
     srv.agentManager
@@ -1498,6 +1517,91 @@ describe("queue: newer turn supersedes an accepted flush (task bc782d34)", () =>
         );
       }),
     ).toBe(false);
+  });
+});
+
+describe("queue: recoverable provider capacity", () => {
+  it("flush owner delivers a message queued behind give-up without entering error", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await postAgentMessage(server, recv.id, sender.id, "first");
+    await waitUntil(() => stateOf(server!, recv.id) === "thinking");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await postAgentMessage(server, recv.id, sender.id, "behind");
+    expect(queueOf(server, recv.id)).toHaveLength(1);
+
+    const stateStart = sock.messages.length;
+    session.completeTurn({
+      status: "failed",
+      error: "provider detail",
+      causedByProviderCapacity: true,
+    });
+    await waitUntil(
+      () => session.sent.some((message) => message.text.includes("behind")),
+      2000,
+      "queued message delivered after capacity give-up",
+    );
+    expect(queueOf(server, recv.id)).toHaveLength(0);
+    const states = stateUpdatesSince(sock, recv.id, stateStart);
+    expect(states).toContain("waiting_for_response");
+    expect(states).toContain("thinking");
+    expect(states).not.toContain("error");
+    const logs = server.agentManager.getAgentLogs(recv.id);
+    expect(
+      logs.some(
+        (entry) =>
+          entry.kind === "error" &&
+          entry.metadata?.backendFailureRaw === "provider detail",
+      ),
+    ).toBe(true);
+  });
+
+  it("human-send owner delivers a message queued behind give-up without entering error", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    const humanSend = sendHuman(
+      server,
+      owner.rawSessionId,
+      recv.id,
+      "human turn",
+    );
+    await waitUntil(() => stateOf(server!, recv.id) === "thinking");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await postAgentMessage(server, recv.id, sender.id, "behind human turn");
+    expect(queueOf(server, recv.id)).toHaveLength(1);
+
+    const stateStart = sock.messages.length;
+    session.completeTurn({
+      status: "failed",
+      error: "provider detail",
+      causedByProviderCapacity: true,
+    });
+    await humanSend;
+    await waitUntil(
+      () =>
+        session.sent.some((message) =>
+          message.text.includes("behind human turn"),
+        ),
+      2000,
+      "queued message delivered after human capacity give-up",
+    );
+    expect(queueOf(server, recv.id)).toHaveLength(0);
+    const states = stateUpdatesSince(sock, recv.id, stateStart);
+    expect(states).toContain("waiting_for_response");
+    expect(states).toContain("thinking");
+    expect(states).not.toContain("error");
   });
 });
 

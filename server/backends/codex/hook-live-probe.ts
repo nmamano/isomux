@@ -436,6 +436,7 @@ async function runReading(
         "thread/resume",
         {
           threadId: thread.thread.id,
+          excludeTurns: true,
           approvalPolicy: "never",
           sandbox: "danger-full-access",
           model,
@@ -444,6 +445,7 @@ async function runReading(
     } else if (sessionMode === "fork") {
       thread = await client.request<{ thread: { id: string } }>("thread/fork", {
         threadId: thread.thread.id,
+        excludeTurns: true,
         approvalPolicy: "never",
         sandbox: "danger-full-access",
         model,

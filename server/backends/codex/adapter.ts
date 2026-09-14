@@ -255,9 +255,9 @@ function compactRecord(
   );
 }
 
-// Raw turn shape from thread/read includeTurns:true. We type loosely here
-// because the orchestrator only consumes a couple of fields; the generated
-// Turn type is richer than we need.
+// Raw turn shape assembled from the paged turn and item APIs. We type loosely
+// here because the orchestrator only consumes a couple of fields; the
+// generated Turn type is richer than we need.
 interface RawTurn {
   id: string;
   // ThreadItem union is broad (~20 variants); the consumers here narrow by
@@ -266,25 +266,78 @@ interface RawTurn {
   items: unknown[];
 }
 
-// Single thread/read call returning the parent thread's turn list. Used by
+const THREAD_HISTORY_PAGE_LIMIT = 100;
+const THREAD_HISTORY_PAGE_CAP = 1_000;
+
+// Paged parent-thread history. Used by
 // both getSessionMessages (flattens to NormalizedMessage[]) and
 // forkSessionBeforeMessage (needs turn structure for rollback arithmetic).
-async function readThreadTurns(
-  client: JsonRpcLiteClient,
+export async function readThreadTurns(
+  client: Pick<JsonRpcLiteClient, "request">,
   threadId: string,
 ): Promise<RawTurn[]> {
-  const resp = await client.request<{ thread: { turns?: unknown[] } }>(
-    "thread/read",
-    { threadId, includeTurns: true },
-  );
-  const rawTurns = resp.thread?.turns ?? [];
-  return rawTurns.map((raw): RawTurn => {
-    const t = raw as { id?: unknown; items?: unknown };
-    return {
-      id: typeof t?.id === "string" ? t.id : "",
-      items: Array.isArray(t?.items) ? t.items : [],
-    };
-  });
+  const turns: RawTurn[] = [];
+  const byId = new Map<string, RawTurn>();
+  let cursor: string | null = null;
+  const seenTurnCursors = new Set<string>();
+  for (let page = 0; page < THREAD_HISTORY_PAGE_CAP; page += 1) {
+    const resp: { data?: unknown[]; nextCursor?: string | null } =
+      await client.request<{
+        data?: unknown[];
+        nextCursor?: string | null;
+      }>("thread/turns/list", {
+        threadId,
+        cursor,
+        limit: THREAD_HISTORY_PAGE_LIMIT,
+        sortDirection: "asc",
+        itemsView: "notLoaded",
+      });
+    for (const raw of resp.data ?? []) {
+      const id = (raw as { id?: unknown })?.id;
+      if (typeof id !== "string" || byId.has(id)) continue;
+      const turn = { id, items: [] };
+      turns.push(turn);
+      byId.set(id, turn);
+    }
+    const next: string | null = resp.nextCursor ?? null;
+    if (!next) break;
+    if (seenTurnCursors.has(next))
+      throw new Error("thread/turns/list returned a repeated cursor");
+    seenTurnCursors.add(next);
+    cursor = next;
+    if (page === THREAD_HISTORY_PAGE_CAP - 1)
+      throw new Error("thread/turns/list exceeded the page cap");
+  }
+
+  cursor = null;
+  const seenItemCursors = new Set<string>();
+  for (let page = 0; page < THREAD_HISTORY_PAGE_CAP; page += 1) {
+    const resp: {
+      data?: Array<{ turnId?: unknown; item?: unknown }>;
+      nextCursor?: string | null;
+    } = await client.request<{
+      data?: Array<{ turnId?: unknown; item?: unknown }>;
+      nextCursor?: string | null;
+    }>("thread/items/list", {
+      threadId,
+      cursor,
+      limit: THREAD_HISTORY_PAGE_LIMIT,
+      sortDirection: "asc",
+    });
+    for (const entry of resp.data ?? []) {
+      if (typeof entry.turnId === "string" && entry.item !== undefined)
+        byId.get(entry.turnId)?.items.push(entry.item);
+    }
+    const next: string | null = resp.nextCursor ?? null;
+    if (!next) break;
+    if (seenItemCursors.has(next))
+      throw new Error("thread/items/list returned a repeated cursor");
+    seenItemCursors.add(next);
+    cursor = next;
+    if (page === THREAD_HISTORY_PAGE_CAP - 1)
+      throw new Error("thread/items/list exceeded the page cap");
+  }
+  return turns;
 }
 
 // Locate the turn (by index) whose items array contains an item with the
@@ -616,7 +669,11 @@ export interface CodexSessionInitOpts {
   // translation with curated provider events. Undefined in production, where
   // the constructor builds a real JsonRpcLiteClient.
   client?: CodexTransport;
+  // Deterministic timer seam for capacity-retry contract tests.
+  scheduleRetry?: (delayMs: number, run: () => void) => () => void;
 }
+
+export const CODEX_CAPACITY_RETRY_DELAYS_MS = [5_000, 15_000, 30_000] as const;
 
 export class CodexSession implements BackendSession {
   private client: CodexTransport;
@@ -661,6 +718,10 @@ export class CodexSession implements BackendSession {
   // turn/completed handler maps it back to status="failed" + the standard
   // auth summary so the user sees a clear failure, not a vague "interrupted".
   private selfInterruptedForAuth = false;
+  private capacityErrorThisAttempt: string | null = null;
+  private completedItemsThisAttempt = 0;
+  private capacityRetryCount = 0;
+  private cancelCapacityRetry: (() => void) | null = null;
   // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
   // orchestrator references these by approvalId == jsonRpcId.
   private pendingApprovals = new Map<string, PendingApproval>();
@@ -797,6 +858,7 @@ export class CodexSession implements BackendSession {
           thread: { id: string };
         }>("thread/resume", {
           threadId: this.opts.resumeThreadId,
+          excludeTurns: true,
           approvalPolicy: this.opts.permissionMode,
           sandbox: this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
           model: this.opts.modelFamily,
@@ -905,6 +967,9 @@ export class CodexSession implements BackendSession {
     }
 
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
+    this.capacityRetryCount = 0;
+    this.capacityErrorThisAttempt = null;
+    this.completedItemsThisAttempt = 0;
     // Open the auth-stderr gate before turn/start. The gate must be open
     // during turn/start's await window because codex's websocket retry burst
     // can land on stderr before the RPC returns. If turn/start itself throws,
@@ -947,6 +1012,70 @@ export class CodexSession implements BackendSession {
     this.turnStarting = false;
     this.lateToolResultNoticeEmitted = false;
     this.lateToolResultNoticeArmed = false;
+  }
+
+  private scheduleCapacityRetry(delayMs: number, run: () => void): () => void {
+    if (this.opts.scheduleRetry) return this.opts.scheduleRetry(delayMs, run);
+    const timer = setTimeout(run, delayMs);
+    return () => clearTimeout(timer);
+  }
+
+  private clearCapacityRetry(): void {
+    this.cancelCapacityRetry?.();
+    this.cancelCapacityRetry = null;
+    this.capacityErrorThisAttempt = null;
+    this.completedItemsThisAttempt = 0;
+    this.capacityRetryCount = 0;
+  }
+
+  private finishCapacityBackoff(
+    status: "interrupted" | "failed",
+    error: string,
+  ): boolean {
+    if (!this.cancelCapacityRetry) return false;
+    this.clearCapacityRetry();
+    this.turnInFlight = false;
+    this.turnStarting = false;
+    this.activeTurnId = null;
+    this.enqueue({ kind: "turn_completed", status, error });
+    return true;
+  }
+
+  private retryCapacityTurn(delayMs: number): void {
+    const retryNumber = this.capacityRetryCount;
+    this.enqueue({
+      kind: "provider_capacity_retry",
+      attempt: retryNumber,
+      maxAttempts: CODEX_CAPACITY_RETRY_DELAYS_MS.length,
+      delayMs,
+    });
+    this.cancelCapacityRetry = this.scheduleCapacityRetry(delayMs, () => {
+      this.cancelCapacityRetry = null;
+      if (this.closed || !this.threadId) return;
+      this.capacityErrorThisAttempt = null;
+      this.completedItemsThisAttempt = 0;
+      this.turnStarting = true;
+      // The failed turn already persisted the original user item. An empty
+      // turn asks Codex to run from that history without appending it again.
+      void this.client
+        .request("turn/start", { threadId: this.threadId, input: [] })
+        .then(() => {
+          this.turnStarting = false;
+          this.turnInFlight = true;
+          this.lateToolResultNoticeEmitted = false;
+          this.lateToolResultNoticeArmed = false;
+        })
+        .catch((err) => {
+          this.turnStarting = false;
+          this.turnInFlight = false;
+          const message = errMessage(err);
+          this.enqueue({
+            kind: "turn_completed",
+            status: "failed",
+            error: message,
+          });
+        });
+    });
   }
 
   // Resolve an "allow, and stop asking" decision into an actual rule, and say
@@ -1076,6 +1205,13 @@ export class CodexSession implements BackendSession {
   }
 
   async abort(): Promise<void> {
+    if (
+      this.finishCapacityBackoff(
+        "interrupted",
+        "Provider-capacity retry interrupted.",
+      )
+    )
+      return;
     await this.bootstrapPromise;
     if (this.closed) return;
     if (!this.threadId || !this.activeTurnId) {
@@ -1115,12 +1251,20 @@ export class CodexSession implements BackendSession {
   }
 
   canAbortInPlace(): boolean {
-    return !this.closed && this.threadId !== null && this.activeTurnId !== null;
+    return (
+      !this.closed &&
+      this.threadId !== null &&
+      (this.activeTurnId !== null || this.cancelCapacityRetry !== null)
+    );
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.finishCapacityBackoff(
+      "failed",
+      "Codex session closed during provider-capacity backoff.",
+    );
     // Tell codex about in-flight approvals before tearing down. Respond on
     // the wire FIRST: the deferred rejection below would also trigger an
     // auto-respond, but by the time that fires we've called client.close()
@@ -1433,8 +1577,26 @@ export class CodexSession implements BackendSession {
           | undefined;
         const rawStatus = mapTurnStatus(turn?.status);
         const rawError = turn?.error?.message ?? undefined;
+        const capacityError = this.capacityErrorThisAttempt;
+        // Codex can deliver completed items after turn/completed. This gate
+        // prevents a known completed item from being replayed. A late item can
+        // still arrive after we schedule the empty-input continuation; that
+        // continuation resumes from persisted history and does not repeat the
+        // original user prompt.
+        const canRetryCapacity =
+          rawStatus === "failed" &&
+          capacityError !== null &&
+          this.completedItemsThisAttempt === 0 &&
+          this.capacityRetryCount < CODEX_CAPACITY_RETRY_DELAYS_MS.length;
         const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
         this.activeTurnId = null;
+        if (canRetryCapacity) {
+          const delayMs =
+            CODEX_CAPACITY_RETRY_DELAYS_MS[this.capacityRetryCount];
+          this.capacityRetryCount += 1;
+          this.retryCapacityTurn(delayMs);
+          break;
+        }
         this.turnInFlight = false;
         this.lateToolResultNoticeArmed = true;
         // "Model not supported" safety net. The spawn / edit dialog now
@@ -1478,7 +1640,7 @@ export class CodexSession implements BackendSession {
         this.enqueue({
           kind: "turn_completed",
           status,
-          error,
+          error: capacityError ?? error,
           // Signal causedByAuth so agent-manager keeps the agent in
           // waiting_for_response (auth issue → user needs to sign in)
           // instead of "error" (which would imply something crashed).
@@ -1486,7 +1648,9 @@ export class CodexSession implements BackendSession {
           // summary above, so the orchestrator's auth-detect regex
           // wouldn't catch it.
           ...(causedByAuth ? { causedByAuth: true } : {}),
+          ...(capacityError ? { causedByProviderCapacity: true } : {}),
         });
+        this.clearCapacityRetry();
         break;
       }
 
@@ -1605,6 +1769,8 @@ export class CodexSession implements BackendSession {
       case "item/completed": {
         const item = params?.item;
         if (item) {
+          if (this.turnInFlight || this.turnStarting)
+            this.completedItemsThisAttempt += 1;
           this.translateCompletedItem(item);
           if (
             !(this.turnInFlight || this.turnStarting) &&
@@ -1666,6 +1832,14 @@ export class CodexSession implements BackendSession {
         // orchestrator's pending turn or involving the auth-error funnel.
         const notification = params as ErrorNotification | null | undefined;
         const message = notification?.error.message;
+        if (
+          message &&
+          notification.willRetry === false &&
+          notification.error.codexErrorInfo === "serverOverloaded"
+        ) {
+          this.capacityErrorThisAttempt = message;
+          break;
+        }
         if (message) {
           this.enqueue(
             notification.willRetry === true
@@ -2223,6 +2397,15 @@ export class CodexSession implements BackendSession {
     signal: NodeJS.Signals | null,
   ): void {
     if (this.closed) return;
+    if (
+      this.finishCapacityBackoff(
+        "failed",
+        `codex subprocess exited${code != null ? ` (code ${code})` : ""}${signal ? ` (signal ${signal})` : ""} during provider-capacity backoff`,
+      )
+    ) {
+      this.markEnded();
+      return;
+    }
     // The per-turn auth-coalescing gate must close on subprocess death so an
     // unlikely-but-possible later stderr (e.g. drained late) doesn't sneak
     // through with a stale-open gate.
@@ -2554,7 +2737,8 @@ export function buildCodexUserInput(
   if (lines.length > 0) {
     inputs.push({ type: "text", text: lines.join("\n"), text_elements: [] });
   }
-  // turn/start with empty input is invalid; ensure at least an empty text.
+  // Keep an ordinary blank send as an explicit user turn. Capacity retries do
+  // not use this builder: Codex accepts input: [] as a history continuation.
   if (inputs.length === 0) {
     inputs.push({ type: "text", text: "", text_elements: [] });
   }
@@ -2771,8 +2955,7 @@ export const codexBackend: Backend = {
   },
 
   async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
-    // thread/read returns the Thread, with rollout history populated in
-    // thread.turns[].items[] only when includeTurns:true is set. Each Turn
+    // The paged history APIs return turns and items separately. Each Turn
     // is one round of work; we flatten user and assistant items across all
     // turns in order so the orchestrator's edit-message matching can find
     // user messages by content + occurrence index.

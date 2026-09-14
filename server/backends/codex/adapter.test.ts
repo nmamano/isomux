@@ -36,6 +36,7 @@ import {
   commandTokensForPrefixMatch,
   normalizeCodexSubscriptionUsage,
   offerablePrefix,
+  readThreadTurns,
   type CodexSessionInitOpts,
   type CodexTransport,
 } from "./adapter.ts";
@@ -278,6 +279,28 @@ function start(
   return { session, fake, it: session.stream() };
 }
 
+function retryClock() {
+  const pending: Array<{ delayMs: number; run: () => void; cancelled: boolean }> = [];
+  return {
+    pending,
+    scheduleRetry(delayMs: number, run: () => void) {
+      const timer = { delayMs, run, cancelled: false };
+      pending.push(timer);
+      return () => {
+        timer.cancelled = true;
+      };
+    },
+    async runNext() {
+      const timer = pending.find((entry) => !entry.cancelled);
+      if (!timer) throw new Error("no pending retry timer");
+      timer.cancelled = true;
+      timer.run();
+      await Promise.resolve();
+      await Promise.resolve();
+    },
+  };
+}
+
 // Advance past bootstrap (consume system_init) and return the live iterator.
 async function bootstrapped(
   fake?: FakeCodexTransport,
@@ -358,6 +381,7 @@ describe("CodexSession bootstrap", () => {
     const init = expectKind(await nextEvent(it, "system_init"), "system_init");
     expect(init.sessionId).toBe("resumed-thread-9");
     expect(fake.requests.map((r) => r.method)).toEqual(["thread/resume"]);
+    expect(fake.requests[0].params).toMatchObject({ excludeTurns: true });
   });
 
   // Backend-native memory off (task 3f6ff5e0): both memories keys must be
@@ -427,6 +451,70 @@ describe("CodexSession bootstrap", () => {
     expect(init.sessionId).toBe("");
     // The actionable error surfaces on the first send, not at spawn.
     await expectRejection(session.send("hi"), /401 Unauthorized/);
+  });
+});
+
+describe("Codex paged thread history", () => {
+  it("uses explicit ascending pages and joins items across a page boundary", async () => {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const client = {
+      async request<T>(method: string, params?: unknown): Promise<T> {
+        requests.push({ method, params });
+        const cursor = (params as { cursor?: string | null })?.cursor ?? null;
+        if (method === "thread/turns/list") {
+          return (cursor === null
+            ? { data: [{ id: "t1" }, { id: "t2" }], nextCursor: null }
+            : { data: [], nextCursor: null }) as T;
+        }
+        return (cursor === null
+          ? {
+              data: [{ turnId: "t1", item: { id: "i1" } }],
+              nextCursor: "items-2",
+            }
+          : {
+              data: [
+                { turnId: "t1", item: { id: "i2" } },
+                { turnId: "t2", item: { id: "i3" } },
+              ],
+              nextCursor: null,
+            }) as T;
+      },
+    };
+    expect(await readThreadTurns(client, "thread-1")).toEqual([
+      { id: "t1", items: [{ id: "i1" }, { id: "i2" }] },
+      { id: "t2", items: [{ id: "i3" }] },
+    ]);
+    for (const request of requests) {
+      expect(request.params).toMatchObject({ sortDirection: "asc" });
+    }
+    expect(requests.some((request) => request.method === "thread/read")).toBe(
+      false,
+    );
+  });
+
+  it("rejects a repeated pagination cursor", async () => {
+    const client = {
+      async request<T>(method: string): Promise<T> {
+        return {
+          data: method === "thread/turns/list" ? [{ id: "t1" }] : [],
+          nextCursor: "same",
+        } as T;
+      },
+    };
+    await expectRejection(
+      readThreadTurns(client, "thread-1"),
+      /repeated cursor/,
+    );
+  });
+
+  it("never requests full hydration through the deprecated API shapes", () => {
+    const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
+    expect(src).not.toContain("includeTurns: true");
+    for (const site of src.matchAll(/"thread\/resume"/g)) {
+      expect(src.slice(site.index, site.index + 900)).toContain(
+        "excludeTurns: true",
+      );
+    }
   });
 });
 
@@ -899,6 +987,152 @@ describe("CodexSession misc notifications", () => {
       expectKind(await nextEvent(it, "turn completion"), "turn_completed")
         .status,
     ).toBe("completed");
+  });
+
+  it("retries structured provider capacity with empty turns and one terminal", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("do this once");
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      fake.fireNotification("error", {
+        error: {
+          message: "provider wording can change",
+          codexErrorInfo: "serverOverloaded",
+        },
+        willRetry: false,
+        threadId: FIXTURE_THREAD_ID,
+        turnId: `turn-${attempt}`,
+      });
+      fake.fireNotification("turn/completed", {
+        threadId: FIXTURE_THREAD_ID,
+        turn: { id: `turn-${attempt}`, status: "failed" },
+      });
+      const retry = expectKind(
+        await nextEvent(it, `capacity retry ${attempt}`),
+        "provider_capacity_retry",
+      );
+      expect(retry).toMatchObject({
+        attempt,
+        maxAttempts: 3,
+        delayMs: [5_000, 15_000, 30_000][attempt - 1],
+      });
+      await clock.runNext();
+      const request = fake.requests.at(-1)!;
+      expect(request.method).toBe("turn/start");
+      expect(request.params).toMatchObject({ input: [] });
+    }
+    fake.fireNotification("error", {
+      error: { message: "still full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-4",
+    });
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-4", status: "failed" },
+    });
+    const terminal = expectKind(
+      await nextEvent(it, "capacity terminal"),
+      "turn_completed",
+    );
+    expect(terminal).toMatchObject({
+      status: "failed",
+      error: "still full",
+      causedByProviderCapacity: true,
+    });
+  });
+
+  it("does not replay a capacity failure after a completed item", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("edit once");
+    fireItem(fake, { type: "agentMessage", id: "partial", text: "started" });
+    expectKind(await nextEvent(it, "partial output"), "assistant_text");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    fake.fireNotification("turn/completed", {
+      turn: { status: "failed" },
+    });
+    const terminal = expectKind(
+      await nextEvent(it, "unsafe replay terminal"),
+      "turn_completed",
+    );
+    expect(terminal.causedByProviderCapacity).toBe(true);
+    expect(clock.pending).toHaveLength(0);
+  });
+
+  it("stop during capacity backoff cancels retry and emits one interrupt", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("wait");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
+    expect(session.canAbortInPlace()).toBe(true);
+    await session.abort();
+    expect(
+      expectKind(await nextEvent(it, "interrupted"), "turn_completed").status,
+    ).toBe("interrupted");
+    expect(clock.pending[0].cancelled).toBe(true);
+    expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(1);
+  });
+
+  it("close during capacity backoff cancels retry and emits one failure", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("wait");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
+    session.close();
+    expect(
+      expectKind(await nextEvent(it, "closed failure"), "turn_completed").status,
+    ).toBe("failed");
+    expect(clock.pending[0].cancelled).toBe(true);
+  });
+
+  it("subprocess exit during capacity backoff cancels retry and emits one failure", async () => {
+    const clock = retryClock();
+    const { session, fake, it } = await bootstrapped(undefined, {
+      scheduleRetry: (delayMs, run) => clock.scheduleRetry(delayMs, run),
+    });
+    await session.send("wait");
+    fake.fireNotification("error", {
+      error: { message: "full", codexErrorInfo: "serverOverloaded" },
+      willRetry: false,
+    });
+    fake.fireNotification("turn/completed", { turn: { status: "failed" } });
+    expectKind(await nextEvent(it, "retry"), "provider_capacity_retry");
+    fake.fireExit(1);
+    expect(
+      expectKind(await nextEvent(it, "exit failure"), "turn_completed").status,
+    ).toBe("failed");
+    expect(clock.pending[0].cancelled).toBe(true);
+  });
+
+  it("serverOverloaded with willRetry true stays on the provider retry path", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("error", {
+      error: { message: "upstream retry", codexErrorInfo: "serverOverloaded" },
+      willRetry: true,
+    });
+    expectKind(await nextEvent(it, "upstream retry"), "system_text");
   });
 
   it("terminal error still follows a retryable error on the same turn", async () => {

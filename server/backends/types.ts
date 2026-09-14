@@ -193,6 +193,15 @@ export type NormalizedEvent =
       // failed turns leave the agent in waiting_for_response, not error)
       // without re-running the auth-detect regex on the rewritten string.
       causedByAuth?: boolean;
+      // The backend stayed healthy, but the provider refused the turn after
+      // bounded capacity retries. The orchestrator keeps the session usable.
+      causedByProviderCapacity?: boolean;
+    }
+  | {
+      kind: "provider_capacity_retry";
+      attempt: number;
+      maxAttempts: number;
+      delayMs: number;
     }
   // Running token totals between turns (Codex-only at v1). `tokenUsage` is
   // the *delta* since the prior usage event - the orchestrator's accumulator
