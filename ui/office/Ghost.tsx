@@ -15,6 +15,7 @@ import { useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent } from "react";
 import { GhostGraphic } from "./ghostVariants.tsx";
 import type { GhostVariant } from "../../shared/avatar.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Z-ordering contract:
 //   body  (this layer) :        above floor / walls / desks / agents,
@@ -353,6 +354,7 @@ export function GhostBody({
     move.pass > 0 && Math.hypot(move.dx, move.dy) >= TRAIL_MIN_DISTANCE_PX;
   return (
     <div
+      {...noTranslate()}
       style={{
         position: "absolute",
         left,
@@ -402,6 +404,7 @@ export function GhostTag({
   const text = tagText(username, device);
   return (
     <div
+      {...noTranslate()}
       style={{
         position: "absolute",
         left: tagCenterX,

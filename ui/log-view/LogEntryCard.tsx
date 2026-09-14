@@ -35,6 +35,7 @@ import {
   isomuxRequestForToolCall,
 } from "./tool-call-groups.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
+import { noTranslate } from "../no-translate.ts";
 
 function EditIcon() {
   return (
@@ -1053,6 +1054,7 @@ export function UserMessage({
       {!compact && <BubbleCorner timestamp={timestamp}>{actions}</BubbleCorner>}
       {!hideAuthor && (
         <div
+          {...noTranslate()}
           data-members-chat-author={compact ? "" : undefined}
           style={{
             fontSize: compact ? 12 : isMobile ? 12 : 10,
@@ -1231,6 +1233,7 @@ export function EditableUserMessage({
       }}
     >
       <div
+        {...noTranslate()}
         style={{
           fontSize: isMobile ? 12 : 10,
           fontWeight: 600,

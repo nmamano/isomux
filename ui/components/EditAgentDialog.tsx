@@ -58,6 +58,7 @@ import {
 } from "./dialog-styles.ts";
 import { SystemPromptButton } from "./SystemPromptButton.tsx";
 import { shortenCwd } from "../cwd-display.ts";
+import { noTranslate } from "../no-translate.ts";
 import {
   AGENT_TEMPLATES,
   blankRestoreValues,
@@ -1011,6 +1012,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           return (
             <>
               <select
+                {...noTranslate()}
                 value={modelFamily}
                 onChange={(e) => {
                   cancelPendingTemplateModelResolution();
@@ -1603,6 +1605,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
               <input
+                {...noTranslate()}
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -1788,6 +1791,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </label>
                   <div style={{ display: "flex", gap: 6 }}>
                     <input
+                      {...noTranslate()}
                       value={cwd}
                       onChange={(e) => {
                         setCwd(e.target.value);
@@ -1835,6 +1839,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       {recentCwds.map((c) => (
                         <button
                           key={c}
+                          {...noTranslate()}
                           onClick={() => {
                             setCwd(c);
                             setShowRecentCwds(false);
@@ -2000,6 +2005,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   return (
                     <button
                       key={killedAgent.id}
+                      {...noTranslate()}
                       type="button"
                       disabled={disabled}
                       title={

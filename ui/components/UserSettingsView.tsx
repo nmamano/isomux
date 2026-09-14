@@ -66,6 +66,7 @@ import {
 } from "./ExpandableTextarea.tsx";
 import { formatSince, useAccessListsSeed } from "./access-shared.tsx";
 import { useI18n, type UiTranslator } from "../i18n.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 // Sections that render INSIDE this page. The sidebar also carries rows that
 // still open a dialog (office, room, device label, theme, updates); those are
@@ -642,6 +643,7 @@ export function UserSettingsView({
                       }}
                     >
                       <span
+                        {...noTranslate()}
                         style={{
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -1450,6 +1452,7 @@ function UserEditPanel({
             size={26}
           />
           <h4
+            {...noTranslate()}
             style={{
               fontSize: 15,
               fontWeight: 700,
@@ -1563,6 +1566,7 @@ function UserEditPanel({
                       }}
                     >
                       <span
+                        {...noTranslate()}
                         style={{
                           flex: 1,
                           minWidth: 0,

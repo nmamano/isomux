@@ -5,6 +5,7 @@ import { DiffRenderer, type DiffOutputFormat } from "./DiffRenderer.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { useI18n } from "../i18n.tsx";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { noTranslate } from "../no-translate.ts";
 
 const PREF_KEY = "isomux:diff:outputFormat";
 const INLINE_LINES_THRESHOLD = 200;
@@ -598,7 +599,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
             marginTop: -2,
           }}
         >
-          {payload.cwd}
+          <span {...noTranslate()}>{payload.cwd}</span>
           {payload.truncated && (
             <span style={{ color: "var(--orange)", marginLeft: 8 }}>
               {t("cards.diff.summaryOnly")}

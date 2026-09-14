@@ -11,6 +11,7 @@ import { InlineMarkdown } from "./InlineMarkdown.tsx";
 import { ReplyQuote } from "./ReplyQuote.tsx";
 import { MessageActions } from "./MessageActions.tsx";
 import { MEMBERS_CHAT_FILES_BASE } from "./api.ts";
+import { noTranslate } from "../no-translate.ts";
 
 export function PinnedMessageStrip({
   message,
@@ -71,7 +72,8 @@ export function PinnedMessageStrip({
             fontWeight: 600,
           }}
         >
-          {t("membersChat.pinned", { count: countLabel })} · {author}
+          {t("membersChat.pinned", { count: countLabel })} ·{" "}
+          <span {...noTranslate()}>{author}</span>
         </span>
         <span
           style={{

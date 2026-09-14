@@ -9,6 +9,7 @@ import { getDraggedDesk, setDraggedDesk } from "./drag-state.ts";
 import { styleForModel } from "../model-styles.ts";
 import { PENDING_PROMPT_BADGE } from "../pending-prompt.ts";
 import { useI18n } from "../i18n.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 export function DeskUnit({
   agent,
@@ -270,6 +271,7 @@ export function DeskUnit({
         >
           <StatusLight state={agent.state} size={8} elapsedMs={elapsedMs} />
           <span
+            {...noTranslate()}
             style={{
               fontSize: 11,
               fontWeight: 600,
@@ -320,6 +322,7 @@ export function DeskUnit({
         </div>
         {agent.topic && agent.topic !== "..." && (
           <div
+            {...noTranslate()}
             style={{
               fontSize: 11,
               color: "var(--text-secondary)",

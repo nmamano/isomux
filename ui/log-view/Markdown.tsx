@@ -25,7 +25,11 @@ import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
 import { sanitizeSvg } from "./svg-sanitize.ts";
-import { taskChipLabel, type TaskMap } from "./task-links.tsx";
+import {
+  taskChipLabel,
+  taskChipSuffix,
+  type TaskMap,
+} from "./task-links.tsx";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -476,10 +480,13 @@ export function Markdown({
           ? (current as HTMLButtonElement)
           : document.createElement("button");
       chip.type = "button";
-      chip.className = "task-id-chip";
+      chip.className = "task-id-chip notranslate";
+      chip.translate = false;
       chip.dataset.taskId = id;
       chip.title = task.title;
-      chip.textContent = taskChipLabel(task);
+      chip.setAttribute("aria-label", taskChipLabel(task));
+      chip.textContent = task.id;
+      chip.dataset.taskLabel = taskChipSuffix(task);
       if (chip !== current) current.replaceWith(chip);
     }
   }, [html, tasks, onOpenTask]);

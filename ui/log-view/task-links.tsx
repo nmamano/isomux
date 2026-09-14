@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import { Lexer, defaults } from "marked";
 import type { TaskItem } from "../../shared/types.ts";
+import { noTranslate } from "../no-translate.ts";
 
 export type TaskMap = ReadonlyMap<string, TaskItem>;
 
@@ -14,6 +15,10 @@ export function taskChipLabel(task: TaskItem): string {
   return `${head}: ${shortTitle}${suffix}`;
 }
 
+export function taskChipSuffix(task: TaskItem): string {
+  return taskChipLabel(task).slice(task.id.length);
+}
+
 export function TaskChip({
   task,
   onOpen,
@@ -24,12 +29,14 @@ export function TaskChip({
   return (
     <button
       type="button"
-      className="task-id-chip"
+      {...noTranslate("task-id-chip")}
       title={task.title}
+      aria-label={taskChipLabel(task)}
       data-task-id={task.id}
+      data-task-label={taskChipSuffix(task)}
       onClick={() => onOpen(task.id)}
     >
-      {taskChipLabel(task)}
+      {task.id}
     </button>
   );
 }

@@ -7,6 +7,7 @@ import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
 import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
 // stays at 32px (the tabs' existing height) - mini ghosts must read as
@@ -450,6 +451,7 @@ export function RoomTabBar({
                 cluster reads as inter-tab spacing instead of broken
                 trailing padding inside the selected tab. */}
               <button
+                {...noTranslate()}
                 onClick={(e) => {
                   (e.target as HTMLElement).blur();
                   dispatch({ type: "set_current_room", roomId: room.id });

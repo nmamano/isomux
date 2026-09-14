@@ -24,6 +24,7 @@ const { TaskView } = await import("./components/TaskView.tsx");
 const { AppsView } = await import("./components/AppsView.tsx");
 const { CronjobsView } = await import("./components/CronjobsView.tsx");
 const { ContextBattery } = await import("./log-view/ContextBattery.tsx");
+const { GhostTag } = await import("./office/Ghost.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -240,6 +241,30 @@ describe("the anchors", () => {
 });
 
 describe("the office scene", () => {
+  it("marks the ghost tag and desk name as translation-excluded data", () => {
+    const ghost = render(
+      createElement(GhostTag, {
+        left: 0,
+        top: 50,
+        size: 30,
+        variant: "classic",
+        color: "#fff",
+        username: "Nil",
+        device: "Phone",
+        userId: "u1",
+        dimmed: false,
+      }),
+    );
+    const ghostName = ghost.getByText("Nil (Phone)").closest(".notranslate");
+    expect(ghostName?.getAttribute("translate")).toBe("no");
+    ghost.unmount();
+
+    const office = render(officeView(null));
+    const deskName = office.getByText("Tester").closest(".notranslate");
+    expect(deskName?.getAttribute("translate")).toBe("no");
+    office.unmount();
+  });
+
   it("reads Catalan on ca, then Spanish, then the English of a user who never chose", () => {
     const view = render(officeView("ca"));
     titled(view, ANCHOR.newRoom.ca);

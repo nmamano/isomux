@@ -13,6 +13,7 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
+import { noTranslate } from "../no-translate.ts";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -429,6 +430,7 @@ function TaskDetailPanel({
         <div>
           <label style={labelStyle}>{t("tasks.field.title")}</label>
           <input
+            {...noTranslate()}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             style={inputStyle}
@@ -463,10 +465,12 @@ function TaskDetailPanel({
                     list (e.g. access changed); keep it selectable so a save
                     doesn't silently re-file it. */}
                 {task.roomId && !rooms.some((r) => r.id === task.roomId) && (
-                  <option value={task.roomId}>{roomLabel(task.roomId)}</option>
+                  <option {...noTranslate()} value={task.roomId}>
+                    {roomLabel(task.roomId)}
+                  </option>
                 )}
                 {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
+                  <option key={r.id} {...noTranslate()} value={r.id}>
                     {r.name}
                   </option>
                 ))}
@@ -527,6 +531,7 @@ function TaskDetailPanel({
         <div>
           <label style={labelStyle}>{t("tasks.field.assignee")}</label>
           <input
+            {...noTranslate()}
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
             style={inputStyle}
@@ -545,6 +550,7 @@ function TaskDetailPanel({
               {visibleAgents.map((a) => (
                 <button
                   key={a.id}
+                  {...noTranslate()}
                   onClick={() => setAssignee(a.name)}
                   style={{
                     padding: "3px 8px",
@@ -1004,6 +1010,7 @@ export function TaskView({
     if (agentId && onFocusAgent) {
       return (
         <span
+          {...noTranslate()}
           onClick={(e) => {
             e.stopPropagation();
             onFocusAgent(agentId);
@@ -1022,7 +1029,7 @@ export function TaskView({
         </span>
       );
     }
-    return name;
+    return <span {...noTranslate()}>{name}</span>;
   }
 
   function handleSort(field: SortField) {
@@ -1221,7 +1228,7 @@ export function TaskView({
                 >
                   <option value="">{t("tasks.globalShort")}</option>
                   {rooms.map((r) => (
-                    <option key={r.id} value={r.id}>
+                    <option key={r.id} {...noTranslate()} value={r.id}>
                       {r.name}
                     </option>
                   ))}
@@ -1263,7 +1270,7 @@ export function TaskView({
                 <option value="all">{t("tasks.allRooms")}</option>
                 <option value="global">{t("tasks.globalShort")}</option>
                 {rooms.map((r) => (
-                  <option key={r.id} value={r.id}>
+                  <option key={r.id} {...noTranslate()} value={r.id}>
                     {r.name}
                   </option>
                 ))}
@@ -1489,6 +1496,7 @@ export function TaskView({
                         )}
                       </td>
                       <td
+                        {...noTranslate()}
                         style={{
                           padding: cellPad,
                           fontSize: 13,
@@ -1540,6 +1548,7 @@ export function TaskView({
                         )}
                       </td>
                       <td
+                        {...noTranslate()}
                         style={{
                           padding: cellPad,
                           fontSize: 11,

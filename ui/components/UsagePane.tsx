@@ -12,6 +12,7 @@ import type {
   UsageBucketWire,
   UsageReportWire,
 } from "../../shared/contract-shapes.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Not components, so the language arrives as an argument (ruling 18). k and M
 // are magnitude symbols and stay as they are (ruling 11); the number in front
@@ -112,6 +113,7 @@ export function UsagePane() {
               detail: row.roomName,
               session: row.session,
               lifetime: row.lifetime,
+              identityData: true,
             }))}
           />
           <UsageTable
@@ -124,6 +126,7 @@ export function UsagePane() {
               detail: row.deleted ? t("settings.usage.deleted") : undefined,
               session: row.session,
               lifetime: row.lifetime,
+              identityData: true,
             }))}
           />
           {usage.cronjobs && usage.cronjobs.length > 0 && (
@@ -165,6 +168,7 @@ type UsageRow = {
   detail?: string;
   session: UsageBucketWire;
   lifetime: UsageBucketWire;
+  identityData?: boolean;
 };
 
 function UsageTable({
@@ -199,7 +203,10 @@ function UsageTable({
           <tbody>
             {rows.map((row) => (
               <tr key={row.key}>
-                <td style={leftCell}>
+                <td
+                  {...(row.identityData ? noTranslate() : {})}
+                  style={leftCell}
+                >
                   <strong>{row.label}</strong>
                   {row.detail && <span style={detailStyle}> {row.detail}</span>}
                 </td>

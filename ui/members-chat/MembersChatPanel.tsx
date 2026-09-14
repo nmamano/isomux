@@ -25,6 +25,7 @@ import type { Attachment, MembersChatMessage } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { formatNumber } from "../../shared/i18n/number.ts";
+import { noTranslate } from "../no-translate.ts";
 import type {
   Translator,
   PlainMessageKey,
@@ -565,6 +566,7 @@ export function MembersChatPanel({
           {online.slice(0, isMobile ? 3 : 8).map((u, i) => (
             <span
               key={u.id}
+              {...noTranslate()}
               title={u.name}
               style={{ display: "inline-flex", marginLeft: i === 0 ? 0 : -4 }}
             >

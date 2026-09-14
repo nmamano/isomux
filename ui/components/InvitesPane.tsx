@@ -21,6 +21,7 @@ import {
   hint,
   cardStyle,
 } from "./access-shared.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 export function InvitesPane() {
   const { invitesList, invitesLoaded } = useAppState();
@@ -180,6 +181,7 @@ function IssueInviteForm() {
                     style={{ accentColor: "var(--accent)", cursor: "pointer" }}
                   />
                   <span
+                    {...noTranslate()}
                     style={{
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -305,6 +307,7 @@ function RecoveryLinkForm() {
       </p>
       <label style={subLabel}>{t("common.user")}</label>
       <select
+        {...noTranslate()}
         value={userId}
         onChange={(e) => {
           setUserId(e.target.value);

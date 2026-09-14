@@ -1,6 +1,7 @@
 import { useI18n } from "../../i18n.tsx";
 import { IsoBox, iso, poly, shade, wallTransform } from "./iso.tsx";
 import { CornerPlant } from "../plants.tsx";
+import { noTranslate } from "../../no-translate.ts";
 
 // Rugs, plants, wall pieces, cats, directory boards and the counter.
 
@@ -510,6 +511,7 @@ export function DirectoryBoard({
       {rows.map((r, i) => (
         <g key={r.id} transform={`translate(0 ${-h + 28 + i * 9})`}>
           <text
+            {...noTranslate()}
             x="-25"
             y="0"
             fontSize="5.2"
@@ -616,7 +618,13 @@ export function DirectorySign({
               strokeWidth="0.5"
               strokeLinecap="round"
             />
-            <text x="-6" y={21 + i * 6} fontSize="4.4" fill="#e8e1d2">
+            <text
+              {...noTranslate()}
+              x="-6"
+              y={21 + i * 6}
+              fontSize="4.4"
+              fill="#e8e1d2"
+            >
               {r.name}
             </text>
           </g>

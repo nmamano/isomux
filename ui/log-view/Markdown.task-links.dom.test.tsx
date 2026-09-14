@@ -60,8 +60,23 @@ it("updates a chip from the live task map without rebuilding the message", () =>
       onOpenTask={onOpenTask}
     />,
   );
-  expect(view.getByRole("button").textContent).toBe(
+  expect(view.getByRole("button").getAttribute("aria-label")).toBe(
     "ce5e7fe0 P1: Renamed task",
+  );
+});
+
+it("keeps the task id in the text node and the visual suffix in an attribute", () => {
+  const view = render(
+    <Markdown
+      content={`before ${task.id} after`}
+      tasks={new Map([[task.id, task]])}
+      onOpenTask={() => {}}
+    />,
+  );
+  const chip = view.getByRole("button");
+  expect(chip.textContent).toBe(task.id);
+  expect(chip.getAttribute("data-task-label")).toBe(
+    " P0: Task hashes open the…",
   );
 });
 
@@ -75,6 +90,11 @@ it("keeps code, links, long hashes, and unknown ids literal in user messages", (
     />,
   );
   expect(view.container.querySelectorAll(".task-id-chip").length).toBe(1);
+  const chip = view.getByRole("button");
+  expect(chip.textContent).toBe(task.id);
+  expect(chip.getAttribute("data-task-label")).toBe(
+    " P0: Task hashes open the…",
+  );
   expect(view.container.textContent?.includes("deadbeef")).toBe(true);
   expect(view.container.textContent?.includes(forty)).toBe(true);
   expect(view.container.textContent?.includes("`ce5e7fe0`")).toBe(true);

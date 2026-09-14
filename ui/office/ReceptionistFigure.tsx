@@ -7,6 +7,7 @@ import { useI18n } from "../i18n.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 import { Character, CHARACTER_GEOMETRY } from "./Character.tsx";
 import { styleForModel } from "../model-styles.ts";
+import { noTranslate } from "../no-translate.ts";
 
 const STATE_COLORS: Record<string, string> = {
   thinking: "var(--green)",
@@ -99,6 +100,7 @@ export function ReceptionistFigure({
               }}
             />
             <span
+              {...noTranslate()}
               style={{
                 fontSize: 11,
                 fontWeight: 600,

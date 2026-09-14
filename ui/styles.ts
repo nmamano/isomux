@@ -107,6 +107,7 @@ ${emitThemesCss()}
     background: var(--bg-subtle); color: var(--accent); cursor: pointer;
     font: inherit; font-size: 0.9em; line-height: 1.35; vertical-align: baseline;
   }
+  .task-id-chip::after { content: attr(data-task-label); white-space: pre; }
   .task-id-chip:hover { background: var(--bg-hover); }
   .task-id-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .md-content blockquote {

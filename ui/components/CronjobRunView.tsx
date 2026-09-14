@@ -13,6 +13,7 @@ import { shortenCwd } from "../cwd-display.ts";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -488,6 +489,7 @@ export function CronjobRunView({
             </div>
             <div style={{ whiteSpace: "pre-wrap" }}>{run.promptSnapshot}</div>
             <div
+              {...noTranslate()}
               style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}
             >
               {t("schedules.snapshot", {

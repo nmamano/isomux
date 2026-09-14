@@ -19,6 +19,7 @@ import type { Translator } from "../../shared/i18n/translate.ts";
 import { absoluteTime, timeSince, timeUntil } from "../../shared/i18n/time.ts";
 import { useI18n } from "../i18n.tsx";
 import { dialogLabel, dialogHint } from "./dialog-styles.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Lazily seed the invites + active-sessions lists via GET. The
 // session_context reducer resets both loaded flags on every WS open
@@ -260,11 +261,15 @@ export function SessionsTable({
           return (
             <Fragment key={s.sessionPrefix}>
               <tr>
-                <td style={sessionPrimaryCell}>{s.username}</td>
+                <td {...noTranslate()} style={sessionPrimaryCell}>
+                  {s.username}
+                </td>
                 {/* Last-known device label, stamped server-side from the
                     session's presence stream. " - " until the
                     device names itself in Device Settings. */}
-                <td style={sessionPrimaryCell}>{s.device ?? " - "}</td>
+                <td {...noTranslate()} style={sessionPrimaryCell}>
+                  {s.device ?? " - "}
+                </td>
                 <td style={sessionPrimaryCell}>
                   {formatSince(i18n, s.lastSeenAt)}
                 </td>

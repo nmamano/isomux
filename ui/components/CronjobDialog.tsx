@@ -29,6 +29,7 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import { noTranslate } from "../no-translate.ts";
 import {
   defaultBackendModel,
   fetchBackendModels,
@@ -695,6 +696,7 @@ export function CronjobDialog({
             {t("common.field.workingDirectory")}
           </label>
           <input
+            {...noTranslate()}
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             style={inputStyle}
@@ -709,7 +711,12 @@ export function CronjobDialog({
               }}
             >
               {recentCwdsFiltered.map((c) => (
-                <button key={c} onClick={() => setCwd(c)} style={chipStyle}>
+                <button
+                  key={c}
+                  {...noTranslate()}
+                  onClick={() => setCwd(c)}
+                  style={chipStyle}
+                >
                   {shortenCwd(c)}
                 </button>
               ))}
@@ -758,6 +765,7 @@ export function CronjobDialog({
             return (
               <>
                 <select
+                  {...noTranslate()}
                   value={modelFamily}
                   onChange={(e) => {
                     const next = e.target.value;

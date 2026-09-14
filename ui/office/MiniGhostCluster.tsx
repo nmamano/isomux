@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { PresenceInfo } from "../../shared/types.ts";
 import { GhostGraphic } from "./ghostVariants.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 export function selectMiniGhosts(
   presences: PresenceInfo[],
@@ -58,6 +59,7 @@ export function MiniGhostCluster({
         return (
           <span
             key={presence.connectionId}
+            {...noTranslate()}
             title={title}
             style={{
               display: "inline-flex",

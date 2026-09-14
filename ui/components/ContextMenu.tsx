@@ -12,6 +12,7 @@ import { alternateEngineOptions } from "../engine-options.ts";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
+import { noTranslate } from "../no-translate.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -127,6 +128,7 @@ export function ContextMenu({
       }}
     >
       <div
+        {...noTranslate()}
         style={{
           padding: "5px 10px",
           fontSize: 10,

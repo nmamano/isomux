@@ -2,6 +2,7 @@ import type { AgentBackendType, AgentState } from "../../shared/types.ts";
 import { deskModelLabel, hashIndex, type DeskProp } from "../model-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import { Pot } from "./plants.tsx";
+import { noTranslate } from "../no-translate.ts";
 
 function visualState(
   state: AgentState,
@@ -344,6 +345,7 @@ export function DeskSprite({
           const plateY = -plateH / 2;
           return (
             <g
+              {...noTranslate()}
               transform={LABEL_TRANSFORM}
               style={{ userSelect: "none", pointerEvents: "none" }}
               fontFamily="monospace"
@@ -504,7 +506,7 @@ export function DeskSprite({
         )}
         {/* CWD text on monitor */}
         {shortCwd && (
-          <g clipPath={`url(#${screenClipId})`}>
+          <g {...noTranslate()} clipPath={`url(#${screenClipId})`}>
             <text
               x="68"
               y="24"

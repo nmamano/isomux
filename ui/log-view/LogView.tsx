@@ -81,6 +81,7 @@ import { useI18n } from "../i18n.tsx";
 import { COMMAND_DESCRIPTION_KEYS } from "../../shared/i18n/command-keys.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { PlainMessageKey } from "../../shared/i18n/translate.ts";
+import { noTranslate } from "../no-translate.ts";
 
 // Catalog keys, read at render: the header shows them in the reader's language
 // (internal-docs/i18n-loop.md, ruling 7).
@@ -457,6 +458,7 @@ function QueueChips({
             >
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
+                  {...noTranslate()}
                   style={{
                     fontSize: isMobile ? 11 : 10,
                     fontWeight: 600,
@@ -2060,6 +2062,7 @@ export function LogView({
               }}
             >
               <span
+                {...noTranslate()}
                 onClick={onEditAgent}
                 style={{
                   fontWeight: 600,
@@ -2081,6 +2084,7 @@ export function LogView({
                 }}
               >
                 <span
+                  {...noTranslate()}
                   style={{
                     fontFamily: "'JetBrains Mono',monospace",
                     color: "var(--text-ghost)",
@@ -2151,6 +2155,7 @@ export function LogView({
                 {agent.topic && agent.topic !== "..." && !editingTopic && (
                   <>
                     <span
+                      {...noTranslate()}
                       onClick={() => {
                         setEditingTopic(true);
                         setTopicDraft(agent.topic ?? "");
@@ -2205,6 +2210,7 @@ export function LogView({
                 )}
                 {editingTopic && (
                   <input
+                    {...noTranslate()}
                     ref={topicInputRef}
                     value={topicDraft}
                     onChange={(e) => setTopicDraft(e.target.value)}
@@ -2252,6 +2258,7 @@ export function LogView({
                 )}
               </span>
               <span
+                {...noTranslate()}
                 title={agent.cwd}
                 style={{
                   fontFamily: "'JetBrains Mono',monospace",
@@ -2361,6 +2368,7 @@ export function LogView({
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <StatusLight state={agent.state} size={8} />
                   <span
+                    {...noTranslate()}
                     onClick={onEditAgent}
                     style={{
                       fontWeight: 600,
@@ -2405,6 +2413,7 @@ export function LogView({
                   }}
                 >
                   <span
+                    {...noTranslate()}
                     style={{
                       fontFamily: "'JetBrains Mono',monospace",
                       color: "var(--text-muted)",
