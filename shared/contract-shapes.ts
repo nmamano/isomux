@@ -63,6 +63,9 @@ export interface SpawnReq {
   customInstructions?: string;
   outfit?: AgentInfo["outfit"];
   modelFamily?: string;
+  // Optional concrete model. Without modelFamily, the server derives the
+  // family. If both are present, they must describe the same selection.
+  model?: string;
   effort?: AgentInfo["effort"];
   agentType?: AgentInfo["agentType"];
   codexSandbox?: AgentInfo["codexSandbox"];
@@ -99,6 +102,8 @@ export type EditAgentReq = Partial<
     | "agentType"
   >
 > & {
+  // Optional concrete model; see SpawnReq.model.
+  model?: string;
   // REQUIRED iff customInstructions is present in the body:
   // echo back AgentInfo.customInstructionsVersion as read off full_state /
   // agent_updated (UI) or GET /api/agents/:id/instructions

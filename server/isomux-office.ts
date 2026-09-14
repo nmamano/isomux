@@ -78,7 +78,10 @@ import {
 import { getVersionInfo } from "./version.ts";
 import { allowReadyRequest } from "./ready-limiter.ts";
 import { resolveCwd } from "./cwd-utils.ts";
-import { modelFamilyMismatchError } from "./agent-validators.ts";
+import {
+  modelFamilyMismatchError,
+  resolveInteractiveModelSelection,
+} from "./agent-validators.ts";
 import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
@@ -3287,15 +3290,16 @@ function buildExecutorDeps(
         // agentType is an explicit 422, never silently coerced to the backend
         // default (agentManager.spawn's validateModelFamily coercion stays as
         // canonicalization for boot/restore, not as input laundering here).
-        const familyErr = modelFamilyMismatchError(
+        const modelSelection = resolveInteractiveModelSelection(
           input.agentType ?? "claude",
           input.modelFamily,
+          input.model,
         );
-        if (familyErr) {
+        if (modelSelection.error) {
           return {
             ok: false,
             reason: "invalid_model_family",
-            message: familyErr,
+            message: modelSelection.error,
           };
         }
         saveRecentCwd(input.cwd);
@@ -3320,7 +3324,7 @@ function buildExecutorDeps(
               : input.customInstructions,
             input.roomId,
             input.outfit,
-            input.modelFamily,
+            modelSelection.modelFamily,
             input.effort,
             input.username,
             input.agentType,
@@ -3418,7 +3422,8 @@ function buildExecutorDeps(
         // engine when this edit switches it, else the agent's current one - so
         // a mismatch is an explicit 422 instead of editAgent's silent
         // coerce-to-default (kept there as boot/restore canonicalization).
-        if (changes.modelFamily) {
+        let resolvedModelFamily = changes.modelFamily;
+        if (changes.modelFamily !== undefined || changes.model !== undefined) {
           const current = agentManager.getAgent(agentId);
           if (!current) {
             return {
@@ -3433,17 +3438,19 @@ function buildExecutorDeps(
             changes.agentType === "opencode"
               ? changes.agentType
               : current.agentType;
-          const familyErr = modelFamilyMismatchError(
+          const modelSelection = resolveInteractiveModelSelection(
             targetType,
             changes.modelFamily,
+            changes.model,
           );
-          if (familyErr) {
+          if (modelSelection.error) {
             return {
               ok: false,
               reason: "invalid_model_family",
-              message: familyErr,
+              message: modelSelection.error,
             };
           }
+          resolvedModelFamily = modelSelection.modelFamily;
         }
         if (changes.cwd) saveRecentCwd(changes.cwd);
         try {
@@ -3453,9 +3460,14 @@ function buildExecutorDeps(
           // coerce null->undefined to preserve parity. The version token was
           // consumed by the guard above - strip it so only real agent fields
           // reach the core.
-          const { customInstructionsVersion: _version, ...fields } = changes;
+          const {
+            customInstructionsVersion: _version,
+            model: _model,
+            ...fields
+          } = changes;
           await agentManager.editAgent(agentId, {
             ...fields,
+            modelFamily: resolvedModelFamily,
             customInstructions: changes.customInstructions ?? undefined,
           });
           const agent = agentManager.getAgent(agentId);

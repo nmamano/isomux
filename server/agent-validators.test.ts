@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   modelFamilyMismatchError,
+  resolveInteractiveModelSelection,
   resolveAgentEngineSettings,
   validateCodexSandbox,
   validateCronjobPermissionMode,
@@ -80,6 +81,83 @@ describe("OpenCode model validation", () => {
       modelFamily: "",
       permissionMode: "bypassPermissions",
     });
+  });
+});
+
+describe("interactive model selection validation", () => {
+  it("rejects unknown Codex models and names the available choices", () => {
+    const result = resolveInteractiveModelSelection(
+      "codex",
+      "fable-5",
+      "fable-5",
+    );
+    expect(result.error).toContain('"fable-5" looks like a Claude model');
+    expect(result.error).toContain("gpt-5.6-sol");
+  });
+
+  it("accepts unknown Codex-shaped slugs but rejects Claude shapes case-insensitively", () => {
+    for (const model of ["gpt-5.6-sol", "gpt-7-x"]) {
+      expect(resolveInteractiveModelSelection("codex", model, model).error).toBeNull();
+    }
+    for (const model of ["claude-fable-5-1", "fable-5", "Opus-4"]) {
+      expect(
+        resolveInteractiveModelSelection("codex", model, model).error,
+      ).not.toBeNull();
+    }
+  });
+
+  it("requires a concrete model assertion to agree with its family", () => {
+    expect(
+      resolveInteractiveModelSelection(
+        "claude",
+        "fable",
+        "claude-fable-5",
+      ).error,
+    ).toContain('resolves to model "claude-fable-5-1"');
+    expect(
+      resolveInteractiveModelSelection(
+        "claude",
+        "fable",
+        "claude-fable-5-1",
+      ).error,
+    ).toBeNull();
+    expect(
+      resolveInteractiveModelSelection(
+        "codex",
+        "gpt-5.6-sol",
+        "gpt-5.6-sol",
+      ).error,
+    ).toBeNull();
+  });
+
+  it("keeps runtime OpenCode IDs unchecked when no list is available", () => {
+    expect(
+      resolveInteractiveModelSelection(
+        "opencode",
+        "provider/runtime-model",
+        "provider/runtime-model",
+      ).error,
+    ).toBeNull();
+  });
+
+  it("derives a family from model-only input", () => {
+    expect(
+      resolveInteractiveModelSelection(
+        "claude",
+        undefined,
+        "claude-fable-5-1",
+      ),
+    ).toEqual({ modelFamily: "fable", error: null });
+    expect(
+      resolveInteractiveModelSelection("codex", undefined, "gpt-7-x"),
+    ).toEqual({ modelFamily: "gpt-7-x", error: null });
+    expect(
+      resolveInteractiveModelSelection(
+        "opencode",
+        undefined,
+        "provider/runtime-model",
+      ),
+    ).toEqual({ modelFamily: "provider/runtime-model", error: null });
   });
 });
 

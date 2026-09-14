@@ -313,6 +313,34 @@ describe("routes/cron REST: ownership tightening", () => {
     ).toBeUndefined();
   });
 
+  it("accepts unknown Codex-shaped cron models and rejects Claude-shaped ones", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss", "CodexShape");
+
+    const accepted = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { agentType: "codex", modelFamily: "gpt-7-x" },
+    });
+    expect(accepted.status).toBe(200);
+    expect((accepted.body as Cronjob).modelFamily).toBe("gpt-7-x");
+
+    const rejected = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { modelFamily: "fable-5" },
+    });
+    expect(rejected.status).toBe(422);
+    expect(rejected.body).toMatchObject({
+      error: { code: "invalid_model_family" },
+    });
+    expect(loadCronjobs().find((saved) => saved.id === job.id)?.modelFamily).toBe(
+      "gpt-7-x",
+    );
+  });
+
   it("rejects an OpenCode engine switch without a provider/model", async () => {
     const srv = await startTestServer();
     server = srv;

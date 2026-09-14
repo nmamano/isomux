@@ -149,6 +149,7 @@ export interface AgentsDeps {
     customInstructions?: string;
     outfit?: AgentInfo["outfit"];
     modelFamily?: string;
+    model?: string;
     effort?: AgentInfo["effort"];
     agentType?: AgentInfo["agentType"];
     codexSandbox?: AgentInfo["codexSandbox"];
@@ -203,6 +204,7 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     badStr(b.customInstructions) ||
     badStr(b.customInstructionsVersion) ||
     badStr(b.modelFamily) ||
+    badStr(b.model) ||
     badStr(b.effort) ||
     badStr(b.permissionMode) ||
     badStr(b.codexSandbox) ||
@@ -380,6 +382,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         customInstructions: b.customInstructions,
         outfit: b.outfit,
         modelFamily: b.modelFamily,
+        model: b.model,
         effort: b.effort,
         agentType: b.agentType,
         codexSandbox: b.codexSandbox,

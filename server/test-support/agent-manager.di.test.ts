@@ -299,6 +299,38 @@ describe("AgentManager DI (temp-state isolated)", () => {
     });
   });
 
+  it("offers Codex models in /model and applies the selected slug", async () => {
+    const fake = new FakeBackend();
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-codex-model") }),
+      initialRooms: [],
+    });
+    const info = await mgr.spawn(
+      "Codex model",
+      STATE_ROOT,
+      "never",
+      undefined,
+      undefined,
+      "room-codex-model",
+      undefined,
+      "gpt-5.6-sol",
+      "medium",
+      undefined,
+      "codex",
+    );
+    await mgr.sendMessage(info!.id, "/model", "tester");
+    const interaction = mgr.getPendingInteractions()[0];
+    expect(interaction.choices.map((choice) => choice.value)).toContain(
+      "gpt-5.6-terra",
+    );
+    expect(interaction.choices.map((choice) => choice.value)).not.toContain(
+      "opus",
+    );
+    await mgr.sendMessage(info!.id, "3", "tester");
+    expect(mgr.getAgent(info!.id)?.modelFamily).toBe("gpt-5.6-terra");
+  });
+
   it("routes OpenCode model changes to the connected-model settings control", async () => {
     const fake = new FakeBackend();
     const mgr = createAgentManager({

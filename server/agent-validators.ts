@@ -13,6 +13,7 @@ import {
   CODEX_MODELS,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
+  FAMILY_TO_MODEL,
   MODEL_FAMILIES,
   OPENCODE_TRACER_MODEL,
   claudeFamilySupportsMaxEffort,
@@ -82,10 +83,10 @@ export function validateModelFamily(
 //   has no production fallback; the other backends use their defaults
 // - claude: anything outside the static Claude family set is an error (e.g. a
 //   Codex slug sent without agentType:"codex")
-// - codex: a Claude family name is an error (statically known to not be a Codex
-//   slug - catches agentType:"codex" paired with modelFamily:"opus"); anything
-//   else passes through, because the valid Codex set is dynamic (model/list
-//   RPC) and codex itself rejects unknown slugs at thread/start.
+// - codex: reject only values that are recognizably Claude-shaped; the live
+//   auth-dependent Codex list is not available at this synchronous boundary
+// - opencode: validate only the provider/model shape because its connected list
+//   is runtime-only and might not be loaded at request time
 export function modelFamilyMismatchError(
   agentType: AgentBackendType,
   raw: string | undefined,
@@ -111,11 +112,66 @@ export function modelFamilyMismatchError(
     if (isClaudeFamily(raw)) {
       return `"${raw}" is a Claude model family, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
     }
+    // Case-insensitive so obvious foreign values such as "Opus-4" cannot
+    // evade the check. Reject claude-* and <Claude family>-*; accept every
+    // other non-empty value because the Codex model/list is auth-dependent.
+    const lower = raw.toLowerCase();
+    const claudeShaped =
+      lower.startsWith("claude-") ||
+      MODEL_FAMILIES.some(
+        ({ family }) => lower === family || lower.startsWith(`${family}-`),
+      );
+    if (claudeShaped) {
+      return `"${raw}" looks like a Claude model, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
+    }
     return null;
   }
   if (isClaudeFamily(raw)) return null;
   const families = MODEL_FAMILIES.map((m) => m.family).join(", ");
   return `"${raw}" is not a Claude model family (valid: ${families}). For a Codex model, set agentType to "codex".`;
+}
+
+// Interactive spawn/edit validation for the stored family plus the optional
+// concrete model assertion accepted by the agent API. The backend consumes the
+// family: Claude resolves it through FAMILY_TO_MODEL, while Codex and OpenCode
+// use the stored ID directly.
+export function resolveInteractiveModelSelection(
+  agentType: AgentBackendType,
+  modelFamily: string | undefined,
+  model: string | undefined,
+): { modelFamily: string | undefined; error: string | null } {
+  let resolvedFamily = modelFamily;
+  if (resolvedFamily === undefined && model !== undefined) {
+    if (agentType === "claude") {
+      resolvedFamily = MODEL_FAMILIES.find(
+        ({ family }) => FAMILY_TO_MODEL[family] === model,
+      )?.family;
+      if (resolvedFamily === undefined) {
+        return {
+          modelFamily: undefined,
+          error: `"${model}" is not a mapped Claude model. Pass modelFamily instead (valid: ${MODEL_FAMILIES.map(({ family }) => family).join(", ")}).`,
+        };
+      }
+    } else {
+      // Codex and OpenCode store the concrete model ID in modelFamily.
+      resolvedFamily = model;
+    }
+  }
+  const familyError = modelFamilyMismatchError(agentType, resolvedFamily);
+  if (familyError) return { modelFamily: resolvedFamily, error: familyError };
+  if (model === undefined || resolvedFamily === undefined || resolvedFamily === "")
+    return { modelFamily: resolvedFamily, error: null };
+  const expected =
+    agentType === "claude" && isClaudeFamily(resolvedFamily)
+      ? FAMILY_TO_MODEL[resolvedFamily]
+      : resolvedFamily;
+  return {
+    modelFamily: resolvedFamily,
+    error:
+      model === expected
+        ? null
+        : `modelFamily "${resolvedFamily}" resolves to model "${expected}", not "${model}".`,
+  };
 }
 
 export function validateCodexSandbox(

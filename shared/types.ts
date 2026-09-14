@@ -156,6 +156,18 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
   { family: "haiku", label: "Haiku" },
 ];
 
+// Static model-family IDs Isomux can validate without asking a provider. This
+// is also the source for the in-chat /model picker. OpenCode's connected model
+// list is runtime-only, so request paths must keep accepting a well-formed
+// provider/model ID when that list is not loaded.
+export function knownModelFamiliesFor(
+  agentType: AgentBackendType,
+): readonly string[] | null {
+  if (agentType === "claude") return MODEL_FAMILIES.map((m) => m.family);
+  if (agentType === "codex") return CODEX_MODELS.map((m) => m.value);
+  return null;
+}
+
 // Reasoning effort levels. Each backend reports the subset that a model
 // supports. OpenCode variants use the exact matching values from this list;
 // provider-specific names stay hidden. UI filters per backend and model.

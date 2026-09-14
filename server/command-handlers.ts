@@ -20,10 +20,10 @@ import { formatDecimal, formatNumber } from "../shared/i18n/number.ts";
 import { formatDateTime } from "../shared/i18n/time.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
-  MODEL_FAMILIES,
   effortLevelsFor,
   familyDisplayLabel,
   effortDisplayLabel,
+  knownModelFamiliesFor,
 } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -663,10 +663,11 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [
         `${t("commands.model.header", { current: currentLabel })}\n`,
       ];
-      const choices = MODEL_FAMILIES.map((model) => ({
-        value: model.family,
-        label: familyDisplayLabel(model.family),
-        current: model.family === managed.info.modelFamily,
+      const models = knownModelFamiliesFor(managed.info.agentType) ?? [];
+      const choices = models.map((modelFamily) => ({
+        value: modelFamily,
+        label: familyDisplayLabel(modelFamily),
+        current: modelFamily === managed.info.modelFamily,
       }));
       lines.push(
         ...choices.map(

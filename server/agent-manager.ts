@@ -28,13 +28,13 @@ import type {
   TaskItem,
 } from "../shared/types.ts";
 import {
-  MODEL_FAMILIES,
   FAMILY_TO_MODEL,
   effortLevelsFor,
   familyDisplayLabel,
   effortDisplayLabel,
   generateRoomId,
   isClaudeFamily,
+  knownModelFamiliesFor,
   LOBBY_ROOM,
   LOBBY_ROOM_ID,
 } from "../shared/types.ts";
@@ -6903,14 +6903,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // Handle /model two-step: if pendingModelPick, check if input is a number pick
     if (claimedChoice?.interaction.kind === "model") {
-      const picked = MODEL_FAMILIES.find(
-        (model) => model.family === claimedChoice.value,
+      const modelFamilies = knownModelFamiliesFor(managed.info.agentType);
+      const picked = modelFamilies?.find(
+        (modelFamily) => modelFamily === claimedChoice.value,
       );
       if (picked) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
-        const label = familyDisplayLabel(picked.family);
-        if (picked.family === managed.info.modelFamily) {
+        const label = familyDisplayLabel(picked);
+        if (picked === managed.info.modelFamily) {
           emitEphemeralLog(
             agentId,
             "system",
@@ -6929,7 +6930,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             clearStaleAutoResumeState(agentId, managed);
           await withAgentRollback(
             managed,
-            { modelFamily: picked.family },
+            { modelFamily: picked },
             async () => {
               await managed.sessionManager.replaceWith(
                 managed,
@@ -6939,7 +6940,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             },
           );
           for (const event of officeState.updateAgent(agentId, {
-            modelFamily: picked.family,
+            modelFamily: picked,
           }))
             emit(event);
           // A sample measured against the old model's window isn't actionable;

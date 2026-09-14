@@ -640,6 +640,61 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(agent?.modelFamily).toBe("gpt-5.5");
   });
 
+  it("unknown Codex model -> 422 invalid_model_family instead of a broken agent", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "Broken", roomId, 0),
+        agentType: "codex",
+        modelFamily: "fable-5",
+        model: "fable-5",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
+  });
+
+  it("spawn rejects a concrete model that disagrees with its Claude family", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "Mismatch", roomId, 0),
+        modelFamily: "fable",
+        model: "claude-fable-5",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
+  });
+
+  it("spawn derives modelFamily from a concrete Claude model", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "Derived", roomId, 0),
+        model: "claude-fable-5-1",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    expect((res.body as { agent: { modelFamily: string } }).agent.modelFamily).toBe(
+      "fable",
+    );
+  });
+
   it("spawns a dormant OpenCode agent with a composite model through REST", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -859,6 +914,104 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("invalid_model_family");
     expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe(before);
+  });
+
+  it("PATCH rejects an unknown Codex model and leaves the agent usable", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const spawned = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "X",
+        cwd: srv.stateRoot,
+        roomId,
+        desk: 0,
+        agentType: "codex",
+        modelFamily: "gpt-5.6-sol",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    const x = (spawned.body as { agent: { id: string } }).agent;
+    const before = srv.agentManager.getAgent(x.id)?.modelFamily;
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { modelFamily: "fable-5", model: "fable-5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe(before);
+  });
+
+  it("PATCH rejects a concrete model that disagrees with its Claude family", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", roomId, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { modelFamily: "fable", model: "claude-fable-5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("opus");
+  });
+
+  it("PATCH derives Claude's family when only a concrete model is sent", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", roomId, 0);
+    const patched = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { model: "claude-fable-5-1" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(patched.status).toBe(200);
+    const listed = await req(srv, "GET", "/agents", {
+      rawSessionId: owner.rawSessionId,
+    });
+    const agent = (listed.body as Array<{ id: string; model: string }>).find(
+      (candidate) => candidate.id === x.id,
+    );
+    expect(agent?.model).toBe("claude-fable-5-1");
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("fable");
+  });
+
+  it("PATCH derives Claude's concrete model when only modelFamily is sent", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", roomId, 0);
+    const patched = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { modelFamily: "fable" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(patched.status).toBe(200);
+    const listed = await req(srv, "GET", "/agents", {
+      rawSessionId: owner.rawSessionId,
+    });
+    const agent = (listed.body as Array<{ id: string; model: string }>).find(
+      (candidate) => candidate.id === x.id,
+    );
+    expect(agent?.model).toBe("claude-fable-5-1");
+  });
+
+  it("PATCH rejects an unmapped Claude model and leaves the agent unchanged", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", roomId, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { model: "claude-nope" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("opus");
   });
 
   it("PATCH valid cwd + mismatched modelFamily -> 422; NO side effect lands (agent and recent-cwd list untouched)", async () => {
