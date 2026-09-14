@@ -433,12 +433,50 @@ export function normalizeClaudeSubscriptionUsage(
   // server-labelled ("Fable"), and they DO gate this session, so they belong
   // on screen - the pill's number comes from whichever window is closest to
   // its limit, and one of these can be it.
+  const modelScopedNames = new Set<string>();
   if (Array.isArray(byKey.model_scoped)) {
     for (const entry of byKey.model_scoped) {
       const name = (entry as { display_name?: unknown } | null)?.display_name;
       if (typeof name !== "string" || name.length === 0) continue;
       const win = claudeWindow(entry, `Weekly (${name})`);
-      if (win) windows.push(win);
+      if (!win) continue;
+      windows.push(win);
+      modelScopedNames.add(name);
+    }
+  }
+  // DISABLE_TELEMETRY suppresses the model_scoped convenience list, but the
+  // same experimental response still carries per-model windows in its
+  // canonical limits list. Union both sources so limits-only models remain
+  // visible, with model_scoped winning when both shapes name the same model.
+  if (Array.isArray(byKey.limits)) {
+    for (const entry of byKey.limits) {
+      if (!entry || typeof entry !== "object") continue;
+      const row = entry as {
+        kind?: unknown;
+        percent?: unknown;
+        resets_at?: unknown;
+        scope?: unknown;
+      };
+      if (row.kind !== "weekly_scoped") continue;
+      const scope = row.scope;
+      if (!scope || typeof scope !== "object") continue;
+      const model = (scope as { model?: unknown }).model;
+      if (!model || typeof model !== "object") continue;
+      const name = (model as { display_name?: unknown }).display_name;
+      if (
+        typeof name !== "string" ||
+        name.length === 0 ||
+        modelScopedNames.has(name)
+      ) {
+        continue;
+      }
+      const win = claudeWindow(
+        { utilization: row.percent, resets_at: row.resets_at },
+        `Weekly (${name})`,
+      );
+      if (!win) continue;
+      windows.push(win);
+      modelScopedNames.add(name);
     }
   }
   // The account has plan limits, but the response carried no usable number:

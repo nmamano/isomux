@@ -600,6 +600,126 @@ describe("normalizeClaudeSubscriptionUsage", () => {
     ]);
   });
 
+  it("falls back to a valid weekly_scoped limits row when model_scoped is null or empty", () => {
+    for (const modelScoped of [null, []]) {
+      const out = usageOf({
+        rate_limits_available: true,
+        rate_limits: {
+          seven_day: { utilization: 16, resets_at: null },
+          five_hour: { utilization: 8, resets_at: null },
+          model_scoped: modelScoped,
+          limits: [
+            {
+              kind: "session",
+              percent: 8,
+              resets_at: null,
+              scope: null,
+            },
+            {
+              kind: "weekly_all",
+              percent: 16,
+              resets_at: null,
+              scope: null,
+            },
+            {
+              kind: "weekly_scoped",
+              percent: 64,
+              resets_at: "2026-09-19T19:00:00Z",
+              scope: { model: { display_name: "Fable" } },
+            },
+            {
+              kind: "weekly_all",
+              percent: 99,
+              resets_at: null,
+              scope: { model: { display_name: "Wrong kind" } },
+            },
+            null,
+            {
+              kind: "weekly_scoped",
+              percent: NaN,
+              scope: { model: { display_name: "Invalid percent" } },
+            },
+            { kind: "weekly_scoped", percent: 50, scope: null },
+            {
+              kind: "weekly_scoped",
+              percent: 50,
+              scope: { model: null, surface: "other" },
+            },
+            {
+              kind: "weekly_scoped",
+              percent: 50,
+              scope: { model: { display_name: "" } },
+            },
+          ],
+        },
+      });
+      expect(out.windows).toEqual([
+        { label: "Weekly", usedPercent: 16, resetsAtMs: null },
+        { label: "5-hour", usedPercent: 8, resetsAtMs: null },
+        {
+          label: "Weekly (Fable)",
+          usedPercent: 64,
+          resetsAtMs: Date.parse("2026-09-19T19:00:00Z"),
+        },
+      ]);
+    }
+  });
+
+  it("prefers model_scoped over a duplicate model in limits", () => {
+    const out = usageOf({
+      rate_limits_available: true,
+      rate_limits: {
+        model_scoped: [
+          { display_name: "Fable", utilization: 43, resets_at: null },
+        ],
+        limits: [
+          {
+            kind: "weekly_scoped",
+            percent: 64,
+            resets_at: "2026-09-19T19:00:00Z",
+            scope: { model: { display_name: "Fable" } },
+          },
+          {
+            kind: "weekly_scoped",
+            percent: 12,
+            resets_at: null,
+            scope: { model: { display_name: "Sonnet" } },
+          },
+        ],
+      },
+    });
+    expect(out.windows).toEqual([
+      { label: "Weekly (Fable)", usedPercent: 43, resetsAtMs: null },
+      { label: "Weekly (Sonnet)", usedPercent: 12, resetsAtMs: null },
+    ]);
+  });
+
+  it("keeps the first of duplicate model rows in limits", () => {
+    const out = usageOf({
+      rate_limits_available: true,
+      rate_limits: {
+        model_scoped: null,
+        limits: [
+          {
+            kind: "weekly_scoped",
+            percent: 64,
+            resets_at: null,
+            scope: { model: { display_name: "Fable" } },
+          },
+          {
+            kind: "weekly_scoped",
+            percent: 12,
+            resets_at: null,
+            scope: { model: { display_name: "Fable" } },
+          },
+        ],
+      },
+    });
+    expect(out.windows).toEqual([
+      { label: "Weekly (Fable)", usedPercent: 64, resetsAtMs: null },
+    ]);
+  });
+
   it("keeps the model_scoped Fable window and its pin-stable wire label", () => {
     const out = usageOf({
       subscription_type: "max",
