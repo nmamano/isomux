@@ -186,8 +186,7 @@ export const es: Catalog = {
     "No se pudo confirmar tu lista de salas; Mostradas no se guardó.",
 
   "settings.office.title": "Ajustes de la oficina",
-  "settings.office.intro":
-    "La rejilla de ventilación de la pared de la oficina abre esta página.",
+  "settings.office.intro": "Ajustes que se aplican a todas las salas.",
   "settings.office.viewOnly":
     "Solo lectura. Solo los propietarios de la oficina pueden editar los ajustes de toda la oficina.",
   "settings.office.name": "Nombre de la oficina",
@@ -220,7 +219,7 @@ export const es: Catalog = {
 
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
-    "Haz doble clic en la pestaña de una sala para venir directamente aquí.",
+    "La rejilla de la pared, la tecla s y un doble clic en la pestaña de la sala abren esta página.",
   "settings.room.namePlaceholder": "Nombre de la sala",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":

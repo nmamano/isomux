@@ -186,8 +186,7 @@ export const ca: Catalog = {
     "No s'ha pogut confirmar la teva llista de sales; Mostrades no s'ha desat.",
 
   "settings.office.title": "Configuració de l'oficina",
-  "settings.office.intro":
-    "La reixeta de ventilació de la paret de l'oficina obre aquesta pàgina.",
+  "settings.office.intro": "Configuració que s'aplica a totes les sales.",
   "settings.office.viewOnly":
     "Només lectura. Només els propietaris de l'oficina poden editar la configuració de tota l'oficina.",
   "settings.office.name": "Nom de l'oficina",
@@ -220,7 +219,7 @@ export const ca: Catalog = {
 
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
-    "Fes doble clic en una pestanya de sala per venir directament aquí.",
+    "La reixeta de la paret, la tecla s i un doble clic a la pestanya de la sala obren aquesta pàgina.",
   "settings.room.namePlaceholder": "Nom de la sala",
   "settings.room.prompt": "Prompt de la sala",
   "settings.room.promptHint":

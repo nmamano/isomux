@@ -144,7 +144,9 @@ interface OfficeViewProps {
   // generic flow). Optional so other consumers of OfficeView aren't
   // forced to thread a handler they don't need.
   onOpenUserSettingsForUser?: (userId: string) => void;
-  // The vent on the wall opens the settings page at the office's own row.
+  // The vent on the wall opens the settings page at the current room's row
+  // (Nil, 2026-09-14), falling back to the office's own row when no room
+  // handler is threaded.
   onEditOfficePrompt: () => void;
   onEditRoomSettings?: (roomId: string) => void;
   onOpenThemePicker: () => void;
@@ -652,7 +654,14 @@ export function OfficeView({
                 <>
                   <Walls
                     onToggleTheme={cycleTheme}
-                    onOpenSettings={embed ? undefined : onEditOfficePrompt}
+                    onOpenSettings={
+                      embed
+                        ? undefined
+                        : () =>
+                            onEditRoomSettings && currentRoomId
+                              ? onEditRoomSettings(currentRoomId)
+                              : onEditOfficePrompt()
+                    }
                     onOpenApps={embed ? undefined : onOpenApps}
                     onOpenTasks={onOpenTasks}
                     onOpenCronjobs={onOpenCronjobs}

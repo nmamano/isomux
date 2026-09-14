@@ -57,8 +57,11 @@ type View = ReturnType<typeof render>;
 
 // The enabling precondition, asserted before every press: the office is up
 // (its Tasks button is only in the office bar) and the settings page is not.
+// The settings page renders its content pane whatever row it opened on;
+// "s" now opens the current room's row (or the office row from the lobby),
+// so the generic placeholder is not the marker (Nil, 2026-09-14).
 const settingsOpen = (view: View) =>
-  view.queryByText(/Select a setting from the list/) !== null;
+  view.container.querySelector('[data-testid="settings-content"]') !== null;
 const officeShowing = (view: View) =>
   view.queryByTitle("Tasks (t)") !== null && !settingsOpen(view);
 

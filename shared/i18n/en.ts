@@ -203,7 +203,7 @@ export const en = {
     "Could not confirm your room list; Displayed not saved.",
 
   "settings.office.title": "Office Settings",
-  "settings.office.intro": "The vent on the office wall opens this page.",
+  "settings.office.intro": "Settings that apply to every room.",
   "settings.office.viewOnly":
     "View only. Only office owners can edit office-wide settings.",
   "settings.office.name": "Office Name",
@@ -233,7 +233,8 @@ export const en = {
   "settings.office.discardConfirm": "Discard unsaved changes to the office?",
 
   "settings.room.title": "{room} · Settings",
-  "settings.room.intro": "Double-click a room tab to come straight here.",
+  "settings.room.intro":
+    "The vent on the wall, the s key and a double-click on the room tab open this page.",
   "settings.room.namePlaceholder": "Room name",
   "settings.room.prompt": "Room Prompt",
   "settings.room.promptHint": "(optional, appended after office prompt)",

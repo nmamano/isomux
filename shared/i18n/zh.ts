@@ -172,7 +172,7 @@ export const zh: Catalog = {
   "settings.profile.deleteFailed": "删除失败",
   "settings.profile.roomListFailed": "无法确认房间列表；未保存「显示」设置。",
   "settings.office.title": "办公室设置",
-  "settings.office.intro": "点击办公室墙上的通风口可打开此页面。",
+  "settings.office.intro": "适用于所有房间的设置。",
   "settings.office.viewOnly":
     "仅供查看。只有办公室所有者可以编辑办公室通用设置。",
   "settings.office.name": "办公室名称",
@@ -200,7 +200,7 @@ export const zh: Catalog = {
   "settings.office.loadedVariables.other": "已加载 {count} 个变量。",
   "settings.office.discardConfirm": "放弃对办公室未保存的更改？",
   "settings.room.title": "{room} · 设置",
-  "settings.room.intro": "双击房间标签页可直接进入此处。",
+  "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
   "settings.room.prompt": "房间提示词",
   "settings.room.promptHint": "（可选，附加在办公室提示词之后）",

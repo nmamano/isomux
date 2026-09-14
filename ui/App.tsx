@@ -531,7 +531,14 @@ export function App({ routing = true }: { routing?: boolean }) {
             setCronjobsOpen(pageUpdate.cronjobsOpen);
           if (pageUpdate.appsOpen !== undefined)
             setAppsOpen(pageUpdate.appsOpen);
-          if (pageUpdate.usersOpen) openSettings(null);
+          // "s" opens the settings of the room you are standing in; the lobby
+          // has no room row, so it opens the office row instead (Nil, 2026-09-14).
+          if (pageUpdate.usersOpen)
+            openSettings(
+              !lobbyOpen && currentRoomId
+                ? { kind: "room", roomId: currentRoomId }
+                : { kind: "section", section: "office" },
+            );
         }
       }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
@@ -628,6 +635,7 @@ export function App({ routing = true }: { routing?: boolean }) {
     tasksOpen,
     cronjobsOpen,
     openSettings,
+    lobbyOpen,
   ]);
 
   // Which page is showing, in the same precedence as the view switch below. A
