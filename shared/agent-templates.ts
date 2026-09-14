@@ -18,14 +18,15 @@ import {
 } from "./types.ts";
 import { preferredFreeOpenCodeModel } from "./opencode-model.ts";
 import { en } from "./i18n/en.ts";
-import { translatorFor, type MessageKey, type Translator } from "./i18n/translate.ts";
+import {
+  translatorFor,
+  type MessageKey,
+  type Translator,
+} from "./i18n/translate.ts";
 
-export const FIRST_TURN_CLAUSE =
-  en["templates.shared.firstTurn"];
-export const SOFTWARE_TOOL_CLAUSE =
-  en["templates.shared.softwareTool"];
-export const PLAIN_LANGUAGE_CLAUSE =
-  en["templates.shared.plainLanguage"];
+export const FIRST_TURN_CLAUSE = en["templates.shared.firstTurn"];
+export const SOFTWARE_TOOL_CLAUSE = en["templates.shared.softwareTool"];
+export const PLAIN_LANGUAGE_CLAUSE = en["templates.shared.plainLanguage"];
 
 export interface AgentTemplate {
   key: string;
@@ -369,12 +370,13 @@ const TEMPLATE_ORDER = [
   "trip-planner",
 ] as const;
 
-export const AGENT_TEMPLATES: AgentTemplate[] = TEMPLATE_ORDER.map(
-  (key) => {
-    const template = TEMPLATE_CATALOG.find((entry) => entry.key === key)!;
-    return { ...template, customInstructions: templateInstructions(translatorFor("en"), template) };
-  },
-);
+export const AGENT_TEMPLATES: AgentTemplate[] = TEMPLATE_ORDER.map((key) => {
+  const template = TEMPLATE_CATALOG.find((entry) => entry.key === key)!;
+  return {
+    ...template,
+    customInstructions: templateInstructions(translatorFor("en"), template),
+  };
+});
 
 export interface TemplateModelResolution {
   modelFamily: string;

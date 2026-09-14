@@ -409,7 +409,9 @@ describe("Blank template dirty state", () => {
     );
     expect(applied.name).toBe("Creador de projectes paral·lels");
     expect(applied.customInstructions).not.toBe(template.customInstructions);
-    expect(applied.customInstructions).toContain("Per començar, esbrina què vol el membre i proposa una direcció.");
+    expect(applied.customInstructions).toContain(
+      "Per començar, esbrina què vol el membre i proposa una direcció.",
+    );
     expect(applied.customInstructions).toStartWith(
       "Converteix idees poc definides en productes petits i útils que arribin a clients reals.",
     );

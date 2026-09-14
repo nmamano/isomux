@@ -23,6 +23,12 @@ const { UserSettingsView } = await import("./components/UserSettingsView.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
+const { en } = await import("../shared/i18n/en.ts");
+const EN_ROOM_INTRO = en["settings.room.intro"];
+const paragraphs = (view: View) =>
+  Array.from(view.container.querySelectorAll("p")).map(
+    (p) => p.textContent ?? "",
+  );
 
 type View = ReturnType<typeof render>;
 
@@ -233,23 +239,20 @@ describe("the settings page", () => {
     open(view, "Enllaços d'inici de sessió");
     expect(heading(view, "Els meus dispositius", "H4")).toBe(true);
 
+    // The room pane's intro is read in the language, never pinned as copy
+    // (Nil, 2026-09-14): the English sentence is absent on ca and on es, and
+    // the pane's paragraphs change between the two, so the pane re-read it.
     open(view, ROOM.name);
-    expect(
-      view.queryByText(
-        "Fes doble clic en una pestanya de sala per venir directament aquí.",
-      ),
-    ).not.toBeNull();
+    expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
+    const caParagraphs = paragraphs(view);
 
     // Spanish: the shell and the open pane follow, and a fresh pane reads it.
     view.rerender(page("es"));
     expect(view.queryByText(SETTINGS.es)).not.toBeNull();
     expect(view.queryByText(SETTINGS.ca)).toBeNull();
     expect(view.queryByText("Uso")).not.toBeNull();
-    expect(
-      view.queryByText(
-        "Haz doble clic en la pestaña de una sala para venir directamente aquí.",
-      ),
-    ).not.toBeNull();
+    expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
+    expect(paragraphs(view)).not.toEqual(caParagraphs);
     open(view, STORAGE.es);
     await settle();
     expect(heading(view, STORAGE_TITLE.es, "H3")).toBe(true);
