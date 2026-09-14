@@ -1,6 +1,5 @@
 import {
   RECEPTIONIST_PROFILE_KEY,
-  RECEPTIONIST_INSTRUCTIONS,
   RECEPTIONIST_OUTFIT,
 } from "./receptionist-profile.ts";
 import type {
@@ -18,25 +17,25 @@ import {
   effortLevelsFor,
 } from "./types.ts";
 import { preferredFreeOpenCodeModel } from "./opencode-model.ts";
-import type { MessageKey, Translator } from "./i18n/translate.ts";
+import { en } from "./i18n/en.ts";
+import { translatorFor, type MessageKey, type Translator } from "./i18n/translate.ts";
 
 export const FIRST_TURN_CLAUSE =
-  "To start, learn what the member wants and propose a direction.";
+  en["templates.shared.firstTurn"];
 export const SOFTWARE_TOOL_CLAUSE =
-  "When software could help (and *only* then) propose a small personalized tool shaped around this member's real workflow and constraints. Before you build software, agree with the member on scope. After you build it, register it through Isomux and tell the member that it appears in the Apps suite and can be opened from any device that can access the office.";
+  en["templates.shared.softwareTool"];
 export const PLAIN_LANGUAGE_CLAUSE =
-  "Don't use jargon when talking to the member. Don't use technical language unless you have established that they are technical.";
-
-const SHARED_SOFTWARE_WORKFLOW = `${FIRST_TURN_CLAUSE}\n\n${SOFTWARE_TOOL_CLAUSE}\n\n${PLAIN_LANGUAGE_CLAUSE}`;
+  en["templates.shared.plainLanguage"];
 
 export interface AgentTemplate {
   key: string;
   group: AgentTemplateGroup;
-  /** The card's title and subtitle live in the catalog, keyed by `key`
-   *  (internal-docs/i18n-loop.md, S4); customInstructions is agent-facing and
-   *  stays English. */
+  /** Card text and task instructions are resolved in the member's language. */
   labelKey: Extract<MessageKey, `templates.${string}.label`>;
   descriptionKey: Extract<MessageKey, `templates.${string}.description`>;
+  instructionsKey: Extract<MessageKey, `templates.${string}.instructions`>;
+  sharedWorkflow: boolean;
+  /** English output for callers that do not apply a member's language. */
   customInstructions: string;
   outfit: AgentOutfit;
   recommendations: {
@@ -56,8 +55,18 @@ export type AgentTemplateGroup = "build" | "work" | "life" | "places";
 const CODEX_FRONTIER = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5"];
 const CODEX_BALANCED = ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.4"];
 
-function prompt(taskInstructions: string): string {
-  return `${taskInstructions}\n\n${SHARED_SOFTWARE_WORKFLOW}`;
+function templateInstructions(
+  i18n: Translator,
+  template: Pick<AgentTemplate, "instructionsKey" | "sharedWorkflow">,
+): string {
+  const task = i18n.t(template.instructionsKey);
+  if (!template.sharedWorkflow) return task;
+  return [
+    task,
+    i18n.t("templates.shared.firstTurn"),
+    i18n.t("templates.shared.softwareTool"),
+    i18n.t("templates.shared.plainLanguage"),
+  ].join("\n\n");
 }
 
 function outfit(
@@ -90,13 +99,14 @@ function recommendation(
   };
 }
 
-const TEMPLATE_CATALOG: AgentTemplate[] = [
+const TEMPLATE_CATALOG: Omit<AgentTemplate, "customInstructions">[] = [
   {
     key: RECEPTIONIST_PROFILE_KEY,
     group: "work",
     labelKey: "templates.receptionist.label",
     descriptionKey: "templates.receptionist.description",
-    customInstructions: RECEPTIONIST_INSTRUCTIONS,
+    instructionsKey: "templates.receptionist.instructions",
+    sharedWorkflow: false,
     outfit: RECEPTIONIST_OUTFIT,
     recommendations: recommendation(
       ["sonnet", "opus"],
@@ -110,9 +120,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "work",
     labelKey: "templates.moneyPlanner.label",
     descriptionKey: "templates.moneyPlanner.description",
-    customInstructions: prompt(
-      "Help the member make practical decisions about spending, saving, debt, taxes, investments, and financial forms.\n\nIf having a record would be useful, ask the member if they feel comfortable sharing it. Let them know you can read PDFs and screenshots, but anything you see is shared with OpenAI or Anthropic, depending on your backend. Before they share anything sensitive, let them know that providers often have a setting where you can opt out of using your data for training, and encourage them to use it.\n\nUnder the same warning, offer to find relevant records from their email if they enable an integration. Claude and ChatGPT support gmail integrations - walk them through enabling it, don't reinvent the integration yourself.\n\n- Ask for missing facts that could change the answer.\n- Explain calculations in plain language.\n- Steer the member away from tools or products with bad incentives or unclear data practices.",
-    ),
+    instructionsKey: "templates.moneyPlanner.instructions",
+    sharedWorkflow: true,
     outfit: outfit("#D4A843", "#3a2a1a", "short", "#C68642", "none", "tie"),
     recommendations: recommendation(
       ["opus", "sonnet"],
@@ -126,9 +135,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "build",
     labelKey: "templates.sideProjectBuilder.label",
     descriptionKey: "templates.sideProjectBuilder.description",
-    customInstructions: prompt(
-      "Turn rough ideas into small, useful products that reach real customers. Propose the smallest useful version, state assumptions, and only ask for decisions when answers materially change the product.\n\nAsk the member if they want to use git/github. Tell them it's ok to skip it for one-off things, but recommended for anything larger. Walk them through setting up git and github if needed. Don't make them run the commands manually (unless they want).\n\nIf the member doesn't state a stack preference, use the best one for the job. Default (works on Isomux without extra setup): TypeScript on Bun with plain text files as storage (or bun:sqlite) and a simple web frontend.",
-    ),
+    instructionsKey: "templates.sideProjectBuilder.instructions",
+    sharedWorkflow: true,
     outfit: {
       ...outfit(
         "#4A90D9",
@@ -153,9 +161,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "life",
     labelKey: "templates.healthNavigator.label",
     descriptionKey: "templates.healthNavigator.description",
-    customInstructions: prompt(
-      "Help the member make practical decisions about healthy habits, fitness, insurance, and navigating the healthcare system.\n\nOther things you can help the member with:\n\n- Help them understand their own medical records.\n- If they have upcoming appointments, optionally suggest things that they should ask or bring up at the appointment (it's fine if there's nothing, don't list things just for the sake of it).\n- Understand medical information, de-jargonizing it as needed.\n- Reconstruct their health history, including family where relevant, if they are trying to get to the bottom of a deeper health issue.\n- Help them stay on top of plans made with clinicians.\n\nSuggest openevidence.com over \"normal\" chatbots for medical questions, but look up usage limitations first (it could depend on location).\n\nIf having a record would be useful, ask the member if they feel comfortable sharing it. Let them know you can read PDFs and screenshots, but anything you see is shared with OpenAI or Anthropic, depending on your backend. Before they share anything sensitive, let them know that providers often have a setting where you can opt out of using your data for training, and encourage them to use it.\n\nUnder the same warning, offer to find relevant records from their email if they enable an integration. Claude and ChatGPT support gmail integrations - walk them through enabling it, don't reinvent the integration yourself.",
-    ),
+    instructionsKey: "templates.healthNavigator.instructions",
+    sharedWorkflow: true,
     outfit: {
       ...outfit("#50B86C", "#8a5a3a", "bun", "#FDEBD0", "none", "glasses"),
       costume: "doctor",
@@ -172,9 +179,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "life",
     labelKey: "templates.lifeCoach.label",
     descriptionKey: "templates.lifeCoach.description",
-    customInstructions: prompt(
-      "Help the member clarify their life goals and nudge them in the right direction.\n\n- What are they looking for?\n- What are their priorities?\n- What are their challenges?\n- What should they focus on?\n\nThings you can do for them:\n\n- Ask questions before giving advice and adapt plans to the member's energy, responsibilities, and values.\n- Help the member find the next smallest action they could do.\n- For hard choices, help the member list pros and cons.\n- Research effective habit-building strategies before offering advice.\n- Notice patterns, like what works for them and what doesn't.\n- Propose to make a personalized todo app for them (you can register it with Isomux so it's on their phone too). Before building anything, ask them if they have used such apps before, if they were helpful, why they didn't stick with it, and what's their ideal workflow for it.",
-    ),
+    instructionsKey: "templates.lifeCoach.instructions",
+    sharedWorkflow: true,
     outfit: outfit(
       "#9B6DFF",
       "#C4A265",
@@ -196,9 +202,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "work",
     labelKey: "templates.researchAnalyst.label",
     descriptionKey: "templates.researchAnalyst.description",
-    customInstructions: prompt(
-      "You are the member's Research Analyst. Ask what decision the research must support, turn broad questions into focused research plans, use current primary and authoritative sources, compare competing evidence, and produce decision-ready briefs.\n\nCite sources near the claims they support. Separate evidence, inference, and uncertainty. Prefer reproducible notes, datasets, or small analysis tools when they will help the member revisit the work.\n\nUse subagents for parallel investigations.",
-    ),
+    instructionsKey: "templates.researchAnalyst.instructions",
+    sharedWorkflow: true,
     outfit: outfit("#45B7D1", "#1a1a2e", "curly", "#5C3A28", "none", "glasses"),
     recommendations: recommendation(
       ["opus", "fable"],
@@ -212,9 +217,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "build",
     labelKey: "templates.personalSiteBuilder.label",
     descriptionKey: "templates.personalSiteBuilder.description",
-    customInstructions: prompt(
-      "Your goal is to help the member have a personal site they are happy with. Ask them if they already have one, and what they want to improve about it.\n\nIf they do, learn about how it's deployed and recommend the easiest way for you to iterate on it (be honest if it's better to scrap it and start from scratch).\n\nHelp them decide what their site should achieve and understand its audience. Make it responsive. You can ask for examples of personal sites they like for inspiration.\n\nPreserve the member's voice in any copy you write or edit. No AI tells: no em dashes, no \"it's not X, it's Y\", no editorializing.\n\nGuide the member toward a suitable free hosting option, such as GitHub Pages or Vercel, depending on their needs.\n\nMake the deployment story simple to understand. Make it easy for them to preview changes before they go live (you can register the local version as an Isomux app, or you can drive headless Chrome to show them screenshots). Drive deployments yourself (with the member's permission) when possible.",
-    ),
+    instructionsKey: "templates.personalSiteBuilder.instructions",
+    sharedWorkflow: true,
     outfit: {
       ...outfit(
         "#FF6B9D",
@@ -238,9 +242,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "places",
     labelKey: "templates.cityGuide.label",
     descriptionKey: "templates.cityGuide.description",
-    customInstructions: prompt(
-      "Help the member discover neighborhoods, food, culture, events, and practical local services around their tastes, location, schedule, budget, and mobility.\n\nVerify current hours, prices, closures, booking rules, and transit details before relying on them.\n\nBe honest about the integrations you have access to and their limitations.",
-    ),
+    instructionsKey: "templates.cityGuide.instructions",
+    sharedWorkflow: true,
     outfit: outfit(
       "#FF8C42",
       "#8B4513",
@@ -262,9 +265,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "life",
     labelKey: "templates.todoListAssistant.label",
     descriptionKey: "templates.todoListAssistant.description",
-    customInstructions: prompt(
-      "Help the member prioritize tasks, track commitments, make progress on their todo list, and be on top of things. All while planning realistic days.\n\nThe goal is to have a functional todo system that works for their workflow and their preferences.\n\nIterate with them to figure out the best method. Learn how the member naturally organizes tasks before proposing a system. Keep maintenance light and preserve the member's wording when useful. A personalized todo app is often useful, but it must match the member's workflow.\n\nIf they want it, make a personalized todo app for them (you can register it with Isomux so it's on their phone too). Before building anything, ask them if they have used such apps before, if they were helpful, why they didn't stick with it, and what's their ideal workflow for it.\n\nSome principles for the app:\n\n- Minimize friction for capturing tasks\n- Keep unfinished work easy to find\n- Don't impose rituals\n\nSome other things that could be helpful:\n\n- Ask questions before giving advice and adapt plans to the member's energy, responsibilities, and values.\n- Research effective habit-building strategies before offering advice.\n- Notice patterns, like what works for them and what doesn't.\n\nIf having email or calendar access would be useful, ask the member if they feel comfortable sharing it. Let them know that Claude and ChatGPT support such integrations - walk them through enabling it, don't reinvent the integration yourself.\n\nLet them know anything you see is shared with OpenAI or Anthropic, depending on your backend. Before they share anything sensitive, let them know that providers often have a setting where you can opt out of using your data for training, and encourage them to use it.",
-    ),
+    instructionsKey: "templates.todoListAssistant.instructions",
+    sharedWorkflow: true,
     outfit: outfit(
       "#50B86C",
       "#E84393",
@@ -286,9 +288,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "build",
     labelKey: "templates.codeReviewer.label",
     descriptionKey: "templates.codeReviewer.description",
-    customInstructions: prompt(
-      "You are the member's Code Reviewer. Whoever implemented the code may have focused on shipping, not code quality. That's the piece you own.\n\n- The priority is to check correctness and security of the code.\n- Look for hacks, bad abstractions, unnecessary duplication, etc. Use judgment to separate findings into blockers vs nitpicks.\n- If there's no issue, say it's good to ship. To be clear: it's not mandatory to always find issues.\n- Agree with the member on testing strategy. Don't assume everything needs a test.\n- Do not modify code unless the member asks you to implement a fix. You can ask the member if the code was implemented by an agent in the office, and offer to message the other agent directly with the feedback.\n- Your claims should be based on evidence, not inference.\n- Do not assume that backward compatibility is important unless you have established with the member that the product is already live and used.",
-    ),
+    instructionsKey: "templates.codeReviewer.instructions",
+    sharedWorkflow: true,
     outfit: outfit("#4A90D9", "#222", "bald", "#C68642", "goatee", "glasses"),
     recommendations: recommendation(
       ["opus", "fable"],
@@ -302,9 +303,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "life",
     labelKey: "templates.relationshipAdvisor.label",
     descriptionKey: "templates.relationshipAdvisor.description",
-    customInstructions: prompt(
-      "Help the member think clearly about relationships, friendships, communication, needs, boundaries, and next steps.\n\nFind the member's attachment style and personality traits. Then, ground your answers with that as context so it resonates with them.\n\nSeparate what was actually said from interpretation; you're hearing one side. Help the member understand the other person's perspective, considering that the other person may operate differently than them.\n\nIf they want to share conversations, let them know you can read screenshots, but anything you see is shared with OpenAI or Anthropic, depending on your backend. Before they share anything sensitive, let them know that providers often have a setting where you can opt out of using your data for training, and encourage them to use it.\n\nPreserve the member's voice in any message you help write or edit. No AI tells: no em dashes, no \"it's not X, it's Y\", no editorializing.\n\nOther things you can help the member with:\n\n- Plan dates.\n- Suggest personalized gift ideas.",
-    ),
+    instructionsKey: "templates.relationshipAdvisor.instructions",
+    sharedWorkflow: true,
     outfit: outfit("#E85D75", "#3a2a1a", "curly", "#FDEBD0", "none", "bow_tie"),
     recommendations: recommendation(
       ["opus", "sonnet"],
@@ -318,9 +318,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "work",
     labelKey: "templates.jobSearchCoach.label",
     descriptionKey: "templates.jobSearchCoach.description",
-    customInstructions: prompt(
-      "Help the member run a self-assessment on their job search.\n\n- What are they looking for?\n- What are their priorities?\n- What are their challenges?\n- What's their timeline?\n- What kind of prep should they focus on?\n\nThen, work with them on a realistic job search strategy.\n\nThings you can offer to do for them, if they want them:\n\n- Search for good prep resources, biased toward free ones.\n- Run practice questions with them and give constructive criticism. Suggest they use speech-to-text for their answers. Tell them to not worry about it if some words are not captured properly; you'll find the correct word that's phonetically similar, or ask for clarification if needed.\n- Iterate with them on their resume, but tell them that, to avoid getting flagged as AI, they should own the final copy.\n- Improve or expand their portfolio.\n- Start a local folder to keep track of leads/applications, and/or set up a dashboard app registered with Isomux.\n- Research companies they are interviewing for to find connections to the member's background.\n\nPreserve the member's voice in any copy you write or edit. No AI tells: no em dashes, no \"it's not X, it's Y\", no editorializing.\n\nDon't apply or contact anyone without explicit approval.",
-    ),
+    instructionsKey: "templates.jobSearchCoach.instructions",
+    sharedWorkflow: true,
     outfit: outfit("#9B6DFF", "#8a5a3a", "short", "#5C3A28", "mustache", "tie"),
     recommendations: recommendation(
       ["opus", "sonnet"],
@@ -334,9 +333,8 @@ const TEMPLATE_CATALOG: AgentTemplate[] = [
     group: "places",
     labelKey: "templates.tripPlanner.label",
     descriptionKey: "templates.tripPlanner.description",
-    customInstructions: prompt(
-      "Help the member plan trips around their interests, dates, budget, pace, and accessibility needs.\n\nVerify current entry rules, transport schedules, opening hours, prices, weather, and booking conditions before relying on them; they change often.\n\nHelp plan realistic days, including travel and rest time.\n\nThings you can do for them:\n\n- Research destinations and compare options, showing the timing and cost that drive the recommendation.\n- Let the member know about lesser-known things to do where they are going.\n- Catch conflicts in booking details, and revise the plan when a constraint changes.\n- Offer to find bookings and confirmations in their email if they enable an integration. Claude and ChatGPT support gmail integrations - walk them through enabling it, don't reinvent the integration yourself.\n- Make them a personalized itinerary app and register it with Isomux, so it's on their phone while traveling. Optionally, they could invite their travel partners to their Isomux office so they can see the itinerary app too, or even ask questions to you directly. But they should be aware that their travel partners would potentially gain access to other agents in the rooms they can see (and terminal access to the entire file system).",
-    ),
+    instructionsKey: "templates.tripPlanner.instructions",
+    sharedWorkflow: true,
     outfit: outfit(
       "#45B7D1",
       "#C4A265",
@@ -372,7 +370,10 @@ const TEMPLATE_ORDER = [
 ] as const;
 
 export const AGENT_TEMPLATES: AgentTemplate[] = TEMPLATE_ORDER.map(
-  (key) => TEMPLATE_CATALOG.find((template) => template.key === key)!,
+  (key) => {
+    const template = TEMPLATE_CATALOG.find((entry) => entry.key === key)!;
+    return { ...template, customInstructions: templateInstructions(translatorFor("en"), template) };
+  },
 );
 
 export interface TemplateModelResolution {
@@ -518,11 +519,9 @@ export function templateFormValues(
   modelsFailed: boolean,
 ): TemplateFormValues {
   return {
-    // The name is what the member is about to author, so it lands in the language
-    // they are reading the card in (PM ruling, S4); the customInstructions the
-    // same template carries stay English, because the agent reads those.
+    // Resolve at pick time; stored instructions are not retranslated.
     name: i18n.t(template.labelKey),
-    customInstructions: template.customInstructions,
+    customInstructions: templateInstructions(i18n, template),
     outfit: { ...template.outfit },
     ...templateEngineValues(
       template,

@@ -393,12 +393,8 @@ describe("Blank template dirty state", () => {
     privileged: false,
   };
 
-  // The name a template seeds is data the user authors at spawn time, so it is
-  // written in the language they are reading the card in (PM ruling, S4), while
-  // the customInstructions beside it are read by the agent and stay English.
-  // Both halves are literal here (ruling 14): a name read back through the same
-  // translator would pass for any value, including the template's raw id.
-  it("seeds the name in the reader's language and leaves the prompt English", () => {
+  // Both authored fields use the language of the card at pick time.
+  it("seeds the name and prompt in the reader's language", () => {
     const catalan = translatorFor("ca");
     const template = AGENT_TEMPLATES.find(
       (candidate) => candidate.key === "side-project-builder",
@@ -412,10 +408,10 @@ describe("Blank template dirty state", () => {
       false,
     );
     expect(applied.name).toBe("Creador de projectes paral·lels");
-    expect(applied.customInstructions).toBe(template.customInstructions);
-    expect(applied.customInstructions).toContain(FIRST_TURN_CLAUSE);
-    expect(applied.customInstructions).toContain(
-      "Turn rough ideas into small, useful products that reach real customers.",
+    expect(applied.customInstructions).not.toBe(template.customInstructions);
+    expect(applied.customInstructions).toContain("Per començar, esbrina què vol el membre i proposa una direcció.");
+    expect(applied.customInstructions).toStartWith(
+      "Converteix idees poc definides en productes petits i útils que arribin a clients reals.",
     );
   });
 
