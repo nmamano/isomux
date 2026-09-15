@@ -178,5 +178,9 @@ default, the room-access refusal and the consent flow first proposed.
    the chat shows a warning: "This session still has X as manager and uses their
    connections."
 
-Still open for implementation: member deletion while the member manages agents
-(see above), and whether privilege carries over on transfer.
+3. Member deletion is not blocked while the member manages agents; that was
+   rejected as annoying. The agents they manage pass to an office owner
+   automatically instead. Which owner, and what happens to the running
+   sessions, is open.
+
+Also open: whether privilege carries over on transfer.
