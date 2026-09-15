@@ -1,7 +1,7 @@
 # Reassigning an agent's manager
 
-Status: design proposal, 2026-09-15. No API or policy in this document is
-implemented. Nil must approve the policy before implementation.
+Status: design, 2026-09-15, with Nil's rulings at the end. Nothing here is
+implemented.
 
 ## What manager means today
 
@@ -166,44 +166,17 @@ permanent deletion first. Apply an equivalent explicit rule to their cronjobs,
 apps, API tokens, provider state, managed variables, memory, and browser profile;
 their cleanup/retention policy is outside this task.
 
-## Options and recommendation
+## Nil's rulings (2026-09-15)
 
-**A. Immediate reassignment by the current manager or an office owner.** This is
-simple, but it gives the target member's credentials, private prompt/memory,
-browser profile, and room reach to an agent they did not accept.
+Not scheduled for implementation (task 6a9deaba, P2). These rulings override
+anything above that conflicts with them, including the fresh-conversation
+default, the room-access refusal and the consent flow first proposed.
 
-**B. Two-party transfer.** The current manager requests a named target; the
-target accepts or declines. An office owner can initiate or cancel a request,
-but acceptance still belongs to the target. Until acceptance, no runtime state
-changes. This makes the authority and credential transition explicit.
+1. Only office owners can change an agent's manager. There is no consent step,
+   no room-access precondition and no confirmation.
+2. A session started under a previous manager may still be resumed. On resume,
+   the chat shows a warning: "This session still has X as manager and uses their
+   connections."
 
-**C. Owner-forced transfer.** An office owner can apply the transfer without the
-target's consent. This is useful for recovery, but it has the same credential
-and private-context exposure as A.
-
-Recommend **B**, with the existing manager or an office owner allowed to start
-the request. The edit dialog can show the current manager, a target picker, and
-a pending-transfer state. Keep the actual transfer in a dedicated API operation,
-not the general agent patch: it needs target consent, token rotation, browser
-closure, session replacement, and a distinct audit event. Its authorization
-must put `userScope` outermost, then allow the current manager or an office
-owner; an agent identity must never transfer itself, even when its token carries
-the same `userId`. Otherwise an agent could transfer itself to an office owner
-and inherit office-wide app control through the current guard
-(`server/identity/guards.ts:386-392`). Require the target member to accept and
-to have access to the current room. Do not transfer apps, cronjobs, remote API
-tokens, or killed agents as a side effect.
-
-## Questions for Nil
-
-1. May an office owner force acceptance for recovery, or must every target
-   member consent?
-2. Should transfer be refused while an agent is working or waiting for a
-   permission/choice, or may it cancel that state after a warning?
-3. Must member deletion be blocked until every owned resource is resolved, and
-   which resources may be deleted instead of transferred?
-4. Should a transfer preserve privileged status, or clear it and require the
-   new manager to grant it again?
-5. Who may see the pending request and the completed-transfer audit record?
-6. Is a fresh conversation the required credential boundary, or may a transfer
-   resume under the old provider home and keep the old member's account access?
+Still open for implementation: member deletion while the member manages agents
+(see above), and whether privilege carries over on transfer.

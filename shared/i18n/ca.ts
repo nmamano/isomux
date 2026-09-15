@@ -986,8 +986,9 @@ Coses que pots fer per ell:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema complet",
   "dialogs.agent.systemPromptLoadFailed":
     "No s'ha pogut carregar el prompt de sistema.",
-  "dialogs.agent.cronjobPromptTitle": "Prompt de la programació",
-  "dialogs.agent.showCronjobPrompt": "Mostra el prompt de la programació",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programació (cron job)",
+  "dialogs.agent.showCronjobPrompt":
+    "Mostra el prompt de la programació (cron job)",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ex. "Ets un especialista en backend. Escriu sempre tests."',
   "dialogs.agent.revive": "Reactiva un agent aturat",

@@ -110,7 +110,7 @@ export function modelFamilyMismatchError(
   if (raw === undefined || raw === "") return null;
   if (agentType === "codex") {
     if (isClaudeFamily(raw)) {
-      return `"${raw}" is a Claude model family, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
+      return `"${raw}" is not a Codex model.`;
     }
     // Case-insensitive so obvious foreign values such as "Opus-4" cannot
     // evade the check. Reject claude-* and <Claude family>-*; accept every
@@ -122,7 +122,7 @@ export function modelFamilyMismatchError(
         ({ family }) => lower === family || lower.startsWith(`${family}-`),
       );
     if (claudeShaped) {
-      return `"${raw}" looks like a Claude model, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
+      return `"${raw}" is not a Codex model.`;
     }
     return null;
   }

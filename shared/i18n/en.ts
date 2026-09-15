@@ -982,8 +982,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.agent.showSystemPrompt": "Show full system prompt",
   "dialogs.agent.systemPromptTitle": "Full system prompt",
   "dialogs.agent.systemPromptLoadFailed": "Could not load the system prompt.",
-  "dialogs.agent.cronjobPromptTitle": "Cronjob prompt",
-  "dialogs.agent.showCronjobPrompt": "Show cronjob prompt",
+  "dialogs.agent.cronjobPromptTitle": "Schedule (cron job) prompt",
+  "dialogs.agent.showCronjobPrompt": "Show schedule (cron job) prompt",
   "dialogs.agent.customInstructionsPlaceholder":
     'e.g. "You are a backend specialist. Always write tests."',
   "dialogs.agent.revive": "Revive a killed agent",

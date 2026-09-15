@@ -8,6 +8,7 @@ const { setApiShim } = await import("../api.ts");
 const { SystemPromptButton } = await import("./SystemPromptButton.tsx");
 const { isExpandedEditorOpen } = await import("./ExpandableTextarea.tsx");
 const { LogEntryCard } = await import("../log-view/LogEntryCard.tsx");
+const { en } = await import("../../shared/i18n/en.ts");
 
 describe("SystemPromptButton", () => {
   it("opens the fetched prompt in a read-only modal and copies it", async () => {
@@ -76,7 +77,9 @@ describe("SystemPromptButton", () => {
     const view = render(<SystemPromptButton cronjobId="cron-1" />);
     await act(async () => {
       fireEvent.click(
-        view.getByRole("button", { name: "Show cronjob prompt" }),
+        view.getByRole("button", {
+          name: en["dialogs.agent.showCronjobPrompt"],
+        }),
       );
       await Promise.resolve();
     });
@@ -87,7 +90,7 @@ describe("SystemPromptButton", () => {
     );
     expect(calls).toEqual(["GET /api/cronjobs/cron-1/system-prompt"]);
     expect(view.getByRole("dialog").getAttribute("aria-label")).toBe(
-      "Cronjob prompt",
+      en["dialogs.agent.cronjobPromptTitle"],
     );
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Copy" }));
@@ -183,7 +186,7 @@ describe("system-prompt log marker", () => {
     );
     expect(view.getByText('Cronjob prompt for "Night report"')).toBeTruthy();
     expect(
-      view.getByRole("button", { name: "Show cronjob prompt" }),
+      view.getByRole("button", { name: en["dialogs.agent.showCronjobPrompt"] }),
     ).toBeTruthy();
     view.unmount();
   });

@@ -85,14 +85,13 @@ describe("OpenCode model validation", () => {
 });
 
 describe("interactive model selection validation", () => {
-  it("rejects unknown Codex models and names the available choices", () => {
+  it("rejects a Claude-shaped model for Codex", () => {
     const result = resolveInteractiveModelSelection(
       "codex",
       "fable-5",
       "fable-5",
     );
-    expect(result.error).toContain('"fable-5" looks like a Claude model');
-    expect(result.error).toContain("gpt-5.6-sol");
+    expect(result.error).toContain('"fable-5"');
   });
 
   it("accepts unknown Codex-shaped slugs but rejects Claude shapes case-insensitively", () => {

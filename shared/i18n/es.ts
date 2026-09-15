@@ -989,8 +989,9 @@ Cosas que puedes hacer por él:
   "dialogs.agent.systemPromptTitle": "Prompt de sistema completo",
   "dialogs.agent.systemPromptLoadFailed":
     "No se pudo cargar el prompt de sistema.",
-  "dialogs.agent.cronjobPromptTitle": "Prompt de la programación",
-  "dialogs.agent.showCronjobPrompt": "Mostrar prompt de la programación",
+  "dialogs.agent.cronjobPromptTitle": "Prompt de la programación (cron job)",
+  "dialogs.agent.showCronjobPrompt":
+    "Mostrar prompt de la programación (cron job)",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ej. "Eres un especialista en backend. Escribe siempre tests."',
   "dialogs.agent.revive": "Reactivar un agente detenido",
