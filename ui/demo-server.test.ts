@@ -14,6 +14,7 @@ import type {
 import { cronjobRunStreamId } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
+import { MEMORY_CAPS } from "../shared/memory-caps.ts";
 import { DEMO_ROOM_NAMES, demoApi } from "./demo-server.ts";
 
 function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
@@ -31,7 +32,6 @@ function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
 
 describe("demo fixture data", () => {
   it("loads canned memory for each editable demo scope", async () => {
-    const caps = { agent: 5000, room: 10_000, office: 2500 } as const;
     for (const scope of ["agent", "room", "office"] as const) {
       const memory = (await demoApi(
         "GET",
@@ -40,7 +40,7 @@ describe("demo fixture data", () => {
       expect(memory.text.length).toBeGreaterThan(0);
       expect(memory.version.length).toBeGreaterThan(0);
       expect(memory.size).toBe(injectedMemorySize(memory.text));
-      expect(memory.cap).toBe(caps[scope]);
+      expect(memory.cap).toBe(MEMORY_CAPS[scope]);
     }
   });
 

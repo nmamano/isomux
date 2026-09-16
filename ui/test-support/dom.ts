@@ -31,8 +31,96 @@
 //     const { act, render } = await import("@testing-library/react");
 //     const { App } = await import("./App.tsx");
 
-import { afterAll, afterEach, beforeAll } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
+
+type MatcherUtils = {
+  printExpected(value: unknown): string;
+  printReceived(value: unknown): string;
+};
+
+type NodeShape = {
+  nodeType: number;
+  nodeName: string;
+  getAttribute?: (name: string) => string | null;
+};
+
+function isNodeShape(value: unknown): value is NodeShape {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<NodeShape>;
+  return (
+    Number.isInteger(candidate.nodeType) &&
+    typeof candidate.nodeName === "string"
+  );
+}
+
+function describeNode(node: NodeShape): string {
+  if (node.nodeType !== 1) return node.nodeName.toLowerCase();
+  const id = node.getAttribute?.("id");
+  const classes = node.getAttribute?.("class")?.trim().split(/\s+/).filter(Boolean);
+  const marker = ["data-testid", "role", "aria-label"]
+    .map((name) => [name, node.getAttribute?.(name)] as const)
+    .find(([, value]) => value);
+  return `<${node.nodeName.toLowerCase()}${id ? `#${id}` : ""}${
+    classes?.length ? `.${classes.join(".")}` : ""
+  }${marker ? ` ${marker[0]}=${JSON.stringify(marker[1])}` : ""}>`;
+}
+
+function received(value: unknown, utils: MatcherUtils): string {
+  return isNodeShape(value) ? describeNode(value) : utils.printReceived(value);
+}
+
+function expected(value: unknown, utils: MatcherUtils): string {
+  return isNodeShape(value) ? describeNode(value) : utils.printExpected(value);
+}
+
+let compactMatchersRegistered = false;
+
+/**
+ * Keeps Bun from serializing a happy-dom node's document and window graph when
+ * a basic identity or absence assertion fails. These replace built-ins, so
+ * their pass conditions must remain exactly the same as Bun's.
+ */
+export function registerCompactDomMatchers(): void {
+  if (compactMatchersRegistered) return;
+  expect.extend({
+    toBe(actual: unknown, wanted: unknown) {
+      const pass = Object.is(actual, wanted);
+      return {
+        pass,
+        message: () =>
+          `expected ${received(actual, this.utils)} ${pass ? "not " : ""}to be ${expected(wanted, this.utils)}`,
+      };
+    },
+    toBeNull(actual: unknown) {
+      const pass = actual === null;
+      return {
+        pass,
+        message: () =>
+          `expected ${received(actual, this.utils)} ${pass ? "not " : ""}to be null`,
+      };
+    },
+    toBeUndefined(actual: unknown) {
+      const pass = actual === undefined;
+      return {
+        pass,
+        message: () =>
+          `expected ${received(actual, this.utils)} ${pass ? "not " : ""}to be undefined`,
+      };
+    },
+    toBeFalsy(actual: unknown) {
+      const pass = !actual;
+      return {
+        pass,
+        message: () =>
+          `expected ${received(actual, this.utils)} ${pass ? "not " : ""}to be falsy`,
+      };
+    },
+  });
+  compactMatchersRegistered = true;
+}
+
+registerCompactDomMatchers();
 
 function register(): void {
   if (!GlobalRegistrator.isRegistered)

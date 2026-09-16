@@ -22,11 +22,11 @@
 import { ok, created, fail, type RouteHandler } from "../executor.ts";
 import {
   injectedSize,
-  MEMORY_CAPS,
   MEMORY_LINE_MAX,
   MemoryCapError,
   MemoryLineTooLongError,
 } from "../../memory-store.ts";
+import { MEMORY_CAPS } from "../../../shared/memory-caps.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {

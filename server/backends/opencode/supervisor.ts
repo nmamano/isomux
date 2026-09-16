@@ -88,6 +88,13 @@ export interface OpenCodeSupervisorOptions {
   launchEnv?: Record<string, string | undefined>;
   replacementDrainMs?: number;
   environmentRevision?: string;
+  idleScheduler?: {
+    setTimeout(
+      callback: () => void | Promise<void>,
+      delayMs: number,
+    ): ReturnType<typeof setTimeout>;
+    clearTimeout(timer: ReturnType<typeof setTimeout>): void;
+  };
 }
 
 export class OpenCodeSupervisor {
@@ -108,6 +115,9 @@ export class OpenCodeSupervisor {
   private readonly replacementDrainMs: number;
   private replacementPromise: Promise<void> | null = null;
   private replacementRequested = false;
+  private readonly idleScheduler: NonNullable<
+    OpenCodeSupervisorOptions["idleScheduler"]
+  >;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir =
@@ -125,10 +135,15 @@ export class OpenCodeSupervisor {
     this.environmentRevision = options.environmentRevision ?? "default";
     this.replacementDrainMs =
       options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
+    this.idleScheduler = options.idleScheduler ?? {
+      setTimeout: (callback, delayMs) =>
+        setTimeout(() => void callback(), delayMs),
+      clearTimeout,
+    };
   }
 
   async acquire(): Promise<OpenCodeLease> {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.shutdownPromise) await this.shutdownPromise;
     await this.replaceServerIfRequested();
@@ -162,7 +177,7 @@ export class OpenCodeSupervisor {
         if (!this.record) await this.ensureServer();
         turnActive = true;
         this.activeTurns++;
-        if (this.idleTimer) clearTimeout(this.idleTimer);
+        if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
         this.idleTimer = null;
       },
       endTurn: () => {
@@ -202,7 +217,7 @@ export class OpenCodeSupervisor {
   }
 
   private async performShutdown(): Promise<void> {
-    if (this.idleTimer) clearTimeout(this.idleTimer);
+    if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
     this.idleTimer = null;
     await mkdir(this.profileDir, { recursive: true });
     const helper = join(import.meta.dir, "start-server.ts");
@@ -331,8 +346,8 @@ export class OpenCodeSupervisor {
 
   private armIdleReap(): void {
     if (this.leases > 0 || this.activeTurns > 0 || this.idleTimer) return;
-    this.idleTimer = setTimeout(
-      () => void this.shutdown(),
+    this.idleTimer = this.idleScheduler.setTimeout(
+      () => this.shutdown(),
       this.idleShutdownMs,
     );
   }

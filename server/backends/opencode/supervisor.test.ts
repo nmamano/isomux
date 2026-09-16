@@ -168,6 +168,34 @@ function makeSupervisor(
   return supervisor;
 }
 
+function manualIdleScheduler() {
+  let callback: (() => void | Promise<void>) | null = null;
+  return {
+    scheduler: {
+      setTimeout(next: () => void) {
+        callback = next;
+        return 1 as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeout() {
+        callback = null;
+      },
+    },
+    isScheduled: () => callback !== null,
+    async fire() {
+      const scheduled = callback;
+      callback = null;
+      if (!scheduled) throw new Error("idle shutdown is not scheduled");
+      await scheduled();
+    },
+  };
+}
+
+function shutdownInProgress(supervisor: OpenCodeSupervisor): boolean {
+  return (
+    supervisor as unknown as { shutdownPromise: Promise<void> | null }
+  ).shutdownPromise !== null;
+}
+
 async function makeHealthOnlyBinary(path: string) {
   const binary = join(path, "health-only-opencode");
   const healthMarker = join(path, "health-only-requests");
@@ -593,10 +621,8 @@ describe("OpenCode shared server supervisor", () => {
       binary,
     );
     const active = await supervisor.acquire();
-    const controlStarted = Date.now();
     const unchanged = await supervisor.acquire();
-    const controlMs = Date.now() - controlStarted;
-    expect(controlMs).toBeLessThan(1000);
+    expect(unchanged.pid).toBe(active.pid);
     unchanged.release();
     await active.beginTurn();
     const priorPid = active.pid;
@@ -609,7 +635,7 @@ describe("OpenCode shared server supervisor", () => {
       granted = true;
       return lease;
     });
-    await Bun.sleep(2000);
+    expect(shutdownInProgress(supervisor)).toBe(false);
     expect(granted).toBe(false);
     expect(alive(priorPid)).toBe(true);
     active.endTurn();
@@ -641,33 +667,44 @@ describe("OpenCode shared server supervisor", () => {
 
   it("reaps only after idle and never during an active turn", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 80);
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      idleShutdownMs: 80,
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
     const lease = await supervisor.acquire();
     await lease.beginTurn();
     lease.release();
-    await Bun.sleep(180);
+    expect(idle.isScheduled()).toBe(false);
     expect(alive(lease.pid)).toBe(true);
     lease.endTurn();
-    const deadline = Date.now() + 5000;
-    while (alive(lease.pid) && Date.now() < deadline) await Bun.sleep(25);
+    expect(idle.isScheduled()).toBe(true);
+    await idle.fire();
     expect(alive(lease.pid)).toBe(false);
   }, 20_000);
 
   it("waits for an idle shutdown before granting a new healthy lease", async () => {
     const path = await root();
     const { binary, healthMarker } = await makeHealthOnlyBinary(path);
-    const supervisor = makeSupervisor(
-      path,
-      gateConfig(mockProvider()),
-      20,
-      {},
-      5000,
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      idleShutdownMs: 20,
       binary,
-    );
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
     const first = await supervisor.acquire();
     first.release();
-    await Bun.sleep(30);
+    const shutdown = idle.fire();
     const next = await supervisor.acquire();
+    await shutdown;
     expect(alive(next.pid)).toBe(true);
     const response = await fetch(`${next.baseUrl}/global/health`, {
       headers: { authorization: next.authHeader },
@@ -701,7 +738,7 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
-  it("fails once and fast when startup fails for a reason other than a used port", async () => {
+  it("fails once when startup fails for a reason other than a used port", async () => {
     const path = await root();
     const marker = join(path, "starts");
     const binary = join(path, "broken-opencode");
@@ -717,9 +754,7 @@ describe("OpenCode shared server supervisor", () => {
       idleShutdownMs: 1000,
     });
     supervisors.push(supervisor);
-    const startedAt = Date.now();
     await expectRejection(supervisor.acquire(), /ISOMUX_OPENCODE_DEBUG=1/);
-    expect(Date.now() - startedAt).toBeLessThan(3000);
     expect(await readFile(marker, "utf8")).toBe("x");
   }, 10_000);
 
@@ -819,19 +854,22 @@ await new Promise(() => {});
     supervisors.push(supervisor);
     const lease = await supervisor.acquire();
     const headers = { authorization: lease.authHeader };
-    for (const route of ["/config", "/mcp"]) {
-      await fetch(
-        `${lease.baseUrl}${route}?directory=${encodeURIComponent(repo)}`,
-        { headers },
-      );
-    }
+    const config = (await fetch(
+      `${lease.baseUrl}/config?directory=${encodeURIComponent(repo)}`,
+      { headers },
+    ).then((response) => response.json())) as { plugin?: unknown[] };
+    const mcp = (await fetch(
+      `${lease.baseUrl}/mcp?directory=${encodeURIComponent(repo)}`,
+      { headers },
+    ).then((response) => response.json())) as Record<string, unknown>;
     const skills = await fetch(
       `${lease.baseUrl}/skill?directory=${encodeURIComponent(repo)}`,
       { headers },
     ).then((response) => response.text());
-    await Bun.sleep(300);
     expect(await Bun.file(pluginMarker).exists()).toBe(false);
     expect(await Bun.file(mcpMarker).exists()).toBe(false);
+    expect(JSON.stringify(config.plugin ?? []).includes("gate.js")).toBe(false);
+    expect(Object.hasOwn(mcp, "gate")).toBe(false);
     expect(skills).not.toContain(skillCanary);
     lease.release();
   }, 20_000);

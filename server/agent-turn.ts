@@ -306,7 +306,7 @@ export function formatContextNotice(
   return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;
 }
 
-// Auto-loaded memory is capped per scope (memory-store MEMORY_CAPS) and the
+// Auto-loaded memory is capped per scope (shared/memory-caps.ts) and the
 // caps are HARD: a save that would push a scope over is refused at write time
 // (fail loud and early); nothing is ever silently dropped
 // from the prompt. This notice arrives as a MESSAGE, which asks for a decision,

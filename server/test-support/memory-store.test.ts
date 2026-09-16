@@ -21,13 +21,13 @@ import {
   normalizeForDedup,
   isExactDuplicateText,
   versionOf,
-  MEMORY_CAPS,
   MEMORY_LINE_MAX,
   MemoryCapError,
   MemoryLineTooLongError,
   injectedSize,
   type OpLogEntry,
 } from "../memory-store.ts";
+import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 
 const dirs: string[] = [];
 function tempRoot(): string {

@@ -130,12 +130,13 @@ const { App } = await import("./App.tsx");
    first evaluated; the next DOM file registers a new window, and `screen` then
    queries the old one. The symptom is a query error that prints an empty
    `<body />`.
-4. Compare DOM-node absence and identity as booleans, such as
-   `expect(node === null).toBe(true)`, so failures print a small value.
-   Measured 2026-09-08 with Bun 1.3.11 and happy-dom 20.14.0: an unexpected
-   SVG node passed to `toBeNull()` stalled after rendering and hit a 12 s
-   process timeout. The same fixture with a boolean assertion failed normally
-   in 2.54 s. Keep mutation runs inside a memory limit and process deadline.
+4. The harness replaces `toBe`, `toBeNull`, `toBeUndefined`, and `toBeFalsy`
+   with equivalent matchers that print DOM nodes as one-line selectors.
+   Measured 2026-09-16 with Bun 1.3.11 and happy-dom 20.14.0: a bare
+   happy-dom node with 500 children made Bun write 402,643,110 bytes for one
+   failing `toBeNull()` assertion in about 6 seconds. The compact matcher wrote
+   598 bytes. `toEqual` and `toStrictEqual` still use Bun's unbounded DOM
+   serialization, so compare node identity with `toBe`.
 5. Every file carries a 5 s wall-clock cap, asserted in its own `afterAll` (a
    throwing `afterAll` fails the run). The clock starts at
    `setUpDomTestFile()`, so it measures the file, including its awaited imports, but not bun's startup: the App

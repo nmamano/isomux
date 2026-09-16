@@ -23,7 +23,7 @@ import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { stripOutboundEnvelope } from "../agent-turn.ts";
-import { MEMORY_CAPS } from "../memory-store.ts";
+import { MEMORY_CAPS } from "../../shared/memory-caps.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
   clearTestManagedOfficeEnv,

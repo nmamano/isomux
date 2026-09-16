@@ -65,6 +65,7 @@ import {
 } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
+import { MEMORY_CAPS } from "../shared/memory-caps.ts";
 import {
   defaultGhostColorForUserId,
   isGhostVariant,
@@ -79,13 +80,6 @@ let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
 
-// Keep these fixture values aligned with MEMORY_CAPS in server/memory-store.ts.
-const DEMO_MEMORY_CAPS = {
-  office: 2500,
-  room: 10_000,
-  agent: 5000,
-  boss: 5000,
-} as const;
 const demoMemory = new Map<string, string>();
 
 function demoMemoryKey(scope: string, scopeId: string | null): string {
@@ -1693,7 +1687,7 @@ export async function demoApi(
     const query = new URLSearchParams(path.split("?")[1] ?? "");
     const scope = query.get("scope");
     const scopeId = query.get("scopeId");
-    if (!(scope && Object.hasOwn(DEMO_MEMORY_CAPS, scope)))
+    if (!(scope && Object.hasOwn(MEMORY_CAPS, scope)))
       throw new ApiError(400, "invalid_request", "Invalid memory scope");
     const key = demoMemoryKey(scope, scopeId);
     const text = demoMemory.get(key) ?? defaultDemoMemory(scope);
@@ -1701,7 +1695,7 @@ export async function demoApi(
       text,
       version: versionOf(text),
       size: injectedMemorySize(text),
-      cap: DEMO_MEMORY_CAPS[scope as keyof typeof DEMO_MEMORY_CAPS],
+      cap: MEMORY_CAPS[scope as keyof typeof MEMORY_CAPS],
     } satisfies MemoryReadRes;
   }
   if (route === "PUT /api/memory") {

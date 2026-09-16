@@ -44,6 +44,7 @@ import { STATE_ROOT } from "./config.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
 import { injectedMemorySize } from "../shared/memory-size.ts";
+import { MEMORY_CAPS } from "../shared/memory-caps.ts";
 
 // A scopeId (roomId / agentId / userId) is interpolated into a filesystem path,
 // so it MUST be a strict identifier - the only thing between a caller-supplied
@@ -132,17 +133,6 @@ export function normalizeForDedup(text: string): string {
 export function isExactDuplicateText(text: string, existing: string): boolean {
   return normalizeForDedup(text) === normalizeForDedup(existing);
 }
-
-// Max injected size per scope, in characters. The four caps
-// sum to ~22.5k chars (~5.6k tokens) fully maxed; typical loads sit far lower.
-// Central + exported; injectable via MemoryStoreDeps.caps so tests use tiny
-// fixtures.
-export const MEMORY_CAPS: Record<MemoryScope, number> = {
-  office: 2500,
-  room: 10000,
-  agent: 5000,
-  boss: 5000,
-};
 
 export const MEMORY_LINE_MAX = 400;
 
