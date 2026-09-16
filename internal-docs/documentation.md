@@ -96,7 +96,7 @@ Keep these consistent across all surfaces below.
 - **File:** `server/command-handlers.ts` - the `help` handler (around line 298).
 - **Audience:** Agents/users inside Isomux who type `/help` in a conversation.
 - **Content:** a card that opens a read-only modal with the available commands and skills, a Receptionist pointer, the docs link, and a device-specific phone line, rendered in the reader's language.
-- **Related:** `server/commands.ts` holds the command registry (structure only); the words for each command live in the catalogs under `shared/i18n/`, reached through `shared/i18n/command-keys.ts`. A command with no description key fails `shared/i18n/catalog.test.ts`.
+- **Related:** `server/commands.ts` holds the command registry (structure only); the words for each command live in the catalogs under `shared/i18n/`, reached through `shared/i18n/command-keys.ts`. A command with no description key fails `shared/i18n/catalog.test.ts`. Never interpolate one localised phrase into another localised template: composing a translated duration or label into a translated sentence renders a Latin space between two CJK runs in Chinese, and every gate stays green on it (found 2026-09-16 in the shared-login queue line). Split the sentence so each template carries its own words, and render through `translatorFor` to see it.
 - **Update when:** a new slash command or skill is added, or existing command behavior changes.
 
 ## 6. Blog post (external repo)
@@ -184,7 +184,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 3. `docs/features.md` - canonical inventory. Add/edit here whenever any member-visible feature changes.
 4. `docs/<other>.md` - touch the relevant page if the feature affects setup, access, backup, etc.
 5. `api/chat.ts` `SYSTEM_PROMPT` - the feature-list section and any relevant guideline.
-6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` - only if it adds a command or changes tips. A new command also needs its `commands.<name>.description` in all three catalogs and an entry in `shared/i18n/command-keys.ts`.
+6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` - only if it adds a command or changes tips. A new command also needs its `commands.<name>.description` in all four catalogs (en, es, ca, zh) and an entry in `shared/i18n/command-keys.ts`.
 7. `nilmamano.com/blog/isomux.mdx` - only for architecture-level changes.
 8. `nilmamano.com/app/lib/highlights.ts` and `nilmamano.com/app/lib/highlight-bodies.tsx` - only if the change rises to the elevator-pitch level.
 9. `nilmamano.com/app/lib/chat-prompts.ts` - only if the one-line summary needs to change.
