@@ -20,6 +20,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 
 async function waitUntil(
   pred: () => boolean,
@@ -126,14 +127,22 @@ describe("a slash command answers in the typing user's language", () => {
     const agent = await spawnAgent(server, "A", room.id, owner.username);
 
     await server.agentManager.sendMessage(agent.id, "/help", owner.username);
-    const help = systemEntries(server, agent.id).find((c) =>
-      c.includes("**Consejos:**"),
-    );
+    const helpEntry = server.agentManager
+      .getAgentLogs(agent.id)
+      .find((entry) => typeof entry.metadata?.helpContent === "string");
+    const help = helpEntry?.metadata?.helpContent as string | undefined;
     expect(help).toBeDefined();
+    const { t } = translatorFor("es");
+    const commandsAt = help!.indexOf(t("commands.help.commands"));
+    const skillsAt = help!.indexOf(t("commands.help.skills"));
+    const receptionistAt = help!.indexOf(t("commands.help.receptionist"));
+    expect(commandsAt).toBeGreaterThanOrEqual(0);
+    expect(skillsAt).toBeGreaterThan(commandsAt);
+    expect(receptionistAt).toBeGreaterThan(skillsAt);
+    expect(helpEntry?.content).toBe(t("commands.help.header"));
     // The registry carries no English description any more, so this text can
     // only have come from the catalog.
     expect(help).toContain("Borrar el historial de la conversación");
-    expect(help).toContain("**Comandos:**");
   });
 
   it("refuses an unsupported command in the user's language", async () => {

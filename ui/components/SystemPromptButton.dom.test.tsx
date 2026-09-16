@@ -102,6 +102,24 @@ describe("SystemPromptButton", () => {
     view.unmount();
   });
 
+  it("opens help from the log payload without an API request", async () => {
+    const calls: string[] = [];
+    setApiShim(async (method, path) => {
+      calls.push(`${method} ${path}`);
+      return {};
+    });
+    const view = render(<SystemPromptButton helpContent="## Commands\n/help" />);
+    fireEvent.click(
+      view.getByRole("button", { name: en["dialogs.agent.showHelp"] }),
+    );
+    expect(calls).toEqual([]);
+    expect(view.getByRole("dialog").querySelector("h2") !== null).toBe(true);
+    expect(
+      view.getByRole("dialog").querySelector('[aria-readonly="true"]') !== null,
+    ).toBe(true);
+    view.unmount();
+  });
+
   it("shows load errors and closes from the Close button", async () => {
     setApiShim(async () => {
       throw new Error("offline");
@@ -149,6 +167,26 @@ describe("SystemPromptButton", () => {
 });
 
 describe("system-prompt log marker", () => {
+  it("renders a short help card that opens its stored modal payload", () => {
+    const view = render(
+      <LogEntryCard
+        entry={{
+          id: "entry-help",
+          agentId: "agent-1",
+          timestamp: 1,
+          kind: "system",
+          content: "Help",
+          metadata: { helpContent: "## Commands\n/help" },
+        }}
+      />,
+    );
+    fireEvent.click(
+      view.getByRole("button", { name: en["dialogs.agent.showHelp"] }),
+    );
+    expect(view.getByRole("dialog").querySelector("h2") !== null).toBe(true);
+    view.unmount();
+  });
+
   it("renders the short system entry as a prompt button card", async () => {
     const view = render(
       <LogEntryCard

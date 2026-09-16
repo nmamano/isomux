@@ -95,7 +95,7 @@ Keep these consistent across all surfaces below.
 
 - **File:** `server/command-handlers.ts` - the `help` handler (around line 298).
 - **Audience:** Agents/users inside Isomux who type `/help` in a conversation.
-- **Content:** a docs link, usage tips, and a list of available commands/skills with short descriptions, rendered in the reader's language.
+- **Content:** a card that opens a read-only modal with the available commands and skills, a Receptionist pointer, the docs link, and a device-specific phone line, rendered in the reader's language.
 - **Related:** `server/commands.ts` holds the command registry (structure only); the words for each command live in the catalogs under `shared/i18n/`, reached through `shared/i18n/command-keys.ts`. A command with no description key fails `shared/i18n/catalog.test.ts`.
 - **Update when:** a new slash command or skill is added, or existing command behavior changes.
 

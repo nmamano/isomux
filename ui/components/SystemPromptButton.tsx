@@ -6,15 +6,18 @@ import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
 import { Portal } from "./Portal.tsx";
+import { Markdown } from "../log-view/Markdown.tsx";
 
 export function SystemPromptButton({
   agentId,
   preview,
   cronjobId,
+  helpContent,
 }: {
   agentId?: string;
   preview?: AgentSystemPromptPreviewReq;
   cronjobId?: string;
+  helpContent?: string;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -27,7 +30,9 @@ export function SystemPromptButton({
     setPrompt(null);
     setError(false);
     try {
-      if (cronjobId) {
+      if (helpContent !== undefined) {
+        setPrompt(helpContent);
+      } else if (cronjobId) {
         const result = await apiFetch<{
           systemPrompt: string;
           firstUserMessage: string;
@@ -60,16 +65,20 @@ export function SystemPromptButton({
         style={dialogCancelBtn}
       >
         {t(
-          cronjobId
-            ? "dialogs.agent.showCronjobPrompt"
-            : "dialogs.agent.showSystemPrompt",
+          helpContent !== undefined
+            ? "dialogs.agent.showHelp"
+            : cronjobId
+              ? "dialogs.agent.showCronjobPrompt"
+              : "dialogs.agent.showSystemPrompt",
         )}
       </button>
       {open && (
         <SystemPromptModal
           prompt={prompt}
           isSpawnPreview={!!preview && !preview.agentId}
-          source={cronjobId ? "cronjob" : "agent"}
+          source={
+            helpContent !== undefined ? "help" : cronjobId ? "cronjob" : "agent"
+          }
           error={error}
           copied={copied}
           onCopy={() => prompt !== null && void copy(prompt)}
@@ -91,7 +100,7 @@ function SystemPromptModal({
 }: {
   prompt: string | null;
   isSpawnPreview: boolean;
-  source: "agent" | "cronjob";
+  source: "agent" | "cronjob" | "help";
   error: boolean;
   copied: boolean;
   onCopy: () => void;
@@ -131,9 +140,11 @@ function SystemPromptModal({
           role="dialog"
           aria-modal="true"
           aria-label={t(
-            source === "cronjob"
-              ? "dialogs.agent.cronjobPromptTitle"
-              : "dialogs.agent.systemPromptTitle",
+            source === "help"
+              ? "dialogs.agent.helpTitle"
+              : source === "cronjob"
+                ? "dialogs.agent.cronjobPromptTitle"
+                : "dialogs.agent.systemPromptTitle",
           )}
           style={{
             width: "min(900px, 100%)",
@@ -150,9 +161,11 @@ function SystemPromptModal({
         >
           <h3 style={{ margin: 0, fontSize: 17 }}>
             {t(
-              source === "cronjob"
-                ? "dialogs.agent.cronjobPromptTitle"
-                : "dialogs.agent.systemPromptTitle",
+              source === "help"
+                ? "dialogs.agent.helpTitle"
+                : source === "cronjob"
+                  ? "dialogs.agent.cronjobPromptTitle"
+                  : "dialogs.agent.systemPromptTitle",
             )}
           </h3>
           {isSpawnPreview && (
@@ -160,6 +173,29 @@ function SystemPromptModal({
               {t("dialogs.agent.spawnPreviewHint")}
             </p>
           )}
+          {source === "help" ? (
+            <div
+              aria-readonly="true"
+              style={{
+                minHeight: 220,
+                margin: 0,
+                padding: 14,
+                overflow: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                background: "var(--bg-code)",
+                color: "var(--text-primary)",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              {prompt === null ? (
+                t("common.loading")
+              ) : (
+                <Markdown content={prompt} />
+              )}
+            </div>
+          ) : (
           <pre
             aria-readonly="true"
             style={{
@@ -182,6 +218,7 @@ function SystemPromptModal({
               ? t("dialogs.agent.systemPromptLoadFailed")
               : (prompt ?? t("common.loading"))}
           </pre>
+          )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button
               type="button"

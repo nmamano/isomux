@@ -873,6 +873,8 @@ App 的一些原则：
   "dialogs.agent.systemPromptLoadFailed": "无法加载系统提示词。",
   "dialogs.agent.cronjobPromptTitle": "定时任务提示词",
   "dialogs.agent.showCronjobPrompt": "显示定时任务提示词",
+  "dialogs.agent.helpTitle": "帮助",
+  "dialogs.agent.showHelp": "显示帮助",
   "dialogs.agent.customInstructionsPlaceholder":
     "例如：「你是后端专家。始终编写测试。」",
   "dialogs.agent.revive": "恢复已终止的智能体",
@@ -1648,25 +1650,14 @@ App 的一些原则：
     "在 {percent}% 时自动压缩（{tokens} 个 token）",
   "commands.context.failed": "获取上下文用量失败：{error}",
   "commands.help.docs": "**文档：** {url}",
-  "commands.help.tips": "**提示：**",
-  "commands.help.tipAgents":
-    "智能体可以互相查看状态和发送消息。直接提出要求即可，也可以使用 `/second-opinion`、`/pair-programming` 等技能。",
-  "commands.help.tipQueue":
-    "智能体忙碌时也可以输入消息：消息会加入队列，在智能体空闲时发送。点击「立即发送」或按 Ctrl/Cmd+Enter 可打断当前工作并立即发送。",
-  "commands.help.tipVoice":
-    "使用语音转文字可更快输入提示词。快捷键是 ctrl+space。语音命令跟随识别语言。说“逗号”或“问号”可输入对应标点。单独说“提交”可发送草稿并继续听写。",
   "commands.help.tipPhoneVpn":
     "Isomux 可在手机上使用。最简单的方法是让手机与运行 Isomux 的机器连接到同一 VPN（例如免费的 Tailscale）。",
-  "commands.help.tipInviteFunnel":
-    "办公室可从 VPN 之外访问后（例如通过 Tailscale Funnel，参见 {url}），办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
   "commands.help.tipPhoneOrigin": "Isomux 可在手机上使用：打开 {origin}。",
-  "commands.help.tipInvite":
-    "办公室所有者可打开「设置 → 办公室 → 邀请」，生成一次性邀请 URL。受邀者点击即可登录，无需账户或密码。",
-  "commands.help.tipTerminal":
-    "内置侧面板终端适合需要手动运行命令的一次性操作，例如身份验证流程。",
-  "commands.help.tipHooks":
-    "Isomux 为 Claude 智能体提供工具调用前的安全钩子，以防止破坏性命令。Codex 智能体没有对应的钩子。",
-  "commands.help.commands": "**命令：**",
+  "commands.help.header": "**帮助**",
+  "commands.help.commands": "## 你可以输入的命令",
+  "commands.help.skills": "## 你的技能",
+  "commands.help.receptionist":
+    "如果你对 Isomux 功能有疑问，例如如何连接其他设备、如何邀请其他人加入办公室、智能体如何互相通信或如何连接 LLM 提供商，请询问接待员智能体。",
   "commands.help.aliasGroup": "{primary}（或 {others}）",
   "commands.help.skillsUser": "用户技能",
   "commands.help.skillsProject": "项目技能",

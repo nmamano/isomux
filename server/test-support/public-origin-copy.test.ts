@@ -5,8 +5,8 @@
 //   - buildSystemPrompt(): the "office UI for humans" line appears IFF a real
 //     public origin is active for the boot, and the localhost curl recipes are
 //     untouched either way.
-//   - /help tips: VPN/tunnel copy on a localhost boot; "open <origin>" plus a
-//     Funnel-free invite tip when an origin is active.
+//   - /help modal copy: VPN copy on a localhost boot; "open <origin>" when an
+//     origin is active.
 //
 // "Active" means buildPublicOrigin() resolves env/config, which requires a
 // claimed office AND externalAccess captured at boot - a loopback-only bind
@@ -24,8 +24,6 @@ const ORIGIN = "https://office.example";
 const HUMAN_LINE = "The office UI for humans is at";
 const CURL_RECIPE = "curl -s localhost:";
 const VPN_TIP = "connect it to the same VPN";
-const FUNNEL_TIP = "Tailscale Funnel";
-const INVITE_TIP = "mint one-time invite URLs";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -55,15 +53,14 @@ async function spawnAgent(
   return info;
 }
 
-// Run /help (dispatches synchronously, no turn) and return the system entry
-// holding the tips.
+// Run /help (dispatches synchronously, no turn) and return the modal payload.
 async function helpOutput(srv: TestServer, agentId: string): Promise<string> {
   await srv.agentManager.sendMessage(agentId, "/help", "Boss");
   const entry = srv.agentManager
     .getAgentLogs(agentId)
     .filter((e) => e.kind === "system")
-    .map((e) => e.content)
-    .find((c) => c.includes("**Tips:**"));
+    .map((e) => e.metadata?.helpContent)
+    .find((content): content is string => typeof content === "string");
   if (!entry) throw new Error("no /help output found in agent log");
   return entry;
 }
@@ -83,7 +80,7 @@ async function restartWithConfigOrigin(srv: TestServer): Promise<TestServer> {
 }
 
 describe("public-origin-derived copy (C3-a)", () => {
-  it("localhost boot: no human-origin prompt line, /help keeps the VPN/Funnel tips", async () => {
+  it("localhost boot: no human-origin prompt line, /help keeps the VPN phone tip", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -99,8 +96,6 @@ describe("public-origin-derived copy (C3-a)", () => {
     );
     const help = await helpOutput(srv, agent.id);
     expect(help).toContain(VPN_TIP);
-    expect(help).toContain(FUNNEL_TIP);
-    expect(help).toContain(INVITE_TIP);
     expect(help).not.toContain(ORIGIN);
   });
 
@@ -124,9 +119,7 @@ describe("public-origin-derived copy (C3-a)", () => {
     );
     const help = await helpOutput(srv, agent.id);
     expect(help).toContain(`Isomux works on your phone: open ${ORIGIN}.`);
-    expect(help).toContain(INVITE_TIP);
     expect(help).not.toContain(VPN_TIP);
-    expect(help).not.toContain(FUNNEL_TIP);
   });
 
   it("env origin wins over config at boot and lands in the prompt line", async () => {

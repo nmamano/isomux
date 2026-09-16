@@ -175,6 +175,37 @@ function formatDuration(ms: number): string {
   return `${min}:${sec.toString().padStart(2, "0")}`;
 }
 
+function SystemEntryCard({
+  content,
+  button,
+}: {
+  content: string;
+  button: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        margin: "4px 0",
+        padding: "10px 12px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-subtle)",
+        color: "var(--text-dim)",
+        fontSize: 12,
+      }}
+    >
+      <span>
+        <InlineMarkdown content={content} />
+      </span>
+      {button}
+    </div>
+  );
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes === 0) return "";
   if (bytes < 1024) return `${bytes} B`;
@@ -623,37 +654,31 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     case "system": {
+      if (typeof entry.metadata?.helpContent === "string") {
+        return (
+          <SystemEntryCard
+            content={entry.content}
+            button={
+              <SystemPromptButton helpContent={entry.metadata.helpContent} />
+            }
+          />
+        );
+      }
       if (entry.metadata?.systemPrompt === true) {
         return (
-          <div
-            style={{
-              margin: "4px 0",
-              padding: "10px 12px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--bg-subtle)",
-              color: "var(--text-dim)",
-              fontSize: 12,
-            }}
-          >
-            <span>
-              {/* The header is a translated string carrying bold and italic
-                  markup; a plain span showed the asterisks. */}
-              <InlineMarkdown content={entry.content} />
-            </span>
-            <SystemPromptButton
-              agentId={entry.agentId}
-              cronjobId={
-                typeof entry.metadata?.cronjobId === "string"
-                  ? entry.metadata.cronjobId
-                  : undefined
-              }
-            />
-          </div>
+          <SystemEntryCard
+            content={entry.content}
+            button={
+              <SystemPromptButton
+                agentId={entry.agentId}
+                cronjobId={
+                  typeof entry.metadata?.cronjobId === "string"
+                    ? entry.metadata.cronjobId
+                    : undefined
+                }
+              />
+            }
+          />
         );
       }
       // Auto-denied tool calls carry metadata.permissionDenied (see

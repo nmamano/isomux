@@ -76,9 +76,9 @@ function scanSkillsDir(
         } catch {}
       }
       if (isDirectory) {
-        const description = extractSkillDescription(
-          join(dir, entry.name, "SKILL.md"),
-        );
+        const skillPath = join(dir, entry.name, "SKILL.md");
+        if (!existsSync(skillPath)) continue;
+        const description = extractSkillDescription(skillPath);
         skills.push({ name: entry.name, origin, description });
       }
     }

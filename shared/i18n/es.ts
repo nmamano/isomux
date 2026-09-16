@@ -992,6 +992,8 @@ Cosas que puedes hacer por él:
   "dialogs.agent.cronjobPromptTitle": "Prompt de la programación (cron job)",
   "dialogs.agent.showCronjobPrompt":
     "Mostrar prompt de la programación (cron job)",
+  "dialogs.agent.helpTitle": "Ayuda",
+  "dialogs.agent.showHelp": "Mostrar ayuda",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ej. "Eres un especialista en backend. Escribe siempre tests."',
   "dialogs.agent.revive": "Reactivar un agente detenido",
@@ -1840,25 +1842,14 @@ Cosas que puedes hacer por él:
     "Compactación automática al {percent}% ({tokens} tokens)",
   "commands.context.failed": "No se pudo obtener el uso de contexto: {error}",
   "commands.help.docs": "**Documentación:** {url}",
-  "commands.help.tips": "**Consejos:**",
-  "commands.help.tipAgents":
-    "Los agentes pueden consultarse y enviarse mensajes entre ellos. Pídeselo con naturalidad o usa habilidades como `/second-opinion`, `/pair-programming`, etc.",
-  "commands.help.tipQueue":
-    'Puedes escribir mientras un agente está ocupado: los mensajes se encolan y salen cuando queda libre. Pulsa "Enviar ahora" o envía con Ctrl/Cmd+Enter para interrumpir y vaciar la cola al momento.',
-  "commands.help.tipVoice":
-    'Usa el dictado por voz para escribir más rápido. El atajo es ctrl+space. Los comandos hablados siguen el idioma del reconocimiento. Di "coma" o "signo de interrogación" para escribir el signo. Di "enviar" por sí solo para enviar el borrador y seguir dictando.',
   "commands.help.tipPhoneVpn":
     "Isomux funciona en el móvil. Lo más fácil es conectarlo a la misma VPN (por ejemplo Tailscale, que es gratis) que la máquina donde se ejecuta.",
-  "commands.help.tipInviteFunnel":
-    "Cuando la oficina sea accesible desde fuera de tu VPN (por ejemplo con Tailscale Funnel; mira {url}), un propietario de la oficina puede abrir Ajustes → Oficina → Invitaciones y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
   "commands.help.tipPhoneOrigin": "Isomux funciona en el móvil: abre {origin}.",
-  "commands.help.tipInvite":
-    "Un propietario de la oficina puede abrir Ajustes → Oficina → Invitaciones y generar URL de invitación de un solo uso. Quien las recibe hace clic y entra: sin cuentas ni contraseñas.",
-  "commands.help.tipTerminal":
-    "El terminal del panel lateral va bien para casos puntuales en los que necesitas ejecutar algo a mano, como un inicio de sesión.",
-  "commands.help.tipHooks":
-    "Isomux incluye hooks de seguridad previos a cada herramienta para los agentes de Claude, que evitan comandos destructivos. Los agentes de Codex no tienen hooks equivalentes.",
-  "commands.help.commands": "**Comandos:**",
+  "commands.help.header": "**Ayuda**",
+  "commands.help.commands": "## Comandos que puedes escribir",
+  "commands.help.skills": "## Tus habilidades",
+  "commands.help.receptionist":
+    "Si tienes preguntas sobre funciones de Isomux, como vincular otros dispositivos, invitar a otras personas a tu oficina, cómo se comunican los agentes entre sí o cómo conectar tus proveedores de LLM, pregunta al agente Recepcionista.",
   "commands.help.aliasGroup": "{primary} (o {others})",
   "commands.help.skillsUser": "Habilidades de usuario",
   "commands.help.skillsProject": "Habilidades del proyecto",

@@ -989,6 +989,8 @@ Coses que pots fer per ell:
   "dialogs.agent.cronjobPromptTitle": "Prompt de la programació (cron job)",
   "dialogs.agent.showCronjobPrompt":
     "Mostra el prompt de la programació (cron job)",
+  "dialogs.agent.helpTitle": "Ajuda",
+  "dialogs.agent.showHelp": "Mostra l'ajuda",
   "dialogs.agent.customInstructionsPlaceholder":
     'p. ex. "Ets un especialista en backend. Escriu sempre tests."',
   "dialogs.agent.revive": "Reactiva un agent aturat",
@@ -1832,25 +1834,14 @@ Coses que pots fer per ell:
     "Compactació automàtica al {percent}% ({tokens} tokens)",
   "commands.context.failed": "No s'ha pogut obtenir l'ús de context: {error}",
   "commands.help.docs": "**Documentació:** {url}",
-  "commands.help.tips": "**Consells:**",
-  "commands.help.tipAgents":
-    "Els agents poden consultar-se i enviar-se missatges entre ells. Demana-ho amb naturalitat o fes servir habilitats com ara `/second-opinion`, `/pair-programming`, etc.",
-  "commands.help.tipQueue":
-    'Pots escriure mentre un agent està ocupat: els missatges es posen a la cua i surten quan queda lliure. Prem "Envia ara" o envia amb Ctrl/Cmd+Enter per interrompre i buidar la cua a l\'instant.',
-  "commands.help.tipVoice":
-    'Fes servir el dictat per veu per escriure més ràpid. La drecera és ctrl+space. Les ordres parlades segueixen l\'idioma del reconeixement. Digues "coma" o "signe d\'interrogació" per escriure el signe. Digues "enviar" tota sola per enviar l\'esborrany i continuar dictant.',
   "commands.help.tipPhoneVpn":
     "Isomux funciona al mòbil. El més fàcil és connectar-lo a la mateixa VPN (per exemple Tailscale, que és gratuïta) que la màquina on s'executa.",
-  "commands.help.tipInviteFunnel":
-    "Quan l'oficina sigui accessible des de fora de la teva VPN (per exemple amb Tailscale Funnel; mira {url}), un propietari de l'oficina pot obrir Configuració → Oficina → Invitacions i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
   "commands.help.tipPhoneOrigin": "Isomux funciona al mòbil: obre {origin}.",
-  "commands.help.tipInvite":
-    "Un propietari de l'oficina pot obrir Configuració → Oficina → Invitacions i generar URL d'invitació d'un sol ús. Qui les rep hi fa clic i entra: sense comptes ni contrasenyes.",
-  "commands.help.tipTerminal":
-    "El terminal del plafó lateral va bé per a casos puntuals en què has d'executar alguna cosa a mà, com ara un inici de sessió.",
-  "commands.help.tipHooks":
-    "Isomux inclou hooks de seguretat previs a cada eina per als agents de Claude, que eviten ordres destructives. Els agents de Codex no tenen hooks equivalents.",
-  "commands.help.commands": "**Ordres:**",
+  "commands.help.header": "**Ajuda**",
+  "commands.help.commands": "## Ordres que pots escriure",
+  "commands.help.skills": "## Les teves habilitats",
+  "commands.help.receptionist":
+    "Si tens preguntes sobre funcions d'Isomux, com ara enllaçar altres dispositius, convidar altres persones a la teva oficina, com es comuniquen els agents entre ells o com connectar els teus proveïdors de LLM, pregunta a l'agent Recepcionista.",
   "commands.help.aliasGroup": "{primary} (o {others})",
   "commands.help.skillsUser": "Habilitats d'usuari",
   "commands.help.skillsProject": "Habilitats del projecte",

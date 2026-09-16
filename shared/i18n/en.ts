@@ -984,6 +984,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.agent.systemPromptLoadFailed": "Could not load the system prompt.",
   "dialogs.agent.cronjobPromptTitle": "Schedule (cron job) prompt",
   "dialogs.agent.showCronjobPrompt": "Show schedule (cron job) prompt",
+  "dialogs.agent.helpTitle": "Help",
+  "dialogs.agent.showHelp": "Show help",
   "dialogs.agent.customInstructionsPlaceholder":
     'e.g. "You are a backend specialist. Always write tests."',
   "dialogs.agent.revive": "Revive a killed agent",
@@ -1808,25 +1810,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   // /help. The URLs are passed in from the call site rather than written here
   // (ruling 11), so a link change never edits three catalogs.
   "commands.help.docs": "**Docs:** {url}",
-  "commands.help.tips": "**Tips:**",
-  "commands.help.tipAgents":
-    "Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
-  "commands.help.tipQueue":
-    'Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
-  "commands.help.tipVoice":
-    'Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken commands follow the recognition language. Say "comma" or "question mark" to type the mark. Say "submit" by itself to send the draft and keep dictating.',
   "commands.help.tipPhoneVpn":
     "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
-  "commands.help.tipInviteFunnel":
-    "Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see {url}), an office owner can open Settings → Office → Invites and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
   "commands.help.tipPhoneOrigin": "Isomux works on your phone: open {origin}.",
-  "commands.help.tipInvite":
-    "An office owner can open Settings → Office → Invites and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
-  "commands.help.tipTerminal":
-    "The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
-  "commands.help.tipHooks":
-    "Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
-  "commands.help.commands": "**Commands:**",
+  "commands.help.header": "**Help**",
+  "commands.help.commands": "## Commands you can type",
+  "commands.help.skills": "## Your skills",
+  "commands.help.receptionist":
+    "If you have questions about Isomux features like how to link other devices, how to invite other people to your office, how agents communicate with each other, how to connect your LLM providers, etc., ask the Receptionist agent.",
   "commands.help.aliasGroup": "{primary} (or {others})",
   "commands.help.skillsUser": "User skills",
   "commands.help.skillsProject": "Project skills",

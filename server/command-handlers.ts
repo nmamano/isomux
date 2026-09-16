@@ -63,7 +63,6 @@ import { modelListingLabel } from "./model-listing-label.ts";
 
 const DOCS_URL = "https://isomux.com/docs";
 const EDIT_USAGE = "`/isomux-edit <path>`";
-const ACCESS_DOCS_URL = "https://isomux.com/docs/access-and-invites";
 
 type HandlerFn = (
   agentId: string,
@@ -480,30 +479,10 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       const lines: string[] = [];
 
-      lines.push(t("commands.help.docs", { url: DOCS_URL }));
-
-      lines.push(`\n${t("commands.help.tips")}`);
-      lines.push(`  • ${t("commands.help.tipAgents")}`);
-      lines.push(`  • ${t("commands.help.tipQueue")}`);
-      lines.push(`  • ${t("commands.help.tipVoice")}`);
-      // Reachability tips depend on whether this boot has a real public
-      // origin (env/config, non-loopback bind). Without one, the office is
-      // VPN/tunnel territory; with one, the phone tip is just the URL and
-      // the Funnel preamble to the invite tip is moot.
+      // The device line depends on whether this boot has a real public origin
+      // (env/config, non-loopback bind). Without one, point to the VPN path;
+      // with one, show the phone-ready URL.
       const publicOrigin = buildPublicOrigin();
-      if (publicOrigin.source === "localhost") {
-        lines.push(`  • ${t("commands.help.tipPhoneVpn")}`);
-        lines.push(
-          `  • ${t("commands.help.tipInviteFunnel", { url: ACCESS_DOCS_URL })}`,
-        );
-      } else {
-        lines.push(
-          `  • ${t("commands.help.tipPhoneOrigin", { origin: publicOrigin.origin })}`,
-        );
-        lines.push(`  • ${t("commands.help.tipInvite")}`);
-      }
-      lines.push(`  • ${t("commands.help.tipTerminal")}`);
-      lines.push(`  • ${t("commands.help.tipHooks")}`);
 
       // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
       // single line. The friendlier shorthand leads.
@@ -524,7 +503,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       const cmdList = cmdGroups
         .map((g) => formatAliasGroup(t, g.names, g.description))
         .join("\n");
-      lines.push(`\n${t("commands.help.commands")}\n${cmdList}`);
+      lines.push(`${t("commands.help.commands")}\n${cmdList}`);
 
       const originLabel: Record<SkillOrigin, string> = {
         user: t("commands.help.skillsUser"),
@@ -545,6 +524,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         if (!groupedByOrigin.has(s.origin)) groupedByOrigin.set(s.origin, []);
         groupedByOrigin.get(s.origin)!.push(s);
       }
+      lines.push(`\n${t("commands.help.skills")}`);
       for (const origin of originOrder) {
         const skills = groupedByOrigin.get(origin);
         if (!skills || skills.length === 0) continue;
@@ -561,7 +541,17 @@ export function createCommandHandling(deps: HandlerDeps) {
         lines.push(`\n**${originLabel[origin]}:**\n${skillLines}`);
       }
 
-      deps.addLogEntry(agentId, "system", lines.join("\n"));
+      lines.push(`\n${t("commands.help.receptionist")}`);
+      lines.push(t("commands.help.docs", { url: DOCS_URL }));
+      lines.push(
+        publicOrigin.source === "localhost"
+          ? t("commands.help.tipPhoneVpn")
+          : t("commands.help.tipPhoneOrigin", { origin: publicOrigin.origin }),
+      );
+
+      deps.addLogEntry(agentId, "system", t("commands.help.header"), {
+        helpContent: lines.join("\n"),
+      });
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

@@ -308,6 +308,16 @@ describe("effective Claude home skill agreement", () => {
     );
   });
 
+  it("does not list skill-root infrastructure without a SKILL.md", () => {
+    const home = root("user-home-infrastructure");
+    mkdirSync(join(home, "skills", ".system", "internal"), {
+      recursive: true,
+    });
+
+    expect(discoverUserSkills(home)).toEqual([]);
+    expect(resolveSkillPrompt(".system", root("cwd"), home)).toBeNull();
+  });
+
   it("lists and executes plugin skills and commands from the same home", () => {
     const home = root("plugin-home");
     const install = root("plugin-install");
