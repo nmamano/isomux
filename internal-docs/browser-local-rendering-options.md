@@ -10,12 +10,19 @@ Nil does not plan a desktop app and considers a required browser extension unacc
 
 ## Current plan and task ownership
 
-Updated 2026-09-16. This document owns the scope, constraints, and validation requirements. The [office task board](https://office.nilmamano.com/tasks) owns priority, assignment, and progress:
+Updated 2026-09-16 after comparison task c7ad3542: Nil chose a server-side browser with a good stream as the main road for general browsing. The earlier last-resort ordering below is historical and no longer governs this work.
 
-- c7ad3542, “Prototype local and remote browser approaches for a product decision,” owns the [browser comparison](#browser-comparison). It reuses the hosted-app work below.
-- 03b5be5e, “Open hosted apps live beside agent chat,” owns the [hosted-app preview](#hosted-app-preview). Build this once and include its results in the comparison.
+Task 5add7b5d, “Browser stream for general browsing,” owns the [stream design](browser-stream-design.md) and measurements. This is a design round; implementation needs Nil's separate go. The existing JPEG path stays available until a replacement beats it by a visible margin. A second viewer, handoff between humans, DOM mirroring, rewriting proxies, extensions, and desktop clients are outside this round.
 
-The September 16 task scope supersedes the earlier recommendation to try only rrweb and direct iframes. Nil previously judged Scramjet too fragile; it is now included for a usable prototype and comparison, without approval for product integration. Desktop apps and required extensions remain outside scope.
+Task 03b5be5e, “Open hosted apps live beside agent chat,” still owns hosted-app preview independently. The [office task board](https://office.nilmamano.com/tasks) owns assignment and progress.
+
+The c7ad3542 findings below were measured on 2026-09-16. The findings documents and their evidence live only on their named branches; they were not merged. Retain these branches deliberately: this document in main depends on them.
+
+**Iframe:** one of the five entry pages embeds (Wikipedia), and its login destination refuses. The other four sites refuse embedding. Source: branch `browser-iframe`, commit `2b1781a2`, path `internal-docs/browser-proto-iframe.md`.
+
+**Scramjet:** all five entry pages render, but only Wikipedia completes its workflow. Site challenges stop search and video, and rewriting breaks navigation, including the demo office. Source: branch `browser-scramjet`, commit `ba73e668`, path `internal-docs/browser-proto-scramjet.md`.
+
+**rrweb:** incoming server updates corrupt local typing in the unreconciled prototype, even without the memory cap; the Wikipedia trial changes all three entered strings. This result does not rule out a future adapter with input reconciliation. Source: branch `browser-rrweb`, commit `bbad7e25`, path `internal-docs/browser-proto-rrweb.md`.
 
 ### Browser comparison
 
