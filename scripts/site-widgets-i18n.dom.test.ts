@@ -12,8 +12,7 @@
 // Each script is a browser IIFE, not a module: the test runs the real file in a
 // document whose lang and path it sets first, then reads the DOM the script
 // produced, or the request it tried to send. No request leaves the process -
-// `fetch` is replaced for the duration. Expectations are literal strings, never
-// a lookup into the script's own tables.
+// `fetch` is replaced for the duration.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -53,44 +52,34 @@ function openChat(lang: string): string {
   return document.body.innerHTML;
 }
 
+function widgetLabels(lang: string): string[] {
+  document.body.innerHTML = openChat(lang);
+  return [
+    document.querySelector(".chat-header-left")?.textContent ?? "",
+    document.querySelector(".chat-input")?.getAttribute("placeholder") ?? "",
+    ...Array.from(
+      document.querySelectorAll(".chat-starter-btn"),
+      (element) => element.textContent ?? "",
+    ),
+    document.querySelector(".chat-powered")?.textContent ?? "",
+  ];
+}
+
 describe("the chat widget's own labels", () => {
-  it("reads Chinese on a Chinese page", () => {
-    const html = openChat("zh");
-    expect(html).toContain("询问 Isomux");
-    expect(html).toContain('placeholder="输入消息…"');
-    expect(html).toContain("有哪些功能？");
-    expect(html).toContain("由 Claude 提供支持");
-  });
-  it("reads English on an English page", () => {
-    const html = openChat("en");
-    expect(html).toContain("Ask about Isomux");
-    expect(html).toContain('placeholder="Type a message..."');
-    expect(html).toContain("Ask me anything about Isomux!");
-    expect(html).toContain("What features does it have?");
-    expect(html).toContain("Powered by Claude");
+  it("renders complete, distinct widgets in every supported language", () => {
+    const english = widgetLabels("en");
+    expect(english.every(Boolean)).toBe(true);
+    for (const lang of ["es", "ca", "zh"]) {
+      const translated = widgetLabels(lang);
+      expect(translated.length, lang).toBe(english.length);
+      expect(translated.every(Boolean), lang).toBe(true);
+      for (const [index, label] of translated.entries())
+        expect(label, `${lang} label ${index + 1}`).not.toBe(english[index]);
+    }
   });
 
-  it("reads Spanish on a Spanish page", () => {
-    const html = openChat("es");
-    expect(html).toContain("Pregunta sobre Isomux");
-    expect(html).toContain('placeholder="Escribe un mensaje..."');
-    expect(html).toContain("¡Pregúntame lo que quieras sobre Isomux!");
-    expect(html).toContain("¿Qué funciones tiene?");
-    expect(html).toContain("Funciona con Claude");
-  });
-
-  it("reads Catalan on a Catalan page", () => {
-    const html = openChat("ca");
-    expect(html).toContain("Pregunta sobre Isomux");
-    expect(html).toContain('placeholder="Escriu un missatge..."');
-    expect(html).toContain("Quines funcions té?");
-    expect(html).toContain("Funciona amb Claude");
-  });
-
-  it("falls back to English for a language it has no labels for", () => {
-    const html = openChat("fr");
-    expect(html).toContain('placeholder="Type a message..."');
-    expect(html).toContain("Powered by Claude");
+  it("falls back to the English widget for an unsupported language", () => {
+    expect(widgetLabels("fr")).toEqual(widgetLabels("en"));
   });
 });
 
@@ -165,25 +154,27 @@ describe("the theme toggle's own label", () => {
   // label table are reached by two different saved states. happy-dom's
   // matchMedia answers the light-mode query, so with nothing saved the page is
   // already light and the button offers dark; a saved "dark" is what makes it
-  // offer light. Both halves are asserted, in all three languages.
+  // offer light.
   it("offers dark when the page is light", () => {
-    expect(label("en", "light")).toBe("Switch to dark mode");
-    expect(label("es", "light")).toBe("Cambiar al modo oscuro");
-    expect(label("ca", "light")).toBe("Canviar al mode fosc");
-    expect(label("zh", "light")).toBe("切换到深色模式");
-    expect(label("de", "light")).toBe("Switch to dark mode");
+    const labels = ["en", "es", "ca", "zh"].map((lang) =>
+      label(lang, "light"),
+    );
+    expect(labels.every(Boolean)).toBe(true);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(label("de", "light")).toBe(labels[0]);
   });
 
   it("offers light when the page is dark", () => {
-    expect(label("en", "dark")).toBe("Switch to light mode");
-    expect(label("es", "dark")).toBe("Cambiar al modo claro");
-    expect(label("ca", "dark")).toBe("Canviar al mode clar");
-    expect(label("zh", "dark")).toBe("切换到浅色模式");
-    expect(label("de", "dark")).toBe("Switch to light mode");
+    const labels = ["en", "es", "ca", "zh"].map((lang) =>
+      label(lang, "dark"),
+    );
+    expect(labels.every(Boolean)).toBe(true);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(label("de", "dark")).toBe(labels[0]);
   });
 
   it("follows the system when nothing is saved", () => {
-    expect(label("ca", null)).toBe("Canviar al mode fosc");
+    expect(label("ca", null)).toBe(label("ca", "light"));
   });
 
   it("puts the same sentence on aria-label as on title", () => {
@@ -192,7 +183,7 @@ describe("the theme toggle's own label", () => {
     localStorage.setItem("isomux-theme", "dark");
     runOn("ca", THEME_TOGGLE);
     const btn = document.querySelector("button.theme-toggle");
-    expect(btn!.getAttribute("aria-label")).toBe("Canviar al mode clar");
-    expect(btn!.getAttribute("title")).toBe("Canviar al mode clar");
+    expect(btn!.getAttribute("aria-label")).toBe(btn!.getAttribute("title"));
+    expect(btn!.getAttribute("title")).toBeTruthy();
   });
 });

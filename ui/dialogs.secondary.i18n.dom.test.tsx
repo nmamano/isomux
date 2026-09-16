@@ -2,6 +2,10 @@
 // dialogs.i18n.dom.test.tsx.
 import { describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 const { render } = await import("@testing-library/react");
@@ -15,16 +19,8 @@ type View = ReturnType<typeof render>;
 type Language = "ca" | "es" | null;
 const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
-const PROMPT_TITLE = {
-  ca: "Configuració de les programacions",
-  es: "Ajustes de las programaciones",
-  en: "Schedules Settings",
-} as const;
-const NEW_ROOM_TITLE = {
-  ca: "Obrir una sala nova?",
-  es: "¿Abrir una nueva sala?",
-  en: "Open new room?",
-} as const;
+const PROMPT_TITLE = translationsFor("dialogs.schedulePrompt.title");
+const NEW_ROOM_TITLE = translationsFor("office.newRoom.title");
 const promptDialog = (language: Language) =>
   onLanguage(
     language,
@@ -32,9 +28,15 @@ const promptDialog = (language: Language) =>
   );
 
 describe("the secondary dialogs", () => {
-  it("uses distinct anchors in all three tested languages", () => {
-    for (const anchor of [PROMPT_TITLE, NEW_ROOM_TITLE])
-      expect(new Set(Object.values(anchor)).size).toBe(3);
+  it("resolves each title in every shipped language", () => {
+    for (const anchor of [PROMPT_TITLE, NEW_ROOM_TITLE]) {
+      expect(Object.keys(anchor).sort()).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 
   it("reads the schedule prompt in all three languages", () => {

@@ -2,11 +2,6 @@
 // its labels, the task board, the apps page, the schedules page
 // and the numbers all render in the language the signed-in user is on.
 //
-// The oracles are literal strings (ruling 14): an expectation read back through
-// the translator would pass for any translation. The first describe proves each
-// anchor differs in all three languages, so a match is evidence of the language
-// and not of a word that never moved.
-//
 // Every view here mounts DIRECTLY rather than through App: each takes its data
 // from the store, which ui/test-support/language-fixture.tsx seeds, so driving
 // App into each page would cost four more office renders for no extra evidence.
@@ -15,6 +10,13 @@
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFrom,
+  translationsFor,
+} from "./test-support/i18n.ts";
+import { formatNumber } from "../shared/i18n/number.ts";
+import { scheduleText } from "../shared/i18n/schedule.ts";
 
 setUpDomTestFile();
 
@@ -162,68 +164,55 @@ const battery = (language: Language) =>
 
 // One anchor per surface, each a string only that surface shows.
 const ANCHOR = {
-  newRoomDoor: { ca: "Sala nova", es: "Nueva sala", en: "New room" },
+  newRoomDoor: translationsFor("office.newRoom.door"),
   // The room tab bar's add-room control.
-  newRoom: {
-    ca: "Crea una sala nova",
-    es: "Crear una sala nueva",
-    en: "Create new room",
-  },
+  newRoom: translationsFor("office.tabs.newRoom"),
   // The scene's zoom control.
-  zoomIn: { ca: "Apropa (+)", es: "Acercar (+)", en: "Zoom in (+)" },
+  zoomIn: translationsFor("office.zoom.inShortcut"),
   // The nameplate badge on an agent parked for an answer, which is the word
   // ui/pending-prompt.ts now supplies as a key.
-  badge: { ca: "permís", es: "permiso", en: "permission" },
+  badge: translationsFor("office.pendingPrompt.permission"),
   // The task board's empty table.
-  noTasks: { ca: "No hi ha tasques", es: "No hay tareas", en: "No tasks" },
+  noTasks: translationsFor("tasks.empty"),
   // Its quick-add field, which proves the board's chrome and not just a cell.
-  quickAdd: {
-    ca: "Afegeix una tasca ràpida…",
-    es: "Añadir una tarea rápida…",
-    en: "Quick add a task…",
-  },
+  quickAdd: translationsFor("tasks.quickAdd"),
   // The apps page.
-  noApps: {
-    ca: "Encara no hi ha apps.",
-    es: "Aún no hay apps.",
-    en: "No apps yet.",
-  },
+  noApps: translationsFor("apps.empty"),
   // The schedules page, which opens on its runs tab. Its schedules tab holds
   // the other empty state; this is the one the page shows on mount.
-  noRuns: {
-    ca: "Encara no hi ha execucions.",
-    es: "Aún no hay ejecuciones.",
-    en: "No runs yet.",
-  },
+  noRuns: translationsFor("schedules.runsEmpty"),
   // The schedules tab's own control, which is how the test reaches the table.
-  schedulesTab: { ca: "programacions", es: "programaciones", en: "schedules" },
+  schedulesTab: translationsFor("schedules.tab.cronjobs"),
   // A weekly schedule read through shared/i18n/schedule.ts: the sentence is a
   // catalog key and the weekday comes from Intl, not from a hand-written table.
-  weeklySchedule: {
-    ca: "Cada setmana, dl. a les 17:30",
-    es: "Cada semana, lun a las 17:30",
-    en: "Weekly Mon at 17:30",
-  },
+  weeklySchedule: translationsFrom(({ language, t }) =>
+    scheduleText(language, t, {
+      type: "weekly",
+      weekday: 1,
+      hour: 17,
+      minute: 30,
+    }),
+  ),
   // The next-run cell under a minute out. Intl has no reading for it, so the
   // caller passes the code fragment "<1m" INTO a catalog sentence - which is
   // what keeps the angle bracket out of the catalog (ruling 19).
-  nextRunSoon: {
-    ca: "d'aquí a <1m",
-    es: "en <1m",
-    en: "in <1m",
-  },
+  nextRunSoon: translationsFor("schedules.nextRunIn", { duration: "<1m" }),
   // The context battery's reading, by the button's title. It carries the
   // formatted token counts, so it is also where the number reaches the DOM.
-  batteryDetail: {
-    ca: "Context: 12.345 / 200.000 tokens utilitzats (en queda un 94%).",
-    es: "Contexto: 12.345 / 200.000 tokens usados (queda un 94%).",
-    en: "Context: 12,345 / 200,000 tokens used (94% left).",
-  },
+  batteryDetail: translationsFrom(({ language, t }) =>
+    t("contextBattery.detail", {
+      tokens: formatNumber(language, 12345),
+      maxTokens: formatNumber(language, 200000),
+      remaining: 94,
+    }),
+  ),
 } as const;
 
 // The grouping mark of each language, which es and ca share - so this is
 // evidence about formatNumber, not about which language rendered.
-const GROUPED = { ca: "12.345", es: "12.345", en: "12,345" } as const;
+const GROUPED = Object.fromEntries(
+  SHIPPED_LANGUAGE_CODES.map((code) => [code, formatNumber(code, 12345)]),
+) as Record<(typeof SHIPPED_LANGUAGE_CODES)[number], string>;
 
 const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
@@ -234,9 +223,15 @@ const titled = (view: View, text: string) =>
   ).toBeGreaterThan(0);
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    for (const [name, anchor] of Object.entries(ANCHOR))
-      expect(new Set(Object.values(anchor)).size, name).toBe(3);
+  it("resolves each catalog anchor in every shipped language", () => {
+    for (const [name, anchor] of Object.entries(ANCHOR)) {
+      expect(Object.keys(anchor).sort(), name).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size, name).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 

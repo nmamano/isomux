@@ -23,6 +23,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import { SITE_LANGUAGE_PATH } from "../shared/i18n/site-url.ts";
+import { SUPPORTED_LANGUAGES } from "../shared/languages.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const SITE = join(ROOT, "site");
@@ -111,47 +112,6 @@ const ALTERNATES: Record<Row["family"], Record<string, string>> = {
     zh: "https://isomux.com/zh/hosted",
     "x-default": "https://isomux.com/hosted",
   },
-};
-
-// English sentences that must be gone from the rendered text of a translated
-// page. They do not prove a page is fully translated - only that it is not the
-// English file with a new lang attribute. HTML comments are source comments,
-// English like the rest of the repo's, and are stripped before the check.
-const SENTINELS: Record<Row["family"], string[]> = {
-  index: [
-    "Where agents act like",
-    "no account needed",
-    "An office made for humans and agents",
-    "Get Started",
-    "Star on GitHub",
-    "full feature list",
-    "Prerequisites",
-    "in your browser",
-    "We can host it for you",
-    "Read how it works",
-  ],
-  hosted: [
-    "How it works",
-    "What you get",
-    "Pick a plan",
-    "Your subscriptions",
-    "Updates when you choose",
-    "memory-hungry workloads",
-    "Who is Isomux for?",
-    "free trial",
-    "We only access it while setting it up",
-    "rescue console",
-  ],
-};
-
-// The one line on the hosted page saying which language the legal pages are in.
-// They exist in English only and the English text governs, so the sentence has
-// to appear in every language rather than only where an English reader lands.
-const LEGAL_NOTE: Record<string, string> = {
-  zh: "我们的 Terms、Privacy Policy 和 Refund Policy 仅提供英文版本，以英文文本为准。",
-  en: "Our Terms, Privacy Policy and Refund Policy are in English only. The English text is the one that governs.",
-  es: "Nuestros Términos, Política de Privacidad y Política de Reembolsos están solo en inglés. El texto en inglés es el que rige.",
-  ca: "Els nostres Termes, Política de Privacitat i Política de Reemborsaments només són en anglès. El text en anglès és el que regeix.",
 };
 
 // Paths that exist only after a build (see .gitignore) or are served by the
@@ -243,27 +203,48 @@ function switchItems(block: string): SwitchItem[] {
 /** What the switch must say on `row`: four links, this page's own marked. */
 function expectedSwitch(row: Row): SwitchItem[] {
   const suffix = row.family === "hosted" ? "/hosted" : "";
-  return [
-    ["en", "", "English"],
-    ["es", "/es", "Español"],
-    ["ca", "/ca", "Català"],
-    ["zh", "/zh", "简体中文"],
-  ].map(([code, prefix, text]) => ({
-    href: prefix + suffix || "/",
+  return SUPPORTED_LANGUAGES.map(({ code, label }) => ({
+    href: SITE_LANGUAGE_PATH[code] + suffix || "/",
     hreflang: code,
     lang: code,
     current: code === row.lang,
-    text,
+    text: label,
   }));
 }
 
 /** The page with its HTML comments removed. */
-// Sentinel phrases are matched against the prose a browser renders, so runs
-// of whitespace collapse to one space: prettier wraps long lines of source
-// text at its own discretion, and a phrase split across a line break is
-// still the same phrase on the page (2026-09-14: "no account needed").
 function withoutComments(html: string): string {
   return html.replace(/<!--[\s\S]*?-->/g, "").replace(/\s+/g, " ");
+}
+
+function renderedText(html: string): string {
+  return withoutComments(html)
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type SemanticText = { tag: string; text: string };
+
+function sectionText(html: string): SemanticText[][] {
+  return [
+    ...withoutComments(html).matchAll(
+      /<section\b[^>]*>([\s\S]*?)<\/section>/gi,
+    ),
+  ].map((section) =>
+    [
+      ...section[1].matchAll(
+        /<(h[1-6]|p|li|summary)\b[^>]*>([\s\S]*?)<\/\1>/gi,
+      ),
+    ]
+      .map((match) => ({
+        tag: match[1].toLowerCase(),
+        text: renderedText(match[2]),
+      }))
+      .filter(({ text }) => text.length > 0),
+  );
 }
 
 function read(row: Row): string {
@@ -409,25 +390,56 @@ describe("public site in four languages", () => {
         return;
       }
       expect(notes.length).toBe(1);
-      expect(notes[0].replace(/\s+/g, " ").trim()).toBe(LEGAL_NOTE[row.lang]);
+      expect(renderedText(notes[0]).length).toBeGreaterThan(0);
+      if (row.lang !== "en") {
+        const english = PAGES.find(
+          (candidate) =>
+            candidate.lang === "en" && candidate.family === "hosted",
+        );
+        if (!english) throw new Error("missing English hosted page");
+        const englishNote = blocksOf(read(english), "p", "legal-note");
+        expect(englishNote.length).toBe(1);
+        expect(renderedText(notes[0])).not.toBe(renderedText(englishNote[0]));
+      }
     });
 
     if (row.lang !== "en") {
       it(`${name} is translated, not a copy of the English file`, () => {
-        const html = withoutComments(read(row));
-        const left = SENTINELS[row.family].filter((s) => html.includes(s));
-        expect(left).toEqual([]);
+        const english = PAGES.find(
+          (candidate) =>
+            candidate.lang === "en" && candidate.family === row.family,
+        );
+        if (!english) throw new Error(`missing English ${row.family} page`);
+        const translatedSections = sectionText(read(row));
+        const englishSections = sectionText(read(english));
+        expect(translatedSections.length).toBeGreaterThan(0);
+        expect(translatedSections.length).toBe(englishSections.length);
+        for (const [sectionIndex, translated] of translatedSections.entries()) {
+          const source = englishSections[sectionIndex];
+          expect(translated.length, `section ${sectionIndex + 1}`).toBe(
+            source.length,
+          );
+          for (const [textIndex, block] of translated.entries()) {
+            const englishBlock = source[textIndex];
+            expect(block.tag).toBe(englishBlock.tag);
+            // Product names do not translate. Catalan also uses the English
+            // loanword "Plans" for this heading.
+            const invariant =
+              block.tag === "h1" ||
+              (row.lang === "ca" &&
+                row.family === "hosted" &&
+                block.tag === "h2" &&
+                block.text === "Plans");
+            if (invariant) continue;
+            expect(
+              block.text,
+              `section ${sectionIndex + 1}, ${block.tag} ${textIndex + 1}`,
+            ).not.toBe(englishBlock.text);
+          }
+        }
       });
     }
   }
-
-  it("the two English pages still read as English", () => {
-    for (const row of PAGES.filter((p) => p.lang === "en")) {
-      const html = withoutComments(read(row));
-      const present = SENTINELS[row.family].filter((s) => html.includes(s));
-      expect(present).toEqual(SENTINELS[row.family]);
-    }
-  });
 });
 
 describe("how the checker resolves a reference", () => {

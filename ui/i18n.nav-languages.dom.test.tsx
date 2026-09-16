@@ -1,6 +1,10 @@
 // Spanish-to-English desktop nav coverage split from i18n.dom.test.tsx.
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 const { act, render } = await import("@testing-library/react");
@@ -12,10 +16,12 @@ const { createElement } = await import("react");
 setApiShim(async () => ({}));
 afterAll(() => setApiShim(null));
 const app = (language: "es" | null) => onLanguage(language, createElement(App));
-const TASKS = { ca: "Tasques", es: "Tareas", en: "Tasks" } as const;
+const TASKS = translationsFor("common.tasks");
 
 it("moves the desktop nav from Spanish to default English", async () => {
-  expect(new Set(Object.values(TASKS)).size).toBe(3);
+  expect(new Set(Object.values(TASKS)).size).toBe(
+    SHIPPED_LANGUAGE_CODES.length,
+  );
   const view = render(app("es"));
   expect(view.queryAllByTitle(`${TASKS.es} (t)`).length).toBe(1);
   expect(view.queryByTitle(`${TASKS.ca} (t)`)).toBeNull();

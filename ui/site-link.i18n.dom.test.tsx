@@ -9,11 +9,13 @@
 // own class, not the first `data-no-pan` element in the scene, which belongs to
 // whatever the wall happens to draw first.
 //
-// The expected URLs are literal (ruling 14): read back through landingUrl they
-// would agree with any mapping, including a wrong one.
+// The expected URLs remain literal because they are the navigation protocol;
+// deriving them from landingUrl would let the implementation approve itself.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import { translatorFor } from "../shared/i18n/translate.ts";
+import type { SupportedLanguageCode } from "../shared/languages.ts";
 
 setUpDomTestFile();
 
@@ -21,15 +23,16 @@ const { act, render } = await import("@testing-library/react");
 const { Walls } = await import("./office/Floor.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 
-type Language = "en" | "es" | "ca";
-
 const originalOpen = window.open;
 afterEach(() => {
   window.open = originalOpen;
 });
 
 /** Click one of the two signs on a wall rendered for `language`. */
-function openedBy(language: Language, sign: "on" | "off"): string[] {
+function openedBy(
+  language: SupportedLanguageCode,
+  sign: "on" | "off",
+): string[] {
   const opened: string[] = [];
   window.open = (url?: string | URL) => {
     opened.push(String(url));
@@ -37,11 +40,7 @@ function openedBy(language: Language, sign: "on" | "off"): string[] {
   };
 
   const view = render(onLanguage(language, <Walls />));
-  const tooltip = {
-    en: "Open isomux.com",
-    es: "Abrir isomux.com",
-    ca: "Obre isomux.com",
-  }[language];
+  const tooltip = translatorFor(language).t("office.openWebsite");
   expect(
     view.container.querySelector(`.neon-sign-${sign} title`)?.textContent,
   ).toBe(tooltip);
@@ -74,17 +73,18 @@ describe("the office's link to the public site", () => {
     const svgTitles = Array.from(view.container.querySelectorAll("title")).map(
       (node) => node.textContent,
     );
+    const { t } = translatorFor("en");
     for (const title of [
-      "Change theme",
-      "Tasks (t)",
-      "Schedules",
-      "Apps (a)",
-      "Settings (s)",
+      t("common.changeTheme"),
+      t("nav.tasksShortcut"),
+      t("common.schedules"),
+      t("nav.appsShortcut"),
+      t("nav.settingsShortcut"),
     ])
       expect(svgTitles.filter((text) => text === title).length, title).toBe(1);
-    expect(svgTitles.filter((text) => text === "Open isomux.com").length).toBe(
-      2,
-    );
+    expect(
+      svgTitles.filter((text) => text === t("office.openWebsite")).length,
+    ).toBe(2);
   });
 
   it("opens the English landing for a boss on English", () => {
@@ -100,5 +100,10 @@ describe("the office's link to the public site", () => {
   it("opens the Catalan landing for a boss on Catalan", () => {
     expect(openedBy("ca", "on")).toEqual(["https://isomux.com/ca"]);
     expect(openedBy("ca", "off")).toEqual(["https://isomux.com/ca"]);
+  });
+
+  it("opens the Chinese landing for a boss on Chinese", () => {
+    expect(openedBy("zh", "on")).toEqual(["https://isomux.com/zh"]);
+    expect(openedBy("zh", "off")).toEqual(["https://isomux.com/zh"]);
   });
 });

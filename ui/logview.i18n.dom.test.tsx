@@ -12,11 +12,6 @@
 // renders in the language the signed-in user is on. The editor panel is
 // mounted on its own below, through the same language context.
 //
-// The oracles are literal strings (ruling 14): an expectation read back through
-// the translator would pass for any translation. The first describe proves each
-// anchor differs in all three languages, so a match is evidence of the language
-// and not of a word that never moved.
-//
 // LogView takes its agent and its log as props, so it mounts directly rather
 // than through App. The TERMINAL panel is deliberately not mounted: it carries a
 // real xterm, which ui/log-view/TerminalPanel.replay.dom.test.tsx exists to pay
@@ -24,6 +19,11 @@
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFrom,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -182,126 +182,63 @@ const editorPanel = (language: Language) =>
 // One anchor per surface, each a string only that surface shows.
 const ANCHOR = {
   // The empty conversation.
-  emptyStart: {
-    ca: "Envia un missatge per començar una conversa o",
-    es: "Envía un mensaje para empezar una conversación o",
-    en: "Send a message to start a conversation or",
-  },
-  emptyResume: {
-    ca: "reprèn-ne una d'anterior",
-    es: "reanuda una anterior",
-    en: "resume a past one",
-  },
+  emptyStart: translationsFor("logView.emptyStart"),
+  emptyResume: translationsFor("logView.emptyResume"),
   // The composer's placeholder on a desktop viewport with an idle agent.
-  composer: {
-    ca: "Escriu un missatge o / per a les ordres...",
-    es: "Escribe un mensaje o / para los comandos...",
-    en: "Type a message or / for commands...",
-  },
+  composer: translationsFor("logView.composer.type"),
   // The header's agent button.
-  editAgent: {
-    ca: "Edita l'agent",
-    es: "Editar el agente",
-    en: "Edit agent",
-  },
+  editAgent: translationsFor("logView.editAgent"),
   // An agent parked on a permission prompt, which is the header label that
   // ui/pending-prompt.ts now supplies as a key.
-  pendingPrompt: {
-    ca: "Esperant un permís",
-    es: "Esperando un permiso",
-    en: "Waiting for permission",
-  },
+  pendingPrompt: translationsFor("logView.pendingPrompt.permission"),
   // The control that opens the terminal panel, which stands in for the panel
   // itself (see the file header).
-  openTerminal: {
-    ca: "Obre la terminal (Ctrl+`)",
-    es: "Abrir la terminal (Ctrl+`)",
-    en: "Open terminal (Ctrl+`)",
-  },
-  openBrowser: {
-    ca: "Obre el navegador en directe",
-    es: "Abrir el navegador en directo",
-    en: "Open live browser",
-  },
-  abort: {
-    ca: "Avorta (Ctrl+C)",
-    es: "Abortar (Ctrl+C)",
-    en: "Abort (Ctrl+C)",
-  },
-  sendNow: {
-    ca: "Envia ara els missatges en cua - interromp el torn actual (Ctrl+Enter)",
-    es: "Enviar ahora los mensajes en cola - interrumpe el turno actual (Ctrl+Enter)",
-    en: "Send queued messages now - interrupts the current turn (Ctrl+Enter)",
-  },
+  openTerminal: translationsFor("logView.nav.terminalTitle"),
+  openBrowser: translationsFor("logView.nav.browserTitle"),
+  abort: translationsFor("logView.abortTitle"),
+  abortButton: translationsFor("logView.abort"),
+  sendNow: translationsFor("logView.queue.flushHint"),
   // The context battery with no reading, by its accessible name.
-  battery: {
-    ca: "L'ús del context encara no s'ha mesurat. Toca per veure'n els detalls.",
-    es: "El uso del contexto todavía no se ha medido. Toca para ver los detalles.",
-    en: "Context usage not measured yet. Tap for details.",
-  },
+  battery: translationsFor("contextBattery.ariaUnknown"),
   // The subscription pill with no reading, by its accessible name.
-  pill: {
-    ca: "L'ús del pla encara no s'ha informat. Toca per veure'n els detalls.",
-    es: "El uso del plan todavía no se ha informado. Toca para ver los detalles.",
-    en: "Plan usage not reported yet. Tap for details.",
-  },
+  pill: translationsFor("subscription.ariaUnknown"),
   // The API-call card's label, which proves the catalog path AND the curl
   // parser at once: the key is chosen from the request's scope parameter.
-  apiCall: {
-    ca: "Llegir les memòries d'aquest agent",
-    es: "Leer las memorias de este agente",
-    en: "Read memories for this agent",
-  },
+  apiCall: translationsFor("apiCall.memory.readAgent"),
   // A card's own chrome.
-  terminalCard: {
-    ca: "Copia a la terminal",
-    es: "Copiar en la terminal",
-    en: "Copy to terminal",
-  },
+  terminalCard: translationsFor("cards.terminalCommand.copy"),
   // The shared copy button the card renders, which is in common.* because more
   // than one surface uses it.
-  copy: { ca: "Copia", es: "Copiar", en: "Copy" },
+  copy: translationsFor("common.copy"),
   // The editor panel's own chrome, on the empty editor.
-  editorEmpty: {
-    ca: "Cap fitxer obert",
-    es: "Ningún archivo abierto",
-    en: "No file open",
-  },
-  editorClose: {
-    ca: "Tanca l'editor",
-    es: "Cerrar el editor",
-    en: "Close editor",
-  },
+  editorEmpty: translationsFor("panels.editor.noFileOpen"),
+  editorClose: translationsFor("panels.editor.close"),
+  endConversation: translationsFor("logView.nav.endConversationTitle"),
   // A queued message's chip: the prefix, and the sender shape it shares with a
   // delivered message.
-  queueChip: {
-    ca: 'en cua · Isomuxer3 · agent · Sala "Sala Nord"',
-    es: 'en cola · Isomuxer3 · agente · Sala "Sala Nord"',
-    en: 'queued · Isomuxer3 · agent · Room "Sala Nord"',
-  },
+  queueChip: translationsFrom(({ t }) =>
+    t("logView.queue.chip", {
+      label: t("common.sender.agentInRoom", {
+        name: "Isomuxer3",
+        room: "Sala Nord",
+      }),
+    }),
+  ),
   // Its attachment count, through tn(). The clip is a sibling in the same text
   // node, so the anchor is the line as a reader sees it.
-  queueAttachments: {
-    ca: "📎 2 adjunts",
-    es: "📎 2 adjuntos",
-    en: "📎 2 attachments",
-  },
+  queueAttachments: translationsFrom(
+    ({ tn }) => `📎 ${tn("logView.queue.attachments", 2)}`,
+  ),
+  viewedImages: translationsFor("cards.fileView.viewedImages", { count: 2 }),
   // The diagram placeholder, which is a CSS ::before fed by a data attribute
   // because a stylesheet cannot read the catalog.
-  mermaidLoading: {
-    ca: "Dibuixant el diagrama…",
-    es: "Dibujando el diagrama…",
-    en: "Rendering diagram…",
-  },
+  mermaidLoading: translationsFor("cards.markdown.rendering"),
 } as const;
 
 const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
 const labelled = (view: View, text: string) =>
   expect(view.queryAllByLabelText(text).length, text).toBeGreaterThan(0);
-// Some rows put the literal next to a glyph in one text node ("▼ 2 tool
-// calls"), so the oracle is the literal inside the rendered text - still a
-// literal, never a string read back through the translator (ruling 14).
 const containsText = (view: View, text: string) =>
   expect(view.container.textContent ?? "", text).toContain(text);
 const loadingLabel = (view: View) =>
@@ -313,9 +250,15 @@ const titled = (view: View, text: string) =>
   ).toBeGreaterThan(0);
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    for (const [name, anchor] of Object.entries(ANCHOR))
-      expect(new Set(Object.values(anchor)).size, name).toBe(3);
+  it("resolves each catalog anchor in every shipped language", () => {
+    for (const [name, anchor] of Object.entries(ANCHOR)) {
+      expect(Object.keys(anchor).sort(), name).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size, name).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 
@@ -376,15 +319,21 @@ describe("the log view chrome", () => {
     };
     view.rerender(logView("ca", [], busyAgent, stateOver));
     titled(view, ANCHOR.abort.ca);
-    expect(view.getByRole("button", { name: "Avorta" })).not.toBeNull();
+    expect(
+      view.getByRole("button", { name: ANCHOR.abortButton.ca }),
+    ).not.toBeNull();
 
     view.rerender(logView("es", [], busyAgent, stateOver));
     titled(view, ANCHOR.abort.es);
-    expect(view.getByRole("button", { name: "Abortar" })).not.toBeNull();
+    expect(
+      view.getByRole("button", { name: ANCHOR.abortButton.es }),
+    ).not.toBeNull();
 
     view.rerender(logView(null, [], busyAgent, stateOver));
     titled(view, ANCHOR.abort.en);
-    expect(view.getByRole("button", { name: "Abort" })).not.toBeNull();
+    expect(
+      view.getByRole("button", { name: ANCHOR.abortButton.en }),
+    ).not.toBeNull();
     commandCalls.length = 0;
     view.rerender(logView(null, []));
     fireEvent.click(view.getByRole("button", { name: ANCHOR.emptyResume.en }));
@@ -396,9 +345,7 @@ describe("the log view chrome", () => {
 
     view.rerender(logView(null, SEEDED));
     fireEvent.click(
-      view.getByTitle(
-        "End conversation. You can resume it later with /resume.",
-      ),
+      view.getByTitle(ANCHOR.endConversation.en),
     );
     expect(commandCalls.at(-1)).toEqual({
       method: "POST",
@@ -536,13 +483,13 @@ describe("a raw tool-call group", () => {
 describe("the attachment echo", () => {
   it("is one whole frame per branch, with the count as data", () => {
     const view = render(attachmentEcho("ca"));
-    shows(view, "Ha vist 2 imatges adjuntes (fes clic per mostrar-les)");
+    shows(view, ANCHOR.viewedImages.ca);
 
     view.rerender(attachmentEcho("es"));
-    shows(view, "Ha visto 2 imágenes adjuntas (haz clic para mostrarlas)");
+    shows(view, ANCHOR.viewedImages.es);
 
     view.rerender(attachmentEcho(null));
-    shows(view, "Viewed 2 attached images (click to show)");
+    shows(view, ANCHOR.viewedImages.en);
   });
 });
 

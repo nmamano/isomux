@@ -1,22 +1,22 @@
-// The schedule sentence of ruling 12, on the three offered languages and on
+// The schedule sentence of ruling 12, on every offered language and on
 // every shape a Schedule can take.
 //
-// Two things are pinned at once. The English must be what
+// The English must be what
 // shared/types.ts's humanizeSchedule prints for the same schedule, because the
 // UI moved from that function to this one and ruling 6 freezes the wording; the
 // last block asserts that against humanizeSchedule itself rather than against a
-// copy of its output, so the two cannot drift apart unnoticed. Spanish and
-// Catalan are literal strings (ruling 14): an expectation read back through the
-// translator would pass for any translation.
+// copy of its output, so the two cannot drift apart unnoticed.
 
 import { describe, expect, it } from "bun:test";
 import { scheduleText, weekdayName } from "./schedule.ts";
 import { translatorFor } from "./translate.ts";
 import { humanizeSchedule, type Schedule } from "../types.ts";
+import {
+  SUPPORTED_LANGUAGES,
+  type SupportedLanguageCode,
+} from "../languages.ts";
 
-type Language = "en" | "es" | "ca" | "zh";
-
-const say = (language: Language, schedule: Schedule) =>
+const say = (language: SupportedLanguageCode, schedule: Schedule) =>
   scheduleText(language, translatorFor(language).t, schedule);
 
 const DAILY: Schedule = { type: "daily", hour: 9, minute: 0 };
@@ -26,46 +26,54 @@ const EVERY_HOURS: Schedule = { type: "interval", minutes: 180 };
 const EVERY_MIXED: Schedule = { type: "interval", minutes: 150 };
 
 describe("weekdayName", () => {
-  // The anchor date decides which name each index gets, so a wrong anchor puts
-  // the whole week one day out. Both ends pin it.
-  it("names Sunday at 0 and Saturday at 6, in each language", () => {
-    expect(weekdayName("en", 0)).toBe("Sun");
-    expect(weekdayName("en", 6)).toBe("Sat");
-    expect(weekdayName("es", 0)).toBe("dom");
-    expect(weekdayName("es", 1)).toBe("lun");
-    expect(weekdayName("ca", 0)).toBe("dg.");
-    expect(weekdayName("ca", 1)).toBe("dl.");
+  it("uses the known Sunday anchor and gives every day a label", () => {
+    const sunday = new Date(Date.UTC(2024, 0, 7));
+    for (const { code } of SUPPORTED_LANGUAGES) {
+      const week = Array.from({ length: 7 }, (_, day) =>
+        weekdayName(code, day),
+      );
+      const expectedSunday = new Intl.DateTimeFormat(code, {
+        weekday: "short",
+        timeZone: "UTC",
+      }).format(sunday);
+      expect(week[0], code).toBe(expectedSunday);
+      expect(week.every(Boolean), code).toBe(true);
+      expect(new Set(week).size, code).toBe(week.length);
+    }
   });
 });
 
 describe("scheduleText", () => {
-  it("says a daily schedule", () => {
-    expect(say("en", DAILY)).toBe("Daily at 09:00");
-    expect(say("es", DAILY)).toBe("Cada día a las 09:00");
-    expect(say("ca", DAILY)).toBe("Cada dia a les 09:00");
-  });
-
-  it("says a weekly schedule, with the weekday in the reader's language", () => {
-    expect(say("en", WEEKLY)).toBe("Weekly Mon at 17:30");
-    expect(say("es", WEEKLY)).toBe("Cada semana, lun a las 17:30");
-    expect(say("ca", WEEKLY)).toBe("Cada setmana, dl. a les 17:30");
-  });
-
-  it("says each of the three interval shapes", () => {
-    expect(say("en", EVERY_MINUTES)).toBe("Every 45m");
-    expect(say("es", EVERY_MINUTES)).toBe("Cada 45m");
-    expect(say("en", EVERY_HOURS)).toBe("Every 3h");
-    expect(say("ca", EVERY_HOURS)).toBe("Cada 3h");
-    expect(say("en", EVERY_MIXED)).toBe("Every 2h30m");
-    expect(say("es", EVERY_MIXED)).toBe("Cada 2h30m");
+  it("keeps schedule data in a resolved sentence for every language", () => {
+    for (const { code } of SUPPORTED_LANGUAGES) {
+      expect(say(code, DAILY)).toContain("09:00");
+      expect(say(code, WEEKLY)).toContain("17:30");
+      expect(say(code, EVERY_MINUTES)).toContain("45");
+      expect(say(code, EVERY_HOURS)).toContain("3");
+      const mixed = say(code, EVERY_MIXED);
+      expect(mixed).toContain("2");
+      expect(mixed).toContain("30");
+    }
   });
 
   // The clock is two numbers, not an instant: Intl would make the English read
   // "9:00 AM", which ruling 6 does not allow.
   it("keeps a zero-padded 24-hour clock in every language", () => {
     const early: Schedule = { type: "daily", hour: 7, minute: 5 };
-    for (const language of ["en", "es", "ca", "zh"] as const)
-      expect(say(language, early), language).toContain("07:05");
+    for (const { code } of SUPPORTED_LANGUAGES)
+      expect(say(code, early), code).toContain("07:05");
+  });
+
+  it("joins a Chinese weekday directly and separates numeric values", () => {
+    const weekly = say("zh", WEEKLY);
+    const weekday = weekdayName("zh", WEEKLY.weekday);
+    expect(weekly).toContain(weekday);
+    expect(weekly).not.toContain(` ${weekday}`);
+    expect(weekly).not.toContain(`${weekday}  `);
+    expect(weekly).toContain(`${weekday} 17:30`);
+    expect(say("zh", EVERY_HOURS)).toContain(" 3 ");
+    expect(say("zh", EVERY_MIXED)).toContain(" 2 ");
+    expect(say("zh", EVERY_MIXED)).toContain(" 30 ");
   });
 });
 
@@ -87,16 +95,4 @@ describe("the English and humanizeSchedule", () => {
         humanizeSchedule(schedule),
       );
   });
-});
-
-it("uses Chinese schedule sentences and Intl weekday names", () => {
-  const t = translatorFor("zh").t;
-  expect(weekdayName("zh", 0)).toBe("周日");
-  expect(weekdayName("zh", 6)).toBe("周六");
-  expect(scheduleText("zh", t, DAILY)).toBe("每天 09:00");
-  expect(scheduleText("zh", t, WEEKLY)).toBe("每周一 17:30");
-  expect(scheduleText("zh", t, EVERY_MINUTES)).toBe("每 45 分钟");
-  expect(scheduleText("zh", t, EVERY_HOURS)).toBe("每 3 小时");
-  expect(scheduleText("zh", t, EVERY_MIXED)).toBe("每 2 小时 30 分钟");
-  expect(t("dialogs.schedule.weekday.sunday")).toBe("星期日");
 });

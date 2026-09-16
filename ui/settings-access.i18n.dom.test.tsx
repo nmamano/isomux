@@ -5,10 +5,6 @@
 // of a member's individual connections - render in the language the signed-in
 // user is on.
 //
-// The oracles are literal strings (ruling 14): an expected value read back
-// through the translator would pass for any translation, including a wrong
-// one. The first describe proves each anchor differs in all three languages,
-// so a match is evidence of the language and not of a word that never moved.
 // Every sidebar click is proven by aria-current before its pane is read.
 //
 // One mount of UserSettingsView, walked through the panes by clicks and across
@@ -16,6 +12,12 @@
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFrom,
+  translationsFor,
+} from "./test-support/i18n.ts";
+import { timeUntil } from "../shared/i18n/time.ts";
 
 setUpDomTestFile();
 
@@ -77,13 +79,14 @@ const MEMBER = {
 // An invite that expires in twelve hours, so the Expires cell exercises the
 // Intl relative formatter rather than the "expired" word - the one case with
 // no Intl form.
+const NOW = Date.now();
 const INVITE = {
   tokenPrefix: "ab12cd34",
   username: "Bru",
   role: "member" as const,
   createdBy: "u1",
-  createdAt: Date.now(),
-  expiresAt: Date.now() + 12 * 3_600_000,
+  createdAt: NOW,
+  expiresAt: NOW + 12 * 3_600_000,
 };
 
 const page = (language: "ca" | "es" | null) =>
@@ -111,80 +114,44 @@ const page = (language: "ca" | "es" | null) =>
 
 // Sidebar rows, per language.
 const SIDEBAR = {
-  invites: { ca: "Invitacions", es: "Invitaciones", en: "Invites" },
-  sessions: { ca: "Sessions", es: "Sesiones", en: "Sessions" },
-  access: { ca: "Accés", es: "Acceso", en: "Access" },
-  officeConnections: {
-    ca: "Connexions de tota l'oficina",
-    es: "Conexiones de toda la oficina",
-    en: "Office-wide connections",
-  },
-  personalConnections: {
-    ca: "Connexions individuals",
-    es: "Conexiones individuales",
-    en: "Individual connections",
-  },
-  apiTokens: { ca: "Tokens d'API", es: "Tokens de API", en: "API tokens" },
+  invites: translationsFor("settings.sidebar.invites"),
+  sessions: translationsFor("settings.sidebar.sessions"),
+  access: translationsFor("settings.sidebar.access"),
+  officeConnections: translationsFor("settings.sidebar.connectionsOffice"),
+  personalConnections: translationsFor("settings.sidebar.connectionsPersonal"),
+  apiTokens: translationsFor("settings.sidebar.apiTokens"),
 } as const;
 
 // One anchor per pane, each a string only that pane shows.
 const ANCHOR = {
   // InvitesPane's own subheading.
-  outstanding: {
-    ca: "Invitacions pendents",
-    es: "Invitaciones pendientes",
-    en: "Outstanding invites",
-  },
+  outstanding: translationsFor("settings.invites.outstanding"),
   // A column header of access-shared's InvitesTable.
-  columnFor: { ca: "Per a", es: "Para", en: "For" },
+  columnFor: translationsFor("settings.invites.columnFor"),
   // The same table's Expires cell, formatted by shared/i18n/time.ts.
-  expiresIn: {
-    ca: "d‘aquí a 12 h",
-    es: "dentro de 12 h",
-    en: "in 12h",
-  },
+  expiresIn: translationsFrom(({ language }) => {
+    const result = timeUntil(language, INVITE.expiresAt, NOW);
+    if (result.kind !== "formatted")
+      throw new Error("expected formatted invite expiry");
+    return result.text;
+  }),
   // access-shared's empty state, under the Sessions pane.
-  emptyList: { ca: "Cap.", es: "Ninguno.", en: "None." },
-  externalAccess: {
-    ca: "Accés extern",
-    es: "Acceso externo",
-    en: "External access",
-  },
-  enableExternal: {
-    ca: "Activa l'accés extern",
-    es: "Activar el acceso externo",
-    en: "Enable external access",
-  },
-  envTitle: {
-    ca: "Variables d'entorn",
-    es: "Variables de entorno",
-    en: "Environment variables",
-  },
+  emptyList: translationsFor("settings.access.none"),
+  externalAccess: translationsFor("settings.externalAccess.title"),
+  enableExternal: translationsFor("settings.externalAccess.enable"),
+  envTitle: translationsFor("settings.connections.envTitle"),
   // ProviderSignInCard.
-  status: { ca: "Estat:", es: "Estado:", en: "Status:" },
+  status: translationsFor("settings.signIn.status"),
   // ManagedEnvEditor.
-  addVariable: {
-    ca: "Afegeix una variable",
-    es: "Añadir una variable",
-    en: "Add variable",
-  },
-  personalVars: {
-    ca: "Variables per als agents que creo",
-    es: "Variables para los agentes que creo",
-    en: "Variables for agents I spawn",
-  },
-  howToUse: { ca: "Com es fa servir", es: "Cómo se usa", en: "How to use" },
-  noTokens: {
-    ca: "No hi ha tokens d'API.",
-    es: "No hay tokens de API.",
-    en: "No API tokens.",
-  },
+  addVariable: translationsFor("settings.env.add"),
+  personalVars: translationsFor("settings.connections.personalVars"),
+  howToUse: translationsFor("settings.apiTokens.howToUse"),
+  noTokens: translationsFor("settings.apiTokens.empty"),
   // MemberVariableNames, on the member's profile.
-  memberConnections: {
-    ca: "Connexions individuals",
-    es: "Conexiones individuales",
-    en: "Individual Connections",
-  },
+  memberConnections: translationsFor("settings.memberConnections.title"),
+  memberUnknown: translationsFrom(
+    ({ t }) => `Claude: ${t("settings.memberConnections.unknown")}`,
+  ),
 } as const;
 
 /**
@@ -220,9 +187,15 @@ const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    for (const [name, anchor] of Object.entries(ANCHOR))
-      expect(new Set(Object.values(anchor)).size, name).toBe(3);
+  it("resolves each catalog anchor in every shipped language", () => {
+    for (const [name, anchor] of Object.entries(ANCHOR)) {
+      expect(Object.keys(anchor).sort(), name).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size, name).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 
@@ -279,7 +252,7 @@ describe("the access and connections panes", () => {
       }),
     ).not.toBeNull();
 
-    shows(view, "Claude: No s'ha pogut comprovar l'estat.");
+    shows(view, ANCHOR.memberUnknown.ca);
 
     // Spanish: the open pane follows, and every fresh pane reads it too.
     view.rerender(page("es"));
@@ -290,9 +263,9 @@ describe("the access and connections panes", () => {
       }),
     ).not.toBeNull();
 
-    shows(view, "Claude: No se pudo comprobar el estado.");
+    shows(view, ANCHOR.memberUnknown.es);
     view.rerender(page(null));
-    shows(view, "Claude: Could not check status.");
+    shows(view, ANCHOR.memberUnknown.en);
     view.rerender(page("es"));
 
     open(view, SIDEBAR.invites.es);

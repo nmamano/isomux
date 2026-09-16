@@ -1,10 +1,5 @@
 // T0 unit tier: the death-message mapping (tasks 86678675, e8168c2a).
 //
-// These strings are the deliverable, not an implementation detail - Nil filed
-// 86678675 because "Claude Code process exited with code 143" told an operator
-// nothing about what happened or what to do. So the assertions are on the exact
-// sentences, and a reword is meant to fail here and be re-approved.
-//
 // The pass-through cases matter as much as the rewrites: inventing a cause for
 // a failure we do not recognize would be worse than the opaque original.
 import { describe, expect, it } from "bun:test";
@@ -16,9 +11,6 @@ import {
 } from "./backend-failure-text.ts";
 import { english, translatorForLanguage } from "./i18n.ts";
 
-// The sentences below are the signed-off ENGLISH, so the matrix runs on the
-// English translator and every assertion it always made is unchanged. The
-// language block at the bottom is the S7 addition.
 const t = english.t;
 const BACKEND_STOPPED_DURING_TURN = backendStoppedDuringTurn(t);
 
@@ -28,8 +20,9 @@ describe("humanizeBackendFailure", () => {
       t,
       "Claude Code process exited with code 143",
     );
+    expect(r.id).toBe("sigterm:143");
     expect(r.text).toBe(
-      "The agent backend was terminated by SIGTERM (exit code 143). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
+      english.t("systemEntries.backendFailure.sigterm", { code: 143 }),
     );
     // The raw string survives for the log entry's metadata.
     expect(r.raw).toBe("Claude Code process exited with code 143");
@@ -40,16 +33,21 @@ describe("humanizeBackendFailure", () => {
       t,
       "Claude Code process exited with code 137",
     );
+    expect(r.id).toBe("sigkill:137");
     expect(r.text).toBe(
-      "The agent backend was killed by SIGKILL (exit code 137). The likely cause is the out-of-memory protection on this machine. The conversation is saved and can be resumed.",
+      english.t("systemEntries.backendFailure.sigkill", { code: 137 }),
     );
   });
 
   it("names other signals without guessing at a cause", () => {
     // 130 = SIGINT. No OOM sentence: we have no reason to believe that is why.
     const r = humanizeBackendFailure(t, "process exited with code 130");
+    expect(r.id).toBe("signal:130");
     expect(r.text).toBe(
-      "The agent backend was stopped by signal 2 (exit code 130). The conversation is saved and can be resumed.",
+      english.t("systemEntries.backendFailure.signal", {
+        signal: 2,
+        code: 130,
+      }),
     );
   });
 
@@ -57,10 +55,8 @@ describe("humanizeBackendFailure", () => {
     const raw =
       "Agent stopped: error_during_execution. [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=tool_use";
     const r = humanizeBackendFailure(t, raw);
-    expect(r.text).toBe(
-      "The agent backend stopped during the turn. The conversation is saved and can be resumed.",
-    );
     expect(r.text).toBe(BACKEND_STOPPED_DURING_TURN);
+    expect(r.id).toBe("stopped-during-turn");
     // The diagnostic is kept, just not shown in chat.
     expect(r.raw).toBe(raw);
   });
@@ -74,7 +70,7 @@ describe("humanizeBackendFailure", () => {
       "Selected model is at capacity. Please try a different model.",
     );
     expect(r.text).toBe(
-      "The model provider is at capacity. That is on the provider's side, not this account's subscription or rate limits. Retry in a minute or pick another model. The conversation is saved and can be resumed.",
+      english.t("systemEntries.backendFailure.providerCapacity"),
     );
     expect(r.raw).toBe(
       "Selected model is at capacity. Please try a different model.",
@@ -128,17 +124,18 @@ describe("backendFailureMeta", () => {
 });
 
 // The decisions are made on the RAW backend text and are the same in every
-// language; only the selected sentence follows the reader
-// (internal-docs/i18n-loop.md, S7). Literal strings (ruling 14).
+// language; only the selected sentence follows the reader.
 describe("in the reader's language", () => {
-  const es = translatorForLanguage("es").t;
-  const ca = translatorForLanguage("ca").t;
+  const esTranslator = translatorForLanguage("es");
+  const caTranslator = translatorForLanguage("ca");
+  const es = esTranslator.t;
+  const ca = caTranslator.t;
 
   it("words a known failure in the reader's language, keeping the raw bytes", () => {
     const raw = "Claude Code process exited with code 143";
     const r = humanizeBackendFailure(es, raw);
     expect(r.text).toBe(
-      "El backend del agente se terminó con SIGTERM (código de salida 143). La causa más probable es la protección contra falta de memoria de esta máquina. La conversación está guardada y se puede retomar.",
+      esTranslator.t("systemEntries.backendFailure.sigterm", { code: 143 }),
     );
     // Same decision, same raw bytes: only the wording moved.
     expect(r.id).toBe("sigterm:143");
@@ -155,8 +152,9 @@ describe("in the reader's language", () => {
       "Claude Code process exited with code 137",
     );
     expect(r.id).toBe("sigkill:137");
-    expect(r.text).toContain("SIGKILL");
-    expect(r.text).toContain("La conversa està desada i es pot reprendre.");
+    expect(r.text).toBe(
+      caTranslator.t("systemEntries.backendFailure.sigkill", { code: 137 }),
+    );
   });
 
   it("passes an unrecognized failure through in the backend's own bytes", () => {

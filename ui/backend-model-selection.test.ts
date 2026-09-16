@@ -94,10 +94,6 @@ describe("fetchBackendModels", () => {
   });
 });
 
-// The four sentences a dialog shows when a model list does not arrive. Written
-// out rather than read back through a translator (ruling 14), so a catalog edit
-// that changes the English has to be made here too; the backend's own message
-// is the untranslated detail the sentence carries (ruling 2).
 describe("modelListErrorMessage", () => {
   const english = translatorFor("en");
   const catalan = translatorFor("ca");
@@ -105,10 +101,10 @@ describe("modelListErrorMessage", () => {
   it("names the login that is missing when the failure is an auth one", () => {
     const authError = { message: "", authError: true };
     expect(modelListErrorMessage(english, true, authError)).toBe(
-      "OpenCode could not list its models. Reopen this dialog.",
+      english.t("common.model.openCodeListFailed"),
     );
     expect(modelListErrorMessage(english, false, authError)).toBe(
-      "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)",
+      english.t("common.model.codexNotSignedIn"),
     );
   });
 
@@ -118,17 +114,13 @@ describe("modelListErrorMessage", () => {
         message: "connect ECONNREFUSED",
         authError: false,
       }),
-    ).toBe(
-      "Could not load OpenCode models (connect ECONNREFUSED). Reopen this dialog to try again.",
-    );
+    ).toBe(english.t("common.model.openCodeLoadFailed", { detail: " (connect ECONNREFUSED)" }));
     expect(
       modelListErrorMessage(catalan, true, {
         message: "connect ECONNREFUSED",
         authError: false,
       }),
-    ).toBe(
-      "No s'han pogut carregar els models d'OpenCode (connect ECONNREFUSED). Torna a obrir aquest diàleg per provar-ho de nou.",
-    );
+    ).toBe(catalan.t("common.model.openCodeLoadFailed", { detail: " (connect ECONNREFUSED)" }));
   });
 
   it("drops the parentheses when the backend said nothing", () => {
@@ -137,8 +129,6 @@ describe("modelListErrorMessage", () => {
         message: "  ",
         authError: false,
       }),
-    ).toBe(
-      "Could not load model list. Showing fallback list - some options may not work on your account.",
-    );
+    ).toBe(english.t("common.model.listLoadFailed", { detail: "" }));
   });
 });

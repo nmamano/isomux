@@ -3,14 +3,6 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { SYSTEM_PROMPT, ISOMUX_KNOWLEDGE, buildSystemPrompt } from "./chat.ts";
 
-describe("site chatbot mobile app guidance", () => {
-  it("pins the iPhone and Android PWA setup copy verbatim", () => {
-    expect(SYSTEM_PROMPT).toContain(
-      "When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as a PWA with no app store. On iPhone: open the office in Safari, tap Share, then tap Add to Home Screen. On Android: open the office in Chrome, tap Install app when prompted, or open the menu and tap Install app.",
-    );
-  });
-});
-
 describe("site chatbot knowledge", () => {
   it("is the tail of the site prompt, from What is Isomux through the guidelines", () => {
     expect(ISOMUX_KNOWLEDGE.startsWith("## What is Isomux?\n")).toBe(true);

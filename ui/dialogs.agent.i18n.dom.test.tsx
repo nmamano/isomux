@@ -2,6 +2,11 @@
 // dialogs.i18n.dom.test.tsx.
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFrom,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -39,48 +44,22 @@ const agentDialog = (language: Language) =>
     { rooms: [ROOM], hasReceivedInitialState: true },
   );
 const ANCHOR = {
-  spawnTitle: {
-    ca: "Crear un agent nou",
-    es: "Crear un agente nuevo",
-    en: "Spawn New Agent",
-  },
-  identity: {
-    ca: "Instruccions i memòria",
-    es: "Instrucciones y memoria",
-    en: "Instructions and memory",
-  },
-  access: {
-    ca: "Accés i ubicació",
-    es: "Acceso y ubicación",
-    en: "Access and location",
-  },
-  blank: { ca: "En blanc", es: "En blanco", en: "Blank" },
-  codeReviewer: {
-    ca: "Revisor de codi",
-    es: "Revisor de código",
-    en: "Code Reviewer",
-  },
-  permissionMode: {
-    ca: "Mode de permisos",
-    es: "Modo de permisos",
-    en: "Permission Mode",
-  },
-  permissionDefault: {
-    ca: "Per defecte (preguntar per a tot)",
-    es: "Por defecto (preguntar para todo)",
-    en: "Default (ask for everything)",
-  },
-  permissionBypass: {
-    ca: "Ometre els permisos (s'aprova tot automàticament)",
-    es: "Omitir permisos (se aprueba todo automáticamente)",
-    en: "Bypass (auto-approve all)",
-  },
-  effortXhigh: { ca: "Molt alt", es: "Muy alto", en: "Extra high" },
-  expandInstructions: {
-    ca: "Amplia Instruccions personalitzades",
-    es: "Ampliar Instrucciones personalizadas",
-    en: "Expand Custom Instructions",
-  },
+  spawnTitle: translationsFor("dialogs.agent.titleSpawn"),
+  identity: translationsFor("common.instructionsAndMemory"),
+  access: translationsFor("dialogs.agent.group.access"),
+  blank: translationsFor("dialogs.agent.blank"),
+  codeReviewer: translationsFor("templates.codeReviewer.label"),
+  permissionMode: translationsFor("common.field.permissionMode"),
+  permissionDefault: translationsFor("dialogs.agent.permission.claudeDefault"),
+  permissionBypass: translationsFor("common.permission.claudeBypass"),
+  effortXhigh: translationsFor("common.effort.xhigh"),
+  expandInstructions: translationsFrom(({ t }) =>
+    t("dialogs.textarea.expand", {
+      title: t("dialogs.agent.customInstructions"),
+    }),
+  ),
+  costume: translationsFor("dialogs.agent.costume"),
+  construction: translationsFor("dialogs.agent.costume.construction"),
 } as const;
 
 const shows = (view: View, text: string) =>
@@ -107,9 +86,15 @@ function checkCostume(view: View, label: string, construction: string): void {
   expect(preview().querySelector("[data-costume-body]") === null).toBe(true);
 }
 
-it("uses distinct anchors in all three tested languages", () => {
-  for (const [name, anchor] of Object.entries(ANCHOR))
-    expect(new Set(Object.values(anchor)).size, name).toBe(3);
+it("resolves each catalog anchor in every shipped language", () => {
+  for (const [name, anchor] of Object.entries(ANCHOR)) {
+    expect(Object.keys(anchor).sort(), name).toEqual(
+      [...SHIPPED_LANGUAGE_CODES].sort(),
+    );
+    expect(new Set(Object.values(anchor)).size, name).toBe(
+      SHIPPED_LANGUAGE_CODES.length,
+    );
+  }
 });
 
 it("reads Catalan, Spanish and default English, including the costume picker", async () => {
@@ -124,7 +109,7 @@ it("reads Catalan, Spanish and default English, including the costume picker", a
   shows(view, ANCHOR.effortXhigh.ca);
   expect(view.queryByLabelText(ANCHOR.expandInstructions.ca)).not.toBeNull();
   expect(view.queryByText(ANCHOR.spawnTitle.en)).toBeNull();
-  checkCostume(view, "Disfressa", "Treballador de la construcció");
+  checkCostume(view, ANCHOR.costume.ca, ANCHOR.construction.ca);
 
   view.rerender(agentDialog("es"));
   shows(view, ANCHOR.spawnTitle.es);

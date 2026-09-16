@@ -5,16 +5,15 @@
 // the expand chrome the first two open their long fields with - render in the
 // language the signed-in user is on.
 //
-// The oracles are literal strings (ruling 14): an expectation read back through
-// the translator would pass for any translation. The first describe proves each
-// anchor differs in all three languages, so a match is evidence of the language
-// and not of a word that never moved.
-//
 // These dialogs mount directly rather than through App: each is a
 // self-contained overlay.
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -52,20 +51,9 @@ const scheduleDialog = (language: Language) =>
 
 // One anchor per section, each a string only that section shows.
 const ANCHOR = {
-  // The schedule dialog's interval option.
-  everyNMinutes: {
-    ca: "Cada N minuts",
-    es: "Cada N minutos",
-    en: "Every N minutes",
-  },
-  // A static weekday, which no Intl list supplies.
-  monday: { ca: "Dilluns", es: "Lunes", en: "Monday" },
-  // The schedule dialog's unattended-permission hint.
-  unattendedHint: {
-    ca: "Les programacions s'executen sense supervisió - els modes que demanen aprovació humana no estan disponibles.",
-    es: "Las programaciones se ejecutan sin supervisión - los modos que piden aprobación humana no están disponibles.",
-    en: "Schedules run unattended - modes that require human approval are not available.",
-  },
+  everyNMinutes: translationsFor("dialogs.schedule.interval"),
+  monday: translationsFor("dialogs.schedule.weekday.monday"),
+  unattendedHint: translationsFor("dialogs.schedule.permissionHint"),
 } as const;
 
 const shows = (view: View, text: string) =>
@@ -81,9 +69,15 @@ function chooseWeekly(view: View): void {
 }
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    for (const [name, anchor] of Object.entries(ANCHOR))
-      expect(new Set(Object.values(anchor)).size, name).toBe(3);
+  it("resolves each anchor in every shipped language", () => {
+    for (const [name, anchor] of Object.entries(ANCHOR)) {
+      expect(Object.keys(anchor).sort(), name).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size, name).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 

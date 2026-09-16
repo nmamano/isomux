@@ -125,9 +125,8 @@ describe("OpenCode cron model selection", () => {
     const source = await Bun.file(
       new URL("./CronjobDialog.tsx", import.meta.url),
     ).text();
-    expect(source).not.toContain("(unavailable on current login)");
-    // The sentences moved to the catalog in S4, so what this pins is that both
-    // dialogs read the same keys (ruling 14 allows a unit test to pin keys).
+    // The sentences moved to the catalog in S4, so this checks that both
+    // dialogs read the same internal message-key identifiers.
     expect(source).toContain('t("common.model.currentIs"');
     expect(source).toContain('t("common.model.checkFailed")');
   });

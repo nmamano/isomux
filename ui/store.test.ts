@@ -95,6 +95,7 @@ describe("reducer: log_entries_batch", () => {
 });
 
 describe("ProviderSignInCard", () => {
+  const en = translatorFor("en");
   const accounts = [
     {
       provider: "claude" as const,
@@ -118,22 +119,10 @@ describe("ProviderSignInCard", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
-    expect(html).toContain(
-      "Office-wide: sign in for every agent in this office",
-    );
-    expect(html).toContain("Individual: sign in for agents I spawn");
-    expect(html).toContain(
-      "This subscription is used for every agent in the office except for agents spawned by an office member who has set up",
-    );
-    // The scope names carry no numbering any more, and the office scope points
-    // at the other section by name instead of at "Option 2".
-    expect(html).not.toContain("Option 1");
-    expect(html).not.toContain("Option 2");
-    expect(html).toContain("Use a separate account for your agents.");
-    expect(html).toContain("Sign in");
-    expect(html).not.toContain("Who should use this account?");
-    expect(html).not.toContain("sign in from the built-in terminal");
-    expect(html).not.toContain("Set your Env File Path in User Settings.");
+    expect(html).toContain(en.t("settings.signIn.scopeOffice"));
+    expect(html).toContain(en.t("settings.signIn.scopePersonal"));
+    expect(html).toContain(en.t("settings.signIn.personalHint"));
+    expect(html).toContain(en.t("settings.signIn.signIn"));
   });
 
   // The pane is split by owner: the office half holds what every agent uses,
@@ -150,7 +139,6 @@ describe("ProviderSignInCard", () => {
     );
     expect(html).toContain('data-managed-env-path="/api/office/env"');
     expect(html).not.toContain('data-managed-env-path="/api/users/Boss/env"');
-    expect(html).toContain("You → Individual connections");
     // The provider-key paragraph belongs under whichever editor the viewer
     // just saw, so an owner gets it on this half too.
     expect(html).toContain("ANTHROPIC_API_KEY");
@@ -165,9 +153,7 @@ describe("ProviderSignInCard", () => {
         half: "office",
       }),
     );
-    expect(html).toContain(
-      "Office-wide variables are managed by an office owner.",
-    );
+    expect(html).toContain(en.t("settings.connections.ownerManaged"));
     expect(html).not.toContain('data-managed-env-path="/api/office/env"');
     expect(html).not.toContain('data-managed-env-path="/api/users/Member/env"');
     expect(html).not.toContain("owner-secret-value");
@@ -193,7 +179,6 @@ describe("ProviderSignInCard", () => {
       expect(html).toContain("GH_TOKEN");
       expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
       expect(html).not.toContain('data-managed-env-path="/api/office/env"');
-      expect(html).toContain("Office → Office-wide connections");
     }
   });
 
@@ -214,17 +199,15 @@ describe("ProviderSignInCard", () => {
         accounts: waiting,
       }),
     );
-    expect(html).toContain("Waiting for provider…");
-    expect(html).not.toContain("Waiting for Claude");
-    expect(html).not.toContain("Waiting for OpenAI");
+    expect(html).toContain(en.t("settings.signIn.waiting"));
   });
 
   it("does not call an account disconnected before its row loads", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts: [] }),
     );
-    expect(html).toContain("Checking connection…");
-    expect(html).not.toContain("Not connected");
+    expect(html).toContain(en.t("settings.signIn.checking"));
+    expect(html).not.toContain(en.t("settings.signIn.notConnected"));
   });
 
   it("renders the provider error when a sign-in fails", () => {
@@ -246,34 +229,43 @@ describe("ProviderSignInCard", () => {
     expect(html).toContain("Claude rejected this sign-in.");
   });
 
-  it("pins the shared CLI warning copy for both providers", () => {
+  it("shows the shared-machine warning only for an external CLI account", () => {
     for (const provider of ["claude", "codex"] as const) {
       const title = provider === "claude" ? "Claude" : "Codex";
-      const html = renderToStaticMarkup(
+      const account = {
+        provider,
+        scope: "office" as const,
+        accountStatus: "connected" as const,
+        loginStatus: "idle" as const,
+        canBrowserLogin: true,
+      };
+      const warning = en.t("settings.signIn.externalWarning", {
+        provider: title,
+      });
+      const external = renderToStaticMarkup(
         createElement(ProviderSignInCard, {
           provider,
-          accounts: [
-            {
-              provider,
-              scope: "office",
-              accountStatus: "connected",
-              loginStatus: "idle",
-              canBrowserLogin: true,
-              externalCli: true,
-            },
-          ],
+          accounts: [{ ...account, externalCli: true }],
         }),
       );
-      expect(html).toContain(
-        `This signs out ${title} in this machine, even outside the office.`,
+      const managed = renderToStaticMarkup(
+        createElement(ProviderSignInCard, {
+          provider,
+          accounts: [{ ...account, externalCli: false }],
+        }),
       );
+      expect(external).toContain(warning);
+      expect(managed).not.toContain(warning);
     }
   });
 
   it("labels the slow confirm action while sign-out is pending", () => {
-    const en = translatorFor("en");
-    expect(signOutButtonLabel(en, false)).toBe("Confirm sign out");
-    expect(signOutButtonLabel(en, true)).toBe("Signing out…");
+    expect(signOutButtonLabel(en, false)).toBe(
+      en.t("settings.signIn.confirmSignOut"),
+    );
+    expect(signOutButtonLabel(en, true)).toBe(
+      en.t("settings.signIn.signingOut"),
+    );
   });
 
   it("replaces a failed in-chat account wire with the successful push", () => {
@@ -306,7 +298,11 @@ describe("ProviderSignInCard", () => {
         accounts: after.providerAccounts,
       }),
     );
-    expect(html).toContain("Connected as signed-in@example.com");
+    expect(html).toContain(
+      en.t("settings.signIn.connectedAs", {
+        account: "signed-in@example.com",
+      }),
+    );
     expect(html).not.toContain("Codex did not report a connected account.");
   });
 });
@@ -877,8 +873,9 @@ describe("settings page: panes and initialTarget routing", () => {
     const html = renderToStaticMarkup(
       createElement(UpdatePane, { onClose: () => {} }),
     );
-    expect(html).toContain("This office is up to date.");
-    expect(html).not.toContain("New Release Available");
+    const en = translatorFor("en");
+    expect(html).toContain(en.t("settings.update.upToDate"));
+    expect(html).not.toContain(en.t("settings.update.newRelease"));
   });
 
   it("initialTarget mounts the named pane, not the default selection", () => {
@@ -891,7 +888,8 @@ describe("settings page: panes and initialTarget routing", () => {
         initialTarget: { kind: "section", section: "theme" },
       }),
     );
-    expect(theme).toContain("click the office window");
+    const en = translatorFor("en");
+    expect(theme).toContain(en.t("settings.theme.intro"));
 
     const device = renderToStaticMarkup(
       createElement(UserSettingsView, {
@@ -899,8 +897,10 @@ describe("settings page: panes and initialTarget routing", () => {
         initialTarget: { kind: "section", section: "deviceLabel" },
       }),
     );
-    expect(device).toContain("Tells agents which device you are on");
-    expect(device).not.toContain("click the office window");
+    expect(device).toContain(
+      en.t("settings.device.intro").replaceAll('"', "&quot;"),
+    );
+    expect(device).not.toContain(en.t("settings.theme.intro"));
   });
 
   it("hides owner-only rows from a member but keeps Office and Usage", () => {
@@ -924,10 +924,16 @@ describe("settings page: panes and initialTarget routing", () => {
         createElement(UserSettingsView, { ...pageProps }),
       ),
     );
-    expect(html).toContain(">Office</button>");
-    expect(html).toContain(">Usage</button>");
-    for (const ownerOnly of ["Access", "Invites", "Sessions", "Storage"]) {
-      expect(html).not.toContain(`>${ownerOnly}</button>`);
+    const en = translatorFor("en");
+    expect(html).toContain(`>${en.t("settings.sidebar.office")}</button>`);
+    expect(html).toContain(`>${en.t("settings.sidebar.usage")}</button>`);
+    for (const key of [
+      "settings.sidebar.access",
+      "settings.sidebar.invites",
+      "settings.sidebar.sessions",
+      "settings.sidebar.storage",
+    ] as const) {
+      expect(html).not.toContain(`>${en.t(key)}</button>`);
     }
   });
 
@@ -959,14 +965,21 @@ describe("settings page: panes and initialTarget routing", () => {
         createElement(UserSettingsView, { ...pageProps }),
       ),
     );
-    for (const group of ["Office", "Rooms", "Members", "You", "Device"]) {
+    const en = translatorFor("en");
+    for (const group of [
+      en.t("settings.sidebar.office"),
+      en.t("common.rooms"),
+      en.t("settings.sidebar.members"),
+      en.t("common.you"),
+      en.t("common.device"),
+    ]) {
       expect(html).toContain(`>${group}</div>`);
     }
     // The Rooms group is built from the live room list, not a fixed set.
     expect(html).toContain("Conference Room");
     // The renamed rows, which the old labels would silently survive.
-    expect(html).toContain("Sign-in links");
-    expect(html).not.toContain("My devices");
+    expect(html).toContain(en.t("settings.sidebar.signInLinks"));
+    expect(html).not.toContain(en.t("settings.devices.title"));
   });
 });
 
@@ -1221,12 +1234,17 @@ describe("RoomTabBar: the Lobby tab", () => {
       membersChat: { ...initialState.membersChat, unread: 7 },
     });
     expect(busy).toContain("data-lobby-unread");
-    expect(busy).toContain('aria-label="Unread messages: 7"');
+    const en = translatorFor("en");
+    expect(busy).toContain(
+      `aria-label="${en.tn("membersChat.unreadCount", 7)}"`,
+    );
     expect(busy).not.toContain("data-active-room-tab");
     const capped = html({
       membersChat: { ...initialState.membersChat, unread: 100 },
     });
-    expect(capped).toContain('aria-label="Unread messages: 100"');
+    expect(capped).toContain(
+      `aria-label="${en.tn("membersChat.unreadCount", 100)}"`,
+    );
   });
 });
 

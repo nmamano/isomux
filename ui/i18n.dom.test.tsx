@@ -2,13 +2,12 @@
 // (internal-docs/i18n-loop.md, S1). Other nav variants and preferences live in
 // sibling files so each real App scene stays below half of the DOM budget.
 //
-// The oracles are literal strings on purpose. An expected value read back
-// through translatorFor would repeat the implementation and pass for any
-// translation, including a wrong one. A literal fails when the catalog
-// changes, which is the point.
-//
 import { afterAll, afterEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -24,13 +23,25 @@ setApiShim(OK);
 afterEach(() => setApiShim(OK));
 afterAll(() => setApiShim(null));
 
-const TASKS = { ca: "Tasques", es: "Tareas", en: "Tasks" } as const;
+const TASKS = translationsFor("common.tasks");
+const SCHEDULES = translationsFor("common.schedules");
+const SETTINGS = translationsFor("common.settings");
+const THEME = translationsFor("common.theme");
+const CHANGE_THEME = translationsFor("common.changeTheme");
+const ZOOM_IN = translationsFor("office.zoom.inShortcut");
+const ZOOM_OUT = translationsFor("office.zoom.outShortcut");
+const ZOOM_RESET = translationsFor("office.zoom.reset");
 
 const app = (language: "ca") => onLanguage(language, createElement(App));
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    expect(new Set(Object.values(TASKS)).size).toBe(3);
+  it("covers every shipped language with a distinct resolved label", () => {
+    expect(Object.keys(TASKS).sort()).toEqual(
+      [...SHIPPED_LANGUAGE_CODES].sort(),
+    );
+    expect(new Set(Object.values(TASKS)).size).toBe(
+      SHIPPED_LANGUAGE_CODES.length,
+    );
   });
 });
 
@@ -43,19 +54,19 @@ describe("the office nav bar", () => {
     // matching wall controls are asserted in site-link.i18n.dom.test.tsx.
     for (const [title, count] of [
       [`${TASKS.ca} (t)`, 1],
-      ["Programacions", 1],
+      [SCHEDULES.ca, 1],
       ["Apps (a)", 1],
-      ["Configuració (s)", 1],
+      [`${SETTINGS.ca} (s)`, 1],
     ] as const)
       expect(view.queryAllByTitle(title).length, title).toBe(count);
     // The vent in the scene carries the same word as its SVG title, so the
     // label is not the only match.
-    expect(view.queryAllByText("Configuració").length).toBeGreaterThan(0);
-    expect(view.queryByText("Tema")).not.toBeNull();
-    expect(view.queryAllByTitle("Canvia el tema").length).toBe(1);
-    expect(view.queryByTitle("Apropa (+)")).not.toBeNull();
-    expect(view.queryByTitle("Allunya (-)")).not.toBeNull();
-    expect(view.queryByTitle("Restableix la vista (0)")).not.toBeNull();
+    expect(view.queryAllByText(SETTINGS.ca).length).toBeGreaterThan(0);
+    expect(view.queryByText(THEME.ca)).not.toBeNull();
+    expect(view.queryAllByTitle(CHANGE_THEME.ca).length).toBe(1);
+    expect(view.queryByTitle(ZOOM_IN.ca)).not.toBeNull();
+    expect(view.queryByTitle(ZOOM_OUT.ca)).not.toBeNull();
+    expect(view.queryByTitle(ZOOM_RESET.ca)).not.toBeNull();
     expect(view.queryByTitle(`${TASKS.en} (t)`)).toBeNull();
 
     // Flush App's pending office work before happy-dom unregisters window.

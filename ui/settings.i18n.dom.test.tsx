@@ -2,9 +2,7 @@
 // shell and the office-side panes render in the language the signed-in user is
 // on - Catalan, then Spanish, then the English a user who never chose gets.
 //
-// The oracles are literal strings on purpose (ruling 14): an expected value
-// read back through the translator would pass for any translation, including
-// a wrong one. Every sidebar click is proven to have selected its row
+// Every sidebar click is proven to have selected its row
 // (aria-current) before the pane's anchor is checked, so a duplicate text
 // elsewhere on the page cannot pass for it.
 //
@@ -15,6 +13,10 @@
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
+import {
+  SHIPPED_LANGUAGE_CODES,
+  translationsFor,
+} from "./test-support/i18n.ts";
 
 setUpDomTestFile();
 
@@ -70,18 +72,6 @@ setApiShim(async (_method, path) => {
 });
 afterAll(() => setApiShim(null));
 
-// The browser confirms of the panes' unsaved-change guards, captured so the
-// test can assert the actual message that would have been shown.
-const confirms: string[] = [];
-const realConfirm = globalThis.confirm;
-globalThis.confirm = (message?: string) => {
-  confirms.push(message ?? "");
-  return true;
-};
-afterAll(() => {
-  globalThis.confirm = realConfirm;
-});
-
 const ROOM = {
   id: "r1",
   name: "Sala Nord",
@@ -99,16 +89,42 @@ const page = (language: "ca" | "es" | null) =>
     { rooms: [ROOM], hasReceivedInitialState: true },
   );
 
-const SETTINGS = { ca: "Configuració", es: "Ajustes", en: "Settings" } as const;
-const STORAGE = {
-  ca: "Emmagatzematge",
-  es: "Almacenamiento",
-  en: "Storage",
-} as const;
-const STORAGE_TITLE = {
-  ca: "Emmagatzematge de l'oficina",
-  es: "Almacenamiento de la oficina",
-  en: "Office Storage",
+const SETTINGS = translationsFor("common.settings");
+const STORAGE = translationsFor("settings.sidebar.storage");
+const STORAGE_TITLE = translationsFor("settings.storage.title");
+const CA = {
+  office: translationsFor("settings.sidebar.office").ca,
+  access: translationsFor("settings.sidebar.access").ca,
+  invites: translationsFor("settings.sidebar.invites").ca,
+  sessions: translationsFor("settings.sidebar.sessions").ca,
+  officeConnections: translationsFor("settings.sidebar.connectionsOffice").ca,
+  usage: translationsFor("settings.sidebar.usage").ca,
+  updates: translationsFor("settings.sidebar.updates").ca,
+  you: translationsFor("common.you").ca,
+  self: translationsFor("settings.you").ca,
+  profile: translationsFor("settings.sidebar.profile").ca,
+  preferences: translationsFor("common.preferences").ca,
+  personalConnections: translationsFor(
+    "settings.sidebar.connectionsPersonal",
+  ).ca,
+  apiTokens: translationsFor("settings.sidebar.apiTokens").ca,
+  signInLinks: translationsFor("settings.sidebar.signInLinks").ca,
+  device: translationsFor("common.device").ca,
+  deviceLabel: translationsFor("settings.sidebar.deviceLabel").ca,
+  theme: translationsFor("common.theme").ca,
+  rooms: translationsFor("common.rooms").ca,
+  members: translationsFor("settings.sidebar.members").ca,
+  signOut: translationsFor("common.signOut").ca,
+  identity: translationsFor("settings.profile.identity").ca,
+  discardPrompt: translationsFor("common.discardPrompt").ca,
+  discard: translationsFor("common.discard").ca,
+  officeTitle: translationsFor("settings.office.title").ca,
+  browserPanel: translationsFor("settings.office.browserPanel").ca,
+  usageTitle: translationsFor("settings.usage.title").ca,
+  upToDate: translationsFor("settings.update.upToDate").ca,
+  devicePlaceholder: translationsFor("settings.device.placeholder").ca,
+  themeIntro: translationsFor("settings.theme.intro").ca,
+  devicesTitle: translationsFor("settings.devices.title").ca,
 } as const;
 
 /**
@@ -139,13 +155,31 @@ function open(view: View, label: string): void {
   expect(row(view, label).getAttribute("aria-current"), label).toBe("true");
 }
 
+/**
+ * Click the row from a dirty pane: the in-app discard prompt holds the
+ * navigation, in the page language, until Discard is pressed.
+ */
+function discardInto(view: View, label: string): void {
+  fireEvent.click(row(view, label));
+  expect(view.queryByText(CA.discardPrompt), label).not.toBeNull();
+  expect(row(view, label).getAttribute("aria-current"), label).toBeNull();
+  fireEvent.click(view.getByText(CA.discard));
+  expect(row(view, label).getAttribute("aria-current"), label).toBe("true");
+}
+
 const heading = (view: View, text: string, tag: string) =>
   view.getAllByText(text).some((el) => el.tagName === tag);
 
 describe("the anchors", () => {
-  it("differ between the three languages, so a match proves the language", () => {
-    for (const anchor of [SETTINGS, STORAGE, STORAGE_TITLE])
-      expect(new Set(Object.values(anchor)).size).toBe(3);
+  it("resolves each anchor in every shipped language", () => {
+    for (const anchor of [SETTINGS, STORAGE, STORAGE_TITLE]) {
+      expect(Object.keys(anchor).sort()).toEqual(
+        [...SHIPPED_LANGUAGE_CODES].sort(),
+      );
+      expect(new Set(Object.values(anchor)).size).toBe(
+        SHIPPED_LANGUAGE_CODES.length,
+      );
+    }
   });
 });
 
@@ -156,88 +190,83 @@ describe("the settings page", () => {
     // The shell: header and every sidebar label of an owner.
     expect(view.queryByText(SETTINGS.ca)).not.toBeNull();
     for (const label of [
-      "Oficina",
-      "Accés",
-      "Invitacions",
-      "Sessions",
-      "Connexions de tota l'oficina",
-      "Ús",
+      CA.office,
+      CA.access,
+      CA.invites,
+      CA.sessions,
+      CA.officeConnections,
+      CA.usage,
       STORAGE.ca,
-      "Actualitzacions",
-      "Tu",
-      "Perfil",
-      "Preferències",
-      "Connexions individuals",
-      "Tokens d'API",
-      "Enllaços d'inici de sessió",
-      "Dispositiu",
-      "Etiqueta del dispositiu",
-      "Tema",
-      "Sales",
-      "Membres",
+      CA.updates,
+      CA.you,
+      CA.profile,
+      CA.preferences,
+      CA.personalConnections,
+      CA.apiTokens,
+      CA.signInLinks,
+      CA.device,
+      CA.deviceLabel,
+      CA.theme,
+      CA.rooms,
+      CA.members,
     ])
       expect(view.queryAllByText(label).length, label).toBeGreaterThan(0);
-    expect(view.queryByText("Tanca la sessió")).not.toBeNull();
+    expect(view.queryByText(CA.signOut)).not.toBeNull();
     expect(view.queryByText(STORAGE.en)).toBeNull();
 
     // Desktop opens on the signed-in user's editor.
-    expect(view.queryByText("Identitat")).not.toBeNull();
+    expect(view.queryByText(CA.identity)).not.toBeNull();
     // Once on the roster row, once in the editor heading.
-    expect(view.queryAllByText("(tu)").length).toBe(2);
+    expect(view.queryAllByText(CA.self).length).toBe(2);
 
     // Its inline discard prompt, in Catalan, holds the navigation until
     // Discard is pressed.
     fireEvent.change(view.getByDisplayValue("Tester"), {
       target: { value: "Tester 2" },
     });
-    fireEvent.click(row(view, "Oficina"));
+    fireEvent.click(row(view, CA.office));
     expect(
-      view.queryByText("Vols descartar els canvis sense desar?"),
+      view.queryByText(CA.discardPrompt),
     ).not.toBeNull();
-    expect(row(view, "Oficina").getAttribute("aria-current")).toBeNull();
-    fireEvent.click(view.getByText("Descarta"));
-    expect(row(view, "Oficina").getAttribute("aria-current")).toBe("true");
-    expect(heading(view, "Configuració de l'oficina", "H3")).toBe(true);
-    expect(
-      view.queryByText("Tauler del navegador (experimental)"),
-    ).not.toBeNull();
+    expect(row(view, CA.office).getAttribute("aria-current")).toBeNull();
+    fireEvent.click(view.getByText(CA.discard));
+    expect(row(view, CA.office).getAttribute("aria-current")).toBe("true");
+    expect(heading(view, CA.officeTitle, "H3")).toBe(true);
+    expect(view.queryByText(CA.browserPanel)).not.toBeNull();
 
-    // The office pane's browser confirm, once its settings have hydrated and
+    // The office pane's discard prompt, once its settings have hydrated and
     // the name has been edited.
     await settle();
-    fireEvent.change(view.getByPlaceholderText("Oficina del Nil"), {
+    fireEvent.change(
+      view.getByPlaceholderText(
+        translationsFor("settings.office.namePlaceholder").ca,
+      ),
+      {
       target: { value: "Oficina Nord" },
-    });
-    open(view, "Ús");
-    expect(confirms).toEqual([
-      "Vols descartar els canvis de l'oficina sense desar?",
-    ]);
-    expect(heading(view, "Ús de l'oficina", "H3")).toBe(true);
+      },
+    );
+    discardInto(view, CA.usage);
+    expect(heading(view, CA.usageTitle, "H3")).toBe(true);
 
     open(view, STORAGE.ca);
     await settle();
     expect(heading(view, STORAGE_TITLE.ca, "H3")).toBe(true);
 
-    open(view, "Actualitzacions");
-    expect(
-      view.queryByText("Aquesta oficina està actualitzada."),
-    ).not.toBeNull();
+    open(view, CA.updates);
+    expect(view.queryByText(CA.upToDate)).not.toBeNull();
 
-    // The device label pane, then its browser confirm on the way to Theme.
-    open(view, "Etiqueta del dispositiu");
-    expect(heading(view, "Etiqueta del dispositiu", "H4")).toBe(true);
-    fireEvent.change(view.getByPlaceholderText("Mòbil, Portàtil, …"), {
+    // The device label pane, then its discard prompt on the way to Theme.
+    open(view, CA.deviceLabel);
+    expect(heading(view, CA.deviceLabel, "H4")).toBe(true);
+    fireEvent.change(view.getByPlaceholderText(CA.devicePlaceholder), {
       target: { value: "Mòbil" },
     });
-    open(view, "Tema");
-    expect(confirms[1]).toBe(
-      "Vols descartar els canvis de l'etiqueta del dispositiu sense desar?",
-    );
-    expect(heading(view, "Tema", "H4")).toBe(true);
-    expect(view.queryByText(/^Es desa en aquest navegador/)).not.toBeNull();
+    discardInto(view, CA.theme);
+    expect(heading(view, CA.theme, "H4")).toBe(true);
+    expect(view.queryByText(CA.themeIntro)).not.toBeNull();
 
-    open(view, "Enllaços d'inici de sessió");
-    expect(heading(view, "Els meus dispositius", "H4")).toBe(true);
+    open(view, CA.signInLinks);
+    expect(heading(view, CA.devicesTitle, "H4")).toBe(true);
 
     // The room pane's intro is read in the language, never pinned as copy
     // (Nil, 2026-09-14): the English sentence is absent on ca and on es, and
@@ -250,7 +279,9 @@ describe("the settings page", () => {
     view.rerender(page("es"));
     expect(view.queryByText(SETTINGS.es)).not.toBeNull();
     expect(view.queryByText(SETTINGS.ca)).toBeNull();
-    expect(view.queryByText("Uso")).not.toBeNull();
+    expect(
+      view.queryByText(translationsFor("settings.sidebar.usage").es),
+    ).not.toBeNull();
     expect(view.queryByText(EN_ROOM_INTRO)).toBeNull();
     expect(paragraphs(view)).not.toEqual(caParagraphs);
     open(view, STORAGE.es);

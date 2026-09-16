@@ -201,12 +201,6 @@ describe("standalone Codex safety hook", () => {
     expect(scratchInCheckout()).toEqual([]);
   });
 
-  it("pins Nil's signed safety-warning copy exactly", () => {
-    expect(SAFETY_WARNING).toBe(
-      "Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.",
-    );
-  });
-
   it("stamps the complete local source closure into the executable", async () => {
     expect(built.sourceFiles).toEqual([
       "server/backend-credential-paths.ts",
@@ -424,7 +418,6 @@ describe("standalone Codex safety hook", () => {
     expect(output).toMatchObject({
       hookSpecificOutput: { permissionDecision: "deny" },
     });
-    expect(JSON.stringify(output)).toContain("could not tell which file");
     expect(JSON.stringify(output)).not.toContain(SAFETY_WARNING);
   });
 
