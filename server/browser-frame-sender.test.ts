@@ -3,15 +3,20 @@ import { BrowserFrameSender } from "./browser-frame-sender.ts";
 
 function fixture() {
   let buffered = 0,
-    allowed = true;
+    allowed = true,
+    samples = 0;
   const sent: (string | Uint8Array)[] = [];
   const sender = new BrowserFrameSender(
-    { send: (data) => sent.push(data), getBufferedAmount: () => buffered },
+    { send: (data) => sent.push(data), getBufferedAmount: () => { samples++; return buffered; } },
     () => allowed,
+    undefined,
+    undefined,
+    20,
   );
   return {
     sender,
     sent,
+    samples: () => samples,
     buffer: (value: number) => {
       buffered = value;
     },
@@ -42,6 +47,8 @@ test("a slow socket does not delay a different watcher", () => {
   fast.sender.send("frame");
   expect(slow.sent).toEqual([]);
   expect(fast.sent).toEqual(["frame"]);
+  slow.sender.stop();
+  fast.sender.stop();
 });
 
 test("access lost while buffered prevents delivery after drain", () => {
@@ -63,4 +70,35 @@ test("unsubscribe discards the held frame", () => {
   f.sender.flush();
   f.sender.send("later");
   expect(f.sent).toEqual([]);
+});
+
+
+test("held frames recover without drain, clear stops sampling, and revoked access blocks delivery", async () => {
+  const f = fixture();
+  try {
+    f.buffer(100);
+    f.sender.send("old");
+    f.sender.send("latest");
+    await Bun.sleep(80);
+    expect(f.sent).toEqual([]);
+    f.buffer(0);
+    await Bun.sleep(80);
+    expect(f.sent).toEqual(["latest"]);
+    f.buffer(100);
+    f.sender.send("cleared");
+    f.sender.clear();
+    f.buffer(0);
+    const samplesAfterClear = f.samples();
+    await Bun.sleep(80);
+    expect(f.samples()).toBe(samplesAfterClear);
+    expect(f.sent).toEqual(["latest"]);
+    f.buffer(100);
+    f.sender.send("revoked");
+    f.revoke();
+    f.buffer(0);
+    await Bun.sleep(80);
+    expect(f.sent).toEqual(["latest"]);
+  } finally {
+    f.sender.stop();
+  }
 });

@@ -24,6 +24,7 @@ type Frame =
   | { data: string; width: number; height: number }
   | BinaryBrowserFrame;
 let nextWatchGeneration = 0;
+let nextSelectionRequest = 0;
 
 /** Mounted only for the chat being viewed; background chats cannot open a panel. */
 export function useBrowserAutoOpen(
@@ -65,13 +66,22 @@ export function BrowserPanel({
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [available, setAvailable] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(canDrive);
   const [error, setError] = useState("");
+  const [copying, setCopying] = useState(false);
+  const [copyNote, setCopyNote] = useState("");
+  const selectionRequest = useRef<{
+    id: number;
+    resolve: (value: { text: string; truncated: boolean }) => void;
+    reject: () => void;
+  } | null>(null);
   const editing = useRef(false);
+  const lastServerUrl = useRef<string | undefined>(undefined);
   const surfaceRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const captureBounds = useRef<{ maxWidth?: number; maxHeight?: number }>({});
   const pageBounds = useRef<{ width: number; height: number } | null>(null);
+  const held = useRef<{ x: number; y: number } | null>(null);
   const motion = useRef<BrowserHumanInput | null>(null);
   const motionTick = useRef<number | null>(null);
 
@@ -82,11 +92,69 @@ export function BrowserPanel({
     [agentId, canDrive],
   );
 
+  useEffect(() => {
+    const listener = (raw: string) => {
+      let message: ServerMessage;
+      try { message = JSON.parse(raw) as ServerMessage; } catch { return; }
+      const request = selectionRequest.current;
+      if (!request || message.type !== "browser_selection" || message.agentId !== agentId || message.requestId !== request.id) return;
+      if (message.error) request.reject();
+      else request.resolve(message);
+    };
+    addRawListener(listener);
+    return () => {
+      removeRawListener(listener);
+      selectionRequest.current?.reject();
+      selectionRequest.current = null;
+    };
+  }, [agentId, canDrive]);
+
+  const copySelection = async () => {
+    if (!canDrive || selectionRequest.current) return;
+    setCopyNote("");
+    setError("");
+    if (!navigator.clipboard?.writeText) {
+      setError(i18n.t("panels.browser.copyFailed"));
+      return;
+    }
+    setCopying(true);
+    const id = ++nextSelectionRequest;
+    const isCurrent = () => selectionRequest.current?.id === id;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let reading = true;
+    try {
+      const selection = await new Promise<{ text: string; truncated: boolean }>((resolve, reject) => {
+        selectionRequest.current = { id, resolve, reject: () => reject(new Error("selection_failed")) };
+        timer = setTimeout(() => reject(new Error("selection_timeout")), 5000);
+        input({ kind: "selection", requestId: id });
+      });
+      if (!isCurrent()) return;
+      if (!selection.text) {
+        setCopyNote(i18n.t("panels.browser.noSelection"));
+        return;
+      }
+      reading = false;
+      await navigator.clipboard.writeText(selection.text);
+      if (isCurrent())
+        setCopyNote(i18n.t(selection.truncated ? "panels.browser.copyTruncated" : "panels.browser.copied"));
+    } catch {
+      if (isCurrent())
+        setError(i18n.t(reading ? "panels.browser.selectionFailed" : "panels.browser.copyFailed"));
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (isCurrent()) {
+        selectionRequest.current = null;
+      }
+      setCopying(false);
+    }
+  };
+
   const navigate = useCallback(
     (action: BrowserNavigation["action"], nextUrl?: string) => {
       if (!canDrive) return;
       setBusy(true);
       setError("");
+      setCopyNote("");
       input({
         kind: "navigate",
         action,
@@ -274,8 +342,12 @@ export function BrowserPanel({
           generation++;
         }
         setAvailable(message.available);
-        if (message.url !== undefined && !editing.current)
-          setUrl(message.url === "about:blank" ? "" : message.url);
+        if (message.url !== undefined) {
+          if (message.url !== lastServerUrl.current) setCopyNote("");
+          lastServerUrl.current = message.url;
+          if (!editing.current)
+            setUrl(message.url === "about:blank" ? "" : message.url);
+        }
         if (message.title !== undefined) setTitle(message.title);
         if (message.busy !== undefined) setBusy(message.busy);
         setError(message.error ?? "");
@@ -302,7 +374,7 @@ export function BrowserPanel({
     addBinaryListener(binaryListener);
     addRawListener(listener);
     subscribe();
-    if (canDrive) navigate("open");
+    if (canDrive) input({ kind: "navigate", action: "open" });
     return () => {
       alive = false;
       removeBinaryListener(binaryListener);
@@ -312,7 +384,7 @@ export function BrowserPanel({
       send({ type: "browser_watch", agentId, watching: false });
       removeRawListener(listener);
     };
-  }, [agentId, canDrive, input, navigate]);
+  }, [agentId, canDrive, input]);
 
   const flushMotion = useCallback(() => {
     if (motionTick.current !== null) cancelAnimationFrame(motionTick.current);
@@ -329,7 +401,21 @@ export function BrowserPanel({
     [agentId, canDrive],
   );
 
-  const coordinates = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const releaseHeld = useCallback(() => {
+    if (!held.current) return;
+    flushMotion();
+    input({ kind: "mouse", event: "mouseReleased", ...held.current, button: "left", clickCount: 1 });
+    held.current = null;
+  }, [flushMotion, input]);
+  useEffect(() => {
+    window.addEventListener("blur", releaseHeld);
+    return () => {
+      window.removeEventListener("blur", releaseHeld);
+      releaseHeld();
+    };
+  }, [releaseHeld]);
+
+  const coordinates = (event: React.MouseEvent<HTMLCanvasElement>, clamp = false) => {
     if (!size) return null;
     const rect = event.currentTarget.getBoundingClientRect();
     const scale = Math.min(rect.width / size.width, rect.height / size.height);
@@ -340,21 +426,22 @@ export function BrowserPanel({
     const y =
       (event.clientY - rect.top - (rect.height - size.height * scale) / 2) /
       scale;
-    if (x < 0 || y < 0 || x > size.width || y > size.height) return null;
-    return { x, y };
+    if (!clamp && (x < 0 || y < 0 || x > size.width || y > size.height)) return null;
+    return { x: Math.max(0, Math.min(size.width, x)), y: Math.max(0, Math.min(size.height, y)) };
   };
   const point = (
-    event: React.MouseEvent<HTMLCanvasElement>,
+    event: React.PointerEvent<HTMLCanvasElement>,
     type: "mousePressed" | "mouseReleased" | "mouseMoved",
   ) => {
     if (!canDrive || !size) return;
-    const position = coordinates(event);
+    const position = coordinates(event, held.current !== null);
     if (!position) return;
+    if (type === "mousePressed" || held.current) held.current = position;
     const value: BrowserHumanInput = {
       kind: "mouse",
       event: type,
       ...position,
-      button: type === "mouseMoved" ? "none" : "left",
+      button: type === "mouseMoved" && !(event.buttons & 1) ? "none" : "left",
       clickCount: type === "mouseMoved" ? 0 : 1,
     };
     if (type === "mouseMoved") {
@@ -364,6 +451,7 @@ export function BrowserPanel({
     } else {
       flushMotion();
       input(value);
+      if (type === "mouseReleased") held.current = null;
     }
   };
   const buttonStyle = {
@@ -395,6 +483,11 @@ export function BrowserPanel({
         }}
       >
         <strong style={{ flex: 1 }}>{i18n.t("panels.browser.title")}</strong>
+        {canDrive && (
+          <button style={buttonStyle} disabled={!available || busy || copying} onClick={() => void copySelection()}>
+            {i18n.t("panels.browser.copySelection")}
+          </button>
+        )}
         {canDrive && (
           <button
             style={buttonStyle}
@@ -494,7 +587,7 @@ export function BrowserPanel({
           fontSize: 12,
         }}
       >
-        {error ||
+        {error || copyNote ||
           (busy
             ? i18n.t("panels.browser.loading")
             : !canDrive
@@ -517,12 +610,22 @@ export function BrowserPanel({
           role="application"
           aria-label={i18n.t("panels.browser.surface")}
           tabIndex={canDrive ? 0 : -1}
-          onMouseMove={(event) => point(event, "mouseMoved")}
-          onMouseDown={(event) => {
-            if (canDrive) event.currentTarget.focus();
+          onPointerMove={(event) => point(event, "mouseMoved")}
+          onPointerDown={(event) => {
+            if (!canDrive || event.button !== 0 || !coordinates(event)) return;
+            event.preventDefault();
+            event.currentTarget.focus();
+            event.currentTarget.setPointerCapture(event.pointerId);
             point(event, "mousePressed");
           }}
-          onMouseUp={(event) => point(event, "mouseReleased")}
+          onPointerUp={(event) => {
+            if (event.button !== 0) return;
+            point(event, "mouseReleased");
+            event.currentTarget.releasePointerCapture?.(event.pointerId);
+          }}
+          onPointerCancel={releaseHeld}
+          onLostPointerCapture={releaseHeld}
+
           onWheel={(event) => {
             if (!canDrive || !size) return;
             const position = coordinates(event);
@@ -566,6 +669,7 @@ export function BrowserPanel({
             minWidth: 0,
             minHeight: 0,
             objectFit: "contain",
+            touchAction: "none",
             outline: "none",
           }}
         />

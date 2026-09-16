@@ -39,6 +39,7 @@ describe("BrowserPanel", () => {
       }),
     );
     const canvas = view.getByRole("application");
+    canvas.setPointerCapture = () => {};
     for (const shape of [
       {
         width: 400,
@@ -75,7 +76,7 @@ describe("BrowserPanel", () => {
         }),
       });
       sent.length = 0;
-      fireEvent.mouseDown(canvas, {
+      fireEvent.pointerDown(canvas, {
         clientX: shape.margin[0],
         clientY: shape.margin[1],
       });
@@ -89,7 +90,7 @@ describe("BrowserPanel", () => {
       );
       expect(sent).toEqual([]);
       for (const [clientX, clientY, x, y] of shape.points) {
-        fireEvent.mouseDown(canvas, { clientX, clientY });
+        fireEvent.pointerDown(canvas, { clientX, clientY });
         expect(sent.at(-1)).toMatchObject({ input: { kind: "mouse", x, y } });
         fireEvent(
           canvas,
@@ -133,6 +134,7 @@ describe("BrowserPanel", () => {
       });
     });
     const surface = view.getByRole("application");
+    surface.setPointerCapture = () => {};
     Object.defineProperty(surface, "getBoundingClientRect", {
       value: () => ({
         left: 10,
@@ -146,7 +148,7 @@ describe("BrowserPanel", () => {
         toJSON() {},
       }),
     });
-    fireEvent.mouseDown(surface, { clientX: 210, clientY: 170 });
+    fireEvent.pointerDown(surface, { clientX: 210, clientY: 170 });
     fireEvent.keyDown(surface, { key: "a", code: "KeyA" });
 
     expect(
@@ -166,6 +168,7 @@ describe("BrowserPanel", () => {
           command.input.text === "a",
       ),
     ).toBe(true);
+    fireEvent.pointerUp(surface, { clientX: 210, clientY: 170 });
     view.unmount();
     expect(sent.at(-1)).toEqual({
       type: "browser_watch",
@@ -216,11 +219,12 @@ describe("BrowserPanel", () => {
       expect(images).toHaveLength(2);
       expect(images[1].src).toBe("data:image/jpeg;base64,latest");
       const canvas = view.getByRole("application") as HTMLCanvasElement;
+      canvas.setPointerCapture = () => {};
       expect([canvas.width, canvas.height]).toEqual([400, 250]);
       Object.defineProperty(canvas, "getBoundingClientRect", {
         value: () => ({ left: 0, top: 0, width: 400, height: 250 }),
       });
-      fireEvent.mouseDown(canvas, { clientX: 200, clientY: 125 });
+      fireEvent.pointerDown(canvas, { clientX: 200, clientY: 125 });
       expect(sent).toContainEqual({
         type: "browser_input",
         agentId: "decode",
@@ -387,6 +391,7 @@ describe("BrowserPanel", () => {
     const view = render(
       <BrowserPanel agentId="nav" canDrive onClose={() => {}} />,
     );
+    expect(view.container.querySelector('[aria-live="polite"]')!.textContent.length).toBeGreaterThan(0);
     const commands = () =>
       sent.filter((m) => m.type === "browser_input").map((m) => m.input);
     expect(commands()).toContainEqual({ kind: "navigate", action: "open" });
@@ -440,6 +445,131 @@ describe("BrowserPanel", () => {
     view.unmount();
   });
 
+  it("forwards held moves before a clamped release and releases on blur or cancellation", () => {
+    const sent: ClientCommand[] = [];
+    setShim(command => sent.push(command));
+    const view = render(<BrowserPanel agentId="drag" canDrive onClose={() => {}} />);
+    act(() => shimEmit({ type: "browser_frame", agentId: "drag", data: "jpeg", width: 800, height: 400 }));
+    const canvas = view.getByRole("application");
+    canvas.setPointerCapture = () => {};
+    Object.defineProperty(canvas, "getBoundingClientRect", { value: () => ({ left: 0, top: 0, width: 400, height: 200 }) });
+    sent.length = 0;
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 20, button: 0, buttons: 1, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 500, clientY: 30, buttons: 1, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { clientX: 500, clientY: 30, button: 0, buttons: 0, pointerId: 1 });
+    expect(sent).toMatchObject([
+      { input: { event: "mousePressed", button: "left", x: 20, y: 40 } },
+      { input: { event: "mouseMoved", button: "left", x: 800, y: 60 } },
+      { input: { event: "mouseReleased", button: "left", x: 800, y: 60 } },
+    ]);
+    for (const cancel of [() => fireEvent.blur(window), () => fireEvent.pointerCancel(canvas, { pointerId: 1 })]) {
+      fireEvent.pointerDown(canvas, { clientX: 10, clientY: 20, button: 0, buttons: 1, pointerId: 1 });
+      cancel();
+      expect(sent.at(-1)).toMatchObject({ input: { event: "mouseReleased", button: "left" } });
+    }
+    view.unmount();
+  });
+
+  it("copies only the correlated selection and reports empty, truncated, and refused writes", async () => {
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    const writes: string[] = [];
+    let refuse = false;
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async (text: string) => { if (refuse) throw new Error("denied"); writes.push(text); },
+    } });
+    const sent: ClientCommand[] = [];
+    setShim(command => sent.push(command));
+    const view = render(<BrowserPanel agentId="copy" canDrive onClose={() => {}} />);
+    try {
+      act(() => shimEmit({ type: "browser_status", agentId: "copy", available: true, busy: false }));
+      const button = view.container.querySelector("button")!;
+      const status = () => view.container.querySelector('[aria-live="polite"]')!.textContent;
+      const start = () => {
+        fireEvent.click(button);
+        const command = sent.at(-1);
+        if (command?.type !== "browser_input" || command.input.kind !== "selection") throw new Error("missing selection request");
+        return command.input.requestId;
+      };
+      const id = start();
+      await act(async () => {
+        shimEmit({ type: "browser_selection", agentId: "other", requestId: id, text: "wrong agent", truncated: false });
+        shimEmit({ type: "browser_selection", agentId: "copy", requestId: id + 1, text: "wrong request", truncated: false });
+      });
+      expect(writes).toEqual([]);
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "copy", requestId: id, text: "chosen text", truncated: false }));
+      expect(writes).toEqual(["chosen text"]);
+      const copied = status();
+      fireEvent.click(view.container.querySelectorAll('form button[type="button"]')[2]);
+      expect(status() === copied).toBe(false);
+      await act(async () => shimEmit({ type: "browser_status", agentId: "copy", available: true, busy: false, title: "Fixture page title" }));
+      expect(status()).toBe("Fixture page title");
+      const emptyId = start();
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "copy", requestId: emptyId, text: "", truncated: false }));
+      expect(writes).toHaveLength(1);
+      expect(status() === copied).toBe(false);
+      const truncatedId = start();
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "copy", requestId: truncatedId, text: "x".repeat(20_000), truncated: true }));
+      expect(writes[1]).toHaveLength(20_000);
+      expect(status() === copied).toBe(false);
+      const readFailedId = start();
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "copy", requestId: readFailedId, text: "", truncated: false, error: "selection_failed" }));
+      expect(writes).toHaveLength(2);
+      const readFailure = status();
+      expect(readFailure.length).toBeGreaterThan(0);
+      refuse = true;
+      const failedId = start();
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "copy", requestId: failedId, text: "refused", truncated: false }));
+      expect(writes).toHaveLength(2);
+      expect(status() === copied).toBe(false);
+      expect(status() === readFailure).toBe(false);
+      expect(status().length).toBeGreaterThan(0);
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+      const before = sent.length;
+      fireEvent.click(button);
+      expect(sent).toHaveLength(before);
+      expect(status().length).toBeGreaterThan(0);
+    } finally {
+      view.unmount();
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
+  it("clears the copy note on agent navigation while the address bar is focused", async () => {
+    const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => {} } });
+    const sent: ClientCommand[] = [];
+    setShim(command => sent.push(command));
+    const view = render(<BrowserPanel agentId="agent-nav" canDrive onClose={() => {}} />);
+    const status = () => view.container.querySelector('[aria-live="polite"]')!.textContent;
+    const emitStatus = (url: string, title: string, busy = false) => act(() => shimEmit({ type: "browser_status", agentId: "agent-nav", available: true, url, title, busy }));
+    try {
+      emitStatus("https://example.test/first", "First page");
+      fireEvent.click(view.container.querySelector("button")!);
+      const request = sent.at(-1);
+      if (request?.type !== "browser_input" || request.input.kind !== "selection") throw new Error("missing selection request");
+      const requestId = request.input.requestId;
+      await act(async () => shimEmit({ type: "browser_selection", agentId: "agent-nav", requestId, text: "selected", truncated: false }));
+      const copied = status();
+      emitStatus("https://example.test/first", "First page");
+      expect(status()).toBe(copied);
+      const address = view.getByRole("textbox") as HTMLInputElement;
+      fireEvent.focus(address);
+      fireEvent.change(address, { target: { value: "unfinished address" } });
+      const commandsBeforeNavigation = sent.length;
+      emitStatus("https://example.test/second", "Second page", true);
+      expect(status() === copied).toBe(false);
+      expect(address.value).toBe("unfinished address");
+      emitStatus("https://example.test/second", "Second page");
+      expect(status()).toBe("Second page");
+      expect(sent).toHaveLength(commandsBeforeNavigation);
+    } finally {
+      view.unmount();
+      if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+      else Reflect.deleteProperty(navigator, "clipboard");
+    }
+  });
+
   it("room viewers subscribe without opening or driving the page", () => {
     const sent: ClientCommand[] = [];
     setShim((command) => sent.push(command));
@@ -454,7 +584,8 @@ describe("BrowserPanel", () => {
       }),
     );
     const canvas = view.getByRole("application");
-    fireEvent.mouseDown(canvas, { clientX: 10, clientY: 10 });
+    canvas.setPointerCapture = () => {};
+    fireEvent.pointerDown(canvas, { clientX: 10, clientY: 10 });
     fireEvent.keyDown(canvas, { key: "a" });
     fireEvent.keyUp(canvas, { key: "a" });
     fireEvent.wheel(canvas, { deltaY: 20 });

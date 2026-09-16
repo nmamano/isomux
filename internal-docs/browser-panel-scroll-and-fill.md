@@ -330,3 +330,37 @@ viewport. New viewport shapes therefore change visible content as well as
 pixel count. Bytes do not scale linearly with pixel count. Rate-normalized
 figures multiply measured message bytes/frame by the historical measured fps;
 they are calculated bandwidth estimates, not newly measured throughput.
+
+
+## Drag selection and copy (2026-09-16)
+
+The panel sends the held left button on pointer moves. It captures the pointer,
+clamps a drag to page bounds, and releases on pointer-up, cancellation, lost
+capture, window blur, and unmount. Chrome receives the existing mouse protocol.
+The panel starts in its loading state; LogView keys it by agent and drive access.
+An access change remounts the panel to cancel pending copy state; the live view
+is blank until its next frame.
+
+Copy selection uses a new WebSocket input request and a response sent only to
+that manager connection. The server checks management before and after the
+read. The agent HTTP `text` action stays unchanged. Both paths use the same
+text helper and 20,000-character cap. The selection path reads a fixed
+`window.getSelection()` expression; it accepts no script from the client.
+The response carries a separate truncation flag. The manager device writes
+only the text to its clipboard; the panel reports empty selection, truncation,
+and clipboard failure. Clipboard writes require a secure context and permission.
+
+Observed on 2026-09-16 in headless Chrome: Playwright mouse down/move/up on the
+real BrowserPanel canvas, bridged to a real BrowserPool with Chrome screencast
+frames, selected text visibly in the live view. Clipboard readback on the
+manager page matched the selection. A 21,000-character selection returned
+20,000 characters and a visible truncation note. Denied clipboard permission
+produced a visible failure. A drag released outside the canvas sent a clamped
+mouseReleased event and selected the complete line.
+
+BrowserFrameSender uses its single 250 ms unref interval for pressure samples
+and held-frame retries. Senders without pressure callbacks start the interval
+when a frame is held and clear it when no frame is held. Tests use a socket seam
+whose buffered amount stays high across a timer tick and then falls to zero;
+the final frame arrives without a drain call. This proves timer recovery, not
+Bun drain behaviour on a congested production socket. No socket rig was added.

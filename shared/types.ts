@@ -1542,6 +1542,7 @@ export type BrowserNavigation = {
 
 export type BrowserHumanInput =
   | BrowserNavigation
+  | { kind: "selection"; requestId: number }
   | { kind: "viewport"; width: number; height: number }
   | {
       kind: "mouse";
@@ -1565,6 +1566,7 @@ export type BrowserHumanInput =
 
 // Server → Browser messages
 export type ServerMessage =
+  | { type: "browser_selection"; agentId: string; requestId: number; text: string; truncated: boolean; error?: string }
   | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
   | {
       type: "full_state";

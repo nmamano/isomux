@@ -916,6 +916,8 @@ function managesAgent(session: SessionLookup, agentId: string): boolean {
 function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
+  if (input.kind === "selection")
+    return Number.isSafeInteger(input.requestId) && Number(input.requestId) >= 0;
   if (input.kind === "viewport")
     return (
       input.width !== undefined &&
@@ -5356,7 +5358,17 @@ async function handleInboundMessage(
           !validBrowserInput(cmd.input)
         )
           break;
-        if (cmd.input.kind === "navigate") {
+        if (cmd.input.kind === "selection") {
+          let result: { text: string; truncated: boolean; error?: string };
+          try {
+            result = await browserPool.selection(cmd.agentId);
+          } catch {
+            result = { text: "", truncated: false, error: "selection_failed" };
+          }
+          // The response is private to the requesting manager connection.
+          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId))
+            ws.send(JSON.stringify({ type: "browser_selection", agentId: cmd.agentId, requestId: cmd.input.requestId, ...result }));
+        } else if (cmd.input.kind === "navigate") {
           ws.send(
             JSON.stringify({
               type: "browser_status",

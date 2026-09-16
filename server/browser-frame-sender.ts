@@ -1,7 +1,7 @@
 import { BrowserStreamPressure } from "./browser-stream-pressure.ts";
 
 /** Keep one latest frame while this socket drains. A quiet page still gets its
- * final frame delivered by the websocket drain callback. */
+ * final frame delivered by drain or a bounded retry timer. */
 export class BrowserFrameSender {
   private pending: string | Uint8Array | undefined;
   private stopped = false;
@@ -16,11 +16,18 @@ export class BrowserFrameSender {
     private readonly canDeliver: () => boolean,
     private readonly onPressure?: () => void,
     readonly pressure = new BrowserStreamPressure(),
+    private readonly intervalMs = 250,
   ) {
-    if (onPressure) {
-      this.timer = setInterval(() => this.samplePressure(), 250);
-      this.timer.unref();
-    }
+    if (onPressure) this.startTimer();
+  }
+
+  private startTimer(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => {
+      this.samplePressure();
+      this.flush();
+    }, this.intervalMs);
+    this.timer.unref();
   }
 
   samplePressure(now = performance.now()): void {
@@ -59,20 +66,27 @@ export class BrowserFrameSender {
       (typeof this.pending === "string"
         ? Buffer.byteLength(this.pending)
         : this.pending.byteLength)
-    )
+    ) {
+      this.startTimer();
       return;
+    }
     const frame = this.pending;
-    this.pending = undefined;
+    this.clear();
     this.socket.send(frame);
   }
 
   clear(): void {
+    if (!this.onPressure && this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
     this.pending = undefined;
   }
 
   stop(): void {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
-    this.pending = undefined;
+    this.timer = undefined;
+    this.clear();
   }
 }

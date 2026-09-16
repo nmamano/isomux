@@ -827,9 +827,17 @@ export class BrowserPool {
       listener(null);
   }
 
+  async selection(agentId: string): Promise<{ text: string; truncated: boolean }> {
+    return this.serialize(agentId, async () => {
+      const session = this.sessions.get(agentId);
+      if (!session || session.page.isClosed()) throw new NoPageError();
+      return withDeadline(readBrowserText(session.page, { selection: true }), this.backstopMs);
+    });
+  }
+
   async humanInput(
     agentId: string,
-    input: Exclude<BrowserHumanInput, BrowserNavigation>,
+    input: Exclude<BrowserHumanInput, BrowserNavigation | { kind: "selection" }>,
   ): Promise<boolean> {
     if (input.kind === "viewport") {
       return this.serialize(agentId, async () => {
@@ -1342,10 +1350,10 @@ export class BrowserPool {
         MAX_SNAPSHOT_CHARS,
       );
     } else if (params.action === "text") {
-      base.text = cap(
-        await page.innerText("body", { timeout }),
-        MAX_TEXT_CHARS,
-      );
+      const result = await readBrowserText(page, { timeout });
+      base.text = result.truncated
+        ? `${result.text}\n[truncated at ${MAX_TEXT_CHARS} characters]`
+        : result.text;
     } else if (params.action === "screenshot") {
       base.png = await page.screenshot({
         fullPage: params.fullPage === true,
@@ -1378,6 +1386,20 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function readBrowserText(page: Page, options: { selection: true } | { timeout: number }): Promise<{ text: string; truncated: boolean }> {
+  if ("selection" in options) {
+    // The caller bounds evaluate with the pool backstop deadline.
+    // Fixed read-only expression; callers cannot supply page code. Cap before
+    // returning through CDP, as well as before the office WebSocket response.
+    return page.evaluate((max) => {
+      const value = window.getSelection()?.toString() ?? "";
+      return { text: value.slice(0, max), truncated: value.length > max };
+    }, MAX_TEXT_CHARS);
+  }
+  const value = await page.innerText("body", { timeout: options.timeout });
+  return { text: value.slice(0, MAX_TEXT_CHARS), truncated: value.length > MAX_TEXT_CHARS };
 }
 
 function cap(value: string, max: number): string {
