@@ -51,6 +51,7 @@ Run ESLint during development. A good time to do it is right before human review
 - Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
 - OpenCode integration uses the pinned bundled server. One supervised server and profile are shared by agents with the same environment-source identity.
 - React/SVG for rendering. Bun's bundler, no Vite.
+- The system prompt is identical on every turn of a session. A value that changes per turn (a handle, a nonce, a timestamp) never goes in it: a changed prompt defeats the provider's prompt cache on every turn. Nil, 2026-09-16.
 
 ## Project layout
 
