@@ -215,6 +215,18 @@ const corpus: Case[] = [
   shell("quoted shell kill deny", 'bash -c "pkill -f bun"'),
   shell("quoted prose allow", 'echo "cat ~/.env; pkill -f bun"'),
   shell("protected command write deny", "tee ~/.isomux/agents.json"),
+  divergence(
+    shell(
+      "protected truncate write now denies",
+      "truncate -s 0 ~/.isomux/agents.json",
+    ),
+    false,
+    true,
+  ),
+  shell(
+    "protected dd output deny",
+    "dd if=/dev/null of=~/.isomux/agents.json",
+  ),
   shell(
     "quoted redirect prose now allows",
     `cd /tmp/rev1-copy && jq -n --arg t '<prose containing parens (x) and git diff HEAD > /tmp/frozen-x.diff>' '{text:$t}' | curl localhost:4000 -d @- | sed -E 's/[A-Za-z0-9_-]{30,}/REDACTED/g'`,
@@ -331,6 +343,14 @@ const corpus: Case[] = [
     shell(
       "state-root homely sibling now allows",
       `echo x > ${STATE_ROOT}ly/marker`,
+    ),
+    true,
+    false,
+  ),
+  divergence(
+    shell(
+      "tilde state-root control-plane sibling now allows",
+      "mv /tmp/state.db ~/.isomux-control-plane/state.db",
     ),
     true,
     false,

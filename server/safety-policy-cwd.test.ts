@@ -384,6 +384,131 @@ const cases: Case[] = [
     reason: protectedWrite,
   },
   {
+    name: "dd tilde output is protected",
+    command: "dd if=/dev/null of=~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "dd relative output follows cd",
+    command: "cd ~ && dd if=/dev/null of=.isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "dd dynamic output is protected",
+    command: 'dd if=/dev/null of="$HOME/.isomux/x"',
+    denied: true,
+    reason: nonLiteral,
+  },
+  {
+    name: "dd checks every output operand",
+    command: "dd of=/tmp/a of=~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "dd input operand remains readable",
+    command: "dd if=~/.isomux/agents.json of=/tmp/a",
+    denied: false,
+  },
+  {
+    name: "truncate output is protected",
+    command: "truncate -s 0 ~/.isomux/agents.json",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "truncate reference input remains readable",
+    command: "truncate -r ~/.isomux/agents.json /tmp/out",
+    denied: false,
+  },
+  {
+    name: "truncate size value is not an output operand",
+    command: "truncate -s 0 /tmp/out",
+    cwd: STATE_ROOT,
+    denied: false,
+  },
+  {
+    name: "truncate long options keep their input and value readable",
+    command:
+      "truncate --reference=~/.isomux/agents.json --size=0 /tmp/out",
+    denied: false,
+  },
+  {
+    name: "truncate option terminator exposes dash-prefixed output",
+    command: "truncate -s 0 -- -x",
+    cwd: STATE_ROOT,
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "builtin wrapper exposes cd",
+    command: "builtin cd ~ && cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "command wrapper exposes cd",
+    command: "command cd ~ && cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "if keyword exposes cd",
+    command: "if cd ~; then cat > .isomux/x; fi",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "while keyword exposes cd",
+    command: "while cd ~; do cat > .isomux/x; done",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "until keyword exposes cd",
+    command: "until cd ~; do cat > .isomux/x; done",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "then keyword exposes cd",
+    command: "if true; then cd ~ && cat > .isomux/x; fi",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "do keyword exposes cd",
+    command: "while true; do cd ~ && cat > .isomux/x; done",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "elif keyword exposes cd",
+    command: "if false; then :; elif cd ~; then cat > .isomux/x; fi",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "else keyword exposes cd",
+    command: "if false; then :; else cd ~ && cat > .isomux/x; fi",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "negation keyword exposes cd",
+    command: "! cd ~; cat > .isomux/x",
+    denied: true,
+    reason: protectedWrite,
+  },
+  {
+    name: "opaque unknown keyword before cd stays denied",
+    command: "f() { select cd ~; cat > .isomux/x; }; f",
+    denied: true,
+    reason: changedCwd,
+  },
+  {
     name: "opaque while cd stays denied",
     command: "f() { while cd ~; do cat > .isomux/x; done; }; f",
     denied: true,
@@ -500,7 +625,40 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }));
 // Scratch modules never edit the worktree under review.
 const mutations = [
   {
-    name: "opaque directory detection depends on keyword list",
+    name: "dd checks only its first output operand",
+    from: `const outputs = args.filter((word) => word.text.startsWith("of="));`,
+    to: `const outputs = args.filter((word) => word.text.startsWith("of=")).slice(0, 1);`,
+    cases: ["dd checks every output operand"],
+  },
+  {
+    name: "truncate treats option values as output operands",
+    from: `return [...redirects, ...truncateFileOperands(args)];`,
+    to: `return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];`,
+    cases: [
+      "truncate reference input remains readable",
+      "truncate size value is not an output operand",
+    ],
+  },
+  {
+    name: "truncate ignores its option terminator",
+    from: `function truncateFileOperands(args: ShellWord[]): ShellWord[] {
+  const operands: ShellWord[] = [];
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (!endOfOptions && !word.quoted && word.text === "--") {
+      endOfOptions = true;`,
+    to: `function truncateFileOperands(args: ShellWord[]): ShellWord[] {
+  const operands: ShellWord[] = [];
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (!endOfOptions && !word.quoted && word.text === "--") {
+      endOfOptions = false;`,
+    cases: ["truncate option terminator exposes dash-prefixed output"],
+  },
+  {
+    name: "opaque directory detection has no keyword allowlist",
     // The anchors below must match the prettier-formatted source exactly.
     from: `return node.words.some(
         (word) =>
@@ -509,9 +667,8 @@ const mutations = [
           ["cd", "pushd", "popd"].includes(word.text),
       );`,
     to: `const words = node.words.filter((word) => !word.redirect);
-      while (words[0] && !words[0].quoted && ["{", "}", "then", "do", "else", "!"].includes(words[0].text)) words.shift();
       return commandCandidates(words).some((candidate) => ["cd", "pushd", "popd"].includes(candidate.name));`,
-    cases: ["opaque while cd stays denied", "opaque builtin cd stays denied"],
+    cases: ["opaque unknown keyword before cd stays denied"],
   },
   {
     name: "opaque syntax discards cwd without cd",

@@ -376,6 +376,7 @@ const WRITE_COMMANDS = [
   "chown",
   "tee",
   "dd",
+  "truncate",
   "install",
   "rsync",
   "scp",
@@ -903,9 +904,13 @@ const COMMAND_WRAPPERS = [
   "xargs",
   "time",
   "nohup",
+  "builtin",
   "command",
   "exec",
   // shell keywords that occupy command position inside loops and conditionals
+  "if",
+  "while",
+  "until",
   "do",
   "then",
   "else",
@@ -1806,6 +1811,18 @@ export function extractApplyPatchPaths(patch: unknown): string[] | null {
 function writeTargets(command: EffectiveCommand): ShellWord[] {
   const redirects = command.args.filter((word) => word.redirect === "output");
   const args = command.args.filter((word) => !word.redirect);
+  if (command.name === "dd") {
+    const outputs = args.filter((word) => word.text.startsWith("of="));
+    return [
+      ...redirects,
+      ...outputs.map((output) => ({
+        ...output,
+        text: output.text.slice("of=".length),
+      })),
+    ];
+  }
+  if (command.name === "truncate")
+    return [...redirects, ...truncateFileOperands(args)];
   if (COPY_COMMANDS.includes(command.name)) {
     const operands = args.filter((word) => !word.text.startsWith("-"));
     return [...redirects, ...(operands.length ? [operands.at(-1)!] : [])];
@@ -1839,6 +1856,30 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
   }
   if (!WRITE_COMMANDS.includes(command.name)) return redirects;
   return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];
+}
+
+/** Output operands of truncate, excluding option values that are only read. */
+function truncateFileOperands(args: ShellWord[]): ShellWord[] {
+  const operands: ShellWord[] = [];
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (!endOfOptions && !word.quoted && word.text === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    if (
+      !endOfOptions &&
+      !word.quoted &&
+      ["-r", "--reference", "-s", "--size"].includes(word.text)
+    ) {
+      i++;
+      continue;
+    }
+    if (!endOfOptions && !word.quoted && word.text.startsWith("-")) continue;
+    operands.push(word);
+  }
+  return operands;
 }
 
 /** Input files of an in-place Perl one-liner, excluding its program text. */
