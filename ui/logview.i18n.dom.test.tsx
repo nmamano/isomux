@@ -1,6 +1,11 @@
-// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
-// DOM per-file cap and flakes in full runs. Cut its render cost, then
-// re-enable every describe/it below. Do not raise the cap.
+// The chrome cases share one LogView tree and rerender it through each state,
+// keeping the file below half of the DOM per-file budget under load. LogView's
+// local state, refs, and effect history now survive between the former test
+// boundaries. That is safe here because the language tour does not interact
+// with or mutate those controls before the busy and command assertions.
+// ActivityIndicator's Abort label is translated and selected on every render;
+// its retained `now` value can drift only by the sub-second language tour,
+// while stateChangedAt is fixed three minutes back across a two-minute gate.
 // S5 of the office i18n loop (internal-docs/i18n-loop.md): the agent log view -
 // its header and nav actions, the composer, the empty state, the cards, the
 // API-call card's labels, the context battery and the subscription pill -
@@ -153,6 +158,12 @@ const logView = (
       // The empty state says "send a message" only when the socket is up;
       // offline it says the view is still loading.
       connected: true,
+      office: {
+        prompt: null,
+        envFile: null,
+        name: null,
+        experimental: { browserPanel: true },
+      },
       ...stateOver,
     },
   );
@@ -301,15 +312,19 @@ const titled = (view: View, text: string) =>
     text,
   ).toBeGreaterThan(0);
 
-describe.skip("the anchors", () => {
+describe("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const [name, anchor] of Object.entries(ANCHOR))
       expect(new Set(Object.values(anchor)).size, name).toBe(3);
   });
 });
 
-describe.skip("the log view chrome", () => {
-  it("reads Catalan on ca, then Spanish, then the English of a user who never chose", () => {
+describe("the log view chrome", () => {
+  // This one shared-tree case retains the assertions formerly named:
+  // "keeps the escalated Abort label short and shows its shortcut in a tooltip"
+  // and "opens resume from the empty state and ends a populated conversation
+  // through slash commands". Those states are rerenders now, not fresh mounts.
+  it("reads the languages and keeps the conversation controls working", () => {
     const view = render(logView("ca", []));
     containsText(view, ANCHOR.emptyStart.ca);
     shows(view, ANCHOR.emptyResume.ca);
@@ -355,14 +370,11 @@ describe.skip("the log view chrome", () => {
     labelled(view, ANCHOR.battery.en);
     labelled(view, ANCHOR.pill.en);
     expect(view.queryByPlaceholderText(ANCHOR.composer.en)).not.toBeNull();
-  });
-
-  it("keeps the escalated Abort label short and shows its shortcut in a tooltip", () => {
     const busyAgent = { ...AGENT, state: "thinking", queue: [] } as AgentInfo;
     const stateOver = {
       stateChangedAt: new Map([[busyAgent.id, Date.now() - 3 * 60 * 1000]]),
     };
-    const view = render(logView("ca", [], busyAgent, stateOver));
+    view.rerender(logView("ca", [], busyAgent, stateOver));
     titled(view, ANCHOR.abort.ca);
     expect(view.getByRole("button", { name: "Avorta" })).not.toBeNull();
 
@@ -373,11 +385,8 @@ describe.skip("the log view chrome", () => {
     view.rerender(logView(null, [], busyAgent, stateOver));
     titled(view, ANCHOR.abort.en);
     expect(view.getByRole("button", { name: "Abort" })).not.toBeNull();
-  });
-
-  it("opens resume from the empty state and ends a populated conversation through slash commands", () => {
     commandCalls.length = 0;
-    const view = render(logView(null, []));
+    view.rerender(logView(null, []));
     fireEvent.click(view.getByRole("button", { name: ANCHOR.emptyResume.en }));
     expect(commandCalls.at(-1)).toEqual({
       method: "POST",
@@ -399,7 +408,7 @@ describe.skip("the log view chrome", () => {
   });
 });
 
-describe.skip("the cards", () => {
+describe("the cards", () => {
   it("read the language too, including the API-call card's parsed label", () => {
     const view = render(logView("ca", SEEDED));
     shows(view, ANCHOR.apiCall.ca);
@@ -492,7 +501,7 @@ const attachmentEcho = (language: Language) =>
     { hasReceivedInitialState: true },
   );
 
-describe.skip("a raw tool-call group", () => {
+describe("a raw tool-call group", () => {
   it("counts its calls in the reader's language in BOTH the collapsed and the expanded state", () => {
     for (const [language, count, subagentTitle] of [
       ["ca", "2 crides a eines", null],
@@ -524,7 +533,7 @@ describe.skip("a raw tool-call group", () => {
   });
 });
 
-describe.skip("the attachment echo", () => {
+describe("the attachment echo", () => {
   it("is one whole frame per branch, with the count as data", () => {
     const view = render(attachmentEcho("ca"));
     shows(view, "Ha vist 2 imatges adjuntes (fes clic per mostrar-les)");
@@ -537,7 +546,7 @@ describe.skip("the attachment echo", () => {
   });
 });
 
-describe.skip("the editor panel", () => {
+describe("the editor panel", () => {
   it("reads the language on its own mount", () => {
     const view = render(editorPanel("ca"));
     shows(view, ANCHOR.editorEmpty.ca);

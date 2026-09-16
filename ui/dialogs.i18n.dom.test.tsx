@@ -1,6 +1,5 @@
-// QUARANTINED (P0 039d5acd, Nil 2026-09-13): this file sits at the 5000 ms
-// DOM per-file cap and flakes in full runs. Cut its render cost, then
-// re-enable every describe/it below. Do not raise the cap.
+// The agent and secondary-dialog renders live in sibling files so each file
+// stays below half of the DOM per-file budget under load.
 // S4 of the office i18n loop (internal-docs/i18n-loop.md): the dialogs - the
 // agent dialog (spawn), the schedule dialog, the schedules-settings dialog and
 // the expand chrome the first two open their long fields with - render in the
@@ -11,8 +10,8 @@
 // anchor differs in all three languages, so a match is evidence of the language
 // and not of a word that never moved.
 //
-// The three dialogs mount directly rather than through App: each one is a
-// self-contained overlay, and the file has 5 s (ruling 10) for all three.
+// These dialogs mount directly rather than through App: each is a
+// self-contained overlay.
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -20,11 +19,7 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, render } = await import("@testing-library/react");
-const { EditAgentDialog } = await import("./components/EditAgentDialog.tsx");
 const { CronjobDialog } = await import("./components/CronjobDialog.tsx");
-const { CronjobsPromptDialog } =
-  await import("./components/CronjobsPromptDialog.tsx");
-const { NewRoomDialog } = await import("./office/NewRoomDialog.tsx");
 const { onLanguage } = await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { createElement } = await import("react");
@@ -49,93 +44,14 @@ const ROOM = {
   canCloseWhenEmpty: true,
 };
 
-const agentDialog = (language: Language) =>
-  onLanguage(
-    language,
-    createElement(EditAgentDialog, {
-      onClose: () => {},
-      deskIndex: 2,
-      roomId: ROOM.id,
-      defaultCwd: "~",
-      spawnAgentType: "claude" as const,
-    }),
-    { rooms: [ROOM], hasReceivedInitialState: true },
-  );
-
 const scheduleDialog = (language: Language) =>
   onLanguage(language, createElement(CronjobDialog, { onClose: () => {} }), {
     rooms: [ROOM],
     hasReceivedInitialState: true,
   });
 
-const schedulePromptDialog = (language: Language) =>
-  onLanguage(
-    language,
-    createElement(CronjobsPromptDialog, { onClose: () => {} }),
-    { rooms: [ROOM], hasReceivedInitialState: true },
-  );
-
 // One anchor per section, each a string only that section shows.
 const ANCHOR = {
-  newRoomTitle: {
-    ca: "Obrir una sala nova?",
-    es: "¿Abrir una nueva sala?",
-    en: "Open new room?",
-  },
-  // The agent dialog's own heading.
-  spawnTitle: {
-    ca: "Crear un agent nou",
-    es: "Crear un agente nuevo",
-    en: "Spawn New Agent",
-  },
-  identity: {
-    ca: "Instruccions i memòria",
-    es: "Instrucciones y memoria",
-    en: "Instructions and memory",
-  },
-  access: {
-    ca: "Accés i ubicació",
-    es: "Acceso y ubicación",
-    en: "Access and location",
-  },
-  // The template section's blank card.
-  blank: { ca: "En blanc", es: "En blanco", en: "Blank" },
-  // A template card's title, which lives in the catalog keyed by template id.
-  codeReviewer: {
-    ca: "Revisor de codi",
-    es: "Revisor de código",
-    en: "Code Reviewer",
-  },
-  // The permission field's label, on a Claude agent.
-  permissionMode: {
-    ca: "Mode de permisos",
-    es: "Modo de permisos",
-    en: "Permission Mode",
-  },
-  // One Claude permission option.
-  permissionDefault: {
-    ca: "Per defecte (preguntar per a tot)",
-    es: "Por defecto (preguntar para todo)",
-    en: "Default (ask for everything)",
-  },
-  // The dangerous Claude option, pinned in all three languages: this mode
-  // auto-approves everything, so a translation that reads as "no permissions"
-  // would say the opposite of what it does.
-  permissionBypass: {
-    ca: "Ometre els permisos (s'aprova tot automàticament)",
-    es: "Omitir permisos (se aprueba todo automáticamente)",
-    en: "Bypass (auto-approve all)",
-  },
-  // An effort option, which the dialog reads from the catalog by level id
-  // while EFFORT_LEVELS keeps the id.
-  effortXhigh: { ca: "Molt alt", es: "Muy alto", en: "Extra high" },
-  // ExpandableTextarea's expand button, reached through the custom-instructions
-  // field: the title it interpolates is the field's own translated label.
-  expandInstructions: {
-    ca: "Amplia Instruccions personalitzades",
-    es: "Ampliar Instrucciones personalizadas",
-    en: "Expand Custom Instructions",
-  },
   // The schedule dialog's interval option.
   everyNMinutes: {
     ca: "Cada N minuts",
@@ -150,24 +66,7 @@ const ANCHOR = {
     es: "Las programaciones se ejecutan sin supervisión - los modos que piden aprobación humana no están disponibles.",
     en: "Schedules run unattended - modes that require human approval are not available.",
   },
-  // The schedules-settings dialog's own heading.
-  schedulePromptTitle: {
-    ca: "Configuració de les programacions",
-    es: "Ajustes de las programaciones",
-    en: "Schedules Settings",
-  },
 } as const;
-
-/**
- * Let the cwd validation resolve and React flush it. A promise that settles
- * after the file does schedules React work against an unregistered happy-dom,
- * which bun reports as an unhandled "window is not defined" and a failed run.
- */
-async function settle(): Promise<void> {
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  });
-}
 
 const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
@@ -181,67 +80,15 @@ function chooseWeekly(view: View): void {
   });
 }
 
-function checkCostume(view: View, label: string, construction: string): void {
-  const group = view.getByRole("group", { name: new RegExp(`^${label} · `) });
-  const buttons = Array.from(group.querySelectorAll("button"));
-  const selected = buttons.find(
-    (button) => button.getAttribute("aria-label") === construction,
-  )!;
-  expect(selected !== undefined).toBe(true);
-  act(() => selected.click());
-  const preview = () =>
-    view.container.querySelector("[data-outfit-preview]") as HTMLElement;
-  expect(
-    preview().querySelector('[data-costume-body="construction"]') !== null,
-  ).toBe(true);
-  act(() => {
-    buttons[0].click();
-  });
-  expect(preview().querySelector("[data-costume-body]") === null).toBe(true);
-}
-
-describe.skip("the anchors", () => {
+describe("the anchors", () => {
   it("differ between the three languages, so a match proves the language", () => {
     for (const [name, anchor] of Object.entries(ANCHOR))
       expect(new Set(Object.values(anchor)).size, name).toBe(3);
   });
 });
 
-describe.skip("the agent dialog", () => {
-  it("reads Catalan, Spanish and default English, including the costume picker", async () => {
-    const view = render(agentDialog("ca"));
-    shows(view, ANCHOR.spawnTitle.ca);
-    shows(view, ANCHOR.identity.ca);
-    shows(view, ANCHOR.blank.ca);
-    shows(view, ANCHOR.codeReviewer.ca);
-    shows(view, ANCHOR.permissionMode.ca);
-    shows(view, ANCHOR.permissionDefault.ca);
-    shows(view, ANCHOR.permissionBypass.ca);
-    shows(view, ANCHOR.effortXhigh.ca);
-    expect(view.queryByLabelText(ANCHOR.expandInstructions.ca)).not.toBeNull();
-    expect(view.queryByText(ANCHOR.spawnTitle.en)).toBeNull();
-    checkCostume(view, "Disfressa", "Treballador de la construcció");
-
-    view.rerender(agentDialog("es"));
-    shows(view, ANCHOR.spawnTitle.es);
-    shows(view, ANCHOR.identity.es);
-    shows(view, ANCHOR.access.es);
-
-    view.rerender(agentDialog(null));
-    shows(view, ANCHOR.spawnTitle.en);
-    shows(view, ANCHOR.identity.en);
-    shows(view, ANCHOR.blank.en);
-    shows(view, ANCHOR.codeReviewer.en);
-    shows(view, ANCHOR.permissionDefault.en);
-    shows(view, ANCHOR.permissionBypass.en);
-    shows(view, ANCHOR.effortXhigh.en);
-    expect(view.queryByText(ANCHOR.blank.ca)).toBeNull();
-    await settle();
-  });
-});
-
-describe.skip("the schedule dialogs", () => {
-  it("read the language too, including the weekday list and the prompt dialog", () => {
+describe("the schedule dialogs", () => {
+  it("reads the language, including the weekday list", () => {
     const view = render(scheduleDialog("ca"));
     shows(view, ANCHOR.everyNMinutes.ca);
     shows(view, ANCHOR.unattendedHint.ca);
@@ -260,27 +107,5 @@ describe.skip("the schedule dialogs", () => {
     shows(view, ANCHOR.unattendedHint.en);
     chooseWeekly(view);
     shows(view, ANCHOR.monday.en);
-
-    const prompt = render(schedulePromptDialog("ca"));
-    shows(prompt, ANCHOR.schedulePromptTitle.ca);
-    prompt.rerender(schedulePromptDialog("es"));
-    shows(prompt, ANCHOR.schedulePromptTitle.es);
-    prompt.rerender(schedulePromptDialog(null));
-    shows(prompt, ANCHOR.schedulePromptTitle.en);
-  });
-});
-
-describe.skip("the new room dialog", () => {
-  it("reads its title in Catalan, Spanish and English", () => {
-    for (const language of ["ca", "es", null] as const) {
-      const view = render(
-        onLanguage(
-          language,
-          createElement(NewRoomDialog, { onClose: () => {} }),
-        ),
-      );
-      shows(view, ANCHOR.newRoomTitle[language ?? "en"]);
-      view.unmount();
-    }
   });
 });
