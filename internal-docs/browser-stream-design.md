@@ -4,6 +4,8 @@ Measured 2026-09-16. Design only; no product change.
 
 ## Decision
 
+Round 1b measured both arms on shaped links and did not change this decision.
+
 **Do not replace the shipped stream on this evidence.** External H.264 over a
 TCP WebSocket is the best next architecture candidate, but it did not meet Nil's
 bar of a visible latency gain. On the moving page it measured 102.7/130.2 ms
@@ -246,3 +248,286 @@ Selectable text overlay: deferred.
 Phone codecs and interaction: deferred.
 
 JPEG migration: deferred; keep the existing path until a replacement is proven.
+
+## Round 1b: link-shaped measurements
+
+Measured 2026-09-16. **The replacement decision is unchanged.** H.264 did not
+reduce click latency under either shaped link. It did deliver ordinary-page
+scrolling at about 30 painted fps, where shipped JPEG delivered about 10, and it
+completed every ordinary-page click. These are useful findings for the next
+candidate; they do not establish a general latency or resolution improvement.
+The JPEG pressure controller never left level 0 in this geometry.
+
+Evidence and the recompute script are on branch `browser-stream`, commit
+`4f8097f0`, at `prototypes/stream/evidence/link-*` and
+`prototypes/stream/link-report.py`. Run the latter from that checkout's root;
+`link-summary.jsonl` contains the tables, raw counter totals, per-block link
+checks, 250 ms rung traces and skipped source-index sets. `LINK-METHOD.md` in
+`prototypes/stream/` gives the run method. These are unpublished retained commits,
+resolved with `git show <commit>:<path>`, not public download links.
+
+### Geometry, traffic and link verification
+
+The viewer is 1320x920 at **DPR 1**, with a 650x500 panel throughout both profiles.
+JPEG mounts the shipped panel, honours its page-resize and capture-bound messages,
+and runs the shipped sender and pressure controller. There is no full-resolution
+watch override. The geometry below applies to every page/profile cell. The one
+extra H.264 source line makes YUV420 dimensions even; there is no letterboxing.
+
+| Arm | Source viewport | Requested capture bound | Encoder input | Decoded pixels |
+| --- | --- | --- | --- | --- |
+| JPEG | 650x379 | 656x384, clipped to source | CDP JPEG | 650x379 |
+| H.264 high | 650x380 | Fixed display | 650x380 | 650x380 |
+| H.264 low | 650x380 | Fixed display | 650x380 | 650x380 |
+
+The phone profile is a link model, not a phone device or phone viewport. A real
+phone at DPR 2–3 sends a different capture bound and may settle on a different
+rung; this round has no DPR 2 probe. These numbers are not comparable to round
+one's 1280x800 source. The viewer uses software rendering and decoding on the
+host, not mobile hardware. The binary frame-index observer also adds readback work.
+
+Toxiproxy 2.12.0 runs in a bounded container, pinned to image digest
+`sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e`.
+Each direction applies bandwidth then 80 ms latency, with no random loss or
+jitter. Phone rates are 8 Mbit/s down and 2 up; laptop rates are 25 down and 5 up.
+The bandwidth rates are 1000/250 and 3125/625 decimal KB/s respectively.
+Frames, clicks and scroll input share one shaped WebSocket, so click latency
+includes the uplink. Static bundles and the measurement controller stay local.
+
+The [latency toxic](https://github.com/Shopify/toxiproxy/blob/v2.12.0/toxics/latency.go)
+has a 1024-chunk queue; the [default toxic buffer](https://raw.githubusercontent.com/Shopify/toxiproxy/v2.12.0/toxics/toxic.go)
+is zero for bandwidth. The
+[connection chain](https://github.com/Shopify/toxiproxy/blob/v2.12.0/link.go) and
+Linux socket buffers also affect queued data. Every arm/profile uses the same
+limits, including host `tcp_rmem=4096 131072 6291456` and
+`tcp_wmem=4096 16384 4194304`. A deeper queue can delay pressure feedback and
+increase stale-frame delay; this model does not establish a cellular radio's
+queue behaviour. A chunk limit is not an exact byte limit.
+
+Each block records five TCP/WebSocket echo round trips and saturated payloads in
+each direction before browser startup, then before and after measurement while
+the arm generates animation traffic. Three-second-equivalent transfers include
+request overhead in their achieved rates. Toxiproxy limits connections separately:
+the probe and browser each receive the configured cap. Thus the loaded probe
+checks shaper operation under concurrent traffic, not competition for one shared
+aggregate cap. The following ranges cover all three checks in all retained blocks.
+
+| Profile | Measured RTT range ms | Down Mbit/s range | Up Mbit/s range |
+| --- | --- | --- | --- |
+| phone | 161.8–194.7 | 7.62–7.78 | 1.89–1.94 |
+| laptop | 161.5–205.2 | 23.61–23.90 | 4.79–4.87 |
+
+The shaper wrapper has its own 512 MiB systemd scope; its container is capped at
+256 MiB. Shaper CPU below comes from the container cgroup. Target/encoder and
+viewer have separate 2 GiB scopes. All encoder and shaper logs end with exit 0.
+
+H.264 uses libx264 baseline, ultrafast, zerolatency, two threads, 30 fps and GOP 30,
+with CBR filler, a half-second VBV buffer and next-AUD Annex B framing. High is
+90% of the downlink cap: **7.2 / 22.5 Mbit/s** for phone/laptop. Low is one third:
+**2.666667 / 8.333333 Mbit/s**. Delivered rates, including filler, are below.
+These encoder settings hold dimensions fixed; they do not measure equal visual
+quality. All JPEG cells held **level 0, quality 50, scale 1, 650x379 for 100%**
+of the sampled active block. The raw 250 ms series, rather than an end reading,
+is retained. The worst-rung grid probe decoded eight known patterns at quality
+20 and scale 0.5; no low-contrast grid transition occurred in the measured windows.
+
+### Clicks and resource use
+
+Each cell has four adjacent three-arm groups of 25 trials per arm. Arm order
+reverses on alternate blocks. Every measured scroll and animation window lasts
+10 seconds after its own 60 seconds of continuous load. The scrolling controller
+sends wheel input at 20 Hz. The ordinary animation window moves paragraph text;
+it is not a quiet-page bandwidth measurement. Click trials follow these windows,
+with scroll/type preparation on the ordinary page and a two-second deadline.
+
+| Link | Page | Arm | Success/trials | Median/p95 ms | Target CPU % | Target peak MiB | Shaper CPU % |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| phone | busy | JPEG | 100/100 | 241.2/269.5 | 137.7 | 507 | 7.9 |
+| phone | busy | H.264 high | 100/100 | 263.6/296.1 | 132.8 | 576 | 8.2 |
+| phone | busy | H.264 low | 100/100 | 264.8/294.1 | 136.4 | 548 | 7.9 |
+| phone | ordinary | JPEG | 51/100 | 205.3/230.6 | 90.9 | 488 | 4.4 |
+| phone | ordinary | H.264 high | 100/100 | 240.2/297.6 | 125.1 | 609 | 7.6 |
+| phone | ordinary | H.264 low | 100/100 | 247.9/285.3 | 131.7 | 557 | 8.0 |
+| laptop | busy | JPEG | 100/100 | 237.8/266.7 | 135.8 | 495 | 8.1 |
+| laptop | busy | H.264 high | 100/100 | 266.5/336.1 | 135.3 | 568 | 12.9 |
+| laptop | busy | H.264 low | 100/100 | 278.5/300.6 | 132.6 | 571 | 9.2 |
+| laptop | ordinary | JPEG | 32/100 | 216.2/238.6 | 93.7 | 487 | 4.8 |
+| laptop | ordinary | H.264 high | 100/100 | 250.1/301.7 | 138.0 | 590 | 13.9 |
+| laptop | ordinary | H.264 low | 100/100 | 250.0/286.0 | 135.0 | 588 | 10.1 |
+
+CPU is percent of one core over the active block, including warm-up and loaded
+link checks. Target CPU subtracts the Node controller; target peak memory still
+includes it. Viewer and shaper CPU are separate. Raw records give shaper CPU per
+block; the table pools CPU time over elapsed time. These are configuration costs,
+not isolated codec costs.
+
+Quantiles use successful trials only, sorted index `floor(n*p)` capped at `n-1`.
+A failed JPEG trial restarts capture before the next trial as an instrument
+repair, not shipped behaviour. Ordinary JPEG failed 49 phone trials (45 with no
+capture, 4 with captures) and 68 laptop trials (58 with none, 10 with captures).
+The round-one identical period-10 sequence did not recur. The raw sequences now
+vary and include consecutive successes; nevertheless these success-only timings
+are not a claim of reliable continuous ordinary interaction. H.264 completed
+100/100 in each ordinary cell.
+
+### Scroll, animation and missing frames
+
+Each row pools four 10-second windows of the named workload. Rates count painted
+frames; received counts are separately reported below. Bytes are received
+WebSocket payloads, including JPEG application headers or H.264's keyframe byte
+and CBR filler, excluding TCP/TLS/IP overhead. Gap statistics use painted frame
+timestamps within each window. A long gap is greater than 66.67 ms, twice the
+nominal 30 fps period; window-boundary gaps are excluded.
+
+| Link | Page | Arm | Window | Painted fps | Mbit/s | Gap p50/p95/max ms | Long gaps |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| phone | busy | JPEG | scroll | 28.8 | 3.57 | 33.1/60.7/164.0 | 41 |
+| phone | busy | JPEG | animation | 29.9 | 3.59 | 33.1/47.0/100.4 | 12 |
+| phone | busy | H.264 high | scroll | 29.9 | 7.20 | 33.4/47.0/82.5 | 5 |
+| phone | busy | H.264 high | animation | 29.8 | 7.20 | 33.1/47.5/125.1 | 8 |
+| phone | busy | H.264 low | scroll | 30.0 | 2.66 | 33.1/53.5/104.0 | 27 |
+| phone | busy | H.264 low | animation | 30.0 | 2.68 | 33.2/48.3/113.6 | 8 |
+| phone | ordinary | JPEG | scroll | 10.0 | 2.59 | 100.3/117.1/138.0 | 393 |
+| phone | ordinary | JPEG | animation | 25.2 | 6.53 | 34.8/67.9/329.2 | 58 |
+| phone | ordinary | H.264 high | scroll | 30.0 | 7.20 | 32.9/49.5/106.9 | 42 |
+| phone | ordinary | H.264 high | animation | 30.0 | 7.20 | 32.4/57.6/288.1 | 45 |
+| phone | ordinary | H.264 low | scroll | 29.9 | 2.67 | 33.1/46.8/128.5 | 10 |
+| phone | ordinary | H.264 low | animation | 29.9 | 2.66 | 33.1/51.8/115.9 | 19 |
+| laptop | busy | JPEG | scroll | 29.3 | 3.60 | 32.9/59.2/157.9 | 32 |
+| laptop | busy | JPEG | animation | 29.8 | 3.67 | 32.9/50.5/87.8 | 6 |
+| laptop | busy | H.264 high | scroll | 30.0 | 22.51 | 32.1/44.9/78.7 | 4 |
+| laptop | busy | H.264 high | animation | 29.9 | 22.45 | 32.4/44.2/106.1 | 4 |
+| laptop | busy | H.264 low | scroll | 30.0 | 8.35 | 33.1/47.4/110.0 | 11 |
+| laptop | busy | H.264 low | animation | 30.0 | 8.34 | 33.1/45.1/93.4 | 5 |
+| laptop | ordinary | JPEG | scroll | 10.0 | 2.60 | 99.8/122.9/313.1 | 387 |
+| laptop | ordinary | JPEG | animation | 23.7 | 6.12 | 35.0/82.8/255.7 | 105 |
+| laptop | ordinary | H.264 high | scroll | 30.0 | 22.55 | 31.7/51.2/154.3 | 16 |
+| laptop | ordinary | H.264 high | animation | 30.0 | 22.48 | 31.9/51.3/120.7 | 18 |
+| laptop | ordinary | H.264 low | scroll | 29.9 | 8.31 | 32.9/55.0/153.7 | 27 |
+| laptop | ordinary | H.264 low | animation | 29.9 | 8.33 | 33.0/50.9/82.9 | 6 |
+
+The JPEG counters come from separate observation points, not inferred
+subtractions. For H.264, capture and send counters increment on adjacent lines
+of the same access-unit loop; their equal totals are not independent evidence
+of loss-free capture or delivery. C is CDP callbacks for JPEG or parsed encoded access units for
+H.264; S is server socket sends; R is viewer receives; D is decoder outputs;
+P is paints. Replace counts a pending JPEG frame replaced in the sender. FF is
+ffmpeg's own duplicate/drop count during these windows. JPEG's intentional
+`everyNthFrame=2` is separate; H.264 captures at a fixed 30 fps. Frames in transit
+cross the window endpoints, so these totals need not balance. A decode can also
+finish after the receive window begins. Ordinary fixture RAF activity is not a
+count of changed pixels.
+
+For busy pages the 16-bit grid identifies source frames. Skipped counts are IDs
+between forward observations that were not painted anywhere in that window,
+with sets retained per run. They include intentional capture cadence and cannot
+be labelled network losses. Ordinary pages have no grid. Two laptop JPEG scroll
+transitions went backwards with high contrast; they are retained separately and
+excluded from skip inference. They are not unreadable cells or 65,534-frame gaps.
+
+| Link | Page | Arm | Window | C/S/R/D/P | Replace | Every Nth | FF dup/drop | Unseen source IDs |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| phone | busy | JPEG | scroll | 1191/1191/1170/1152/1152 | 0 | 2 | — | 1170 |
+| phone | busy | JPEG | animation | 1213/1213/1199/1198/1198 | 0 | 2 | — | 1198 |
+| phone | busy | H.264 high | scroll | 1210/1210/1195/1195/1195 | 0 | — | 0/7 | 1201 |
+| phone | busy | H.264 high | animation | 1203/1203/1193/1193/1193 | 0 | — | 0/7 | 1200 |
+| phone | busy | H.264 low | scroll | 1223/1223/1202/1202/1202 | 0 | — | 0/0 | 1164 |
+| phone | busy | H.264 low | animation | 1218/1218/1200/1199/1199 | 0 | — | 0/0 | 1187 |
+| phone | ordinary | JPEG | scroll | 401/401/400/400/400 | 0 | 2 | — | — |
+| phone | ordinary | JPEG | animation | 1026/1026/1011/1008/1008 | 0 | 2 | — | — |
+| phone | ordinary | H.264 high | scroll | 1215/1215/1200/1200/1200 | 0 | — | 0/0 | — |
+| phone | ordinary | H.264 high | animation | 1219/1219/1201/1201/1201 | 0 | — | 2/1 | — |
+| phone | ordinary | H.264 low | scroll | 1212/1212/1198/1198/1198 | 0 | — | 0/3 | — |
+| phone | ordinary | H.264 low | animation | 1214/1214/1197/1196/1196 | 0 | — | 0/3 | — |
+| laptop | busy | JPEG | scroll | 1205/1205/1183/1171/1171 | 0 | 2 | — | 1185 |
+| laptop | busy | JPEG | animation | 1214/1214/1195/1194/1194 | 0 | 2 | — | 1194 |
+| laptop | busy | H.264 high | scroll | 1217/1217/1200/1200/1200 | 0 | — | 0/1 | 1190 |
+| laptop | busy | H.264 high | animation | 1218/1218/1197/1197/1197 | 0 | — | 0/1 | 1195 |
+| laptop | busy | H.264 low | scroll | 1218/1218/1202/1202/1202 | 0 | — | 0/0 | 1190 |
+| laptop | busy | H.264 low | animation | 1211/1211/1201/1202/1202 | 0 | — | 0/0 | 1196 |
+| laptop | ordinary | JPEG | scroll | 402/402/401/401/401 | 0 | 2 | — | — |
+| laptop | ordinary | JPEG | animation | 957/957/949/948/948 | 0 | 2 | — | — |
+| laptop | ordinary | H.264 high | scroll | 1217/1217/1203/1202/1202 | 0 | — | 3/2 | — |
+| laptop | ordinary | H.264 high | animation | 1216/1216/1199/1200/1200 | 0 | — | 0/0 | — |
+| laptop | ordinary | H.264 low | scroll | 1213/1213/1198/1197/1197 | 0 | — | 1/3 | — |
+| laptop | ordinary | H.264 low | animation | 1210/1210/1198/1198/1198 | 0 | — | 0/2 | — |
+
+### Exclusion, repeat and drift
+
+The initial `link-1-phone-busy-h264high` block reused an auxiliary encoder file.
+A non-truncating write left stale trailing bytes that read as current counters.
+Detection followed reading the **first-nine success and frame counters**, before
+calculating **click median or p95**. The whole adjacent block-1 phone/busy triple
+was excluded and repeated in its original JPEG/high/low order after the sweep.
+No field-level salvage enters the final tables. The discarded originals remain
+at `prototypes/stream/bulk/discarded-link-first-phone-busy/` in the retained
+worktree; `evidence/link-discarded-clicks.jsonl` retains their click trials for
+independent reproduction of the comparison below.
+
+The other 45 blocks use instrument `458d52c9f3d53a2201ece2713d86a39aedf5e6e1`.
+The repeat triple uses `012f433b9ca0b6bc5941c4a937de7dc734a6a297`. The latter
+commit only changes auxiliary output creation: it refuses existing paths in
+setup and opens files exclusively. It changes no timed input, capture, encoder,
+shaper or window logic; no file open was added inside a measured window. This
+setup repair cannot directly alter the measured timing path, but host conditions
+can differ between runs. The diff is retained for inspection.
+
+The evidence lists size, birth, ctime and mtime for all 150 auxiliary outputs in
+the unaffected blocks and 10 in the repeat. Every birth timestamp was available
+and after its block log was created. No ctime substitutes for an absent birth.
+`link-pre-repeat-listing.txt` records the empty active output names immediately
+before the repeat. All retained runs have a source hash and exit line.
+
+| Arm | Discarded success/25 | Discarded median/p95 ms | Repeat success/25 | Repeat median/p95 ms |
+| --- | --- | --- | --- | --- |
+| JPEG | 25 | 244.5/267.4 | 25 | 228.9/251.2 |
+| H.264 high | 25 | 252.2/276.1 | 25 | 275.0/304.9 |
+| H.264 low | 25 | 272.7/287.6 | 25 | 274.5/283.6 |
+
+The repeat moved JPEG's median down 15.6 ms, high H.264's up 22.8 ms and low
+H.264's up 1.8 ms. These are not a common drift correction. The per-block results
+below expose that variation; neither the discarded nor repeated triple shows a
+H.264 click-latency win. Block 1 is the later repeat, not the first time interval.
+
+| Phone/busy block | Arm | Measurement start UTC | Success/25 | Median/p95 ms |
+| --- | --- | --- | --- | --- |
+| 1 | JPEG | 10:29:44 | 25 | 228.9/251.2 |
+| 1 | H.264 high | 10:32:59 | 25 | 275.0/304.9 |
+| 1 | H.264 low | 10:36:16 | 25 | 274.5/283.6 |
+| 2 | JPEG | 08:29:13 | 25 | 241.8/273.2 |
+| 2 | H.264 high | 08:25:56 | 25 | 246.4/274.7 |
+| 2 | H.264 low | 08:22:38 | 25 | 267.2/331.7 |
+| 3 | JPEG | 09:03:49 | 25 | 241.7/253.3 |
+| 3 | H.264 high | 09:07:04 | 25 | 248.6/267.5 |
+| 3 | H.264 low | 09:10:21 | 25 | 248.6/269.1 |
+| 4 | JPEG | 09:51:24 | 25 | 244.8/270.3 |
+| 4 | H.264 high | 09:48:06 | 25 | 276.8/305.6 |
+| 4 | H.264 low | 09:44:48 | 25 | 264.8/291.3 |
+
+### Reading Nil's complaints
+
+**Lag:** H.264 adds no click-latency gain on either link; successful JPEG clicks
+are faster, subject to the ordinary-page failure caveat. **Low resolution:** JPEG
+holds its full 650x379 source at quality 50 and H.264 holds 650x380, so this DPR-1
+round does not reproduce a pressure-induced resolution loss or prove a visual
+quality win. The shipped code supplies an unmeasured candidate cause: the panel
+sends a CSS-pixel viewport and requests CSS×DPR capture bounds, but
+`server/browser-session.ts` clamps capture to the viewport and no code in
+`server/`, `ui/` or `shared/` sets `deviceScaleFactor`; a DPR-2 or DPR-3 viewer
+therefore spreads at most viewport-sized pixels across more physical pixels,
+an upscale independent of ladder pressure, link speed or codec that this DPR-1
+round could not test. **Laggy scrolling:** ordinary JPEG paints about 10 fps on both links,
+while both H.264 settings paint about 30; this measures cadence, not a separate
+wheel-to-frame latency. **Missed animation frames:** the grid records unseen
+source IDs for all busy arms, including intentional cadence; H.264 does not
+eliminate misses. Its long-gap counts usually improve, but low-rate H.264 on the
+phone busy-animation window still has a longer maximum gap than JPEG.
+**Animation smoothness:** ordinary text animation improves from 23.7–25.2 fps
+with JPEG to about 30 with video, while busy animation is already about 30 for
+all arms. Low-rate H.264 uses less bandwidth than JPEG for phone busy-page and
+text-animation traffic, but slightly more for ordinary scrolling; high-rate CBR, especially on the laptop profile, spends substantially more.
+
+This supports external H.264 as a smoother ordinary-page candidate, while keeping
+the architecture replacement decision unchanged. Real phone rendering, higher
+DPR, quiet-page traffic, loss/jitter and subjective text quality remain unmeasured.
+No product implementation, takeover or migration is authorized here.
