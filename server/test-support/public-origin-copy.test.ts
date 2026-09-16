@@ -80,7 +80,7 @@ async function restartWithConfigOrigin(srv: TestServer): Promise<TestServer> {
 }
 
 describe("public-origin-derived copy (C3-a)", () => {
-  it("localhost boot: no human-origin prompt line, /help keeps the VPN phone tip", async () => {
+  it("localhost boot: no human-origin prompt line, and /help carries no device line", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -94,12 +94,15 @@ describe("public-origin-derived copy (C3-a)", () => {
       "Worker",
       srv.agentManager.getRooms()[0].id,
     );
+    // /help says nothing about reaching the office from a phone on either boot
+    // shape: the story is more nuanced than one line can carry (Nil,
+    // 2026-09-16), so the Receptionist answers it.
     const help = await helpOutput(srv, agent.id);
-    expect(help).toContain(VPN_TIP);
+    expect(help).not.toContain(VPN_TIP);
     expect(help).not.toContain(ORIGIN);
   });
 
-  it("config-origin boot: prompt gains the human-origin line, curl recipes stay localhost, /help shows the URL", async () => {
+  it("config-origin boot: prompt gains the human-origin line, curl recipes stay localhost, and /help still carries no device line", async () => {
     const srv0 = await startTestServer();
     server = srv0;
     const srv = await restartWithConfigOrigin(srv0);
@@ -118,7 +121,7 @@ describe("public-origin-derived copy (C3-a)", () => {
       srv.agentManager.getRooms()[0].id,
     );
     const help = await helpOutput(srv, agent.id);
-    expect(help).toContain(`Isomux works on your phone: open ${ORIGIN}.`);
+    expect(help).not.toContain(ORIGIN);
     expect(help).not.toContain(VPN_TIP);
   });
 

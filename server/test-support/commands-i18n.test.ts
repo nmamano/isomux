@@ -21,6 +21,7 @@ import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import { translatorFor } from "../../shared/i18n/translate.ts";
+import { DOCS_URL } from "../command-handlers.ts";
 
 async function waitUntil(
   pred: () => boolean,
@@ -133,12 +134,22 @@ describe("a slash command answers in the typing user's language", () => {
     const help = helpEntry?.metadata?.helpContent as string | undefined;
     expect(help).toBeDefined();
     const { t } = translatorFor("es");
-    const commandsAt = help!.indexOf(t("commands.help.commands"));
-    const skillsAt = help!.indexOf(t("commands.help.skills"));
+    // The Receptionist pointer and the docs link lead; the reference material
+    // follows, and the skill sections come after the command list.
     const receptionistAt = help!.indexOf(t("commands.help.receptionist"));
-    expect(commandsAt).toBeGreaterThanOrEqual(0);
-    expect(skillsAt).toBeGreaterThan(commandsAt);
-    expect(receptionistAt).toBeGreaterThan(skillsAt);
+    const docsAt = help!.indexOf(t("commands.help.docs", { url: DOCS_URL }));
+    const commandsAt = help!.indexOf(t("commands.help.commands"));
+    expect(receptionistAt).toBe(0);
+    expect(docsAt).toBeGreaterThan(receptionistAt);
+    expect(commandsAt).toBeGreaterThan(docsAt);
+    const skillHeadings = [
+      t("commands.help.skillsIsomux"),
+      t("commands.help.skillsUser"),
+    ]
+      .map((label) => help!.indexOf(`## ${label}`))
+      .filter((at) => at >= 0);
+    expect(skillHeadings.length).toBeGreaterThan(0);
+    for (const at of skillHeadings) expect(at).toBeGreaterThan(commandsAt);
     expect(helpEntry?.content).toBe(t("commands.help.header"));
     // The registry carries no English description any more, so this text can
     // only have come from the catalog.

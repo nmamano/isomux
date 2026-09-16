@@ -8,7 +8,6 @@ import type {
   QueuedMessage,
   RoomWire,
   SkillInfo,
-  SkillOrigin,
 } from "../shared/types.ts";
 import { sessionResumeLabel } from "../shared/session-label.ts";
 import { translatorForUsername } from "./i18n.ts";
@@ -58,10 +57,9 @@ import {
 } from "./internal-types.ts";
 import type { BackendSession } from "./backends/types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
-import { buildPublicOrigin } from "./auth.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
-const DOCS_URL = "https://isomux.com/docs";
+export const DOCS_URL = "https://isomux.com/docs";
 const EDIT_USAGE = "`/isomux-edit <path>`";
 
 type HandlerFn = (
@@ -477,12 +475,13 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
-      const lines: string[] = [];
-
-      // The device line depends on whether this boot has a real public origin
-      // (env/config, non-loopback bind). Without one, point to the VPN path;
-      // with one, show the phone-ready URL.
-      const publicOrigin = buildPublicOrigin();
+      // The Receptionist pointer and the docs link lead: anything conceptual is
+      // a question for the Receptionist, so a reader meets that before the
+      // reference material they came for.
+      const lines: string[] = [
+        t("commands.help.receptionist"),
+        t("commands.help.docs", { url: DOCS_URL }),
+      ];
 
       // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
       // single line. The friendlier shorthand leads.
@@ -505,49 +504,27 @@ export function createCommandHandling(deps: HandlerDeps) {
         .join("\n");
       lines.push(`${t("commands.help.commands")}\n${cmdList}`);
 
-      const originLabel: Record<SkillOrigin, string> = {
-        user: t("commands.help.skillsUser"),
-        project: t("commands.help.skillsProject"),
-        plugin: t("commands.help.skillsPlugin"),
-        isomux: t("commands.help.skillsIsomux"),
-        claude: t("commands.help.skillsClaude"),
-      };
-      const originOrder: SkillOrigin[] = [
-        "isomux",
-        "user",
-        "project",
-        "plugin",
-        "claude",
-      ];
-      const groupedByOrigin = new Map<SkillOrigin, SkillInfo[]>();
-      for (const s of managed.skills) {
-        if (!groupedByOrigin.has(s.origin)) groupedByOrigin.set(s.origin, []);
-        groupedByOrigin.get(s.origin)!.push(s);
-      }
-      lines.push(`\n${t("commands.help.skills")}`);
-      for (const origin of originOrder) {
-        const skills = groupedByOrigin.get(origin);
-        if (!skills || skills.length === 0) continue;
-        const skillGroups = groupByAlias(
+      // Two sections, not five: the skills isomux ships, and everything else
+      // the reader brought with them. The origin a non-isomux skill came from
+      // (their own directory, the project, a plugin, the backend) is not a
+      // distinction a reader acts on.
+      const isomuxSkills = managed.skills.filter((s) => s.origin === "isomux");
+      const ownSkills = managed.skills.filter((s) => s.origin !== "isomux");
+      const skillSection = (label: string, skills: SkillInfo[]) => {
+        if (skills.length === 0) return;
+        const skillLines = groupByAlias(
           skills.map((s) => ({
             name: s.name,
             description: s.description,
             aliasFor: s.aliasFor,
           })),
-        );
-        const skillLines = skillGroups
+        )
           .map((g) => formatAliasGroup(t, g.names, g.description))
           .join("\n");
-        lines.push(`\n**${originLabel[origin]}:**\n${skillLines}`);
-      }
-
-      lines.push(`\n${t("commands.help.receptionist")}`);
-      lines.push(t("commands.help.docs", { url: DOCS_URL }));
-      lines.push(
-        publicOrigin.source === "localhost"
-          ? t("commands.help.tipPhoneVpn")
-          : t("commands.help.tipPhoneOrigin", { origin: publicOrigin.origin }),
-      );
+        lines.push(`\n## ${label}\n${skillLines}`);
+      };
+      skillSection(t("commands.help.skillsIsomux"), isomuxSkills);
+      skillSection(t("commands.help.skillsUser"), ownSkills);
 
       deps.addLogEntry(agentId, "system", t("commands.help.header"), {
         helpContent: lines.join("\n"),

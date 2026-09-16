@@ -1824,20 +1824,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   // /help. The URLs are passed in from the call site rather than written here
   // (ruling 11), so a link change never edits three catalogs.
   "commands.help.docs": "**Docs:** {url}",
-  "commands.help.tipPhoneVpn":
-    "Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
-  "commands.help.tipPhoneOrigin": "Isomux works on your phone: open {origin}.",
   "commands.help.header": "**Help**",
   "commands.help.commands": "## Commands you can type",
-  "commands.help.skills": "## Your skills",
   "commands.help.receptionist":
     "If you have questions about Isomux features like how to link other devices, how to invite other people to your office, how agents communicate with each other, how to connect your LLM providers, etc., ask the Receptionist agent.",
   "commands.help.aliasGroup": "{primary} (or {others})",
-  "commands.help.skillsUser": "User skills",
-  "commands.help.skillsProject": "Project skills",
-  "commands.help.skillsPlugin": "Plugin skills",
-  "commands.help.skillsIsomux": "Isomux skills",
-  "commands.help.skillsClaude": "Claude skills",
+  "commands.help.skillsUser": "User Skills",
+  "commands.help.skillsIsomux": "Isomux Skills",
 
   // /resume
   "commands.resume.none": "No previous sessions found.",

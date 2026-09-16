@@ -37,6 +37,23 @@ export const dialogCancelBtn: Readonly<CSSProperties> = Object.freeze({
   cursor: "pointer",
 });
 
+// The action on a card in the transcript (Show help, Show system prompt, Show
+// schedule prompt). dialogCancelBtn is wrong here: a transparent fill over the
+// card's own surface leaves nothing but a faint hairline, which is invisible in
+// several themes. An accent tint plus an accent border and label reads as the
+// one thing to click without competing with dialogSaveBtn, and every value is
+// per-theme, so it holds in all six.
+export const cardActionBtn: Readonly<CSSProperties> = Object.freeze({
+  padding: "7px 16px",
+  borderRadius: 8,
+  border: "1px solid var(--accent)",
+  background: "var(--accent-bg)",
+  color: "var(--accent)",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+});
+
 export const dialogSaveBtn: Readonly<CSSProperties> = Object.freeze({
   padding: "7px 16px",
   borderRadius: 8,

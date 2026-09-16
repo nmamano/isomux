@@ -2,7 +2,11 @@ import type { AgentSystemPromptPreviewReq } from "../../shared/contract-shapes.t
 import { useEffect, useLayoutEffect, useState } from "react";
 import { apiFetch } from "../api.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+import {
+  cardActionBtn,
+  dialogCancelBtn,
+  dialogSaveBtn,
+} from "./dialog-styles.ts";
 import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
 import { Portal } from "./Portal.tsx";
@@ -62,7 +66,7 @@ export function SystemPromptButton({
       <button
         type="button"
         onClick={() => void showPrompt()}
-        style={dialogCancelBtn}
+        style={cardActionBtn}
       >
         {t(
           helpContent !== undefined
@@ -174,16 +178,15 @@ function SystemPromptModal({
             </p>
           )}
           {source === "help" ? (
+            // Rendered prose, not a code block: it reads as the body of this
+            // dialog rather than as a panel inside it, so it carries no border
+            // or surface of its own.
             <div
               aria-readonly="true"
               style={{
                 minHeight: 220,
                 margin: 0,
-                padding: 14,
                 overflow: "auto",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                background: "var(--bg-code)",
                 color: "var(--text-primary)",
                 fontSize: 13,
                 lineHeight: 1.5,
