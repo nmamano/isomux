@@ -39,11 +39,15 @@ export function ConnectionsPane({
   const { t } = useI18n();
   const dispatch = useDispatch();
   const accounts = liveAccounts;
+  const [accountLoadState, setAccountLoadState] = useState<
+    "loading" | "loaded" | "failed"
+  >(accounts.length > 0 ? "loaded" : "loading");
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function load(refresh = false) {
     setRefreshing(refresh);
+    setAccountLoadState("loading");
     setError(null);
     try {
       const result = await apiFetch<ProviderAccountsWire>(
@@ -56,7 +60,9 @@ export function ConnectionsPane({
         type: "provider_accounts_updated",
         accounts: result.accounts,
       });
+      setAccountLoadState("loaded");
     } catch (caught) {
+      setAccountLoadState("failed");
       setError(
         caught instanceof ApiError
           ? caught.message
@@ -72,18 +78,22 @@ export function ConnectionsPane({
   useEffect(() => {
     void apiFetch<ProviderAccountsWire>("GET", "/api/me/provider-accounts")
       .then((result) =>
-        dispatch({
-          type: "provider_accounts_updated",
-          accounts: result.accounts,
-        }),
+        {
+          dispatch({
+            type: "provider_accounts_updated",
+            accounts: result.accounts,
+          });
+          setAccountLoadState("loaded");
+        },
       )
-      .catch((caught) =>
+      .catch((caught) => {
+        setAccountLoadState("failed");
         setError(
           caught instanceof ApiError
             ? caught.message
             : t("settings.connections.checkFailed"),
-        ),
-      );
+        );
+      });
     // The catalog lookup is stable for the life of a language, and re-running
     // this on a language change would refetch for nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -124,10 +134,16 @@ export function ConnectionsPane({
           ? t("settings.connections.officeIntro")
           : t("settings.connections.personalIntro")}
       </p>
-      {error && <p style={{ color: "var(--red)", fontSize: 12 }}>{error}</p>}
+      {error && (
+        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+          {error}
+        </p>
+      )}
       <ProviderSignInCard
         provider="codex"
         accounts={accounts}
+        loaded={accountLoadState !== "loading"}
+        canCancelSharedLogin={role === "owner"}
         onAccounts={updateAccounts}
         scopes={scopes}
         onGoToOtherHalf={onGoToOtherHalf}
@@ -135,6 +151,8 @@ export function ConnectionsPane({
       <ProviderSignInCard
         provider="claude"
         accounts={accounts}
+        loaded={accountLoadState !== "loading"}
+        canCancelSharedLogin={role === "owner"}
         onAccounts={updateAccounts}
         scopes={scopes}
         onGoToOtherHalf={onGoToOtherHalf}

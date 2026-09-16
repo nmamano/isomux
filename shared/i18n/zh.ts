@@ -661,6 +661,13 @@ App 的一些原则：
   "settings.signIn.startFailed": "无法开始 {provider} 登录。",
   "settings.signIn.submitFailed": "无法提交 Claude 验证码。",
   "settings.signIn.cancelFailed": "无法取消登录。",
+  "settings.signIn.queueHeldUnderMinute":
+    "{name} 正在登录此共享 {provider} 账户，开始于不到一分钟前。",
+  "settings.signIn.queueHeldMinutes.one":
+    "{name} 正在登录此共享 {provider} 账户，开始于 {count} 分钟前。",
+  "settings.signIn.queueHeldMinutes.other":
+    "{name} 正在登录此共享 {provider} 账户，开始于 {count} 分钟前。",
+  "settings.signIn.cancelShared": "取消此次登录",
   "settings.signIn.signOutFailed": "无法退出 {provider} 登录。",
   "settings.signIn.externalWarning":
     "这会在此机器上退出 {provider} 登录，包括办公室之外的环境。",

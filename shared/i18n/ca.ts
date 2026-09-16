@@ -738,6 +738,13 @@ Coses que pots fer per ell:
     "No s'ha pogut iniciar la sessió a {provider}.",
   "settings.signIn.submitFailed": "No s'ha pogut enviar el codi de Claude.",
   "settings.signIn.cancelFailed": "No s'ha pogut cancel·lar l'inici de sessió.",
+  "settings.signIn.queueHeldUnderMinute":
+    "{name} està iniciant la sessió en aquest compte compartit de {provider}; ha començat fa menys d'un minut.",
+  "settings.signIn.queueHeldMinutes.one":
+    "{name} està iniciant la sessió en aquest compte compartit de {provider}; ha començat fa {count} minut.",
+  "settings.signIn.queueHeldMinutes.other":
+    "{name} està iniciant la sessió en aquest compte compartit de {provider}; ha començat fa {count} minuts.",
+  "settings.signIn.cancelShared": "Cancel·la aquest inici de sessió",
   "settings.signIn.signOutFailed":
     "No s'ha pogut tancar la sessió de {provider}.",
   "settings.signIn.externalWarning":

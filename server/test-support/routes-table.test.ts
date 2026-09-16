@@ -103,8 +103,8 @@ describe("provider account routes", () => {
         calls.push(`callback:${provider}:${scope}:${code}`);
         return { ok: true, value: { submitted: true } };
       },
-      cancel: async (_userId, provider, scope) => {
-        calls.push(`cancel:${provider}:${scope}`);
+      cancel: async (_userId, provider, scope, allowForeign) => {
+        calls.push(`cancel:${provider}:${scope}:${allowForeign}`);
         return true;
       },
       disconnect: async () => ({ ok: true, value: { accounts: [] } }),
@@ -130,8 +130,72 @@ describe("provider account routes", () => {
     expect(calls).toEqual([
       "start:claude:personal:browser",
       "callback:claude:personal:code#state",
-      "cancel:claude:personal",
+      "cancel:claude:personal:false",
     ]);
+  });
+
+  it("passes owner authority to cancel without granting it to a member", async () => {
+    const allowForeign: boolean[] = [];
+    const handlers = providerAccountsHandlers({
+      list: async () => [],
+      refresh: async () => [],
+      start: async () => ({ ok: true, value: {} }),
+      callback: async () => ({ ok: true, value: {} }),
+      cancel: async (_userId, _provider, _scope, allowed) => {
+        allowForeign.push(allowed);
+        return true;
+      },
+      disconnect: async () => ({ ok: true, value: { accounts: [] } }),
+    });
+    const request = (role: "owner" | "member") =>
+      handlers["providerAccounts.cancel"]({
+        identity: {
+          scope: "user",
+          role,
+          userId: "u1",
+          capabilities: USER_CAPABILITIES,
+        },
+        params: { provider: "codex" },
+        body: { scope: "office" },
+      } as never);
+
+    await request("member");
+    await request("owner");
+    expect(allowForeign).toEqual([false, true]);
+  });
+
+  it("keeps shared-login holder data structured in a 409", async () => {
+    const handlers = providerAccountsHandlers({
+      list: async () => [],
+      refresh: async () => [],
+      start: async () => ({
+        ok: false,
+        status: 409,
+        code: "shared_login_in_progress",
+        detail: { holderName: "Ana", startedAt: 1_700_000_000_000 },
+      }),
+      callback: async () => ({ ok: true, value: {} }),
+      cancel: async () => true,
+      disconnect: async () => ({ ok: true, value: { accounts: [] } }),
+    });
+    const result = await handlers["providerAccounts.start"]({
+      identity: {
+        scope: "user",
+        role: "member",
+        userId: "u2",
+        capabilities: USER_CAPABILITIES,
+      },
+      params: { provider: "claude" },
+      body: { scope: "office" },
+    } as never);
+
+    expect(result).toMatchObject({
+      kind: "error",
+      status: 409,
+      code: "shared_login_in_progress",
+      message: undefined,
+      detail: { holderName: "Ana", startedAt: 1_700_000_000_000 },
+    });
   });
 
   it("rejects a login act without an explicit scope", async () => {

@@ -24,13 +24,16 @@ type View = ReturnType<typeof render>;
 
 // The detail pane mounts useMemoryEditor, which GETs /api/memory and reads
 // `text` off the response; the pane itself reads `accounts`.
-setApiShim(async (_method, path) =>
-  path.startsWith("/api/memory")
-    ? { text: "", version: "0", size: 0, cap: 4000 }
-    : path.startsWith("/api/me/provider-accounts")
-      ? { accounts: [] }
-      : {},
-);
+let providerAccountsResponse: () => Promise<unknown> = async () => ({
+  accounts: [],
+});
+setApiShim(async (_method, path) => {
+  if (path.startsWith("/api/memory"))
+    return { text: "", version: "0", size: 0, cap: 4000 };
+  if (path.startsWith("/api/me/provider-accounts"))
+    return providerAccountsResponse();
+  return {};
+});
 afterAll(() => setApiShim(null));
 
 const SIGNED_IN = {
@@ -58,6 +61,7 @@ const SIGNED_IN = {
 } as unknown as typeof initialState;
 
 beforeEach(() => {
+  providerAccountsResponse = async () => ({ accounts: [] });
   window.history.replaceState(null, "", "/settings");
 });
 
@@ -72,6 +76,74 @@ async function click(target: HTMLElement): Promise<void> {
 }
 
 describe("the connections cross-links", () => {
+  it("keeps account rows in the loading state until the request settles", async () => {
+    providerAccountsResponse = () => new Promise(() => {});
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: SIGNED_IN },
+        createElement(App, {}),
+      ),
+    );
+
+    await click(view.getByRole("button", { name: "Office-wide connections" }));
+    expect(
+      view.container.querySelectorAll(
+        '[data-provider-account-state="checking"]',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("finishes the account check when a loaded response has no account rows", async () => {
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: SIGNED_IN },
+        createElement(App, {}),
+      ),
+    );
+
+    await click(view.getByRole("button", { name: "Office-wide connections" }));
+    await act(async () => {});
+    expect(
+      view.container.querySelectorAll(
+        '[data-provider-account-state="unavailable"]',
+      ),
+    ).toHaveLength(2);
+
+    await click(
+      view.getAllByRole("button", { name: "Individual connections" })[0],
+    );
+    await act(async () => {});
+    expect(
+      view.container.querySelectorAll(
+        '[data-provider-account-state="unavailable"]',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("finishes the account check when loading the account rows fails", async () => {
+    providerAccountsResponse = async () => {
+      throw new Error("probe failed");
+    };
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: SIGNED_IN },
+        createElement(App, {}),
+      ),
+    );
+
+    await click(view.getByRole("button", { name: "Office-wide connections" }));
+    await act(async () => {});
+    expect(view.getAllByRole("alert")).toHaveLength(1);
+    expect(
+      view.container.querySelectorAll(
+        '[data-provider-account-state="unavailable"]',
+      ),
+    ).toHaveLength(2);
+  });
+
   it("carries the reader from each section to the other", async () => {
     const view = render(
       createElement(

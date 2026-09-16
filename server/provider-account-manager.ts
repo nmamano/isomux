@@ -37,6 +37,18 @@ export const CLAUDE_CONFIG_INVALID =
 export const CODEX_HOME_INVALID = "CODEX_HOME must be an absolute directory.";
 const ACCOUNT_STATUS_TTL_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
+// Five isolated probes per provider on 2026-09-16 took 648-2,609 ms for Codex
+// and 1,007-1,295 ms for Claude. This is about 5.7x the slowest healthy probe.
+const ACCOUNT_STATUS_TIMEOUT_MS = 15_000;
+
+type ScheduleAccountStatusTimeout = (onTimeout: () => void) => () => void;
+const PROBE_TIMED_OUT = Symbol("probeTimedOut");
+type ProbedAccountWire = ProviderAccountWire & {
+  [PROBE_TIMED_OUT]?: true;
+};
+// Keep the message empty: probe() exposes Error.message on the wire, and the
+// card would otherwise render uncatalogued server English.
+class AccountStatusTimeout extends Error {}
 
 export interface ProviderAccountReadOptions {
   provider: ProviderAccountProvider;
@@ -80,6 +92,8 @@ export function effectiveProviderDirectory(
 }
 type Active = {
   userId: string;
+  holderName: string;
+  startedAt: number;
   target: Target;
   cacheKey: string;
   client: AccountClient;
@@ -126,12 +140,18 @@ export class ProviderAccountManager {
       userId,
     ) =>
       managedUserEnvExists(userId) ? (readManagedUserEnv(userId) ?? {}) : {},
-    private readonly users: () => Array<{ id: string }> = listUsers,
+    private readonly users: () => Array<{ id: string; name?: string }> = listUsers,
     private readonly personalHome: typeof personalProviderHome = personalProviderHome,
     private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,
     private readonly personalActive: typeof isPersonalProviderActive = isPersonalProviderActive,
     private readonly activatePersonal: typeof activatePersonalProvider = activatePersonalProvider,
     private readonly deactivatePersonal: typeof deactivatePersonalProvider = deactivatePersonalProvider,
+    private readonly scheduleAccountStatusTimeout: ScheduleAccountStatusTimeout = (
+      onTimeout,
+    ) => {
+      const timer = setTimeout(onTimeout, ACCOUNT_STATUS_TIMEOUT_MS);
+      return () => clearTimeout(timer);
+    },
   ) {}
 
   private userOnlyEnv(userId: string): Record<string, string> {
@@ -370,9 +390,11 @@ export class ProviderAccountManager {
         const wire =
           running?.userId === userId
             ? running.wire
-            : cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS
-              ? cached.wire
-              : null;
+            : running
+              ? this.queuedWire(running)
+              : cached && Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS
+                ? cached.wire
+                : null;
         const refreshed = fresh.find(
           (value) => value.provider === provider && value.scope === scope,
         );
@@ -403,6 +425,16 @@ export class ProviderAccountManager {
       canBrowserLogin: true,
       externalCli: target.externalCli,
       explicitDirectory: target.explicitDirectory,
+    };
+  }
+
+  private queuedWire(active: Active): ProviderAccountWire {
+    return {
+      ...active.wire,
+      loginQueue: {
+        holderName: active.holderName,
+        startedAt: active.startedAt,
+      },
     };
   }
 
@@ -460,6 +492,8 @@ export class ProviderAccountManager {
       return this.inactivePersonal(target);
     }
     const running = this.active.get(target.key);
+    if (running && running.userId !== userId)
+      return this.queuedWire(running);
     if (running?.userId === userId && !signal) return running.wire;
     const cacheKey = this.cacheKey(userId, target);
     const cacheGeneration = refresh
@@ -479,8 +513,9 @@ export class ProviderAccountManager {
       this.probes.set(cacheKey, probe);
     }
     probe ??= this.probe(target, signal);
-    const wire = await probe;
+    const wire = (await probe) as ProbedAccountWire;
     if (signal?.aborted) return wire;
+    if (wire[PROBE_TIMED_OUT]) return wire;
     if ((this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration) {
       this.statusCache.set(cacheKey, { checkedAt: Date.now(), wire });
       return wire;
@@ -505,6 +540,7 @@ export class ProviderAccountManager {
       return (closed ??= client.close());
     };
     let onAbort: (() => void) | undefined;
+    let cancelTimeout = () => {};
     try {
       signal?.throwIfAborted();
       client = this.clientFor(target);
@@ -524,9 +560,15 @@ export class ProviderAccountManager {
         signal?.throwIfAborted();
         return client!.read();
       };
-      const status = await Promise.race([read(), cancelled]);
+      const timedOut = new Promise<never>((_resolve, reject) => {
+        cancelTimeout = this.scheduleAccountStatusTimeout(() => {
+          void close().catch(() => {});
+          reject(new AccountStatusTimeout());
+        });
+      });
+      const status = await Promise.race([read(), cancelled, timedOut]);
       signal?.throwIfAborted();
-      return {
+      const wire: ProbedAccountWire = {
         provider: target.provider,
         scope: target.scope,
         accountStatus: status.connected ? "connected" : "not_connected",
@@ -537,20 +579,25 @@ export class ProviderAccountManager {
         externalCli: target.externalCli,
         explicitDirectory: target.explicitDirectory,
       };
+      return wire;
     } catch (err) {
-      return {
+      const timedOut = err instanceof AccountStatusTimeout;
+      const wire: ProbedAccountWire = {
         provider: target.provider,
         scope: target.scope,
         accountStatus: "unavailable",
         loginStatus: "idle",
         shared: target.shared,
-        canBrowserLogin: false,
-        fallbackToTerminal: true,
+        canBrowserLogin: timedOut,
+        ...(timedOut ? {} : { fallbackToTerminal: true }),
         externalCli: target.externalCli,
         explicitDirectory: target.explicitDirectory,
         error: err instanceof Error ? err.message : String(err),
       };
+      if (timedOut) wire[PROBE_TIMED_OUT] = true;
+      return wire;
     } finally {
+      cancelTimeout();
       if (signal && onAbort) signal.removeEventListener("abort", onAbort);
       await close();
     }
@@ -563,7 +610,13 @@ export class ProviderAccountManager {
     method: "browser" | "device",
   ): Promise<
     | { ok: true; value: ProviderLoginStartRes }
-    | { ok: false; status: HandlerErrorStatus; code: string; message: string }
+    | {
+        ok: false;
+        status: HandlerErrorStatus;
+        code: string;
+        message?: string;
+        detail?: Record<string, unknown>;
+      }
   > {
     let target: Target;
     try {
@@ -587,8 +640,10 @@ export class ProviderAccountManager {
             ok: false,
             status: 409,
             code: "shared_login_in_progress",
-            message:
-              "Another member is signing in to this shared Codex account.",
+            detail: {
+              holderName: existing.holderName,
+              startedAt: existing.startedAt,
+            },
           };
     const client = this.clientFor(target);
     try {
@@ -612,6 +667,9 @@ export class ProviderAccountManager {
       };
       const active: Active = {
         userId,
+        holderName:
+          this.users().find((user) => user.id === userId)?.name ?? userId,
+        startedAt: Date.now(),
         target,
         cacheKey: this.cacheKey(userId, target),
         client,
@@ -758,10 +816,16 @@ export class ProviderAccountManager {
     userId: string,
     provider: ProviderAccountProvider,
     scope: ProviderAccountScope,
+    allowForeign = false,
   ): Promise<boolean> {
     const target = this.target(userId, provider, scope);
     const active = this.active.get(target.key);
-    if (!active || active.userId !== userId) return false;
+    if (
+      !active ||
+      (active.userId !== userId &&
+        !(allowForeign && active.target.scope === "office"))
+    )
+      return false;
     this.active.delete(target.key);
     if (provider === "codex" && active.loginId)
       await (active.client as CodexAccountClient)
@@ -769,6 +833,8 @@ export class ProviderAccountManager {
         .catch(() => {});
     await active.client.close();
     this.emit(userId, await this.list(userId));
+    if (active.userId !== userId)
+      this.emit(active.userId, await this.list(active.userId));
     return true;
   }
 

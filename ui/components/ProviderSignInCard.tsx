@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   ProviderAccountProvider,
   ProviderAccountScope,
   ProviderAccountWire,
   ProviderAccountsWire,
+  ProviderLoginQueueWire,
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
 import { cardStyle, hint, SettingsLink } from "./access-shared.tsx";
@@ -20,6 +21,24 @@ export function signOutButtonLabel(i18n: Translator, pending: boolean): string {
     : i18n.t("settings.signIn.confirmSignOut");
 }
 
+export function sharedLoginQueueMessage(
+  i18n: Translator,
+  provider: string,
+  queue: ProviderLoginQueueWire,
+  now = Date.now(),
+): string {
+  const minutes = Math.floor(Math.max(0, now - queue.startedAt) / 60_000);
+  return minutes < 1
+    ? i18n.t("settings.signIn.queueHeldUnderMinute", {
+        name: queue.holderName,
+        provider,
+      })
+    : i18n.tn("settings.signIn.queueHeldMinutes", minutes, {
+        name: queue.holderName,
+        provider,
+      });
+}
+
 // `scopes` picks which of the two sign-in scopes this card shows. The
 // settings page renders one scope per pane (office sign-ins under Office,
 // personal ones under You), while the log view's inline card still shows
@@ -27,6 +46,8 @@ export function signOutButtonLabel(i18n: Translator, pending: boolean): string {
 export function ProviderSignInCard({
   provider,
   accounts,
+  loaded = accounts.length > 0,
+  canCancelSharedLogin = false,
   onAccounts,
   onStartNewConversation,
   showTitle = true,
@@ -36,6 +57,8 @@ export function ProviderSignInCard({
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
+  loaded?: boolean;
+  canCancelSharedLogin?: boolean;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   showTitle?: boolean;
@@ -61,6 +84,8 @@ export function ProviderSignInCard({
             (candidate) =>
               candidate.provider === provider && candidate.scope === scope,
           )}
+          loaded={loaded}
+          canCancelSharedLogin={canCancelSharedLogin}
           onAccounts={onAccounts}
           onStartNewConversation={onStartNewConversation}
           onGoToOtherHalf={onGoToOtherHalf}
@@ -86,6 +111,8 @@ function ProviderScopeConnection({
   provider,
   scope,
   account,
+  loaded,
+  canCancelSharedLogin,
   onAccounts,
   onStartNewConversation,
   onGoToOtherHalf,
@@ -94,6 +121,8 @@ function ProviderScopeConnection({
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
   account?: ProviderAccountWire;
+  loaded: boolean;
+  canCancelSharedLogin: boolean;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   onGoToOtherHalf?: () => void;
@@ -112,6 +141,7 @@ function ProviderScopeConnection({
   // can lag or never reach this card (seen live in the chat card), and the
   // paste-code input must not depend on it.
   const [localWaiting, setLocalWaiting] = useState(false);
+  const waitingConfirmedByWire = useRef(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   // The one-time code renders from local state the moment the login POST
@@ -128,12 +158,25 @@ function ProviderScopeConnection({
       setLocalWaiting(false);
     }
   }, [connected]);
+  useEffect(() => {
+    if (account?.loginStatus === "waiting_external") {
+      waitingConfirmedByWire.current = true;
+      return;
+    }
+    if (waitingConfirmedByWire.current) {
+      waitingConfirmedByWire.current = false;
+      setLocalWaiting(false);
+    }
+  }, [account?.loginStatus]);
   // A callback response can arrive after the successful account push.
   // Keep sign-in failures separate so sign-out and cancel failures stay visible.
   useEffect(() => {
     if (connected) setSignInError(null);
   }, [connected, signInError]);
   const title = provider === "codex" ? "Codex" : "Claude";
+  const queueMessage = account?.loginQueue
+    ? sharedLoginQueueMessage(i18n, title, account.loginQueue)
+    : null;
   const scopeTitle =
     scope === "office"
       ? t("settings.signIn.scopeOffice")
@@ -185,8 +228,16 @@ function ProviderScopeConnection({
     } catch (caught) {
       popup?.close();
       setSignInError(
-        caught instanceof ApiError
-          ? caught.message
+        caught instanceof ApiError &&
+          caught.code === "shared_login_in_progress" &&
+          typeof caught.detail?.holderName === "string" &&
+          typeof caught.detail.startedAt === "number"
+          ? sharedLoginQueueMessage(i18n, title, {
+              holderName: caught.detail.holderName,
+              startedAt: caught.detail.startedAt,
+            })
+          : caught instanceof ApiError
+            ? caught.message
           : t("settings.signIn.startFailed", { provider: title }),
       );
     } finally {
@@ -260,17 +311,27 @@ function ProviderScopeConnection({
     }
   }
 
-  const status = !account
-    ? t("settings.signIn.checking")
+  const statusState = !account
+    ? loaded
+      ? "unavailable"
+      : "checking"
     : account.loginStatus === "waiting_external"
-      ? t("settings.signIn.waiting")
-      : account.accountStatus === "connected"
-        ? account.accountLabel
-          ? t("settings.signIn.connectedAs", { account: account.accountLabel })
-          : t("settings.signIn.connected")
-        : account.accountStatus === "unavailable"
-          ? t("settings.signIn.unavailable")
-          : t("settings.signIn.notConnected");
+      ? "waiting"
+      : account.accountStatus;
+  const status =
+    statusState === "checking"
+      ? t("settings.signIn.checking")
+      : statusState === "waiting"
+        ? t("settings.signIn.waiting")
+        : statusState === "connected"
+          ? account?.accountLabel
+            ? t("settings.signIn.connectedAs", {
+                account: account.accountLabel,
+              })
+            : t("settings.signIn.connected")
+          : statusState === "unavailable"
+            ? t("settings.signIn.unavailable")
+            : t("settings.signIn.notConnected");
   const externalWarning = account?.externalCli
     ? t("settings.signIn.externalWarning", { provider: title })
     : account?.explicitDirectory
@@ -291,7 +352,10 @@ function ProviderScopeConnection({
     >
       <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
       <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
-      <p style={{ ...hint, margin: "8px 0 0" }}>
+      <p
+        data-provider-account-state={statusState}
+        style={{ ...hint, margin: "8px 0 0" }}
+      >
         <strong>{t("settings.signIn.status")}</strong> {status}
       </p>
       {account?.error && (
@@ -310,9 +374,25 @@ function ProviderScopeConnection({
         </p>
       )}
 
-      {account?.loginStatus === "waiting_external" ||
+      {queueMessage && (
+        <div data-provider-login-queue style={{ margin: "12px 0" }}>
+          <p style={{ ...hint, margin: "0 0 8px" }}>{queueMessage}</p>
+          {canCancelSharedLogin && (
+            <button
+              data-cancel-shared-login
+              style={dialogCancelBtn}
+              onClick={() => void cancel()}
+              disabled={pending}
+            >
+              {t("settings.signIn.cancelShared")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {(!account?.loginQueue && account?.loginStatus === "waiting_external") ||
       (localWaiting && !connected) ? (
-        <div style={{ margin: "12px 0" }}>
+        <div data-own-login-controls style={{ margin: "12px 0" }}>
           {provider === "claude" && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
               {t("settings.signIn.pasteCode")}
@@ -341,6 +421,7 @@ function ProviderScopeConnection({
           </button>
         </div>
       ) : (
+        !account?.loginQueue &&
         account?.canBrowserLogin &&
         account.accountStatus !== "connected" && (
           <div
@@ -353,6 +434,7 @@ function ProviderScopeConnection({
             }}
           >
             <button
+              data-start-provider-login
               style={{ ...dialogSaveBtn, flexShrink: 0 }}
               onClick={() =>
                 void connect(provider === "codex" ? "device" : "browser")

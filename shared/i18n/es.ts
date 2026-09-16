@@ -741,6 +741,13 @@ Cosas que puedes hacer por él:
   "settings.signIn.submitFailed": "No se ha podido enviar el código de Claude.",
   "settings.signIn.cancelFailed":
     "No se ha podido cancelar el inicio de sesión.",
+  "settings.signIn.queueHeldUnderMinute":
+    "{name} está iniciando sesión en esta cuenta compartida de {provider}; empezó hace menos de un minuto.",
+  "settings.signIn.queueHeldMinutes.one":
+    "{name} está iniciando sesión en esta cuenta compartida de {provider}; empezó hace {count} minuto.",
+  "settings.signIn.queueHeldMinutes.other":
+    "{name} está iniciando sesión en esta cuenta compartida de {provider}; empezó hace {count} minutos.",
+  "settings.signIn.cancelShared": "Cancelar este inicio de sesión",
   "settings.signIn.signOutFailed":
     "No se ha podido cerrar la sesión de {provider}.",
   "settings.signIn.externalWarning":

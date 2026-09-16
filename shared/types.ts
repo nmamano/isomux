@@ -1436,6 +1436,11 @@ export type ProviderLoginStatus =
   | "failed"
   | "interrupted";
 
+export interface ProviderLoginQueueWire {
+  holderName: string;
+  startedAt: number;
+}
+
 export interface ProviderAccountWire {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
@@ -1448,6 +1453,7 @@ export interface ProviderAccountWire {
   externalCli?: boolean;
   explicitDirectory?: boolean;
   error?: string;
+  loginQueue?: ProviderLoginQueueWire;
 }
 
 export interface ProviderAccountsWire {

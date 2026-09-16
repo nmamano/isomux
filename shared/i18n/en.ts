@@ -736,6 +736,13 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.signIn.startFailed": "Could not start {provider} sign-in.",
   "settings.signIn.submitFailed": "Could not submit the Claude code.",
   "settings.signIn.cancelFailed": "Could not cancel sign-in.",
+  "settings.signIn.queueHeldUnderMinute":
+    "{name} is signing in to this shared {provider} account, started less than a minute ago.",
+  "settings.signIn.queueHeldMinutes.one":
+    "{name} is signing in to this shared {provider} account, started {count} minute ago.",
+  "settings.signIn.queueHeldMinutes.other":
+    "{name} is signing in to this shared {provider} account, started {count} minutes ago.",
+  "settings.signIn.cancelShared": "Cancel this sign-in",
   "settings.signIn.signOutFailed": "Could not sign out {provider}.",
   "settings.signIn.externalWarning":
     "This signs out {provider} in this machine, even outside the office.",

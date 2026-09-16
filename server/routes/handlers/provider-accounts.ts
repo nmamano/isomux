@@ -12,7 +12,13 @@ import type {
 
 type Result =
   | { ok: true; value: unknown }
-  | { ok: false; status: HandlerErrorStatus; code: string; message: string };
+  | {
+      ok: false;
+      status: HandlerErrorStatus;
+      code: string;
+      message?: string;
+      detail?: Record<string, unknown>;
+    };
 
 export interface ProviderAccountsDeps {
   list(userId: string): Promise<ProviderAccountWire[]>;
@@ -33,6 +39,7 @@ export interface ProviderAccountsDeps {
     userId: string,
     provider: ProviderAccountProvider,
     scope: ProviderAccountScope,
+    allowForeign: boolean,
   ): Promise<boolean>;
   disconnect(
     userId: string,
@@ -82,7 +89,7 @@ export function providerAccountsHandlers(
       );
       return result.ok
         ? ok(result.value)
-        : fail(result.status, result.code, result.message);
+        : fail(result.status, result.code, result.message, result.detail);
     },
     "providerAccounts.callback": async (ctx) => {
       const id = userId(ctx);
@@ -117,7 +124,12 @@ export function providerAccountsHandlers(
         (ctx.body as { scope?: unknown } | undefined)?.scope,
       );
       if (!selectedScope) return fail(422, "invalid_scope");
-      return (await deps.cancel(id, selectedProvider, selectedScope))
+      return (await deps.cancel(
+        id,
+        selectedProvider,
+        selectedScope,
+        ctx.identity.role === "owner",
+      ))
         ? ok({ canceled: true })
         : fail(409, "no_login_in_progress");
     },

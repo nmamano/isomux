@@ -4001,8 +4001,13 @@ function buildExecutorDeps(
         providerAccountManager.startLogin(userId, provider, scope, method),
       callback: (userId, provider, scope, code) =>
         providerAccountManager.submitCode(userId, provider, scope, code),
-      cancel: (userId, provider, scope) =>
-        providerAccountManager.cancel(userId, provider, scope),
+      cancel: (userId, provider, scope, allowForeign) =>
+        providerAccountManager.cancel(
+          userId,
+          provider,
+          scope,
+          allowForeign,
+        ),
       disconnect: (userId, provider, scope) =>
         providerAccountManager.disconnect(userId, provider, scope),
     }),

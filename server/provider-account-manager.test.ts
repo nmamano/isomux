@@ -19,6 +19,93 @@ const disconnectedAccountClient = () => ({
 });
 
 describe("ProviderAccountManager", () => {
+  it("evicts a timed-out shared probe so a second read starts a fresh probe", async () => {
+    let starts = 0;
+    const timeouts: Array<() => void> = [];
+    const manager = new ProviderAccountManager(
+      () => {},
+      (() => ({
+        start: () => {
+          starts++;
+          return new Promise<void>(() => {});
+        },
+        read: async () => ({ connected: false }),
+        close: async () => {},
+      })) as never,
+      undefined,
+      (id) => id,
+      () => ({}),
+      disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "member" }],
+      () => "/tmp/timed-out-probe",
+      () => "/tmp/timed-out-probe",
+      () => false,
+      () => {},
+      () => {},
+      (onTimeout) => {
+        timeouts.push(onTimeout);
+        return () => {
+          const index = timeouts.indexOf(onTimeout);
+          if (index >= 0) timeouts.splice(index, 1);
+        };
+      },
+    );
+
+    const first = manager.list("member");
+    await Promise.resolve();
+    expect(starts).toBe(1);
+    timeouts.shift()!();
+    const firstAccounts = await first;
+    expect(
+      firstAccounts.find(
+        (account) =>
+          account.provider === "codex" && account.scope === "office",
+      ),
+    ).toMatchObject({
+      accountStatus: "unavailable",
+      canBrowserLogin: true,
+      error: "",
+    });
+    expect(
+      firstAccounts.find(
+        (account) =>
+          account.provider === "codex" && account.scope === "office",
+      )?.fallbackToTerminal,
+    ).toBeUndefined();
+
+    const second = manager.list("member");
+    await Promise.resolve();
+    expect(starts).toBe(2);
+    timeouts.shift()!();
+    await second;
+  });
+
+  it("keeps the existing unavailable shape for an ordinary probe failure", async () => {
+    const manager = new ProviderAccountManager(
+      () => {},
+      (() => ({
+        start: async () => {
+          throw new Error("probe failed");
+        },
+        read: async () => ({ connected: false }),
+        close: async () => {},
+      })) as never,
+    );
+
+    const wire = await manager["probe"](
+      manager["target"]("member", "codex", "office"),
+    );
+    expect(wire).toMatchObject({
+      accountStatus: "unavailable",
+      canBrowserLogin: false,
+      fallbackToTerminal: true,
+      error: "probe failed",
+    });
+  });
+
   for (const selector of [
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_VERTEX",
@@ -393,6 +480,7 @@ describe("ProviderAccountManager", () => {
   });
   it("allows only one login process for a shared credential directory", async () => {
     let starts = 0;
+    let cancels = 0;
     const fake = () => ({
       start: async () => {
         starts++;
@@ -403,7 +491,9 @@ describe("ProviderAccountManager", () => {
       }),
       waitForCompletion: () => new Promise(() => {}),
       read: async () => ({ connected: false }),
-      cancel: async () => {},
+      cancel: async () => {
+        cancels++;
+      },
       close: async () => {},
     });
     const manager = new ProviderAccountManager(
@@ -413,6 +503,13 @@ describe("ProviderAccountManager", () => {
       undefined,
       () => ({}),
       disconnectedAccountClient as never,
+      () => ({}),
+      () => ({}),
+      () => ({}),
+      () => [
+        { id: "user-a", name: "Ana" },
+        { id: "user-b", name: "Ben" },
+      ],
     );
     const first = await manager.startLogin(
       "user-a",
@@ -431,9 +528,32 @@ describe("ProviderAccountManager", () => {
       ok: false,
       status: 409,
       code: "shared_login_in_progress",
-      message: "Another member is signing in to this shared Codex account.",
+      detail: {
+        holderName: "Ana",
+        startedAt: expect.any(Number),
+      },
     });
+    expect(
+      (await manager.list("user-b")).find(
+        (account) =>
+          account.provider === "codex" && account.scope === "office",
+      )?.loginQueue,
+    ).toEqual({ holderName: "Ana", startedAt: expect.any(Number) });
     expect(starts).toBe(1);
+    expect(await manager.cancel("user-b", "codex", "office")).toBe(false);
+    expect(await manager.cancel("user-b", "codex", "office", true)).toBe(
+      true,
+    );
+    expect(cancels).toBe(1);
+    expect(manager["active"].size).toBe(0);
+    for (const userId of ["user-a", "user-b"]) {
+      const account = (await manager.list(userId)).find(
+        (candidate) =>
+          candidate.provider === "codex" && candidate.scope === "office",
+      );
+      expect(account?.loginQueue).toBeUndefined();
+      expect(account?.loginStatus).toBe("idle");
+    }
   });
 
   it("returns the same operation when its user starts it again", async () => {
