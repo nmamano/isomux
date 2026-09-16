@@ -84,6 +84,12 @@ describe("agent form prompt preview", () => {
       await act(async () => {
         await Promise.resolve();
       });
+      if (mode === "spawn") {
+        const active = document.activeElement;
+        expect(active?.getAttribute("data-spawn-initial-focus")).toBe(
+          "template",
+        );
+      }
       if (mode === "edit")
         await waitFor(() =>
           expect(

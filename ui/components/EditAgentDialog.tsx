@@ -1550,6 +1550,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     type="button"
                     onClick={applyBlankTemplate}
                     aria-pressed={selectedTemplateKey === null}
+                    data-spawn-initial-focus="template"
+                    autoFocus={isSpawn}
                     style={{
                       ...templateCardStyle(selectedTemplateKey === null, false),
                       gridColumn: "1 / -1",
@@ -1602,8 +1604,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             )}
             <section className="agent-settings-group agent-identity-section">
               <label style={labelStyle}>{t("common.name")}</label>
-              {/* Mobile autofocus would scroll the engine and templates out of view
-              as soon as the full-page spawn dialog opens. */}
               <input
                 {...noTranslate()}
                 value={name}
@@ -1614,7 +1614,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 placeholder={
                   isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
                 }
-                autoFocus={isSpawn && !isMobile}
                 style={
                   nameError
                     ? { ...inputStyle, borderColor: "#ff6b6b" }
@@ -2164,10 +2163,11 @@ function templateCardStyle(
 }
 
 const TEMPLATE_GROUP_COLORS: Record<AgentTemplate["group"], string> = {
+  // Keep chip tints independent from theme variables and selection colors.
   build: "#4A90D9",
-  work: "var(--success, #50b86c)",
-  life: "var(--coral, #e85d75)",
-  places: "var(--warning, #d4a843)",
+  work: "#50b86c",
+  life: "#e85d75",
+  places: "#d4a843",
 };
 
 const templateAvatarStyle: React.CSSProperties = {

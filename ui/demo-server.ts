@@ -32,6 +32,9 @@ import type {
   UsageReportWire,
   ApiTokenCreateReq,
   ApiTokenWire,
+  MemoryReadRes,
+  MemoryReplaceReq,
+  MemoryWriteRes,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentBackendType,
@@ -61,6 +64,7 @@ import {
   generateUserId,
 } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
+import { injectedMemorySize } from "../shared/memory-size.ts";
 import {
   defaultGhostColorForUserId,
   isGhostVariant,
@@ -74,6 +78,26 @@ const state = new OfficeState();
 let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
+
+// Keep these fixture values aligned with MEMORY_CAPS in server/memory-store.ts.
+const DEMO_MEMORY_CAPS = {
+  office: 2500,
+  room: 10_000,
+  agent: 5000,
+  boss: 5000,
+} as const;
+const demoMemory = new Map<string, string>();
+
+function demoMemoryKey(scope: string, scopeId: string | null): string {
+  return `${scope}:${scopeId ?? ""}`;
+}
+
+function defaultDemoMemory(scope: string): string {
+  if (scope === "agent") return "Keep answers concise and practical.";
+  if (scope === "room") return "Use the shared project conventions.";
+  if (scope === "office") return "Prefer clear, direct communication.";
+  return "";
+}
 
 // Members chat: the humans-only stream on the Lobby tab. A canned page seeded
 // once per session; a post from the demo viewer lands as Ricky and fans out
@@ -1665,6 +1689,32 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  if (route === "GET /api/memory") {
+    const query = new URLSearchParams(path.split("?")[1] ?? "");
+    const scope = query.get("scope");
+    const scopeId = query.get("scopeId");
+    if (!(scope && Object.hasOwn(DEMO_MEMORY_CAPS, scope)))
+      throw new ApiError(400, "invalid_request", "Invalid memory scope");
+    const key = demoMemoryKey(scope, scopeId);
+    const text = demoMemory.get(key) ?? defaultDemoMemory(scope);
+    return {
+      text,
+      version: versionOf(text),
+      size: injectedMemorySize(text),
+      cap: DEMO_MEMORY_CAPS[scope as keyof typeof DEMO_MEMORY_CAPS],
+    } satisfies MemoryReadRes;
+  }
+  if (route === "PUT /api/memory") {
+    const replacement = body as MemoryReplaceReq;
+    const scopeId = replacement.scopeId ?? null;
+    const key = demoMemoryKey(replacement.scope, scopeId);
+    const current =
+      demoMemory.get(key) ?? defaultDemoMemory(replacement.scope);
+    if (replacement.version !== versionOf(current))
+      throw new ApiError(409, "memory_conflict", "Memory changed");
+    demoMemory.set(key, replacement.text);
+    return { version: versionOf(replacement.text) } satisfies MemoryWriteRes;
+  }
   const pinMatch = /^\/api\/members-chat\/([^/]+)\/pin$/.exec(pathname);
   if (method === "PUT" && pinMatch) {
     const index = demoMembersChat.findIndex(

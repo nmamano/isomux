@@ -4,6 +4,7 @@ import type {
   StorageUsageWire,
   UsageBucketWire,
   UsageReportWire,
+  MemoryReadRes,
 } from "../shared/contract-shapes.ts";
 import type {
   CronjobRun,
@@ -12,6 +13,7 @@ import type {
 } from "../shared/types.ts";
 import { cronjobRunStreamId } from "../shared/types.ts";
 import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
+import { injectedMemorySize } from "../shared/memory-size.ts";
 import { DEMO_ROOM_NAMES, demoApi } from "./demo-server.ts";
 
 function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
@@ -28,6 +30,35 @@ function sumBucket(rows: UsageBucketWire[]): UsageBucketWire {
 }
 
 describe("demo fixture data", () => {
+  it("loads canned memory for each editable demo scope", async () => {
+    const caps = { agent: 5000, room: 10_000, office: 2500 } as const;
+    for (const scope of ["agent", "room", "office"] as const) {
+      const memory = (await demoApi(
+        "GET",
+        `/api/memory?scope=${scope}&scopeId=demo`,
+      )) as MemoryReadRes;
+      expect(memory.text.length).toBeGreaterThan(0);
+      expect(memory.version.length).toBeGreaterThan(0);
+      expect(memory.size).toBe(injectedMemorySize(memory.text));
+      expect(memory.cap).toBe(caps[scope]);
+    }
+  });
+
+  it("persists edited agent memory in the demo fixture", async () => {
+    const path = "/api/memory?scope=agent&scopeId=memory-test";
+    const before = (await demoApi("GET", path)) as MemoryReadRes;
+    const text = `${before.text}\nRemember the edited value.`;
+    const saved = (await demoApi("PUT", "/api/memory", {
+      scope: "agent",
+      scopeId: "memory-test",
+      text,
+      version: before.version,
+    })) as { version: string };
+    const after = (await demoApi("GET", path)) as MemoryReadRes;
+    expect(after.text).toBe(text);
+    expect(after.version).toBe(saved.version);
+  });
+
   it("reports every seeded agent and room with production-equivalent totals and ordering", async () => {
     const first = (await demoApi("GET", "/api/usage")) as UsageReportWire;
     const second = (await demoApi("GET", "/api/usage")) as UsageReportWire;
