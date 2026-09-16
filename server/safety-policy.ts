@@ -362,9 +362,9 @@ function stripQuotedStrings(cmd: string): string {
 // Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
 const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];
 
-// Commands whose positional operands are write targets. Interpreters and text
-// processors need command-specific handling in writeTargets: their operands are
-// usually programs or input files, not destinations.
+// Commands whose positional operands are write targets. Interpreters, text
+// processors, dd and truncate need command-specific handling in writeTargets:
+// their operands are programs, input files or option values, not destinations.
 const WRITE_COMMANDS = [
   "cp",
   "mv",
@@ -375,8 +375,6 @@ const WRITE_COMMANDS = [
   "chmod",
   "chown",
   "tee",
-  "dd",
-  "truncate",
   "install",
   "rsync",
   "scp",
