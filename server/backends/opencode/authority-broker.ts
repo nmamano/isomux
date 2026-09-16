@@ -21,6 +21,7 @@ interface ConnectionData {
 }
 
 export interface OpenCodeAuthorityBinding {
+  readonly handle: string;
   activate(serverPid: number): string;
   deactivate(): void;
   unbind(): void;
@@ -95,15 +96,16 @@ export class OpenCodeAuthorityBroker {
   bind(agentId: string, token: string): OpenCodeAuthorityBinding {
     this.ensureListening();
     const owner = Symbol(agentId);
-    let activeHandle: string | null = null;
+    const handle = randomBytes(24).toString("base64url");
+    let active = false;
     return {
+      handle,
       activate: (serverPid) => {
-        if (activeHandle) this.turns.delete(activeHandle);
+        if (active) this.turns.delete(handle);
         const identity = readProcessHop(serverPid);
         if (!identity)
           throw new Error("OpenCode server process identity is unreadable.");
-        activeHandle = randomBytes(24).toString("base64url");
-        this.turns.set(activeHandle, {
+        this.turns.set(handle, {
           owner,
           agentId,
           token,
@@ -111,18 +113,18 @@ export class OpenCodeAuthorityBroker {
           serverStartTicks: identity.startTicks,
           calls: 0,
         });
-        return activeHandle;
+        active = true;
+        return handle;
       },
       deactivate: () => {
-        if (!activeHandle) return;
-        if (this.turns.get(activeHandle)?.owner === owner)
-          this.turns.delete(activeHandle);
-        activeHandle = null;
+        if (!active) return;
+        if (this.turns.get(handle)?.owner === owner) this.turns.delete(handle);
+        active = false;
       },
       unbind: () => {
-        if (activeHandle && this.turns.get(activeHandle)?.owner === owner)
-          this.turns.delete(activeHandle);
-        activeHandle = null;
+        if (active && this.turns.get(handle)?.owner === owner)
+          this.turns.delete(handle);
+        active = false;
       },
     };
   }

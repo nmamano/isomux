@@ -281,10 +281,21 @@ export class OpenCodeTransport {
     this.cwd = options.cwd;
     this.model = options.model;
     this.effort = options.effort ?? DEFAULT_EFFORT;
-    this.systemPrompt = options.systemPrompt;
     this.agentToken = options.agentToken;
     this.agentId = options.agentId;
     this.authorityBroker = options.authorityBroker ?? openCodeAuthorityBroker;
+    if (this.agentToken && this.agentId) {
+      this.authorityBinding = this.authorityBroker.bind(
+        this.agentId,
+        this.agentToken,
+      );
+    }
+    this.systemPrompt = this.authorityBinding
+      ? options.systemPrompt?.replaceAll(
+          OPENCODE_TURN_HANDLE_PLACEHOLDER,
+          this.authorityBinding.handle,
+        )
+      : options.systemPrompt;
     this.agent = options.agent;
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
@@ -345,11 +356,6 @@ export class OpenCodeTransport {
       this.sessionId = body.id;
     }
     sink({ kind: "system_init", sessionId: this.sessionId, model: this.model });
-    if (this.agentToken && this.agentId && !this.authorityBinding)
-      this.authorityBinding = this.authorityBroker.bind(
-        this.agentId,
-        this.agentToken,
-      );
     return this.sessionId;
   }
 
@@ -393,12 +399,19 @@ export class OpenCodeTransport {
       );
       return;
     }
+    if (this.systemPrompt.includes(OPENCODE_TURN_HANDLE_PLACEHOLDER)) {
+      fail(
+        new Error(),
+        "OpenCode cannot send office instructions without an authority binding",
+      );
+      return;
+    }
     try {
       const sessionId = await this.initialize(emit);
       const variant = await this.selectedVariant();
       await this.lease!.beginTurn();
       turnStarted = true;
-      const turnHandle = this.authorityBinding?.activate(this.lease!.pid);
+      this.authorityBinding?.activate(this.lease!.pid);
       this.activeTurn = true;
       this.abortRequested = false;
       controller = new AbortController();
@@ -415,12 +428,7 @@ export class OpenCodeTransport {
             model: { providerID, modelID },
             ...(variant ? { variant } : {}),
             ...(this.agent ? { agent: this.agent } : {}),
-            system: turnHandle
-              ? this.systemPrompt.replaceAll(
-                  OPENCODE_TURN_HANDLE_PLACEHOLDER,
-                  turnHandle,
-                )
-              : this.systemPrompt,
+            system: this.systemPrompt,
             parts,
           }),
         },

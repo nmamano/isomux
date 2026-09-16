@@ -81,7 +81,7 @@ async function request(socketPath: string, handle?: string, path = "/agents") {
 }
 
 describe("OpenCode office proxy", () => {
-  it("requires an active per-turn handle and proxies with the bound token", async () => {
+  it("keeps one session handle across active turns and proxies with the bound token", async () => {
     const { broker, socketPath, seen } = fixture();
     const binding = broker.bind("agent-b", "token-b");
     expect((await request(socketPath)).status).toBe(403);
@@ -115,6 +115,20 @@ describe("OpenCode office proxy", () => {
     expect(await new Response(curl.stdout).json()).toEqual({ ok: true });
     binding.deactivate();
     expect((await request(socketPath, handle)).status).toBe(403);
+    expect(binding.activate(process.pid)).toBe(handle);
+    expect((await request(socketPath, handle)).status).toBe(200);
+  });
+
+  it("refuses a handle from a different session", async () => {
+    const { broker, socketPath } = fixture();
+    const first = broker.bind("agent-b", "token-b");
+    const second = broker.bind("agent-c", "token-c");
+    const firstHandle = first.activate(process.pid);
+    first.deactivate();
+    const secondHandle = second.activate(process.pid);
+
+    expect((await request(socketPath, firstHandle)).status).toBe(403);
+    expect((await request(socketPath, secondHandle)).status).toBe(200);
   });
 
   it("rejects a peer outside the bound server ancestry and non-allowlisted routes", async () => {
@@ -132,9 +146,13 @@ describe("OpenCode office proxy", () => {
 
   it("limits calls for each turn", async () => {
     const { broker, socketPath } = fixture();
-    const handle = broker.bind("agent-b", "token-b").activate(process.pid);
+    const binding = broker.bind("agent-b", "token-b");
+    const handle = binding.activate(process.pid);
     for (let index = 0; index < 32; index++)
       expect((await request(socketPath, handle)).status).toBe(200);
     expect((await request(socketPath, handle)).status).toBe(429);
+    binding.deactivate();
+    expect(binding.activate(process.pid)).toBe(handle);
+    expect((await request(socketPath, handle)).status).toBe(200);
   });
 });

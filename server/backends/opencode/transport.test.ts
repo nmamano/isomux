@@ -21,6 +21,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
+import type { OpenCodeAuthorityBroker } from "./authority-broker.ts";
+import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 import type { NormalizedEvent } from "../types.ts";
 import toolInputSequences from "./fixtures/tool-input-sequences.json";
 
@@ -29,6 +31,137 @@ const capturedArgument = toolInputSequences.argument as ToolUpdate[];
 const capturedInterrupted = toolInputSequences.interrupted as ToolUpdate[];
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("sends a byte-identical system prompt across consecutive session turns", async () => {
+    const systemPayloads: string[] = [];
+    let eventController: ReadableStreamDefaultController<Uint8Array> | null =
+      null;
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/event") {
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                eventController = controller;
+                controller.enqueue(new TextEncoder().encode(": connected\n\n"));
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.pathname === "/provider")
+          return Response.json({ connected: [], all: [] });
+        if (url.pathname.endsWith("/prompt_async")) {
+          const body = (await request.json()) as { system: string };
+          systemPayloads.push(body.system);
+          const controller = eventController;
+          eventController = null;
+          setTimeout(() => {
+            controller?.enqueue(
+              new TextEncoder().encode(
+                'data: {"type":"session.idle","properties":{"sessionID":"session-1"}}\n\n',
+              ),
+            );
+          }, 0);
+          return new Response(null, { status: 204 });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const sessionHandle = "session-handle";
+    let activations = 0;
+    const authorityBroker = {
+      bind: () => ({
+        handle: sessionHandle,
+        activate: () => `turn-handle-${++activations}`,
+        deactivate: () => {},
+        unbind: () => {},
+      }),
+    } as unknown as OpenCodeAuthorityBroker;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
+      agentId: "agent-1",
+      agentToken: "token-1",
+      authorityBroker,
+      supervisor,
+      sessionId: "session-1",
+    });
+    const send = async () => {
+      let resolveCompletion!: () => void;
+      const completion = new Promise<void>((resolve) => {
+        resolveCompletion = resolve;
+      });
+      await transport.send([{ type: "text", text: "go" }], (event) => {
+        if (event.kind === "turn_completed") resolveCompletion();
+      });
+      await completion;
+    };
+
+    try {
+      await send();
+      await send();
+      expect(systemPayloads).toEqual([
+        `office ${sessionHandle}`,
+        `office ${sessionHandle}`,
+      ]);
+      expect(Buffer.from(systemPayloads[0])).toEqual(
+        Buffer.from(systemPayloads[1]),
+      );
+    } finally {
+      transport.close();
+      await server.stop(true);
+    }
+  });
+
+  it("fails before prompt_async when office instructions have no binding", async () => {
+    let leasesAcquired = 0;
+    let promptAsyncCalls = 0;
+    const supervisor = {
+      acquire: async () => {
+        leasesAcquired++;
+        throw new Error("must not acquire");
+      },
+    } as unknown as OpenCodeSupervisor;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: `office ${OPENCODE_TURN_HANDLE_PLACEHOLDER}`,
+      supervisor,
+      contractShapeSink: (shape) => {
+        if (shape === "http:prompt_async:success") promptAsyncCalls++;
+      },
+    });
+    const events: NormalizedEvent[] = [];
+
+    await transport.send([{ type: "text", text: "go" }], (event) =>
+      events.push(event),
+    );
+
+    expect(leasesAcquired).toBe(0);
+    expect(promptAsyncCalls).toBe(0);
+    expect(events).toContainEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error:
+        "OpenCode cannot send office instructions without an authority binding (Error; HTTP status: unavailable).",
+    });
+    transport.close();
+  });
+
   it("classifies free models only from measured zero cost fields", () => {
     expect(
       openCodeModelIsFree({

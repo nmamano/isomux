@@ -120,19 +120,21 @@ putting an agent token in the shared server. Their prompt sends office API calls
 through an Isomux-owned Unix socket. The proxy accepts only an explicit set of
 Isomux routes, rebuilds requests against the local office origin, supplies the
 agent token in memory, caps request and response sizes, and never returns the
-token. Each turn gets a new handle that is invalidated when the turn ends. The
-proxy also requires an active lease and verifies the connecting process's full
-PID, parent-PID, and start-time chain back to the exact OpenCode server. It logs
-the resolved agent and verified chain for each call and limits calls per turn.
+token. Each session gets one handle. The proxy registers that handle only while
+a turn is active and unregisters it when the turn ends. The proxy also requires
+an active lease and verifies the connecting process's full PID, parent-PID, and
+start-time chain back to the exact OpenCode server. It logs the resolved agent
+and verified chain for each call and limits calls per turn.
 
 This is authority control, not same-user isolation. OpenCode stores the current
-system prompt in its shared profile, so another same-uid agent can read a live
-turn handle and use the shared server to act as that agent while its lease is
-open. The handle expires at turn end, and the proxy never exposes the long-lived
-token. The worst case is therefore narrower than the existing Claude and Codex
-shell-environment exposure, where a token read during a tool run remains useful
-after that turn. A real isolation boundary requires a uid per agent or user and
-is a separate architectural project.
+system prompt in its shared profile, so another same-uid agent can read a
+session handle and use the shared server to act as that agent during any active
+turn in that session. The proxy never accepts the handle outside an active turn
+and never exposes the long-lived token. On 2026-09-16, Nil accepted the longer
+session-wide reuse window because changing the system prompt on every turn
+defeated prompt caching in the office trust environment. A real isolation
+boundary requires a uid per agent or user and is a separate architectural
+project.
 
 The proxy avoids two rejected integrations measured on 2026-08-28. A second
 and third server in one profile added about 237 MiB and 224 MiB of proportional
