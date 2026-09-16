@@ -192,8 +192,9 @@ function manualIdleScheduler() {
 
 function shutdownInProgress(supervisor: OpenCodeSupervisor): boolean {
   return (
-    supervisor as unknown as { shutdownPromise: Promise<void> | null }
-  ).shutdownPromise !== null;
+    (supervisor as unknown as { shutdownPromise: Promise<void> | null })
+      .shutdownPromise !== null
+  );
 }
 
 async function makeHealthOnlyBinary(path: string) {

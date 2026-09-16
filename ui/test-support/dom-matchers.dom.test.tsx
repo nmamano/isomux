@@ -1,8 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  registerCompactDomMatchers,
-  setUpDomTestFile,
-} from "./dom.ts";
+import { registerCompactDomMatchers, setUpDomTestFile } from "./dom.ts";
 
 setUpDomTestFile();
 
@@ -43,7 +40,8 @@ describe("compact DOM matcher replacements", () => {
       const negative = () => {
         if (matcher === "toBe") expect(actual).not.toBe(wanted);
         else if (matcher === "toBeNull") expect(actual).not.toBeNull();
-        else if (matcher === "toBeUndefined") expect(actual).not.toBeUndefined();
+        else if (matcher === "toBeUndefined")
+          expect(actual).not.toBeUndefined();
         else expect(actual).not.toBeFalsy();
       };
       if (passes) {

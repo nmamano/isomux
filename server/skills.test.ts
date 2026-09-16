@@ -69,9 +69,7 @@ describe("bundled skills", () => {
     const userRoot = root("wrap-user");
     skill(userRoot, "wrap-session", "personal wrap prompt");
     const entries = deduplicateSkills([
-      ...discoverUserSkills([
-        { root: userRoot, includeCommands: true },
-      ]),
+      ...discoverUserSkills([{ root: userRoot, includeCommands: true }]),
       ...discoverBundledSkills(),
     ]).filter((entry) => entry.name === "wrap-session");
     expect(entries).toHaveLength(1);

@@ -156,18 +156,14 @@ describe("the theme toggle's own label", () => {
   // already light and the button offers dark; a saved "dark" is what makes it
   // offer light.
   it("offers dark when the page is light", () => {
-    const labels = ["en", "es", "ca", "zh"].map((lang) =>
-      label(lang, "light"),
-    );
+    const labels = ["en", "es", "ca", "zh"].map((lang) => label(lang, "light"));
     expect(labels.every(Boolean)).toBe(true);
     expect(new Set(labels).size).toBe(labels.length);
     expect(label("de", "light")).toBe(labels[0]);
   });
 
   it("offers light when the page is dark", () => {
-    const labels = ["en", "es", "ca", "zh"].map((lang) =>
-      label(lang, "dark"),
-    );
+    const labels = ["en", "es", "ca", "zh"].map((lang) => label(lang, "dark"));
     expect(labels.every(Boolean)).toBe(true);
     expect(new Set(labels).size).toBe(labels.length);
     expect(label("de", "dark")).toBe(labels[0]);

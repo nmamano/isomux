@@ -234,11 +234,7 @@ function sectionText(html: string): SemanticText[][] {
       /<section\b[^>]*>([\s\S]*?)<\/section>/gi,
     ),
   ].map((section) =>
-    [
-      ...section[1].matchAll(
-        /<(h[1-6]|p|li|summary)\b[^>]*>([\s\S]*?)<\/\1>/gi,
-      ),
-    ]
+    [...section[1].matchAll(/<(h[1-6]|p|li|summary)\b[^>]*>([\s\S]*?)<\/\1>/gi)]
       .map((match) => ({
         tag: match[1].toLowerCase(),
         text: renderedText(match[2]),

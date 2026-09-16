@@ -594,14 +594,19 @@ export class BrowserPool {
     agentId: string,
     listener: BrowserFrameListener,
     isManager: () => boolean = () => true,
-    bounds: { maxWidth?: number; maxHeight?: number; deviceScaleFactor?: number } = {},
+    bounds: {
+      maxWidth?: number;
+      maxHeight?: number;
+      deviceScaleFactor?: number;
+    } = {},
     captureLevel: () => number = () => 0,
     canCapture: () => boolean = () => true,
   ): () => void {
     this.viewerLevels.set(listener, captureLevel);
     this.viewerReady.set(listener, canCapture);
-    this.viewerBounds.set(listener, { ...bounds, deviceScaleFactor:
-      normalizeBrowserDpr(bounds.deviceScaleFactor),
+    this.viewerBounds.set(listener, {
+      ...bounds,
+      deviceScaleFactor: normalizeBrowserDpr(bounds.deviceScaleFactor),
     });
     this.managerViewers.set(listener, isManager);
     let listeners = this.frameListeners.get(agentId);
@@ -685,9 +690,12 @@ export class BrowserPool {
       width: DEFAULT_WIDTH,
       height: DEFAULT_HEIGHT,
     };
-    const deviceScaleFactor = Math.max(1, ...[...(this.frameListeners.get(agentId) ?? [])].map(
-      (listener) => this.viewerBounds.get(listener)?.deviceScaleFactor ?? 1,
-    ));
+    const deviceScaleFactor = Math.max(
+      1,
+      ...[...(this.frameListeners.get(agentId) ?? [])].map(
+        (listener) => this.viewerBounds.get(listener)?.deviceScaleFactor ?? 1,
+      ),
+    );
     const viewers = [...(this.frameListeners.get(agentId) ?? [])].map(
       (listener) => {
         const bound = this.viewerBounds.get(listener) ?? {};
@@ -698,15 +706,23 @@ export class BrowserPool {
           maxWidth: Math.max(
             1,
             Math.round(
-              Math.min(MAX_DIM, viewport.width * deviceScaleFactor, bound.maxWidth ?? viewport.width * (bound.deviceScaleFactor ?? 1)) *
-                step.scale,
+              Math.min(
+                MAX_DIM,
+                viewport.width * deviceScaleFactor,
+                bound.maxWidth ??
+                  viewport.width * (bound.deviceScaleFactor ?? 1),
+              ) * step.scale,
             ),
           ),
           maxHeight: Math.max(
             1,
             Math.round(
-              Math.min(MAX_DIM, viewport.height * deviceScaleFactor, bound.maxHeight ?? viewport.height * (bound.deviceScaleFactor ?? 1)) *
-                step.scale,
+              Math.min(
+                MAX_DIM,
+                viewport.height * deviceScaleFactor,
+                bound.maxHeight ??
+                  viewport.height * (bound.deviceScaleFactor ?? 1),
+              ) * step.scale,
             ),
           ),
           quality: step.quality,
@@ -743,13 +759,19 @@ export class BrowserPool {
       }
       session.screencast = cdp;
       const bounds = this.captureBounds(agentId, session);
-      const viewport = session.page.viewportSize() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+      const viewport = session.page.viewportSize() ?? {
+        width: DEFAULT_WIDTH,
+        height: DEFAULT_HEIGHT,
+      };
       // DSF changes raster density without changing CSS input coordinates.
       // DPR 1 keeps the original screencast path, with no emulation commands.
       session.dprOverride = bounds.deviceScaleFactor > 1;
-      if (session.dprOverride) await cdp.send("Emulation.setDeviceMetricsOverride", {
-        ...viewport, deviceScaleFactor: bounds.deviceScaleFactor, mobile: false,
-      });
+      if (session.dprOverride)
+        await cdp.send("Emulation.setDeviceMetricsOverride", {
+          ...viewport,
+          deviceScaleFactor: bounds.deviceScaleFactor,
+          mobile: false,
+        });
       cdp.on("Page.frameNavigated", () => {
         void this.updateStatus(agentId, session);
       });
@@ -782,10 +804,17 @@ export class BrowserPool {
           };
           const frame = {
             data: event.data,
-            width: event.metadata?.deviceWidth === undefined ? viewport.width : event.metadata.deviceWidth,
-            height: event.metadata?.deviceHeight === undefined ? viewport.height : event.metadata.deviceHeight,
+            width:
+              event.metadata?.deviceWidth === undefined
+                ? viewport.width
+                : event.metadata.deviceWidth,
+            height:
+              event.metadata?.deviceHeight === undefined
+                ? viewport.height
+                : event.metadata.deviceHeight,
           };
-          receivedFrame = this.publishFrame(agentId, session, frame) || receivedFrame;
+          receivedFrame =
+            this.publishFrame(agentId, session, frame) || receivedFrame;
         },
       );
       if (session.screencast !== cdp || !this.frameListeners.get(agentId)?.size)
@@ -794,8 +823,10 @@ export class BrowserPool {
       await cdp.send("Page.startScreencast", {
         format: "jpeg",
         everyNthFrame: bounds.deviceScaleFactor > 1 ? 1 : 2,
-        maxWidth: bounds.deviceScaleFactor > 1 ? viewport.width : bounds.maxWidth,
-        maxHeight: bounds.deviceScaleFactor > 1 ? viewport.height : bounds.maxHeight,
+        maxWidth:
+          bounds.deviceScaleFactor > 1 ? viewport.width : bounds.maxWidth,
+        maxHeight:
+          bounds.deviceScaleFactor > 1 ? viewport.height : bounds.maxHeight,
         quality: bounds.quality,
       });
       // A static tab can emit no initial frame with everyNthFrame > 1.
@@ -807,7 +838,9 @@ export class BrowserPool {
           width: DEFAULT_WIDTH,
           height: DEFAULT_HEIGHT,
         };
-        const shot = await this.captureStill(agentId, session, cdp).catch(() => null);
+        const shot = await this.captureStill(agentId, session, cdp).catch(
+          () => null,
+        );
         if (
           shot?.data &&
           !receivedFrame &&
@@ -832,7 +865,11 @@ export class BrowserPool {
     if (session.resizing) return false;
     // A watcher can change demand while start/seed is still awaiting Chrome.
     const bounds = this.captureBounds(agentId, session);
-    if (session.captureSize !== `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}/${bounds.deviceScaleFactor}`) return false;
+    if (
+      session.captureSize !==
+      `${bounds.maxWidth}x${bounds.maxHeight}@${bounds.quality}/${bounds.deviceScaleFactor}`
+    )
+      return false;
     const viewport = session.page.viewportSize();
     if (
       viewport &&
@@ -858,9 +895,14 @@ export class BrowserPool {
     const viewport = session.page.viewportSize();
     const restoreDpr = session.dprOverride;
     session.dprOverride = false;
-    if (viewport && restoreDpr) await cdp.send("Emulation.setDeviceMetricsOverride", {
-      ...viewport, deviceScaleFactor: 1, mobile: false,
-    }).catch(() => {});
+    if (viewport && restoreDpr)
+      await cdp
+        .send("Emulation.setDeviceMetricsOverride", {
+          ...viewport,
+          deviceScaleFactor: 1,
+          mobile: false,
+        })
+        .catch(() => {});
     await cdp.detach().catch(() => {});
   }
 
@@ -955,23 +997,51 @@ export class BrowserPool {
           : { modifiers: input.modifiers }),
       });
     }
-    this.queueInputStill(agentId, session, cdp, true, input.kind === "mouse" && input.event === "mouseMoved" && !session.dprOverride ? 50 : 0);
+    this.queueInputStill(
+      agentId,
+      session,
+      cdp,
+      true,
+      input.kind === "mouse" &&
+        input.event === "mouseMoved" &&
+        !session.dprOverride
+        ? 50
+        : 0,
+    );
     return true;
   }
 
   /** DPR 1 settles trailing input; DPR still-only delivery throttles without starvation. */
-  private queueInputStill(agentId: string, session: AgentSession, cdp: CDPSession, needsPaint = true, delay = 0): void {
+  private queueInputStill(
+    agentId: string,
+    session: AgentSession,
+    cdp: CDPSession,
+    needsPaint = true,
+    delay = 0,
+  ): void {
     if (session.screencast !== cdp) return;
     const throttled = session.dprOverride === true;
-    const pending = session.inputStill ??= { running: false, revision: 0, requested: 0, needsPaint: false };
+    const pending = (session.inputStill ??= {
+      running: false,
+      revision: 0,
+      requested: 0,
+      needsPaint: false,
+    });
     pending.requested++;
-    if (needsPaint) { pending.revision++; pending.needsPaint = true; }
+    if (needsPaint) {
+      pending.revision++;
+      pending.needsPaint = true;
+    }
     if ((throttled || !needsPaint) && pending.timer) return;
     if (pending.timer) clearTimeout(pending.timer);
     if (pending.running) return;
     pending.timer = setTimeout(() => {
       pending.timer = undefined;
-      if (![...(this.frameListeners.get(agentId) ?? [])].some((listener) => this.viewerReady.get(listener)?.() ?? true)) {
+      if (
+        ![...(this.frameListeners.get(agentId) ?? [])].some(
+          (listener) => this.viewerReady.get(listener)?.() ?? true,
+        )
+      ) {
         this.queueInputStill(agentId, session, cdp, pending.needsPaint, 50);
         return;
       }
@@ -980,50 +1050,87 @@ export class BrowserPool {
       let requested = pending.requested;
       const paint = pending.needsPaint;
       pending.needsPaint = false;
-      const current = () => this.sessions.get(agentId) === session &&
-        session.screencast === cdp && session.inputStill === pending;
+      const current = () =>
+        this.sessions.get(agentId) === session &&
+        session.screencast === cdp &&
+        session.inputStill === pending;
       void (async () => {
         // Isolated-world rAF cannot be replaced by the site. Two callbacks
         // cross a paint boundary. A dialog or blocked renderer cannot hold the
         // paint barrier forever; the server deadline also covers the setup commands.
-        if (paint) await withDeadline((async () => {
-          const { frameTree } = await cdp.send("Page.getFrameTree");
-          const { executionContextId } = await cdp.send("Page.createIsolatedWorld", {
-            frameId: frameTree.frame.id, worldName: "isomux-input-paint",
-          });
-          await cdp.send("Runtime.evaluate", {
-            contextId: executionContextId,
-            expression: "new Promise(resolve => { setTimeout(resolve, 250); requestAnimationFrame(() => requestAnimationFrame(resolve)); })",
-            awaitPromise: true,
-          });
-        })(), 300).catch(() => {});
+        if (paint)
+          await withDeadline(
+            (async () => {
+              const { frameTree } = await cdp.send("Page.getFrameTree");
+              const { executionContextId } = await cdp.send(
+                "Page.createIsolatedWorld",
+                {
+                  frameId: frameTree.frame.id,
+                  worldName: "isomux-input-paint",
+                },
+              );
+              await cdp.send("Runtime.evaluate", {
+                contextId: executionContextId,
+                expression:
+                  "new Promise(resolve => { setTimeout(resolve, 250); requestAnimationFrame(() => requestAnimationFrame(resolve)); })",
+                awaitPromise: true,
+              });
+            })(),
+            300,
+          ).catch(() => {});
         if (!current() || (!throttled && pending.revision !== revision)) return;
         // In still-only mode, publish progress even if input arrived during
         // settlement, then run one fresh barrier for that latest input.
-        if (!throttled || pending.revision === revision) requested = pending.requested;
+        if (!throttled || pending.revision === revision)
+          requested = pending.requested;
         const frameRevision = session.frameRevision;
         const shot = await this.captureStill(agentId, session, cdp);
-        if (shot?.data && current() && (throttled || pending.revision === revision) &&
-            session.frameRevision === frameRevision) {
-          const viewport = session.page.viewportSize() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+        if (
+          shot?.data &&
+          current() &&
+          (throttled || pending.revision === revision) &&
+          session.frameRevision === frameRevision
+        ) {
+          const viewport = session.page.viewportSize() ?? {
+            width: DEFAULT_WIDTH,
+            height: DEFAULT_HEIGHT,
+          };
           this.publishFrame(agentId, session, { data: shot.data, ...viewport });
         }
-      })().catch(() => {}).finally(() => {
-        pending.running = false;
-        if (current() && pending.requested !== requested) this.queueInputStill(agentId, session, cdp, pending.needsPaint);
-      });
+      })()
+        .catch(() => {})
+        .finally(() => {
+          pending.running = false;
+          if (current() && pending.requested !== requested)
+            this.queueInputStill(agentId, session, cdp, pending.needsPaint);
+        });
     }, delay);
   }
 
-  private async captureStill(agentId: string, session: AgentSession, cdp: CDPSession) {
-    const viewport = session.page.viewportSize() ?? { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT };
+  private async captureStill(
+    agentId: string,
+    session: AgentSession,
+    cdp: CDPSession,
+  ) {
+    const viewport = session.page.viewportSize() ?? {
+      width: DEFAULT_WIDTH,
+      height: DEFAULT_HEIGHT,
+    };
     const bounds = this.captureBounds(agentId, session);
     const metrics = await cdp.send("Page.getLayoutMetrics");
     const scroll = metrics?.cssVisualViewport;
     return cdp.send("Page.captureScreenshot", {
-      format: "jpeg", quality: bounds.quality,
-      clip: { x: scroll?.pageX ?? 0, y: scroll?.pageY ?? 0, ...viewport,
-        scale: Math.min(bounds.maxWidth / viewport.width, bounds.maxHeight / viewport.height) / bounds.deviceScaleFactor,
+      format: "jpeg",
+      quality: bounds.quality,
+      clip: {
+        x: scroll?.pageX ?? 0,
+        y: scroll?.pageY ?? 0,
+        ...viewport,
+        scale:
+          Math.min(
+            bounds.maxWidth / viewport.width,
+            bounds.maxHeight / viewport.height,
+          ) / bounds.deviceScaleFactor,
       },
     });
   }
@@ -1483,15 +1590,23 @@ export class BrowserPool {
         : result.text;
     } else if (params.action === "screenshot") {
       const dpr = this.frameListeners.get(agentId)?.size
-        ? this.captureBounds(agentId, session).deviceScaleFactor : 1;
-      const screenshot = () => page.screenshot({ fullPage: params.fullPage === true, scale: "css" as const, timeout });
+        ? this.captureBounds(agentId, session).deviceScaleFactor
+        : 1;
+      const screenshot = () =>
+        page.screenshot({
+          fullPage: params.fullPage === true,
+          scale: "css" as const,
+          timeout,
+        });
       if (dpr === 1) {
         base.png = await screenshot();
       } else {
         // Playwright restores its context DPR after a CSS screenshot. Suppress
         // capture and queue human input until a fresh session restores watcher DPR.
         let release!: () => void;
-        session.screenshotDone = new Promise<void>((resolve) => { release = resolve; });
+        session.screenshotDone = new Promise<void>((resolve) => {
+          release = resolve;
+        });
         session.resizing = true;
         try {
           if (session.screencastStarting) await session.screencastStarting;
@@ -1499,8 +1614,12 @@ export class BrowserPool {
           base.png = await screenshot();
         } finally {
           session.resizing = false;
-          try { await this.startScreencast(agentId, session); }
-          finally { session.screenshotDone = undefined; release(); }
+          try {
+            await this.startScreencast(agentId, session);
+          } finally {
+            session.screenshotDone = undefined;
+            release();
+          }
         }
       }
       const shot = describeShot(page.url());

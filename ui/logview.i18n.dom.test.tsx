@@ -344,9 +344,7 @@ describe("the log view chrome", () => {
     });
 
     view.rerender(logView(null, SEEDED));
-    fireEvent.click(
-      view.getByTitle(ANCHOR.endConversation.en),
-    );
+    fireEvent.click(view.getByTitle(ANCHOR.endConversation.en));
     expect(commandCalls.at(-1)).toEqual({
       method: "POST",
       path: "/api/agents/a1/messages",

@@ -202,5 +202,4 @@ describe("dirty settings", () => {
     expect(discardPrompt(view)).toBe(true);
     expect(window.location.pathname).toBe("/settings");
   });
-
 });

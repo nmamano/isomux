@@ -16,10 +16,7 @@ const apiShim = async (method: string, path: string, body?: unknown) => {
   // Leave usage unloaded: this test exercises the page layout, including its
   // loading state, without coupling it to usage totals. Storage answers with
   // an empty measurement so its cleanup guard can run below.
-  if (
-    path === "/api/usage"
-  )
-    return null;
+  if (path === "/api/usage") return null;
   if (path === "/api/storage/usage")
     return {
       stateRoot: "/state",

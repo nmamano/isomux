@@ -79,7 +79,11 @@ export function BrowserPanel({
   const lastServerUrl = useRef<string | undefined>(undefined);
   const surfaceRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const captureBounds = useRef<{ maxWidth?: number; maxHeight?: number; deviceScaleFactor?: number }>({});
+  const captureBounds = useRef<{
+    maxWidth?: number;
+    maxHeight?: number;
+    deviceScaleFactor?: number;
+  }>({});
   const pageBounds = useRef<{ width: number; height: number } | null>(null);
   const held = useRef<{ x: number; y: number } | null>(null);
   const motion = useRef<BrowserHumanInput | null>(null);
@@ -293,65 +297,75 @@ export function BrowserPanel({
         agentId,
         watching: true,
         ...captureBounds.current,
-        deviceScaleFactor: Math.max(1, Math.min(4, window.devicePixelRatio || 1)),
+        deviceScaleFactor: Math.max(
+          1,
+          Math.min(4, window.devicePixelRatio || 1),
+        ),
       });
     };
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
     let lastRect: { width: number; height: number } | undefined;
     const measure = (rect: { width: number; height: number } | undefined) => {
-            if (!rect || rect.width <= 0 || rect.height <= 0) return;
-            if (resizeTimer) clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-              const deviceScaleFactor = Math.max(1, Math.min(4, window.devicePixelRatio || 1));
-              const bound = (value: number) =>
-                Math.max(
-                  BROWSER_MIN_DIM,
-                  Math.min(
-                    BROWSER_MAX_DIM,
-                    Math.ceil((value * deviceScaleFactor) / 16) * 16,
-                  ),
-                );
-              const next = {
-                maxWidth: bound(rect.width),
-                maxHeight: bound(rect.height),
-                deviceScaleFactor,
-              };
-              const cssBound = (value: number) =>
-                Math.max(
-                  BROWSER_MIN_DIM,
-                  Math.min(BROWSER_MAX_DIM, Math.round(value)),
-                );
-              const page = {
-                width: cssBound(rect.width),
-                height: cssBound(rect.height),
-              };
-              const pageChanged =
-                page.width !== pageBounds.current?.width ||
-                page.height !== pageBounds.current?.height;
-              pageBounds.current = page;
-              if (
-                next.maxWidth === captureBounds.current.maxWidth &&
-                next.maxHeight === captureBounds.current.maxHeight &&
-                next.deviceScaleFactor === captureBounds.current.deviceScaleFactor
-              ) {
-                if (pageChanged) resizePage();
-                return;
-              }
-              captureBounds.current = next;
-              subscribe();
-              if (pageChanged) resizePage();
-            }, 150);
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        const deviceScaleFactor = Math.max(
+          1,
+          Math.min(4, window.devicePixelRatio || 1),
+        );
+        const bound = (value: number) =>
+          Math.max(
+            BROWSER_MIN_DIM,
+            Math.min(
+              BROWSER_MAX_DIM,
+              Math.ceil((value * deviceScaleFactor) / 16) * 16,
+            ),
+          );
+        const next = {
+          maxWidth: bound(rect.width),
+          maxHeight: bound(rect.height),
+          deviceScaleFactor,
+        };
+        const cssBound = (value: number) =>
+          Math.max(
+            BROWSER_MIN_DIM,
+            Math.min(BROWSER_MAX_DIM, Math.round(value)),
+          );
+        const page = {
+          width: cssBound(rect.width),
+          height: cssBound(rect.height),
+        };
+        const pageChanged =
+          page.width !== pageBounds.current?.width ||
+          page.height !== pageBounds.current?.height;
+        pageBounds.current = page;
+        if (
+          next.maxWidth === captureBounds.current.maxWidth &&
+          next.maxHeight === captureBounds.current.maxHeight &&
+          next.deviceScaleFactor === captureBounds.current.deviceScaleFactor
+        ) {
+          if (pageChanged) resizePage();
+          return;
+        }
+        captureBounds.current = next;
+        subscribe();
+        if (pageChanged) resizePage();
+      }, 150);
     };
-    const observer = typeof ResizeObserver === "undefined" ? null :
-      new ResizeObserver((entries) => {
-        lastRect = entries[0]?.contentRect;
-        measure(lastRect);
-      });
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver((entries) => {
+            lastRect = entries[0]?.contentRect;
+            measure(lastRect);
+          });
     // A monitor/zoom DPR change need not change the panel's CSS size.
     let resolution: MediaQueryList | undefined;
     const watchResolution = () => {
       resolution?.removeEventListener("change", resolutionChanged);
-      resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      resolution = window.matchMedia(
+        `(resolution: ${window.devicePixelRatio}dppx)`,
+      );
       resolution.addEventListener("change", resolutionChanged);
     };
     const resolutionChanged = () => {

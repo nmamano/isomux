@@ -223,10 +223,7 @@ const corpus: Case[] = [
     false,
     true,
   ),
-  shell(
-    "protected dd output deny",
-    "dd if=/dev/null of=~/.isomux/agents.json",
-  ),
+  shell("protected dd output deny", "dd if=/dev/null of=~/.isomux/agents.json"),
   shell(
     "quoted redirect prose now allows",
     `cd /tmp/rev1-copy && jq -n --arg t '<prose containing parens (x) and git diff HEAD > /tmp/frozen-x.diff>' '{text:$t}' | curl localhost:4000 -d @- | sed -E 's/[A-Za-z0-9_-]{30,}/REDACTED/g'`,

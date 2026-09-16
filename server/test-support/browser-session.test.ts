@@ -169,8 +169,10 @@ function stubBrowser(
               ) => {
                 calls.cdp.push({ method, params });
                 if (options.send) return options.send(method, params);
-                if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root" } } };
-                if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+                if (method === "Page.getFrameTree")
+                  return { frameTree: { frame: { id: "root" } } };
+                if (method === "Page.createIsolatedWorld")
+                  return { executionContextId: 1 };
                 if (method === "Page.captureScreenshot")
                   return options.screenshot?.();
               },
@@ -1126,7 +1128,9 @@ describe("BrowserPool", () => {
         clickCount: 1,
       }),
     ).toBe(true);
-    expect(calls.cdp.find((call) => call.method === "Input.dispatchMouseEvent")).toEqual({
+    expect(
+      calls.cdp.find((call) => call.method === "Input.dispatchMouseEvent"),
+    ).toEqual({
       method: "Input.dispatchMouseEvent",
       params: {
         type: "mousePressed",
@@ -1537,7 +1541,8 @@ it("reads only the active selection, caps it, and does not open a missing page",
 async function untilBrowser(check: () => boolean): Promise<void> {
   const deadline = Date.now() + 1500;
   while (!check()) {
-    if (Date.now() > deadline) throw new Error("browser condition did not arrive");
+    if (Date.now() > deadline)
+      throw new Error("browser condition did not arrive");
     await Bun.sleep(5);
   }
 }
@@ -1547,33 +1552,65 @@ it("captures the latest input after repaint even when a stale stream frame arriv
   let paint!: () => void;
   let evaluating = false;
   let painted = "before";
-  const barrier = new Promise<void>((resolve) => { paint = resolve; });
+  const barrier = new Promise<void>((resolve) => {
+    paint = resolve;
+  });
   let shots = 0;
   const { pool, stub } = poolWith(calls, {}, 60_000, {
     send: async (method) => {
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root" } } };
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
-      if (method === "Runtime.evaluate") { evaluating = true; await barrier; }
-      if (method === "Page.captureScreenshot") { shots++; return { data: painted }; }
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: "root" } } };
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: 7 };
+      if (method === "Runtime.evaluate") {
+        evaluating = true;
+        await barrier;
+      }
+      if (method === "Page.captureScreenshot") {
+        shots++;
+        return { data: painted };
+      }
     },
   });
   const frames: string[] = [];
-  const stop = pool.watch("paint", (f) => { if (f) frames.push(f.data); });
+  const stop = pool.watch("paint", (f) => {
+    if (f) frames.push(f.data);
+  });
   try {
-    await opened(pool, "paint"); await untilBrowser(() => frames.includes("before"));
-    frames.length = 0; shots = 0;
-    await pool.humanInput("paint", { kind: "key", event: "char", key: "a", text: "a" });
-    await pool.humanInput("paint", { kind: "key", event: "char", key: "b", text: "b" });
+    await opened(pool, "paint");
+    await untilBrowser(() => frames.includes("before"));
+    frames.length = 0;
+    shots = 0;
+    await pool.humanInput("paint", {
+      kind: "key",
+      event: "char",
+      key: "a",
+      text: "a",
+    });
+    await pool.humanInput("paint", {
+      kind: "key",
+      event: "char",
+      key: "b",
+      text: "b",
+    });
     await untilBrowser(() => evaluating || frames.length > 0);
     expect(frames).toEqual([]); // a dispatch-time capture still contains the old paint
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: "stale", sessionId: 1 } as never);
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", { data: "stale", sessionId: 1 } as never);
     painted = "both keys painted";
     paint();
     await untilBrowser(() => frames.includes("both keys painted"));
     expect(frames).toEqual(["stale", "both keys painted"]);
     expect(shots).toBe(1);
-    expect(calls.cdp.find((c) => c.method === "Runtime.evaluate")?.params?.contextId).toBe(7);
-  } finally { paint(); stop(); await pool.shutdown(); }
+    expect(
+      calls.cdp.find((c) => c.method === "Runtime.evaluate")?.params?.contextId,
+    ).toBe(7);
+  } finally {
+    paint();
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("coalesces a drag into one still and captures when the paint barrier times out", async () => {
@@ -1581,21 +1618,40 @@ it("coalesces a drag into one still and captures when the paint barrier times ou
   let shots = 0;
   const { pool } = poolWith(calls, {}, 60_000, {
     send: async (method) => {
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root" } } };
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: "root" } } };
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: 1 };
       if (method === "Runtime.evaluate") return new Promise(() => {});
-      if (method === "Page.captureScreenshot") { shots++; return { data: "final" }; }
+      if (method === "Page.captureScreenshot") {
+        shots++;
+        return { data: "final" };
+      }
     },
   });
   const frames: string[] = [];
-  const stop = pool.watch("drag", (f) => { if (f) frames.push(f.data); });
+  const stop = pool.watch("drag", (f) => {
+    if (f) frames.push(f.data);
+  });
   try {
-    await opened(pool, "drag"); await untilBrowser(() => frames.length > 0); shots = 0; frames.length = 0;
-    for (let x = 0; x < 50; x++) await pool.humanInput("drag", { kind: "mouse", event: "mouseMoved", x, y: 20 });
+    await opened(pool, "drag");
+    await untilBrowser(() => frames.length > 0);
+    shots = 0;
+    frames.length = 0;
+    for (let x = 0; x < 50; x++)
+      await pool.humanInput("drag", {
+        kind: "mouse",
+        event: "mouseMoved",
+        x,
+        y: 20,
+      });
     await untilBrowser(() => frames.length > 0);
     expect(shots).toBe(1);
     expect(frames).toEqual(["final"]);
-  } finally { stop(); await pool.shutdown(); }
+  } finally {
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("drops a late input still after a live frame, stop, resize or close and catches capture failure", async () => {
@@ -1603,24 +1659,61 @@ it("drops a late input still after a live frame, stop, resize or close and catch
     const calls = freshCalls();
     let resolve!: (shot: { data: string }) => void;
     let reject!: (reason: Error) => void;
-    const shot = new Promise<{ data: string }>((yes, no) => { resolve = yes; reject = no; });
-    let armed = false, capturing = false;
-    let viewport = { width: 1280, height: 800 };
-    const { pool, stub } = poolWith(calls, { viewportSize: () => viewport, setViewportSize: async (v: typeof viewport) => { viewport = v; } }, 60_000, {
-      screenshot: async () => { if (!armed) return { data: "seed" }; capturing = true; return shot; },
+    const shot = new Promise<{ data: string }>((yes, no) => {
+      resolve = yes;
+      reject = no;
     });
+    let armed = false,
+      capturing = false;
+    let viewport = { width: 1280, height: 800 };
+    const { pool, stub } = poolWith(
+      calls,
+      {
+        viewportSize: () => viewport,
+        setViewportSize: async (v: typeof viewport) => {
+          viewport = v;
+        },
+      },
+      60_000,
+      {
+        screenshot: async () => {
+          if (!armed) return { data: "seed" };
+          capturing = true;
+          return shot;
+        },
+      },
+    );
     const frames: string[] = [];
-    const stop = pool.watch("late", (f) => { if (f) frames.push(f.data); });
+    const stop = pool.watch("late", (f) => {
+      if (f) frames.push(f.data);
+    });
     try {
-      await opened(pool, "late"); frames.length = 0; armed = true;
+      await opened(pool, "late");
+      frames.length = 0;
+      armed = true;
       await pool.humanInput("late", { kind: "key", event: "char", key: "x" });
       await untilBrowser(() => capturing);
       armed = false;
-      if (edge === "live") stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: "live", sessionId: 1 } as never);
-      if (edge === "stop") { stop(); await Bun.sleep(0); }
-      if (edge === "resize") await pool.humanInput("late", { kind: "viewport", width: 400, height: 680 });
+      if (edge === "live")
+        stub.cdpSessions
+          .at(-1)!
+          .emit("Page.screencastFrame", {
+            data: "live",
+            sessionId: 1,
+          } as never);
+      if (edge === "stop") {
+        stop();
+        await Bun.sleep(0);
+      }
+      if (edge === "resize")
+        await pool.humanInput("late", {
+          kind: "viewport",
+          width: 400,
+          height: 680,
+        });
       if (edge === "close") await pool.close("late");
-      if (edge === "reject") reject(new Error("capture failed")); else resolve({ data: "obsolete" });
+      if (edge === "reject") reject(new Error("capture failed"));
+      else resolve({ data: "obsolete" });
       await Bun.sleep(0);
       expect(frames.includes("obsolete")).toBe(false);
       if (edge === "live") expect(frames).toEqual(["live"]);
@@ -1628,7 +1721,11 @@ it("drops a late input still after a live frame, stop, resize or close and catch
         await pool.humanInput("late", { kind: "key", event: "char", key: "y" });
         await untilBrowser(() => frames.includes("seed"));
       }
-    } finally { resolve({ data: "done" }); stop(); await pool.shutdown(); }
+    } finally {
+      resolve({ data: "done" });
+      stop();
+      await pool.shutdown();
+    }
   }
 });
 
@@ -1638,43 +1735,126 @@ it("uses the highest watcher DPR, preserves CSS input and screenshot geometry, a
   let screenshotOptions: Record<string, unknown> | undefined;
   const { pool, stub } = poolWith(calls, {
     viewportSize: () => viewport,
-    setViewportSize: async (v: typeof viewport) => { viewport = v; },
-    screenshot: async (options: Record<string, unknown>) => { screenshotOptions = options; return Buffer.from("PNG"); },
+    setViewportSize: async (v: typeof viewport) => {
+      viewport = v;
+    },
+    screenshot: async (options: Record<string, unknown>) => {
+      screenshotOptions = options;
+      return Buffer.from("PNG");
+    },
   });
-  const starts = () => calls.cdp.filter((c) => c.method === "Page.startScreencast");
-  const metrics = () => calls.cdp.filter((c) => c.method === "Emulation.setDeviceMetricsOverride").at(-1)?.params;
+  const starts = () =>
+    calls.cdp.filter((c) => c.method === "Page.startScreencast");
+  const metrics = () =>
+    calls.cdp
+      .filter((c) => c.method === "Emulation.setDeviceMetricsOverride")
+      .at(-1)?.params;
   const stops: (() => void)[] = [];
   const watch = (dpr: number, bounds = {}) => {
-    const stop = pool.watch("dpr", () => {}, () => true, { deviceScaleFactor: dpr, ...bounds }); stops.push(stop); return stop;
+    const stop = pool.watch(
+      "dpr",
+      () => {},
+      () => true,
+      { deviceScaleFactor: dpr, ...bounds },
+    );
+    stops.push(stop);
+    return stop;
   };
   try {
-    watch(1); await opened(pool, "dpr");
+    watch(1);
+    await opened(pool, "dpr");
     expect(metrics()).toBeUndefined();
-    const high = watch(2); await untilBrowser(() => metrics()?.deviceScaleFactor === 2);
+    const high = watch(2);
+    await untilBrowser(() => metrics()?.deviceScaleFactor === 2);
     await Bun.sleep(0);
-    expect(starts().at(-1)?.params).toMatchObject({ maxWidth: 1600, maxHeight: 900, everyNthFrame: 1 });
-    expect(metrics()).toEqual({ width: 1600, height: 900, deviceScaleFactor: 2, mobile: false });
-    expect(calls.cdp.some((c) => c.method === "Emulation.setVisibleSize")).toBe(false);
-    await untilBrowser(() => calls.cdp.some((c) => c.method === "Page.captureScreenshot" && (c.params?.clip as { scale?: number } | undefined)?.scale === 0.8));
-    const count = starts().length; const low = watch(1); await Bun.sleep(0); expect(starts()).toHaveLength(count);
-    const frames: unknown[] = []; const frameStop = pool.watch("dpr", (f) => { if(f) frames.push(f); }); stops.push(frameStop);
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: "retina", sessionId: 1, metadata: { deviceWidth: 2560, deviceHeight: 1440 } } as never);
-    expect(frames.some((f) => (f as {data:string}).data === "retina")).toBe(false);
-    await pool.humanInput("dpr", { kind: "mouse", event: "mousePressed", x: 110, y: 230 });
-    expect(calls.cdp.find((c) => c.method === "Input.dispatchMouseEvent")?.params).toMatchObject({ x: 110, y: 230 });
+    expect(starts().at(-1)?.params).toMatchObject({
+      maxWidth: 1600,
+      maxHeight: 900,
+      everyNthFrame: 1,
+    });
+    expect(metrics()).toEqual({
+      width: 1600,
+      height: 900,
+      deviceScaleFactor: 2,
+      mobile: false,
+    });
+    expect(calls.cdp.some((c) => c.method === "Emulation.setVisibleSize")).toBe(
+      false,
+    );
+    await untilBrowser(() =>
+      calls.cdp.some(
+        (c) =>
+          c.method === "Page.captureScreenshot" &&
+          (c.params?.clip as { scale?: number } | undefined)?.scale === 0.8,
+      ),
+    );
+    const count = starts().length;
+    const low = watch(1);
+    await Bun.sleep(0);
+    expect(starts()).toHaveLength(count);
+    const frames: unknown[] = [];
+    const frameStop = pool.watch("dpr", (f) => {
+      if (f) frames.push(f);
+    });
+    stops.push(frameStop);
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", {
+        data: "retina",
+        sessionId: 1,
+        metadata: { deviceWidth: 2560, deviceHeight: 1440 },
+      } as never);
+    expect(frames.some((f) => (f as { data: string }).data === "retina")).toBe(
+      false,
+    );
+    await pool.humanInput("dpr", {
+      kind: "mouse",
+      event: "mousePressed",
+      x: 110,
+      y: 230,
+    });
+    expect(
+      calls.cdp.find((c) => c.method === "Input.dispatchMouseEvent")?.params,
+    ).toMatchObject({ x: 110, y: 230 });
     await pool.humanInput("dpr", { kind: "viewport", width: 400, height: 680 });
-    expect(metrics()).toMatchObject({ width: 400, height: 680, deviceScaleFactor: 2 });
-    expect(starts().at(-1)?.params).toMatchObject({ maxWidth: 400, maxHeight: 680, everyNthFrame: 1 });
-    await untilBrowser(() => (calls.cdp.filter((c) => c.method === "Page.captureScreenshot").at(-1)?.params?.clip as { width?: number } | undefined)?.width === 400);
-    expect(calls.cdp.filter((c) => c.method === "Page.captureScreenshot").at(-1)?.params?.clip).toEqual({ x: 0, y: 0, width: 400, height: 680, scale: 1 });
+    expect(metrics()).toMatchObject({
+      width: 400,
+      height: 680,
+      deviceScaleFactor: 2,
+    });
+    expect(starts().at(-1)?.params).toMatchObject({
+      maxWidth: 400,
+      maxHeight: 680,
+      everyNthFrame: 1,
+    });
+    await untilBrowser(
+      () =>
+        (
+          calls.cdp.filter((c) => c.method === "Page.captureScreenshot").at(-1)
+            ?.params?.clip as { width?: number } | undefined
+        )?.width === 400,
+    );
+    expect(
+      calls.cdp.filter((c) => c.method === "Page.captureScreenshot").at(-1)
+        ?.params?.clip,
+    ).toEqual({ x: 0, y: 0, width: 400, height: 680, scale: 1 });
     await pool.run("dpr", { action: "screenshot" });
     expect(screenshotOptions?.scale).toBe("css");
     expect(metrics()?.deviceScaleFactor).toBe(2);
-    high(); await untilBrowser(() => starts().at(-1)?.params?.everyNthFrame === 2);
-    low(); frameStop();
-    const fractional = watch(1.5); await untilBrowser(() => metrics()?.deviceScaleFactor === 1.5); fractional();
-    const huge = watch(50); await untilBrowser(() => metrics()?.deviceScaleFactor === 4); huge();
-  } finally { for(const stop of stops) stop(); await pool.shutdown(); }
+    high();
+    await untilBrowser(() => starts().at(-1)?.params?.everyNthFrame === 2);
+    low();
+    frameStop();
+    const fractional = watch(1.5);
+    await untilBrowser(() => metrics()?.deviceScaleFactor === 1.5);
+    fractional();
+    const huge = watch(50);
+    await untilBrowser(() => metrics()?.deviceScaleFactor === 4);
+    huge();
+  } finally {
+    for (const stop of stops) stop();
+    await pool.shutdown();
+  }
 });
 
 it("restarts the paint barrier when input arrives during settlement", async () => {
@@ -1683,15 +1863,23 @@ it("restarts the paint barrier when input arrives during settlement", async () =
   let shots = 0;
   const { pool } = poolWith(calls, {}, 60_000, {
     send: async (method) => {
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root" } } };
-      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
-      if (method === "Runtime.evaluate") return new Promise<void>((resolve) => barriers.push(resolve));
-      if (method === "Page.captureScreenshot") { shots++; return { data: "frame" }; }
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: "root" } } };
+      if (method === "Page.createIsolatedWorld")
+        return { executionContextId: 1 };
+      if (method === "Runtime.evaluate")
+        return new Promise<void>((resolve) => barriers.push(resolve));
+      if (method === "Page.captureScreenshot") {
+        shots++;
+        return { data: "frame" };
+      }
     },
   });
   const stop = pool.watch("trailing", () => {});
   try {
-    await opened(pool, "trailing"); await untilBrowser(() => shots === 1); shots = 0;
+    await opened(pool, "trailing");
+    await untilBrowser(() => shots === 1);
+    shots = 0;
     await pool.humanInput("trailing", { kind: "key", event: "char", key: "a" });
     await untilBrowser(() => barriers.length === 1);
     await pool.humanInput("trailing", { kind: "key", event: "char", key: "b" });
@@ -1700,39 +1888,92 @@ it("restarts the paint barrier when input arrives during settlement", async () =
     expect(shots).toBe(0);
     barriers[1]();
     await untilBrowser(() => shots === 1);
-  } finally { for (const done of barriers) done(); stop(); await pool.shutdown(); }
+  } finally {
+    for (const done of barriers) done();
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("seeds the view when the first stream frame has mismatched dimensions", async () => {
   const calls = freshCalls();
   let resolve!: (shot: { data: string }) => void;
-  const shot = new Promise<{ data: string }>((done) => { resolve = done; });
-  const { pool, stub } = poolWith(calls, {}, 60_000, { screenshot: () => shot });
+  const shot = new Promise<{ data: string }>((done) => {
+    resolve = done;
+  });
+  const { pool, stub } = poolWith(calls, {}, 60_000, {
+    screenshot: () => shot,
+  });
   const frames: string[] = [];
-  const stop = pool.watch("old-dimensions", (frame) => { if (frame) frames.push(frame.data); }, () => true, { deviceScaleFactor: 1 });
+  const stop = pool.watch(
+    "old-dimensions",
+    (frame) => {
+      if (frame) frames.push(frame.data);
+    },
+    () => true,
+    { deviceScaleFactor: 1 },
+  );
   try {
     await opened(pool, "old-dimensions");
-    await untilBrowser(() => calls.cdp.some((c) => c.method === "Page.captureScreenshot"));
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: "old-dpr", sessionId: 1, metadata: { deviceWidth: 640, deviceHeight: 400 } } as never);
+    await untilBrowser(() =>
+      calls.cdp.some((c) => c.method === "Page.captureScreenshot"),
+    );
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", {
+        data: "old-dpr",
+        sessionId: 1,
+        metadata: { deviceWidth: 640, deviceHeight: 400 },
+      } as never);
     resolve({ data: "retina-seed" });
     await Bun.sleep(0);
     expect(frames).toEqual(["retina-seed"]);
-  } finally { resolve({ data: "done" }); stop(); await pool.shutdown(); }
+  } finally {
+    resolve({ data: "done" });
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("throttles DPR triggers without starving motion and keeps the final change", async () => {
-  const calls = freshCalls(); let value = 0, shots = 0, inFlight = 0, maxInFlight = 0;
+  const calls = freshCalls();
+  let value = 0,
+    shots = 0,
+    inFlight = 0,
+    maxInFlight = 0;
   const { pool, stub } = poolWith(calls, {}, 60_000, {
-    screenshot: async () => { shots++; maxInFlight = Math.max(maxInFlight, ++inFlight); const data = `sharp-${value}`; await Bun.sleep(65); inFlight--; return { data }; },
+    screenshot: async () => {
+      shots++;
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      const data = `sharp-${value}`;
+      await Bun.sleep(65);
+      inFlight--;
+      return { data };
+    },
   });
   const frames: string[] = [];
-  const stop = pool.watch("motion", (f) => { if (f) frames.push(f.data); }, () => true, { deviceScaleFactor: 2 });
+  const stop = pool.watch(
+    "motion",
+    (f) => {
+      if (f) frames.push(f.data);
+    },
+    () => true,
+    { deviceScaleFactor: 2 },
+  );
   try {
-    await opened(pool, "motion"); await untilBrowser(() => frames.length > 0); frames.length = 0; shots = 0;
+    await opened(pool, "motion");
+    await untilBrowser(() => frames.length > 0);
+    frames.length = 0;
+    shots = 0;
     const started = Date.now();
     while (Date.now() - started < 2000) {
       value++;
-      stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: `trigger-${value}`, sessionId: value } as never);
+      stub.cdpSessions
+        .at(-1)!
+        .emit("Page.screencastFrame", {
+          data: `trigger-${value}`,
+          sessionId: value,
+        } as never);
       await Bun.sleep(16);
     }
     await untilBrowser(() => frames.at(-1) === `sharp-${value}`);
@@ -1743,133 +1984,315 @@ it("throttles DPR triggers without starving motion and keeps the final change", 
     expect(shots).toBe(frames.length);
     expect(calls.cdp.some((c) => c.method === "Runtime.evaluate")).toBe(false);
     const count = shots;
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: `trigger-${value}`, sessionId: value + 1 } as never);
-    await Bun.sleep(100); expect(shots).toBe(count);
-  } finally { stop(); await pool.shutdown(); }
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", {
+        data: `trigger-${value}`,
+        sessionId: value + 1,
+      } as never);
+    await Bun.sleep(100);
+    expect(shots).toBe(count);
+  } finally {
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("queues human input across the entire DPR agent screenshot and restore", async () => {
-  const calls = freshCalls(); let finish!: () => void, screenshotStarted = false;
-  const screenshot = new Promise<void>((done) => { finish = done; });
-  const { pool } = poolWith(calls, { screenshot: async () => {
-    expect(calls.cdp.filter((c) => c.method === "Emulation.setDeviceMetricsOverride").at(-1)?.params).toMatchObject({ width: 1280, height: 800, deviceScaleFactor: 1 });
-    screenshotStarted = true; await screenshot; return Buffer.from("PNG"); } });
-  const stop = pool.watch("race", () => {}, () => true, { deviceScaleFactor: 2 });
+  const calls = freshCalls();
+  let finish!: () => void,
+    screenshotStarted = false;
+  const screenshot = new Promise<void>((done) => {
+    finish = done;
+  });
+  const { pool } = poolWith(calls, {
+    screenshot: async () => {
+      expect(
+        calls.cdp
+          .filter((c) => c.method === "Emulation.setDeviceMetricsOverride")
+          .at(-1)?.params,
+      ).toMatchObject({ width: 1280, height: 800, deviceScaleFactor: 1 });
+      screenshotStarted = true;
+      await screenshot;
+      return Buffer.from("PNG");
+    },
+  });
+  const stop = pool.watch(
+    "race",
+    () => {},
+    () => true,
+    { deviceScaleFactor: 2 },
+  );
   try {
     await opened(pool, "race");
     const shot = pool.run("race", { action: "screenshot" });
     await untilBrowser(() => screenshotStarted);
-    const mouse = pool.humanInput("race", { kind: "mouse", event: "mousePressed", x: 330, y: 520 });
+    const mouse = pool.humanInput("race", {
+      kind: "mouse",
+      event: "mousePressed",
+      x: 330,
+      y: 520,
+    });
     await Bun.sleep(10);
-    expect(calls.cdp.filter((c) => c.method === "Input.dispatchMouseEvent")).toHaveLength(0);
-    finish(); expect((await shot).ok).toBe(true); expect(await mouse).toBe(true);
-    const inputs = calls.cdp.filter((c) => c.method === "Input.dispatchMouseEvent");
-    expect(inputs).toHaveLength(1); expect(inputs[0].params).toMatchObject({ x: 330, y: 520 });
-  } finally { finish(); stop(); await pool.shutdown(); }
+    expect(
+      calls.cdp.filter((c) => c.method === "Input.dispatchMouseEvent"),
+    ).toHaveLength(0);
+    finish();
+    expect((await shot).ok).toBe(true);
+    expect(await mouse).toBe(true);
+    const inputs = calls.cdp.filter(
+      (c) => c.method === "Input.dispatchMouseEvent",
+    );
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0].params).toMatchObject({ x: 330, y: 520 });
+  } finally {
+    finish();
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("pauses capture only when every watcher is blocked", async () => {
-  const calls = freshCalls(); let ready = false, shots = 0;
-  const { pool, stub } = poolWith(calls, {}, 60_000, { screenshot: async () => ({ data: `sharp-${++shots}` }) });
+  const calls = freshCalls();
+  let ready = false,
+    shots = 0;
+  const { pool, stub } = poolWith(calls, {}, 60_000, {
+    screenshot: async () => ({ data: `sharp-${++shots}` }),
+  });
   const frames: string[] = [];
-  const stop = pool.watch("pressure", (f) => { if (f) frames.push(f.data); }, () => true, { deviceScaleFactor: 2 }, () => 0, () => ready);
+  const stop = pool.watch(
+    "pressure",
+    (f) => {
+      if (f) frames.push(f.data);
+    },
+    () => true,
+    { deviceScaleFactor: 2 },
+    () => 0,
+    () => ready,
+  );
   let fast = () => {};
   try {
-    await opened(pool, "pressure"); await Bun.sleep(100); expect(shots).toBe(0);
-    fast = pool.watch("pressure", () => {}, () => true, { deviceScaleFactor: 1 });
+    await opened(pool, "pressure");
+    await Bun.sleep(100);
+    expect(shots).toBe(0);
+    fast = pool.watch(
+      "pressure",
+      () => {},
+      () => true,
+      { deviceScaleFactor: 1 },
+    );
     await untilBrowser(() => shots > 0);
-    fast(); await Bun.sleep(10); const count = shots;
-    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: "new", sessionId: 1 } as never);
-    await Bun.sleep(100); expect(shots).toBe(count);
-    ready = true; await untilBrowser(() => shots === count + 1);
+    fast();
+    await Bun.sleep(10);
+    const count = shots;
+    stub.cdpSessions
+      .at(-1)!
+      .emit("Page.screencastFrame", { data: "new", sessionId: 1 } as never);
+    await Bun.sleep(100);
+    expect(shots).toBe(count);
+    ready = true;
+    await untilBrowser(() => shots === count + 1);
     expect(frames.at(-1)).toBe(`sharp-${shots}`);
-  } finally { fast(); stop(); await pool.shutdown(); }
+  } finally {
+    fast();
+    stop();
+    await pool.shutdown();
+  }
 });
 
 it("restores fresh watcher DPR after a screenshot and recovers from a failed restore", async () => {
   for (const failRestore of [false, true]) {
-    const calls = freshCalls(); let finish!: () => void, started = false, rejectRestore = false;
-    const gate = new Promise<void>((done) => { finish = done; });
-    const { pool } = poolWith(calls, { screenshot: async () => { started = true; await gate; return Buffer.from("PNG"); } }, 60_000, {
-      send: async (method) => {
-        if (method === "Emulation.setDeviceMetricsOverride" && rejectRestore) throw Error("restore failed");
-        if (method === "Page.captureScreenshot") return { data: "sharp" };
-      },
+    const calls = freshCalls();
+    let finish!: () => void,
+      started = false,
+      rejectRestore = false;
+    const gate = new Promise<void>((done) => {
+      finish = done;
     });
+    const { pool } = poolWith(
+      calls,
+      {
+        screenshot: async () => {
+          started = true;
+          await gate;
+          return Buffer.from("PNG");
+        },
+      },
+      60_000,
+      {
+        send: async (method) => {
+          if (method === "Emulation.setDeviceMetricsOverride" && rejectRestore)
+            throw Error("restore failed");
+          if (method === "Page.captureScreenshot") return { data: "sharp" };
+        },
+      },
+    );
     const frames: (string | null)[] = [];
-    const low = pool.watch("restore", (f) => frames.push(f?.data ?? null), () => true, { deviceScaleFactor: 1.5 });
-    const high = pool.watch("restore", () => {}, () => true, { deviceScaleFactor: 2 });
+    const low = pool.watch(
+      "restore",
+      (f) => frames.push(f?.data ?? null),
+      () => true,
+      { deviceScaleFactor: 1.5 },
+    );
+    const high = pool.watch(
+      "restore",
+      () => {},
+      () => true,
+      { deviceScaleFactor: 2 },
+    );
     try {
-      await opened(pool, "restore"); await untilBrowser(() => frames.includes("sharp"));
-      const shot = pool.run("restore", { action: "screenshot" }); await untilBrowser(() => started);
-      high(); rejectRestore = failRestore; frames.length = 0; finish(); await shot;
-      const metrics = calls.cdp.filter((c) => c.method === "Emulation.setDeviceMetricsOverride").at(-1)?.params;
-      expect(calls.cdp.some((c) => c.method === "Emulation.setDeviceMetricsOverride" && c.params?.deviceScaleFactor === 1.5)).toBe(true);
+      await opened(pool, "restore");
+      await untilBrowser(() => frames.includes("sharp"));
+      const shot = pool.run("restore", { action: "screenshot" });
+      await untilBrowser(() => started);
+      high();
+      rejectRestore = failRestore;
+      frames.length = 0;
+      finish();
+      await shot;
+      const metrics = calls.cdp
+        .filter((c) => c.method === "Emulation.setDeviceMetricsOverride")
+        .at(-1)?.params;
+      expect(
+        calls.cdp.some(
+          (c) =>
+            c.method === "Emulation.setDeviceMetricsOverride" &&
+            c.params?.deviceScaleFactor === 1.5,
+        ),
+      ).toBe(true);
       expect(metrics?.deviceScaleFactor).toBe(failRestore ? 1 : 1.5);
       if (failRestore) {
         expect(frames.includes("sharp")).toBe(false);
         expect(frames.at(-1)).toBeNull();
-        rejectRestore = false; pool.refreshCapture("restore");
+        rejectRestore = false;
+        pool.refreshCapture("restore");
       }
       await untilBrowser(() => frames.includes("sharp"));
-    } finally { finish(); high(); low(); await pool.shutdown(); }
+    } finally {
+      finish();
+      high();
+      low();
+      await pool.shutdown();
+    }
   }
 });
 
 it("rejects the old seed and stream when a DPR watcher joins during start", async () => {
-  const calls = freshCalls(); let finish!: (shot: { data: string }) => void, shots = 0;
-  const seed = new Promise<{ data: string }>((done) => { finish = done; });
-  const { pool, stub } = poolWith(calls, {}, 60_000, { screenshot: async () => ++shots === 1 ? seed : { data: "sharp" } });
+  const calls = freshCalls();
+  let finish!: (shot: { data: string }) => void,
+    shots = 0;
+  const seed = new Promise<{ data: string }>((done) => {
+    finish = done;
+  });
+  const { pool, stub } = poolWith(calls, {}, 60_000, {
+    screenshot: async () => (++shots === 1 ? seed : { data: "sharp" }),
+  });
   const low = pool.watch("join-start", () => {});
-  let high = () => {}; const frames: string[] = [];
+  let high = () => {};
+  const frames: string[] = [];
   try {
-    await opened(pool, "join-start"); await untilBrowser(() => shots === 1);
-    high = pool.watch("join-start", (f) => { if (f) frames.push(f.data); }, () => true, { deviceScaleFactor: 2 });
-    stub.cdpSessions[0].emit("Page.screencastFrame", { data: "old-stream", sessionId: 1 } as never);
+    await opened(pool, "join-start");
+    await untilBrowser(() => shots === 1);
+    high = pool.watch(
+      "join-start",
+      (f) => {
+        if (f) frames.push(f.data);
+      },
+      () => true,
+      { deviceScaleFactor: 2 },
+    );
+    stub.cdpSessions[0].emit("Page.screencastFrame", {
+      data: "old-stream",
+      sessionId: 1,
+    } as never);
     finish({ data: "old-seed" });
     await untilBrowser(() => frames.includes("sharp"));
     expect(frames).toEqual(["sharp"]);
-  } finally { finish({ data: "done" }); high(); low(); await pool.shutdown(); }
+  } finally {
+    finish({ data: "done" });
+    high();
+    low();
+    await pool.shutdown();
+  }
 });
 
 it("keeps DPR 1 screenshots and shutdown free of emulation commands", async () => {
-  const calls = freshCalls(); const { pool } = poolWith(calls);
+  const calls = freshCalls();
+  const { pool } = poolWith(calls);
   const stop = pool.watch("plain", () => {});
   try {
     await opened(pool, "plain");
-    const count = calls.cdp.filter((c) => c.method === "Page.startScreencast").length;
+    const count = calls.cdp.filter(
+      (c) => c.method === "Page.startScreencast",
+    ).length;
     await pool.run("plain", { action: "screenshot" });
-    expect(calls.cdp.filter((c) => c.method === "Page.startScreencast")).toHaveLength(count);
-    stop(); await Bun.sleep(0);
-    expect(calls.cdp.some((c) => c.method.startsWith("Emulation."))).toBe(false);
-  } finally { stop(); await pool.shutdown(); }
+    expect(
+      calls.cdp.filter((c) => c.method === "Page.startScreencast"),
+    ).toHaveLength(count);
+    stop();
+    await Bun.sleep(0);
+    expect(calls.cdp.some((c) => c.method.startsWith("Emulation."))).toBe(
+      false,
+    );
+  } finally {
+    stop();
+    await pool.shutdown();
+  }
 });
 
-for (const [kind, interval] of [["hover", 16], ["typing", 80]] as const) {
+for (const [kind, interval] of [
+  ["hover", 16],
+  ["typing", 80],
+] as const) {
   it(`delivers DPR stills during continuous ${kind} and ends with the final input`, async () => {
-    const calls = freshCalls(); let value = 0, inFlight = 0, maxInFlight = 0;
+    const calls = freshCalls();
+    let value = 0,
+      inFlight = 0,
+      maxInFlight = 0;
     const { pool, stub } = poolWith(calls, {}, 60_000, {
       send: async (method) => {
-        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "root" } } };
-        if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+        if (method === "Page.getFrameTree")
+          return { frameTree: { frame: { id: "root" } } };
+        if (method === "Page.createIsolatedWorld")
+          return { executionContextId: 1 };
         if (method === "Runtime.evaluate") await Bun.sleep(33);
         if (method === "Page.captureScreenshot") {
           maxInFlight = Math.max(maxInFlight, ++inFlight);
-          const data = `paint-${value}`; await Bun.sleep(65); inFlight--; return { data };
+          const data = `paint-${value}`;
+          await Bun.sleep(65);
+          inFlight--;
+          return { data };
         }
       },
     });
     const frames: string[] = [];
-    const stop = pool.watch("continuous", (f) => { if (f) frames.push(f.data); }, () => true, { deviceScaleFactor: 2 });
+    const stop = pool.watch(
+      "continuous",
+      (f) => {
+        if (f) frames.push(f.data);
+      },
+      () => true,
+      { deviceScaleFactor: 2 },
+    );
     try {
-      await opened(pool, "continuous"); await untilBrowser(() => frames.length > 0); frames.length = 0;
+      await opened(pool, "continuous");
+      await untilBrowser(() => frames.length > 0);
+      frames.length = 0;
       const started = Date.now();
       while (Date.now() - started < 2000) {
         value++;
-        await pool.humanInput("continuous", kind === "hover"
-          ? { kind: "mouse", event: "mouseMoved", x: value, y: 20 }
-          : { kind: "key", event: "char", key: "a", text: "a" });
-        stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", { data: `trigger-${value}`, sessionId: value } as never);
+        await pool.humanInput(
+          "continuous",
+          kind === "hover"
+            ? { kind: "mouse", event: "mouseMoved", x: value, y: 20 }
+            : { kind: "key", event: "char", key: "a", text: "a" },
+        );
+        stub.cdpSessions
+          .at(-1)!
+          .emit("Page.screencastFrame", {
+            data: `trigger-${value}`,
+            sessionId: value,
+          } as never);
         await Bun.sleep(interval);
       }
       const during = frames.length;
@@ -1877,7 +2300,21 @@ for (const [kind, interval] of [["hover", 16], ["typing", 80]] as const) {
       expect(during).toBeLessThanOrEqual(23);
       await untilBrowser(() => frames.at(-1) === `paint-${value}`);
       expect(maxInFlight).toBe(1);
-      console.log(JSON.stringify({ continuousInput: kind, inputIntervalMs: interval, barrierMs: 33, captureMs: 65, during, total: frames.length, final: frames.at(-1), inputs: value }));
-    } finally { stop(); await pool.shutdown(); }
+      console.log(
+        JSON.stringify({
+          continuousInput: kind,
+          inputIntervalMs: interval,
+          barrierMs: 33,
+          captureMs: 65,
+          during,
+          total: frames.length,
+          final: frames.at(-1),
+          inputs: value,
+        }),
+      );
+    } finally {
+      stop();
+      await pool.shutdown();
+    }
   });
 }

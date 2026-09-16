@@ -57,7 +57,11 @@ function isNodeShape(value: unknown): value is NodeShape {
 function describeNode(node: NodeShape): string {
   if (node.nodeType !== 1) return node.nodeName.toLowerCase();
   const id = node.getAttribute?.("id");
-  const classes = node.getAttribute?.("class")?.trim().split(/\s+/).filter(Boolean);
+  const classes = node
+    .getAttribute?.("class")
+    ?.trim()
+    .split(/\s+/)
+    .filter(Boolean);
   const marker = ["data-testid", "role", "aria-label"]
     .map((name) => [name, node.getAttribute?.(name)] as const)
     .find(([, value]) => value);

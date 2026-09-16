@@ -431,8 +431,7 @@ const cases: Case[] = [
   },
   {
     name: "truncate long options keep their input and value readable",
-    command:
-      "truncate --reference=~/.isomux/agents.json --size=0 /tmp/out",
+    command: "truncate --reference=~/.isomux/agents.json --size=0 /tmp/out",
     denied: false,
   },
   {

@@ -1079,26 +1079,60 @@ it("updates DPR without a CSS resize, including when physical bounds are capped"
   let resize!: ResizeObserverCallback;
   let mediaChanged!: () => void;
   globalThis.ResizeObserver = class {
-    constructor(callback: ResizeObserverCallback) { resize = callback; }
-    observe() {} unobserve() {} disconnect() {}
+    constructor(callback: ResizeObserverCallback) {
+      resize = callback;
+    }
+    observe() {}
+    unobserve() {}
+    disconnect() {}
   };
   window.matchMedia = (() => ({
-    addEventListener: (_type: string, fn: () => void) => { mediaChanged = fn; },
+    addEventListener: (_type: string, fn: () => void) => {
+      mediaChanged = fn;
+    },
     removeEventListener: () => {},
   })) as unknown as typeof window.matchMedia;
-  Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
-  const view = render(<BrowserPanel agentId="dpr-change" canDrive onClose={() => {}} />);
+  Object.defineProperty(window, "devicePixelRatio", {
+    value: 2,
+    configurable: true,
+  });
+  const view = render(
+    <BrowserPanel agentId="dpr-change" canDrive onClose={() => {}} />,
+  );
   try {
-    act(() => resize([{ contentRect: { width: 1600, height: 1600 } } as ResizeObserverEntry], {} as ResizeObserver));
-    await act(async () => { await Bun.sleep(170); });
+    act(() =>
+      resize(
+        [{ contentRect: { width: 1600, height: 1600 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      ),
+    );
+    await act(async () => {
+      await Bun.sleep(170);
+    });
     const before = sent.filter((m) => m.type === "browser_watch").at(-1);
-    expect(before).toMatchObject({ maxWidth: 2560, maxHeight: 2560, deviceScaleFactor: 2 });
-    Object.defineProperty(window, "devicePixelRatio", { value: 3, configurable: true });
+    expect(before).toMatchObject({
+      maxWidth: 2560,
+      maxHeight: 2560,
+      deviceScaleFactor: 2,
+    });
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: 3,
+      configurable: true,
+    });
     act(() => mediaChanged());
-    await act(async () => { await Bun.sleep(170); });
-    expect(sent.filter((m) => m.type === "browser_watch").at(-1)).toMatchObject({ maxWidth: 2560, maxHeight: 2560, deviceScaleFactor: 3 });
+    await act(async () => {
+      await Bun.sleep(170);
+    });
+    expect(sent.filter((m) => m.type === "browser_watch").at(-1)).toMatchObject(
+      { maxWidth: 2560, maxHeight: 2560, deviceScaleFactor: 3 },
+    );
   } finally {
-    view.unmount(); globalThis.ResizeObserver = originalObserver; window.matchMedia = originalMatchMedia;
-    Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
+    view.unmount();
+    globalThis.ResizeObserver = originalObserver;
+    window.matchMedia = originalMatchMedia;
+    Object.defineProperty(window, "devicePixelRatio", {
+      value: originalRatio,
+      configurable: true,
+    });
   }
 });

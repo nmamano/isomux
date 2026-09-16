@@ -47,7 +47,11 @@ export class BrowserFrameSender {
   }
 
   canCapture(): boolean {
-    return !this.stopped && this.pending === undefined && this.socket.getBufferedAmount() <= this.frameBytes;
+    return (
+      !this.stopped &&
+      this.pending === undefined &&
+      this.socket.getBufferedAmount() <= this.frameBytes
+    );
   }
 
   send(frame: string | Uint8Array): void {

@@ -1796,15 +1796,26 @@ it("browser watcher DPR defaults, clamps fractional values, and rejects invalid 
   try {
     for (const value of [undefined, 2.5, 50, 0, null, "2", {}]) {
       const count = bounds.length;
-      socket.send({ type: "browser_watch", agentId: agent.id, watching: true,
+      socket.send({
+        type: "browser_watch",
+        agentId: agent.id,
+        watching: true,
         ...(value === undefined ? {} : { deviceScaleFactor: value }),
       });
       await pingPong(socket);
-      if (value === null || typeof value === "string" || typeof value === "object") {
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "object"
+      ) {
         expect(bounds).toHaveLength(count);
       } else {
-        expect(bounds.at(-1)?.deviceScaleFactor).toBe(Math.max(1, Math.min(4, typeof value === "number" ? value : 1)));
+        expect(bounds.at(-1)?.deviceScaleFactor).toBe(
+          Math.max(1, Math.min(4, typeof value === "number" ? value : 1)),
+        );
       }
     }
-  } finally { browserPool.watch = original; }
+  } finally {
+    browserPool.watch = original;
+  }
 });

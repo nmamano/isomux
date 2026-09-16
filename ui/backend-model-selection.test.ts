@@ -114,13 +114,21 @@ describe("modelListErrorMessage", () => {
         message: "connect ECONNREFUSED",
         authError: false,
       }),
-    ).toBe(english.t("common.model.openCodeLoadFailed", { detail: " (connect ECONNREFUSED)" }));
+    ).toBe(
+      english.t("common.model.openCodeLoadFailed", {
+        detail: " (connect ECONNREFUSED)",
+      }),
+    );
     expect(
       modelListErrorMessage(catalan, true, {
         message: "connect ECONNREFUSED",
         authError: false,
       }),
-    ).toBe(catalan.t("common.model.openCodeLoadFailed", { detail: " (connect ECONNREFUSED)" }));
+    ).toBe(
+      catalan.t("common.model.openCodeLoadFailed", {
+        detail: " (connect ECONNREFUSED)",
+      }),
+    );
   });
 
   it("drops the parentheses when the backend said nothing", () => {

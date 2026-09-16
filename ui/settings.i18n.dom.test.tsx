@@ -104,9 +104,8 @@ const CA = {
   self: translationsFor("settings.you").ca,
   profile: translationsFor("settings.sidebar.profile").ca,
   preferences: translationsFor("common.preferences").ca,
-  personalConnections: translationsFor(
-    "settings.sidebar.connectionsPersonal",
-  ).ca,
+  personalConnections: translationsFor("settings.sidebar.connectionsPersonal")
+    .ca,
   apiTokens: translationsFor("settings.sidebar.apiTokens").ca,
   signInLinks: translationsFor("settings.sidebar.signInLinks").ca,
   device: translationsFor("common.device").ca,
@@ -225,9 +224,7 @@ describe("the settings page", () => {
       target: { value: "Tester 2" },
     });
     fireEvent.click(row(view, CA.office));
-    expect(
-      view.queryByText(CA.discardPrompt),
-    ).not.toBeNull();
+    expect(view.queryByText(CA.discardPrompt)).not.toBeNull();
     expect(row(view, CA.office).getAttribute("aria-current")).toBeNull();
     fireEvent.click(view.getByText(CA.discard));
     expect(row(view, CA.office).getAttribute("aria-current")).toBe("true");
@@ -242,7 +239,7 @@ describe("the settings page", () => {
         translationsFor("settings.office.namePlaceholder").ca,
       ),
       {
-      target: { value: "Oficina Nord" },
+        target: { value: "Oficina Nord" },
       },
     );
     discardInto(view, CA.usage);
