@@ -74,5 +74,4 @@ describe("a link straight to a page", () => {
     expect(taskPageOpen(view)).toBe(true);
     expect(window.location.pathname).toBe("/tasks");
   });
-
 });

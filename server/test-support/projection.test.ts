@@ -888,29 +888,54 @@ describe("live browser profile authorization", () => {
     const otherSocket = await connectSettled(server, member.rawSessionId);
     const original = browserPool.selection.bind(browserPool);
     let reads = 0;
-    let resolveRead: ((value: { text: string; truncated: boolean }) => void) | undefined;
+    let resolveRead:
+      | ((value: { text: string; truncated: boolean }) => void)
+      | undefined;
     browserPool.selection = async () => {
       reads++;
       if (reads === 1) return { text: "private selection", truncated: false };
-      return new Promise((resolve) => { resolveRead = resolve; });
+      return new Promise((resolve) => {
+        resolveRead = resolve;
+      });
     };
-    const request = { type: "browser_input", agentId: agent.id, input: { kind: "selection", requestId: 17 } };
-    const replies = (socket: typeof managerSocket) => bag(socket).filter(m => m.type === "browser_selection");
+    const request = {
+      type: "browser_input",
+      agentId: agent.id,
+      input: { kind: "selection", requestId: 17 },
+    };
+    const replies = (socket: typeof managerSocket) =>
+      bag(socket).filter((m) => m.type === "browser_selection");
     try {
       otherSocket.send(request);
-      managerSocket.send({ ...request, input: { kind: "selection", requestId: -1 } });
+      managerSocket.send({
+        ...request,
+        input: { kind: "selection", requestId: -1 },
+      });
       await pingPong(otherSocket);
       await pingPong(managerSocket);
       expect(reads).toBe(0);
       managerSocket.send(request);
       await pingPong(managerSocket);
-      expect(replies(managerSocket)).toEqual([{ type: "browser_selection", agentId: agent.id, requestId: 17, text: "private selection", truncated: false }]);
+      expect(replies(managerSocket)).toEqual([
+        {
+          type: "browser_selection",
+          agentId: agent.id,
+          requestId: 17,
+          text: "private selection",
+          truncated: false,
+        },
+      ]);
       expect(replies(secondTab)).toEqual([]);
       expect(replies(otherSocket)).toEqual([]);
-      managerSocket.send({ ...request, input: { kind: "selection", requestId: 18 } });
+      managerSocket.send({
+        ...request,
+        input: { kind: "selection", requestId: 18 },
+      });
       await pingPong(managerSocket);
       expect(reads).toBe(2);
-      server.agentManager.getAgent(agent.id)!.userId = getUserByName(member.username)!.id;
+      server.agentManager.getAgent(agent.id)!.userId = getUserByName(
+        member.username,
+      )!.id;
       resolveRead!({ text: "must not arrive", truncated: false });
       await pingPong(managerSocket);
       expect(replies(managerSocket)).toHaveLength(1);

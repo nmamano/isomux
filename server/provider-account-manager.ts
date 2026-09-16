@@ -140,7 +140,10 @@ export class ProviderAccountManager {
       userId,
     ) =>
       managedUserEnvExists(userId) ? (readManagedUserEnv(userId) ?? {}) : {},
-    private readonly users: () => Array<{ id: string; name?: string }> = listUsers,
+    private readonly users: () => Array<{
+      id: string;
+      name?: string;
+    }> = listUsers,
     private readonly personalHome: typeof personalProviderHome = personalProviderHome,
     private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,
     private readonly personalActive: typeof isPersonalProviderActive = isPersonalProviderActive,
@@ -492,8 +495,7 @@ export class ProviderAccountManager {
       return this.inactivePersonal(target);
     }
     const running = this.active.get(target.key);
-    if (running && running.userId !== userId)
-      return this.queuedWire(running);
+    if (running && running.userId !== userId) return this.queuedWire(running);
     if (running?.userId === userId && !signal) return running.wire;
     const cacheKey = this.cacheKey(userId, target);
     const cacheGeneration = refresh

@@ -39,16 +39,48 @@ const agentDialog = (language: Language) =>
     { rooms: [ROOM], hasReceivedInitialState: true },
   );
 const ANCHOR = {
-  spawnTitle: { ca: "Crear un agent nou", es: "Crear un agente nuevo", en: "Spawn New Agent" },
-  identity: { ca: "Instruccions i memòria", es: "Instrucciones y memoria", en: "Instructions and memory" },
-  access: { ca: "Accés i ubicació", es: "Acceso y ubicación", en: "Access and location" },
+  spawnTitle: {
+    ca: "Crear un agent nou",
+    es: "Crear un agente nuevo",
+    en: "Spawn New Agent",
+  },
+  identity: {
+    ca: "Instruccions i memòria",
+    es: "Instrucciones y memoria",
+    en: "Instructions and memory",
+  },
+  access: {
+    ca: "Accés i ubicació",
+    es: "Acceso y ubicación",
+    en: "Access and location",
+  },
   blank: { ca: "En blanc", es: "En blanco", en: "Blank" },
-  codeReviewer: { ca: "Revisor de codi", es: "Revisor de código", en: "Code Reviewer" },
-  permissionMode: { ca: "Mode de permisos", es: "Modo de permisos", en: "Permission Mode" },
-  permissionDefault: { ca: "Per defecte (preguntar per a tot)", es: "Por defecto (preguntar para todo)", en: "Default (ask for everything)" },
-  permissionBypass: { ca: "Ometre els permisos (s'aprova tot automàticament)", es: "Omitir permisos (se aprueba todo automáticamente)", en: "Bypass (auto-approve all)" },
+  codeReviewer: {
+    ca: "Revisor de codi",
+    es: "Revisor de código",
+    en: "Code Reviewer",
+  },
+  permissionMode: {
+    ca: "Mode de permisos",
+    es: "Modo de permisos",
+    en: "Permission Mode",
+  },
+  permissionDefault: {
+    ca: "Per defecte (preguntar per a tot)",
+    es: "Por defecto (preguntar para todo)",
+    en: "Default (ask for everything)",
+  },
+  permissionBypass: {
+    ca: "Ometre els permisos (s'aprova tot automàticament)",
+    es: "Omitir permisos (se aprueba todo automáticamente)",
+    en: "Bypass (auto-approve all)",
+  },
   effortXhigh: { ca: "Molt alt", es: "Muy alto", en: "Extra high" },
-  expandInstructions: { ca: "Amplia Instruccions personalitzades", es: "Ampliar Instrucciones personalizadas", en: "Expand Custom Instructions" },
+  expandInstructions: {
+    ca: "Amplia Instruccions personalitzades",
+    es: "Ampliar Instrucciones personalizadas",
+    en: "Expand Custom Instructions",
+  },
 } as const;
 
 const shows = (view: View, text: string) =>
@@ -68,7 +100,9 @@ function checkCostume(view: View, label: string, construction: string): void {
   act(() => selected.click());
   const preview = () =>
     view.container.querySelector("[data-outfit-preview]") as HTMLElement;
-  expect(preview().querySelector('[data-costume-body="construction"]') !== null).toBe(true);
+  expect(
+    preview().querySelector('[data-costume-body="construction"]') !== null,
+  ).toBe(true);
   act(() => buttons[0].click());
   expect(preview().querySelector("[data-costume-body]") === null).toBe(true);
 }

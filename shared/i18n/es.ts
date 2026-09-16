@@ -1394,8 +1394,10 @@ Cosas que puedes hacer por él:
   "panels.browser.copied": "Copiado.",
   "panels.browser.noSelection": "No hay texto seleccionado.",
   "panels.browser.copyTruncated": "Se copió parte de la selección.",
-  "panels.browser.selectionFailed": "No se pudo leer la selección. Inténtalo de nuevo.",
-  "panels.browser.copyFailed": "No se pudo copiar. Comprueba el permiso del portapapeles y usa HTTPS.",
+  "panels.browser.selectionFailed":
+    "No se pudo leer la selección. Inténtalo de nuevo.",
+  "panels.browser.copyFailed":
+    "No se pudo copiar. Comprueba el permiso del portapapeles y usa HTTPS.",
   "panels.browser.go": "Ir",
   "panels.browser.loading": "Cargando…",
   "panels.browser.readOnly":

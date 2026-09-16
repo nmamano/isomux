@@ -917,7 +917,9 @@ function validBrowserInput(value: unknown): value is BrowserHumanInput {
   if (!value || typeof value !== "object") return false;
   const input = value as Record<string, unknown>;
   if (input.kind === "selection")
-    return Number.isSafeInteger(input.requestId) && Number(input.requestId) >= 0;
+    return (
+      Number.isSafeInteger(input.requestId) && Number(input.requestId) >= 0
+    );
   if (input.kind === "viewport")
     return (
       input.width !== undefined &&
@@ -4002,12 +4004,7 @@ function buildExecutorDeps(
       callback: (userId, provider, scope, code) =>
         providerAccountManager.submitCode(userId, provider, scope, code),
       cancel: (userId, provider, scope, allowForeign) =>
-        providerAccountManager.cancel(
-          userId,
-          provider,
-          scope,
-          allowForeign,
-        ),
+        providerAccountManager.cancel(userId, provider, scope, allowForeign),
       disconnect: (userId, provider, scope) =>
         providerAccountManager.disconnect(userId, provider, scope),
     }),
@@ -5372,7 +5369,14 @@ async function handleInboundMessage(
           }
           // The response is private to the requesting manager connection.
           if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId))
-            ws.send(JSON.stringify({ type: "browser_selection", agentId: cmd.agentId, requestId: cmd.input.requestId, ...result }));
+            ws.send(
+              JSON.stringify({
+                type: "browser_selection",
+                agentId: cmd.agentId,
+                requestId: cmd.input.requestId,
+                ...result,
+              }),
+            );
         } else if (cmd.input.kind === "navigate") {
           ws.send(
             JSON.stringify({

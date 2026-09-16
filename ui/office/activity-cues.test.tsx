@@ -117,9 +117,10 @@ describe("face", () => {
   // mud.
   it("leaves the portrait unlit whatever the agent is doing", () => {
     for (const state of [...MID_TURN, ...NOT_MID_TURN])
-      expect([state, character(state, true).includes("data-face-light")]).toEqual(
-        [state, false],
-      );
+      expect([
+        state,
+        character(state, true).includes("data-face-light"),
+      ]).toEqual([state, false]);
   });
 
   it("paints the light in the face's own skin, not in a colour of its own", () => {
@@ -206,7 +207,8 @@ describe("face light, across every skin the picker offers", () => {
     }
     // And no face may be lit appreciably harder than any other, which is the
     // defect itself rather than either of its ends.
-    const spread = Math.max(...peaks.map((p) => p.peak)) -
+    const spread =
+      Math.max(...peaks.map((p) => p.peak)) -
       Math.min(...peaks.map((p) => p.peak));
     expect(spread).toBeLessThanOrEqual(6);
   });

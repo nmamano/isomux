@@ -55,9 +55,7 @@ it("shows a shared login queue to members and reserves its cancel control for ow
   expect(queue.textContent).toContain("Ana");
   expect(queue.textContent).toContain("Claude");
   expect(queue.textContent).toContain("4");
-  expect(
-    view.container.querySelector("[data-cancel-shared-login]"),
-  ).toBeNull();
+  expect(view.container.querySelector("[data-cancel-shared-login]")).toBeNull();
   expect(view.container.querySelector("[data-own-login-controls]")).toBeNull();
   expect(
     view.container.querySelector("[data-start-provider-login]"),

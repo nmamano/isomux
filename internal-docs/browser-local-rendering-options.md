@@ -6,18 +6,39 @@ Research date: 2026-09-15. Sources were checked during the September 14–15 dis
 
 The agent runs on the office server and acts on a browser. A member sees and uses that browser inside the Isomux web client, beside the agent chat. Scrolling, typing, and text selection should feel local. Multiple viewers and multiple possible drivers are desirable.
 
-Nil does not plan a desktop app and considers a required browser extension unacceptable. Leaving Isomux to use another tab defeats the desired workflow. Nil also judged Scramjet too fragile to invest in based on the compatibility reports; the later discussion examined alternatives and tradeoffs, not approval to implement Scramjet.
+Nil does not plan a desktop app and considers a required browser extension unacceptable. Leaving Isomux to use another tab defeats the desired workflow. Multiple viewers are desirable for remote browsers; local-browser prototypes may serve one client only.
 
-A separate, narrower goal is live previews of apps hosted by Isomux. P0 task `03b5be5e`, “Open hosted apps live beside agent chat,” records that work. Its scope is an iframe panel with refresh and open-full-page controls. Agent control of the exact client page is a possible follow-up.
+## Current plan and task ownership
 
-## Recommendation and status
+Updated 2026-09-16. This document owns the scope, constraints, and validation requirements. The [office task board](https://office.nilmamano.com/tasks) owns priority, assignment, and progress:
 
-- Use direct iframes for apps we control. They run the actual app on the member's device and need no browser mirror.
-- Treat rrweb DOM mirroring as the most promising experiment for general browser use, not a proven replacement for the current stream.
-- Keep server Chromium and pixel streaming available for compatibility if a DOM experiment proceeds.
-- Do not rebuild a general website-rewriting proxy in-house. That would make us responsible for continuing browser and website compatibility work.
+- c7ad3542, “Prototype local and remote browser approaches for a product decision,” owns the [browser comparison](#browser-comparison). It reuses the hosted-app work below.
+- 03b5be5e, “Open hosted apps live beside agent chat,” owns the [hosted-app preview](#hosted-app-preview). Build this once and include its results in the comparison.
 
-The main unresolved rrweb question is whether local scrolling, selection, and typing can coexist with incoming server updates without visible resets or incorrect actions.
+The September 16 task scope supersedes the earlier recommendation to try only rrweb and direct iframes. Nil previously judged Scramjet too fragile; it is now included for a usable prototype and comparison, without approval for product integration. Desktop apps and required extensions remain outside scope.
+
+### Browser comparison
+
+Build runnable, usable prototypes of four approaches:
+
+1. Server Chromium with an improved pixel/video stream.
+2. Server Chromium with rrweb DOM mirroring.
+3. Client-side iframe browsing with controlled embedding/header support where feasible.
+4. Client-side Scramjet browsing.
+
+Use representative real workflows inside an Isomux-style panel beside chat, with agent inspection/control where applicable. A static demo or basic page load is insufficient. Deliver the prototypes and a source-backed comparison of successes, failures, limitations, and work needed for production so Nil can choose what to integrate. Follow the [validation requirements](#validation-requirements).
+
+For remote prototypes, support shared viewing and server-enforced command authorization, including human/agent contention and driver handoff. For local prototypes, accept one-client-only operation; shared viewing/control, mirroring to other clients, and host-client failover are outside scope.
+
+Nil judged the current JPEG stream inadequate on 2026-09-16 and cancelled further investment in that panel under task 3a2766a4, “Browser panel: text on the page cannot be selected by the manager”. The improved stream prototype remains in scope, but must beat the current experience by a visible margin. Matching today's stream is a negative result.
+
+Keep the current stream available while testing alternatives. Do not rebuild a general website-rewriting proxy in-house. The main unresolved rrweb question is whether local scrolling, selection, and typing can coexist with incoming server updates without visible resets or incorrect actions.
+
+### Hosted-app preview
+
+Add an “Open beside chat” action for Isomux-hosted apps. Show the live app in an iframe with refresh and open-full-page controls. The app runs on the member's device for native scrolling, typing, and text selection. Verify authentication, embedding, and isolation from the office.
+
+This task covers apps we control. Agent inspection/control of the exact client page is a possible follow-up. Decide and validate the mobile flow explicitly: the desktop side-panel layout does not establish a useful phone experience. The hosted-app task can proceed independently of the browser comparison.
 
 ## Current Isomux browser
 
@@ -116,7 +137,7 @@ The [release list](https://github.com/MercuryWorkshop/scramjet/releases) include
 
 Each Scramjet client normally runs a separate app instance. Opening the same URL, or even sharing login state, does not synchronize DOM, focus, navigation, and application memory.
 
-To share one instance, we would select one client as the host, mirror that client's page to other viewers, and forward authorized commands to it. That adds a co-browsing system on top of Scramjet and requires the host client to stay connected. Isomux would validate commands on the server and bind them to the selected host and session. This is more work than distributing a single server browser's rrweb stream.
+Shared Scramjet browsing is outside the current prototype scope. A future design to share one instance would select one client as the host, mirror that client's page to other viewers, and forward authorized commands to it. That adds a co-browsing system on top of Scramjet and requires the host client to stay connected. Isomux would validate commands on the server and bind them to the selected host and session. This is more work than distributing a single server browser's rrweb stream.
 
 ## Extensions, native clients, and Orca
 
@@ -156,13 +177,15 @@ A live implementation should keep bounded state: a usable snapshot and subsequen
 
 Measure the complete office workload, including Chromium processes, recorder overhead, snapshots, transport buffers, and existing agents/apps. Also measure replay memory and responsiveness on a phone. More viewers multiply transport and client work; more independent browser pages multiply server page work.
 
-## Proposed validation before implementation commitment
+## Validation requirements
 
-1. Compare the current pixel stream and an rrweb prototype on the same pages, viewport, and network conditions.
-2. Test ordinary document scrolling and selection, then a virtualized list, lazy content, and a complex form with IME, caret movement, and server validation.
-3. Test protected assets, navigation, popups, nested frames, canvas/video, resize, and reconnect. Record what requires pixel fallback.
-4. Join a second viewer mid-session. Test takeover, human/agent contention, stale commands, revoked access, and a slow viewer.
-5. Measure bytes, input-to-visible-result delay, CPU, and peak/steady memory. Run a long session to detect growing replay history or queues.
-6. Report failures as well as successes. Do not replace the working browser stream based only on a static-page demo.
+Apply these checks to the browser comparison before any implementation commitment:
 
-For the separate hosted-app task, validate iframe authentication, app isolation, local input, refresh, and the desktop/mobile panel layout. It does not depend on the rrweb experiment.
+1. Compare all four prototypes on representative pages with the same viewport and network conditions. Use the current pixel stream as the baseline.
+2. Test navigation, login, forms, typing/IME, caret movement, text selection, scrolling, virtualized lists, lazy content, and server validation. Test agent inspection/control where applicable.
+3. Test protected assets, popups, nested frames, canvas/video, resize, reconnect, and clear failure behavior. Record where a remote prototype requires pixel fallback.
+4. For remote prototypes, join a second viewer mid-session. Test driver handoff, human/agent contention, stale commands, revoked access, and a slow viewer. Local prototypes remain single-client.
+5. Test desktop and mobile. Measure interaction delay, bandwidth, CPU, and peak/steady memory under a complete 8 GB office workload. Measure replay memory and responsiveness on a phone. Run long sessions to detect growing history or queues.
+6. Assess integration effort, dependencies, isolation, and licensing. Report failures and limitations alongside successes, with sources and dated measurements. Do not select an approach based only on a static-page demo.
+
+For the hosted-app task, validate its [preview requirements](#hosted-app-preview), including local input, refresh, open-full-page, and the chosen mobile flow. Reuse those results in the comparison.

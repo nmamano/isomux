@@ -1492,24 +1492,38 @@ it("shared capture follows the best viewer demand, scales within client bounds a
   }
 });
 
-
 it("reads only the active selection, caps it, and does not open a missing page", async () => {
   let selected = "";
   const calls = freshCalls();
   const { pool } = poolWith(calls, {
-    evaluate: async (fn: (limit: number) => unknown, limit: number) => runInNewContext(`(${fn.toString()})(${limit})`, {
-      window: { getSelection: () => ({ toString: () => selected }) },
-    }),
+    evaluate: async (fn: (limit: number) => unknown, limit: number) =>
+      runInNewContext(`(${fn.toString()})(${limit})`, {
+        window: { getSelection: () => ({ toString: () => selected }) },
+      }),
   });
   try {
-    expect(await pool.selection("missing").then(() => false, () => true)).toBe(true);
+    expect(
+      await pool.selection("missing").then(
+        () => false,
+        () => true,
+      ),
+    ).toBe(true);
     expect(calls.contexts).toBe(0);
     await pool.run("selected", { action: "goto", url: "https://example.test" });
-    expect(await pool.selection("selected")).toEqual({ text: "", truncated: false });
+    expect(await pool.selection("selected")).toEqual({
+      text: "",
+      truncated: false,
+    });
     selected = "selected words";
-    expect(await pool.selection("selected")).toEqual({ text: selected, truncated: false });
+    expect(await pool.selection("selected")).toEqual({
+      text: selected,
+      truncated: false,
+    });
     selected = "x".repeat(MAX_TEXT_CHARS + 1);
-    expect(await pool.selection("selected")).toEqual({ text: "x".repeat(MAX_TEXT_CHARS), truncated: true });
+    expect(await pool.selection("selected")).toEqual({
+      text: "x".repeat(MAX_TEXT_CHARS),
+      truncated: true,
+    });
     expect(calls.actions).toHaveLength(1);
   } finally {
     await pool.shutdown();

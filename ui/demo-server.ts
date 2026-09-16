@@ -1708,8 +1708,7 @@ export async function demoApi(
     const replacement = body as MemoryReplaceReq;
     const scopeId = replacement.scopeId ?? null;
     const key = demoMemoryKey(replacement.scope, scopeId);
-    const current =
-      demoMemory.get(key) ?? defaultDemoMemory(replacement.scope);
+    const current = demoMemory.get(key) ?? defaultDemoMemory(replacement.scope);
     if (replacement.version !== versionOf(current))
       throw new ApiError(409, "memory_conflict", "Memory changed");
     demoMemory.set(key, replacement.text);

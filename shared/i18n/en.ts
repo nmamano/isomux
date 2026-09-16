@@ -1373,7 +1373,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "panels.browser.noSelection": "No text is selected.",
   "panels.browser.copyTruncated": "Copied part of the selection.",
   "panels.browser.selectionFailed": "Could not read the selection. Try again.",
-  "panels.browser.copyFailed": "Could not copy. Check clipboard permission and use HTTPS.",
+  "panels.browser.copyFailed":
+    "Could not copy. Check clipboard permission and use HTTPS.",
   "panels.browser.go": "Go",
   "panels.browser.loading": "Loading…",
   "panels.browser.readOnly":

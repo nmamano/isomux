@@ -95,9 +95,19 @@ export function BrowserPanel({
   useEffect(() => {
     const listener = (raw: string) => {
       let message: ServerMessage;
-      try { message = JSON.parse(raw) as ServerMessage; } catch { return; }
+      try {
+        message = JSON.parse(raw) as ServerMessage;
+      } catch {
+        return;
+      }
       const request = selectionRequest.current;
-      if (!request || message.type !== "browser_selection" || message.agentId !== agentId || message.requestId !== request.id) return;
+      if (
+        !request ||
+        message.type !== "browser_selection" ||
+        message.agentId !== agentId ||
+        message.requestId !== request.id
+      )
+        return;
       if (message.error) request.reject();
       else request.resolve(message);
     };
@@ -123,11 +133,20 @@ export function BrowserPanel({
     let timer: ReturnType<typeof setTimeout> | undefined;
     let reading = true;
     try {
-      const selection = await new Promise<{ text: string; truncated: boolean }>((resolve, reject) => {
-        selectionRequest.current = { id, resolve, reject: () => reject(new Error("selection_failed")) };
-        timer = setTimeout(() => reject(new Error("selection_timeout")), 5000);
-        input({ kind: "selection", requestId: id });
-      });
+      const selection = await new Promise<{ text: string; truncated: boolean }>(
+        (resolve, reject) => {
+          selectionRequest.current = {
+            id,
+            resolve,
+            reject: () => reject(new Error("selection_failed")),
+          };
+          timer = setTimeout(
+            () => reject(new Error("selection_timeout")),
+            5000,
+          );
+          input({ kind: "selection", requestId: id });
+        },
+      );
       if (!isCurrent()) return;
       if (!selection.text) {
         setCopyNote(i18n.t("panels.browser.noSelection"));
@@ -136,10 +155,22 @@ export function BrowserPanel({
       reading = false;
       await navigator.clipboard.writeText(selection.text);
       if (isCurrent())
-        setCopyNote(i18n.t(selection.truncated ? "panels.browser.copyTruncated" : "panels.browser.copied"));
+        setCopyNote(
+          i18n.t(
+            selection.truncated
+              ? "panels.browser.copyTruncated"
+              : "panels.browser.copied",
+          ),
+        );
     } catch {
       if (isCurrent())
-        setError(i18n.t(reading ? "panels.browser.selectionFailed" : "panels.browser.copyFailed"));
+        setError(
+          i18n.t(
+            reading
+              ? "panels.browser.selectionFailed"
+              : "panels.browser.copyFailed",
+          ),
+        );
     } finally {
       if (timer) clearTimeout(timer);
       if (isCurrent()) {
@@ -404,7 +435,13 @@ export function BrowserPanel({
   const releaseHeld = useCallback(() => {
     if (!held.current) return;
     flushMotion();
-    input({ kind: "mouse", event: "mouseReleased", ...held.current, button: "left", clickCount: 1 });
+    input({
+      kind: "mouse",
+      event: "mouseReleased",
+      ...held.current,
+      button: "left",
+      clickCount: 1,
+    });
     held.current = null;
   }, [flushMotion, input]);
   useEffect(() => {
@@ -415,7 +452,10 @@ export function BrowserPanel({
     };
   }, [releaseHeld]);
 
-  const coordinates = (event: React.MouseEvent<HTMLCanvasElement>, clamp = false) => {
+  const coordinates = (
+    event: React.MouseEvent<HTMLCanvasElement>,
+    clamp = false,
+  ) => {
     if (!size) return null;
     const rect = event.currentTarget.getBoundingClientRect();
     const scale = Math.min(rect.width / size.width, rect.height / size.height);
@@ -426,8 +466,12 @@ export function BrowserPanel({
     const y =
       (event.clientY - rect.top - (rect.height - size.height * scale) / 2) /
       scale;
-    if (!clamp && (x < 0 || y < 0 || x > size.width || y > size.height)) return null;
-    return { x: Math.max(0, Math.min(size.width, x)), y: Math.max(0, Math.min(size.height, y)) };
+    if (!clamp && (x < 0 || y < 0 || x > size.width || y > size.height))
+      return null;
+    return {
+      x: Math.max(0, Math.min(size.width, x)),
+      y: Math.max(0, Math.min(size.height, y)),
+    };
   };
   const point = (
     event: React.PointerEvent<HTMLCanvasElement>,
@@ -484,7 +528,11 @@ export function BrowserPanel({
       >
         <strong style={{ flex: 1 }}>{i18n.t("panels.browser.title")}</strong>
         {canDrive && (
-          <button style={buttonStyle} disabled={!available || busy || copying} onClick={() => void copySelection()}>
+          <button
+            style={buttonStyle}
+            disabled={!available || busy || copying}
+            onClick={() => void copySelection()}
+          >
             {i18n.t("panels.browser.copySelection")}
           </button>
         )}
@@ -587,7 +635,8 @@ export function BrowserPanel({
           fontSize: 12,
         }}
       >
-        {error || copyNote ||
+        {error ||
+          copyNote ||
           (busy
             ? i18n.t("panels.browser.loading")
             : !canDrive
@@ -625,7 +674,6 @@ export function BrowserPanel({
           }}
           onPointerCancel={releaseHeld}
           onLostPointerCapture={releaseHeld}
-
           onWheel={(event) => {
             if (!canDrive || !size) return;
             const position = coordinates(event);

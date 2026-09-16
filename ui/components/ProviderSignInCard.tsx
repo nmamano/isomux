@@ -238,7 +238,7 @@ function ProviderScopeConnection({
             })
           : caught instanceof ApiError
             ? caught.message
-          : t("settings.signIn.startFailed", { provider: title }),
+            : t("settings.signIn.startFailed", { provider: title }),
       );
     } finally {
       setPending(false);

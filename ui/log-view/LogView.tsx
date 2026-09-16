@@ -3478,7 +3478,7 @@ export function LogView({
           }}
         >
           <BrowserPanel
-              key={`${agent.id}:${canDriveBrowser}`}
+            key={`${agent.id}:${canDriveBrowser}`}
             canDrive={canDriveBrowser}
             agentId={agent.id}
             onClose={() => setBrowserOpen(false)}

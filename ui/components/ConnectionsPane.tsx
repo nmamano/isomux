@@ -77,15 +77,13 @@ export function ConnectionsPane({
   // so whichever half is mounted keeps the shared store slice fresh.
   useEffect(() => {
     void apiFetch<ProviderAccountsWire>("GET", "/api/me/provider-accounts")
-      .then((result) =>
-        {
-          dispatch({
-            type: "provider_accounts_updated",
-            accounts: result.accounts,
-          });
-          setAccountLoadState("loaded");
-        },
-      )
+      .then((result) => {
+        dispatch({
+          type: "provider_accounts_updated",
+          accounts: result.accounts,
+        });
+        setAccountLoadState("loaded");
+      })
       .catch((caught) => {
         setAccountLoadState("failed");
         setError(

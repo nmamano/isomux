@@ -61,8 +61,7 @@ describe("ProviderAccountManager", () => {
     const firstAccounts = await first;
     expect(
       firstAccounts.find(
-        (account) =>
-          account.provider === "codex" && account.scope === "office",
+        (account) => account.provider === "codex" && account.scope === "office",
       ),
     ).toMatchObject({
       accountStatus: "unavailable",
@@ -71,8 +70,7 @@ describe("ProviderAccountManager", () => {
     });
     expect(
       firstAccounts.find(
-        (account) =>
-          account.provider === "codex" && account.scope === "office",
+        (account) => account.provider === "codex" && account.scope === "office",
       )?.fallbackToTerminal,
     ).toBeUndefined();
 
@@ -84,16 +82,13 @@ describe("ProviderAccountManager", () => {
   });
 
   it("keeps the existing unavailable shape for an ordinary probe failure", async () => {
-    const manager = new ProviderAccountManager(
-      () => {},
-      (() => ({
-        start: async () => {
-          throw new Error("probe failed");
-        },
-        read: async () => ({ connected: false }),
-        close: async () => {},
-      })) as never,
-    );
+    const manager = new ProviderAccountManager(() => {}, (() => ({
+      start: async () => {
+        throw new Error("probe failed");
+      },
+      read: async () => ({ connected: false }),
+      close: async () => {},
+    })) as never);
 
     const wire = await manager["probe"](
       manager["target"]("member", "codex", "office"),
@@ -535,15 +530,12 @@ describe("ProviderAccountManager", () => {
     });
     expect(
       (await manager.list("user-b")).find(
-        (account) =>
-          account.provider === "codex" && account.scope === "office",
+        (account) => account.provider === "codex" && account.scope === "office",
       )?.loginQueue,
     ).toEqual({ holderName: "Ana", startedAt: expect.any(Number) });
     expect(starts).toBe(1);
     expect(await manager.cancel("user-b", "codex", "office")).toBe(false);
-    expect(await manager.cancel("user-b", "codex", "office", true)).toBe(
-      true,
-    );
+    expect(await manager.cancel("user-b", "codex", "office", true)).toBe(true);
     expect(cancels).toBe(1);
     expect(manager["active"].size).toBe(0);
     for (const userId of ["user-a", "user-b"]) {

@@ -108,7 +108,9 @@ describe("SystemPromptButton", () => {
       calls.push(`${method} ${path}`);
       return {};
     });
-    const view = render(<SystemPromptButton helpContent="## Commands\n/help" />);
+    const view = render(
+      <SystemPromptButton helpContent="## Commands\n/help" />,
+    );
     fireEvent.click(
       view.getByRole("button", { name: en["dialogs.agent.showHelp"] }),
     );

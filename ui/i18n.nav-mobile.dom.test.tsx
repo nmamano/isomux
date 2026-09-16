@@ -15,9 +15,7 @@ const TASKS = { ca: "Tasques", es: "Tareas", en: "Tasks" } as const;
 
 it("keeps the Catalan office actions in the phone menu without a view toggle", async () => {
   expect(new Set(Object.values(TASKS)).size).toBe(3);
-  const view = render(
-    onLanguage("ca", createElement(App), { isMobile: true }),
-  );
+  const view = render(onLanguage("ca", createElement(App), { isMobile: true }));
   expect(view.queryByRole("button", { name: "Apropa" })).not.toBeNull();
   fireEvent.click(view.getByText("⋯"));
   expect(view.queryByText("Mostra la llista d'agents")).toBeNull();

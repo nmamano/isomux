@@ -11,8 +11,7 @@ const { createElement } = await import("react");
 
 setApiShim(async () => ({}));
 afterAll(() => setApiShim(null));
-const app = (language: "es" | null) =>
-  onLanguage(language, createElement(App));
+const app = (language: "es" | null) => onLanguage(language, createElement(App));
 const TASKS = { ca: "Tasques", es: "Tareas", en: "Tasks" } as const;
 
 it("moves the desktop nav from Spanish to default English", async () => {

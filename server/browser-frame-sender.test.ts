@@ -7,7 +7,13 @@ function fixture() {
     samples = 0;
   const sent: (string | Uint8Array)[] = [];
   const sender = new BrowserFrameSender(
-    { send: (data) => sent.push(data), getBufferedAmount: () => { samples++; return buffered; } },
+    {
+      send: (data) => sent.push(data),
+      getBufferedAmount: () => {
+        samples++;
+        return buffered;
+      },
+    },
     () => allowed,
     undefined,
     undefined,
@@ -71,7 +77,6 @@ test("unsubscribe discards the held frame", () => {
   f.sender.send("later");
   expect(f.sent).toEqual([]);
 });
-
 
 test("held frames recover without drain, clear stops sampling, and revoked access blocks delivery", async () => {
   const f = fixture();

@@ -196,28 +196,28 @@ function SystemPromptModal({
               )}
             </div>
           ) : (
-          <pre
-            aria-readonly="true"
-            style={{
-              minHeight: 220,
-              margin: 0,
-              padding: 14,
-              overflow: "auto",
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--bg-code)",
-              color: error ? "var(--red)" : "var(--text-primary)",
-              fontFamily: "'JetBrains Mono',monospace",
-              fontSize: 12,
-              lineHeight: 1.5,
-            }}
-          >
-            {error
-              ? t("dialogs.agent.systemPromptLoadFailed")
-              : (prompt ?? t("common.loading"))}
-          </pre>
+            <pre
+              aria-readonly="true"
+              style={{
+                minHeight: 220,
+                margin: 0,
+                padding: 14,
+                overflow: "auto",
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                background: "var(--bg-code)",
+                color: error ? "var(--red)" : "var(--text-primary)",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              {error
+                ? t("dialogs.agent.systemPromptLoadFailed")
+                : (prompt ?? t("common.loading"))}
+            </pre>
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button

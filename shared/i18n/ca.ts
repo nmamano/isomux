@@ -1391,8 +1391,10 @@ Coses que pots fer per ell:
   "panels.browser.copied": "Copiat.",
   "panels.browser.noSelection": "No hi ha text seleccionat.",
   "panels.browser.copyTruncated": "S’ha copiat part de la selecció.",
-  "panels.browser.selectionFailed": "No s’ha pogut llegir la selecció. Torna-ho a provar.",
-  "panels.browser.copyFailed": "No s’ha pogut copiar. Comprova el permís del porta-retalls i fes servir HTTPS.",
+  "panels.browser.selectionFailed":
+    "No s’ha pogut llegir la selecció. Torna-ho a provar.",
+  "panels.browser.copyFailed":
+    "No s’ha pogut copiar. Comprova el permís del porta-retalls i fes servir HTTPS.",
   "panels.browser.go": "Ves-hi",
   "panels.browser.loading": "Carregant…",
   "panels.browser.readOnly":
