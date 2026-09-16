@@ -13,8 +13,9 @@ const { createElement } = await import("react");
 const apiShim = async (method: string, path: string, body?: unknown) => {
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
-  // Leave report data unloaded: this test exercises the page layout, including
-  // its loading state, without coupling it to usage totals.
+  // Leave usage unloaded: this test exercises the page layout, including its
+  // loading state, without coupling it to usage totals. Storage answers with
+  // an empty measurement so its cleanup guard can run below.
   if (
     path === "/api/usage"
   )
