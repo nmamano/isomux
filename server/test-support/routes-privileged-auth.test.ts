@@ -141,7 +141,6 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
   });
   it("reads sessions / lifecycle / editor / uploads on a reachable agent", () => {
     for (const op of [
-      "agents.listSessions",
       "agents.kill",
       "agents.abort",
       "agents.update",
@@ -151,6 +150,15 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
       expect(can(op, privilegedAgent, AGENT_PARAMS)).toBe(true);
       expect(can(op, normalAgent, AGENT_PARAMS)).toBe(false);
     }
+    // listSessions has a self path since 7a954c3b: a normal agent lists ITS
+    // OWN sessions (AGENT_PARAMS.id is its agentId) and nobody else's.
+    expect(can("agents.listSessions", privilegedAgent, AGENT_PARAMS)).toBe(
+      true,
+    );
+    expect(can("agents.listSessions", normalAgent, AGENT_PARAMS)).toBe(true);
+    expect(can("agents.listSessions", normalAgent, { id: "a-other" })).toBe(
+      false,
+    );
   });
   it("is still room-scoped: NO access to an agent in an unreachable room", () => {
     const noAccess = deps({ hasRoomAccess: () => false });

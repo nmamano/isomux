@@ -84,15 +84,23 @@ describe("Settings report panes", () => {
     );
 
     fireEvent.click(view.getByRole("button", { name: "Storage" }));
+    // The preview arrives through the shim and a React flush; under the full
+    // suite that passed the 1 s default once (CI 2026-09-16), so the deadline
+    // is wider. It is a deadline, not a wait: the click fires on arrival.
+    const found = { timeout: 5000 };
     fireEvent.click(
-      await view.findByRole("button", {
-        name: "Preview what would be deleted",
-      }),
+      await view.findByRole(
+        "button",
+        { name: "Preview what would be deleted" },
+        found,
+      ),
     );
     fireEvent.click(
-      await view.findByRole("button", {
-        name: /Delete 1 conversation transcripts permanently/,
-      }),
+      await view.findByRole(
+        "button",
+        { name: /Delete 1 conversation transcripts permanently/ },
+        found,
+      ),
     );
     fireEvent.change(view.getByPlaceholderText("Type DELETE to confirm"), {
       target: { value: "DELETE" },

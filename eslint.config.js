@@ -19,6 +19,10 @@ export default tseslint.config(
       // types, which exist only after the nested install. `bun run lint:web`
       // covers it, and `bun run ci` runs that.
       "control-plane/web/",
+      // Measurement harnesses, each with its own eslint config: a nested
+      // config under the typed root parser reports two tsconfig roots and
+      // fails every file (CI 2026-09-16). Lint one with its own config.
+      "prototypes/",
     ],
   },
   js.configs.recommended,

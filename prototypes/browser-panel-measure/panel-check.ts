@@ -82,17 +82,15 @@ const server = Bun.serve({
             );
             if (f) {
               frames.push({ ms: performance.now(), ...f });
-              senders
-                .get(ws)!
-                .send(
-                  encodeBrowserFrame({
-                    agentId: "bench",
-                    generation: m.generation,
-                    width: f.width,
-                    height: f.height,
-                    jpeg: Buffer.from(f.data, "base64"),
-                  }),
-                );
+              senders.get(ws)!.send(
+                encodeBrowserFrame({
+                  agentId: "bench",
+                  generation: m.generation,
+                  width: f.width,
+                  height: f.height,
+                  jpeg: Buffer.from(f.data, "base64"),
+                }),
+              );
             }
           },
           () => true,

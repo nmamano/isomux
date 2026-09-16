@@ -1695,12 +1695,10 @@ it("drops a late input still after a live frame, stop, resize or close and catch
       await untilBrowser(() => capturing);
       armed = false;
       if (edge === "live")
-        stub.cdpSessions
-          .at(-1)!
-          .emit("Page.screencastFrame", {
-            data: "live",
-            sessionId: 1,
-          } as never);
+        stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+          data: "live",
+          sessionId: 1,
+        } as never);
       if (edge === "stop") {
         stop();
         await Bun.sleep(0);
@@ -1797,13 +1795,11 @@ it("uses the highest watcher DPR, preserves CSS input and screenshot geometry, a
       if (f) frames.push(f);
     });
     stops.push(frameStop);
-    stub.cdpSessions
-      .at(-1)!
-      .emit("Page.screencastFrame", {
-        data: "retina",
-        sessionId: 1,
-        metadata: { deviceWidth: 2560, deviceHeight: 1440 },
-      } as never);
+    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+      data: "retina",
+      sessionId: 1,
+      metadata: { deviceWidth: 2560, deviceHeight: 1440 },
+    } as never);
     expect(frames.some((f) => (f as { data: string }).data === "retina")).toBe(
       false,
     );
@@ -1918,13 +1914,11 @@ it("seeds the view when the first stream frame has mismatched dimensions", async
     await untilBrowser(() =>
       calls.cdp.some((c) => c.method === "Page.captureScreenshot"),
     );
-    stub.cdpSessions
-      .at(-1)!
-      .emit("Page.screencastFrame", {
-        data: "old-dpr",
-        sessionId: 1,
-        metadata: { deviceWidth: 640, deviceHeight: 400 },
-      } as never);
+    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+      data: "old-dpr",
+      sessionId: 1,
+      metadata: { deviceWidth: 640, deviceHeight: 400 },
+    } as never);
     resolve({ data: "retina-seed" });
     await Bun.sleep(0);
     expect(frames).toEqual(["retina-seed"]);
@@ -1968,12 +1962,10 @@ it("throttles DPR triggers without starving motion and keeps the final change", 
     const started = Date.now();
     while (Date.now() - started < 2000) {
       value++;
-      stub.cdpSessions
-        .at(-1)!
-        .emit("Page.screencastFrame", {
-          data: `trigger-${value}`,
-          sessionId: value,
-        } as never);
+      stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+        data: `trigger-${value}`,
+        sessionId: value,
+      } as never);
       await Bun.sleep(16);
     }
     await untilBrowser(() => frames.at(-1) === `sharp-${value}`);
@@ -1984,12 +1976,10 @@ it("throttles DPR triggers without starving motion and keeps the final change", 
     expect(shots).toBe(frames.length);
     expect(calls.cdp.some((c) => c.method === "Runtime.evaluate")).toBe(false);
     const count = shots;
-    stub.cdpSessions
-      .at(-1)!
-      .emit("Page.screencastFrame", {
-        data: `trigger-${value}`,
-        sessionId: value + 1,
-      } as never);
+    stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+      data: `trigger-${value}`,
+      sessionId: value + 1,
+    } as never);
     await Bun.sleep(100);
     expect(shots).toBe(count);
   } finally {
@@ -2287,12 +2277,10 @@ for (const [kind, interval] of [
             ? { kind: "mouse", event: "mouseMoved", x: value, y: 20 }
             : { kind: "key", event: "char", key: "a", text: "a" },
         );
-        stub.cdpSessions
-          .at(-1)!
-          .emit("Page.screencastFrame", {
-            data: `trigger-${value}`,
-            sessionId: value,
-          } as never);
+        stub.cdpSessions.at(-1)!.emit("Page.screencastFrame", {
+          data: `trigger-${value}`,
+          sessionId: value,
+        } as never);
         await Bun.sleep(interval);
       }
       const during = frames.length;
