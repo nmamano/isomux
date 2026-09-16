@@ -19,18 +19,19 @@ The September 16 task scope supersedes the earlier recommendation to try only rr
 
 ### Browser comparison
 
-Build runnable, usable prototypes of four approaches:
+Try rrweb and Scramjet first. Build runnable, usable prototypes in this order of priority:
 
-1. Server Chromium with an improved pixel/video stream.
-2. Server Chromium with rrweb DOM mirroring.
-3. Client-side iframe browsing with controlled embedding/header support where feasible.
-4. Client-side Scramjet browsing.
+1. Server Chromium with rrweb DOM mirroring, and client-side Scramjet browsing.
+2. Client-side iframe browsing with controlled embedding/header support where feasible.
+3. Server Chromium with an improved pixel/video stream, only as a last resort if the other approaches do not meet the product needs.
+
+The separate hosted-app preview can proceed independently of this order.
 
 Use representative real workflows inside an Isomux-style panel beside chat, with agent inspection/control where applicable. A static demo or basic page load is insufficient. Deliver the prototypes and a source-backed comparison of successes, failures, limitations, and work needed for production so Nil can choose what to integrate. Follow the [validation requirements](#validation-requirements).
 
 For remote prototypes, support shared viewing and server-enforced command authorization, including human/agent contention and driver handoff. For local prototypes, accept one-client-only operation; shared viewing/control, mirroring to other clients, and host-client failover are outside scope.
 
-Nil judged the current JPEG stream inadequate on 2026-09-16 and cancelled further investment in that panel under task 3a2766a4, “Browser panel: text on the page cannot be selected by the manager”. The improved stream prototype remains in scope, but must beat the current experience by a visible margin. Matching today's stream is a negative result.
+Nil judged the current JPEG stream inadequate on 2026-09-16 and cancelled further investment in that panel under task 3a2766a4, “Browser panel: text on the page cannot be selected by the manager”. The improved pixel/video stream is a last resort, not part of the first prototype round. If needed, it must beat the current experience by a visible margin. Matching today's stream is a negative result.
 
 Keep the current stream available while testing alternatives. Do not rebuild a general website-rewriting proxy in-house. The main unresolved rrweb question is whether local scrolling, selection, and typing can coexist with incoming server updates without visible resets or incorrect actions.
 
@@ -181,7 +182,7 @@ Measure the complete office workload, including Chromium processes, recorder ove
 
 Apply these checks to the browser comparison before any implementation commitment:
 
-1. Compare all four prototypes on representative pages with the same viewport and network conditions. Use the current pixel stream as the baseline.
+1. Compare the prototypes in the priority order above on representative pages with the same viewport and network conditions. Start with rrweb and Scramjet; test an improved pixel/video stream only if the other approaches do not meet the product needs. Use the current pixel stream as the baseline.
 2. Test navigation, login, forms, typing/IME, caret movement, text selection, scrolling, virtualized lists, lazy content, and server validation. Test agent inspection/control where applicable.
 3. Test protected assets, popups, nested frames, canvas/video, resize, reconnect, and clear failure behavior. Record where a remote prototype requires pixel fallback.
 4. For remote prototypes, join a second viewer mid-session. Test driver handoff, human/agent contention, stale commands, revoked access, and a slow viewer. Local prototypes remain single-client.
