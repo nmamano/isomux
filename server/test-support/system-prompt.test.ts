@@ -108,6 +108,14 @@ describe("buildSystemPrompt - privileged section", () => {
   });
 });
 
+describe("buildSystemPrompt - own session discovery", () => {
+  it("tells an ordinary agent how to list only its own sessions", () => {
+    const prompt = build(false);
+    expect(prompt).toContain("/api/agents/agent-1/sessions");
+    expect(prompt).toContain("An ordinary agent can read its own id only.");
+  });
+});
+
 describe("buildSystemPrompt - OpenCode office proxy", () => {
   it("uses the proxy form without exposing bearer-token syntax", () => {
     const prompt = buildSystemPrompt(

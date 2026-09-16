@@ -17,12 +17,19 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import type { SessionInfo } from "../../shared/types.ts";
+import {
+  mintAgentToken,
+  mintRunToken,
+  _testResetTokens,
+} from "../identity/tokens.ts";
+import { getUserByName } from "../users.ts";
 
 let server: TestServer | null = null;
 
 afterEach(async () => {
   await server?.stop();
   server = null;
+  _testResetTokens();
 });
 
 interface Res {
@@ -367,5 +374,45 @@ describe("agents.listSessions REST (Phase 3d slice 6a)", () => {
     };
     expect(Array.isArray(body.sessions)).toBe(true);
     expect("currentSessionId" in (res.body as object)).toBe(true);
+  });
+
+  it("ordinary agent reads only its own sessions", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const self = await spawnAt(srv, "Self", roomId);
+    const peer = await spawnAt(srv, "Peer", roomId);
+    const ownerId = getUserByName(owner.username)!.id;
+    const token = mintAgentToken(self.id, ownerId);
+
+    const own = await srv.http(`/api/agents/${self.id}/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(own.status).toBe(200);
+    expect(Array.isArray((await own.json()).sessions)).toBe(true);
+
+    const other = await srv.http(`/api/agents/${peer.id}/sessions`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(other.status).toBe(403);
+
+    const ownerRead = await srv.http(`/api/agents/${peer.id}/sessions`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(ownerRead.status).toBe(200);
+
+    const privileged = mintAgentToken(self.id, ownerId, true);
+    const privilegedRead = await srv.http(`/api/agents/${peer.id}/sessions`, {
+      headers: { Authorization: `Bearer ${privileged}` },
+    });
+    expect(privilegedRead.status).toBe(200);
+
+    const runRead = await srv.http(`/api/agents/${self.id}/sessions`, {
+      headers: {
+        Authorization: `Bearer ${mintRunToken("job-1", "run-1", ownerId)}`,
+      },
+    });
+    expect(runRead.status).toBe(403);
   });
 });

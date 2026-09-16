@@ -36,6 +36,7 @@ import {
   scheduledMessagesOwner,
   conversationReset,
   logSearchAccess,
+  sessionListAccess,
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
   appScope,
@@ -545,7 +546,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.listSessions",
     method: "GET",
     path: "/api/agents/:id/sessions",
-    auth: cap("office:read", agentParam("id")),
+    auth: cap("log:read", sessionListAccess),
     emits: [],
   }),
 

@@ -648,6 +648,26 @@ export const logSearchAccess: Guard = (ctx) => {
   }
 };
 
+// Session-list READ (agents.listSessions): humans and their API proxies keep
+// the existing target-room reach. A privileged agent keeps that operator
+// reach, while an ordinary agent may read only its own session list. This is
+// deliberately narrower than /logs, which lets an ordinary agent read agents
+// in every room its member can access.
+export const sessionListAccess: Guard = (ctx) => {
+  switch (ctx.identity.scope) {
+    case "user":
+    case "api":
+      return logReadRoomGuard(ctx);
+    case "agent":
+      return identityHasCapability(ctx.identity, "office:read")
+        ? logReadRoomGuard(ctx)
+        : agentParamMustEqualTokenAgent(ctx);
+    case "cron-run":
+    case "app":
+      return FORBIDDEN;
+  }
+};
+
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these
 // as combinators rather than free-form strings keeps the route table's authz

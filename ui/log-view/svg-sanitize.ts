@@ -189,12 +189,14 @@ const CSS_URL_ATTRS = new Set([
 // Functional notations that are harmless in a paint value.
 const SAFE_CSS_FUNCS = new Set(["rgb", "rgba", "hsl", "hsla"]);
 
-// Accepts plain values ("#333", "red", "none"), safe color functions, and
-// same-document url(#id) references (quoted or not). Rejects everything
-// else that looks functional, and any value containing a backslash - CSS
-// escape sequences could otherwise disguise "url(" from this check.
+// Accepts plain values ("#333", "red", "none"), a bare var(--name), safe color
+// functions, and same-document url(#id) references (quoted or not). Rejects
+// every other var() form, everything else that looks functional, and any value
+// containing a backslash - CSS escape sequences could otherwise disguise
+// "url(" from this check.
 function isSafeCssValue(value: string): boolean {
   if (value.includes("\\")) return false;
+  if (/^var\(--[A-Za-z0-9_-]+\)$/.test(value.trim())) return true;
   for (const m of value.matchAll(/([a-zA-Z-]*)\(/g)) {
     const func = m[1].toLowerCase();
     if (SAFE_CSS_FUNCS.has(func)) continue;

@@ -656,7 +656,7 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["clear_logs", "log_entry"],
   },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
-  "agents.listSessions": { caps: ["office:read"], emits: [] },
+  "agents.listSessions": { caps: ["log:read"], emits: [] },
   // Agents - self-affordances
   "agents.readFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
@@ -1082,6 +1082,46 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
     expect(
       runAuthorize(someRoute.auth, appIdentity, {}, undefined, generousDeps),
     ).toEqual({ ok: false, status: 403, code: "forbidden" });
+  });
+});
+
+describe("agents.listSessions non-agent service scopes", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "room-1",
+    userIdForUsername: () => "owner-1",
+    cronjobCreatorUserId: () => "owner-1",
+    appOwnerUserId: () => "owner-1",
+    isOfficeOwnerUserId: () => true,
+    agentManagerUserId: () => "owner-1",
+    killedAgentManagerUserId: () => "owner-1",
+  };
+
+  it("refuses cron-run and app identities even with accessible-room dependencies", () => {
+    const route = API_ROUTES.find(
+      (candidate) => candidate.opId === "agents.listSessions",
+    )!;
+    const run: Identity = {
+      scope: "cron-run",
+      userId: "owner-1",
+      role: "member",
+      cronjobId: "job-1",
+      runId: "run-1",
+      capabilities: RUN_CAPABILITIES,
+    };
+    const app: Identity = {
+      scope: "app",
+      userId: "owner-1",
+      role: "member",
+      appName: "hello",
+      capabilities: APP_CAPABILITIES,
+    };
+    expect(
+      runAuthorize(route.auth, run, { id: "agent-1" }, undefined, deps).ok,
+    ).toBe(false);
+    expect(
+      runAuthorize(route.auth, app, { id: "agent-1" }, undefined, deps).ok,
+    ).toBe(false);
   });
 });
 

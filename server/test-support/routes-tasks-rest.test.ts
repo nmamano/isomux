@@ -107,7 +107,7 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
 
 // --- /api auth posture (the bypass guard, Reviewer1 #1) ---------------------
 describe("routes/tasks REST: /api identity required (no loopback bypass)", () => {
-  it("loopback no-cookie GET/POST /api/tasks -> 401 while legacy /tasks still passes", async () => {
+  it("loopback no-cookie GET/POST /api/tasks -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");

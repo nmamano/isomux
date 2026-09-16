@@ -117,6 +117,36 @@ describe("sanitizeSvg", () => {
     expect(out).toContain(`marker-end="url(#m)"`);
   });
 
+  it("keeps bare custom-property paint and rejects other var forms", () => {
+    const out = sanitizeSvg(
+      `<svg>` +
+        `<rect fill="var(--accent)" width="5"/>` +
+        `<rect stroke=" var(--text-primary) " width="6"/>` +
+        `<rect fill="var(--accent, red)" width="7"/>` +
+        `<rect fill="color-mix(in srgb, var(--accent), red)" width="8"/>` +
+        `<rect fill="var(--a) url(https://evil.example/a.svg#p)" width="9"/>` +
+        `<rect fill="url(https://evil.example/a.svg#p) var(--a)" width="10"/>` +
+        `<rect fill="var(--a);x" width="11"/>` +
+        `<rect fill="var(--)" width="12"/>` +
+        `<rect fill="var(--a, var(--b))" width="13"/>` +
+        `<rect fill="var(--a, url(https://evil.example/f.svg#p))" width="14"/>` +
+        `<rect fill="VAR(--a)" width="15"/>` +
+        `</svg>`,
+    );
+    expect(out).toContain(`fill="var(--accent)" width="5"`);
+    expect(out).toContain(`stroke=" var(--text-primary) " width="6"`);
+    expect(out).toContain(`<rect width="7"/>`);
+    expect(out).toContain(`<rect width="8"/>`);
+    expect(out).toContain(`<rect width="9"/>`);
+    expect(out).toContain(`<rect width="10"/>`);
+    expect(out).toContain(`<rect width="11"/>`);
+    expect(out).toContain(`<rect width="12"/>`);
+    expect(out).toContain(`<rect width="13"/>`);
+    expect(out).toContain(`<rect width="14"/>`);
+    expect(out).toContain(`<rect width="15"/>`);
+    expect(out).not.toContain("evil.example");
+  });
+
   it("drops paint values containing CSS escape sequences", () => {
     // "\\75 rl(" is a CSS-escaped "url(" - any backslash disqualifies.
     const out = sanitizeSvg(

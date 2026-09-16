@@ -15,6 +15,8 @@ import {
   discoverPluginSkills,
   discoverProjectSkills,
   discoverUserSkills,
+  discoverBundledSkills,
+  deduplicateSkills,
   resolveSkillPrompt,
 } from "./skills.ts";
 import {
@@ -46,6 +48,35 @@ function command(base: string, name: string, prompt: string): void {
 afterEach(() => {
   for (const dir of roots.splice(0))
     rmSync(dir, { recursive: true, force: true });
+});
+
+describe("bundled skills", () => {
+  it("discovers and resolves wrap-session", () => {
+    const emptyUserRoot = root("empty-user");
+    const skill = discoverBundledSkills().find(
+      (entry) => entry.name === "wrap-session",
+    );
+    expect(skill?.origin).toBe("isomux");
+    expect(skill?.description).toContain("loose ends");
+    expect(
+      resolveSkillPrompt("wrap-session", root("cwd"), [
+        { root: emptyUserRoot, includeCommands: true },
+      ]),
+    ).toContain("Report only real loose ends.");
+  });
+
+  it("keeps one picker entry when a user overrides wrap-session", () => {
+    const userRoot = root("wrap-user");
+    skill(userRoot, "wrap-session", "personal wrap prompt");
+    const entries = deduplicateSkills([
+      ...discoverUserSkills([
+        { root: userRoot, includeCommands: true },
+      ]),
+      ...discoverBundledSkills(),
+    ]).filter((entry) => entry.name === "wrap-session");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].origin).toBe("user");
+  });
 });
 
 describe("effective Claude home skill agreement", () => {

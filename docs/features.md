@@ -31,7 +31,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Hierarchical system prompts** - office-wide, per-room, and per-agent prompts compose into one assembled system prompt for every agent, all editable from the UI. The Spawn and Edit agent menus keep instructions and memory together; Show full system prompt previews unsaved settings without saving them.
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
-- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/isomux-report-bug`.
+- **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/wrap-session` (check for loose ends and close a session cleanly), `/isomux-report-bug`.
 - **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
 ## Multiple members
