@@ -47,6 +47,19 @@ it("defaults a pre-toggle response off, labels the setting experimental, and sav
       "Show the live Browser panel in agent chats. Off by default.",
     ) !== null,
   ).toBe(true);
+  const memoryLabel = view.getByText("Memory", { selector: "label" });
+  const experimentalHeading = view.getByRole("heading", {
+    name: "Experimental",
+  });
+  expect(
+    memoryLabel.compareDocumentPosition(experimentalHeading) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
+  const saveButton = view.getByRole("button", { name: "Save" });
+  expect(
+    experimentalHeading.compareDocumentPosition(saveButton) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).not.toBe(0);
 
   fireEvent.click(toggle);
   fireEvent.click(view.getByRole("button", { name: "Save" }));

@@ -375,8 +375,6 @@ Cosas que puedes hacer por él:
     "Los ajustes de la oficina cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.office.loadedVariables.one": "Se cargó {count} variable.",
   "settings.office.loadedVariables.other": "Se cargaron {count} variables.",
-  "settings.office.discardConfirm":
-    "¿Descartar los cambios sin guardar de la oficina?",
 
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
@@ -399,8 +397,6 @@ Cosas que puedes hacer por él:
   "settings.room.conflict":
     "Los ajustes de la sala cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.room.deleteEmpty": "Eliminar la sala vacía",
-  "settings.room.discardConfirm":
-    "¿Descartar los cambios sin guardar de esta sala?",
 
   "settings.theme.intro":
     "Se guarda en este navegador. También puedes hacer clic en la ventana de la oficina para recorrer los temas sin abrir esta página.",
@@ -410,8 +406,6 @@ Cosas que puedes hacer por él:
   "settings.device.label": "Etiqueta del dispositivo",
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Móvil, Portátil, …",
-  "settings.device.discardConfirm":
-    "¿Descartar los cambios sin guardar de la etiqueta del dispositivo?",
 
   "settings.devices.title": "Mis dispositivos",
   "settings.devices.outstandingLinks": "Enlaces de dispositivo pendientes",
@@ -526,6 +520,7 @@ Cosas que puedes hacer por él:
     "El borrado no se ejecutó. No se eliminó nada.",
   "settings.storage.leaveConfirm":
     "Aún hay una limpieza en marcha. Si sales ahora pierdes el único informe de lo que borró. ¿Salir de todos modos?",
+  "settings.storage.leave": "Salir",
   "settings.storage.deleteSection": "Borrar archivos antiguos",
   "settings.storage.deleteWarningLead":
     "Esto borra archivos de esta máquina de forma permanente.",

@@ -19,6 +19,10 @@ import {
   effectiveRoomSkin,
   type RoomSkin,
 } from "../../shared/room-skins.ts";
+import {
+  UnsavedChangesPrompt,
+  useUnsavedChangesPrompt,
+} from "./UnsavedChangesPrompt.tsx";
 
 // One room's settings, as a pane. Mounted keyed by roomId, so switching rooms
 // in the sidebar remounts it and no field can carry across.
@@ -209,16 +213,12 @@ export function RoomPane({
         prompt !== baselinePrompt ||
         skin !== baselineSkin)) ||
     mem.dirty;
-  useEffect(() => {
-    if (closeRef) {
-      closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm(t("settings.room.discardConfirm"))) return;
-        after?.();
-      };
-    }
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
+  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
+    setName(baselineName);
+    setPrompt(baselinePrompt);
+    setSkin(baselineSkin);
+    mem.reset();
+    setError(null);
   });
 
   if (!room) return null;
@@ -403,6 +403,13 @@ export function RoomPane({
           <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
             {error}
           </p>
+        )}
+
+        {discardPrompt.open && (
+          <UnsavedChangesPrompt
+            onDiscard={discardPrompt.discard}
+            onCancel={discardPrompt.cancel}
+          />
         )}
 
         <div

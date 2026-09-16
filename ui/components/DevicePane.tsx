@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { getDevice, setDevice } from "../device-settings.ts";
 import { sectionHeader, hint as hintStyle } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -9,6 +9,10 @@ import {
   dialogSaveBtn,
   dialogHint,
 } from "./dialog-styles.ts";
+import {
+  UnsavedChangesPrompt,
+  useUnsavedChangesPrompt,
+} from "./UnsavedChangesPrompt.tsx";
 
 // Device-scoped settings (one record per browser, stored in localStorage).
 // Just the device label: user-level preferences (notifications, env, language)
@@ -29,19 +33,9 @@ export function DevicePane({
   const [justSaved, setJustSaved] = useState(false);
   const dirty = label.trim() !== saved;
 
-  // Mirror the guard into the page's ref every render so the captured closure
-  // always sees fresh form state - the same no-deps pattern UserEditPanel and
-  // TaskView use for their own dirty checks.
-  useEffect(() => {
-    if (closeRef) {
-      closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm(t("settings.device.discardConfirm"))) return;
-        after?.();
-      };
-    }
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
+  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
+    setLabel(saved);
+    setJustSaved(false);
   });
 
   function handleSave() {
@@ -91,6 +85,12 @@ export function DevicePane({
           {justSaved && !dirty ? t("common.saved") : t("common.save")}
         </button>
       </div>
+      {discardPrompt.open && (
+        <UnsavedChangesPrompt
+          onDiscard={discardPrompt.discard}
+          onCancel={discardPrompt.cancel}
+        />
+      )}
     </div>
   );
 }

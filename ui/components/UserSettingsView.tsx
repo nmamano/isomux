@@ -708,19 +708,20 @@ export function UserSettingsView({
               {t("settings.profilesNote")}
             </p>
 
-            {sessionContext && (
-              <div style={{ padding: "0 14px" }}>
+            <div style={{ padding: "0 14px" }}>
                 <button
                   onClick={signOut}
+                  disabled={!sessionContext}
                   style={{
                     padding: "8px 14px",
                     borderRadius: 6,
                     border: "1px solid #ff6b6b",
                     background: "transparent",
-                    color: "#ff6b6b",
+                    color: sessionContext ? "#ff6b6b" : "var(--text-ghost)",
                     fontSize: 12,
                     fontWeight: 600,
-                    cursor: "pointer",
+                    cursor: sessionContext ? "pointer" : "not-allowed",
+                    opacity: sessionContext ? 1 : 0.55,
                   }}
                   title={t("settings.signOutHint")}
                 >
@@ -742,7 +743,6 @@ export function UserSettingsView({
                   </p>
                 )}
               </div>
-            )}
           </div>
         )}
 

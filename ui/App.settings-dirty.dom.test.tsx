@@ -29,14 +29,25 @@ type View = ReturnType<typeof render>;
 // The settings detail pane mounts useMemoryEditor, which GETs /api/memory and
 // reads `text` off the response - a shim answering {} makes the next render
 // throw inside injectedMemorySize.
-setApiShim(async (_method, path) =>
-  path.startsWith("/api/memory")
-    ? { text: "", version: "0", size: 0, cap: 4000 }
-    : {},
-);
+const apiShim = async (method: string, path: string) => {
+  if (path.startsWith("/api/memory"))
+    return { text: "", version: "0", size: 0, cap: 4000 };
+  if (method === "GET" && path === "/api/office/settings")
+    return {
+      prompt: null,
+      name: null,
+      experimental: { browserPanel: false },
+      version: "1",
+    };
+  if (method === "GET" && path === "/api/rooms/r1/settings")
+    return { prompt: null, version: "1" };
+  return {};
+};
+setApiShim(apiShim);
 afterAll(() => setApiShim(null));
 
 beforeEach(() => {
+  setApiShim(apiShim);
   window.localStorage.clear();
 });
 
@@ -74,6 +85,17 @@ describe("dirty settings", () => {
     sessionContext: { username: "Ricky", userId: "u1", role: "owner" },
     users: new Map([["ricky", SELF]]),
   } as unknown as typeof initialState;
+  const WITH_ROOM = {
+    ...SIGNED_IN,
+    rooms: [
+      {
+        id: "r1",
+        name: "Blue Room",
+        prompt: null,
+        canCloseWhenEmpty: true,
+      },
+    ],
+  } as typeof initialState;
 
   it("shows the discard prompt on Escape and stays on /settings", async () => {
     window.history.replaceState(null, "", "/settings");
@@ -97,4 +119,88 @@ describe("dirty settings", () => {
     expect(discardPrompt(view)).toBe(true);
     expect(window.location.pathname).toBe("/settings");
   });
+
+  it("uses the discard prompt instead of confirm for an Office edit", async () => {
+    window.history.replaceState(null, "", "/settings");
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: SIGNED_IN },
+        createElement(App, {}),
+      ),
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Office" }));
+    const nameField = await view.findByPlaceholderText("Nil's Office");
+    await act(async () => {
+      fireEvent.change(nameField, { target: { value: "Edited Office" } });
+    });
+    const originalConfirm = window.confirm;
+    window.confirm = () => {
+      throw new Error("native confirm was called");
+    };
+    try {
+      await escapeFromPage();
+    } finally {
+      window.confirm = originalConfirm;
+    }
+
+    expect(discardPrompt(view)).toBe(true);
+    expect(window.location.pathname).toBe("/settings");
+  });
+
+  it("uses the discard prompt instead of confirm for a Device edit", async () => {
+    window.history.replaceState(null, "", "/settings");
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: SIGNED_IN },
+        createElement(App, {}),
+      ),
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Device label" }));
+    const labelField = await view.findByPlaceholderText("Phone, Laptop, …");
+    fireEvent.change(labelField, { target: { value: "Work laptop" } });
+    const originalConfirm = window.confirm;
+    window.confirm = () => {
+      throw new Error("native confirm was called");
+    };
+    try {
+      await escapeFromPage();
+    } finally {
+      window.confirm = originalConfirm;
+    }
+
+    expect(discardPrompt(view)).toBe(true);
+    expect(window.location.pathname).toBe("/settings");
+  });
+
+  it("uses the discard prompt instead of confirm for a Room edit", async () => {
+    window.history.replaceState(null, "", "/settings");
+    const view = render(
+      createElement(
+        StateCtx.Provider,
+        { value: WITH_ROOM },
+        createElement(App, {}),
+      ),
+    );
+
+    fireEvent.click(view.getByRole("button", { name: "Blue Room" }));
+    const nameField = await view.findByPlaceholderText("Room name");
+    fireEvent.change(nameField, { target: { value: "Edited Room" } });
+    const originalConfirm = window.confirm;
+    window.confirm = () => {
+      throw new Error("native confirm was called");
+    };
+    try {
+      await escapeFromPage();
+    } finally {
+      window.confirm = originalConfirm;
+    }
+
+    expect(discardPrompt(view)).toBe(true);
+    expect(window.location.pathname).toBe("/settings");
+  });
+
 });

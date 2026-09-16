@@ -38,6 +38,10 @@ import { formatBytes, formatNumber } from "../../shared/i18n/number.ts";
 import { formatDateTime, timeSince } from "../../shared/i18n/time.ts";
 import { keyFrom } from "../../shared/i18n/translate.ts";
 import type { Translator } from "../../shared/i18n/translate.ts";
+import {
+  UnsavedChangesPrompt,
+  useUnsavedChangesPrompt,
+} from "./UnsavedChangesPrompt.tsx";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 import {
   IN_ROOT_ORDER,
@@ -307,20 +311,9 @@ export function StoragePane({
   // reasonably believe they had stopped it, while also throwing away the only
   // receipt they will ever get.
   const deleting = phase.kind === "applying";
-  // As a pane there is no Escape or backdrop to hold shut, so the guard moves
-  // into the page's unsaved-changes ref. Mirrored every render (the no-deps
-  // pattern the other panes use) so the closure sees the live phase.
-  useEffect(() => {
-    if (closeRef) {
-      closeRef.current = (after?: () => void) => {
-        if (deleting && !confirm(t("settings.storage.leaveConfirm"))) return;
-        after?.();
-      };
-    }
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
-  });
+  // The request cannot be canceled after apply starts. Route attempts to leave
+  // through the app prompt, while keeping the delete-specific explanation.
+  const leavePrompt = useUnsavedChangesPrompt(deleting, closeRef);
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -337,6 +330,15 @@ export function StoragePane({
 
       <UsageBlock usage={usage} error={loadError} />
       <BackupBlock backup={backup} />
+
+      {leavePrompt.open && (
+        <UnsavedChangesPrompt
+          message={t("settings.storage.leaveConfirm")}
+          confirmLabel={t("settings.storage.leave")}
+          onDiscard={leavePrompt.discard}
+          onCancel={leavePrompt.cancel}
+        />
+      )}
 
       <SectionLabel>{t("settings.storage.deleteSection")}</SectionLabel>
       <div

@@ -375,8 +375,6 @@ Coses que pots fer per ell:
     "La configuració de l'oficina ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.office.loadedVariables.one": "S'ha carregat {count} variable.",
   "settings.office.loadedVariables.other": "S'han carregat {count} variables.",
-  "settings.office.discardConfirm":
-    "Vols descartar els canvis de l'oficina sense desar?",
 
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
@@ -400,8 +398,6 @@ Coses que pots fer per ell:
   "settings.room.conflict":
     "La configuració de la sala ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.room.deleteEmpty": "Elimina la sala buida",
-  "settings.room.discardConfirm":
-    "Vols descartar els canvis d'aquesta sala sense desar?",
 
   "settings.theme.intro":
     "Es desa en aquest navegador. També pots fer clic a la finestra de l'oficina per recórrer els temes sense obrir aquesta pàgina.",
@@ -411,8 +407,6 @@ Coses que pots fer per ell:
   "settings.device.label": "Etiqueta del dispositiu",
   "settings.device.optional": "(opcional)",
   "settings.device.placeholder": "Mòbil, Portàtil, …",
-  "settings.device.discardConfirm":
-    "Vols descartar els canvis de l'etiqueta del dispositiu sense desar?",
 
   "settings.devices.title": "Els meus dispositius",
   "settings.devices.outstandingLinks": "Enllaços de dispositiu pendents",
@@ -523,6 +517,7 @@ Coses que pots fer per ell:
     "L'esborrat no s'ha executat. No s'ha eliminat res.",
   "settings.storage.leaveConfirm":
     "Encara hi ha una neteja en marxa. Si surts ara perds l'únic informe del que ha esborrat. Vols sortir igualment?",
+  "settings.storage.leave": "Surt",
   "settings.storage.deleteSection": "Esborra fitxers antics",
   "settings.storage.deleteWarningLead":
     "Això esborra fitxers d'aquesta màquina de manera permanent.",

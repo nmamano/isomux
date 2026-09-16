@@ -13,6 +13,10 @@ import {
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
+import {
+  UnsavedChangesPrompt,
+  useUnsavedChangesPrompt,
+} from "./UnsavedChangesPrompt.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -183,16 +187,12 @@ export function OfficePane({
         text !== baselinePrompt ||
         browserPanel !== baselineBrowserPanel)) ||
     mem.dirty;
-  useEffect(() => {
-    if (closeRef) {
-      closeRef.current = (after?: () => void) => {
-        if (dirty && !confirm(t("settings.office.discardConfirm"))) return;
-        after?.();
-      };
-    }
-    return () => {
-      if (closeRef) closeRef.current = null;
-    };
+  const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
+    setName(baselineName);
+    setText(baselinePrompt);
+    setBrowserPanel(baselineBrowserPanel);
+    mem.reset();
+    setStatus({ kind: "idle" });
   });
 
   return (
@@ -302,46 +302,6 @@ export function OfficePane({
           {t("common.nextConversation")}
         </p>
 
-        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
-          {t("settings.office.experimental")}
-        </h4>
-        <label
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 9,
-            marginTop: 12,
-            color: "var(--text-primary)",
-            cursor: readOnly || !settingsLoaded ? "default" : "pointer",
-          }}
-        >
-          <input
-            type="checkbox"
-            role="switch"
-            checked={browserPanel}
-            onChange={(e) => setBrowserPanel(e.target.checked)}
-            disabled={readOnly || !settingsLoaded}
-            aria-label={t("settings.office.browserPanel")}
-            style={{ marginTop: 2 }}
-          />
-          <span>
-            <span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
-              {t("settings.office.browserPanel")}
-            </span>
-            <span
-              style={{
-                display: "block",
-                marginTop: 2,
-                fontSize: 10,
-                lineHeight: 1.4,
-                color: "var(--text-ghost)",
-              }}
-            >
-              {t("settings.office.browserPanelHint")}
-            </span>
-          </span>
-        </label>
-
         {!readOnly && (
           <>
             <label
@@ -389,6 +349,53 @@ export function OfficePane({
               {t("common.memoryEditorHint")}
             </p>
           </>
+        )}
+
+        <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
+          {t("settings.office.experimental")}
+        </h4>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 9,
+            marginTop: 12,
+            color: "var(--text-primary)",
+            cursor: readOnly || !settingsLoaded ? "default" : "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            role="switch"
+            checked={browserPanel}
+            onChange={(e) => setBrowserPanel(e.target.checked)}
+            disabled={readOnly || !settingsLoaded}
+            aria-label={t("settings.office.browserPanel")}
+            style={{ marginTop: 2 }}
+          />
+          <span>
+            <span style={{ display: "block", fontSize: 12, fontWeight: 600 }}>
+              {t("settings.office.browserPanel")}
+            </span>
+            <span
+              style={{
+                display: "block",
+                marginTop: 2,
+                fontSize: 10,
+                lineHeight: 1.4,
+                color: "var(--text-ghost)",
+              }}
+            >
+              {t("settings.office.browserPanelHint")}
+            </span>
+          </span>
+        </label>
+
+        {discardPrompt.open && (
+          <UnsavedChangesPrompt
+            onDiscard={discardPrompt.discard}
+            onCancel={discardPrompt.cancel}
+          />
         )}
 
         <ValidationLine status={status} />

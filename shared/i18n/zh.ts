@@ -359,7 +359,6 @@ App 的一些原则：
     "此页面加载后，办公室设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.office.loadedVariables.one": "已加载 {count} 个变量。",
   "settings.office.loadedVariables.other": "已加载 {count} 个变量。",
-  "settings.office.discardConfirm": "放弃对办公室未保存的更改？",
   "settings.room.title": "{room} · 设置",
   "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
@@ -378,7 +377,6 @@ App 的一些原则：
   "settings.room.conflict":
     "此页面加载后，房间设置已在其他位置更改。请先选择其他行，再返回加载最新设置。",
   "settings.room.deleteEmpty": "删除空房间",
-  "settings.room.discardConfirm": "放弃对此房间未保存的更改？",
   "settings.theme.intro":
     "存储在此浏览器中。也可以点击办公室的窗户来切换主题，无需打开此页面。",
   "settings.device.intro":
@@ -386,7 +384,6 @@ App 的一些原则：
   "settings.device.label": "设备标签",
   "settings.device.optional": "（可选）",
   "settings.device.placeholder": "手机、笔记本电脑…",
-  "settings.device.discardConfirm": "放弃对设备标签未保存的更改？",
   "settings.devices.title": "我的设备",
   "settings.devices.outstandingLinks": "尚未使用的设备链接",
   "settings.devices.activeSessions": "我的活动会话",
@@ -474,6 +471,7 @@ App 的一些原则：
   "settings.storage.deleteDidNotRun": "未执行删除。没有移除任何内容。",
   "settings.storage.leaveConfirm":
     "清理仍在运行。现在离开会丢失唯一的删除报告。仍要离开？",
+  "settings.storage.leave": "离开",
   "settings.storage.deleteSection": "删除旧文件",
   "settings.storage.deleteWarningLead": "这会从此机器上永久删除文件。",
   "settings.storage.deleteWarningBody":

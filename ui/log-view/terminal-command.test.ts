@@ -121,13 +121,16 @@ describe("commandInputBytes", () => {
     expect(timedOut.state).toBeNull();
   });
 
-  it("reports timeout and exit before delivery state exists", () => {
-    for (const type of ["timeout", "exit"] as const) {
-      const result = advanceCommandDelivery(null, { type });
-      expect(result.write).toBeUndefined();
-      expect(result.issue).toEqual({ kind: "unavailable" });
-      expect(result.handled).toBe(true);
-      expect(result.state).toBeNull();
-    }
+  it("reports a timeout before delivery state exists", () => {
+    const result = advanceCommandDelivery(null, { type: "timeout" });
+    expect(result.write).toBeUndefined();
+    expect(result.issue).toEqual({ kind: "unavailable" });
+    expect(result.handled).toBe(true);
+    expect(result.state).toBeNull();
+  });
+
+  it("ignores an exit before delivery state exists", () => {
+    const result = advanceCommandDelivery(null, { type: "exit" });
+    expect(result).toEqual({ state: null });
   });
 });

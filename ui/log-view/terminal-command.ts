@@ -53,7 +53,7 @@ export function advanceCommandDelivery(
   event: CommandDeliveryEvent,
 ): CommandDeliveryResult {
   if (!state) {
-    return event.type === "exit" || event.type === "timeout"
+    return event.type === "timeout"
       ? { state: null, issue: { kind: "unavailable" }, handled: true }
       : { state: null };
   }

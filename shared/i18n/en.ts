@@ -391,7 +391,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Office settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.office.loadedVariables.one": "Loaded {count} variable.",
   "settings.office.loadedVariables.other": "Loaded {count} variables.",
-  "settings.office.discardConfirm": "Discard unsaved changes to the office?",
 
   "settings.room.title": "{room} · Settings",
   "settings.room.intro":
@@ -413,7 +412,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.room.conflict":
     "Room settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.room.deleteEmpty": "Delete empty room",
-  "settings.room.discardConfirm": "Discard unsaved changes to this room?",
 
   "settings.theme.intro":
     "Stored in this browser. You can also click the office window to walk through the themes without opening this page.",
@@ -423,8 +421,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.device.label": "Device Label",
   "settings.device.optional": "(optional)",
   "settings.device.placeholder": "Phone, Laptop, …",
-  "settings.device.discardConfirm":
-    "Discard unsaved changes to the device label?",
 
   "settings.devices.title": "My devices",
   "settings.devices.outstandingLinks": "Outstanding device links",
@@ -530,6 +526,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The delete did not run. Nothing was removed.",
   "settings.storage.leaveConfirm":
     "A cleanup is still running. If you leave now you lose the only report of what it deleted. Leave anyway?",
+  "settings.storage.leave": "Leave",
   "settings.storage.deleteSection": "Delete old files",
   "settings.storage.deleteWarningLead":
     "This permanently deletes files from this machine.",
