@@ -107,3 +107,17 @@ test("held frames recover without drain, clear stops sampling, and revoked acces
     f.sender.stop();
   }
 });
+
+test("a blocked watcher keeps only the newest frame while a fast watcher drains", () => {
+  const slow = fixture(), fast = fixture();
+  slow.buffer(1000);
+  expect(slow.sender.canCapture()).toBe(false);
+  expect(fast.sender.canCapture()).toBe(true);
+  for (const frame of ["one", "two", "three"]) { slow.sender.send(frame); fast.sender.send(frame); }
+  expect(fast.sent).toEqual(["one", "two", "three"]);
+  expect(slow.sent).toEqual([]);
+  slow.buffer(0); slow.sender.flush();
+  expect(slow.sent).toEqual(["three"]);
+  expect(slow.sender.canCapture()).toBe(true);
+  slow.sender.stop(); fast.sender.stop();
+});

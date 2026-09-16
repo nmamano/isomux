@@ -321,6 +321,7 @@ export interface AffordanceBrowserReq {
  * that clicked into a navigation knows where it landed. `snapshot` adds the
  * ARIA tree, `text` adds the rendered body text, `close` sets `closed`.
  * A `screenshot` puts its image in the agent's chat and returns no bytes here.
+ * Screenshot dimensions use CSS pixels, independent of panel watchers' DPR.
  */
 export interface AffordanceBrowserResp {
   ok: true;

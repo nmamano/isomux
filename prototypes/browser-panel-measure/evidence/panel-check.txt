@@ -1,0 +1,12 @@
+8ab232417c7c6230b59215204e06fee480f3735b
+{"date":"2026-09-16T20:07:12.190Z","phase":"start","info":{"dpr":2,"w":399,"h":707,"scrollY":0,"button":"clicked"},"metadata":[399,707],"delivered":[798,1414],"agentPng":[399,707],"afterAgentDpr":2,"casts":3,"stills":4}
+{"date":"2026-09-16T20:07:13.328Z","phase":"resize","info":{"dpr":2,"w":409,"h":707,"scrollY":0,"button":"clicked"},"metadata":[409,707],"delivered":[818,1414],"agentPng":[409,707],"afterAgentDpr":2,"casts":5,"stills":6}
+{"date":"2026-09-16T20:07:14.425Z","phase":"navigation","info":{"dpr":2,"w":409,"h":707,"scrollY":0,"button":"clicked"},"metadata":[409,707],"delivered":[818,1414],"agentPng":[409,707],"afterAgentDpr":2,"casts":6,"stills":8}
+{"date":"2026-09-16T20:07:15.288Z","phase":"scroll","info":{"dpr":2,"w":409,"h":707,"scrollY":600,"button":"clicked"},"metadata":[409,707],"delivered":[818,1414],"agentPng":[409,707],"afterAgentDpr":2,"casts":7,"stills":10}
+wheel {"delta":100}
+drag {"moves":50,"stills":1}
+lowerJoin {"restarts":0}
+highLeaves {"dpr":1,"casts":8}
+lastLeaves {"dpr":1,"screencast":false}
+pointerInputs [{"kind":"mouse","event":"mouseMoved","x":150,"y":250,"button":"none","clickCount":0},{"kind":"mouse","event":"mousePressed","x":150,"y":250,"button":"left","clickCount":1},{"kind":"mouse","event":"mouseReleased","x":150,"y":250,"button":"left","clickCount":1},{"kind":"mouse","event":"mouseMoved","x":150,"y":250,"button":"none","clickCount":0},{"kind":"mouse","event":"mousePressed","x":150,"y":250,"button":"left","clickCount":1},{"kind":"mouse","event":"mouseReleased","x":150,"y":250,"button":"left","clickCount":1},{"kind":"mouse","event":"mouseMoved","x":150,"y":250,"button":"none","clickCount":0},{"kind":"mouse","event":"mousePressed","x":150,"y":250,"button":"left","clickCount":1},{"kind":"mouse","event":"mouseReleased","x":150,"y":250,"button":"left","clickCount":1}]
+exit=0

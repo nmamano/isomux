@@ -229,6 +229,10 @@ keeping this lane at DPR 1. The lower traffic comes with lost sharpness; it is
 not a free saving. Nil can decide whether HiDPI rendering needs its own lane.
 These are content-specific results, not a general bandwidth promise.
 
+Update 2026-09-16: the DPR-1 deferral above is superseded by the
+[browser-panel DPR repair](browser-panel-0916.md). That report records the
+watcher-DPR policy, CSS-resolution agent screenshots, and new measurements.
+
 | Arm / panel | Delivered fps | Measured binary Mbit/s | Start → end one-minute box load |
 | --- | --- | --- | --- |
 | Before desktop | 15.46 | 3.37 | 13.54 → 16.43 |

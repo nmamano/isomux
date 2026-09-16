@@ -1780,3 +1780,31 @@ it("browser transport opt-in isolates binary from legacy, log, terminal and API-
     browserPool.watch = original;
   }
 });
+
+it("browser watcher DPR defaults, clamps fractional values, and rejects invalid wire values", async () => {
+  server = await boot();
+  const roomId = server.agentManager.getRooms()[0].id;
+  const manager = await server.seedOwner("DPR manager");
+  const agent = await spawnIn(server, "DPR", roomId, manager);
+  const socket = await connectSettled(server, manager.rawSessionId);
+  const original = browserPool.watch.bind(browserPool);
+  const bounds: Parameters<typeof browserPool.watch>[3][] = [];
+  browserPool.watch = (_id, _listener, _manager, bound) => {
+    bounds.push(bound);
+    return () => {};
+  };
+  try {
+    for (const value of [undefined, 2.5, 50, 0, null, "2", {}]) {
+      const count = bounds.length;
+      socket.send({ type: "browser_watch", agentId: agent.id, watching: true,
+        ...(value === undefined ? {} : { deviceScaleFactor: value }),
+      });
+      await pingPong(socket);
+      if (value === null || typeof value === "string" || typeof value === "object") {
+        expect(bounds).toHaveLength(count);
+      } else {
+        expect(bounds.at(-1)?.deviceScaleFactor).toBe(Math.max(1, Math.min(4, typeof value === "number" ? value : 1)));
+      }
+    }
+  } finally { browserPool.watch = original; }
+});

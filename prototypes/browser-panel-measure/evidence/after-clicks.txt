@@ -1,0 +1,443 @@
+8ab232417c7c6230b59215204e06fee480f3735b
+viewerBackend {"gpu":{"devices":[{"vendorId":65535,"deviceId":65535,"vendorString":"Google Inc. (Google)","deviceString":"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)","driverVendor":"SwANGLE","driverVersion":"5.0.0"}],"auxAttributes":{"amdSwitchable":false,"canSupportThreadedTextureMailbox":false,"directRenderingVersion":"","displayType":"ANGLE_SWIFTSHADER","glExtensions":"GL_AMD_performance_monitor GL_ANGLE_base_vertex_base_instance_shader_builtin GL_ANGLE_blob_cache GL_ANGLE_client_arrays GL_ANGLE_clip_cull_distance GL_ANGLE_compressed_texture_etc GL_ANGLE_copy_texture_3d GL_ANGLE_depth_texture GL_ANGLE_framebuffer_blit GL_ANGLE_framebuffer_multisample GL_ANGLE_get_image GL_ANGLE_get_serialized_context_string GL_ANGLE_get_tex_level_parameter GL_ANGLE_instanced_arrays GL_ANGLE_memory_object_flags GL_ANGLE_memory_size GL_ANGLE_multi_draw GL_ANGLE_pack_reverse_row_order GL_ANGLE_polygon_mode GL_ANGLE_program_binary_readiness_query GL_ANGLE_program_cache_control GL_ANGLE_read_only_depth_stencil_feedback_loops GL_ANGLE_relaxed_vertex_attribute_type GL_ANGLE_renderability_validation GL_ANGLE_request_extension GL_ANGLE_rgbx_internal_format GL_ANGLE_robust_client_memory GL_ANGLE_robust_fragment_shader_output GL_ANGLE_robust_resource_initialization GL_ANGLE_shader_pixel_local_storage GL_ANGLE_shader_pixel_local_storage_coherent GL_ANGLE_stencil_texturing GL_ANGLE_texture_compression_dxt3 GL_ANGLE_texture_compression_dxt5 GL_ANGLE_texture_multisample GL_ANGLE_texture_usage GL_ANGLE_translated_shader_source GL_ANGLE_vulkan_image GL_ANGLE_yuv_internal_format GL_APPLE_clip_distance GL_ARM_rgba8 GL_ARM_shader_framebuffer_fetch GL_ARM_shader_framebuffer_fetch_depth_stencil GL_CHROMIUM_bind_generates_resource GL_CHROMIUM_bind_uniform_location GL_CHROMIUM_copy_compressed_texture GL_CHROMIUM_copy_texture GL_CHROMIUM_lose_context GL_EXT_EGL_image_array GL_EXT_EGL_image_external_wrap_modes GL_EXT_EGL_image_storage GL_EXT_base_instance GL_EXT_blend_minmax GL_EXT_buffer_storage GL_EXT_clear_texture GL_EXT_clip_control GL_EXT_clip_cull_distance GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_EXT_compressed_ETC1_RGB8_sub_texture GL_EXT_conservative_depth GL_EXT_copy_image GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_depth_clamp GL_EXT_discard_framebuffer GL_EXT_disjoint_timer_query GL_EXT_draw_buffers GL_EXT_draw_buffers_indexed GL_EXT_draw_elements_base_vertex GL_EXT_float_blend GL_EXT_frag_depth GL_EXT_instanced_arrays GL_EXT_map_buffer_range GL_EXT_memory_object GL_EXT_memory_object_fd GL_EXT_occlusion_query_boolean GL_EXT_polygon_offset_clamp GL_EXT_read_format_bgra GL_EXT_robustness GL_EXT_sRGB GL_EXT_sRGB_write_control GL_EXT_semaphore GL_EXT_semaphore_fd GL_EXT_separate_shader_objects GL_EXT_shader_framebuffer_fetch GL_EXT_shader_framebuffer_fetch_non_coherent GL_EXT_shader_non_constant_global_initializers GL_EXT_shader_texture_lod GL_EXT_shadow_samplers GL_EXT_texture_border_clamp GL_EXT_texture_compression_bptc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_rgtc GL_EXT_texture_compression_s3tc_srgb GL_EXT_texture_cube_map_array GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_texture_lod_bias GL_EXT_texture_mirror_clamp_to_edge GL_EXT_texture_rg GL_EXT_texture_sRGB_R8 GL_EXT_texture_sRGB_RG8 GL_EXT_texture_sRGB_decode GL_EXT_texture_shadow_lod GL_EXT_texture_storage GL_EXT_texture_type_2_10_10_10_REV GL_EXT_unpack_subimage GL_KHR_blend_equation_advanced GL_KHR_debug GL_KHR_robust_buffer_access_behavior GL_KHR_robustness GL_KHR_texture_compression_astc_ldr GL_NV_fence GL_NV_framebuffer_blit GL_NV_pack_subimage GL_NV_pixel_buffer_object GL_NV_polygon_mode GL_NV_read_depth GL_NV_read_depth_stencil GL_NV_read_stencil GL_NV_shader_noperspective_interpolation GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_image_external_essl3 GL_OES_EGL_sync GL_OES_compressed_EAC_R11_signed_texture GL_OES_compressed_EAC_R11_unsigned_texture GL_OES_compressed_EAC_RG11_signed_texture GL_OES_compressed_EAC_RG11_unsigned_texture GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_ETC2_RGB8_texture GL_OES_compressed_ETC2_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_sRGB8_alpha_texture GL_OES_compressed_ETC2_sRGB8_alpha8_texture GL_OES_compressed_ETC2_sRGB8_texture GL_OES_compressed_paletted_texture GL_OES_copy_image GL_OES_depth24 GL_OES_depth32 GL_OES_depth_texture GL_OES_depth_texture_cube_map GL_OES_draw_buffers_indexed GL_OES_draw_elements_base_vertex GL_OES_element_index_uint GL_OES_fbo_render_mipmap GL_OES_get_program_binary GL_OES_mapbuffer GL_OES_packed_depth_stencil GL_OES_required_internalformat GL_OES_rgb8_rgba8 GL_OES_sample_shading GL_OES_sample_variables GL_OES_shader_multisample_interpolation GL_OES_standard_derivatives GL_OES_surfaceless_context GL_OES_texture_3D GL_OES_texture_border_clamp GL_OES_texture_cube_map_array GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_OES_texture_npot GL_OES_texture_stencil8 GL_OES_texture_storage_multisample_2d_array GL_OES_vertex_array_object GL_OES_vertex_half_float GL_OES_vertex_type_10_10_10_2 GL_OVR_multiview GL_OVR_multiview2 GL_QCOM_texture_lod_bias ","glImplementationParts":"(gl=egl-angle,angle=swiftshader)","glRenderer":"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)","glResetNotificationStrategy":33362,"glVendor":"Google Inc. (Google)","glVersion":"OpenGL ES 3.0 (ANGLE 2.1.28232 git hash: a17d5224d83f)","glWsExtensions":"EGL_EXT_create_context_robustness EGL_ANGLE_surface_orientation EGL_KHR_create_context EGL_KHR_image EGL_KHR_image_base EGL_EXT_image_gl_colorspace EGL_KHR_gl_colorspace EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_gl_renderbuffer_image EGL_KHR_get_all_proc_addresses EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_ANGLE_create_context_webgl_compatibility EGL_CHROMIUM_create_context_bind_generates_resource EGL_KHR_swap_buffers_with_damage EGL_EXT_pixel_format_float EGL_KHR_surfaceless_context EGL_ANGLE_display_texture_share_group EGL_ANGLE_display_semaphore_share_group EGL_ANGLE_create_context_client_arrays EGL_ANGLE_program_cache_control EGL_ANGLE_robust_resource_initialization EGL_ANGLE_create_context_extensions_enabled EGL_ANDROID_blob_cache EGL_ANDROID_recordable EGL_ANGLE_create_context_backwards_compatible EGL_KHR_no_config_context EGL_IMG_context_priority EGL_KHR_create_context_no_error EGL_KHR_reusable_sync EGL_EXT_buffer_age EGL_ANGLE_create_surface_swap_interval EGL_ANGLE_vulkan_image EGL_KHR_partial_update EGL_ANGLE_global_fence_sync EGL_ANGLE_memory_usage_report ","glWsVendor":"Google Inc. (Google)","glWsVersion":"1.5 (ANGLE 2.1.28232 git hash: a17d5224d83f)","hardwareSupportsVulkan":false,"inProcessGpu":false,"initializationTime":0.161446,"isAsan":false,"isClangCoverage":false,"jpegDecodeAcceleratorSupported":false,"maxMsaaSamples":"4","optimus":false,"passthroughCmdDecoder":true,"pixelShaderVersion":"3.00","processCrashCount":0,"sandboxed":false,"skiaBackendType":"None","subpixelFontRendering":true,"targetCpuBits":64,"vertexShaderVersion":"3.00","visibilityCallbackCallCount":0},"featureStatus":{"2d_canvas":"unavailable_software","direct_rendering_display_compositor":"disabled_off_ok","gpu_compositing":"disabled_software","multiple_raster_threads":"enabled_on","opengl":"disabled_off","rasterization":"disabled_software","raw_draw":"disabled_off_ok","skia_graphite":"disabled_off","trees_in_viz":"disabled_off","video_decode":"disabled_software","video_encode":"disabled_software","vulkan":"disabled_off","webgl":"unavailable_software","webgpu":"unavailable_software","webgpu_on_vk_via_gl_interop":"disabled_off","webnn":"unavailable_software"},"driverBugWorkarounds":[],"videoDecoding":[],"videoEncoding":[]},"version":{"protocolVersion":"1.3","product":"Chrome/151.0.7922.137","revision":"@8f5d36bc16f57115aeeff34baf4ad6aa964d509c","userAgent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36","jsVersion":"15.1.206.17"}}
+scopeStart {"parts":{"harness":{"cpuUsec":2930000,"pssBytes":213745664,"processes":3}},"controllerCpuUsec":870000,"memoryCurrent":207245312,"clock":{"epochMs":1789589207073,"monotonicMs":2352.507976},"viewer":{"cpu":"usage_usec 2470757\nuser_usec 1288294\nsystem_usec 1182463\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":198393856},"load":"0.81 2.00 2.79 1/1021 71034","cpu":"usage_usec 2968465\nuser_usec 2045639\nsystem_usec 922826\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":208838656,"memoryLimit":"2147483648"}
+target goto
+viewer newPage
+viewer goto
+viewer loaded
+measurementStart {"parts":{"harness":{"cpuUsec":3900000,"pssBytes":230887424,"processes":5},"chrome":{"cpuUsec":2460000,"pssBytes":305419264,"processes":10}},"controllerCpuUsec":1110000,"memoryCurrent":490258432,"clock":{"epochMs":1789589210903,"monotonicMs":6183.218357},"viewer":{"cpu":"usage_usec 5328619\nuser_usec 2869653\nsystem_usec 2458965\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":362237952},"load":"0.74 1.97 2.77 2/1175 71291","cpu":"usage_usec 7158327\nuser_usec 4339585\nsystem_usec 2818742\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":491888640,"memoryLimit":"2147483648"}
+measurementEnd {"parts":{"harness":{"cpuUsec":9880000,"pssBytes":250963968,"processes":5},"chrome":{"cpuUsec":6450000,"pssBytes":316658688,"processes":10}},"controllerCpuUsec":2350000,"memoryCurrent":513077248,"clock":{"epochMs":1789589223624,"monotonicMs":18903.752263},"viewer":{"cpu":"usage_usec 10108969\nuser_usec 5448498\nsystem_usec 4660470\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":426205184},"load":"0.63 1.90 2.74 1/1228 71531","cpu":"usage_usec 17206650\nuser_usec 9963057\nsystem_usec 7243592\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":536887296,"memoryLimit":"2147483648"}
+samples [{"index":0,"clickMs":2833.7999999998137,"latency":153.39999999990687,"frameIndex":2},{"index":1,"clickMs":3281.399999999907,"latency":163.79999999981374,"frameIndex":5},{"index":2,"clickMs":3719.6999999997206,"latency":152.10000000009313,"frameIndex":8},{"index":3,"clickMs":4151.0999999996275,"latency":174.8000000002794,"frameIndex":11},{"index":4,"clickMs":4613.799999999814,"latency":211.89999999990687,"frameIndex":14},{"index":5,"clickMs":5100.699999999721,"latency":156.20000000018626,"frameIndex":17},{"index":6,"clickMs":5539.0999999996275,"latency":158.70000000018626,"frameIndex":20},{"index":7,"clickMs":5978.899999999907,"latency":191.29999999981374,"frameIndex":23},{"index":8,"clickMs":6448.699999999721,"latency":150.39999999990687,"frameIndex":26},{"index":9,"clickMs":6870.0999999996275,"latency":171.10000000009313,"frameIndex":29},{"index":10,"clickMs":7321.5999999996275,"latency":146.10000000009313,"frameIndex":32},{"index":11,"clickMs":7740.5,"latency":164.6999999997206,"frameIndex":35},{"index":12,"clickMs":8188.199999999721,"latency":153.89999999990687,"frameIndex":38},{"index":13,"clickMs":8617.599999999627,"latency":154.3000000002794,"frameIndex":41},{"index":14,"clickMs":9097,"latency":178.89999999990687,"frameIndex":44},{"index":15,"clickMs":9583.899999999907,"latency":209.60000000009313,"frameIndex":47},{"index":16,"clickMs":10124.799999999814,"latency":254.39999999990687,"frameIndex":50},{"index":17,"clickMs":10665.19999999972,"latency":222.3000000002794,"frameIndex":53},{"index":18,"clickMs":11166.399999999907,"latency":166.5,"frameIndex":56},{"index":19,"clickMs":11611.69999999972,"latency":148.20000000018626,"frameIndex":59},{"index":20,"clickMs":12041.19999999972,"latency":195.5,"frameIndex":62},{"index":21,"clickMs":12525.099999999627,"latency":179,"frameIndex":65},{"index":22,"clickMs":12982.599999999627,"latency":185.10000000009313,"frameIndex":68},{"index":23,"clickMs":13460.299999999814,"latency":188.70000000018626,"frameIndex":71},{"index":24,"clickMs":13921.599999999627,"latency":161.10000000009313,"frameIndex":74}]
+surfaceProof {"viewport":[1320,920],"canvases":[{"decoded":[1280,800],"css":[650,379]}]}
+{
+  "trials": [
+    {
+      "index": 0,
+      "latency": 153.39999999990687,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 1,
+      "latency": 163.79999999981374,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 2,
+      "latency": 152.10000000009313,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 3,
+      "latency": 174.8000000002794,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 4,
+      "latency": 211.89999999990687,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 5,
+      "latency": 156.20000000018626,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 6,
+      "latency": 158.70000000018626,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 7,
+      "latency": 191.29999999981374,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 8,
+      "latency": 150.39999999990687,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 9,
+      "latency": 171.10000000009313,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 10,
+      "latency": 146.10000000009313,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 11,
+      "latency": 164.6999999997206,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 12,
+      "latency": 153.89999999990687,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 13,
+      "latency": 154.3000000002794,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 14,
+      "latency": 178.89999999990687,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 15,
+      "latency": 209.60000000009313,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 16,
+      "latency": 254.39999999990687,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 17,
+      "latency": 222.3000000002794,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 18,
+      "latency": 166.5,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 19,
+      "latency": 148.20000000018626,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 20,
+      "latency": 195.5,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 21,
+      "latency": 179,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 22,
+      "latency": 185.10000000009313,
+      "captured": 2,
+      "received": 2
+    },
+    {
+      "index": 23,
+      "latency": 188.70000000018626,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 24,
+      "latency": 161.10000000009313,
+      "captured": 2,
+      "received": 2
+    }
+  ],
+  "decodeLoads": 0,
+  "decodeErrors": 0,
+  "decodeReplaced": 0,
+  "transportSamples": [
+    133,
+    133.3000000002794,
+    138.20000000018626,
+    139,
+    139.70000000018626,
+    140.10000000009313,
+    141.5,
+    142.89999999990687,
+    145.10000000009313,
+    146.10000000009313,
+    146.70000000018626,
+    148.5,
+    152.5,
+    157.90000000037253,
+    160.10000000009313,
+    160.89999999990687,
+    160.90000000037253,
+    162.3000000002794,
+    164.39999999990687,
+    168.39999999990687,
+    174.29999999981374,
+    178.60000000009313,
+    192.60000000009313,
+    200.10000000009313,
+    237.10000000009313
+  ],
+  "renderSamples": [
+    10.299999999813735,
+    11.799999999813735,
+    12,
+    12.199999999720603,
+    12.399999999906868,
+    12.5,
+    12.799999999813735,
+    12.800000000279397,
+    13.199999999720603,
+    13.300000000279397,
+    14.899999999906868,
+    15.199999999720603,
+    15.200000000186265,
+    16,
+    17,
+    17,
+    17.299999999813735,
+    17.699999999720603,
+    18,
+    18,
+    18.09999999962747,
+    20.300000000279397,
+    25,
+    31.100000000093132,
+    43.700000000186265
+  ],
+  "inputSamples": [
+    {
+      "index": 0,
+      "receivedMs": 6343.491284,
+      "dispatchMs": 9.214230000000498
+    },
+    {
+      "index": 1,
+      "receivedMs": 6790.622827,
+      "dispatchMs": 5.09791899999982
+    },
+    {
+      "index": 2,
+      "receivedMs": 7229.112254,
+      "dispatchMs": 10.800130000000536
+    },
+    {
+      "index": 3,
+      "receivedMs": 7661.907518,
+      "dispatchMs": 6.974374999999782
+    },
+    {
+      "index": 4,
+      "receivedMs": 8123.73372,
+      "dispatchMs": 12.038421999999628
+    },
+    {
+      "index": 5,
+      "receivedMs": 8614.601651,
+      "dispatchMs": 5.217740000000049
+    },
+    {
+      "index": 6,
+      "receivedMs": 9048.817419,
+      "dispatchMs": 7.085619999999835
+    },
+    {
+      "index": 7,
+      "receivedMs": 9488.022293,
+      "dispatchMs": 4.146697000000131
+    },
+    {
+      "index": 8,
+      "receivedMs": 9957.938378,
+      "dispatchMs": 10.457649999998466
+    },
+    {
+      "index": 9,
+      "receivedMs": 10379.291023,
+      "dispatchMs": 3.9413189999995666
+    },
+    {
+      "index": 10,
+      "receivedMs": 10836.321202,
+      "dispatchMs": 5.765188000001217
+    },
+    {
+      "index": 11,
+      "receivedMs": 11250.952048,
+      "dispatchMs": 7.907355000001189
+    },
+    {
+      "index": 12,
+      "receivedMs": 11697.35573,
+      "dispatchMs": 6.052247999999963
+    },
+    {
+      "index": 13,
+      "receivedMs": 12126.729666,
+      "dispatchMs": 16.488220000001093
+    },
+    {
+      "index": 14,
+      "receivedMs": 12605.912685,
+      "dispatchMs": 8.017096999999922
+    },
+    {
+      "index": 15,
+      "receivedMs": 13094.457964,
+      "dispatchMs": 5.342169000001377
+    },
+    {
+      "index": 16,
+      "receivedMs": 13642.924865,
+      "dispatchMs": 42.32658300000003
+    },
+    {
+      "index": 17,
+      "receivedMs": 14174.280895,
+      "dispatchMs": 6.416719999999259
+    },
+    {
+      "index": 18,
+      "receivedMs": 14675.776378,
+      "dispatchMs": 4.864220999999816
+    },
+    {
+      "index": 19,
+      "receivedMs": 15121.124545,
+      "dispatchMs": 7.578228999998828
+    },
+    {
+      "index": 20,
+      "receivedMs": 15550.275465,
+      "dispatchMs": 12.10257300000012
+    },
+    {
+      "index": 21,
+      "receivedMs": 16035.442262,
+      "dispatchMs": 17.740397999999914
+    },
+    {
+      "index": 22,
+      "receivedMs": 16491.903221,
+      "dispatchMs": 4.048447000001033
+    },
+    {
+      "index": 23,
+      "receivedMs": 16975.871308,
+      "dispatchMs": 5.259267999997974
+    },
+    {
+      "index": 24,
+      "receivedMs": 17431.368315,
+      "dispatchMs": 8.870098999999755
+    }
+  ],
+  "eventLoopMs": {
+    "median": 3.1566750000001775,
+    "p95": 9.532285999999658,
+    "max": 106.04685099999915
+  },
+  "decodedSize": [
+    1280,
+    800
+  ],
+  "processIds": {
+    "bun": 70844,
+    "viewer": 70864,
+    "controller": 70982
+  },
+  "rtcBefore": null,
+  "rtcAfter": null,
+  "date": "2026-09-16T20:07:03.658Z",
+  "hash": "8ab232417c7c6230b59215204e06fee480f3735b",
+  "mode": "jpeg",
+  "pageKind": "ordinary",
+  "width": 1280,
+  "seconds": 12.562,
+  "frames": 75,
+  "fps": 5.970386881069894,
+  "paintFps": 5.970386881069894,
+  "meanJpegBytes": 107138.46666666666,
+  "meanWireBytes": 107171.46666666666,
+  "wsMbps": 5.118840948893489,
+  "clicks": 25,
+  "medianMs": 166.5,
+  "p95Ms": 222.3000000002794,
+  "resourceBefore": {
+    "parts": {
+      "harness": {
+        "cpuUsec": 3900000,
+        "pssBytes": 230887424,
+        "processes": 5
+      },
+      "chrome": {
+        "cpuUsec": 2460000,
+        "pssBytes": 305419264,
+        "processes": 10
+      }
+    },
+    "controllerCpuUsec": 1110000,
+    "memoryCurrent": 490258432,
+    "clock": {
+      "epochMs": 1789589210903,
+      "monotonicMs": 6183.218357
+    },
+    "viewer": {
+      "cpu": "usage_usec 5328619\nuser_usec 2869653\nsystem_usec 2458965\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n",
+      "memoryPeak": 362237952
+    },
+    "load": "0.74 1.97 2.77 2/1175 71291",
+    "cpu": "usage_usec 7158327\nuser_usec 4339585\nsystem_usec 2818742\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "memoryPeak": 491888640,
+    "memoryLimit": "2147483648"
+  },
+  "resourceAfter": {
+    "parts": {
+      "harness": {
+        "cpuUsec": 9880000,
+        "pssBytes": 250963968,
+        "processes": 5
+      },
+      "chrome": {
+        "cpuUsec": 6450000,
+        "pssBytes": 316658688,
+        "processes": 10
+      }
+    },
+    "controllerCpuUsec": 2350000,
+    "memoryCurrent": 513077248,
+    "clock": {
+      "epochMs": 1789589223624,
+      "monotonicMs": 18903.752263
+    },
+    "viewer": {
+      "cpu": "usage_usec 10108969\nuser_usec 5448498\nsystem_usec 4660470\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n",
+      "memoryPeak": 426205184
+    },
+    "load": "0.63 1.90 2.74 1/1228 71531",
+    "cpu": "usage_usec 17206650\nuser_usec 9963057\nsystem_usec 7243592\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "memoryPeak": 536887296,
+    "memoryLimit": "2147483648"
+  },
+  "serverElapsed": 12.595159814999999,
+  "transportMedian": 152.5,
+  "renderMedian": 15.200000000186265,
+  "medianIntervalFps": 5.096839959232539,
+  "scope": "Cgroup CPU/current/peak; subtract controller CPU ticks from target scope; separate viewer scope; viewer-local counting window; loopback"
+}
+scopeEnd {"parts":{"harness":{"cpuUsec":10070000,"pssBytes":244258816,"processes":5},"chrome":{"cpuUsec":6450000,"pssBytes":316658688,"processes":10}},"controllerCpuUsec":2440000,"memoryCurrent":513290240,"clock":{"epochMs":1789589223764,"monotonicMs":19043.776272},"viewer":{"cpu":"usage_usec 10112298\nuser_usec 5449152\nsystem_usec 4663146\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":426205184},"load":"0.63 1.90 2.74 1/1228 71533","cpu":"usage_usec 17347750\nuser_usec 9980990\nsystem_usec 7366759\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":536887296,"memoryLimit":"2147483648"}
+exit=0

@@ -1,0 +1,4 @@
+8ab232417c7c6230b59215204e06fee480f3735b
+{"date":"2026-09-16T20:07:06.258Z","label":"after","phase":"start","css":{"width":390,"height":700},"pageDpr":2,"raw":null,"requestedDpr":2,"delivered":[780,1400],"metadata":[390,700],"agentPng":[390,700],"frames":3}
+{"date":"2026-09-16T20:07:07.017Z","label":"after","phase":"resize","css":{"width":400,"height":680},"pageDpr":2,"raw":null,"requestedDpr":2,"delivered":[780,1326],"metadata":[400,680],"agentPng":[400,680],"frames":3}
+exit=0

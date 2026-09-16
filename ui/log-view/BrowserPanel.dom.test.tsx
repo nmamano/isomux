@@ -121,6 +121,7 @@ describe("BrowserPanel", () => {
       type: "browser_watch",
       agentId: "agent-1",
       watching: true,
+      deviceScaleFactor: 1,
     });
     expect(view.getAllByText("Loading…").length > 0).toBe(true);
 
@@ -294,6 +295,7 @@ describe("BrowserPanel", () => {
         watching: true,
         maxWidth: 800,
         maxHeight: 480,
+        deviceScaleFactor: 2,
       });
       const count = sent.length;
       act(() => emit(399));
@@ -364,7 +366,7 @@ describe("BrowserPanel", () => {
       });
       expect(
         sent.filter((m) => m.type === "browser_watch").at(-1),
-      ).toMatchObject({ maxWidth: 784, maxHeight: 1408 });
+      ).toMatchObject({ maxWidth: 784, maxHeight: 1408, deviceScaleFactor: 2 });
       // Both widths round to the same capture demand; CSS resize still reaches the page.
       act(() => emit(391));
       await act(async () => {
@@ -962,6 +964,7 @@ it("three consecutive bitmap rejections select JSON once; late binary frames are
       type: "browser_watch",
       agentId: "fallback",
       watching: true,
+      deviceScaleFactor: 1,
     });
     await act(async () => {
       shimEmitBinary(frame.buffer);
@@ -1064,5 +1067,38 @@ it("two viewport barriers reject old in-flight binary paints for managers and ro
     } finally {
       view.unmount();
     }
+  }
+});
+
+it("updates DPR without a CSS resize, including when physical bounds are capped", async () => {
+  const sent: ClientCommand[] = [];
+  setShim((command) => sent.push(command));
+  const originalObserver = globalThis.ResizeObserver;
+  const originalRatio = window.devicePixelRatio;
+  const originalMatchMedia = window.matchMedia;
+  let resize!: ResizeObserverCallback;
+  let mediaChanged!: () => void;
+  globalThis.ResizeObserver = class {
+    constructor(callback: ResizeObserverCallback) { resize = callback; }
+    observe() {} unobserve() {} disconnect() {}
+  };
+  window.matchMedia = (() => ({
+    addEventListener: (_type: string, fn: () => void) => { mediaChanged = fn; },
+    removeEventListener: () => {},
+  })) as unknown as typeof window.matchMedia;
+  Object.defineProperty(window, "devicePixelRatio", { value: 2, configurable: true });
+  const view = render(<BrowserPanel agentId="dpr-change" canDrive onClose={() => {}} />);
+  try {
+    act(() => resize([{ contentRect: { width: 1600, height: 1600 } } as ResizeObserverEntry], {} as ResizeObserver));
+    await act(async () => { await Bun.sleep(170); });
+    const before = sent.filter((m) => m.type === "browser_watch").at(-1);
+    expect(before).toMatchObject({ maxWidth: 2560, maxHeight: 2560, deviceScaleFactor: 2 });
+    Object.defineProperty(window, "devicePixelRatio", { value: 3, configurable: true });
+    act(() => mediaChanged());
+    await act(async () => { await Bun.sleep(170); });
+    expect(sent.filter((m) => m.type === "browser_watch").at(-1)).toMatchObject({ maxWidth: 2560, maxHeight: 2560, deviceScaleFactor: 3 });
+  } finally {
+    view.unmount(); globalThis.ResizeObserver = originalObserver; window.matchMedia = originalMatchMedia;
+    Object.defineProperty(window, "devicePixelRatio", { value: originalRatio, configurable: true });
   }
 });

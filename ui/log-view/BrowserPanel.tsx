@@ -79,7 +79,7 @@ export function BrowserPanel({
   const lastServerUrl = useRef<string | undefined>(undefined);
   const surfaceRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
-  const captureBounds = useRef<{ maxWidth?: number; maxHeight?: number }>({});
+  const captureBounds = useRef<{ maxWidth?: number; maxHeight?: number; deviceScaleFactor?: number }>({});
   const pageBounds = useRef<{ width: number; height: number } | null>(null);
   const held = useRef<{ x: number; y: number } | null>(null);
   const motion = useRef<BrowserHumanInput | null>(null);
@@ -293,28 +293,28 @@ export function BrowserPanel({
         agentId,
         watching: true,
         ...captureBounds.current,
+        deviceScaleFactor: Math.max(1, Math.min(4, window.devicePixelRatio || 1)),
       });
     };
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
-    const observer =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver((entries) => {
-            const rect = entries[0]?.contentRect;
+    let lastRect: { width: number; height: number } | undefined;
+    const measure = (rect: { width: number; height: number } | undefined) => {
             if (!rect || rect.width <= 0 || rect.height <= 0) return;
             if (resizeTimer) clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
+              const deviceScaleFactor = Math.max(1, Math.min(4, window.devicePixelRatio || 1));
               const bound = (value: number) =>
                 Math.max(
                   BROWSER_MIN_DIM,
                   Math.min(
                     BROWSER_MAX_DIM,
-                    Math.ceil((value * window.devicePixelRatio) / 16) * 16,
+                    Math.ceil((value * deviceScaleFactor) / 16) * 16,
                   ),
                 );
               const next = {
                 maxWidth: bound(rect.width),
                 maxHeight: bound(rect.height),
+                deviceScaleFactor,
               };
               const cssBound = (value: number) =>
                 Math.max(
@@ -331,7 +331,8 @@ export function BrowserPanel({
               pageBounds.current = page;
               if (
                 next.maxWidth === captureBounds.current.maxWidth &&
-                next.maxHeight === captureBounds.current.maxHeight
+                next.maxHeight === captureBounds.current.maxHeight &&
+                next.deviceScaleFactor === captureBounds.current.deviceScaleFactor
               ) {
                 if (pageChanged) resizePage();
                 return;
@@ -340,7 +341,24 @@ export function BrowserPanel({
               subscribe();
               if (pageChanged) resizePage();
             }, 150);
-          });
+    };
+    const observer = typeof ResizeObserver === "undefined" ? null :
+      new ResizeObserver((entries) => {
+        lastRect = entries[0]?.contentRect;
+        measure(lastRect);
+      });
+    // A monitor/zoom DPR change need not change the panel's CSS size.
+    let resolution: MediaQueryList | undefined;
+    const watchResolution = () => {
+      resolution?.removeEventListener("change", resolutionChanged);
+      resolution = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      resolution.addEventListener("change", resolutionChanged);
+    };
+    const resolutionChanged = () => {
+      measure(lastRect ?? viewportRef.current?.getBoundingClientRect());
+      watchResolution();
+    };
+    watchResolution();
     if (viewportRef.current) observer?.observe(viewportRef.current);
     const listener = (raw: string) => {
       let message: ServerMessage;
@@ -411,6 +429,7 @@ export function BrowserPanel({
       removeBinaryListener(binaryListener);
       if (resizeTimer) clearTimeout(resizeTimer);
       observer?.disconnect();
+      resolution?.removeEventListener("change", resolutionChanged);
       pending = null;
       send({ type: "browser_watch", agentId, watching: false });
       removeRawListener(listener);

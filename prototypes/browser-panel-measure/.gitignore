@@ -1,0 +1,11 @@
+/evidence/*
+!/evidence/before-clicks.txt
+!/evidence/before-dpr.txt
+!/evidence/after-clicks.txt
+!/evidence/after-dpr.txt
+!/evidence/panel-check.txt
+!/evidence/panel-start.png
+!/evidence/panel-scroll.png
+!/evidence/panel-viewer.png
+
+!/evidence/transitions.txt

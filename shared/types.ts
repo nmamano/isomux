@@ -1791,6 +1791,12 @@ export type ClientCommand =
       watching: boolean;
       maxWidth?: number;
       maxHeight?: number;
+      /** Render DPR; absent = 1. Server clamps finite numbers to 1..4.
+       * The shared page uses the highest active watcher DPR. Bounds above
+       * are physical pixels (at most 2560); input/frame geometry stays CSS.
+       * At DPR > 1, screencast events trigger coalesced sharp screenshots;
+       * only those screenshots are delivered to all watchers. */
+      deviceScaleFactor?: number;
     }
   | {
       type: "browser_input";

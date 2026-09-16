@@ -46,6 +46,10 @@ export class BrowserFrameSender {
       this.onPressure?.();
   }
 
+  canCapture(): boolean {
+    return !this.stopped && this.pending === undefined && this.socket.getBufferedAmount() <= this.frameBytes;
+  }
+
   send(frame: string | Uint8Array): void {
     if (this.stopped) return;
     this.frameBytes =

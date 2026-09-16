@@ -1,0 +1,411 @@
+de28ff3a75335be8da25eea51d54b077da936487
+viewerBackend {"gpu":{"devices":[{"vendorId":65535,"deviceId":65535,"vendorString":"Google Inc. (Google)","deviceString":"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)","driverVendor":"SwANGLE","driverVersion":"5.0.0"}],"auxAttributes":{"amdSwitchable":false,"canSupportThreadedTextureMailbox":false,"directRenderingVersion":"","displayType":"ANGLE_SWIFTSHADER","glExtensions":"GL_AMD_performance_monitor GL_ANGLE_base_vertex_base_instance_shader_builtin GL_ANGLE_blob_cache GL_ANGLE_client_arrays GL_ANGLE_clip_cull_distance GL_ANGLE_compressed_texture_etc GL_ANGLE_copy_texture_3d GL_ANGLE_depth_texture GL_ANGLE_framebuffer_blit GL_ANGLE_framebuffer_multisample GL_ANGLE_get_image GL_ANGLE_get_serialized_context_string GL_ANGLE_get_tex_level_parameter GL_ANGLE_instanced_arrays GL_ANGLE_memory_object_flags GL_ANGLE_memory_size GL_ANGLE_multi_draw GL_ANGLE_pack_reverse_row_order GL_ANGLE_polygon_mode GL_ANGLE_program_binary_readiness_query GL_ANGLE_program_cache_control GL_ANGLE_read_only_depth_stencil_feedback_loops GL_ANGLE_relaxed_vertex_attribute_type GL_ANGLE_renderability_validation GL_ANGLE_request_extension GL_ANGLE_rgbx_internal_format GL_ANGLE_robust_client_memory GL_ANGLE_robust_fragment_shader_output GL_ANGLE_robust_resource_initialization GL_ANGLE_shader_pixel_local_storage GL_ANGLE_shader_pixel_local_storage_coherent GL_ANGLE_stencil_texturing GL_ANGLE_texture_compression_dxt3 GL_ANGLE_texture_compression_dxt5 GL_ANGLE_texture_multisample GL_ANGLE_texture_usage GL_ANGLE_translated_shader_source GL_ANGLE_vulkan_image GL_ANGLE_yuv_internal_format GL_APPLE_clip_distance GL_ARM_rgba8 GL_ARM_shader_framebuffer_fetch GL_ARM_shader_framebuffer_fetch_depth_stencil GL_CHROMIUM_bind_generates_resource GL_CHROMIUM_bind_uniform_location GL_CHROMIUM_copy_compressed_texture GL_CHROMIUM_copy_texture GL_CHROMIUM_lose_context GL_EXT_EGL_image_array GL_EXT_EGL_image_external_wrap_modes GL_EXT_EGL_image_storage GL_EXT_base_instance GL_EXT_blend_minmax GL_EXT_buffer_storage GL_EXT_clear_texture GL_EXT_clip_control GL_EXT_clip_cull_distance GL_EXT_color_buffer_float GL_EXT_color_buffer_half_float GL_EXT_compressed_ETC1_RGB8_sub_texture GL_EXT_conservative_depth GL_EXT_copy_image GL_EXT_debug_label GL_EXT_debug_marker GL_EXT_depth_clamp GL_EXT_discard_framebuffer GL_EXT_disjoint_timer_query GL_EXT_draw_buffers GL_EXT_draw_buffers_indexed GL_EXT_draw_elements_base_vertex GL_EXT_float_blend GL_EXT_frag_depth GL_EXT_instanced_arrays GL_EXT_map_buffer_range GL_EXT_memory_object GL_EXT_memory_object_fd GL_EXT_occlusion_query_boolean GL_EXT_polygon_offset_clamp GL_EXT_read_format_bgra GL_EXT_robustness GL_EXT_sRGB GL_EXT_sRGB_write_control GL_EXT_semaphore GL_EXT_semaphore_fd GL_EXT_separate_shader_objects GL_EXT_shader_framebuffer_fetch GL_EXT_shader_framebuffer_fetch_non_coherent GL_EXT_shader_non_constant_global_initializers GL_EXT_shader_texture_lod GL_EXT_shadow_samplers GL_EXT_texture_border_clamp GL_EXT_texture_compression_bptc GL_EXT_texture_compression_dxt1 GL_EXT_texture_compression_rgtc GL_EXT_texture_compression_s3tc_srgb GL_EXT_texture_cube_map_array GL_EXT_texture_filter_anisotropic GL_EXT_texture_format_BGRA8888 GL_EXT_texture_lod_bias GL_EXT_texture_mirror_clamp_to_edge GL_EXT_texture_rg GL_EXT_texture_sRGB_R8 GL_EXT_texture_sRGB_RG8 GL_EXT_texture_sRGB_decode GL_EXT_texture_shadow_lod GL_EXT_texture_storage GL_EXT_texture_type_2_10_10_10_REV GL_EXT_unpack_subimage GL_KHR_blend_equation_advanced GL_KHR_debug GL_KHR_robust_buffer_access_behavior GL_KHR_robustness GL_KHR_texture_compression_astc_ldr GL_NV_fence GL_NV_framebuffer_blit GL_NV_pack_subimage GL_NV_pixel_buffer_object GL_NV_polygon_mode GL_NV_read_depth GL_NV_read_depth_stencil GL_NV_read_stencil GL_NV_shader_noperspective_interpolation GL_OES_EGL_image GL_OES_EGL_image_external GL_OES_EGL_image_external_essl3 GL_OES_EGL_sync GL_OES_compressed_EAC_R11_signed_texture GL_OES_compressed_EAC_R11_unsigned_texture GL_OES_compressed_EAC_RG11_signed_texture GL_OES_compressed_EAC_RG11_unsigned_texture GL_OES_compressed_ETC1_RGB8_texture GL_OES_compressed_ETC2_RGB8_texture GL_OES_compressed_ETC2_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_RGBA8_texture GL_OES_compressed_ETC2_punchthroughA_sRGB8_alpha_texture GL_OES_compressed_ETC2_sRGB8_alpha8_texture GL_OES_compressed_ETC2_sRGB8_texture GL_OES_compressed_paletted_texture GL_OES_copy_image GL_OES_depth24 GL_OES_depth32 GL_OES_depth_texture GL_OES_depth_texture_cube_map GL_OES_draw_buffers_indexed GL_OES_draw_elements_base_vertex GL_OES_element_index_uint GL_OES_fbo_render_mipmap GL_OES_get_program_binary GL_OES_mapbuffer GL_OES_packed_depth_stencil GL_OES_required_internalformat GL_OES_rgb8_rgba8 GL_OES_sample_shading GL_OES_sample_variables GL_OES_shader_multisample_interpolation GL_OES_standard_derivatives GL_OES_surfaceless_context GL_OES_texture_3D GL_OES_texture_border_clamp GL_OES_texture_cube_map_array GL_OES_texture_float GL_OES_texture_float_linear GL_OES_texture_half_float GL_OES_texture_half_float_linear GL_OES_texture_npot GL_OES_texture_stencil8 GL_OES_texture_storage_multisample_2d_array GL_OES_vertex_array_object GL_OES_vertex_half_float GL_OES_vertex_type_10_10_10_2 GL_OVR_multiview GL_OVR_multiview2 GL_QCOM_texture_lod_bias ","glImplementationParts":"(gl=egl-angle,angle=swiftshader)","glRenderer":"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver-5.0.0)","glResetNotificationStrategy":33362,"glVendor":"Google Inc. (Google)","glVersion":"OpenGL ES 3.0 (ANGLE 2.1.28232 git hash: a17d5224d83f)","glWsExtensions":"EGL_EXT_create_context_robustness EGL_ANGLE_surface_orientation EGL_KHR_create_context EGL_KHR_image EGL_KHR_image_base EGL_EXT_image_gl_colorspace EGL_KHR_gl_colorspace EGL_KHR_gl_texture_2D_image EGL_KHR_gl_texture_cubemap_image EGL_KHR_gl_renderbuffer_image EGL_KHR_get_all_proc_addresses EGL_KHR_fence_sync EGL_KHR_wait_sync EGL_ANGLE_create_context_webgl_compatibility EGL_CHROMIUM_create_context_bind_generates_resource EGL_KHR_swap_buffers_with_damage EGL_EXT_pixel_format_float EGL_KHR_surfaceless_context EGL_ANGLE_display_texture_share_group EGL_ANGLE_display_semaphore_share_group EGL_ANGLE_create_context_client_arrays EGL_ANGLE_program_cache_control EGL_ANGLE_robust_resource_initialization EGL_ANGLE_create_context_extensions_enabled EGL_ANDROID_blob_cache EGL_ANDROID_recordable EGL_ANGLE_create_context_backwards_compatible EGL_KHR_no_config_context EGL_IMG_context_priority EGL_KHR_create_context_no_error EGL_KHR_reusable_sync EGL_EXT_buffer_age EGL_ANGLE_create_surface_swap_interval EGL_ANGLE_vulkan_image EGL_KHR_partial_update EGL_ANGLE_global_fence_sync EGL_ANGLE_memory_usage_report ","glWsVendor":"Google Inc. (Google)","glWsVersion":"1.5 (ANGLE 2.1.28232 git hash: a17d5224d83f)","hardwareSupportsVulkan":false,"inProcessGpu":false,"initializationTime":1.049451,"isAsan":false,"isClangCoverage":false,"jpegDecodeAcceleratorSupported":false,"maxMsaaSamples":"4","optimus":false,"passthroughCmdDecoder":true,"pixelShaderVersion":"3.00","processCrashCount":0,"sandboxed":false,"skiaBackendType":"None","subpixelFontRendering":true,"targetCpuBits":64,"vertexShaderVersion":"3.00","visibilityCallbackCallCount":0},"featureStatus":{"2d_canvas":"unavailable_software","direct_rendering_display_compositor":"disabled_off_ok","gpu_compositing":"disabled_software","multiple_raster_threads":"enabled_on","opengl":"disabled_off","rasterization":"disabled_software","raw_draw":"disabled_off_ok","skia_graphite":"disabled_off","trees_in_viz":"disabled_off","video_decode":"disabled_software","video_encode":"disabled_software","vulkan":"disabled_off","webgl":"unavailable_software","webgpu":"unavailable_software","webgpu_on_vk_via_gl_interop":"disabled_off","webnn":"unavailable_software"},"driverBugWorkarounds":[],"videoDecoding":[],"videoEncoding":[]},"version":{"protocolVersion":"1.3","product":"Chrome/151.0.7922.137","revision":"@8f5d36bc16f57115aeeff34baf4ad6aa964d509c","userAgent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36","jsVersion":"15.1.206.17"}}
+scopeStart {"parts":{"harness":{"cpuUsec":2280000,"pssBytes":215130112,"processes":3}},"controllerCpuUsec":880000,"memoryCurrent":226566144,"clock":{"epochMs":1789587329875,"monotonicMs":3608.688545},"viewer":{"cpu":"usage_usec 3666196\nuser_usec 1620778\nsystem_usec 2045417\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":548106240},"load":"1.63 1.31 0.64 1/1116 18673","cpu":"usage_usec 2319018\nuser_usec 1751241\nsystem_usec 567777\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":228032512,"memoryLimit":"2147483648"}
+target goto
+viewer newPage
+viewer goto
+viewer loaded
+measurementStart {"parts":{"harness":{"cpuUsec":3120000,"pssBytes":231633920,"processes":5},"chrome":{"cpuUsec":1780000,"pssBytes":302123008,"processes":10}},"controllerCpuUsec":1140000,"memoryCurrent":510611456,"clock":{"epochMs":1789587333418,"monotonicMs":7151.690156},"viewer":{"cpu":"usage_usec 7649567\nuser_usec 3810157\nsystem_usec 3839410\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":793018368},"load":"2.22 1.44 0.68 1/1266 18914","cpu":"usage_usec 5389614\nuser_usec 3491719\nsystem_usec 1897895\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":512614400,"memoryLimit":"2147483648"}
+measurementEnd {"parts":{"harness":{"cpuUsec":9300000,"pssBytes":224744448,"processes":5},"chrome":{"cpuUsec":6060000,"pssBytes":308350976,"processes":10}},"controllerCpuUsec":2230000,"memoryCurrent":506228736,"clock":{"epochMs":1789587382097,"monotonicMs":55831.295407},"viewer":{"cpu":"usage_usec 15270192\nuser_usec 8007657\nsystem_usec 7262535\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":895307776},"load":"3.42 1.97 0.91 3/1293 20079","cpu":"usage_usec 15866973\nuser_usec 9412738\nsystem_usec 6454235\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":526503936,"memoryLimit":"2147483648"}
+samples [{"index":0,"clickMs":2837.9000000000233,"latency":65.79999999993015,"frameIndex":12},{"index":1,"clickMs":5611.29999999993,"latency":59.39999999990687,"frameIndex":17},{"index":2,"clickMs":8391.199999999953,"latency":55.10000000009313,"frameIndex":22},{"index":3,"clickMs":11161.5,"latency":52.800000000046566,"frameIndex":27},{"index":4,"clickMs":11509.5,"latency":59,"frameIndex":39},{"index":5,"clickMs":14283.900000000023,"latency":60.90000000002328,"frameIndex":44},{"index":6,"clickMs":14621.099999999977,"latency":67.59999999997672,"frameIndex":49},{"index":7,"clickMs":17394.79999999993,"latency":54,"frameIndex":54},{"index":8,"clickMs":17723,"latency":68.70000000006985,"frameIndex":66}]
+surfaceProof {"viewport":[1320,920],"canvases":[{"decoded":[1280,800],"css":[650,379]}]}
+{
+  "trials": [
+    {
+      "index": 0,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 1,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 2,
+      "latency": null,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 3,
+      "latency": 65.79999999993015,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 4,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 5,
+      "latency": 59.39999999990687,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 6,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 7,
+      "latency": 55.10000000009313,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 8,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 9,
+      "latency": 52.800000000046566,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 10,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 11,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 12,
+      "latency": null,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 13,
+      "latency": 59,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 14,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 15,
+      "latency": 60.90000000002328,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 16,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 17,
+      "latency": 67.59999999997672,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 18,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 19,
+      "latency": 54,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 20,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 21,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    },
+    {
+      "index": 22,
+      "latency": null,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 23,
+      "latency": 68.70000000006985,
+      "captured": 1,
+      "received": 1
+    },
+    {
+      "index": 24,
+      "latency": null,
+      "captured": 0,
+      "received": 0
+    }
+  ],
+  "decodeLoads": 0,
+  "decodeErrors": 0,
+  "decodeReplaced": 0,
+  "transportSamples": [
+    42.59999999997672,
+    43.699999999953434,
+    45,
+    45.29999999993015,
+    45.40000000002328,
+    49.20000000006985,
+    52,
+    54.09999999997672,
+    55
+  ],
+  "renderSamples": [
+    10.100000000093132,
+    10.20000000006985,
+    10.300000000046566,
+    11.699999999953434,
+    11.699999999953434,
+    12.599999999976717,
+    13.599999999976717,
+    14.099999999976717,
+    16.70000000006985
+  ],
+  "inputSamples": [
+    {
+      "index": 0,
+      "receivedMs": 7306.837592,
+      "dispatchMs": 13.12629300000026
+    },
+    {
+      "index": 1,
+      "receivedMs": 10079.882927,
+      "dispatchMs": 4.895991999999751
+    },
+    {
+      "index": 2,
+      "receivedMs": 12860.091805,
+      "dispatchMs": 7.749186999999438
+    },
+    {
+      "index": 3,
+      "receivedMs": 15630.173114,
+      "dispatchMs": 7.954121000000669
+    },
+    {
+      "index": 4,
+      "receivedMs": 15979.039777,
+      "dispatchMs": 6.555673000000752
+    },
+    {
+      "index": 5,
+      "receivedMs": 18752.73086,
+      "dispatchMs": 4.716295000001992
+    },
+    {
+      "index": 6,
+      "receivedMs": 19094.749259,
+      "dispatchMs": 6.065110999999888
+    },
+    {
+      "index": 7,
+      "receivedMs": 21863.972081,
+      "dispatchMs": 4.721214000001055
+    },
+    {
+      "index": 8,
+      "receivedMs": 22194.326897,
+      "dispatchMs": 5.91893600000185
+    },
+    {
+      "index": 9,
+      "receivedMs": 24958.578663,
+      "dispatchMs": 3.8171650000003865
+    },
+    {
+      "index": 10,
+      "receivedMs": 25280.467254,
+      "dispatchMs": 3.3722000000016124
+    },
+    {
+      "index": 11,
+      "receivedMs": 28098.562166,
+      "dispatchMs": 5.993776999999682
+    },
+    {
+      "index": 12,
+      "receivedMs": 30874.366142,
+      "dispatchMs": 8.034943000002386
+    },
+    {
+      "index": 13,
+      "receivedMs": 33643.158839,
+      "dispatchMs": 4.127437999995891
+    },
+    {
+      "index": 14,
+      "receivedMs": 33984.681016,
+      "dispatchMs": 25.824981999998272
+    },
+    {
+      "index": 15,
+      "receivedMs": 36773.991218,
+      "dispatchMs": 6.328524999997171
+    },
+    {
+      "index": 16,
+      "receivedMs": 37116.859455,
+      "dispatchMs": 6.207447000000684
+    },
+    {
+      "index": 17,
+      "receivedMs": 39890.228552,
+      "dispatchMs": 7.00177000000258
+    },
+    {
+      "index": 18,
+      "receivedMs": 40295.263751,
+      "dispatchMs": 29.523494000000937
+    },
+    {
+      "index": 19,
+      "receivedMs": 43057.080152,
+      "dispatchMs": 3.8801129999992554
+    },
+    {
+      "index": 20,
+      "receivedMs": 43390.424667,
+      "dispatchMs": 13.088602000003448
+    },
+    {
+      "index": 21,
+      "receivedMs": 46168.871226,
+      "dispatchMs": 4.568987999999081
+    },
+    {
+      "index": 22,
+      "receivedMs": 48936.899681,
+      "dispatchMs": 6.025375999997777
+    },
+    {
+      "index": 23,
+      "receivedMs": 51714.599526,
+      "dispatchMs": 4.010676999998395
+    },
+    {
+      "index": 24,
+      "receivedMs": 52054.161516,
+      "dispatchMs": 5.084668000003148
+    }
+  ],
+  "eventLoopMs": {
+    "median": 0.494977000002109,
+    "p95": 6.415085000000545,
+    "max": 37.61260500000208
+  },
+  "decodedSize": [
+    1280,
+    800
+  ],
+  "processIds": {
+    "bun": 18464,
+    "viewer": 18493,
+    "controller": 18617
+  },
+  "rtcBefore": null,
+  "rtcAfter": null,
+  "date": "2026-09-16T19:36:22.109Z",
+  "hash": "de28ff3a75335be8da25eea51d54b077da936487",
+  "mode": "jpeg",
+  "pageKind": "ordinary",
+  "width": 1280,
+  "seconds": 48.553599999999975,
+  "frames": 69,
+  "fps": 1.4211098662097155,
+  "paintFps": 1.4211098662097155,
+  "meanJpegBytes": 83458.73913043478,
+  "meanWireBytes": 83491.73913043478,
+  "wsMbps": 0.9492074738021491,
+  "clicks": 9,
+  "medianMs": 59.39999999990687,
+  "p95Ms": 68.70000000006985,
+  "resourceBefore": {
+    "parts": {
+      "harness": {
+        "cpuUsec": 3120000,
+        "pssBytes": 231633920,
+        "processes": 5
+      },
+      "chrome": {
+        "cpuUsec": 1780000,
+        "pssBytes": 302123008,
+        "processes": 10
+      }
+    },
+    "controllerCpuUsec": 1140000,
+    "memoryCurrent": 510611456,
+    "clock": {
+      "epochMs": 1789587333418,
+      "monotonicMs": 7151.690156
+    },
+    "viewer": {
+      "cpu": "usage_usec 7649567\nuser_usec 3810157\nsystem_usec 3839410\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n",
+      "memoryPeak": 793018368
+    },
+    "load": "2.22 1.44 0.68 1/1266 18914",
+    "cpu": "usage_usec 5389614\nuser_usec 3491719\nsystem_usec 1897895\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "memoryPeak": 512614400,
+    "memoryLimit": "2147483648"
+  },
+  "resourceAfter": {
+    "parts": {
+      "harness": {
+        "cpuUsec": 9300000,
+        "pssBytes": 224744448,
+        "processes": 5
+      },
+      "chrome": {
+        "cpuUsec": 6060000,
+        "pssBytes": 308350976,
+        "processes": 10
+      }
+    },
+    "controllerCpuUsec": 2230000,
+    "memoryCurrent": 506228736,
+    "clock": {
+      "epochMs": 1789587382097,
+      "monotonicMs": 55831.295407
+    },
+    "viewer": {
+      "cpu": "usage_usec 15270192\nuser_usec 8007657\nsystem_usec 7262535\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n",
+      "memoryPeak": 895307776
+    },
+    "load": "3.42 1.97 0.91 3/1293 20079",
+    "cpu": "usage_usec 15866973\nuser_usec 9412738\nsystem_usec 6454235\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0",
+    "memoryPeak": 526503936,
+    "memoryLimit": "2147483648"
+  },
+  "serverElapsed": 48.582610103,
+  "transportMedian": 45.40000000002328,
+  "renderMedian": 11.699999999953434,
+  "medianIntervalFps": 4.0241448692152915,
+  "scope": "Cgroup CPU/current/peak; subtract controller CPU ticks from target scope; separate viewer scope; viewer-local counting window; loopback"
+}
+scopeEnd {"parts":{"harness":{"cpuUsec":9390000,"pssBytes":224557056,"processes":5},"chrome":{"cpuUsec":6060000,"pssBytes":308350976,"processes":10}},"controllerCpuUsec":2240000,"memoryCurrent":506806272,"clock":{"epochMs":1789587382193,"monotonicMs":55927.562185},"viewer":{"cpu":"usage_usec 15274217\nuser_usec 8011681\nsystem_usec 7262535\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0\n","memoryPeak":895307776},"load":"3.42 1.97 0.91 5/1295 20083","cpu":"usage_usec 15959256\nuser_usec 9427994\nsystem_usec 6531261\ncore_sched.force_idle_usec 0\nnr_periods 0\nnr_throttled 0\nthrottled_usec 0\nnr_bursts 0\nburst_usec 0","memoryPeak":526503936,"memoryLimit":"2147483648"}
+exit=0

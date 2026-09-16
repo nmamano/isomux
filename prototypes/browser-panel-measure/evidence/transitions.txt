@@ -1,0 +1,6 @@
+8ab232417c7c6230b59215204e06fee480f3735b
+{"date":"2026-09-16T20:07:19.529Z","action":"join2","firstFrameMs":114.31826999999998,"physicalWidth":800,"page":{"width":400,"height":680,"dpr":2}}
+{"date":"2026-09-16T20:07:19.676Z","action":"resize2","firstFrameMs":134.183354,"physicalWidth":820,"page":{"width":410,"height":690,"dpr":2}}
+{"date":"2026-09-16T20:07:19.747Z","action":"leave2","firstFrameMs":51.038095999999996,"physicalWidth":410,"page":{"width":410,"height":690,"dpr":1}}
+lastLeaves {"dpr":1,"capture":false}
+exit=0

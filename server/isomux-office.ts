@@ -134,6 +134,7 @@ import {
   browserPool,
   describeShot,
   parseBrowserParams,
+  normalizeBrowserDpr,
   validBrowserBound,
 } from "./browser-session.ts";
 import {
@@ -5278,7 +5279,9 @@ async function handleInboundMessage(
           break;
         if (
           (cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) ||
-          (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight))
+          (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight)) ||
+          (cmd.deviceScaleFactor !== undefined &&
+            (typeof cmd.deviceScaleFactor !== "number" || !Number.isFinite(cmd.deviceScaleFactor)))
         )
           break;
         if (
@@ -5346,8 +5349,11 @@ async function handleInboundMessage(
           () =>
             managesAgent(ws.data.session, cmd.agentId) &&
             agentVisibleForSession(ws.data.session, cmd.agentId),
-          { maxWidth: cmd.maxWidth, maxHeight: cmd.maxHeight },
+          { maxWidth: cmd.maxWidth, maxHeight: cmd.maxHeight,
+            deviceScaleFactor: normalizeBrowserDpr(cmd.deviceScaleFactor),
+          },
           () => frames.pressure.level,
+          () => frames.canCapture(),
         );
         watches.set(cmd.agentId, { stop, frames });
         break;
