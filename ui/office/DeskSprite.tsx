@@ -246,6 +246,14 @@ export function DeskSprite({
     idle: "#223",
   }[vs];
   const on = vs !== "idle";
+  // MID-TURN, which is not the same thing as `on`. `on` means the screen is
+  // awake at all: an agent waiting on a reply, or sitting on an error, still
+  // has a lit monitor and nobody is typing at it. The activity cues - the
+  // lines scrolling down the screen, the steam off the drink - say the agent
+  // is working RIGHT NOW, so they read the one state the rest of the scene
+  // already draws a working agent from (DeskUnit's isWorking, Character's
+  // working pose).
+  const working = vs === "working";
   const hasPlant = !DESKS_WITHOUT_PLANT.has(deskIndex);
   const vessel = agentType ? VESSEL[agentType] : "mug";
   // Seed for the drink. A desk drawn with no agent behind it still gets one
@@ -489,7 +497,9 @@ export function DeskSprite({
             />
           </path>
         )}
-        {on && (
+        {/* The lit screen's own slow sweep: one line travelling down and back,
+            which is what an awake but untouched monitor does. */}
+        {on && !working && (
           <path
             d="M66 30 L108 48"
             stroke={glow}
@@ -503,6 +513,33 @@ export function DeskSprite({
               repeatCount="indefinite"
             />
           </path>
+        )}
+        {/* Mid-turn: output scrolling past. Three lines running the same way
+            down the screen, one cycle apart, so the screen reads as moving
+            rather than as one line sliding. They run off the bottom instead of
+            coming back up - text scrolls one way - and the clip is what lets
+            them start and end outside the glass. Faint on purpose: this is
+            movement you notice at the edge of your eye, not an effect. */}
+        {working && (
+          <g data-screen-scroll clipPath={`url(#${screenClipId})`}>
+            {[0, 1, 2].map((i) => (
+              <path
+                key={i}
+                d="M66 18 L108 37"
+                stroke={glow}
+                strokeWidth="0.7"
+                opacity="0.26"
+              >
+                <animate
+                  attributeName="d"
+                  values="M66 15 L108 34;M66 44 L108 63"
+                  dur="2.4s"
+                  begin={`-${i * 0.8}s`}
+                  repeatCount="indefinite"
+                />
+              </path>
+            ))}
+          </g>
         )}
         {/* CWD text on monitor */}
         {shortCwd && (
@@ -566,9 +603,11 @@ export function DeskSprite({
             strokeWidth="1.5"
             strokeLinecap="round"
           />
-          {/* Steam when active */}
-          {on && (
+          {/* Steam, only while the agent is mid-turn: a drink stops steaming
+              the moment nobody is working over it. */}
+          {working && (
             <path
+              data-steam
               d="M138 53 Q136 47 140 43"
               fill="none"
               stroke="rgba(255,255,255,0.15)"
@@ -630,9 +669,11 @@ export function DeskSprite({
             strokeWidth="1.2"
             strokeLinecap="round"
           />
-          {/* Steam when active */}
-          {on && (
+          {/* Steam, only while the agent is mid-turn: a drink stops steaming
+              the moment nobody is working over it. */}
+          {working && (
             <path
+              data-steam
               d="M138.6 55.2 Q136.6 49.4 140.4 45.6"
               fill="none"
               stroke="rgba(255,255,255,0.15)"

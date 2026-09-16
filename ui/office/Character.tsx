@@ -1,9 +1,53 @@
+import { useId } from "react";
 import type { AgentState, AgentOutfit } from "../../shared/types.ts";
 
 import { costumeOf } from "../../shared/outfit-options.ts";
 import { COSTUME_COLORS, CostumeBody, CostumeHead } from "./Costume.tsx";
 
 export const CHARACTER_GEOMETRY = { width: 52, height: 68, feetY: 62 } as const;
+
+// How much LIGHT a face gains from its monitor where that light is strongest,
+// per channel. Cool rather than white, because that is what a screen throws.
+//
+// It is an ADDITION to the skin, not a colour the skin is mixed towards, and
+// that distinction is the whole of this constant. Mixing pulls every face
+// towards one pale blue, so how much a face moves depends on how far it
+// already was: measured at 1x on 2026-09-16, the palest skin the picker
+// offers moved 22/255 and the darkest 89/255 - the same cue invisible on one
+// agent and washing the face flat on another. Adding gives every face the
+// same gain whatever it started at, which is what "the same light falls on
+// everyone" means.
+const FACE_LIGHT = [16, 25, 38] as const;
+
+function channels(hex: string): [number, number, number] | null {
+  const short = hex.trim().replace(/^#/, "");
+  const full = short.length === 3 ? short.replace(/./g, (c) => c + c) : short;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return null;
+  return [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16)) as [
+    number,
+    number,
+    number,
+  ];
+}
+
+/** The colour a face takes where the screen light is strongest: its own skin
+ *  plus FACE_LIGHT, clamped at white. A channel already at white cannot gain
+ *  any more, which is why a very pale face lights mostly in green and blue and
+ *  so reads as cooling rather than as brightening.
+ *
+ *  A colour this cannot read is returned untouched, so a hand-edited outfit
+ *  loses the cue rather than getting a wrong colour painted over its face. */
+export function faceLitColor(skin: string): string {
+  const base = channels(skin);
+  if (!base) return skin;
+  return `#${base
+    .map((v, i) =>
+      Math.min(255, v + FACE_LIGHT[i])
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
+}
 
 function visualState(
   state: AgentState,
@@ -432,6 +476,13 @@ export function Character({
   const hairStyle = outfit.hairStyle ?? "short";
   const beard = outfit.beard ?? "none";
   const vs = visualState(state);
+  // One pair of ids per mounted character. Every copy of the face light is
+  // painted from the same two definitions, so a single shared id would draw
+  // the same picture - until the character that happens to own it leaves the
+  // room and takes the definitions with it.
+  const uid = useId();
+  const faceLightId = `face-light-${uid}`;
+  const faceClipId = `face-clip-${uid}`;
 
   const wrap = (children: React.ReactNode, anim?: React.CSSProperties) => (
     <svg
@@ -713,11 +764,40 @@ export function Character({
     );
   }
 
-  // working / starting
+  // Mid-turn: leaning in, hands moving, and lit by the monitor.
   const hCx = 26,
     hCy = 25;
   return wrap(
     <>
+      {/* The light the screen throws on the face while the agent works. The
+          monitor stands BELOW the head and to its left in the desk sprite, so
+          the light climbs the face from that corner and dies out before the
+          brow - which is what a gradient running that way says, and what a
+          flat wash over the whole face does not. Clipped to the head, or it
+          spills onto the hair and the shoulders and stops reading as light.
+
+          Both ends of the gradient are the SAME colour and differ only in
+          opacity: the lit end is this face's own skin plus FACE_LIGHT, so
+          every point across the fall-off is the skin lifted by some fraction
+          of one fixed gain, and no face is pulled towards a colour that is
+          not its own. */}
+      <defs>
+        <linearGradient
+          id={faceLightId}
+          x1="0.18"
+          y1="1"
+          x2="0.6"
+          y2="0.1"
+          gradientUnits="objectBoundingBox"
+        >
+          <stop offset="0%" stopColor={faceLitColor(skin)} stopOpacity="1" />
+          <stop offset="45%" stopColor={faceLitColor(skin)} stopOpacity="0.5" />
+          <stop offset="100%" stopColor={faceLitColor(skin)} stopOpacity="0" />
+        </linearGradient>
+        <clipPath id={faceClipId}>
+          <ellipse cx={hCx} cy={hCy} rx={10} ry={10} />
+        </clipPath>
+      </defs>
       <rect x={16} y={36} width={20} height={16} fill={bc} rx={3} />
       <CostumeBody costume={costume} seated={false} />
       <g>
@@ -739,6 +819,15 @@ export function Character({
         </rect>
       </g>
       <ellipse cx={hCx} cy={hCy} rx={10} ry={10} fill={skin} />
+      <ellipse
+        data-face-light
+        cx={hCx}
+        cy={hCy}
+        rx={10}
+        ry={10}
+        fill={`url(#${faceLightId})`}
+        clipPath={`url(#${faceClipId})`}
+      />
       <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
       {costume === "none" || costume === "doctor" ? (
         <Hat type={outfit.hat} color={outfit.color} headCx={hCx} headCy={hCy} />

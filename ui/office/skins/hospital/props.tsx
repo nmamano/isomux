@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { useTheme } from "../../../store.tsx";
 import { hospitalColors, type HospitalColors } from "./palette.ts";
 
@@ -61,6 +62,36 @@ function CrossSign({ c }: { c: HospitalColors }) {
   );
 }
 
+/** The first-aid cabinet on the left wall, in the gap under the notice board
+ *  and right of the window. One cross on one wall reads as a sign somebody
+ *  hung in an office; a second piece of kit on the opposite wall reads as the
+ *  room. */
+function FirstAidCabinet({ c }: { c: HospitalColors }) {
+  const w = 20;
+  const h = 14;
+  return (
+    <g transform="translate(-58, 62) skewY(-27)">
+      <rect
+        x={-w}
+        y={-h}
+        width={w * 2}
+        height={h * 2}
+        rx="2"
+        fill={c.crossPlate}
+        stroke={c.crossPlateEdge}
+        strokeWidth="1.2"
+      />
+      {/* The door split and its handle: without them the box is a plaque. */}
+      <path d={`M2 ${-h} V${h}`} stroke={c.crossPlateEdge} strokeWidth="0.9" />
+      <rect x={4} y={-2} width="4.4" height="4" rx="1" fill={c.rail} />
+      <path
+        d="M-13 -4 H-8 V-9 H-3 V-4 H2 V1 H-3 V6 H-8 V1 H-13 Z"
+        fill={c.cross}
+      />
+    </g>
+  );
+}
+
 export function HospitalWalls() {
   const { mode } = useTheme();
   const c = hospitalColors(mode);
@@ -69,6 +100,7 @@ export function HospitalWalls() {
       <Wainscot side="left" c={c} />
       <Wainscot side="right" c={c} />
       <CrossSign c={c} />
+      <FirstAidCabinet c={c} />
     </g>
   );
 }
@@ -78,20 +110,48 @@ export function HospitalWalls() {
 // Half-length from the middle of a bed to its foot, and half-width to its side,
 // both on the floor axes: the head is up-right against the back-right wall and
 // the foot points down-left into the room.
-const BED_U = { x: -52, y: 26 };
-const BED_V = { x: 24, y: 12 };
-// How high the mattress stands off the floor.
-const BED_H = 26;
+export const BED_U = { x: -40, y: 20 };
+export const BED_V = { x: 18, y: 9 };
+// How high the mattress stands off the floor, and how far each rail rises
+// above it.
+export const BED_H = 20;
+export const HEAD_RAIL = 24;
+const FOOT_RAIL = 16;
 
-// Where each prop stands, as its contact point on the floor. Collected here
-// because placement is the part that gets nudged against a screenshot, and
-// nudging it should not mean reading the drawing.
-const PLACEMENT = {
-  bedFar: { x: 430, y: 320 },
-  bedNear: { x: 300, y: 400 },
-  ivStand: { x: 215, y: 455 },
-  curtain: { x: 500, y: 292 },
+// Where each prop stands, as its contact point on the floor, LISTED BACK TO
+// FRONT: the layer is drawn in this order, so a prop nearer the viewer has to
+// come later or it ends up behind the one it stands in front of.
+//
+// PLACEMENT IS A CONSTRAINT HERE, NOT A TASTE. The eight desks are drawn AFTER
+// this whole layer, so a desk whose drawing overlaps a bed paints over it -
+// and the desks nearest these props stand FURTHER from the viewer than the
+// props do, which makes that overlap read as a hole rather than as depth. So
+// both beds stand clear of all eight desk footprints and in front of the desk
+// grid, along the room's front-right floor edge, where the ward is visible end
+// to end. layout.test.ts holds the numbers.
+export const PLACEMENT = {
+  curtain: { x: 384, y: 362 },
+  bedFar: { x: 300, y: 400 },
+  ivStand: { x: 246, y: 432 },
+  bedNear: { x: 180, y: 460 },
 } as const;
+
+/** Which of these places holds a bed. The layout test measures these against
+ *  the desks; everything else here is thin enough to share a tile with one. */
+export const BED_SPOTS = ["bedFar", "bedNear"] as const;
+
+/** The box a bed paints, in scene coordinates: the floor rectangle widened to
+ *  the frame corners and raised to the top of the head rail. */
+export function bedBox(at: { x: number; y: number }) {
+  const halfX = -BED_U.x + BED_V.x;
+  const halfY = BED_U.y + BED_V.y;
+  return {
+    minX: at.x - halfX,
+    maxX: at.x + halfX,
+    minY: at.y - halfY - BED_H - HEAD_RAIL,
+    maxY: at.y + halfY,
+  };
+}
 
 function point(c: { x: number; y: number }, u: number, v: number) {
   return {
@@ -122,12 +182,12 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
   const [nearFoot, farFoot, farHead, nearHead] = corners;
   return (
     <g aria-hidden="true">
-      {/* Contact shadow */}
-      <ellipse
-        cx={at.x}
-        cy={at.y + 4}
-        rx="62"
-        ry="31"
+      {/* Contact shadow. It is the bed's own FOOTPRINT softened, not an
+          ellipse drawn around it: both beds stand a few units inside the
+          front-right floor edge, and an ellipse wide enough to read under a
+          bed hangs over that edge and lands on the slab below it. */}
+      <path
+        d={poly(corners, -3)}
         fill={c.shadow}
         filter="url(#hospital-soft)"
       />
@@ -161,80 +221,91 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
           [
             point(at, 0.9, 0.9),
             point(at, 0.9, -0.9),
-            point(at, 0.05, -0.9),
-            point(at, 0.05, 0.9),
+            point(at, 0.08, -0.9),
+            point(at, 0.08, 0.9),
           ],
           BED_H + 5,
         )}
         fill={c.blanket}
       />
       <path
-        d={`M${point(at, 0.9, 0.9).x} ${point(at, 0.9, 0.9).y - BED_H - 5} L${point(at, 0.9, -0.9).x} ${point(at, 0.9, -0.9).y - BED_H - 5} L${point(at, 0.9, -0.9).x} ${point(at, 0.9, -0.9).y - BED_H + 5} L${point(at, 0.9, 0.9).x} ${point(at, 0.9, 0.9).y - BED_H + 5} Z`}
+        d={`M${point(at, 0.9, 0.9).x} ${point(at, 0.9, 0.9).y - BED_H - 5} L${point(at, 0.9, -0.9).x} ${point(at, 0.9, -0.9).y - BED_H - 5} L${point(at, 0.9, -0.9).x} ${point(at, 0.9, -0.9).y - BED_H + 4} L${point(at, 0.9, 0.9).x} ${point(at, 0.9, 0.9).y - BED_H + 4} Z`}
         fill={c.blanketShade}
       />
-      {/* Pillow at the head */}
+      {/* The turned-back top edge of the blanket: the pale band a made bed
+          shows across its middle, and at this size the line that tells the
+          covered half from the open sheet. */}
       <path
         d={poly(
           [
-            point(at, -0.5, 0.62),
-            point(at, -0.5, -0.62),
-            point(at, -0.86, -0.62),
-            point(at, -0.86, 0.62),
+            point(at, 0.18, 0.9),
+            point(at, 0.18, -0.9),
+            point(at, 0.04, -0.9),
+            point(at, 0.04, 0.9),
           ],
-          BED_H + 9,
+          BED_H + 6.5,
         )}
-        fill={c.pillow}
+        fill={c.linen}
       />
-      <path
-        d={poly(
-          [
-            point(at, -0.5, 0.62),
-            point(at, -0.5, -0.62),
-            point(at, -0.86, -0.62),
-            point(at, -0.86, 0.62),
-          ],
-          BED_H + 3,
-        )}
-        fill={c.linenShade}
-        opacity="0.5"
-      />
+      {/* Pillow at the head. Its shaded body is drawn FIRST and its top face
+          over it, so the difference between the two lifts reads as the depth
+          of the pillow. Drawn the other way round the top face is buried and
+          the pillow disappears into the sheet. */}
+      {[
+        { lift: BED_H + 3, fill: c.linenShade },
+        { lift: BED_H + 9, fill: c.pillow },
+      ].map(({ lift, fill }) => (
+        <path
+          key={lift}
+          d={poly(
+            [
+              point(at, -0.5, 0.62),
+              point(at, -0.5, -0.62),
+              point(at, -0.86, -0.62),
+              point(at, -0.86, 0.62),
+            ],
+            lift,
+          )}
+          fill={fill}
+        />
+      ))}
       {/* Head and foot rails: two posts and three bars each */}
       {[
-        { end: head, h: 34, u: -1 },
-        { end: foot, h: 24, u: 1 },
+        { end: head, h: HEAD_RAIL, u: -1 },
+        { end: foot, h: FOOT_RAIL, u: 1 },
       ].map(({ end, h, u }) => {
         const a = point(at, u, 1);
         const b = point(at, u, -1);
         return (
           <g key={u}>
             <rect
-              x={a.x - 2}
+              x={a.x - 1.8}
               y={a.y - BED_H - h}
-              width="4"
+              width="3.6"
               height={h + BED_H}
-              rx="1.6"
+              rx="1.4"
               fill={c.metal}
             />
             <rect
-              x={b.x - 2}
+              x={b.x - 1.8}
               y={b.y - BED_H - h}
-              width="4"
+              width="3.6"
               height={h + BED_H}
-              rx="1.6"
+              rx="1.4"
               fill={c.metalShade}
             />
-            {[0, 0.42, 0.84].map((t) => (
+            {[0, 0.45, 0.9].map((t) => (
               <path
                 key={t}
                 d={`M${a.x} ${a.y - BED_H - h + t * h} L${b.x} ${b.y - BED_H - h + t * h}`}
                 stroke={c.metal}
-                strokeWidth="2.6"
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 fill="none"
               />
             ))}
             {/* The near post, drawn last so it reads as being in front */}
-            <circle cx={end.x} cy={end.y - BED_H - h} r="2.2" fill={c.metal} />
+            <circle cx={end.x} cy={end.y - BED_H - h} r="2" fill={c.metal} />
           </g>
         );
       })}
@@ -244,8 +315,8 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
           key={i}
           cx={p.x}
           cy={p.y - 2}
-          rx="3.4"
-          ry="2"
+          rx="3"
+          ry="1.8"
           fill={c.metalShade}
         />
       ))}
@@ -253,8 +324,8 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
   );
 }
 
-/** The drip stand beside the far bed: a wheeled base, a pole, a hook and a
- *  half-full bag with its line running down. */
+/** The drip stand standing between the two beds: a wheeled base, a pole, a
+ *  hook and a half-full bag with its line running down. */
 function IvStand({
   at,
   c,
@@ -328,6 +399,13 @@ function IvStand({
   );
 }
 
+// How high the curtain hangs and how far it drops. The two are set together:
+// the hem has to land near the floor point or the curtain reads as a banner,
+// and the rail has to clear the desk standing behind it, which is what fixes
+// the height.
+const CURTAIN_RISE = 96;
+const CURTAIN_DROP = 88;
+
 /** The cubicle curtain, gathered against its rail beside the far bed's head -
  *  which is how a curtain stands when nobody has pulled it round. */
 function Curtain({
@@ -337,12 +415,12 @@ function Curtain({
   at: { x: number; y: number };
   c: HospitalColors;
 }) {
-  const top = at.y - 100;
+  const top = at.y - CURTAIN_RISE;
   // The rail runs along the floor axis the beds are laid on, so the curtain
   // hangs square to them rather than across the grid, and each fold hangs from
   // its own point on it - a flat top line reads as a board, not cloth.
   const width = 44;
-  const drop = 92;
+  const drop = CURTAIN_DROP;
   const folds = [0, 0.25, 0.5, 0.75, 1];
   return (
     <g aria-hidden="true">
@@ -357,6 +435,13 @@ function Curtain({
       <path
         d={`M${at.x - width / 2} ${top - width / 4} L${at.x + width / 2} ${top + width / 4} L${at.x + width / 2} ${top + width / 4 + drop} L${at.x - width / 2} ${top - width / 4 + drop} Z`}
         fill={c.curtainShade}
+      />
+      {/* The mesh band along the top, which every ward curtain carries and
+          which is what separates one from a shower curtain. */}
+      <path
+        d={`M${at.x - width / 2} ${top - width / 4} L${at.x + width / 2} ${top + width / 4} L${at.x + width / 2} ${top + width / 4 + 11} L${at.x - width / 2} ${top - width / 4 + 11} Z`}
+        fill={c.curtain}
+        opacity="0.5"
       />
       {folds.map((t, i) => {
         const x = at.x - width / 2 + t * width;
@@ -382,6 +467,19 @@ function Curtain({
   );
 }
 
+/** What stands at each place in PLACEMENT. Splitting it out is what lets the
+ *  layer be drawn straight from PLACEMENT, so the list's back-to-front order
+ *  IS the drawing order and neither can drift from the other. */
+const FURNITURE: Record<
+  keyof typeof PLACEMENT,
+  (props: { at: { x: number; y: number }; c: HospitalColors }) => ReactElement
+> = {
+  curtain: Curtain,
+  bedFar: Bed,
+  ivStand: IvStand,
+  bedNear: Bed,
+};
+
 export function HospitalProps() {
   const { mode } = useTheme();
   const c = hospitalColors(mode);
@@ -389,15 +487,13 @@ export function HospitalProps() {
     <g data-skin-layer="hospital-props">
       <defs>
         <filter id="hospital-soft" x="-40%" y="-40%" width="180%" height="180%">
-          <feGaussianBlur stdDeviation="3.2" />
+          <feGaussianBlur stdDeviation="2.6" />
         </filter>
       </defs>
-      {/* Drawn back to front: the far bed and its furniture first, then the
-          bed nearer the viewer. */}
-      <Curtain at={PLACEMENT.curtain} c={c} />
-      <Bed at={PLACEMENT.bedFar} c={c} />
-      <IvStand at={PLACEMENT.ivStand} c={c} />
-      <Bed at={PLACEMENT.bedNear} c={c} />
+      {Object.entries(PLACEMENT).map(([spot, at]) => {
+        const Piece = FURNITURE[spot as keyof typeof PLACEMENT];
+        return <Piece key={spot} at={at} c={c} />;
+      })}
     </g>
   );
 }
