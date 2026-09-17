@@ -5,7 +5,7 @@
 // could write that down: the operation is merely running, the run record has no
 // expiry, and the box is already carrying an instant we cannot change.
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -31,6 +31,15 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}, PG_TEST_HOOK_TIMEOUT_MS);
+
+// The first store a file opens pays the schema build. Inside a test that
+// competes with Bun's 5 s per-test default, which it crossed once under
+// push-time CI load (2026-09-17, 5001.87 ms, green alone). A hook carries the
+// PostgreSQL budget, so pay it here and hand the schema back to the free list.
+beforeAll(async () => {
+  await openTestStore();
+  await releaseTestStores();
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
