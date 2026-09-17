@@ -101,7 +101,10 @@ export interface OpenCodeSupervisorOptions {
     ): ReturnType<typeof setTimeout>;
     clearTimeout(timer: ReturnType<typeof setTimeout>): void;
   };
-  processIdentityMatches?: (pid: number, startTicks: string | undefined) => boolean;
+  processIdentityMatches?: (
+    pid: number,
+    startTicks: string | undefined,
+  ) => boolean;
   turnHealthCheck?: (record: OpenCodeServerEndpoint) => Promise<boolean>;
   ensureServerSink?: () => void;
 }
@@ -337,7 +340,9 @@ export class OpenCodeSupervisor {
     }
     if (await this.turnHealthCheck(record)) return;
     if (otherTurnActive)
-      throw new Error("OpenCode server health check failed during an active turn.");
+      throw new Error(
+        "OpenCode server health check failed during an active turn.",
+      );
     await this.ensureServer();
   }
 

@@ -222,9 +222,10 @@ for (const [stage, context, name, statusCode] of cases) {
       expect(harness.prompts(), "no prompt after early failure").toBe(
         stage === "prompt" || stage === "race" ? 1 : 0,
       );
-      expect(harness.recoveries(), "recovery stays before prompt submission").toBe(
-        stage === "events" || stage === "body" ? 1 : 0,
-      );
+      expect(
+        harness.recoveries(),
+        "recovery stays before prompt submission",
+      ).toBe(stage === "events" || stage === "body" ? 1 : 0);
     } finally {
       transport.close();
     }
@@ -297,11 +298,9 @@ it("retries one refused event subscription before submitting one prompt, then re
         new ReadableStream<Uint8Array>({
           start(controller) {
             stream = controller;
-            init?.signal?.addEventListener(
-              "abort",
-              () => controller.close(),
-              { once: true },
-            );
+            init?.signal?.addEventListener("abort", () => controller.close(), {
+              once: true,
+            });
           },
         }),
       );

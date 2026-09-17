@@ -792,7 +792,10 @@ describe("OpenCode shared server supervisor", () => {
     await active.beginTurn();
     healthy = false;
 
-    await expectRejection(recovering.recoverBeforePrompt(), /health check failed/);
+    await expectRejection(
+      recovering.recoverBeforePrompt(),
+      /health check failed/,
+    );
 
     expect(ensures).toBe(2);
     recovering.endTurn();
@@ -821,9 +824,9 @@ describe("OpenCode shared server supervisor", () => {
 
     expect(first.pid).not.toBe(deadPid);
     expect(second.pid).toBe(first.pid);
-    expect((await readFile(launchMarker, "utf8")).trim().split("\n")).toHaveLength(
-      2,
-    );
+    expect(
+      (await readFile(launchMarker, "utf8")).trim().split("\n"),
+    ).toHaveLength(2);
     first.endTurn();
     second.endTurn();
     first.release();
