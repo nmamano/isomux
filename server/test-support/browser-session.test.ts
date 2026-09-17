@@ -2284,7 +2284,12 @@ for (const [kind, interval] of [
         await Bun.sleep(interval);
       }
       const during = frames.length;
-      expect(during).toBeGreaterThanOrEqual(15);
+      // Real timers: 2 s of input against a 33 ms barrier plus a 65 ms capture
+      // is about 20 stills on a quiet box. The guard is against starvation
+      // (the pre-fix count was 0), so the floor leaves room for a loaded CI
+      // box: push-time CI measured 14 on 2026-09-17 with 15 as the floor.
+      // Over-delivery is caught by maxInFlight below, not by the ceiling.
+      expect(during).toBeGreaterThanOrEqual(8);
       expect(during).toBeLessThanOrEqual(23);
       await untilBrowser(() => frames.at(-1) === `paint-${value}`);
       expect(maxInFlight).toBe(1);
