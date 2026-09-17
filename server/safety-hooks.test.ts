@@ -231,7 +231,10 @@ describe("rm flag classification cost", () => {
     const result = await bash(command);
     const elapsedMs = performance.now() - started;
     expect(result.denied).toBe(true);
-    expect(elapsedMs).toBeLessThan(20);
+    // The regression this guards is catastrophic backtracking, which takes
+    // seconds on 404 bytes; 24 ms was measured under push-time CI load on
+    // 2026-09-17, so the bound is a load margin, not a budget.
+    expect(elapsedMs).toBeLessThan(500);
   });
 });
 

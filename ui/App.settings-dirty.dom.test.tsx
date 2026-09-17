@@ -16,7 +16,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
 
-setUpDomTestFile();
+// Four App renders on the settings panes: 5.4 s under push-time CI load on
+// 2026-09-17 against the 5 s default cap, about 3 s alone.
+setUpDomTestFile({ capMs: 10_000 });
 
 const { act, fireEvent, render } = await import("@testing-library/react");
 const { App } = await import("./App.tsx");
