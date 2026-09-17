@@ -1,0 +1,25 @@
+5518b1f348fd3a38f0e7749b5005697e9d542615
+Scope command line contains environment variable, which is not expanded by default for now, but will be expanded by default in the future. Use --expand-environment=yes/no to explicitly control it as needed.
+Running as unit: run-r3b0d5fda645e46c5878706186d772954.scope; invocation ID: 9d5c4ef853204eeca9ac9a7f67bf1f0f
+{"event":"start","at":"2026-09-17T01:22:04.518Z","root":"/tmp/opencode-diag-startup-XQTyej/1","live":false,"load":[2.43,1.31,1.16],"mockPort":39959}
+{"event":"start","at":"2026-09-17T01:22:04.611Z","root":"/tmp/opencode-diag-startup-XQTyej/3","live":false,"load":[2.43,1.31,1.16],"mockPort":41023}
+{"event":"start","at":"2026-09-17T01:22:04.698Z","root":"/tmp/opencode-diag-startup-XQTyej/2","live":false,"load":[2.43,1.31,1.16],"mockPort":38355}
+{"event":"start","at":"2026-09-17T01:22:04.723Z","root":"/tmp/opencode-diag-startup-XQTyej/4","live":false,"load":[2.43,1.31,1.16],"mockPort":40645}
+{"event":"startup","at":"2026-09-17T01:22:08.501Z","ms":3875,"load":[2.43,1.31,1.16],"pid":256820,"port":22189}
+{"event":"startup","at":"2026-09-17T01:22:08.585Z","ms":4067,"load":[2.43,1.31,1.16],"pid":256803,"port":22482}
+{"event":"event-ready","at":"2026-09-17T01:22:08.709Z","ms":204,"status":200,"bytes":89,"load":[2.43,1.31,1.16],"pid":256820,"port":22189}
+{"event":"shutdown","at":"2026-09-17T01:22:08.834Z"}
+trial=3 exit=0
+{"event":"startup","at":"2026-09-17T01:22:08.919Z","ms":4220,"load":[2.43,1.31,1.16],"pid":256856,"port":22572}
+{"event":"startup","at":"2026-09-17T01:22:09.125Z","ms":4402,"load":[2.96,1.44,1.21],"pid":256867,"port":22307}
+{"event":"event-ready","at":"2026-09-17T01:22:09.428Z","ms":841,"status":200,"bytes":89,"load":[2.96,1.44,1.21],"pid":256803,"port":22482}
+{"event":"shutdown","at":"2026-09-17T01:22:09.540Z"}
+trial=1 exit=0
+{"event":"event-ready","at":"2026-09-17T01:22:10.088Z","ms":1168,"status":200,"bytes":89,"load":[2.96,1.44,1.21],"pid":256856,"port":22572}
+{"event":"shutdown","at":"2026-09-17T01:22:10.183Z"}
+trial=2 exit=0
+{"event":"event-ready","at":"2026-09-17T01:22:10.269Z","ms":1143,"status":200,"bytes":89,"load":[2.96,1.44,1.21],"pid":256867,"port":22307}
+{"event":"shutdown","at":"2026-09-17T01:22:10.338Z"}
+trial=4 exit=0
+wrapper_exit=0
+5518b1f348fd3a38f0e7749b5005697e9d542615

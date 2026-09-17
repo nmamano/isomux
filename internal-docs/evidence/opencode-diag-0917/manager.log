@@ -1,0 +1,16 @@
+c0046f31cf0e1f105aa734671684cebc773cd549
+Running as unit: run-r6d3ca5cff90d440fa871937e07b7c971.scope; invocation ID: 3f1797b017f14cd4bfe21632815eadb7
+{"event":"start","at":"2026-09-17T01:21:06.994Z","root":"/tmp/opencode-diag-manager-bXBbeG","live":false,"load":[0.46,0.69,0.96],"mockPort":33679}
+{"event":"startup","at":"2026-09-17T01:21:11.501Z","ms":4506,"load":[0.83,0.76,0.98],"pid":256046,"port":22963}
+{"event":"manager-turn","at":"2026-09-17T01:21:19.718Z","label":"baseline","pid":256046,"port":22963}
+{"event":"member-error","at":"2026-09-17T01:21:20.764Z","text":"OpenCode reported a provider or transport error."}
+{"event":"manager-turn","at":"2026-09-17T01:21:20.766Z","label":"local-provider-400","pid":256046,"port":22963}
+{"event":"kill","at":"2026-09-17T01:21:20.767Z","label":"manager-between-turns-after-provider-error","command":"kill -KILL 256046","pid":256046,"port":22963,"source":"server.lock pid"}
+{"event":"member-error","at":"2026-09-17T01:21:20.973Z","text":"OpenCode turn failed (Error; HTTP status: unavailable)."}
+{"event":"manager-turn","at":"2026-09-17T01:21:20.974Z","label":"next-member-turn-1","pid":256046,"port":22963}
+{"event":"member-error","at":"2026-09-17T01:21:20.974Z","text":"OpenCode turn failed (Error; HTTP status: unavailable)."}
+{"event":"manager-turn","at":"2026-09-17T01:21:20.975Z","label":"next-member-turn-2","pid":256046,"port":22963}
+{"event":"manager-turn","at":"2026-09-17T01:21:31.577Z","label":"after-model-list-recovery","pid":256176,"port":22179}
+{"event":"shutdown","at":"2026-09-17T01:21:31.821Z"}
+exit=0
+c0046f31cf0e1f105aa734671684cebc773cd549

@@ -1,0 +1,27 @@
+fd16ed1d61f8050157a2087efcd8f112dcb0d44e
+Running as unit: run-r85e075b58d6440cb96f12b922b5ef765.scope; invocation ID: 782fd937d8f941358222732c92ca4633
+{"event":"start","at":"2026-09-17T01:17:09.651Z","root":"/tmp/opencode-diag-local-UB1kND","live":false,"load":[0.52,0.61,1.01],"mockPort":35809}
+{"event":"startup","at":"2026-09-17T01:17:14.944Z","ms":5292,"load":[0.64,0.63,1.02],"pid":253787,"port":22969}
+{"event":"turn","at":"2026-09-17T01:17:21.172Z","label":"baseline","status":"completed","pid":253787,"port":22969}
+{"event":"safe-error","at":"2026-09-17T01:17:21.977Z","name":"APIError","statusCode":400,"isRetryable":false,"hasMessage":true}
+{"event":"turn","at":"2026-09-17T01:17:21.980Z","label":"local-provider-400","status":"failed","error":"OpenCode reported a provider or transport error.","pid":253787,"port":22969}
+{"event":"turn","at":"2026-09-17T01:17:22.369Z","label":"after-provider-error","status":"completed","pid":253787,"port":22969}
+{"event":"kill","at":"2026-09-17T01:17:22.371Z","label":"between-turns","command":"kill -KILL 253787","pid":253787,"port":22969,"source":"server.lock pid"}
+{"event":"safe-error","at":"2026-09-17T01:17:22.576Z","name":"Error","code":"ConnectionRefused","hasMessage":false}
+{"event":"turn","at":"2026-09-17T01:17:22.577Z","label":"after-between-kill-1","status":"failed","error":"OpenCode turn failed (Error/ConnectionRefused; HTTP status: unavailable).","pid":253787,"port":22969}
+{"event":"safe-error","at":"2026-09-17T01:17:22.578Z","name":"Error","code":"ConnectionRefused","hasMessage":false}
+{"event":"turn","at":"2026-09-17T01:17:22.578Z","label":"after-between-kill-2","status":"failed","error":"OpenCode turn failed (Error/ConnectionRefused; HTTP status: unavailable).","pid":253787,"port":22969}
+{"event":"waited","at":"2026-09-17T01:17:24.579Z","ms":2000,"pid":253787,"port":22969}
+{"event":"turn","at":"2026-09-17T01:17:33.470Z","label":"new-session-recovery","status":"completed","pid":253932,"port":22811}
+{"event":"turn","at":"2026-09-17T01:17:34.114Z","label":"old-session-after-recovery","status":"completed","pid":253932,"port":22811}
+{"event":"kill","at":"2026-09-17T01:17:34.373Z","label":"mid-turn-after-provider-request","command":"kill -KILL 253932","pid":253932,"port":22811,"source":"server.lock pid"}
+{"event":"safe-error","at":"2026-09-17T01:17:34.529Z","name":"Error","code":"ConnectionRefused","hasMessage":false}
+{"event":"turn","at":"2026-09-17T01:17:34.529Z","label":"mid-kill-active-turn","status":"failed","error":"OpenCode event stream failed (Error/ConnectionRefused; HTTP status: unavailable).","pid":253932,"port":22811}
+{"event":"safe-error","at":"2026-09-17T01:17:34.577Z","name":"Error","code":"ConnectionRefused","hasMessage":false}
+{"event":"turn","at":"2026-09-17T01:17:34.578Z","label":"after-mid-kill-1","status":"failed","error":"OpenCode turn failed (Error/ConnectionRefused; HTTP status: unavailable).","pid":253932,"port":22811}
+{"event":"safe-error","at":"2026-09-17T01:17:34.579Z","name":"Error","code":"ConnectionRefused","hasMessage":false}
+{"event":"turn","at":"2026-09-17T01:17:34.579Z","label":"after-mid-kill-2","status":"failed","error":"OpenCode turn failed (Error/ConnectionRefused; HTTP status: unavailable).","pid":253932,"port":22811}
+{"event":"turn","at":"2026-09-17T01:17:42.676Z","label":"resume-recovery","status":"completed","pid":254138,"port":22799}
+{"event":"shutdown","at":"2026-09-17T01:17:42.747Z"}
+exit=0
+fd16ed1d61f8050157a2087efcd8f112dcb0d44e

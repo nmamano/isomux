@@ -1,0 +1,11 @@
+72b7df8818fb05101c372452377190ed9dd802ca
+Running as unit: run-rb2b33d016efc4bb6a5c370847cd86f87.scope; invocation ID: 0e1efc2b791a4270b643e1a832b1f239
+{"event":"start","at":"2026-09-17T01:38:15.571Z","root":"/tmp/opencode-diag-timeout-3IT7ok","live":false,"load":[0.58,0.49,0.74],"mockPort":34817}
+{"event":"startup","at":"2026-09-17T01:38:18.981Z","ms":3410,"load":[0.58,0.49,0.74],"pid":264057,"port":22708}
+{"event":"turn","at":"2026-09-17T01:38:24.647Z","label":"before-topic-timeout","status":"completed","pid":264057,"port":22708}
+{"event":"topic-timeout","at":"2026-09-17T01:38:29.998Z","error":"OpenCode one-shot prompt timed out.","ms":5345,"providerRequested":true,"timeoutMs":3000,"providerDelayMs":10000,"pid":264057,"port":22708}
+{"event":"health-after-timeout","at":"2026-09-17T01:38:30.052Z","status":200,"samePid":true,"pid":264057,"port":22708}
+{"event":"turn","at":"2026-09-17T01:38:30.504Z","label":"main-turn-after-topic-timeout","status":"completed","pid":264057,"port":22708}
+{"event":"shutdown","at":"2026-09-17T01:38:38.949Z"}
+exit=0
+72b7df8818fb05101c372452377190ed9dd802ca

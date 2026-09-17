@@ -1,0 +1,14 @@
+c0046f31cf0e1f105aa734671684cebc773cd549
+Running as unit: run-r7dbf370a90634cab8dc9979fa8656dea.scope; invocation ID: 5335b1fe01d24961b82a712ac8becf40
+{"event":"start","at":"2026-09-17T01:21:07.021Z","root":"/tmp/opencode-diag-paid-control-TXWjF4","live":true,"load":[0.46,0.69,0.96]}
+{"event":"startup","at":"2026-09-17T01:21:11.410Z","ms":4389,"load":[0.83,0.76,0.98],"pid":256042,"port":22318}
+{"event":"selected-model","at":"2026-09-17T01:21:17.148Z","model":"opencode/gpt-5-nano"}
+{"event":"turn","at":"2026-09-17T01:21:22.673Z","label":"paid-1","status":"completed","pid":256042,"port":22318}
+{"event":"turn","at":"2026-09-17T01:21:24.975Z","label":"paid-2","status":"completed","pid":256042,"port":22318}
+{"event":"turn","at":"2026-09-17T01:21:28.070Z","label":"paid-3","status":"completed","pid":256042,"port":22318}
+{"event":"safe-error","at":"2026-09-17T01:21:36.868Z","name":"APIError","statusCode":401,"isRetryable":false,"hasMessage":true}
+{"event":"turn","at":"2026-09-17T01:21:36.869Z","label":"controlled-real-provider-auth-error","status":"failed","error":"OpenCode authentication is not configured.","pid":256231,"port":22121}
+{"event":"health-after-provider-error","at":"2026-09-17T01:21:36.921Z","status":200,"pid":256231,"port":22121}
+{"event":"shutdown","at":"2026-09-17T01:21:37.005Z"}
+exit=0
+c0046f31cf0e1f105aa734671684cebc773cd549

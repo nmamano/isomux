@@ -1,0 +1,11 @@
+fd16ed1d61f8050157a2087efcd8f112dcb0d44e
+Running as unit: run-rf17521873bdc4049aa0f9ee7fcc6aa65.scope; invocation ID: 777b45a4de094daf942039a1412a36c1
+{"event":"start","at":"2026-09-17T01:17:58.866Z","root":"/tmp/opencode-diag-paid-LIEvOq","live":true,"load":[0.9,0.71,1.02]}
+{"event":"startup","at":"2026-09-17T01:18:03.325Z","ms":4457,"load":[0.9,0.71,1.02],"pid":254386,"port":22742}
+{"event":"selected-model","at":"2026-09-17T01:18:07.691Z","model":"opencode/gpt-5-nano"}
+{"event":"turn","at":"2026-09-17T01:18:13.111Z","label":"paid-1","status":"completed","pid":254386,"port":22742}
+{"event":"turn","at":"2026-09-17T01:18:17.801Z","label":"paid-2","status":"completed","pid":254386,"port":22742}
+{"event":"turn","at":"2026-09-17T01:18:20.376Z","label":"paid-3","status":"completed","pid":254386,"port":22742}
+{"event":"shutdown","at":"2026-09-17T01:18:20.450Z"}
+exit=0
+fd16ed1d61f8050157a2087efcd8f112dcb0d44e
