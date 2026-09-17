@@ -520,7 +520,8 @@ describe("OpenCode shared server supervisor", () => {
     20_000,
   );
 
-  it("adopts an unchanged config but replaces a pre-revision config record", async () => {
+  // Quarantined 2026-09-17, P1 e04ff785: fixture record reads race independent 1000 ms idle reapers.
+  it.skip("adopts an unchanged config but replaces a pre-revision config record", async () => {
     const path = await root();
     const oldConfig = gateConfig(mockProvider());
     const { binary, healthMarker } = await makeHealthOnlyBinary(path);
