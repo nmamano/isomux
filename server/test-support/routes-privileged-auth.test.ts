@@ -150,26 +150,38 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
       expect(can(op, privilegedAgent, AGENT_PARAMS)).toBe(true);
       expect(can(op, normalAgent, AGENT_PARAMS)).toBe(false);
     }
-    // listSessions has a self path since 7a954c3b: a normal agent lists ITS
-    // OWN sessions (AGENT_PARAMS.id is its agentId) and nobody else's.
+    // listSessions has the /logs reach since 2026-09-16: a normal agent lists
+    // its own sessions and those of any agent in a room it can reach, and
+    // nothing in a room it cannot.
     expect(can("agents.listSessions", privilegedAgent, AGENT_PARAMS)).toBe(
       true,
     );
     expect(can("agents.listSessions", normalAgent, AGENT_PARAMS)).toBe(true);
     expect(can("agents.listSessions", normalAgent, { id: "a-other" })).toBe(
-      false,
+      true,
     );
+    const noRoom = deps({ hasRoomAccess: () => false });
+    expect(
+      can(
+        "agents.listSessions",
+        normalAgent,
+        { id: "a-other" },
+        undefined,
+        noRoom,
+      ),
+    ).toBe(false);
   });
   it("is still room-scoped: NO access to an agent in an unreachable room", () => {
     const noAccess = deps({ hasRoomAccess: () => false });
     expect(
       can("agents.resume", privilegedAgent, AGENT_PARAMS, undefined, noAccess),
     ).toBe(false);
+    // Another agent's id: its own sessions stay readable everywhere.
     expect(
       can(
         "agents.listSessions",
         privilegedAgent,
-        AGENT_PARAMS,
+        { id: "a-other" },
         undefined,
         noAccess,
       ),

@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   mkdirSync,
   rmSync,
+  readFileSync,
   readlinkSync,
   symlinkSync,
   writeFileSync,
@@ -58,11 +59,21 @@ describe("bundled skills", () => {
     );
     expect(skill?.origin).toBe("isomux");
     expect(skill?.description).toContain("loose ends");
+    // The resolved prompt is the bundled file's body, not a pinned sentence.
+    const body = readFileSync(
+      join(import.meta.dir, "..", "skills", "wrap-session", "SKILL.md"),
+      "utf8",
+    )
+      .split("---")
+      .slice(2)
+      .join("---")
+      .trim();
+    expect(body.length).toBeGreaterThan(0);
     expect(
       resolveSkillPrompt("wrap-session", root("cwd"), [
         { root: emptyUserRoot, includeCommands: true },
       ]),
-    ).toContain("Report only real loose ends.");
+    ).toContain(body);
   });
 
   it("keeps one picker entry when a user overrides wrap-session", () => {

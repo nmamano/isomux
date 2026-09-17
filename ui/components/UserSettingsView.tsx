@@ -708,41 +708,41 @@ export function UserSettingsView({
               {t("settings.profilesNote")}
             </p>
 
-            <div style={{ padding: "0 14px" }}>
-              <button
-                onClick={signOut}
-                disabled={!sessionContext}
-                style={{
-                  padding: "8px 14px",
-                  borderRadius: 6,
-                  border: "1px solid #ff6b6b",
-                  background: "transparent",
-                  color: sessionContext ? "#ff6b6b" : "var(--text-ghost)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: sessionContext ? "pointer" : "not-allowed",
-                  opacity: sessionContext ? 1 : 0.55,
-                }}
-                title={t("settings.signOutHint")}
-              >
-                {t("common.signOut")}
-              </button>
-              {logoutBlockedReason && (
-                <p
+            {sessionContext && (
+              <div style={{ padding: "0 14px" }}>
+                <button
+                  onClick={signOut}
                   style={{
-                    margin: "8px 0 0",
-                    padding: "8px 12px",
-                    border: "1px solid #ff6b6b",
+                    padding: "8px 14px",
                     borderRadius: 6,
-                    background: "rgba(255,107,107,0.08)",
-                    fontSize: 11,
+                    border: "1px solid #ff6b6b",
+                    background: "transparent",
                     color: "#ff6b6b",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
                   }}
+                  title={t("settings.signOutHint")}
                 >
-                  {logoutBlockedReason}
-                </p>
-              )}
-            </div>
+                  {t("common.signOut")}
+                </button>
+                {logoutBlockedReason && (
+                  <p
+                    style={{
+                      margin: "8px 0 0",
+                      padding: "8px 12px",
+                      border: "1px solid #ff6b6b",
+                      borderRadius: 6,
+                      background: "rgba(255,107,107,0.08)",
+                      fontSize: 11,
+                      color: "#ff6b6b",
+                    }}
+                  >
+                    {logoutBlockedReason}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
 

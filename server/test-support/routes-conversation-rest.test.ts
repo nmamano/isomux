@@ -376,7 +376,7 @@ describe("agents.listSessions REST (Phase 3d slice 6a)", () => {
     expect("currentSessionId" in (res.body as object)).toBe(true);
   });
 
-  it("ordinary agent reads only its own sessions", async () => {
+  it("ordinary agent reads its own sessions and a room peer's", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -392,10 +392,11 @@ describe("agents.listSessions REST (Phase 3d slice 6a)", () => {
     expect(own.status).toBe(200);
     expect(Array.isArray((await own.json()).sessions)).toBe(true);
 
+    // Same reach as /logs (Nil, 2026-09-16): a peer in an accessible room.
     const other = await srv.http(`/api/agents/${peer.id}/sessions`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    expect(other.status).toBe(403);
+    expect(other.status).toBe(200);
 
     const ownerRead = await srv.http(`/api/agents/${peer.id}/sessions`, {
       rawSessionId: owner.rawSessionId,

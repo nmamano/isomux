@@ -9,6 +9,9 @@ export type NavAction = {
   onClick: () => void;
   active?: boolean;
   title?: string;
+  // Shown but inert, for an action that exists and has nothing to act on
+  // (End with no conversation running).
+  disabled?: boolean;
 };
 
 export function NavActions({
@@ -29,6 +32,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
         <button
           key={a.id}
           onClick={a.onClick}
+          disabled={a.disabled}
           title={a.title ?? a.label}
           style={{
             display: "flex",
@@ -39,8 +43,9 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
             border: `1px solid ${a.active ? "var(--green-border)" : "var(--border-medium)"}`,
             background: a.active ? "var(--green-bg)" : "var(--btn-surface)",
             color: a.active ? "var(--green)" : "var(--text-dim)",
+            opacity: a.disabled ? 0.45 : 1,
             fontSize: 11,
-            cursor: "pointer",
+            cursor: a.disabled ? "not-allowed" : "pointer",
             transition: "color 0.15s, background 0.15s, border-color 0.15s",
             lineHeight: 1,
           }}
@@ -130,6 +135,7 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
               <button
                 key={a.id}
                 title={a.title ?? a.label}
+                disabled={a.disabled}
                 onClick={() => {
                   setOpen(false);
                   a.onClick();
@@ -143,8 +149,9 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   background: a.active ? "var(--green-bg)" : "transparent",
                   border: "none",
                   color: a.active ? "var(--green)" : "var(--text-primary)",
+                  opacity: a.disabled ? 0.45 : 1,
                   fontSize: 14,
-                  cursor: "pointer",
+                  cursor: a.disabled ? "not-allowed" : "pointer",
                   textAlign: "left",
                 }}
               >

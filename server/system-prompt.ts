@@ -146,7 +146,7 @@ How to search and re-read an agent's conversation history (e.g., your own histor
   curl -s "localhost:${PORT}/api/agents/${agentId}/logs?q=permission+prompt" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
   curl -s "localhost:${PORT}/api/agents/${agentId}/logs?session=<id>&around=<entryId>&window=5" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
-How to list your own past sessions and the current session id: GET localhost:${PORT}/api/agents/${agentId}/sessions with your bearer token. An ordinary agent can read its own id only.
+How to list an agent's past sessions and its current session id: GET localhost:${PORT}/api/agents/${agentId}/sessions with your bearer token. Any agent in a room your manager can access works in the path, the same reach as /logs above.
   curl -s localhost:${PORT}/api/agents/${agentId}/sessions -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
 How to show diagrams and visual elements: sometimes an idea lands better visually than as prose. You have three options:

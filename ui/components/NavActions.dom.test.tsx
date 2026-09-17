@@ -34,6 +34,32 @@ function actions(onTasks: () => void) {
 }
 
 describe("NavActions", () => {
+  it("renders a disabled action inert on both viewports", () => {
+    let clicked = 0;
+    const inert = [
+      {
+        id: "end",
+        icon: null,
+        label: "End",
+        onClick: () => clicked++,
+        disabled: true,
+      },
+    ];
+    const desktop = render(<NavActions actions={inert} viewport="desktop" />);
+    const button = desktop.getByText("End").closest("button")!;
+    expect(button.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button);
+    expect(clicked).toBe(0);
+    desktop.unmount();
+
+    const mobile = render(<NavActions actions={inert} viewport="mobile" />);
+    fireEvent.click(mobile.getByRole("button"));
+    const item = mobile.getByText("End").closest("button")!;
+    expect(item.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(item);
+    expect(clicked).toBe(0);
+  });
+
   it("runs a desktop action's onClick", () => {
     let clicked = 0;
     const view = render(

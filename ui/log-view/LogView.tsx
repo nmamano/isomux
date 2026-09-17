@@ -49,6 +49,7 @@ import {
   liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
+import { citationBlock } from "./cite.ts";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
 import { SubscriptionPill } from "./SubscriptionPill.tsx";
@@ -1428,15 +1429,18 @@ export function LogView({
             onClick: handleCopy,
             active: copied,
           },
-          {
-            id: "endConversation",
-            icon: EndConversationIcon,
-            label: i18n.t("logView.nav.endConversation"),
-            title: i18n.t("logView.nav.endConversationTitle"),
-            onClick: () => runSlashCommand("/clear"),
-          },
         ]
       : []),
+    // Always in the bar, inert with no conversation (Nil, 2026-09-16): a
+    // control that appears and disappears reads as a broken layout.
+    {
+      id: "endConversation",
+      icon: EndConversationIcon,
+      label: i18n.t("logView.nav.endConversation"),
+      title: i18n.t("logView.nav.endConversationTitle"),
+      onClick: () => runSlashCommand("/clear"),
+      disabled: logs.length === 0,
+    },
     {
       id: "settings",
       icon: AgentIcon,
@@ -1857,7 +1861,7 @@ export function LogView({
   }
 
   function handleCite(text: string) {
-    insertBlockIntoDraft(`Cited text:\n"""\n${text}\n"""\n`);
+    insertBlockIntoDraft(citationBlock(text));
     // Collapse the chat selection so the pill goes away. selectionchange will
     // null out the hook state too, but clearCite first for snappy feedback.
     clearCite();

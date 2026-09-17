@@ -60,21 +60,6 @@ beforeEach(() => setApiShim(apiShim));
 afterAll(() => setApiShim(null));
 
 describe("Settings report panes", () => {
-  it("keeps Sign out visible and disabled without a session", () => {
-    const view = render(
-      onLanguage(
-        null,
-        createElement(UserSettingsView, {
-          onSwitchUser: () => {},
-          onClose: () => {},
-        }),
-        { sessionContext: null },
-      ),
-    );
-    const signOut = view.getByRole("button", { name: "Sign out" });
-    expect(signOut.hasAttribute("disabled")).toBe(true);
-  });
-
   it("uses the leave prompt while Storage cleanup is applying", async () => {
     window.history.replaceState(null, "", "/settings");
     const view = render(
