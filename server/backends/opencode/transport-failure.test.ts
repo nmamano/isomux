@@ -36,6 +36,7 @@ afterEach(() => {
 function fixture(stage: Stage, onPrompt = () => {}) {
   let ended = 0;
   let prompts = 0;
+  let recoveries = 0;
   let eventStream: ReadableStreamDefaultController | undefined;
   const permissionReplies: unknown[] = [];
   const originalFetch = globalThis.fetch;
@@ -132,6 +133,9 @@ function fixture(stage: Stage, onPrompt = () => {}) {
         beginTurn: async () => {
           if (stage === "begin") throw failure;
         },
+        recoverBeforePrompt: async () => {
+          recoveries++;
+        },
         endTurn: () => {
           ended++;
         },
@@ -143,6 +147,7 @@ function fixture(stage: Stage, onPrompt = () => {}) {
     supervisor,
     ended: () => ended,
     prompts: () => prompts,
+    recoveries: () => recoveries,
     permissionReplies,
   };
 }
@@ -217,6 +222,9 @@ for (const [stage, context, name, statusCode] of cases) {
       expect(harness.prompts(), "no prompt after early failure").toBe(
         stage === "prompt" || stage === "race" ? 1 : 0,
       );
+      expect(harness.recoveries(), "recovery stays before prompt submission").toBe(
+        stage === "events" || stage === "body" ? 1 : 0,
+      );
     } finally {
       transport.close();
     }
@@ -264,6 +272,143 @@ it("drops unreviewed exception fields and still settles if the error observer th
   } finally {
     consoleSpy.mockRestore();
     transport.close();
+  }
+});
+
+it("retries one refused event subscription before submitting one prompt, then reports the fixture's idle failure", async () => {
+  let subscriptions = 0;
+  let recoveries = 0;
+  let prompts = 0;
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  const originalFetch = globalThis.fetch;
+  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/session")
+      return Response.json({ id: "recovered-session" });
+    if (url.pathname === "/provider")
+      return Response.json({ all: [], connected: [] });
+    if (url.pathname === "/event") {
+      subscriptions++;
+      if (subscriptions === 1) throw failure;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            stream = controller;
+            init?.signal?.addEventListener(
+              "abort",
+              () => controller.close(),
+              { once: true },
+            );
+          },
+        }),
+      );
+    }
+    if (url.pathname.endsWith("/prompt_async")) {
+      prompts++;
+      stream!.enqueue(
+        new TextEncoder().encode(
+          'data: {"type":"session.idle","properties":{"sessionID":"recovered-session"}}\n\n',
+        ),
+      );
+      return Response.json(true);
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch);
+  const events: NormalizedEvent[] = [];
+  const settled = Promise.withResolvers<void>();
+  const transport = new OpenCodeTransport({
+    supervisor: {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: "http://127.0.0.1:1",
+        authHeader: "Basic synthetic",
+        beginTurn: async () => {},
+        recoverBeforePrompt: async () => {
+          recoveries++;
+        },
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+  });
+  try {
+    await transport.send([{ type: "text", text: "go" }], (event) => {
+      events.push(event);
+      if (event.kind === "turn_completed") settled.resolve();
+    });
+    await settled.promise;
+    expect(subscriptions).toBe(2);
+    expect(recoveries).toBe(1);
+    expect(prompts, "recovery never replays the prompt").toBe(1);
+    expect(events.at(-1)).toMatchObject({
+      kind: "turn_completed",
+      status: "failed",
+    });
+  } finally {
+    transport.close();
+    fetchSpy.mockRestore();
+  }
+});
+
+it("does not recover when closure aborts the initial event subscription", async () => {
+  const subscriptionStarted = Promise.withResolvers<void>();
+  let recoveries = 0;
+  const originalFetch = globalThis.fetch;
+  const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname === "/session") return Response.json({ id: "closing" });
+    if (url.pathname === "/provider")
+      return Response.json({ all: [], connected: [] });
+    if (url.pathname === "/event") {
+      subscriptionStarted.resolve();
+      if (init?.signal?.aborted)
+        throw new DOMException("aborted", "AbortError");
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true },
+        );
+      });
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch);
+  const transport = new OpenCodeTransport({
+    supervisor: {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: "http://127.0.0.1:1",
+        authHeader: "Basic synthetic",
+        beginTurn: async () => {},
+        recoverBeforePrompt: async () => {
+          recoveries++;
+        },
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor,
+    cwd: STATE_ROOT,
+    model: "provider/model",
+    systemPrompt: "system",
+  });
+  try {
+    const sending = transport.send([{ type: "text", text: "go" }], () => {});
+    await subscriptionStarted.promise;
+    transport.close();
+    await sending;
+    expect(recoveries).toBe(0);
+  } finally {
+    transport.close();
+    fetchSpy.mockRestore();
   }
 });
 

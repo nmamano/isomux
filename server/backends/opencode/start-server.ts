@@ -15,6 +15,7 @@ import {
   parseLinuxProcessState,
   readLinuxProcessStartTicks,
 } from "./process-identity.ts";
+import { openCodeServerIsHealthy } from "./server-health.ts";
 
 interface ServerRecord {
   pid: number;
@@ -26,8 +27,6 @@ interface ServerRecord {
   configRevision: string;
   startTicks?: string;
 }
-
-const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000;
 
 const profileDir = required("OPENCODE_PROFILE_DIR");
 const recordPath = required("OPENCODE_SERVER_RECORD");
@@ -70,23 +69,7 @@ async function healthy(record: ServerRecord): Promise<boolean> {
     record.configRevision !== configRevision
   )
     return false;
-  try {
-    process.kill(record.pid, 0);
-    const response = await fetch(
-      `http://127.0.0.1:${record.port}/global/health`,
-      {
-        headers: { authorization: authHeader(record.password) },
-        signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
-      },
-    );
-    const body = (await response.json()) as {
-      healthy?: boolean;
-      version?: string;
-    };
-    return response.ok && body.healthy === true && body.version === "1.18.23";
-  } catch {
-    return false;
-  }
+  return openCodeServerIsHealthy(record);
 }
 
 async function readRecord(): Promise<ServerRecord | null> {

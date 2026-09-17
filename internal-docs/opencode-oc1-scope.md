@@ -104,7 +104,11 @@ OpenCode uses shared servers, not one process per agent:
   active turn;
 - a live cron run counts as a client for its whole run;
 - a command that changes the selected environment or profile must replace the
-  affected server before a new conversation uses it.
+  affected server before a new conversation uses it;
+- a retained session verifies the recorded process identity and authenticated
+  health at turn entry. A dead process is replaced before the prompt is sent;
+- a failed health probe can replace an identity-matching process only when no
+  other turn is active. It cannot stop a server that another session is using.
 
 The server record also carries a revision of the generated OpenCode config.
 The first S6-era acquire treats a pre-S6 record without that revision as stale,
@@ -584,6 +588,9 @@ turning a cgroup kill into a false startup-lock failure.
 The profile's `server.lock` is both the cross-process `flock` target and its
 0600 pid/port/auth record. Every start takes that file lock, probes the record,
 adopts a healthy pinned server, and replaces a stale or unhealthy process.
+Turn entry probes the cached record in-process. It starts the locked replacement
+path only for a dead process, or for an unhealthy process with no other active
+turn. Two sessions that find the same dead record converge on one replacement.
 This applies after an Isomux SIGKILL and across test processes, not only inside
 one supervisor object. An ordinary Isomux SIGINT or SIGTERM reaps the shared
 server before the signal is re-raised. The reserved retry range is

@@ -416,7 +416,14 @@ export class OpenCodeTransport {
       this.abortRequested = false;
       controller = new AbortController();
       this.abortController = controller;
-      await this.consumeEvents(sessionId, emit, controller.signal, fail);
+      try {
+        await this.consumeEvents(sessionId, emit, controller.signal, fail);
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        await this.lease!.recoverBeforePrompt();
+        this.authorityBinding?.activate(this.lease!.pid);
+        await this.consumeEvents(sessionId, emit, controller.signal, fail);
+      }
       if (settled) return;
       const [providerID, modelID] = splitModel(this.model);
       await this.request(

@@ -5,6 +5,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { STATE_ROOT } from "../../config.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
+import { linuxProcessIdentityMatches } from "./process-identity.ts";
+import {
+  openCodeServerIsHealthy,
+  type OpenCodeServerEndpoint,
+} from "./server-health.ts";
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
 export const OPENCODE_REPLACEMENT_DRAIN_MS = 2 * 60 * 1000;
@@ -76,6 +81,7 @@ export interface OpenCodeLease {
   pid: number;
   release(): void;
   beginTurn(): Promise<void>;
+  recoverBeforePrompt(): Promise<void>;
   endTurn(): void;
 }
 
@@ -95,6 +101,9 @@ export interface OpenCodeSupervisorOptions {
     ): ReturnType<typeof setTimeout>;
     clearTimeout(timer: ReturnType<typeof setTimeout>): void;
   };
+  processIdentityMatches?: (pid: number, startTicks: string | undefined) => boolean;
+  turnHealthCheck?: (record: OpenCodeServerEndpoint) => Promise<boolean>;
+  ensureServerSink?: () => void;
 }
 
 export class OpenCodeSupervisor {
@@ -118,6 +127,15 @@ export class OpenCodeSupervisor {
   private readonly idleScheduler: NonNullable<
     OpenCodeSupervisorOptions["idleScheduler"]
   >;
+  private readonly processIdentityMatches: NonNullable<
+    OpenCodeSupervisorOptions["processIdentityMatches"]
+  >;
+  private readonly turnHealthCheck: NonNullable<
+    OpenCodeSupervisorOptions["turnHealthCheck"]
+  >;
+  private readonly ensureServerSink: NonNullable<
+    OpenCodeSupervisorOptions["ensureServerSink"]
+  >;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir =
@@ -140,6 +158,10 @@ export class OpenCodeSupervisor {
         setTimeout(() => void callback(), delayMs),
       clearTimeout,
     };
+    this.processIdentityMatches =
+      options.processIdentityMatches ?? linuxProcessIdentityMatches;
+    this.turnHealthCheck = options.turnHealthCheck ?? openCodeServerIsHealthy;
+    this.ensureServerSink = options.ensureServerSink ?? (() => undefined);
   }
 
   async acquire(): Promise<OpenCodeLease> {
@@ -174,11 +196,15 @@ export class OpenCodeSupervisor {
         if (released || turnActive) return;
         await this.replaceServerIfRequested();
         if (this.shutdownPromise) await this.shutdownPromise;
-        if (!this.record) await this.ensureServer();
+        await this.validateServerForTurn(this.activeTurns > 0);
         turnActive = true;
         this.activeTurns++;
         if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
         this.idleTimer = null;
+      },
+      recoverBeforePrompt: async () => {
+        if (released || !turnActive) return;
+        await this.validateServerForTurn(this.activeTurns > 1);
       },
       endTurn: () => {
         if (!turnActive) return;
@@ -247,6 +273,7 @@ export class OpenCodeSupervisor {
   }
 
   private async ensureServer(): Promise<void> {
+    this.ensureServerSink();
     await mkdir(this.profileDir, { recursive: true });
     const configPath = join(this.profileDir, "opencode.json");
     await writeFile(configPath, `${JSON.stringify(this.config)}\n`, {
@@ -297,6 +324,21 @@ export class OpenCodeSupervisor {
     this.record = await this.readRecord();
     if (!this.record)
       throw new Error("OpenCode startup did not write its server record.");
+  }
+
+  private async validateServerForTurn(otherTurnActive: boolean): Promise<void> {
+    const record = this.record;
+    if (
+      !record ||
+      !this.processIdentityMatches(record.pid, record.startTicks)
+    ) {
+      await this.ensureServer();
+      return;
+    }
+    if (await this.turnHealthCheck(record)) return;
+    if (otherTurnActive)
+      throw new Error("OpenCode server health check failed during an active turn.");
+    await this.ensureServer();
   }
 
   private computeConfigRevision(config: Record<string, unknown>): string {

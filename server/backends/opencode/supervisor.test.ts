@@ -666,6 +666,170 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
+  it("replaces a server killed between turns when the retained lease begins again", async () => {
+    const path = await root();
+    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
+    const lease = await supervisor.acquire();
+    const deadPid = lease.pid;
+    process.kill(deadPid, "SIGKILL");
+
+    await lease.beginTurn();
+
+    expect(lease.pid).not.toBe(deadPid);
+    expect(alive(lease.pid)).toBe(true);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("replaces a server killed during a turn when the retained lease begins the next turn", async () => {
+    const path = await root();
+    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
+    const lease = await supervisor.acquire();
+    await lease.beginTurn();
+    const deadPid = lease.pid;
+    process.kill(deadPid, "SIGKILL");
+    lease.endTurn();
+
+    await lease.beginTurn();
+
+    expect(lease.pid).not.toBe(deadPid);
+    expect(alive(lease.pid)).toBe(true);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("checks a healthy retained server without starting the helper", async () => {
+    const path = await root();
+    let ensures = 0;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      ensureServerSink: () => ensures++,
+      turnHealthCheck: async () => true,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    expect(ensures).toBe(1);
+
+    await lease.beginTurn();
+
+    expect(ensures).toBe(1);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("does not replace an identity-matching server after a false health result while another turn is active", async () => {
+    const path = await root();
+    let healthy = true;
+    let ensures = 0;
+    const idle = manualIdleScheduler();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      ensureServerSink: () => ensures++,
+      turnHealthCheck: async () => healthy,
+      idleScheduler: idle.scheduler,
+    });
+    supervisors.push(supervisor);
+    const active = await supervisor.acquire();
+    const entering = await supervisor.acquire();
+    await active.beginTurn();
+    const retainedPid = active.pid;
+    healthy = false;
+
+    await expectRejection(entering.beginTurn(), /health check failed/);
+
+    expect(ensures).toBe(2);
+    expect(active.pid).toBe(retainedPid);
+    expect(entering.pid).toBe(retainedPid);
+    expect(alive(retainedPid)).toBe(true);
+    active.endTurn();
+    active.release();
+    entering.release();
+    expect(idle.isScheduled()).toBe(true);
+  }, 20_000);
+
+  it("recovers a lone active turn before its prompt when health fails", async () => {
+    const path = await root();
+    let healthy = true;
+    let ensures = 0;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      ensureServerSink: () => ensures++,
+      turnHealthCheck: async () => healthy,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    await lease.beginTurn();
+    healthy = false;
+
+    await lease.recoverBeforePrompt();
+
+    expect(ensures).toBe(2);
+    lease.endTurn();
+    lease.release();
+  }, 20_000);
+
+  it("does not recover before a prompt when another lease has an active turn", async () => {
+    const path = await root();
+    let healthy = true;
+    let ensures = 0;
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      ensureServerSink: () => ensures++,
+      turnHealthCheck: async () => healthy,
+    });
+    supervisors.push(supervisor);
+    const recovering = await supervisor.acquire();
+    const active = await supervisor.acquire();
+    await recovering.beginTurn();
+    await active.beginTurn();
+    healthy = false;
+
+    await expectRejection(recovering.recoverBeforePrompt(), /health check failed/);
+
+    expect(ensures).toBe(2);
+    recovering.endTurn();
+    active.endTurn();
+    recovering.release();
+    active.release();
+  }, 20_000);
+
+  it("binds two retained leases to one replacement after their shared process dies", async () => {
+    const path = await root();
+    const { binary, launchMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const first = await supervisor.acquire();
+    const second = await supervisor.acquire();
+    const deadPid = first.pid;
+    process.kill(deadPid, "SIGKILL");
+
+    await Promise.all([first.beginTurn(), second.beginTurn()]);
+
+    expect(first.pid).not.toBe(deadPid);
+    expect(second.pid).toBe(first.pid);
+    expect((await readFile(launchMarker, "utf8")).trim().split("\n")).toHaveLength(
+      2,
+    );
+    first.endTurn();
+    second.endTurn();
+    first.release();
+    second.release();
+  }, 20_000);
+
   it("reaps only after idle and never during an active turn", async () => {
     const path = await root();
     const idle = manualIdleScheduler();
