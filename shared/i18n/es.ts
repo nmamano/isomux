@@ -1398,6 +1398,9 @@ Cosas que puedes hacer por él:
   "panels.browser.readOnly":
     "Solo lectura. El responsable del agente controla esta página.",
   "panels.browser.empty": "No hay ninguna página abierta.",
+  "panels.browser.idleClosed":
+    "La página se cerró para ahorrar RAM tras 15 minutos de inactividad. ¿Reabrir la página?",
+  "panels.browser.reopen": "Reabrir página",
   "panels.browser.title": "Navegador",
   "panels.browser.close": "Cerrar el navegador",
   "panels.browser.surface": "Navegador en directo",

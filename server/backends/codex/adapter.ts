@@ -27,6 +27,7 @@
 
 import { readFileSync, statSync } from "fs";
 import { basename } from "path";
+import { filterMissingToolOutputRepeats } from "../../../shared/codex-diagnostics.ts";
 
 import { saveFile } from "../../persistence.ts";
 import {
@@ -712,6 +713,7 @@ export class CodexSession implements BackendSession {
   // Pre-turn stderr (codex's startup websocket pre-warm) is silenced.
   private authSignalsAllowedThisTurn = false;
   private authSignalEmittedThisTurn = false;
+  private readonly missingToolOutputNotices = new Set<string>();
   // Set when we ourselves issue turn/interrupt to short-circuit codex's
   // ~12s websocket retry budget on a doomed-by-auth turn. The natural
   // turn/completed from codex will land with status="interrupted"; the
@@ -2373,8 +2375,11 @@ export class CodexSession implements BackendSession {
     // its log lines, so strip ANSI CSI sequences - the escapes would be
     // persisted verbatim and reach the chat as literal bytes (task
     // ebe1bc1e). Then trim trailing newlines and skip pure whitespace.
-    // eslint-disable-next-line no-control-regex -- ESC is the point here
-    const text = chunk.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").trimEnd();
+    const text = filterMissingToolOutputRepeats(
+      // eslint-disable-next-line no-control-regex -- ESC is the point here
+      chunk.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").trimEnd(),
+      this.missingToolOutputNotices,
+    );
     if (!text) return;
     // Drop known-benign startup notices. Codex logs these at ERROR level
     // but they're informational: the bubblewrap line is a "here's how our

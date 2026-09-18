@@ -1377,6 +1377,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "panels.browser.readOnly":
     "View only. The agent’s manager controls this page.",
   "panels.browser.empty": "No page is open.",
+  "panels.browser.idleClosed":
+    "Page was closed to save RAM after 15 minutes of inactivity. Reopen page?",
+  "panels.browser.reopen": "Reopen page",
   "panels.browser.title": "Browser",
   "panels.browser.close": "Close browser",
   "panels.browser.surface": "Live browser",

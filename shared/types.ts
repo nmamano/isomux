@@ -1665,6 +1665,7 @@ export type ServerMessage =
       title?: string;
       busy?: boolean;
       resizing?: boolean;
+      idleClosed?: boolean;
       error?: string;
     }
   | { type: "browser_action"; agentId: string }

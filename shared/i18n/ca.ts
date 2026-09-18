@@ -1395,6 +1395,9 @@ Coses que pots fer per ell:
   "panels.browser.readOnly":
     "Només lectura. El responsable de l’agent controla aquesta pàgina.",
   "panels.browser.empty": "No hi ha cap pàgina oberta.",
+  "panels.browser.idleClosed":
+    "La pàgina s’ha tancat per estalviar RAM després de 15 minuts d’inactivitat. Vols tornar a obrir la pàgina?",
+  "panels.browser.reopen": "Torna a obrir la pàgina",
   "panels.browser.title": "Navegador",
   "panels.browser.close": "Tanca el navegador",
   "panels.browser.surface": "Navegador en directe",

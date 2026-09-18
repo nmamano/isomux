@@ -66,6 +66,7 @@ export function BrowserPanel({
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   const [available, setAvailable] = useState(false);
+  const [idleClosed, setIdleClosed] = useState(false);
   const [busy, setBusy] = useState(canDrive);
   const [error, setError] = useState("");
   const [copying, setCopying] = useState(false);
@@ -405,6 +406,7 @@ export function BrowserPanel({
           generation++;
         }
         setAvailable(message.available);
+        setIdleClosed(message.idleClosed === true);
         if (message.url !== undefined) {
           if (message.url !== lastServerUrl.current) setCopyNote("");
           lastServerUrl.current = message.url;
@@ -720,8 +722,19 @@ export function BrowserPanel({
             });
           }}
           onKeyDown={(event) => {
+            // Keys belong to the remote page, including office shortcuts.
+            event.stopPropagation();
             if (!canDrive) return;
             event.preventDefault();
+            if (
+              event.key.toLowerCase() === "c" &&
+              (event.ctrlKey || event.metaKey) &&
+              !event.altKey &&
+              !event.shiftKey
+            ) {
+              void copySelection();
+              return;
+            }
             input({
               kind: "key",
               event: "keyDown",
@@ -735,14 +748,16 @@ export function BrowserPanel({
                 (event.shiftKey ? 8 : 0),
             });
           }}
-          onKeyUp={(event) =>
+          onKeyUp={(event) => {
+            event.stopPropagation();
+            if (!canDrive) return;
             input({
               kind: "key",
               event: "keyUp",
               key: event.key,
               code: event.code,
-            })
-          }
+            });
+          }}
           style={{
             display: size ? "block" : "none",
             width: "100%",
@@ -756,9 +771,24 @@ export function BrowserPanel({
         />
         {!size && (
           <div style={{ color: "var(--text-dim)", textAlign: "center" }}>
-            {busy
-              ? i18n.t("panels.browser.loading")
-              : i18n.t("panels.browser.empty")}
+            {idleClosed ? (
+              <>
+                <div>{i18n.t("panels.browser.idleClosed")}</div>
+                {canDrive && (
+                  <button
+                    style={buttonStyle}
+                    disabled={busy}
+                    onClick={() => navigate("goto", lastServerUrl.current)}
+                  >
+                    {i18n.t("panels.browser.reopen")}
+                  </button>
+                )}
+              </>
+            ) : busy ? (
+              i18n.t("panels.browser.loading")
+            ) : (
+              i18n.t("panels.browser.empty")
+            )}
           </div>
         )}
       </div>

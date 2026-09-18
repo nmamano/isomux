@@ -2350,6 +2350,27 @@ describe("CodexSession auth coalescing", () => {
 // bytes (task ebe1bc1e).
 // ---------------------------------------------------------------------------
 describe("CodexSession stderr surfacing", () => {
+  it("reports each missing tool result once while retaining other stderr", async () => {
+    const { fake, it } = await bootstrapped();
+    const warning = (id: string, time: string) =>
+      `${time} ERROR codex_core::util: Custom tool call output is missing for call id: ${id}`;
+    fake.fireStderr(warning("call_a", "2026-09-17T23:28:09Z"));
+    expect(
+      expectKind(await nextEvent(it, "first missing output"), "system_text")
+        .text,
+    ).toContain("call_a");
+    fake.fireStderr(warning("call_a", "2026-09-17T23:29:09Z"));
+    fake.fireStderr(warning("call_b", "2026-09-17T23:29:10Z"));
+    expect(
+      expectKind(await nextEvent(it, "new missing output"), "system_text").text,
+    ).toContain("call_b");
+    fake.fireStderr(
+      warning("call_a", "2026-09-17T23:29:11Z") + "\nERROR unrelated failure",
+    );
+    expect(
+      expectKind(await nextEvent(it, "unrelated stderr"), "system_text").text,
+    ).toBe("[codex stderr] ERROR unrelated failure");
+  });
   it("strips ANSI escape codes and keeps the [codex stderr] prefix", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireStderr(

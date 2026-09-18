@@ -280,7 +280,7 @@ login, the agent confirms that it will act with its manager's profile first.
 The browser keeps the other enforced boundaries: http(s) only for the URL the
 agent passes, no credentials in that URL, refused downloads, Chrome's sandbox,
 and one page per agent. There is no permission prompt and no origin allowlist.
-The context closes after five idle minutes, but its storage state persists.
+The context closes after 15 idle minutes, but its storage state persists.
 
 The selected mechanism is Playwright `storageState`, saved with
 `indexedDB: true` and `credentials: true`. In Playwright 1.62.1 this captures
@@ -426,7 +426,7 @@ single revert.
 6. **Is `file://` allowed?** Recommendation: no. An agent already reads files
    with its own tools, under the safety policy. Letting the browser read them
    would route file reads around that policy.
-7. **Idle timeout.** Recommendation: close an agent's context after 5 minutes of
+7. **Idle timeout.** Recommendation: close an agent's context after 15 minutes of
    no browser call, and close the browser when the last context goes. Both are
    constants, not environment variables.
 8. **May an agent hold more than one page at a time?** Recommendation: no. One

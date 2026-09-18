@@ -1244,6 +1244,9 @@ App 的一些原则：
   "panels.browser.loading": "正在加载…",
   "panels.browser.readOnly": "仅供查看。此页面由智能体的负责人控制。",
   "panels.browser.empty": "没有打开的页面。",
+  "panels.browser.idleClosed":
+    "页面在闲置 15 分钟后已关闭，以节省内存。是否重新打开页面？",
+  "panels.browser.reopen": "重新打开页面",
   "panels.browser.title": "浏览器",
   "panels.browser.close": "关闭浏览器",
   "panels.browser.surface": "实时浏览器",

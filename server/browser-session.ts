@@ -71,7 +71,7 @@ import {
 } from "../shared/types.ts";
 
 /** How long an agent's context survives with no browser call. */
-export const BROWSER_IDLE_MS = 5 * 60 * 1000;
+export const BROWSER_IDLE_MS = 15 * 60 * 1000;
 /**
  * Per-operation timeout handed to Playwright itself, so the operation aborts
  * rather than being abandoned. The pool adds a backstop above it (see
@@ -389,6 +389,10 @@ export class BrowserPool {
   private browser: Browser | null = null;
   private launching: Promise<Browser> | null = null;
   private readonly sessions = new Map<string, AgentSession>();
+  private readonly idlePages = new Map<
+    string,
+    { url: string; title: string }
+  >();
   // One promise chain per agent. See serialize().
   private readonly queues = new Map<string, Promise<unknown>>();
   // ONE chain for the whole office. See lifecycle().
@@ -1189,7 +1193,17 @@ export class BrowserPool {
         this.touch(agentId, session);
         return;
       }
-      void this.close(agentId).catch((err: unknown) => {
+      void this.serialize(agentId, async () => {
+        if (
+          this.sessions.get(agentId) !== session ||
+          this.hasManagerViewer(agentId)
+        )
+          return;
+        const url = session.page.url();
+        if (/^https?:\/\//.test(url))
+          this.idlePages.set(agentId, { url, title: session.title });
+        await this.closeNow(agentId);
+      }).catch((err: unknown) => {
         console.error(
           `[browser] could not persist idle profile for ${agentId}:`,
           err,
@@ -1216,10 +1230,15 @@ export class BrowserPool {
     url: string;
     title: string;
     resizing?: boolean;
+    idleClosed?: boolean;
   } {
     const session = this.sessions.get(agentId);
-    if (!session || session.page.isClosed())
-      return { available: false, url: "", title: "" };
+    if (!session || session.page.isClosed()) {
+      const idle = this.idlePages.get(agentId);
+      return idle
+        ? { available: false, ...idle, idleClosed: true }
+        : { available: false, url: "", title: "" };
+    }
     return {
       available: true,
       url: session.page.url(),
@@ -1252,6 +1271,8 @@ export class BrowserPool {
       return this.run(agentId, { action: "close" }, profileId);
     return this.serialize(agentId, async () => {
       if (input.action === "open") {
+        const idle = this.idlePages.get(agentId);
+        if (idle) return { ok: true, ...idle };
         const session = await this.ensureSession(agentId, profileId, {
           width: DEFAULT_WIDTH,
           height: DEFAULT_HEIGHT,
@@ -1411,7 +1432,10 @@ export class BrowserPool {
    * land in the middle of an action.
    */
   async close(agentId: string): Promise<void> {
-    await this.serialize(agentId, () => this.closeNow(agentId));
+    await this.serialize(agentId, () => {
+      this.idlePages.delete(agentId);
+      return this.closeNow(agentId);
+    });
   }
 
   /** close() without the agent queue. Only call from inside queued work. */
@@ -1445,6 +1469,7 @@ export class BrowserPool {
   /** Close every context and the browser. For shutdown and for tests. */
   async shutdown(): Promise<void> {
     for (const agentId of [...this.sessions.keys()]) await this.close(agentId);
+    this.idlePages.clear();
     await this.closeBrowser();
   }
 
@@ -1469,10 +1494,18 @@ export class BrowserPool {
     params: ParsedParams,
   ): Promise<BrowserResult> {
     if (params.action === "close") {
+      this.idlePages.delete(agentId);
       await this.closeNow(agentId);
       return { ok: true, url: "", title: "", closed: true };
     }
 
+    if (params.action !== "goto" && this.idlePages.has(agentId))
+      return fail(
+        400,
+        "no_page",
+        "no page is open; call the goto action first",
+      );
+    if (params.action === "goto") this.idlePages.delete(agentId);
     const createdPage =
       params.action === "goto" && !this.status(agentId).available;
     const session = await this.ensureSession(

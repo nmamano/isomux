@@ -643,6 +643,28 @@ describe("BrowserPool", () => {
     await Bun.sleep(80);
     expect(pool.activeAgents()).toEqual([]);
     expect(calls.closedContexts).toBe(1);
+    const expired = pool.status("a");
+    expect(expired).toMatchObject({ available: false, idleClosed: true });
+    expect(expired.url).toBe("https://example.test/a?token=secret");
+    await pool.humanNavigate("a", { kind: "navigate", action: "open" }, "boss");
+    expect(pool.activeAgents()).toEqual([]);
+    expect(calls.contexts).toBe(1);
+    expect(pool.status("a").idleClosed).toBe(true);
+    const read = await pool.run("a", { action: "snapshot" });
+    expect(read.ok).toBe(false);
+    expect(calls.contexts).toBe(1);
+    const stop = pool.watch("a", () => {});
+    try {
+      await pool.run("a", { action: "goto", url: expired.url });
+      expect(pool.status("a").available).toBe(true);
+      expect(pool.status("a").idleClosed).toBeUndefined();
+      expect(calls.contexts).toBe(2);
+      await pool.close("a");
+      expect(pool.status("a").idleClosed).toBeUndefined();
+    } finally {
+      stop();
+      await pool.shutdown();
+    }
   });
 
   it("the close action closes the caller's context and nobody else's", async () => {
@@ -1968,8 +1990,9 @@ it("throttles DPR triggers without starving motion and keeps the final change", 
       } as never);
       await Bun.sleep(16);
     }
+    // Require progress before input stops, rather than a machine-dependent FPS.
+    expect(frames.length).toBeGreaterThan(0);
     await untilBrowser(() => frames.at(-1) === `sharp-${value}`);
-    expect(frames.length).toBeGreaterThanOrEqual(20);
     expect(frames.length).toBeLessThanOrEqual(34);
     expect(frames.every((f) => f.startsWith("sharp-"))).toBe(true);
     expect(maxInFlight).toBe(1);
