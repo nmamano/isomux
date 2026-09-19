@@ -60,7 +60,7 @@ export class BrowserExtensionBridge {
           this.connections.delete(member);
       },
       this.access.memberDisplay ? () => this.access.memberDisplay!(member) : undefined,
-      this.access.agentDisplay,
+      this.access.agentDisplay ? agent => this.access.agentDisplay!(agent) : undefined,
     );
     this.connections.set(member, connection);
     try {

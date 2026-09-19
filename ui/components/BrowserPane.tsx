@@ -9,7 +9,7 @@ export function BrowserPane() {
   const { t } = useI18n();
   const [status, setStatus] = useState<MemberBrowserStatus>();
   const [pair, setPair] = useState<{ code: string; expiresAt: number }>();
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   const [error, setError] = useState(false), [busy, setBusy] = useState(false), [copied, setCopied] = useState(false);
   const mounted = useRef(false), serial = useRef(0);
   async function refresh() {
@@ -21,9 +21,9 @@ export function BrowserPane() {
   }
   useEffect(() => {
     mounted.current = true;
-    void refresh();
+    void Promise.resolve().then(refresh);
     const timer = setInterval(() => { setNow(Date.now()); void refresh(); }, 2000);
-    return () => { mounted.current = false; ++serial.current; clearInterval(timer); };
+    return () => { mounted.current = false; clearInterval(timer); };
   }, []);
   async function change(method: "PATCH" | "POST" | "DELETE", body?: unknown) {
     setBusy(true); setError(false); setCopied(false);

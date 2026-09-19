@@ -76,9 +76,17 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           targetId = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
           await session.detach();
         }
-        const page = setup!.waitForEvent("page");
-        await setupCDP.send("Extensions.triggerAction", { id, targetId });
-        const opened = await page;
+        const page = setup!.waitForEvent("page", { timeout: 5000 });
+        void page.catch(() => {});
+        try {
+          await setupCDP.send("Extensions.triggerAction", { id, targetId });
+        } catch (error) { console.log("Action trigger failure:", String(error)); throw error; }
+        let opened;
+        try { opened = await page; }
+        catch (error) {
+          console.log("Action targets:", (await setupCDP.send("Target.getTargets")).targetInfos.map(target => ({ type: target.type, extension: target.url.startsWith(`chrome-extension://${id}/`) })));
+          throw error;
+        }
         await opened.waitForURL(`chrome-extension://${id}/connection.html`);
         return opened;
       };
