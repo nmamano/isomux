@@ -106,7 +106,8 @@ export class ExtensionBrowserSessions {
     };
     try {
       return await Promise.race([task(), new Promise<BrowserResult>((resolve) => { timer = setTimeout(() => { timedOut = true; transport?.close(); this.end(agent); resolve(ended()); }, 30_000); })]);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === "TimeoutError") { transport?.close(); this.end(agent); return ended(); }
       if (!session) transport?.close();
       if (!valid() || (session && !session.browser.isConnected())) return ended();
       return failure("action_failed", "The Chrome browser action failed");

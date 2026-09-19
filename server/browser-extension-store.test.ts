@@ -21,6 +21,7 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     const replacement = store.pair("one", true);
     expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBe("one");
     const second = store.redeem(replacement.code, origin, () => true);
+    expect(() => store.redeem(replacement.code, origin, () => true)).toThrow();
     expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBeUndefined();
     expect(store.memberForHash(browserCredentialHash(second.credential), origin)).toBe("one");
     expect(store.memberForHash(browserCredentialHash(second.credential), "chrome-extension://" + "b".repeat(32))).toBeUndefined();

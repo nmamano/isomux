@@ -67,6 +67,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     expect((await action(second.id, { action: "text" })).status).toBe(200);
     const targets = await setupCDP.send("Target.getTargets");
     expect(targets.targetInfos.filter((target) => target.url === url)).toHaveLength(2);
+    expect((await action(second.id, { action: "fill", selector: "#missing-timeout-fixture", text: "unused" })).body.error.code).toBe("browser_control_ended");
     expect((await memberRequest(office, owner, "DELETE", "/api/me/browser")).status).toBe(204);
     expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_not_paired");
   } finally { await setup?.close(); await office?.stop(); await site?.stop(true); rmSync(dir, { recursive: true, force: true }); }
