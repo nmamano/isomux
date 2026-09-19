@@ -550,6 +550,8 @@ export interface AgentInfo {
   // Static capabilities of this agent's backend. Populated server-side from
   // the Backend implementation; UI uses these to gate affordances.
   capabilities: AgentCapabilities;
+  // Derived for viewers from the current manager browser selection; never persisted.
+  browserPanelAvailable?: boolean;
   // Codex-only: sandbox mode (CodexSandboxMode). Stored separately from
   // permissionMode because Codex's permission model has two orthogonal axes
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude

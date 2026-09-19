@@ -790,7 +790,11 @@ export function LogView({
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
   const browserOpen = sidePanel === "browser";
-  const canOpenBrowser = office.experimental.browserPanel;
+  const canOpenBrowser = office.experimental.browserPanel && agent.browserPanelAvailable !== false;
+  useEffect(() => {
+    if (agent.browserPanelAvailable === false && browserOpen)
+      dispatch({ type: "set_side_panel", agentId: agent.id, panel: null });
+  }, [agent.browserPanelAvailable, browserOpen, agent.id, dispatch]);
   const canDriveBrowser =
     !!agent.userId && sessionContext?.userId === agent.userId;
   const autoOpenBrowser = useCallback(

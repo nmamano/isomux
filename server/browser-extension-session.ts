@@ -148,7 +148,6 @@ export class ExtensionBrowserSessions {
       (this.epochs.get(member) ?? 0) === epoch &&
       this.service.bridge.forMember(member) === connection;
     const task = async (): Promise<BrowserResult> => {
-      const createdPage = !session;
       if (!session) {
         transport = browserExtensionTransport(connection, agent);
         const browser = await chromium.connectOverCDP(transport, {
@@ -228,7 +227,6 @@ export class ExtensionBrowserSessions {
         ok: true,
         url: current.url(),
         title: await current.title(),
-        ...(createdPage ? { createdPage: true } : {}),
       };
       if (params.action === "text")
         result.text = cap(

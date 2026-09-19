@@ -4032,6 +4032,15 @@ function buildExecutorDeps(
     browserExtensionHandlers(extensionService!, async (member, backend) => {
       if (extensionService!.store.record(member).backend === backend) return;
       extensionService!.store.select(member, backend);
+      for (const agent of agentManager.getAllAgents()) {
+        if (agent.userId !== member) continue;
+        for (const connectionId of browserWatches.keys())
+          stopBrowserWatch(connectionId, agent.id);
+        liveEmit("agent_updated", {
+          agentId: agent.id,
+          changes: { browserPanelAvailable: browserPanelAvailable(agent.id) },
+        });
+      }
       extensionService!.revalidate();
       await extensionSessions!.endMember(
         member,
@@ -4369,7 +4378,12 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   return { rooms, globalToVisible, globalRoomIdToIndex };
 }
 
-// Returns the agent UNCHANGED (the shared AgentManager reference) if its room is
+function browserPanelAvailable(agentId: string): boolean {
+  const member = agentManager.getAgent(agentId)?.userId;
+  return !!member && extensionService?.store.record(member).backend === "headless";
+}
+
+// Returns the agent with derived browser capability if its room is
 // visible to this session, or null if not. Post-cut there is no dense `room` to
 // rewrite - agents carry a stable roomId - so this is purely a per-recipient
 // visibility filter. Callers treat the result as read-only (serialize, never
@@ -4392,7 +4406,7 @@ function projectAgentForSession(
     return null;
   }
   if (proj.globalToVisible[globalIdx] < 0) return null;
-  return agent;
+  return { ...agent, browserPanelAvailable: browserPanelAvailable(agent.id) };
 }
 
 // True if a given agentId currently lives in a room visible to this
@@ -4925,7 +4939,7 @@ function emitAgentEvent(event: AgentEvent): void {
       if (event.changes.roomId === undefined) {
         liveEmit("agent_updated", {
           agentId: event.agentId,
-          changes: event.changes,
+          changes: { ...event.changes, browserPanelAvailable: browserPanelAvailable(event.agentId) },
         });
       } else {
         routeAgentEvent(event);
@@ -4952,6 +4966,8 @@ function routeAgentEventToWs(
   event: AgentEvent,
 ) {
   const session = ws.data.session;
+  if (event.type === "agent_updated")
+    event = { ...event, changes: { ...event.changes, browserPanelAvailable: browserPanelAvailable(event.agentId) } };
 
   if (sessionHasFullRoomAccess(session)) {
     ws.send(JSON.stringify(event));
@@ -5335,7 +5351,7 @@ async function handleInboundMessage(
           .get(ws.data.connectionId)
           ?.get(cmd.agentId)?.frames.pressure;
         stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId))
+        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId) || !browserPanelAvailable(cmd.agentId))
           break;
         if (
           (cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) ||
@@ -5359,6 +5375,7 @@ async function handleInboundMessage(
         const canDeliver = () => {
           if (
             !browsers.has(ws) ||
+            !browserPanelAvailable(cmd.agentId) ||
             !agentVisibleForSession(ws.data.session, cmd.agentId)
           ) {
             stopBrowserWatch(ws.data.connectionId, cmd.agentId);
@@ -5369,7 +5386,7 @@ async function handleInboundMessage(
         const frames = new BrowserFrameSender(
           ws,
           canDeliver,
-          () => browserPool.refreshCapture(cmd.agentId),
+          () => { if (canDeliver()) browserPool.refreshCapture(cmd.agentId); },
           pressure,
         );
         const stop = browserPool.watch(
@@ -5408,6 +5425,7 @@ async function handleInboundMessage(
               );
           },
           () =>
+            browserPanelAvailable(cmd.agentId) &&
             managesAgent(ws.data.session, cmd.agentId) &&
             agentVisibleForSession(ws.data.session, cmd.agentId),
           {
@@ -5426,6 +5444,8 @@ async function handleInboundMessage(
         // result from panel-open time are not credentials for this profile.
         if (
           !managesAgent(session, cmd.agentId) ||
+          !agentVisibleForSession(session, cmd.agentId) ||
+          !browserPanelAvailable(cmd.agentId) ||
           !validBrowserInput(cmd.input)
         )
           break;
@@ -5437,7 +5457,7 @@ async function handleInboundMessage(
             result = { text: "", truncated: false, error: "selection_failed" };
           }
           // The response is private to the requesting manager connection.
-          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId))
+          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId) && browserPanelAvailable(cmd.agentId))
             ws.send(
               JSON.stringify({
                 type: "browser_selection",
@@ -5460,7 +5480,7 @@ async function handleInboundMessage(
             cmd.input,
             session.userId,
           );
-          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId)) {
+          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId) && browserPanelAvailable(cmd.agentId)) {
             ws.send(
               JSON.stringify({
                 type: "browser_status",

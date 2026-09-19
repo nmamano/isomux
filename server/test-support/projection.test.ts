@@ -50,7 +50,8 @@
 // interactive PTY path (live input/resize/close routing) stays carved into a
 // future stubbed-PTY/opt-in seam and is NOT characterized here.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { chromium, type Browser } from "playwright-core";
 import {
   startTestServer,
   type TestServer,
@@ -62,6 +63,9 @@ import { getUserByName } from "../users.ts";
 import { decodeBrowserFrame } from "../../shared/browser-frame.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { browserPool } from "../browser-session.ts";
+import { memberRequest, extensionSocket } from "./browser-extension-route-fixture";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type {
   AgentInfo,
   LogEntry,
@@ -720,6 +724,94 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
 });
 
 describe("live browser profile authorization", () => {
+  it("switches panel capability for room viewers and blocks all headless panel commands", async () => {
+    server = await boot();
+    const manager = await server.seedOwner("Boss");
+    const viewer = await server.seedMember("Viewer");
+    const hidden = await server.seedMember("Hidden");
+    const room = server.agentManager.getRooms()[0].id;
+    await setAccess(server, manager.rawSessionId, viewer.username, [room]);
+    const agent = await spawnIn(server, "Managed", room, manager);
+    const sockets = await Promise.all([manager, viewer, hidden].map(member => connectSettled(server!, member.rawSessionId)));
+    const [ownerSocket, viewerSocket, hiddenSocket] = sockets;
+    const projected = bag(ownerSocket).find(m => m.type === "full_state")!.agents as AgentInfo[];
+    expect(projected.find(a => a.id === agent.id)?.browserPanelAvailable).toBe(true);
+    expect(server.agentManager.getAgent(agent.id)).not.toHaveProperty("browserPanelAvailable");
+    const originals = { watch: browserPool.watch, refreshCapture: browserPool.refreshCapture, selection: browserPool.selection, humanNavigate: browserPool.humanNavigate, humanInput: browserPool.humanInput };
+    const calls: string[] = [];
+    let listener!: Parameters<typeof browserPool.watch>[1];
+    let stopped = 0;
+    browserPool.watch = (_id, next) => { calls.push("watch"); listener = next; return () => { stopped++; }; };
+    browserPool.refreshCapture = () => { calls.push("refresh"); };
+    browserPool.selection = async () => { calls.push("selection"); return { text: "", truncated: false }; };
+    browserPool.humanNavigate = async () => { calls.push("navigate"); return { ok: true, url: "", title: "" }; };
+    browserPool.humanInput = async () => { calls.push("input"); return true; };
+    const commands = () => {
+      ownerSocket.send({ type: "browser_watch", agentId: agent.id, watching: true });
+      for (const input of [
+        { kind: "selection", requestId: 1 },
+        { kind: "navigate", action: "open" },
+        { kind: "key", event: "keyDown", key: "a" },
+      ]) ownerSocket.send({ type: "browser_input", agentId: agent.id, input });
+    };
+    const select = async (backend: string) => {
+      expect((await memberRequest(server!, manager, "PATCH", "/api/me/browser", { backend })).status).toBe(204);
+      await Promise.all(sockets.map(pingPong));
+    };
+    const updates = (socket: TestSocket) => bag(socket).filter(m => m.type === "agent_updated" && m.agentId === agent.id && "browserPanelAvailable" in (m.changes as object));
+    try {
+      commands();
+      await pingPong(ownerSocket);
+      expect(calls).toEqual(["watch", "selection", "navigate", "input"]);
+      calls.length = 0;
+      await select("extension");
+      expect(stopped).toBe(1);
+      for (const socket of [ownerSocket, viewerSocket])
+        expect(updates(socket).at(-1)?.changes).toMatchObject({ browserPanelAvailable: false });
+      expect(updates(hiddenSocket)).toEqual([]);
+      const before = bag(ownerSocket).filter(m => m.type === "browser_frame").length;
+      listener({ data: "stale", width: 800, height: 600 });
+      commands();
+      await pingPong(ownerSocket);
+      expect(calls).toEqual([]);
+      expect(bag(ownerSocket).filter(m => m.type === "browser_frame")).toHaveLength(before);
+      expect(browserPool.status(agent.id).available).toBe(false);
+      await select("headless");
+      expect(updates(viewerSocket).at(-1)?.changes).toMatchObject({ browserPanelAvailable: true });
+      commands();
+      await pingPong(ownerSocket);
+      expect(calls).toEqual(["watch", "selection", "navigate", "input"]);
+    } finally { Object.assign(browserPool, originals); }
+  });
+
+  it("fails closed for unavailable selection and missing manager", async () => {
+    server = await boot();
+    const manager = await server.seedOwner("Boss");
+    const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
+    writeFileSync(join(server.stateRoot, "browser-connections.json"), "{invalid");
+    server = await server.restart();
+    const socket = await connectSettled(server, manager.rawSessionId);
+    const agents = bag(socket).find(m => m.type === "full_state")!.agents as AgentInfo[];
+    expect(agents.find(a => a.id === agent.id)?.browserPanelAvailable).toBe(false);
+    const originals = { watch: browserPool.watch, refreshCapture: browserPool.refreshCapture, selection: browserPool.selection, humanNavigate: browserPool.humanNavigate, humanInput: browserPool.humanInput };
+    const calls: string[] = [];
+    browserPool.watch = () => { calls.push("watch"); return () => {}; };
+    browserPool.refreshCapture = () => { calls.push("refresh"); };
+    browserPool.selection = async () => { calls.push("selection"); return { text: "", truncated: false }; };
+    browserPool.humanNavigate = async () => { calls.push("navigate"); return { ok: true, url: "", title: "" }; };
+    browserPool.humanInput = async () => { calls.push("input"); return true; };
+    try {
+      for (const missingManager of [false, true]) {
+        if (missingManager) server.agentManager.getAgent(agent.id)!.userId = undefined;
+        socket.send({ type: "browser_watch", agentId: agent.id, watching: true });
+        for (const input of [{ kind: "selection", requestId: 1 }, { kind: "navigate", action: "open" }, { kind: "key", event: "keyDown", key: "a" }])
+          socket.send({ type: "browser_input", agentId: agent.id, input });
+        await pingPong(socket);
+        expect(calls).toEqual([]);
+      }
+    } finally { Object.assign(browserPool, originals); }
+  });
+
   it("permits a room viewer to subscribe and refuses a member without room access", async () => {
     server = await boot();
     const roomId = server.agentManager.getRooms()[0].id;
@@ -943,6 +1035,69 @@ describe("live browser profile authorization", () => {
       browserPool.selection = original;
     }
   });
+
+  it("does not emit a panel notification when the extension creates a page", async () => {
+    server = await boot();
+    const manager = await server.seedOwner("Boss");
+    const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
+    const socket = await connectSettled(server, manager.rawSessionId);
+    await memberRequest(server, manager, "PATCH", "/api/me/browser", { backend: "extension" });
+    const { code } = await (await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})).json();
+    const extension = await extensionSocket(server, { kind: "hello", version: 1, code });
+    await extension.wait("ready");
+    let navigated = false;
+    const page = {
+      goto: async () => { navigated = true; },
+      url: () => "https://example.test",
+      title: async () => "Example",
+    };
+    const connect = spyOn(chromium, "connectOverCDP").mockResolvedValue({
+      contexts: () => [{ newPage: async () => page, on: () => {} }],
+      on: () => {},
+      isConnected: () => true,
+      close: async () => {},
+    } as unknown as Browser);
+    try {
+      const result = await server.agentManager.runAgentBrowserAction(agent.id, { action: "goto", url: "https://example.test" });
+      expect(result.ok).toBe(true);
+      expect(navigated).toBe(true);
+      await pingPong(socket);
+      expect(bag(socket).filter(m => m.type === "browser_action")).toEqual([]);
+    } finally {
+      await memberRequest(server, manager, "PATCH", "/api/me/browser", { backend: "headless" });
+      connect.mockRestore();
+    }
+  });
+
+  for (const kind of ["selection", "navigate"] as const)
+    it(`drops a pending ${kind} response after switching to extension`, async () => {
+      server = await boot();
+      const manager = await server.seedOwner("Boss");
+      const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
+      const socket = await connectSettled(server, manager.rawSessionId);
+      const originalSelection = browserPool.selection;
+      const originalNavigate = browserPool.humanNavigate;
+      let finish!: () => void;
+      let started!: () => void;
+      const began = new Promise<void>(resolve => { started = resolve; });
+      const pending = new Promise<void>(resolve => { finish = resolve; });
+      browserPool.selection = async () => { started(); await pending; return { text: "private", truncated: false }; };
+      browserPool.humanNavigate = async () => { started(); await pending; return { ok: true, url: "", title: "" }; };
+      try {
+        socket.send({ type: "browser_input", agentId: agent.id, input: kind === "selection" ? { kind, requestId: 1 } : { kind, action: "open" } });
+        await began;
+        await memberRequest(server, manager, "PATCH", "/api/me/browser", { backend: "extension" });
+        await pingPong(socket);
+        const before = bag(socket).filter(m => m.type === "browser_selection" || m.type === "browser_status").length;
+        finish();
+        await pingPong(socket);
+        expect(bag(socket).filter(m => m.type === "browser_selection" || m.type === "browser_status")).toHaveLength(before);
+      } finally {
+        finish();
+        browserPool.selection = originalSelection;
+        browserPool.humanNavigate = originalNavigate;
+      }
+    });
 
   it("sends page-created notifications only to the manager", async () => {
     server = await boot();

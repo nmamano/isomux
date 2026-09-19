@@ -199,5 +199,23 @@ it("wires the office flag into auto-open", async () => {
     await Promise.resolve();
   });
   expect(view.getByTestId("active-side-panel").textContent).toBe("browser");
+  await act(async () => {
+    shimEmit({ type: "agent_updated", agentId: agent.id, changes: { browserPanelAvailable: false } });
+  });
+  expect(view.getByTestId("active-side-panel").textContent).toBe("none");
+  expect(view.queryByRole("textbox", { name: "Address" })).toBeNull();
+  expect(view.queryByTitle("Open live browser")).toBeNull();
+  await act(async () => { shimEmit({ type: "browser_action", agentId: agent.id }); });
+  expect(view.getByTestId("active-side-panel").textContent).toBe("none");
+  await act(async () => {
+    shimEmit({ type: "agent_updated", agentId: agent.id, changes: { browserPanelAvailable: true } });
+  });
+  expect(view.getByTestId("active-side-panel").textContent).toBe("none");
+  fireEvent.click(view.getByTitle("Open live browser"));
+  expect(view.getByTestId("active-side-panel").textContent).toBe("browser");
+  fireEvent.click(view.getByTitle("Open live browser"));
+  expect(view.getByTestId("active-side-panel").textContent).toBe("none");
+  await act(async () => { shimEmit({ type: "browser_action", agentId: agent.id }); });
+  expect(view.getByTestId("active-side-panel").textContent).toBe("browser");
   view.unmount();
 });
