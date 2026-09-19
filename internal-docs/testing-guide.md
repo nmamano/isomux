@@ -267,7 +267,7 @@ unchanged.
 `browser-extension/background.test.ts` cover assignment isolation, the public
 Playwright transport, and disconnect races without a browser. The worker test
 builds and executes the extension bundle against a fake Chrome API.
-`bun run build:extension` is also a CI stage.
+`bun run build:extension` builds the package; CI builds it through `build:ui`.
 
 The separate local Chrome check uses a new profile and no real accounts:
 

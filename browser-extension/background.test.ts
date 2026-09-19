@@ -121,6 +121,7 @@ async function harness() {
   let timerId = 0;
   runInNewContext(source, {
     chrome,
+    navigator: { language: "en" },
     WebSocket: FakeSocket,
     URL,
     crypto,

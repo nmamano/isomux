@@ -185,11 +185,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("first");
       expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("second");
       const firstAssignment = await popup.read<{ id: string; tabId: number }>(`(() => { const row=[...document.querySelectorAll("#assignments section")].find(e=>e.querySelector("p").textContent === "first"); return {id:row.dataset.assignment,tabId:Number(row.dataset.tabId)}; })()`);
-      const badge = await setup.serviceWorkers()[0].evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId);
+      const badge = await setup.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId);
       expect(badge).toBe("CTRL");
       await popup.screenshot(join(dir, "extension-control.png"));
       await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="focus"]`);
-      await wait(async () => setup!.serviceWorkers()[0].evaluate(async tabId => {
+      await wait(async () => setup!.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => {
         const c = (globalThis as unknown as { chrome: { tabs: { query(v: unknown): Promise<{ id: number }[]> } } }).chrome;
         return (await c.tabs.query({ active: true, lastFocusedWindow: true })).some(tab => tab.id === tabId);
       }, firstAssignment.tabId));
@@ -198,10 +198,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="stop"]`);
       await popup.waitFor(`document.querySelectorAll("#assignments section").length === 1 && !document.querySelector('[data-assignment="${firstAssignment.id}"]')`);
       await popup.screenshot(join(dir, "extension-stopped.png"));
-      expect(await setup.serviceWorkers()[0].evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId)).toBe("ON");
+      expect(await setup.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId)).toBe("ON");
       expect((await setupCDP.send("Target.getTargets")).targetInfos.filter(target => target.url === url)).toHaveLength(2);
-      const retained = setup.pages().find(page => page.url() === url)!;
-      await retained.screenshot({ path: join(dir, "retained-page.png") });
+      let retained;
+      for (const page of setup.pages().filter(page => page.url() === url)) {
+        if (await page.locator("#out").textContent() === "first tab") retained = page;
+      }
+      expect(retained).toBeDefined();
+      expect(retained!.isClosed()).toBe(false);
+      await retained!.screenshot({ path: join(dir, "retained-page.png") });
       await popup.click("#disconnect");
       await popup.waitFor('document.querySelector("#status").dataset.state === "disabled"');
       expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_offline");

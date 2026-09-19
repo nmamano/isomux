@@ -1,3 +1,4 @@
+import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   browserSocketURL,
@@ -29,6 +30,8 @@ type Connection = {
   metadata?: BrowserMetadata;
   unpairResult?: (ok: boolean) => void;
 };
+const language = navigator.language.split("-")[0];
+const { t } = translatorFor(language === "es" || language === "ca" || language === "zh" ? language : "en");
 let current: Connection | undefined;
 let configuration = 0;
 let retry = 0;
@@ -47,12 +50,12 @@ function refreshBadges(): void {
     }
     await chrome.action.setBadgeText({ text: online ? "ON" : "OFF" });
     await chrome.action.setBadgeBackgroundColor({ color: online ? "#207451" : "#6b7280" });
-    await chrome.action.setTitle({ title: online ? "Isomux Browser: connected" : "Isomux Browser: offline" });
+    await chrome.action.setTitle({ title: t(online ? "browser.connected" : "browser.offline") });
     for (const tabId of new Set([...badgeTabs, ...owned])) {
       try {
         await chrome.action.setBadgeText({ tabId, text: owned.has(tabId) ? "CTRL" : null });
         await chrome.action.setBadgeBackgroundColor({ tabId, color: owned.has(tabId) ? "#a34c12" : (online ? "#207451" : "#6b7280") });
-        await chrome.action.setTitle({ tabId, title: owned.has(tabId) ? "Isomux Browser: agent control" : "Isomux Browser" });
+        await chrome.action.setTitle({ tabId, title: owned.has(tabId) ? t("browser.control") : "Isomux Browser" });
       } catch { /* A user may have closed this tab. */ }
     }
     badgeTabs = owned;

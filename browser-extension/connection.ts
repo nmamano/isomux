@@ -9,12 +9,12 @@ const office = element("office") as HTMLInputElement;
 const code = element("code") as HTMLInputElement;
 const labels: Record<string, PlainMessageKey> = {
   "office-label": "browser.office", "code-label": "browser.code", pair: "browser.pair",
-  reconnect: "browser.reconnect", disconnect: "browser.disconnect", unpair: "browser.unpair",
+  replace: "browser.replace", reconnect: "browser.reconnect", disconnect: "browser.disconnect", unpair: "browser.unpair",
   retained: "browser.retained", "offline-help": "browser.offlineHelp",
 };
 for (const [id, key] of Object.entries(labels)) element(id).textContent = t(key);
 let state: ExtensionUIState & { generation?: string };
-let busy = false, lastAssignments = "";
+let busy = false, lastAssignments = "", showPair = false;
 async function command(action: string, extra: Record<string, unknown> = {}) {
   if (busy) return;
   busy = true;
@@ -22,8 +22,8 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   try {
     const result = await chrome.runtime.sendMessage({ action, generation: state?.generation, ...extra }) as typeof state & { error?: string };
     if (!result || result.error) throw new Error();
+    if (action === "pair") { code.value = ""; showPair = false; }
     render(result);
-    if (action === "pair") code.value = "";
   } catch { element("error").textContent = t("browser.failed"); }
   finally { busy = false; }
 }
@@ -34,7 +34,8 @@ function render(next: typeof state) {
   element("member").textContent = state.member ? t("browser.owner", { name: state.member.name }) : "";
   element("office-display").textContent = state.office;
   if (!office.value) office.value = state.office;
-  element("pair-form").hidden = !["unpaired", "blocked", "unknown"].includes(state.state);
+  element("pair-form").hidden = !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
+  element("replace").hidden = !element("pair-form").hidden;
   element("disconnect").hidden = !["connected", "connecting", "offline"].includes(state.state);
   element("reconnect").hidden = !["disabled", "offline"].includes(state.state);
   element("unpair").hidden = state.state !== "connected";
@@ -61,6 +62,7 @@ function render(next: typeof state) {
     }
   }
 }
+element("replace").addEventListener("click", () => { showPair = true; render(state); });
 element("pair-form").addEventListener("submit", event => { event.preventDefault(); void command("pair", { office: office.value, code: code.value }); });
 for (const action of ["disconnect", "reconnect", "unpair"]) element(action).addEventListener("click", () => void command(action));
 void command("state");

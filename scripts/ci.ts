@@ -15,7 +15,6 @@ type StageName =
   | "lint"
   | "tsc"
   | "build:ui"
-  | "build:extension"
   | "bun test"
   | "ci:web";
 
@@ -33,7 +32,6 @@ const stages: Array<{ name: StageName; command: string[] }> = [
   { name: "lint", command: ["bun", "run", "lint"] },
   { name: "tsc", command: ["bun", "x", "tsc", "--noEmit"] },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
-  { name: "build:extension", command: ["bun", "run", "build:extension"] },
   { name: "bun test", command: ["bun", "test"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
 ];
@@ -207,8 +205,8 @@ async function main(): Promise<void> {
     const formatPromise = stage("format:check");
     const lintPromise = stage("lint");
     const tscPromise = stage("tsc");
+    // build:ui also produces the extension ZIP; a second parallel build would race its staging directory.
     const buildPromise = stage("build:ui");
-    const extensionPromise = stage("build:extension");
     const webPromise = stage("ci:web");
     const testPromise = buildPromise.then((build) => {
       if (build.status === "passed") {
@@ -232,7 +230,6 @@ async function main(): Promise<void> {
       lintPromise,
       tscPromise,
       buildPromise,
-      extensionPromise,
       testPromise,
       webPromise,
     ]);

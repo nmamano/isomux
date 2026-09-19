@@ -2,6 +2,7 @@
 import type { Catalog } from "./en.ts";
 
 export const zh: Catalog = {
+  "browser.control": "代理控制",
   "browser.title": "浏览器",
   "browser.owner": "浏览器所有者：{name}",
   "browser.choose": "请选择浏览器以继续。",

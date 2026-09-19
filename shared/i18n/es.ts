@@ -5,6 +5,7 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
+  "browser.control": "Control del agente",
   "browser.title": "Navegador",
   "browser.owner": "Propietario del navegador: {name}",
   "browser.choose": "Selecciona un navegador para continuar.",

@@ -20,6 +20,7 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
+  "browser.control": "Agent control",
   "browser.title": "Browser",
   "browser.owner": "Browser owner: {name}",
   "browser.choose": "Select a browser to continue.",
