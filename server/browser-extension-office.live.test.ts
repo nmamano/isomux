@@ -67,13 +67,17 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     expect(snapshot.body.snapshot).toContain("textbox");
     expect((await action(first.id, { action: "screenshot" })).status).toBe(200);
     const mainPage = setup.pages().find((page) => page.url() === url)!;
+    expect(await mainPage.inputValue("#message")).toBe("first tab");
     const diagnosticSession = await setup.newCDPSession(mainPage);
     const attached: string[] = [];
+    const windowOpens: string[] = [];
+    diagnosticSession.on("Page.windowOpen", (event) => windowOpens.push(new URL(event.url).pathname));
+    await diagnosticSession.send("Page.enable");
     diagnosticSession.on("Target.attachedToTarget", (event) => attached.push(event.targetInfo.type));
     await diagnosticSession.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true, filter: [{ type: "page", exclude: false }, { exclude: true }] });
     expect((await action(first.id, { action: "click", selector: "#open" })).status).toBe(200);
     try { await wait(async () => (await action(first.id, { action: "text" })).body.title === "Popup"); }
-    catch (error) { console.log("popup fixture diagnostics", await worker.evaluate(() => (globalThis as unknown as { seen: unknown[] }).seen), "parent auto-attach types", attached, "fixture target openers", (await setupCDP.send("Target.getTargets")).targetInfos.filter((target) => target.type === "page").map((target) => ({ targetId: target.targetId, openerId: target.openerId, path: new URL(target.url).pathname }))); throw error; }
+    catch (error) { console.log("popup fixture diagnostics", await worker.evaluate(() => (globalThis as unknown as { seen: unknown[] }).seen), "assigned first main windowOpen", windowOpens, "parent auto-attach types", attached, "fixture target openers", (await setupCDP.send("Target.getTargets")).targetInfos.filter((target) => target.type === "page").map((target) => ({ targetId: target.targetId, openerId: target.openerId, path: new URL(target.url).pathname }))); throw error; }
     expect((await action(first.id, { action: "click", selector: "button" })).status).toBe(200);
     expect((await action(first.id, { action: "text" })).body.title).toBe("Main");
     expect((await action(first.id, { action: "close" })).body.closed).toBe(true);
