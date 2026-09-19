@@ -76,6 +76,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           targetId = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
           await session.detach();
         }
+        const pageTarget = (await setupCDP.send("Target.getTargetInfo", { targetId })).targetInfo;
+        const tabs = (await setupCDP.send("Target.getTargets", { filter: [{ type: "tab" }, { exclude: true }] })).targetInfos;
+        const tab = tabs.find(tab => tab.url === pageTarget.url);
+        if (!tab) throw new Error("No Chrome tab target for action popup");
+        targetId = tab.targetId;
         const page = setup!.waitForEvent("page", { timeout: 5000 });
         void page.catch(() => {});
         try {
