@@ -23,7 +23,10 @@
           autocomplete="url"
         />
         <label id="code-label" for="code"></label>
-        <input id="code" required autocomplete="off" spellcheck="false" />
+        <div class="code-entry">
+          <input id="code" type="password" required autocomplete="off" spellcheck="false" />
+          <button id="code-visibility" type="button" aria-controls="code" aria-describedby="code-label" aria-pressed="false"></button>
+        </div>
         <button id="pair" type="submit"></button>
       </form>
       <div id="controls">

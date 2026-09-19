@@ -84,3 +84,7 @@ button:focus-visible {
 
 #allow { width: auto; margin-right: 8px; accent-color: #78dca8; }
 select:disabled, input:disabled { opacity: 0.6; }
+
+.code-entry { display: flex; gap: 6px; align-items: center; }
+.code-entry input { flex: 1; min-width: 0; }
+.code-entry button { margin: 0; }

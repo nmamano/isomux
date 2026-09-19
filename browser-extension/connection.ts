@@ -9,6 +9,14 @@ document.documentElement.lang = language;
 const element = (id: string) => document.getElementById(id)!;
 const office = element("office") as HTMLInputElement;
 const code = element("code") as HTMLInputElement;
+const codeVisibility = element("code-visibility") as HTMLButtonElement;
+function revealCode(reveal: boolean) {
+  code.type = reveal ? "text" : "password";
+  codeVisibility.textContent = t(reveal ? "browser.hide" : "browser.show");
+  codeVisibility.setAttribute("aria-pressed", String(reveal));
+}
+revealCode(false);
+codeVisibility.addEventListener("click", () => revealCode(code.type === "password"));
 const [invocationTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const labels: Record<string, PlainMessageKey> = {
   "office-label": "browser.office",
@@ -73,8 +81,10 @@ function render(next: typeof state) {
     : "";
   element("office-display").textContent = state.office;
   if (!office.value) office.value = state.office;
-  element("pair-form").hidden =
-    !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
+  const pairForm = element("pair-form");
+  const pairHidden = !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
+  if (pairForm.hidden !== pairHidden) revealCode(false);
+  pairForm.hidden = pairHidden;
   element("replace").hidden = !element("pair-form").hidden;
   element("disconnect").hidden = ![
     "connected",
@@ -118,11 +128,13 @@ function render(next: typeof state) {
       : conflict ? t("browser.tabConflict") : t("browser.tabOff");
 }
 element("replace").addEventListener("click", () => {
+  revealCode(false);
   showPair = true;
   render(state);
 });
 element("pair-form").addEventListener("submit", (event) => {
   event.preventDefault();
+  revealCode(false);
   void command("pair", { office: office.value, code: code.value });
 });
 for (const action of ["disconnect", "reconnect", "unpair"])
@@ -137,4 +149,4 @@ toggle.addEventListener("change", () => {
 });
 void command("state");
 const poll = setInterval(() => void command("state"), 1000);
-window.addEventListener("pagehide", () => clearInterval(poll));
+window.addEventListener("pagehide", () => { revealCode(false); clearInterval(poll); });
