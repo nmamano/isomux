@@ -205,8 +205,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         if (await page.locator("#out").textContent() === "first tab") retained = page;
       }
       expect(retained).toBeDefined();
-      expect(retained!.isClosed()).toBe(false);
-      await retained!.screenshot({ path: join(dir, "retained-page.png") });
+      expect(retained.isClosed()).toBe(false);
+      await retained.screenshot({ path: join(dir, "retained-page.png") });
       await popup.click("#disconnect");
       await popup.waitFor('document.querySelector("#status").dataset.state === "disabled"');
       expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_offline");
