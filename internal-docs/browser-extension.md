@@ -259,3 +259,12 @@ focus emulation and the exact popup chain. The popup shows offering/revoking sta
 The server publishes sanitized current eligible agent names over the same socket.
 There is no new HTTP route. The Playwright transport consumes an existing offered
 target; Target.createTarget is refused and the session never calls newPage.
+
+
+## Server-file attachments
+
+The browser action `{action: "upload", selector: "input#attachment", path: "/absolute/server/file.png"}` selects one regular server file, up to 4 MiB, in one matching file input. Both backends use the same bounded file reader and public Playwright locator `setInputFiles` byte payload. The reader checks requested and resolved paths with the shared sensitive-file policy, opens the resolved file once, checks the descriptor type/size, and bounds its read. The payload contains a sanitized basename, MIME type and bytes; it never contains the server path. Unknown MIME types use `application/octet-stream`.
+
+Playwright serializes this payload as base64 in Runtime commands through the existing in-process transport and owned-page bridge. The 4 MiB cap leaves room below the 8 MiB extension frame limit. No desktop-path `DOM.setFileInputFiles` command or new permission is needed. Missing/offline/unoffered ownership is checked before file loading; the extension action checks its original grant again after reading. Release/disconnect keeps the existing unknown-outcome and no-replay behavior.
+
+Success adds `uploaded: {name, mimeType, size}` to url/title. Invalid paths, non-regular/unreadable/oversized/sensitive files return `invalid_request`; selector/input failures use the existing action error behavior. The action replaces one input’s selection and does not press a submit button. The site can start an upload on its input/change event. Directory and multiple-file selection are not supported by this action.

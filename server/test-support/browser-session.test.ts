@@ -2334,3 +2334,29 @@ for (const [kind, interval] of [
     }
   });
 }
+
+it("upload sends a byte payload to the exact locator and returns only file metadata", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-upload-pool-"));
+  const path = join(dir, "fixture.png");
+  const bytes = Buffer.from([0, 255, 17, 128]);
+  writeFileSync(path, bytes);
+  const calls = freshCalls();
+  const payloads: unknown[] = [];
+  const selectors: string[] = [];
+  const { pool } = poolWith(calls, {
+    locator: (selector: string) => {
+      selectors.push(selector);
+      return { setInputFiles: async (payload: unknown) => { payloads.push(payload); } };
+    },
+  });
+  try {
+    await opened(pool, "a");
+    const result = await pool.run("a", { action: "upload", selector: "input#attachment", path });
+    expect(result).toMatchObject({ ok: true, uploaded: { name: "fixture.png", mimeType: "image/png", size: 4 } });
+    expect(JSON.stringify(result)).not.toContain(path);
+    expect(selectors).toEqual(["input#attachment"]);
+    expect(payloads).toEqual([{ name: "fixture.png", mimeType: "image/png", buffer: bytes }]);
+    expectFail(await pool.run("a", { action: "upload", selector: "#file", path: join(dir, "missing") }), "invalid_request");
+    expect(payloads).toHaveLength(1);
+  } finally { await pool.shutdown(); rmSync(dir, { recursive: true, force: true }); }
+});

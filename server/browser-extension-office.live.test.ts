@@ -1,8 +1,9 @@
+import { MAX_BROWSER_UPLOAD_BYTES } from "./browser-upload";
 import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
 import { BROWSER_ACTION_DEADLINE_MS } from "./browser-session";
 import { test, expect } from "bun:test";
 import { type BrowserContext } from "playwright-core";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { startTestServer, type TestServer } from "./test-support/harness";
@@ -151,7 +152,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
               ? '<title>Popup</title><button onclick="window.close()">Return</button>'
               : url.pathname === "/frame"
                 ? "<label>Frame field<input></label>"
-                : `<title>Main</title><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
+                : `<title>Main</title><input type="file" id="attachment" oninput="this.dataset.input=String(Number(this.dataset.input||0)+1)" onchange="this.dataset.change=String(Number(this.dataset.change||0)+1)"><input type="file" id="other-attachment"><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
           });
@@ -206,6 +207,57 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         return { tabs: (await c.tabs.query({ active: true })).map(t => ({ id: t.id, windowId: t.windowId })), window: (await c.windows.getLastFocused()).id };
       });
       const activeBefore = await activeState();
+      const uploadPath = join(dir, "fixture-upload.png");
+      const uploadBytes = Buffer.alloc(MAX_BROWSER_UPLOAD_BYTES);
+      for (let i = 0; i < uploadBytes.length; i++) uploadBytes[i] = i % 256;
+      const uploadRealPath = join(dir, "server-payload.bin");
+      writeFileSync(uploadRealPath, uploadBytes);
+      symlinkSync(uploadRealPath, uploadPath);
+      const worker = setup.serviceWorkers().find(w => w.url() === `chrome-extension://${id}/background.js`)!;
+      await worker.evaluate(({ paths, name }) => {
+        const scope = globalThis as unknown as {
+          chrome: { debugger: { sendCommand(...args: unknown[]): Promise<unknown> } };
+          uploadProbe: { pathSeen: boolean; pathCommand: boolean; calls: number; maxBytes: number; hold: boolean; blocked: boolean; release?: () => void };
+        };
+        const original = scope.chrome.debugger.sendCommand.bind(scope.chrome.debugger);
+        const probe: typeof scope.uploadProbe = scope.uploadProbe = { pathSeen: false, pathCommand: false, calls: 0, maxBytes: 0, hold: false, blocked: false };
+        scope.chrome.debugger.sendCommand = async (...args) => {
+          const encoded = JSON.stringify(args);
+          probe.pathSeen ||= paths.some(path => encoded.includes(path));
+          probe.pathCommand ||= args[1] === "DOM.setFileInputFiles";
+          probe.maxBytes = Math.max(probe.maxBytes, new TextEncoder().encode(encoded).length);
+          const payload = encoded.includes(name);
+          if (payload) probe.calls++;
+          const result = await original(...args);
+          if (payload && probe.hold) {
+            probe.blocked = true;
+            await new Promise<void>(resolve => { probe.release = resolve; });
+          }
+          return result;
+        };
+      }, { paths: [uploadPath, uploadRealPath], name: "fixture-upload.png" });
+      const uploaded = await action(first.id, { action: "upload", selector: "#attachment", path: uploadPath });
+      expect(uploaded.status).toBe(200);
+      expect(uploaded.body.uploaded).toEqual({ name: "fixture-upload.png", mimeType: "image/png", size: uploadBytes.length });
+      expect(JSON.stringify(uploaded.body)).not.toContain(uploadPath);
+      const fileState = await firstPage.locator("#attachment").evaluate(async element => {
+        const input = element as HTMLInputElement, file = input.files![0];
+        const hash = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+        return { name: file.name, type: file.type, size: file.size, hash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, "0")).join(""), input: input.dataset.input, change: input.dataset.change };
+      });
+      expect(fileState).toEqual({ name: "fixture-upload.png", type: "image/png", size: uploadBytes.length,
+        hash: new Bun.CryptoHasher("sha256").update(uploadBytes).digest("hex"), input: "1", change: "1" });
+      const probe = await worker.evaluate(() => (globalThis as unknown as { uploadProbe: { pathSeen: boolean; pathCommand: boolean; maxBytes: number; calls: number } }).uploadProbe);
+      expect(probe.pathSeen).toBe(false);
+      expect(probe.pathCommand).toBe(false);
+      expect(probe.maxBytes).toBeLessThan(8 * 1024 * 1024);
+      expect(probe.maxBytes).toBeGreaterThan(MAX_BROWSER_UPLOAD_BYTES);
+      expect(probe.calls).toBe(1);
+      expect(await activeState()).toEqual(activeBefore);
+      expect((await action(first.id, { action: "upload", selector: "#attachment", path: uploadPath }, second.id)).status).toBe(403);
+      expect((await action(first.id, { action: "upload", selector: "input[type=file]", path: uploadPath })).body.error.code).toBe("action_failed");
+      expect(await secondPage.locator("#attachment").evaluate(element => (element as HTMLInputElement).files!.length)).toBe(0);
+      writeFileSync(join(dir, "upload-evidence.json"), JSON.stringify({ fileState, probe }, null, 2));
       expect(
         (await action(first.id, { action: "text" }, second.id)).status,
       ).toBe(403);
@@ -264,13 +316,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         async () =>
           (await action(first.id, { action: "text" })).body.title === "Popup",
       );
-      expect(
-        (await action(first.id, { action: "click", selector: "button" }))
-          .status,
-      ).toBe(200);
+      const popupClose = await action(first.id, { action: "click", selector: "button" });
+      if (popupClose.status !== 200) console.log("Fixture popup close error:", popupClose.body.error);
+      expect(popupClose.status).toBe(200);
       expect((await action(first.id, { action: "text" })).body.title).toBe(
         "Main",
       );
+      await worker.evaluate(() => { (globalThis as unknown as { uploadProbe: { hold: boolean } }).uploadProbe.hold = true; });
+      const pendingUpload = action(first.id, { action: "upload", selector: "#attachment", path: uploadPath });
+      await wait(() => worker.evaluate(() => (globalThis as unknown as { uploadProbe: { blocked: boolean } }).uploadProbe.blocked));
       await firstPage.bringToFront();
       popup = await openPopup(firstTarget);
       await popup.waitFor('document.querySelector("#allow").checked');
@@ -285,9 +339,22 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await popup.screenshot(join(dir, "extension-stopped.png"));
       expect(await popup.read<string>(`chrome.action.getBadgeText({ tabId: ${firstAssignment.tabId} })`)).toBe("");
       expect((await action(first.id, { action: "goto", url })).body.error.code).toBe("browser_control_ended");
+      const interruptedUpload = await pendingUpload;
+      expect(interruptedUpload.body.error.code).toBe("browser_control_ended");
+      expect(interruptedUpload.body.error.message).toMatch(/unknown/i);
+      await worker.evaluate(() => { (globalThis as unknown as { uploadProbe: { release?: () => void } }).uploadProbe.release?.(); });
+      expect((await action(first.id, { action: "upload", selector: "#attachment", path: uploadPath })).body.error.code).toBe("browser_control_ended");
+      expect(await worker.evaluate(() => (globalThis as unknown as { uploadProbe: { calls: number } }).uploadProbe.calls)).toBe(2);
       expect(firstPage.isClosed()).toBe(false);
       expect(await targetOf(firstPage)).toBe(firstTarget);
       await firstPage.screenshot({ path: join(dir, "retained-page.png") });
+      await popup.close();
+      await worker.evaluate(() => { (globalThis as unknown as { uploadProbe: { hold: boolean } }).uploadProbe.hold = false; });
+      await offer(firstPage, first.id);
+      expect((await action(first.id, { action: "snapshot" })).status).toBe(200);
+      expect(await worker.evaluate(() => (globalThis as unknown as { uploadProbe: { calls: number } }).uploadProbe.calls)).toBe(2);
+      expect(await firstPage.locator("#attachment").getAttribute("data-change")).toBe("2");
+      popup = await openPopup(firstTarget);
       await popup.click("#disconnect");
       await popup.waitFor(
         'document.querySelector("#status").dataset.state === "disabled"',

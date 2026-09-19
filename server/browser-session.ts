@@ -1,3 +1,4 @@
+import { BrowserUploadError, readBrowserUpload, validUploadPath, type UploadedFile } from "./browser-upload";
 import { BROWSER_CAPTURE_STEPS } from "./browser-stream-pressure.ts";
 // Agent browser sessions - the engine behind POST /api/agents/:id/browser.
 //
@@ -97,6 +98,7 @@ export const BROWSER_ACTIONS = [
   "text",
   "click",
   "fill",
+  "upload",
   "press",
   "screenshot",
   "close",
@@ -130,6 +132,8 @@ export interface BrowserSuccess {
   title: string;
   /** `snapshot` only: the ARIA tree, the same view a screen reader gets. */
   snapshot?: string;
+  /** upload only: selected file metadata; no server path or bytes. */
+  uploaded?: UploadedFile;
   /** `text` only: the rendered text of the page body. */
   text?: string;
   /** `screenshot` only: PNG bytes for the caller to turn into a chat card. */
@@ -1544,6 +1548,7 @@ export class BrowserPool {
       await this.updateStatus(agentId, session);
       return createdPage ? { ...result, createdPage: true } : result;
     } catch (err) {
+      if (err instanceof BrowserUploadError) return fail(400, "invalid_request", err.message);
       if (err instanceof DeadlineError) {
         // Playwright's own timeout should have fired first. If we are here it
         // did not, so the losing operation is still running and can still
@@ -1582,6 +1587,7 @@ export class BrowserPool {
     // itself rather than being abandoned by a racing deadline. The pool's
     // backstop above only covers a Playwright that does not return at all.
     const timeout = this.actionMs;
+    let uploaded: UploadedFile | undefined;
     // Read the page fresh at each step: a window the site opens replaces it.
     switch (params.action) {
       case "goto":
@@ -1597,6 +1603,12 @@ export class BrowserPool {
       case "fill":
         await session.page.fill(params.selector!, params.text!, { timeout });
         break;
+      case "upload": {
+        const file = await readBrowserUpload(params.path!);
+        await session.page.locator(params.selector!).setInputFiles(file, { timeout });
+        uploaded = { name: file.name, mimeType: file.mimeType, size: file.buffer.length };
+        break;
+      }
       case "press":
         if (params.selector)
           await session.page.press(params.selector, params.key!, { timeout });
@@ -1619,6 +1631,7 @@ export class BrowserPool {
       ok: true,
       url: page.url(),
       title: await page.title(),
+      ...(uploaded ? { uploaded } : {}),
     };
 
     if (params.action === "snapshot") {
@@ -1747,6 +1760,7 @@ interface ParsedParams {
   url?: URL;
   selector?: string;
   text?: string;
+  path?: string;
   key?: string;
   fullPage?: boolean;
   viewport: { width: number; height: number };
@@ -1807,13 +1821,18 @@ export function parseBrowserParams(
     params.url = url;
   }
 
-  if (action === "click" || action === "fill") {
+  if (action === "click" || action === "fill" || action === "upload") {
     const selector = body.selector;
     if (typeof selector !== "string" || selector.length === 0)
       return invalid(`selector is required for the ${action} action`);
     if (selector.length > MAX_SELECTOR_LEN)
       return invalid(`selector too long (max ${MAX_SELECTOR_LEN} chars)`);
     params.selector = selector;
+  }
+
+  if (action === "upload") {
+    if (!validUploadPath(body.path)) return invalid("path must be an absolute office-server file path (max 4096 characters)");
+    params.path = body.path;
   }
 
   if (action === "fill") {

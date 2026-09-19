@@ -1,3 +1,4 @@
+import { BrowserUploadError, readBrowserUpload, type UploadedFile } from "./browser-upload";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { browserExtensionTransport } from "./browser-extension-transport";
 import type { BrowserExtensionService } from "./browser-extension-service";
@@ -224,6 +225,7 @@ export class ExtensionBrowserSessions {
       clearTimeout(session.timer);
       const timeout = actionMs;
       const page = session.page;
+      let uploaded: UploadedFile | undefined;
       switch (params.action) {
         case "goto":
           await page.goto(params.url!.toString(), {
@@ -238,6 +240,13 @@ export class ExtensionBrowserSessions {
         case "fill":
           await page.fill(params.selector!, params.text!, { timeout });
           break;
+        case "upload": {
+          const file = await readBrowserUpload(params.path!);
+          if (!valid() || timedOut) return ended();
+          await page.locator(params.selector!).setInputFiles(file, { timeout });
+          uploaded = { name: file.name, mimeType: file.mimeType, size: file.buffer.length };
+          break;
+        }
         case "press":
           if (params.selector)
             await page.press(params.selector, params.key!, { timeout });
@@ -249,6 +258,7 @@ export class ExtensionBrowserSessions {
         ok: true,
         url: current.url(),
         title: await current.title(),
+        ...(uploaded ? { uploaded } : {}),
       };
       if (params.action === "text")
         result.text = cap(
@@ -297,6 +307,8 @@ export class ExtensionBrowserSessions {
       if (!session) transport?.close();
       if (!valid() || (session && !session.browser.isConnected()))
         return ended();
+      if (error instanceof BrowserUploadError)
+        return { ok: false, status: 400, code: "invalid_request", error: error.message };
       return failure("action_failed", "The Chrome browser action failed");
     } finally {
       watched?.removeEventListener("abort", onEnd);

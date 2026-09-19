@@ -401,3 +401,8 @@ attach. Off cancels pending or active ownership; reconnect and reload require a
 new offer. The packaged office sanity fixture uses raw Chrome without Playwright
 launch defaults and checks the existing page before goto, same-target navigation,
 a trusted background click with a screenshot, conflicts, and retained-page Off.
+
+
+### Attachment acceptance
+
+The office live fixture attaches a 4 MiB binary fixture through the packaged extension and the browser upload API. It checks the page File’s exact SHA256, basename, MIME type, size and input/change events; no server path or desktop-path CDP command may cross the bridge. The fixture also checks ambiguous selectors, another agent, and Off during a held upload response. An interrupted attachment may already have selected the file, so the agent must inspect before any retry. This fixture never submits or publishes content.

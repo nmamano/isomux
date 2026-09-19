@@ -292,7 +292,7 @@ test("connected extension without an offered tab rejects agent actions without c
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     expect(service.bridge.forMember("member")).toBe(connection);
     expect(connection.offered("agent")).toBeUndefined();
-    for (const body of [{ action: "snapshot" }, { action: "goto", url: "https://example.com/" }]) {
+    for (const body of [{ action: "snapshot" }, { action: "goto", url: "https://example.com/" }, { action: "upload", selector: "#attachment", path: "/missing-fixture.png" }]) {
       const result = await sessions.run("agent", body);
       expect(messages.filter(m => m.kind === "command")).toHaveLength(0);
       expect(result).toMatchObject({ ok: false, code: "browser_control_ended" });

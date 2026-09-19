@@ -152,6 +152,8 @@ Chrome warns **Read your browsing history**. The extension uses this permission 
 
 Open an HTTP(S) tab, choose an agent in the extension popup, and turn on **Allow agent control**. The agent can read the page immediately and navigate that same tab. Each agent can have one offered tab. Turn control off before assigning a tab to another agent.
 
+Agents can attach one office-server file to an exact file input with the browser `upload` action. The file must be a regular file up to 4 MiB; sensitive files are refused. The office sends the bytes to Chrome, so the path refers to the server, not the desktop. Upload replaces the input’s selection. Sites may upload as soon as a file is selected; the action does not press Submit or Publish.
+
 The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup names the assigned agent. Turning control off leaves pages open and music playing. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. Offline revocation is available in office Browser Use settings. If an unpair acknowledgement is lost, the popup reports an unknown result; check the office settings. Replace pairing ends the previous browser's access when the new code is used.
 
 Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab, switches to Server browser mode or repeats a command. Check the page before repeating an action with an unknown outcome.
