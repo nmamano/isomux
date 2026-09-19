@@ -277,3 +277,28 @@ test("queued browser work cannot cross Off into a replacement tab offer", async 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test("connected extension without an offered tab rejects agent actions without commands", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-no-offer-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 500);
+  try {
+    store.select("member", "extension");
+    const { code } = store.pair("member", false);
+    const { credential } = store.redeem(code, origin, () => true);
+    const messages: Record<string, unknown>[] = [];
+    const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
+    expect(service.bridge.forMember("member")).toBe(connection);
+    expect(connection.offered("agent")).toBeUndefined();
+    for (const body of [{ action: "snapshot" }, { action: "goto", url: "https://example.com/" }]) {
+      const result = await sessions.run("agent", body);
+      expect(messages.filter(m => m.kind === "command")).toHaveLength(0);
+      expect(result).toMatchObject({ ok: false, code: "browser_control_ended" });
+    }
+  } finally {
+    sessions.stop(); service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

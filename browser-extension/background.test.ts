@@ -578,10 +578,15 @@ for (const url of ["chrome://settings", "chrome-extension://fixture-id/connectio
   test(`offer rejects ineligible current tab ${new URL(url).protocol}`, async () => {
     const h = await harness();
     h.selected(7, url);
-    expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, agent: "a" })).toHaveProperty("error");
-    expect(h.socket.sent.some(m => m.kind === "offer")).toBe(false);
-    expect(JSON.stringify(h.socket.sent)).not.toContain(url);
+    const pending = h.ui({ action: "offer", generation: "generation-1", tabId: 7, agent: "a" });
+    await settle();
+    const sentOffer = h.socket.sent.some(m => m.kind === "offer");
+    const messages = JSON.stringify(h.socket.sent);
     h.socket.close();
+    const result = await pending;
+    expect(sentOffer).toBe(false);
+    expect(result).toHaveProperty("error");
+    expect(messages).not.toContain(url);
   });
 }
 
