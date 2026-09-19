@@ -93,19 +93,28 @@ async function openProfile(state: typeof initialState, name: string) {
 
 describe("individual connections on a member's profile", () => {
   it("keeps an owner's own connections in the dedicated pane", async () => {
-    const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Profile");
+    const view = await openProfile(
+      signedInAs("Ricky", "u1", "owner"),
+      "Profile",
+    );
 
     expect(view.container.querySelectorAll("h5").length).toBeGreaterThan(0);
     expect(view.queryByText("GH_TOKEN")).toBeNull();
     expect(asked.some((path) => path.endsWith("/env/names"))).toBe(false);
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", { name: /individual connections/i }));
+      fireEvent.click(
+        view.getByRole("button", { name: /individual connections/i }),
+      );
     });
     expect(
-      view.container.querySelectorAll('[data-provider-account-state="unavailable"]'),
+      view.container.querySelectorAll(
+        '[data-provider-account-state="unavailable"]',
+      ),
     ).toHaveLength(2);
-    expect(asked.some((path) => path.startsWith("/api/me/provider-accounts"))).toBe(true);
+    expect(
+      asked.some((path) => path.startsWith("/api/me/provider-accounts")),
+    ).toBe(true);
   });
 
   it("shows an owner the member's variable names and provider status", async () => {

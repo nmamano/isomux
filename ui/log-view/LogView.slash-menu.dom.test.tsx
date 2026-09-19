@@ -3,14 +3,19 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { render, fireEvent, waitFor, act } = await import("@testing-library/react");
+const { render, fireEvent, waitFor, act } =
+  await import("@testing-library/react");
 const { LogView } = await import("./LogView.tsx");
-const { StateCtx, initialState, StoreProvider, useAppState } = await import("../store.tsx");
+const { StateCtx, initialState, StoreProvider, useAppState } =
+  await import("../store.tsx");
 const { setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 setShim(() => {});
 afterAll(() => {
-  connect(() => {}, () => {});
+  connect(
+    () => {},
+    () => {},
+  );
   setShim(null);
 });
 type AgentInfo = import("../../shared/types.ts").AgentInfo;
@@ -94,21 +99,37 @@ it("opens the grouped skills menu from a leading slash draft and preserves it on
 function CompletionComposer() {
   const state = useAppState();
   return (
-    <StateCtx.Provider value={{
-      ...state,
-      slashCommands: new Map([[agent.id, {
-        commands: [{ name: "verify" }],
-        skills: [],
-      }]]),
-    }}>
-      <LogView agent={agent} logs={[]} onBack={() => {}} onEditAgent={() => {}} />
+    <StateCtx.Provider
+      value={{
+        ...state,
+        slashCommands: new Map([
+          [
+            agent.id,
+            {
+              commands: [{ name: "verify" }],
+              skills: [],
+            },
+          ],
+        ]),
+      }}
+    >
+      <LogView
+        agent={agent}
+        logs={[]}
+        onBack={() => {}}
+        onEditAgent={() => {}}
+      />
     </StateCtx.Provider>
   );
 }
 
 for (const path of ["keyboard", "pointer"] as const) {
   it(`preserves trailing draft content and caret on ${path} completion`, async () => {
-    const view = render(<StoreProvider><CompletionComposer /></StoreProvider>);
+    const view = render(
+      <StoreProvider>
+        <CompletionComposer />
+      </StoreProvider>,
+    );
     const textarea = view.container.querySelector("textarea")!;
     const suffix = "  keep this\n\tand this /other";
     textarea.focus();
@@ -132,7 +153,11 @@ for (const path of ["keyboard", "pointer"] as const) {
 }
 
 it("adds a space and places the caret after it for a bare command", async () => {
-  const view = render(<StoreProvider><CompletionComposer /></StoreProvider>);
+  const view = render(
+    <StoreProvider>
+      <CompletionComposer />
+    </StoreProvider>,
+  );
   const textarea = view.container.querySelector("textarea")!;
   fireEvent.change(textarea, { target: { value: "/ver" } });
   fireEvent.keyDown(textarea, { key: "Enter" });
