@@ -438,7 +438,7 @@ let discoverWelcomeOpenCodeModels:
 
 let extensionService: BrowserExtensionService | undefined;
 let extensionSessions: ExtensionBrowserSessions | undefined;
-function mayUseExtension(member: string, agentId: string): boolean {
+export function mayUseExtension(member: string, agentId: string): boolean {
   const user = getUserById(member);
   const agent = agentManager.getAgent(agentId);
   return !!user && !!agent && agent.userId === member && buildLiveGuardDeps().hasRoomAccess({ scope: "user", userId: member, role: user.role, capabilities: [] }, agent.roomId);

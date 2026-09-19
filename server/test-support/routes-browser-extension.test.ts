@@ -1,3 +1,5 @@
+import { mayUseExtension } from "../isomux-office";
+import { getUserByName } from "../users";
 import { startFlatOffice, raw, WS_UPGRADE_HEADERS } from "./app-host-test-kit";
 import { memberRequest, ownedAgent, extensionSocket, origin } from "./browser-extension-route-fixture";
 import { afterEach, test, expect } from "bun:test";
@@ -15,6 +17,9 @@ test("production routes pair, bind Origin, reject office credential use, persist
   expect((await memberRequest(server, owner, "GET", "/api/me/browser")).status).toBe(200);
   expect(await (await memberRequest(server, other, "GET", "/api/me/browser")).json()).toMatchObject({ paired: false, backend: "headless" });
   const agent = await ownedAgent(server, owner, "browser agent");
+  expect(mayUseExtension(getUserByName(owner.username)!.id, agent.id)).toBe(true);
+  expect((await memberRequest(server, owner, "PUT", `/api/users/${other.username}/access`, { allowedRooms: [agent.roomId] })).status).toBe(200);
+  expect(mayUseExtension(getUserByName(other.username)!.id, agent.id)).toBe(false);
   const token = getAgentTokenRaw(agent.id)!;
   expect((await server.http("/api/me/browser/pair", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: "{}" })).status).toBe(403);
   const { code } = await (await memberRequest(server, owner, "POST", "/api/me/browser/pair", {})).json();

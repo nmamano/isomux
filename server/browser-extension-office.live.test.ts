@@ -66,9 +66,14 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     expect(snapshot.status).toBe(200);
     expect(snapshot.body.snapshot).toContain("textbox");
     expect((await action(first.id, { action: "screenshot" })).status).toBe(200);
+    const mainPage = setup.pages().find((page) => page.url() === url)!;
+    const diagnosticSession = await setup.newCDPSession(mainPage);
+    const attached: string[] = [];
+    diagnosticSession.on("Target.attachedToTarget", (event) => attached.push(event.targetInfo.type));
+    await diagnosticSession.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true, filter: [{ type: "page", exclude: false }, { exclude: true }] });
     expect((await action(first.id, { action: "click", selector: "#open" })).status).toBe(200);
     try { await wait(async () => (await action(first.id, { action: "text" })).body.title === "Popup"); }
-    catch (error) { console.log("popup fixture diagnostics", await worker.evaluate(() => (globalThis as unknown as { seen: unknown[] }).seen)); throw error; }
+    catch (error) { console.log("popup fixture diagnostics", await worker.evaluate(() => (globalThis as unknown as { seen: unknown[] }).seen), "parent auto-attach types", attached, "fixture target openers", (await setupCDP.send("Target.getTargets")).targetInfos.filter((target) => target.type === "page").map((target) => ({ targetId: target.targetId, openerId: target.openerId, path: new URL(target.url).pathname }))); throw error; }
     expect((await action(first.id, { action: "click", selector: "button" })).status).toBe(200);
     expect((await action(first.id, { action: "text" })).body.title).toBe("Main");
     expect((await action(first.id, { action: "close" })).body.closed).toBe(true);
