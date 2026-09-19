@@ -56,20 +56,14 @@ The code reads the manager for these behaviors:
   the recorded `userId`: the recorded manager and office owners can read them
   (`server/agent-manager.ts:1899-1927`; `server/identity/guards.ts:609-638`;
   `server/isomux-office.ts:5831-5887`).
-- **Browser profile and controls.** Agent browser actions select the persistent
-  profile by manager `userId` (`server/agent-manager.ts:2648-2673`), and only a
-  matching signed-in member can drive the panel (`server/isomux-office.ts:909-911`;
-  `ui/log-view/LogView.tsx:787-799`). A live browser context keeps the profile id
-  supplied when that context was created (`server/browser-session.ts:1054-1115`),
-  and manager viewers keep it alive (`server/browser-session.ts:941-971`).
+- **Browser controls.** Actions use the current manager’s paired Chrome connection and an explicitly offered tab. The bridge revalidates ownership and room access. Server browser profiles and the remote panel are retired.
 - **Remote API-token inboxes.** API tokens belong to members independently of
   agents. An agent can reply only through a token owned by its manager; both the
   precondition and handler derive that manager from the live agent
   (`server/isomux-office.ts:3776-3783,4010-4016`;
   `server/routes/handlers/api-tokens.ts:103-126`). Reassignment does not transfer
   or revoke a member's API tokens.
-- **Manager-directed UI events.** A newly opened agent browser is announced
-  only to the current manager (`server/isomux-office.ts:4737-4743`). Turn-end
+- **UI events.** Turn-end
   sound notifications are not manager-owned: each viewer receives visible
   agent state and applies their own room notification preference
   (`ui/store.tsx:110-113,1363-1384`).

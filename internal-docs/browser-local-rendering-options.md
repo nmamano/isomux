@@ -1,5 +1,7 @@
 # Browser rendering options for a web client
 
+Historical design and evidence. The Server browser and remote panel were retired on 2026-09-20. Current Chrome control and migration: [browser-extension.md](browser-extension.md). Server screenshot previews remain supported.
+
 Research date: 2026-09-15. Sources were checked during the September 14–15 discussion with Nil. External links to `main` describe moving code, not pinned dependencies. Issue reports below were read but not independently reproduced. No prototype or comparative performance test was run.
 
 ## Goal and constraints

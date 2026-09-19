@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, symlink, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { MAX_BROWSER_UPLOAD_BYTES, readBrowserUpload } from "./browser-upload";
-import { parseBrowserParams } from "./browser-session";
+import { parseBrowserParams } from "./browser-actions";
 
 test("upload schema requires one absolute path and a bounded selector", () => {
   for (const path of [undefined, [], ["/tmp/file"], "", "relative.png", "C:\\file.png", "/a\0b", "/".repeat(4097)])

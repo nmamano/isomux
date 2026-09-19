@@ -287,13 +287,12 @@ export type AgentSubscriptionUsageResp =
     };
 
 /**
- * POST /api/agents/:id/browser - use the manager's explicitly selected browser.
- * Chrome mode controls one owned task tab plus its site-created popup chain.
+ * POST /api/agents/:id/browser - use the manager's paired Chrome browser.
+ * Chrome controls one offered tab plus its site-created popup chain.
  * `close` detaches and leaves pages/music running; viewport is ignored.
- * Headless mode uses the server profile and closes its page on `close`.
- * An offline Chrome connection never falls back to headless. A lost command
+ * A lost command
  * can have an unknown outcome and is never replayed. preview-url stays server-side.
- * See internal-docs/browser-extension.md and server/browser-session.ts.
+ * See internal-docs/browser-extension.md and server/browser-actions.ts.
  */
 export interface AffordanceBrowserReq {
   action:
@@ -302,6 +301,7 @@ export interface AffordanceBrowserReq {
     | "text"
     | "click"
     | "fill"
+    | "upload"
     | "press"
     | "screenshot"
     | "close";
@@ -309,13 +309,15 @@ export interface AffordanceBrowserReq {
   url?: string;
   /** `click`, `fill`, and optionally `press`: a Playwright selector. */
   selector?: string;
+  /** `upload`: one absolute office-server file path, up to 4 MiB. */
+  path?: string;
   /** `fill`: the value to type into the field. */
   text?: string;
   /** `press`: the key name, e.g. "Enter". */
   key?: string;
   /** `screenshot`: capture the whole page instead of the viewport. */
   fullPage?: boolean;
-  /** Headless only: integers 320..2560, default 1280x800. Chrome keeps its desktop viewport. */
+  /** Accepted for old callers; Chrome keeps its desktop viewport. */
   viewport?: { width: number; height: number };
 }
 
@@ -324,7 +326,7 @@ export interface AffordanceBrowserReq {
  * that clicked into a navigation knows where it landed. `snapshot` adds the
  * ARIA tree, `text` adds the rendered body text, `close` sets `closed`.
  * A `screenshot` puts its image in the agent's chat and returns no bytes here.
- * Screenshot dimensions use CSS pixels, independent of panel watchers' DPR.
+ * Screenshot dimensions use CSS pixels.
  */
 export interface AffordanceBrowserResp {
   ok: true;
@@ -332,6 +334,7 @@ export interface AffordanceBrowserResp {
   title: string;
   snapshot?: string;
   text?: string;
+  uploaded?: { name: string; mimeType: string; size: number };
   closed?: boolean;
 }
 
@@ -713,11 +716,8 @@ export interface OfficeSettingsReq {
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
-  // Optional so an older or stale client preserves experimental settings it
-  // did not read. A present object replaces the experimental settings blob.
-  experimental?: OfficeSettings["experimental"];
   // Token from a preceding office.getSettings read. The PUT replaces the whole
-  // settings blob (prompt/name/experimental), so ONE version guards the whole
+  // settings blob (prompt/name), so ONE version guards the whole
   // clobber surface - a mismatch is a 409 version_conflict, mirroring memory
   // REPLACE.
   version: string;
@@ -745,7 +745,6 @@ export interface UserEnvReplaceReq {
 export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
   // Optional only while a new UI bundle can talk to the old server before the
   // server-side half of an update restarts.
-  experimental?: OfficeSettings["experimental"];
   version: string;
 };
 

@@ -115,8 +115,6 @@ export interface BrowserMetadata {
   assignments: { id: string; agent: BrowserDisplay; durationMinutes: BrowserGrantDuration; expiresAt: number | null }[];
 }
 export interface MemberBrowserStatus {
-  backend: "headless" | "extension" | null;
-  selectionRequired: boolean;
   paired: boolean;
   online: boolean;
   member: BrowserDisplay;

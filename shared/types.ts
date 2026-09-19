@@ -550,8 +550,6 @@ export interface AgentInfo {
   // Static capabilities of this agent's backend. Populated server-side from
   // the Backend implementation; UI uses these to gate affordances.
   capabilities: AgentCapabilities;
-  // Derived for viewers from the current manager browser selection; never persisted.
-  browserPanelAvailable?: boolean;
   // Codex-only: sandbox mode (CodexSandboxMode). Stored separately from
   // permissionMode because Codex's permission model has two orthogonal axes
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude
@@ -1139,11 +1137,6 @@ export interface OfficeSettings {
   prompt: string | null;
   envFile: string | null;
   name: string | null;
-  experimental: OfficeExperimentalSettings;
-}
-
-export interface OfficeExperimentalSettings {
-  browserPanel: boolean;
 }
 
 // Office settings as PROJECTED to the wire (full_state.office / the all-audience
@@ -1153,9 +1146,6 @@ export interface OfficeExperimentalSettings {
 export interface OfficeWire {
   prompt: string | null;
   name: string | null;
-  // Optional only for a new UI bundle talking to a pre-toggle server before
-  // its required restart. The store supplies the default-off value.
-  experimental?: OfficeExperimentalSettings;
   envFile?: string | null;
 }
 
@@ -1539,49 +1529,8 @@ export type UpdateStatusWire =
       } | null;
     };
 
-export const BROWSER_MIN_DIM = 320;
-export const BROWSER_MAX_DIM = 2560;
-
-export type BrowserNavigation = {
-  kind: "navigate";
-  action: "open" | "goto" | "back" | "forward" | "reload" | "close";
-  url?: string;
-};
-
-export type BrowserHumanInput =
-  | BrowserNavigation
-  | { kind: "selection"; requestId: number }
-  | { kind: "viewport"; width: number; height: number }
-  | {
-      kind: "mouse";
-      event: "mousePressed" | "mouseReleased" | "mouseMoved" | "mouseWheel";
-      x: number;
-      y: number;
-      button?: "none" | "left" | "middle" | "right";
-      clickCount?: number;
-      deltaX?: number;
-      deltaY?: number;
-      modifiers?: number;
-    }
-  | {
-      kind: "key";
-      event: "keyDown" | "keyUp" | "rawKeyDown" | "char";
-      key: string;
-      code?: string;
-      text?: string;
-      modifiers?: number;
-    };
-
 // Server → Browser messages
 export type ServerMessage =
-  | {
-      type: "browser_selection";
-      agentId: string;
-      requestId: number;
-      text: string;
-      truncated: boolean;
-      error?: string;
-    }
   | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
   | {
       type: "full_state";
@@ -1653,25 +1602,6 @@ export type ServerMessage =
     }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {
-      type: "browser_frame";
-      agentId: string;
-      data: string;
-      width: number;
-      height: number;
-    }
-  | {
-      type: "browser_status";
-      agentId: string;
-      available: boolean;
-      url?: string;
-      title?: string;
-      busy?: boolean;
-      resizing?: boolean;
-      idleClosed?: boolean;
-      error?: string;
-    }
-  | { type: "browser_action"; agentId: string }
-  | {
       type: "editor_external_change";
       agentId: string;
       path: string;
@@ -1686,7 +1616,6 @@ export type ServerMessage =
       type: "office_settings_updated";
       prompt: string | null;
       name: string | null;
-      experimental?: OfficeExperimentalSettings;
     }
   // Whole-board hydration: sent on connect and when a recipient's room ACCESS
   // changes (both re-project from scratch). A single task mutation does NOT ride
@@ -1786,26 +1715,6 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "terminal_restart"; agentId: string }
-  | {
-      type: "browser_watch";
-      transport?: "jpeg-v1";
-      generation?: number;
-      agentId: string;
-      watching: boolean;
-      maxWidth?: number;
-      maxHeight?: number;
-      /** Render DPR; absent = 1. Server clamps finite numbers to 1..4.
-       * The shared page uses the highest active watcher DPR. Bounds above
-       * are physical pixels (at most 2560); input/frame geometry stays CSS.
-       * At DPR > 1, screencast events trigger coalesced sharp screenshots;
-       * only those screenshots are delivered to all watchers. */
-      deviceScaleFactor?: number;
-    }
-  | {
-      type: "browser_input";
-      agentId: string;
-      input: BrowserHumanInput;
-    }
   | {
       // Live-avatars feature: client tells the server where its ghost
       // should appear. Sent on initial WS open (after session_context

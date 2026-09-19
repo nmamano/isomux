@@ -1,6 +1,6 @@
 import { MAX_BROWSER_UPLOAD_BYTES } from "./browser-upload";
 import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
-import { BROWSER_ACTION_DEADLINE_MS } from "./browser-session";
+import { BROWSER_ACTION_DEADLINE_MS } from "./browser-actions";
 import { test, expect } from "bun:test";
 import { type BrowserContext } from "playwright-core";
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
@@ -69,15 +69,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await settings
         .getByRole("button", { name: t("browser.title"), exact: true })
         .click();
-      await settings.getByTestId("browser-backend").selectOption("extension");
-      await wait(
-        async () =>
-          (
-            await (
-              await memberRequest(office!, owner, "GET", "/api/me/browser")
-            ).json()
-          ).backend === "extension",
-      );
+      expect(await settings.getByTestId("browser-backend").count()).toBe(0);
       expect(
         (await action(first.id, { action: "goto", url: "http://localhost/" }))
           .body.error.code,

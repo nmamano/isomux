@@ -2,10 +2,10 @@
 import { spawn, spawnSync } from "node:child_process";
 import { resolveCodexLauncherPath } from "../../server/backends/codex/native-bin.ts";
 import { resolveOpenCodeBinary } from "../../server/backends/opencode/runtime.ts";
-import { launchOptions } from "../../server/browser-session.ts";
+import { createServer } from "node:http";
+import { capturePreview } from "../../server/preview-capture.ts";
 import { resolveRealNode } from "../../server/terminal.ts";
 import { createInterface } from "node:readline";
-import { chromium } from "playwright-core";
 
 for (const args of [
   ["node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude", "--version"],
@@ -71,14 +71,21 @@ await new Promise<void>((resolve, reject) => {
     cwd: process.env.HOME, env: { ...process.env, TERM: "xterm-256color", SHELL: "/bin/bash" } });
 });
 console.log(`PASS production PTY sidecar JSONL via ${nodePath}`);
-const browser = await chromium.launch(launchOptions("/usr/bin/chromium"));
+// Exercise the retained server screenshot path on a local fixture.
+const fixture = createServer((_req, res) => {
+  res.setHeader("Content-Type", "text/html");
+  res.end("<!doctype html><title>Container preview</title><p>Local screenshot fixture</p>");
+});
+await new Promise<void>(resolve => fixture.listen(0, "127.0.0.1", resolve));
 try {
-  const page = await browser.newPage();
-  await page.setContent("<!doctype html><title>Container browser</title><p>Local browser check</p>");
-  if (await page.title() !== "Container browser") throw new Error("browser DOM failed");
-  const screenshot = await page.screenshot({ path: "/tmp/isomux-native-check.png" });
-  if (screenshot.length < 100) throw new Error("browser screenshot failed");
-  console.log(`PASS Chromium DOM and screenshot (${screenshot.length} bytes)`);
+  const address = fixture.address();
+  if (!address || typeof address === "string") throw new Error("fixture address unavailable");
+  const preview = await capturePreview({ url: `http://127.0.0.1:${address.port}/` }, {
+    findBrowser: () => "/usr/bin/chromium",
+  });
+  if (!preview.ok) throw new Error(`preview capture failed: ${preview.code}`);
+  if (preview.png.length < 100) throw new Error("browser screenshot failed");
+  console.log(`PASS Chromium preview screenshot (${preview.png.length} bytes)`);
 } finally {
-  await browser.close();
+  await new Promise<void>((resolve, reject) => fixture.close(error => error ? reject(error) : resolve()));
 }

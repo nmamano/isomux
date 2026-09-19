@@ -1,5 +1,7 @@
 # Browser panel still frames and DPR (2026-09-16)
 
+Historical design and evidence. The Server browser and remote panel were retired on 2026-09-20. Current Chrome control and migration: [browser-extension.md](browser-extension.md). Server screenshot previews remain supported.
+
 This repair addresses the quiet-page frame loss and CSS-resolution capture
 reported by the browser-stream design lane. Measurements and commands live in
 [the local harness](../prototypes/browser-panel-measure/README.md).

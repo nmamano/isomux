@@ -175,7 +175,7 @@ export function agentAffordanceHandlers(
         return fail(400, "invalid_request", "action is required");
       }
       // Full validation (the action name, its own required fields, the URL
-      // rules, viewport ranges) lives in browser-session.ts; the handler stays
+      // rules, viewport ranges) lives in browser-actions.ts; the handler stays
       // shallow, like previewUrl above.
       try {
         const r = await deps.runAgentBrowserAction(ctx.params.id, ctx.body);

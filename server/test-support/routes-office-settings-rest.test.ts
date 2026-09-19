@@ -129,7 +129,7 @@ describe("routes/office.getSettings REST", () => {
     const s = r.body as OfficeSettings & { version: string };
     expect(s.prompt).toBe("P");
     expect(s.name).toBe("Acme");
-    expect(s.experimental).toEqual({ browserPanel: false });
+    expect(s).not.toHaveProperty("experimental");
     expect(s.envFile).toBeUndefined();
     // Optimistic-concurrency version over the whole blob, required by the PUT.
     expect(s.version).toMatch(/^[0-9a-f]{12}$/);
@@ -174,7 +174,7 @@ describe("routes/office.setSettings REST", () => {
     expect(s.prompt).toBe("office prompt");
     expect(s.envFile).toBe("/legacy/office.env");
     expect(s.name).toBe("Acme");
-    expect(s.experimental).toEqual({ browserPanel: true });
+    expect(s).not.toHaveProperty("experimental");
 
     // 3b.5 CLOSED the deferred leak: the all-audience office_settings_updated no
     // longer carries envFile (owner-only; owners read it via full_state /
@@ -198,29 +198,26 @@ describe("routes/office.setSettings REST", () => {
     };
     expect(evt.name).toBe("Acme");
     expect(evt.prompt).toBe("office prompt");
-    expect(evt.experimental).toEqual({ browserPanel: true });
+    expect(evt).not.toHaveProperty("experimental");
     expect(evt.envFile).toBeUndefined(); // 3b.5: envFile no longer rides the all-event
   });
 
-  it("omitted experimental settings preserve the current Browser panel value", async () => {
+  it("retired panel settings are ignored", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    srv.agentManager.setOfficeSettings(null, null, null, {
-      browserPanel: true,
-    });
+    srv.agentManager.setOfficeSettings(null, null, null);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
       body: {
         prompt: "new prompt",
+        experimental: { browserPanel: true },
         version: await officeVersion(srv, owner.rawSessionId),
       },
     });
     expect(r.status).toBe(204);
-    expect(srv.agentManager.getOfficeSettings().experimental).toEqual({
-      browserPanel: true,
-    });
+    expect(srv.agentManager.getOfficeSettings()).not.toHaveProperty("experimental");
   });
 
   it("name over 60 chars -> 400, state untouched", async () => {

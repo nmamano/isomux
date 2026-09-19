@@ -625,7 +625,6 @@ function ensureSeeded() {
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
     "The Demo",
-    { browserPanel: false },
   );
   const now = Date.now();
   // The board opens filtered to the room the visitor is standing in, so tasks
@@ -1292,7 +1291,6 @@ function emitEvents(events: OfficeEvent[]) {
           type: "office_settings_updated",
           prompt: event.prompt,
           name: event.name,
-          experimental: event.experimental,
         });
         break;
       case "tasks_changed":
@@ -1946,7 +1944,6 @@ export async function demoApi(
       return {
         prompt: state.office.prompt,
         name: state.office.name,
-        experimental: state.office.experimental,
         version: "demo-version",
       };
     case "GET /api/office/env":
@@ -1996,7 +1993,6 @@ export async function demoApi(
           b.prompt,
           state.office.envFile,
           name,
-          b.experimental,
         ),
       );
       return undefined;

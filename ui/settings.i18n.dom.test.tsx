@@ -53,7 +53,6 @@ setApiShim(async (_method, path) => {
     return {
       name: "",
       prompt: "",
-      experimental: { browserPanel: false },
       version: "1",
     };
   if (path.startsWith("/api/rooms/") && path.endsWith("/settings"))
@@ -118,7 +117,6 @@ const CA = {
   discardPrompt: translationsFor("common.discardPrompt").ca,
   discard: translationsFor("common.discard").ca,
   officeTitle: translationsFor("settings.office.title").ca,
-  browserPanel: translationsFor("settings.office.browserPanel").ca,
   usageTitle: translationsFor("settings.usage.title").ca,
   upToDate: translationsFor("settings.update.upToDate").ca,
   devicePlaceholder: translationsFor("settings.device.placeholder").ca,
@@ -229,7 +227,6 @@ describe("the settings page", () => {
     fireEvent.click(view.getByText(CA.discard));
     expect(row(view, CA.office).getAttribute("aria-current")).toBe("true");
     expect(heading(view, CA.officeTitle, "H3")).toBe(true);
-    expect(view.queryByText(CA.browserPanel)).not.toBeNull();
 
     // The office pane's discard prompt, once its settings have hydrated and
     // the name has been edited.

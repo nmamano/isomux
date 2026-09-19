@@ -39,7 +39,6 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     return { ws: typed, messages, closed: () => closed };
   };
   try {
-    store.select("member", "extension");
     const pair = store.pair("member", false);
     const obsolete = socket();
     service.message(obsolete.ws, JSON.stringify({ kind: "hello", version: 2, code: pair.code }));
@@ -126,7 +125,6 @@ test("metadata uses current records; unpair is bound to authenticated generation
   };
   const socket = ws as unknown as ServerWebSocket<ExtensionWsData>;
   try {
-    store.select("m", "extension");
     const { code } = store.pair("m", false);
     service.open(socket);
     service.message(
@@ -239,7 +237,6 @@ test("missing extension package fails closed instead of serving the app shell", 
   });
   const handler = browserExtensionHandlers(
     service,
-    async () => {},
     "/nonexistent/isomux-extension.zip",
   )["browser.download"];
   const result = await handler({} as Parameters<typeof handler>[0]);

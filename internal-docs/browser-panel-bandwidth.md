@@ -1,5 +1,7 @@
 # Browser panel binary JPEG and pressure control
 
+Historical design and evidence. The Server browser and remote panel were retired on 2026-09-20. Current Chrome control and migration: [browser-extension.md](browser-extension.md). Server screenshot previews remain supported.
+
 Follow-up, 2026-09-13: [scroll and full-panel viewport report](browser-panel-scroll-and-fill.md) compares binary image cost before and after manager-driven viewport sizing, with historical fixture limits. The measurements below remain historical.
 
 Lane browser-bandwidth, task effe9a51, 2026-09-12. No office restart or access

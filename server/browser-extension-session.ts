@@ -5,13 +5,12 @@ import type { ExtensionConnection } from "./browser-extension-bridge";
 import type { BrowserExtensionService } from "./browser-extension-service";
 import {
   BROWSER_ACTION_DEADLINE_MS,
-  browserPool,
   parseBrowserParams,
   describeShot,
   MAX_TEXT_CHARS,
   MAX_SNAPSHOT_CHARS,
   type BrowserResult,
-} from "./browser-session";
+} from "./browser-actions";
 
 type Session = {
   member: string;
@@ -24,7 +23,6 @@ type Session = {
 };
 const failure = (
   code:
-    | "browser_selection_required"
     | "browser_not_paired"
     | "browser_offline"
     | "browser_control_ended"
@@ -61,51 +59,35 @@ export class ExtensionBrowserSessions {
     this.sessions.delete(agent);
     void session.browser.close().catch(() => {});
   }
-  async endMember(member: string, agents: string[]): Promise<void> {
+  async endMember(member: string): Promise<void> {
     this.epochs.set(member, (this.epochs.get(member) ?? 0) + 1);
     for (const [agent, session] of this.sessions)
       if (session.member === member) this.end(agent);
-    await Promise.all(agents.map((agent) => browserPool.interrupt(agent)));
   }
   stop(): void {
     for (const agent of this.sessions.keys()) this.end(agent);
   }
   run(agent: string, body: unknown): Promise<BrowserResult> {
+    const params = parseBrowserParams(body);
+    if (!params.ok) return Promise.resolve(params);
     const member = this.owner(agent);
     const epoch = member ? (this.epochs.get(member) ?? 0) : 0;
-    const extensionSelected = !!member && this.service.store.record(member).backend === "extension";
-    const queuedConnection = extensionSelected ? this.service.bridge.forMember(member) : undefined;
+    const queuedConnection = member ? this.service.bridge.forMember(member) : undefined;
     const queuedGrant = queuedConnection?.offered(agent);
     const previous = this.queues.get(agent) ?? Promise.resolve();
     const work = previous
       .catch(() => {})
-      .then(async () => {
+      .then(async (): Promise<BrowserResult> => {
         if (
           this.owner(agent) !== member ||
           (member && (this.epochs.get(member) ?? 0) !== epoch)
         )
           return ended();
-        if (member && this.service.store.record(member).backend === null)
-          return failure(
-            "browser_selection_required",
-            "Browser selection is unavailable; select a browser backend again",
-          );
-        if (
-          !member ||
-          this.service.store.record(member).backend === "headless"
-        ) {
-          const result = await browserPool.run(agent, body, member ?? null);
-          if (
-            this.owner(agent) !== member ||
-            (member && (this.epochs.get(member) ?? 0) !== epoch)
-          ) {
-            await browserPool.interrupt(agent);
-            return ended();
-          }
-          return result;
-        }
+        if (!member) return params.action === "close"
+          ? { ok: true, url: "", title: "", closed: true }
+          : failure("browser_not_paired", "No Chrome browser is paired");
         if (!this.mayUse(member, agent)) return ended();
-        if (extensionSelected && (this.service.bridge.forMember(member) !== queuedConnection ||
+        if ((this.service.bridge.forMember(member) !== queuedConnection ||
             queuedConnection?.offered(agent) !== queuedGrant)) return ended();
         return this.extensionAction(member, agent, body, epoch);
       });
@@ -175,7 +157,6 @@ export class ExtensionBrowserSessions {
     const valid = () =>
       this.owner(agent) === member &&
       this.mayUse(member, agent) &&
-      this.service.store.record(member).backend === "extension" &&
       (this.epochs.get(member) ?? 0) === epoch &&
       this.service.bridge.forMember(member) === connection &&
       connection.offered(agent) === grant;

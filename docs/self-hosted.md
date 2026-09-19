@@ -53,7 +53,7 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 
 Everything below is one script, [`deploy/install.sh`](https://github.com/nmamano/isomux/blob/main/deploy/install.sh).
 
-- Installs bun, Node.js, build-essential, python3, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
+- Installs bun, Node.js, build-essential, python3, the Claude Code CLI, GitHub CLI, git, Caddy, and Chrome (headless, for page-preview cards and app screenshots); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
@@ -137,14 +137,14 @@ Then open `http://localhost:5173`.
 - If you've hand-edited a package's config file - `/etc/caddy/Caddyfile` is the likely one - the installer and `isomux-update` keep your version when the package ships a new one, and name the files they kept. The package's version is parked beside each as `<file>.dpkg-dist`; reconciling the two is up to you.
 - The service is system-level: restart with `systemctl restart isomux` as root. An office on [your own hardware](#your-own-hardware) runs a user-level service instead, where the commands are `systemctl --user`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
-- Chrome on the server backs page-preview cards, app screenshot previews, and Server browser mode. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
-- The live Browser panel applies to Server browser mode. It is experimental and off by default. An owner can enable **Browser panel (experimental)** in Settings → Office → Office Settings. This setting does not change the browser API or preview cards.
-- In Server browser mode, agent browser logins are stored under the office state root, one profile per member. All agents managed by that member share the profile. When the Browser panel is enabled, anyone with room access can watch the pages, only the manager can navigate, click, type, select and copy text, or close a page, and a manager watching the page suspends its 15-minute idle close. Other members' agents do not load the profile.
+- Chrome on the server backs page-preview cards and app screenshot previews. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
 - Authenticated members effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
 
 ### Desktop Chrome extension
 
-In **Settings → You → Browser Use**, select **Desktop Chrome**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
+Server browser mode and its remote panel are retired. Existing Chrome pairings remain valid. Old Server browser selections now require Chrome pairing and a tab offer. Saved server browser profiles stay on disk and are not used or imported. Legacy panel settings are ignored. Server screenshot previews still support public HTTP(S) sites and office-hosted pages.
+
+In **Settings → You → Browser Use**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
 
 Create a pairing code in Browser settings. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browser; agents use their manager's connection. Another chat speaker does not change the browser owner.
 
@@ -156,13 +156,13 @@ Agents can attach one office-server file to an exact file input with the browser
 
 The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup names the assigned agent. Turning control off leaves pages open and music playing. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. Offline revocation is available in office Browser Use settings. If an unpair acknowledgement is lost, the popup reports an unknown result; check the office settings. Replace pairing ends the previous browser's access when the new code is used.
 
-Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab, switches to Server browser mode or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
+Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
 
 Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. No Web Store installation is available.
 
 ## Your own hardware
 
-A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 24 (LTS), which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards, app screenshot previews, and Server browser mode.
+A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 24 (LTS), which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards and app screenshot previews.
 
 On Debian/Ubuntu, also install the native build tools: `sudo apt install python3 build-essential`.
 

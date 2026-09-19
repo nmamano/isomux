@@ -119,7 +119,7 @@ import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { capturePreview } from "./preview-capture.ts";
-import { browserPool, type BrowserResult } from "./browser-session.ts";
+import type { BrowserResult } from "./browser-actions.ts";
 import {
   resolveEditorPath,
   openFile as openEditorFileImpl,
@@ -273,7 +273,7 @@ export interface ManagerDeps {
   runBrowserAction?: (
     agentId: string,
     body: unknown,
-    profileId: string | null,
+    memberId: string | null,
   ) => Promise<BrowserResult>;
   // Production supplies the box provider homes. Tests omit this field so
   // fixtures never read the real member home.
@@ -429,8 +429,7 @@ export function createAgentManager(deps: ManagerDeps) {
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
-    ((agentId: string, body: unknown, profileId: string | null) =>
-      browserPool.run(agentId, body, profileId));
+    (async (): Promise<BrowserResult> => ({ ok: false, status: 500, code: "browser_not_paired", error: "No Chrome browser is paired" }));
   let lobbySeedPending = initialLoadedAgents.some(
     (room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true,
   );
@@ -986,7 +985,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         prompt: officeState.office.prompt,
         envFile: officeState.office.envFile,
         name: officeState.office.name,
-        experimental: officeState.office.experimental,
       });
       return;
     }
@@ -1016,7 +1014,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       prompt: officeState.office.prompt,
       envFile: officeState.office.envFile,
       name: officeState.office.name,
-      experimental: officeState.office.experimental,
     };
   }
 
@@ -1068,13 +1065,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     prompt: string | null,
     envFile: string | null,
     name: string | null,
-    experimental?: OfficeSettings["experimental"],
   ) {
     const events = officeState.setOfficeSettings(
       prompt,
       envFile,
       name,
-      experimental,
     );
     // System prompt is rebuilt at every createSession from current office/room/agent
     // config, so the new office prompt automatically lands on the next conversation.
@@ -2637,7 +2632,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true };
   }
 
-  // Drive a page in the office browser (server/browser-session.ts) for
+  // Drive a page in the paired Chrome browser (server/browser-extension-session.ts) for
   // POST /api/agents/:id/browser. Unlike the other affordances this answers
   // with DATA - the agent reads the page out of the response - so the payload
   // travels back to the handler instead of into the chat. The one exception is
@@ -2673,8 +2668,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.userId ?? null,
     );
     if (!result.ok) return result;
-    const { png, filename, caption, createdPage, ...payload } = result;
-    if (createdPage) emit({ type: "browser_action", agentId });
+    const { png, filename, caption, ...payload } = result;
     if (png && filename && caption) {
       const att = savePersistedFile(agentId, png, "image/png", filename);
       if (!att) {
@@ -7615,10 +7609,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function kill(agentId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    // A killed agent keeps no browser context. Its idle timer would close it
-    // anyway; this returns the memory now and stops a revived agent from
-    // inheriting the dead one's page.
-    void browserPool.close(agentId);
     // Stamp the history entry with killedAt + final state BEFORE removing
     // the agent from the live map. After deletion, updateAgentHistory skips
     // this entry (loop is over live agents only), so this write is the
@@ -9125,7 +9115,6 @@ export function createProductionAgentManager(overrides?: {
       prompt: initialOfficeConfig.prompt,
       envFile: initialOfficeConfig.envFile,
       name: initialOfficeConfig.name,
-      experimental: initialOfficeConfig.experimental,
     },
   });
   const manager = createAgentManager({

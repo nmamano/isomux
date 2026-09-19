@@ -66,7 +66,6 @@ export class BrowserExtensionService {
       },
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) =>
-        store.record(member).backend === "extension" &&
         access.mayUse(member, agent),
       ...(access.memberName && access.agentName
         ? {
@@ -85,8 +84,6 @@ export class BrowserExtensionService {
         this.access.memberName?.(member) ?? member,
       ),
       version: manifest.version,
-      backend: this.store.record(member).backend,
-      selectionRequired: this.store.record(member).backend === null,
       paired: !!this.store.record(member).hash,
       online: !!this.bridge.forMember(member),
     };

@@ -38,7 +38,6 @@ const apiShim = async (method: string, path: string) => {
     return {
       prompt: null,
       name: null,
-      experimental: { browserPanel: false },
       version: "1",
     };
   if (method === "GET" && path === "/api/rooms/r1/settings")

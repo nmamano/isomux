@@ -162,7 +162,6 @@ const logView = (
         prompt: null,
         envFile: null,
         name: null,
-        experimental: { browserPanel: true },
       },
       ...stateOver,
     },
@@ -194,7 +193,6 @@ const ANCHOR = {
   // The control that opens the terminal panel, which stands in for the panel
   // itself (see the file header).
   openTerminal: translationsFor("logView.nav.terminalTitle"),
-  openBrowser: translationsFor("logView.nav.browserTitle"),
   abort: translationsFor("logView.abortTitle"),
   abortButton: translationsFor("logView.abort"),
   sendNow: translationsFor("logView.queue.flushHint"),
@@ -276,7 +274,6 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueAttachments.ca);
     titled(view, ANCHOR.editAgent.ca);
     titled(view, ANCHOR.openTerminal.ca);
-    titled(view, ANCHOR.openBrowser.ca);
     titled(view, ANCHOR.sendNow.ca);
     labelled(view, ANCHOR.battery.ca);
     labelled(view, ANCHOR.pill.ca);
@@ -293,7 +290,6 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueChip.es);
     shows(view, ANCHOR.queueAttachments.es);
     titled(view, ANCHOR.editAgent.es);
-    titled(view, ANCHOR.openBrowser.es);
     titled(view, ANCHOR.sendNow.es);
     labelled(view, ANCHOR.battery.es);
     labelled(view, ANCHOR.pill.es);
@@ -308,7 +304,6 @@ describe("the log view chrome", () => {
     shows(view, ANCHOR.queueAttachments.en);
     titled(view, ANCHOR.editAgent.en);
     titled(view, ANCHOR.openTerminal.en);
-    titled(view, ANCHOR.openBrowser.en);
     titled(view, ANCHOR.sendNow.en);
     labelled(view, ANCHOR.battery.en);
     labelled(view, ANCHOR.pill.en);

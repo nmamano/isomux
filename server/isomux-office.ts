@@ -29,11 +29,9 @@ import type {
   PresenceInfo,
   UserRecord,
   OfficeWire,
-  OfficeSettings,
   AppRecord,
   AppWire,
   AppListWire,
-  BrowserHumanInput,
 } from "../shared/types.ts";
 import {
   listAllPresence,
@@ -134,18 +132,6 @@ import {
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
-import {
-  encodeBrowserFrame,
-  validGeneration,
-} from "../shared/browser-frame.ts";
-import { BrowserFrameSender } from "./browser-frame-sender.ts";
-import {
-  browserPool,
-  describeShot,
-  parseBrowserParams,
-  normalizeBrowserDpr,
-  validBrowserBound,
-} from "./browser-session.ts";
 import {
   browserSessionDiagnostic,
   buildPublicOrigin,
@@ -949,72 +935,6 @@ let executorDeps: ExecutorDeps;
 // connectionId (resolved back to a socket by the connectionId emit projection).
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
-const browserWatches = new Map<
-  string,
-  Map<string, { stop: () => void; frames: BrowserFrameSender }>
->();
-
-function managesAgent(session: SessionLookup, agentId: string): boolean {
-  return agentManager.getAgent(agentId)?.userId === session.userId;
-}
-
-function validBrowserInput(value: unknown): value is BrowserHumanInput {
-  if (!value || typeof value !== "object") return false;
-  const input = value as Record<string, unknown>;
-  if (input.kind === "selection")
-    return (
-      Number.isSafeInteger(input.requestId) && Number(input.requestId) >= 0
-    );
-  if (input.kind === "viewport")
-    return (
-      input.width !== undefined &&
-      input.height !== undefined &&
-      validBrowserBound(input.width) &&
-      validBrowserBound(input.height)
-    );
-  if (input.kind === "navigate") {
-    if (input.action === "goto")
-      return parseBrowserParams({ action: "goto", url: input.url }).ok;
-    return ["open", "back", "forward", "reload", "close"].includes(
-      String(input.action),
-    );
-  }
-  if (input.kind === "mouse") {
-    return (
-      ["mousePressed", "mouseReleased", "mouseMoved", "mouseWheel"].includes(
-        String(input.event),
-      ) &&
-      Number.isFinite(input.x) &&
-      Number.isFinite(input.y) &&
-      Number(input.x) >= 0 &&
-      Number(input.x) <= 2560 &&
-      Number(input.y) >= 0 &&
-      Number(input.y) <= 2560 &&
-      (input.deltaX === undefined || Number.isFinite(input.deltaX)) &&
-      (input.deltaY === undefined || Number.isFinite(input.deltaY))
-    );
-  }
-  return (
-    input.kind === "key" &&
-    ["keyDown", "keyUp", "rawKeyDown", "char"].includes(String(input.event)) &&
-    typeof input.key === "string" &&
-    input.key.length <= 64 &&
-    (input.code === undefined ||
-      (typeof input.code === "string" && input.code.length <= 64)) &&
-    (input.text === undefined ||
-      (typeof input.text === "string" && input.text.length <= 16))
-  );
-}
-
-function stopBrowserWatch(connectionId: string, agentId: string): void {
-  const watches = browserWatches.get(connectionId);
-  const watch = watches?.get(agentId);
-  watch?.frames.stop();
-  watch?.stop();
-  watches?.delete(agentId);
-  if (watches?.size === 0) browserWatches.delete(connectionId);
-}
-
 function editorKey(agentId: string, absPath: string): string {
   return `${agentId}\0${absPath}`;
 }
@@ -1329,13 +1249,12 @@ async function applyAccessSettings(
 
 // Optimistic-concurrency version over the WHOLE office-settings blob. The
 // persisted envFile remains in the version until the boot import clears it.
-// The public experimental flags are part of the same clobber surface.
 // Canonical array serialization (stable order, distinguishes
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
   return versionOf(
-    JSON.stringify([s.prompt, s.envFile, s.name, s.experimental]),
+    JSON.stringify([s.prompt, s.envFile, s.name]),
   );
 }
 
@@ -1347,7 +1266,6 @@ function officeSettingsVersion(): string {
 function applyOfficeSettings(input: {
   prompt: string | null;
   name?: string | null;
-  experimental?: OfficeSettings["experimental"];
   expectedVersion: string;
 }):
   | { ok: true }
@@ -1374,7 +1292,6 @@ function applyOfficeSettings(input: {
     input.prompt,
     agentManager.getOfficeSettings().envFile,
     rawName,
-    input.experimental ?? agentManager.getOfficeSettings().experimental,
   );
   return { ok: true };
 }
@@ -3092,7 +3009,6 @@ function buildExecutorDeps(
       getSettings: () => ({
         prompt: agentManager.getOfficeSettings().prompt,
         name: agentManager.getOfficeSettings().name,
-        experimental: agentManager.getOfficeSettings().experimental,
         version: officeSettingsVersion(),
       }),
       applySettings: (input) => applyOfficeSettings(input),
@@ -4029,29 +3945,7 @@ function buildExecutorDeps(
       },
     }),
   );
-  register(
-    browserExtensionHandlers(extensionService!, async (member, backend) => {
-      if (extensionService!.store.record(member).backend === backend) return;
-      extensionService!.store.select(member, backend);
-      for (const agent of agentManager.getAllAgents()) {
-        if (agent.userId !== member) continue;
-        for (const connectionId of browserWatches.keys())
-          stopBrowserWatch(connectionId, agent.id);
-        liveEmit("agent_updated", {
-          agentId: agent.id,
-          changes: { browserPanelAvailable: browserPanelAvailable(agent.id) },
-        });
-      }
-      extensionService!.revalidate();
-      await extensionSessions!.endMember(
-        member,
-        agentManager
-          .getAllAgents()
-          .filter((agent) => agent.userId === member)
-          .map((agent) => agent.id),
-      );
-    }),
-  );
+  register(browserExtensionHandlers(extensionService!));
   // Personal preferences. Self-only, same audience posture as view.*: the
   // handler is a pure REST mapper and this seam owns mutate -> emit.
   register(
@@ -4379,15 +4273,7 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   return { rooms, globalToVisible, globalRoomIdToIndex };
 }
 
-function browserPanelAvailable(agentId: string): boolean {
-  const member = agentManager.getAgent(agentId)?.userId;
-  return !!member && extensionService?.store.record(member).backend === "headless";
-}
-
-// Returns the agent with derived browser capability if its room is
-// visible to this session, or null if not. Post-cut there is no dense `room` to
-// rewrite - agents carry a stable roomId. The browser capability is derived
-// here and never written to the manager state.
+// Return the agent only when its room is visible to this session.
 function projectAgentForSession(
   session: SessionLookup,
   agent: AgentInfo,
@@ -4406,7 +4292,7 @@ function projectAgentForSession(
     return null;
   }
   if (proj.globalToVisible[globalIdx] < 0) return null;
-  return { ...agent, browserPanelAvailable: browserPanelAvailable(agent.id) };
+  return agent;
 }
 
 // True if a given agentId currently lives in a room visible to this
@@ -4443,13 +4329,11 @@ function projectOfficeFor(session: SessionLookup): OfficeWire {
     ? {
         prompt: office.prompt,
         name: office.name,
-        experimental: office.experimental,
         envFile: office.envFile,
       }
     : {
         prompt: office.prompt,
         name: office.name,
-        experimental: office.experimental,
       };
 }
 
@@ -4829,12 +4713,6 @@ function emitAgentEvent(event: AgentEvent): void {
   if (event.type === "agent_updated" || event.type === "agent_removed")
     extensionService?.revalidate();
   switch (event.type) {
-    case "browser_action": {
-      const userId = agentManager.getAgent(event.agentId)?.userId;
-      if (userId)
-        liveEmit("browser_action", { agentId: event.agentId }, { userId });
-      break;
-    }
     case "log_entry":
       liveEmit("log_entry", { entry: event.entry });
       break;
@@ -4939,7 +4817,7 @@ function emitAgentEvent(event: AgentEvent): void {
       if (event.changes.roomId === undefined) {
         liveEmit("agent_updated", {
           agentId: event.agentId,
-          changes: { ...event.changes, browserPanelAvailable: browserPanelAvailable(event.agentId) },
+          changes: event.changes,
         });
       } else {
         routeAgentEvent(event);
@@ -4966,8 +4844,6 @@ function routeAgentEventToWs(
   event: AgentEvent,
 ) {
   const session = ws.data.session;
-  if (event.type === "agent_updated")
-    event = { ...event, changes: { ...event.changes, browserPanelAvailable: browserPanelAvailable(event.agentId) } };
 
   if (sessionHasFullRoomAccess(session)) {
     ws.send(JSON.stringify(event));
@@ -5053,14 +4929,6 @@ function routeAgentEventToWs(
       }
       break;
     }
-    case "browser_action": {
-      if (
-        managesAgent(session, event.agentId) &&
-        agentVisibleForSession(session, event.agentId)
-      )
-        ws.send(JSON.stringify(event));
-      break;
-    }
     case "clear_logs":
     case "slash_commands":
     case "terminal_output":
@@ -5112,14 +4980,13 @@ function wireEventSinks(): void {
       return;
     }
     // Office settings: envFile is owner-only and NEVER rides this all-audience
-    // event. Members read {prompt,name,experimental}; owners learn envFile via
+    // event. Members read {prompt,name}; owners learn envFile via
     // their full_state (owner office projection) / office.getSettings on reload.
     if (event.type === "office_settings_updated") {
       broadcast({
         type: "office_settings_updated",
         prompt: event.prompt,
         name: event.name,
-        experimental: event.experimental,
       });
       return;
     }
@@ -5345,154 +5212,7 @@ async function handleInboundMessage(
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.restartTerminal(cmd.agentId);
         break;
-      case "browser_watch": {
-        // Resizing replaces the watch, but preserves sustained pressure.
-        const pressure = browserWatches
-          .get(ws.data.connectionId)
-          ?.get(cmd.agentId)?.frames.pressure;
-        stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-        if (!cmd.watching || !agentVisibleForSession(session, cmd.agentId) || !browserPanelAvailable(cmd.agentId))
-          break;
-        if (
-          (cmd.maxWidth !== undefined && !validBrowserBound(cmd.maxWidth)) ||
-          (cmd.maxHeight !== undefined && !validBrowserBound(cmd.maxHeight)) ||
-          (cmd.deviceScaleFactor !== undefined &&
-            (typeof cmd.deviceScaleFactor !== "number" ||
-              !Number.isFinite(cmd.deviceScaleFactor)))
-        )
-          break;
-        if (
-          cmd.transport !== undefined &&
-          (cmd.transport !== "jpeg-v1" || !validGeneration(cmd.generation))
-        )
-          break;
-        let watches = browserWatches.get(ws.data.connectionId);
-        if (!watches) {
-          watches = new Map();
-          browserWatches.set(ws.data.connectionId, watches);
-        }
-        let previousStatus = "";
-        const canDeliver = () => {
-          if (
-            !browsers.has(ws) ||
-            !browserPanelAvailable(cmd.agentId) ||
-            !agentVisibleForSession(ws.data.session, cmd.agentId)
-          ) {
-            stopBrowserWatch(ws.data.connectionId, cmd.agentId);
-            return false;
-          }
-          return true;
-        };
-        const frames = new BrowserFrameSender(
-          ws,
-          canDeliver,
-          () => { if (canDeliver()) browserPool.refreshCapture(cmd.agentId); },
-          pressure,
-        );
-        const stop = browserPool.watch(
-          cmd.agentId,
-          (frame) => {
-            if (!canDeliver()) return;
-            const state = browserPool.status(cmd.agentId);
-            const status = JSON.stringify({
-              type: "browser_status",
-              agentId: cmd.agentId,
-              ...state,
-              url: managesAgent(ws.data.session, cmd.agentId)
-                ? state.url
-                : describeShot(state.url).caption,
-            });
-            if (status !== previousStatus) {
-              ws.send(status);
-              previousStatus = status;
-            }
-            if (!state.available || state.resizing) frames.clear();
-            if (frame && !state.resizing)
-              frames.send(
-                cmd.transport === "jpeg-v1"
-                  ? encodeBrowserFrame({
-                      agentId: cmd.agentId,
-                      generation: cmd.generation!,
-                      width: frame.width,
-                      height: frame.height,
-                      jpeg: Buffer.from(frame.data, "base64"),
-                    })
-                  : JSON.stringify({
-                      type: "browser_frame",
-                      agentId: cmd.agentId,
-                      ...frame,
-                    }),
-              );
-          },
-          () =>
-            browserPanelAvailable(cmd.agentId) &&
-            managesAgent(ws.data.session, cmd.agentId) &&
-            agentVisibleForSession(ws.data.session, cmd.agentId),
-          {
-            maxWidth: cmd.maxWidth,
-            maxHeight: cmd.maxHeight,
-            deviceScaleFactor: normalizeBrowserDpr(cmd.deviceScaleFactor),
-          },
-          () => frames.pressure.level,
-          () => frames.canCapture(),
-        );
-        watches.set(cmd.agentId, { stop, frames });
-        break;
-      }
-      case "browser_input":
-        // Recheck management on every event. Room access and an authorization
-        // result from panel-open time are not credentials for this profile.
-        if (
-          !managesAgent(session, cmd.agentId) ||
-          !agentVisibleForSession(session, cmd.agentId) ||
-          !browserPanelAvailable(cmd.agentId) ||
-          !validBrowserInput(cmd.input)
-        )
-          break;
-        if (cmd.input.kind === "selection") {
-          let result: { text: string; truncated: boolean; error?: string };
-          try {
-            result = await browserPool.selection(cmd.agentId);
-          } catch {
-            result = { text: "", truncated: false, error: "selection_failed" };
-          }
-          // The response is private to the requesting manager connection.
-          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId) && browserPanelAvailable(cmd.agentId))
-            ws.send(
-              JSON.stringify({
-                type: "browser_selection",
-                agentId: cmd.agentId,
-                requestId: cmd.input.requestId,
-                ...result,
-              }),
-            );
-        } else if (cmd.input.kind === "navigate") {
-          ws.send(
-            JSON.stringify({
-              type: "browser_status",
-              agentId: cmd.agentId,
-              ...browserPool.status(cmd.agentId),
-              busy: true,
-            }),
-          );
-          const result = await browserPool.humanNavigate(
-            cmd.agentId,
-            cmd.input,
-            session.userId,
-          );
-          if (browsers.has(ws) && managesAgent(ws.data.session, cmd.agentId) && agentVisibleForSession(ws.data.session, cmd.agentId) && browserPanelAvailable(cmd.agentId)) {
-            ws.send(
-              JSON.stringify({
-                type: "browser_status",
-                agentId: cmd.agentId,
-                ...browserPool.status(cmd.agentId),
-                busy: false,
-                ...(!result.ok ? { error: result.error } : {}),
-              }),
-            );
-          }
-        } else await browserPool.humanInput(cmd.agentId, cmd.input);
-        break;
+
     }
   } catch (err) {
     console.error(`[inbound] ${cmd.type} failed:`, err);
@@ -6058,6 +5778,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const retiredPath =
           url.pathname.replace(/%2f/gi, "/").replace(/\/+$/, "") || "/";
         if (
+          (retiredPath === "/api/me/browser" && req.method === "PATCH") ||
           retiredPath === "/tasks" ||
           retiredPath.startsWith("/tasks/") ||
           retiredPath === "/cronjobs" ||
@@ -6438,14 +6159,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           console.error("Invalid command:", e);
         }
       },
-      drain(socket) {
-        if (socket.data.kind === "api" || socket.data.kind === "app") return;
-        const ws = socket as ServerWebSocket<OfficeWsData>;
-        for (const watch of browserWatches
-          .get(ws.data.connectionId)
-          ?.values() ?? [])
-          watch.frames.flush();
-      },
       close(socket, code, reason) {
         if (socket.data.kind === "extension") {
           extensionService!.close(socket as ServerWebSocket<ExtensionWsData>);
@@ -6461,10 +6174,6 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const ws = socket as ServerWebSocket<OfficeWsData>;
         browsers.delete(ws);
-        for (const agentId of [
-          ...(browserWatches.get(ws.data.connectionId)?.keys() ?? []),
-        ])
-          stopBrowserWatch(ws.data.connectionId, agentId);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by
         // connectionId now that the editor is REST - a leaked watch leaks a
@@ -6785,7 +6494,6 @@ export async function startServer(
           settings.prompt,
           null,
           settings.name,
-          settings.experimental,
         );
       },
     },

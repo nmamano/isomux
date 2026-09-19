@@ -116,7 +116,7 @@ export interface AppState {
   // viewed this agent. Persists across LogView remount on agent switch so
   // the panel reopens automatically when the member returns. `undefined` means
   // never opened a panel; missing entries default to closed.
-  sidePanels: Map<string, "terminal" | "editor" | "browser">;
+  sidePanels: Map<string, "terminal" | "editor">;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<
     string,
@@ -261,7 +261,7 @@ type Action =
   | {
       type: "set_side_panel";
       agentId: string;
-      panel: "terminal" | "editor" | "browser" | null;
+      panel: "terminal" | "editor" | null;
     }
   | {
       type: "slash_commands";
@@ -285,7 +285,6 @@ type Action =
       type: "office_settings_updated";
       prompt: string | null;
       name: string | null;
-      experimental?: OfficeSettings["experimental"];
     }
   // CLIENT-LOCAL (not a ServerMessage): the members chat panel dispatches this
   // after its REST page fetch. `prepend` is an older page landing above what the
@@ -455,9 +454,6 @@ export function reducer(state: AppState, action: Action): AppState {
           // OfficeWire omits envFile for members; coerce to null for the
           // store's OfficeSettings shape. Owners carry the real value.
           envFile: action.office.envFile ?? null,
-          experimental: action.office.experimental ?? {
-            browserPanel: false,
-          },
         },
         rooms: action.rooms,
         // Nowhere else to land: a member with no visible room opens on the
@@ -765,15 +761,12 @@ export function reducer(state: AppState, action: Action): AppState {
       // envFile is owner-only and no longer rides this all-audience event
       // (3b.5). PRESERVE the existing office.envFile (an owner's loaded value)
       // and update only the public fields, so the event never blanks it.
-      // A pre-toggle server omits experimental; preserve the default/current
-      // value until the required server restart completes.
       return {
         ...state,
         office: {
           ...state.office,
           prompt: action.prompt,
           name: action.name,
-          experimental: action.experimental ?? state.office.experimental,
         },
       };
     // Whole-board hydration (connect, or this user's room access changed).
@@ -1193,7 +1186,6 @@ export const initialState: AppState = {
     prompt: null,
     envFile: null,
     name: null,
-    experimental: { browserPanel: false },
   },
   rooms: [],
   tasks: [],

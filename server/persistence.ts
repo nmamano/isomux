@@ -1018,9 +1018,6 @@ export function loadOfficeConfig(): OfficeSettings {
           typeof parsed.name === "string" && parsed.name.trim()
             ? parsed.name.trim()
             : null,
-        experimental: {
-          browserPanel: parsed.experimental?.browserPanel === true,
-        },
       };
     }
   } catch (err) {
@@ -1038,7 +1035,6 @@ export function loadOfficeConfig(): OfficeSettings {
     prompt: legacyPrompt,
     envFile: null,
     name: null,
-    experimental: { browserPanel: false },
   };
   // Only persist if the legacy prompt actually had content - otherwise a fresh
   // install touches a new file for no reason, and the next save/set will write
@@ -1055,13 +1051,14 @@ export function loadOfficeConfig(): OfficeSettings {
 
 export function saveOfficeConfig(config: OfficeSettings) {
   try {
-    const merged = {
+    const merged: Record<string, unknown> = {
       ...readOfficeConfigRaw(),
       prompt: config.prompt,
       envFile: config.envFile,
       name: config.name,
-      experimental: config.experimental,
     };
+    // Retired panel preferences must not return on a later load.
+    delete merged.experimental;
     atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
   } catch (err) {
     console.error("Failed to save office config:", err);

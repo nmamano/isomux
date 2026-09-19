@@ -35,7 +35,6 @@ for (const [label, path] of [
           name: "Test Office",
           prompt: null,
           envFile: null,
-          experimental: { browserPanel: false },
         },
       }),
     );

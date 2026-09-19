@@ -1,5 +1,7 @@
 # Browser use for isomux agents
 
+Historical design and evidence. The Server browser and remote panel were retired on 2026-09-20. Current Chrome control and migration: [browser-extension.md](browser-extension.md). Server screenshot previews remain supported.
+
 Status: exploration and prototype. Nothing here is merged. Task 9b174a6a.
 Written 2026-09-05 in the `browser-use` worktree.
 

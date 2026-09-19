@@ -851,13 +851,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
   defineRoute({
-    opId: "browser.select",
-    method: "PATCH",
-    path: "/api/me/browser",
-    auth: cap("user:self", authenticated),
-    emits: [],
-  }),
-  defineRoute({
     opId: "browser.pair",
     method: "POST",
     path: "/api/me/browser/pair",

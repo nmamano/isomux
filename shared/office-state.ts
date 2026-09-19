@@ -46,7 +46,6 @@ export type OfficeEvent =
       prompt: string | null;
       envFile: string | null;
       name: string | null;
-      experimental: OfficeSettings["experimental"];
     }
   | { type: "tasks_changed"; tasks: TaskItem[]; change: TaskChange };
 
@@ -107,7 +106,6 @@ export class OfficeState {
     prompt: null,
     envFile: null,
     name: null,
-    experimental: { browserPanel: false },
   };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
@@ -567,7 +565,6 @@ export class OfficeState {
     prompt: string | null,
     envFile: string | null,
     name: string | null,
-    experimental: OfficeSettings["experimental"] = this._office.experimental,
   ): OfficeEvent[] {
     const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
     const normalizedName = name && name.trim() ? name.trim() : null;
@@ -575,7 +572,6 @@ export class OfficeState {
       prompt: normalizedPrompt,
       envFile: envFile || null,
       name: normalizedName,
-      experimental: { ...experimental },
     };
     const events: OfficeEvent[] = [
       {
@@ -583,7 +579,6 @@ export class OfficeState {
         prompt: this._office.prompt,
         envFile: this._office.envFile,
         name: this._office.name,
-        experimental: { ...this._office.experimental },
       },
     ];
     this.emitEvents(events);

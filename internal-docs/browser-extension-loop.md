@@ -1,3 +1,7 @@
+# Historical browser extension rollout
+
+Server browser retirement (2026-09-20) supersedes the headless preservation, backend selection and panel steps below. Current runtime and migration behavior: [browser-extension.md](browser-extension.md). Screenshot previews remain supported.
+
 # Chrome extension browser loop
 
 ## North star

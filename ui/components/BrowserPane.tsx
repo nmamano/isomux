@@ -45,7 +45,7 @@ export function BrowserPane() {
       clearInterval(timer);
     };
   }, []);
-  async function change(method: "PATCH" | "POST" | "DELETE", body?: unknown) {
+  async function change(method: "POST" | "DELETE", body?: unknown) {
     setBusy(true);
     setError(false);
     setCopied(false);
@@ -75,20 +75,7 @@ export function BrowserPane() {
       {error && <p role="alert">{t("browser.failed")}</p>}
       {status ? (
         <>
-          <div style={{ ...cardStyle, marginTop: 16 }}>
-            <label style={dialogLabel} htmlFor="browser-backend">{t("browser.backend")}</label>
-            <select id="browser-backend" data-testid="browser-backend" value={status.backend ?? ""}
-              disabled={busy} onChange={(event) => void change("PATCH", { backend: event.target.value })}
-              style={{ ...dialogInput, fontFamily: "inherit" }}>
-              <option value="" disabled>{t("browser.choose")}</option>
-              <option value="headless">{t("browser.server")}</option>
-              <option value="extension">{t("browser.chrome")}</option>
-            </select>
-            <p style={{ ...hint, marginTop: 12, marginBottom: 0 }}>
-              {t(status.backend === "extension" ? "browser.chromeHelp" : status.backend === "headless" ? "browser.serverHelp" : "browser.choose")}
-            </p>
-          </div>
-          {status.backend === "extension" && <>
+          <p style={hint}>{t("browser.chromeHelp")}</p>
             <div style={{ ...cardStyle, marginTop: 16 }}>
               <h4 style={{ ...sectionHeader, marginBottom: 8 }}>{t("browser.setup")}</h4>
               <ol style={{ margin: 0, paddingLeft: 22, display: "grid", gap: 8 }}>
@@ -142,7 +129,6 @@ export function BrowserPane() {
               </div>}
             </div>
             <p style={hint}>{t("browser.retained")}</p>
-          </>}
         </>
       ) : (!error && <p style={hint}>{t("common.loading")}</p>)}
     </section>

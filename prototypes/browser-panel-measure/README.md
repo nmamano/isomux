@@ -1,3 +1,7 @@
+# Archived Server browser measurements
+
+The Server browser and remote panel were retired on 2026-09-20. The runnable probes were removed with their runtime. The evidence files below are historical measurements, not current behavior.
+
 # Browser panel repair measurements (2026-09-16)
 
 Run from the worktree root, under `systemd-run --user --scope -p MemoryMax=2G`.

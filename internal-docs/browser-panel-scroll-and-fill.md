@@ -1,5 +1,7 @@
 # Browser panel: scroll diagnosis and full viewport
 
+Historical design and evidence. The Server browser and remote panel were retired on 2026-09-20. Current Chrome control and migration: [browser-extension.md](browser-extension.md). Server screenshot previews remain supported.
+
 Lane browser-0913, tasks b5356276 and 11e1feda. Report dated 2026-09-13.
 
 ## Scope and decision

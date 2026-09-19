@@ -1,4 +1,3 @@
-import { browserPool } from "../browser-session";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
@@ -10,7 +9,7 @@ import {
   extensionSocket,
   origin,
 } from "./browser-extension-route-fixture";
-import { afterEach, test, expect, spyOn } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import { startTestServer, type TestServer } from "./harness";
 import { getAgentTokenRaw } from "../identity/tokens";
 import { extensionUpgradeAllowed } from "../browser-extension-service";
@@ -30,7 +29,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).toBe(200);
   expect(
     await (await memberRequest(server, other, "GET", "/api/me/browser")).json(),
-  ).toMatchObject({ paired: false, backend: "headless" });
+  ).toMatchObject({ paired: false });
   const agent = await ownedAgent(server, owner, "browser agent");
   expect(mayUseExtension(getUserByName(owner.username)!.id, agent.id)).toBe(
     true,
@@ -96,13 +95,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
-  expect(
-    (
-      await memberRequest(server, owner, "PATCH", "/api/me/browser", {
-        backend: "extension",
-      })
-    ).status,
-  ).toBe(204);
+  expect((await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "headless" })).status).toBe(404);
   server = await server.restart();
   const restored = await extensionSocket(server, {
     kind: "hello",
@@ -113,7 +106,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   expect(next.generation).not.toBe(ready.generation);
   expect(
     await (await memberRequest(server, owner, "GET", "/api/me/browser")).json(),
-  ).toMatchObject({ backend: "extension", paired: true, online: true });
+  ).toMatchObject({ paired: true, online: true });
   expect(
     (await memberRequest(server, owner, "DELETE", "/api/me/browser")).status,
   ).toBe(204);
@@ -198,9 +191,6 @@ test("current manager room access loss actively detaches a pending agent action"
     code,
   });
   await socket.wait("ready");
-  await memberRequest(server, member, "PATCH", "/api/me/browser", {
-    backend: "extension",
-  });
   const generation = (await socket.wait("ready")).generation;
   socket.ws.send(JSON.stringify({ kind: "offer", generation, durationMinutes: 0, assignment: crypto.randomUUID(), agent: agent.id }));
   const attach = await socket.wait("command");
@@ -249,59 +239,24 @@ test("app host dispatch cannot reach pairing or browser sockets", async () => {
   }
 });
 
-test("corrupt optional browser state does not prevent office restart", async () => {
+test("corrupt browser state permits office startup and requires fresh Chrome pairing", async () => {
   server = await startTestServer();
   const owner = await server.seedOwner();
-  expect(
-    (
-      await memberRequest(server, owner, "PATCH", "/api/me/browser", {
-        backend: "extension",
-      })
-    ).status,
-  ).toBe(204);
   const agent = await ownedAgent(server, owner, "corrupt state browser");
   writeFileSync(join(server.stateRoot, "browser-connections.json"), "{");
   server = await server.restart();
-  const response = await memberRequest(server, owner, "GET", "/api/me/browser");
-  expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({
-    backend: null,
-    selectionRequired: true,
-    paired: false,
-    online: false,
+  const status = await (await memberRequest(server, owner, "GET", "/api/me/browser")).json();
+  expect(status).toMatchObject({ paired: false, online: false });
+  expect(status).not.toHaveProperty("backend");
+  const action = await server.http(`/api/agents/${agent.id}/browser`, {
+    method: "POST", headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "snapshot" }),
   });
-  const headless = spyOn(browserPool, "run").mockResolvedValue({
-    ok: true,
-    closed: true,
-    url: "",
-    title: "",
-  });
-  const action = () =>
-    server!.http(`/api/agents/${agent.id}/browser`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ action: "close" }),
-    });
-  try {
-    expect((await (await action()).json()).error.code).toBe(
-      "browser_selection_required",
-    );
-    expect(headless).not.toHaveBeenCalled();
-    expect(
-      (
-        await memberRequest(server, owner, "PATCH", "/api/me/browser", {
-          backend: "headless",
-        })
-      ).status,
-    ).toBe(204);
-    expect((await action()).status).toBe(200);
-    expect(headless).toHaveBeenCalledTimes(1);
-  } finally {
-    headless.mockRestore();
-  }
+  expect((await action.json()).error.code).toBe("browser_not_paired");
+  const pair = await memberRequest(server, owner, "POST", "/api/me/browser/pair", {});
+  expect(pair.status).toBe(200);
+  const extension = await extensionSocket(server, { kind: "hello", version: 3, code: (await pair.json()).code });
+  await extension.wait("ready");
 });
 
 test("extension ZIP download is self-authenticated and metadata is the current member", async () => {

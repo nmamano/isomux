@@ -3,9 +3,10 @@ import { readFileSync, renameSync } from "node:fs";
 import { atomicWriteFileSync } from "./persistence";
 import { browserCredentialHash } from "./browser-extension-bridge";
 
-export type BrowserBackend = "headless" | "extension";
+// Keep the legacy version-1 discriminator for readable existing state.
+// Runtime routing is Chrome-only; this field is not a user preference.
 type BrowserRecord = {
-  backend: BrowserBackend | null;
+  backend: "extension";
   hash?: string;
   origin?: string;
 };
@@ -21,7 +22,6 @@ export class BrowserExtensionStore {
     string,
     { member: string; expiresAt: number; replace: boolean }
   >();
-  private selectionRequired = false;
   private preserveSource = false;
   constructor(
     private path: string,
@@ -46,7 +46,6 @@ export class BrowserExtensionStore {
           Array.isArray(envelope.members)
         )
           throw new Error();
-        this.selectionRequired = envelope.selectionRequired;
         members = envelope.members;
       }
       for (const [member, entry] of Object.entries(members)) {
@@ -57,7 +56,7 @@ export class BrowserExtensionStore {
           !Array.isArray(entry) &&
           entry.backend === null
         ) {
-          this.records[member] = { backend: null };
+          this.records[member] = { backend: "extension" };
           continue;
         }
         if (
@@ -66,13 +65,13 @@ export class BrowserExtensionStore {
           Array.isArray(entry) ||
           (entry.backend !== "headless" && entry.backend !== "extension")
         ) {
-          this.records[member] = { backend: null };
+          this.records[member] = { backend: "extension" };
           this.preserveSource = true;
           continue;
         }
         const r = entry as BrowserRecord;
         this.records[member] = {
-          backend: r.backend,
+          backend: "extension",
           ...(typeof r.hash === "string" &&
           /^[a-f0-9]{64}$/.test(r.hash) &&
           typeof r.origin === "string" &&
@@ -83,17 +82,16 @@ export class BrowserExtensionStore {
       }
     } catch (error) {
       // Only a genuinely absent file gets the migration default. Never log
-      // browser state or error content. Other failures require explicit choice.
+      // browser state or error content. Invalid state requires fresh pairing.
       if ((error as { code?: string }).code === "ENOENT") return;
       this.records = Object.create(null);
-      this.selectionRequired = true;
       this.preserveSource = true;
     }
   }
   record(member: string): Readonly<BrowserRecord> {
     return (
       this.records[member] ?? {
-        backend: this.selectionRequired ? null : "headless",
+        backend: "extension",
       }
     );
   }
@@ -110,7 +108,7 @@ export class BrowserExtensionStore {
         this.path,
         JSON.stringify({
           version: 1,
-          selectionRequired: this.selectionRequired,
+          selectionRequired: false,
           members: next,
         }),
         0o600,
@@ -123,12 +121,7 @@ export class BrowserExtensionStore {
     this.preserveSource = false;
     this.records = next;
   }
-  select(member: string, backend: BrowserBackend): void {
-    this.write(member, { ...this.record(member), backend });
-  }
   pair(member: string, replace: boolean): { code: string; expiresAt: number } {
-    if (this.record(member).backend === null)
-      throw new Error("browser_selection_required");
     if (this.record(member).hash && !replace)
       throw new Error("browser_already_paired");
     for (const [hash, code] of this.codes) {

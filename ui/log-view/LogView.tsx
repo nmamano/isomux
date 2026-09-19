@@ -60,14 +60,12 @@ import {
   EyeIcon,
   TerminalIcon,
   EditorIcon,
-  BrowserIcon,
   CopyIcon,
   CheckIcon,
   EndConversationIcon,
 } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
-import { BrowserPanel, useBrowserAutoOpen } from "./BrowserPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
@@ -127,15 +125,15 @@ class UploadStatusError extends Error {
   }
 }
 
-const PANEL_MIN = { terminal: 300, editor: 380, browser: 420 } as const;
-const PANEL_MAX = { terminal: 1000, editor: 1200, browser: 1400 } as const;
+const PANEL_MIN = { terminal: 300, editor: 380 } as const;
+const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // The chat column always keeps at least this many pixels regardless of how
 // far the member drags the panel. Window-resize clamping shrinks the panel
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
 
 function readPanelWidth(
-  kind: "terminal" | "editor" | "browser",
+  kind: "terminal" | "editor",
   fallback: number,
 ): number {
   if (typeof localStorage === "undefined") return fallback;
@@ -151,7 +149,7 @@ function readPanelWidth(
 }
 
 function writePanelWidth(
-  kind: "terminal" | "editor" | "browser",
+  kind: "terminal" | "editor",
   width: number,
 ): void {
   if (typeof localStorage === "undefined") return;
@@ -723,7 +721,6 @@ export function LogView({
     interactions,
     providerAccounts,
     tasks,
-    office,
   } = useAppState();
   const taskMap: TaskMap = useMemo(
     () => new Map(tasks.map((task) => [task.id, task])),
@@ -789,41 +786,17 @@ export function LogView({
   const sidePanel = sidePanels.get(agent.id) ?? null;
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
-  const browserOpen = sidePanel === "browser";
-  const canOpenBrowser =
-    office.experimental.browserPanel && agent.browserPanelAvailable !== false;
-  useEffect(() => {
-    if (agent.browserPanelAvailable === false && browserOpen)
-      dispatch({ type: "set_side_panel", agentId: agent.id, panel: null });
-  }, [agent.browserPanelAvailable, browserOpen, agent.id, dispatch]);
-  const canDriveBrowser =
-    !!agent.userId && sessionContext?.userId === agent.userId;
-  const autoOpenBrowser = useCallback(
-    () =>
-      dispatch({ type: "set_side_panel", agentId: agent.id, panel: "browser" }),
-    [agent.id, dispatch],
-  );
-  useBrowserAutoOpen(
-    agent.id,
-    canDriveBrowser,
-    canOpenBrowser,
-    autoOpenBrowser,
-  );
   const [terminalWidth, setTerminalWidth] = useState<number>(() =>
     readPanelWidth("terminal", 500),
   );
   const [editorWidth, setEditorWidth] = useState<number>(() =>
     readPanelWidth("editor", 600),
   );
-  const [browserWidth, setBrowserWidth] = useState<number>(() =>
-    readPanelWidth("browser", 720),
-  );
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<
     string | null
   >(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
-  const browserContainerRef = useRef<HTMLDivElement>(null);
   const commitTerminalWidth = useCallback((w: number) => {
     setTerminalWidth(w);
     writePanelWidth("terminal", w);
@@ -831,10 +804,6 @@ export function LogView({
   const commitEditorWidth = useCallback((w: number) => {
     setEditorWidth(w);
     writePanelWidth("editor", w);
-  }, []);
-  const commitBrowserWidth = useCallback((w: number) => {
-    setBrowserWidth(w);
-    writePanelWidth("browser", w);
   }, []);
   // Live max: reading window.innerWidth at call time so a window-resize
   // mid-drag is reflected immediately (vs a value captured at mousedown).
@@ -848,12 +817,6 @@ export function LogView({
     return Math.max(
       PANEL_MIN.editor,
       Math.min(PANEL_MAX.editor, window.innerWidth - CHAT_COLUMN_FLOOR),
-    );
-  }, []);
-  const getBrowserMax = useCallback(() => {
-    return Math.max(
-      PANEL_MIN.browser,
-      Math.min(PANEL_MAX.browser, window.innerWidth - CHAT_COLUMN_FLOOR),
     );
   }, []);
   // Window-resize clamp: when the member shrinks the browser window so far
@@ -870,11 +833,7 @@ export function LogView({
         window.innerWidth - CHAT_COLUMN_FLOOR,
       );
       setEditorWidth((w) => (w > maxAllowedEditor ? maxAllowedEditor : w));
-      const maxAllowedBrowser = Math.max(
-        PANEL_MIN.browser,
-        window.innerWidth - CHAT_COLUMN_FLOOR,
-      );
-      setBrowserWidth((w) => (w > maxAllowedBrowser ? maxAllowedBrowser : w));
+
     }
     window.addEventListener("resize", clamp);
     clamp();
@@ -908,18 +867,6 @@ export function LogView({
         type: "set_side_panel",
         agentId: agent.id,
         panel: next ? "editor" : null,
-      });
-    },
-    [dispatch, agent.id, sidePanels],
-  );
-  const setBrowserOpen = useCallback(
-    (value: boolean | ((prev: boolean) => boolean)) => {
-      const prev = sidePanels.get(agent.id) === "browser";
-      const next = typeof value === "function" ? value(prev) : value;
-      dispatch({
-        type: "set_side_panel",
-        agentId: agent.id,
-        panel: next ? "browser" : null,
       });
     },
     [dispatch, agent.id, sidePanels],
@@ -1467,19 +1414,6 @@ export function LogView({
 
   const desktopAgentActions: NavAction[] = (() => {
     let acts = baseAgentActions;
-    if (canOpenBrowser) {
-      acts = [
-        ...acts,
-        {
-          id: "browser",
-          icon: BrowserIcon,
-          label: i18n.t("common.browser"),
-          onClick: () => setBrowserOpen((v) => !v),
-          active: browserOpen,
-          title: i18n.t("logView.nav.browserTitle"),
-        },
-      ];
-    }
     if (features.editor) {
       acts = [
         ...acts,
@@ -1514,20 +1448,6 @@ export function LogView({
   // instead of a side panel - see the {isMobile && ... overlay blocks below).
   const mobileAgentActions: NavAction[] = (() => {
     let acts = baseAgentActions;
-    if (canOpenBrowser) {
-      acts = [
-        ...acts,
-        {
-          id: "browser",
-          icon: BrowserIcon,
-          label: i18n.t(
-            browserOpen ? "panels.browser.close" : "common.browser",
-          ),
-          onClick: () => setBrowserOpen((v) => !v),
-          active: browserOpen,
-        },
-      ];
-    }
     if (features.editor) {
       acts = [
         ...acts,
@@ -3399,25 +3319,7 @@ export function LogView({
             />
           </div>
         )}
-        {!isMobile && canOpenBrowser && browserOpen && (
-          <div
-            ref={browserContainerRef}
-            style={{ width: browserWidth, flexShrink: 0, position: "relative" }}
-          >
-            <PanelResizer
-              panelRef={browserContainerRef}
-              min={PANEL_MIN.browser}
-              getMax={getBrowserMax}
-              onCommit={commitBrowserWidth}
-            />
-            <BrowserPanel
-              key={`${agent.id}:${canDriveBrowser}`}
-              canDrive={canDriveBrowser}
-              agentId={agent.id}
-              onClose={() => setBrowserOpen(false)}
-            />
-          </div>
-        )}
+
       </div>
       {/* Mobile side panel: full-screen overlay above the chat column. The
         outer LogView is position:fixed and sized to vpHeight on mobile, so
@@ -3486,25 +3388,6 @@ export function LogView({
             onClose={() => setEditorOpen(false)}
             onPathOpened={() => setEditorInitialPath(null)}
             mobile
-          />
-        </div>
-      )}
-      {isMobile && canOpenBrowser && browserOpen && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            paddingTop: "env(safe-area-inset-top, 0px)",
-            boxSizing: "border-box",
-            background: "var(--bg-base)",
-            zIndex: 30,
-          }}
-        >
-          <BrowserPanel
-            key={`${agent.id}:${canDriveBrowser}`}
-            canDrive={canDriveBrowser}
-            agentId={agent.id}
-            onClose={() => setBrowserOpen(false)}
           />
         </div>
       )}

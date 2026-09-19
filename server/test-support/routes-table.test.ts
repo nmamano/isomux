@@ -735,7 +735,6 @@ const SPEC_ROUTE_CONTRACT: Record<
   // "edit a user record" while staying out of both agent capability sets.
   "browser.download": { caps: ["user:self"], emits: [] },
   "browser.get": { caps: ["user:self"], emits: [] },
-  "browser.select": { caps: ["user:self"], emits: [] },
   "browser.pair": { caps: ["user:self"], emits: [] },
   "browser.revoke": { caps: ["user:self"], emits: [] },
   "prefs.update": {

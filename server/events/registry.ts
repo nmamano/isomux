@@ -138,7 +138,6 @@ export interface EventPayloads {
   interaction_removed: { interactionId: string; agentId: string };
   killed_agent_added: { agent: KilledAgentSummary };
   killed_agent_removed: { agentId: string; lastRoomId: string };
-  browser_action: { agentId: string };
   terminal_output: { agentId: string; data: string };
   terminal_status: { agentId: string; process: string; shell: boolean };
   terminal_exit: { agentId: string; exitCode: number };
@@ -225,7 +224,6 @@ export interface EventPayloads {
   office_settings_updated: {
     name: string | null;
     prompt: string | null;
-    experimental: NonNullable<OfficeWire["experimental"]>;
   };
   update_status: UpdateStatusWire;
 
@@ -295,10 +293,6 @@ export const EVENT_REGISTRY = {
   killed_agent_removed: {
     audience: "room-ACL",
     projectionKey: { kind: "carriedRoomId", path: ["lastRoomId"] },
-  },
-  browser_action: {
-    audience: "recipient-scoped",
-    projectionKey: { kind: "userId" },
   },
   terminal_output: {
     audience: "room-ACL",

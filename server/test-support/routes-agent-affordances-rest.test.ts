@@ -436,7 +436,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
   // The route, its gate, and its validation. The pool is an office-wide
   // singleton, so these cover what the REST layer owns and stop before a real
   // Chrome; the engine (contexts, idle close, action mapping, caps) is covered
-  // by browser-session.test.ts with an injected browser.
+  // by browser-actions.test.ts and browser-extension-store.test.ts.
 
   it("rejects a missing or unknown action -> 400", async () => {
     const srv = await startTestServer();
@@ -511,7 +511,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
     expect(r.body.closed).toBe(true);
   });
 
-  it("reports launch_failed when the configured browser cannot start -> 500", async () => {
+  it("requires Chrome pairing even when server Chromium is configured -> 500", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -529,7 +529,7 @@ describe("routes/agent-affordances REST: browser (task 9b174a6a)", () => {
         { bearer: token },
       );
       expect(r.status).toBe(500);
-      expect(r.body.error?.code).toBe("launch_failed");
+      expect(r.body.error?.code).toBe("browser_not_paired");
     } finally {
       if (prevEnv === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
       else process.env.ISOMUX_PREVIEW_BROWSER = prevEnv;

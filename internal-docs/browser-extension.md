@@ -2,23 +2,19 @@
 
 ## Scope and status
 
-Slice 3 adds member settings, the extension action popup and a downloadable
-package to the production bridge. Headless remains the legacy default; selecting
-Chrome is explicit. Preview capture stays on the server. Windows and real-site
-acceptance remain with Nil. No production restart is authorized.
+Desktop Chrome is the interactive browser. Server screenshot previews remain separate and accept public HTTP(S) sites and office-host pages.
 
 ## Member flow and state
 
-The normal route table declares these self-scoped routes. All five require
+The normal route table declares these self-scoped routes. All four require
 `cap("user:self", authenticated)`, as personal preferences do. An agent token
 cannot use them. Other identities need that actual capability; owning another
 member's office does not select that member's browser.
 
 | Method | Path | Operation |
 | --- | --- | --- |
-| GET | `/api/me/browser` | Read backend, paired/online state, member label and package version |
+| GET | `/api/me/browser` | Read paired/online state, member label and package version |
 | GET | `/api/me/browser/extension.zip` | Download the built extension with attachment/no-store headers |
-| PATCH | `/api/me/browser` | Select `headless` or `extension` |
 | POST | `/api/me/browser/pair` | Create a pairing code; `replace: true` permits replacement |
 | DELETE | `/api/me/browser` | Revoke the credential and end control |
 
@@ -31,27 +27,9 @@ consumes the code, atomically writes the new credential hash and Origin, closes
 the old connection, then sends the new credential. A failed send does not restore
 the code. The member pairs again after a lost paired response.
 
-`browser-connections.json` is an atomic 0600 file keyed by member id. Records
-contain the selected backend, credential SHA-256 hash and extension Origin.
-A genuinely absent file uses the headless migration default. Corrupt or unreadable
-state leaves browser selection unavailable, without preventing office startup.
-An invalid stored backend blocks that member. Actions return
-`browser_selection_required` and never call the headless pool until an explicit
-member selection. Status reports `backend: null` and `selectionRequired: true`.
-The server preserves the source inode under a unique `.unavailable-` filename
-by same-directory rename before atomic replacement, including an unreadable
-directory at the state path. If the write fails, the server restores the source
-path so a restart still requires selection. The version-1 file envelope retains the unavailable
-default for other members after one member repairs their selection; legacy member
-maps still load. No source content is logged or returned. PM confirmed this rule
-on 2026-09-19. No raw credential or pairing code is
-stored server-side. Raw credentials travel only in the paired WebSocket frame
-and trusted extension-local storage. They are not office authentication tokens.
+`browser-connections.json` retains its version-1 envelope and credential hash/Origin fields. Legacy flat maps also load. Old headless choices become extension records; valid paired credentials remain usable. Missing or invalid state requires fresh pairing. Redemption preserves unreadable/corrupt source data under a unique `.unavailable-` filename before an atomic replacement, and restores it if the write fails. No raw credentials are saved server-side.
 
-Selection is explicit. Pairing does not select extension mode. A backend switch
-ends that member's old sessions across agents. Extension mode never falls back
-to headless while offline. No website cookies or profile state are exported,
-reset or imported by the extension path.
+The removed PATCH `/api/me/browser` returns JSON 404 through the existing retired-route wall. Status no longer reports a backend or selectionRequired. Legacy experimental panel settings are ignored on load and update. The old panel WebSocket commands are ignored; no frames or input callbacks exist. Saved server profile files remain untouched and are never loaded or imported. Pairing never grants a tab automatically.
 
 ## Socket and recovery
 
@@ -130,16 +108,15 @@ closing any page or stopping another agent's task tab.
 `POST /api/agents/:id/browser` keeps its existing actions and screenshot-card
 shape. `preview-url` is unchanged. The extension uses the actual desktop viewport;
 it does not apply the headless viewport or download policy. Desktop localhost
-means the member's computer. Upload/download behavior is not promised.
-`close` means detach and leave the page open. The old headless path still closes
-its page and retains its existing profile and idle behavior. Extension control
+means the member's computer. Upload uses the byte-payload workflow below.
+`close` means detach and leave the page open. Extension control
 uses the fixed per-offer expiry selected in the popup, defaulting to Never.
 Expiry detaches control and leaves the real page open; actions do not extend it.
 
-Stable extension errors are `browser_selection_required`, `browser_not_paired`, `browser_offline`,
+Stable extension errors are `browser_not_paired`, `browser_offline`,
 `browser_control_ended`, `action_timeout`, and `action_failed`. Control loss, an action timeout or revocation
 can leave a side effect with an unknown outcome. The server never retries it.
-Invalid requests and missing task pages retain the existing validation errors.
+Invalid requests return `invalid_request`; missing offers return `browser_control_ended`.
 
 ## Evidence and checks
 
@@ -264,7 +241,7 @@ target; Target.createTarget is refused and the session never calls newPage.
 
 ## Server-file attachments
 
-The browser action `{action: "upload", selector: "input#attachment", path: "/absolute/server/file.png"}` selects one regular server file, up to 4 MiB, in one matching file input. Both backends use the same bounded file reader and public Playwright locator `setInputFiles` byte payload. The reader checks requested and resolved paths with the shared sensitive-file policy, opens the resolved file once, checks the descriptor type/size, and bounds its read. The payload contains a sanitized basename, MIME type and bytes; it never contains the server path. Unknown MIME types use `application/octet-stream`.
+The browser action `{action: "upload", selector: "input#attachment", path: "/absolute/server/file.png"}` selects one regular server file, up to 4 MiB, in one matching file input. Chrome uploads use the same bounded file reader and public Playwright locator `setInputFiles` byte payload. The reader checks requested and resolved paths with the shared sensitive-file policy, opens the resolved file once, checks the descriptor type/size, and bounds its read. The payload contains a sanitized basename, MIME type and bytes; it never contains the server path. Unknown MIME types use `application/octet-stream`.
 
 Playwright serializes this payload as base64 in Runtime commands through the existing in-process transport and owned-page bridge. The 4 MiB cap leaves room below the 8 MiB extension frame limit. No desktop-path `DOM.setFileInputFiles` command or new permission is needed. Missing/offline/unoffered ownership is checked before file loading; the extension action checks its original grant again after reading. Release/disconnect keeps the existing unknown-outcome and no-replay behavior.
 
@@ -277,7 +254,7 @@ The popup offers Never, 15 minutes, 1 hour and 4 hours. Each new offer defaults 
 
 Protocol 3 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server starts the deadline after attachment succeeds, installs one identity-bound assignment timer, then sends `offered` with `durationMinutes` and `expiresAt`. Never uses null and no timer; timed grants use an absolute epoch-millisecond deadline. Metadata and popup state carry that same pair. Missing or inconsistent pairs fail closed. Metadata lists established targets only, so a pending offer is never cancelled by an earlier empty list.
 
-The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. The old Desktop Chrome session idle timer is removed; Server browser idle behavior is unchanged. Off, close, access loss, disconnect and reload still release grants and never replay work.
+The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. There is no hidden idle timer. Off, close, access loss, disconnect and reload still release grants and never replay work.
 
 Protocol 2 extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.
 
