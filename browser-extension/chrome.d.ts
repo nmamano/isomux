@@ -25,7 +25,11 @@ declare const chrome: {
     };
   };
   webNavigation: {
-    onCreatedNavigationTarget: { addListener(callback: (event: { sourceTabId: number; tabId: number }) => void): void };
+    onCreatedNavigationTarget: {
+      addListener(
+        callback: (event: { sourceTabId: number; tabId: number }) => void,
+      ): void;
+    };
   };
   tabs: {
     create(options: { url: string; active: boolean }): Promise<{ id?: number }>;

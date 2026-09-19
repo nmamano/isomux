@@ -1,5 +1,10 @@
 import { BrowserExtensionStore } from "./browser-extension-store";
-import { BrowserExtensionService, EXTENSION_SOCKET_PATH, extensionUpgradeAllowed, type ExtensionWsData } from "./browser-extension-service";
+import {
+  BrowserExtensionService,
+  EXTENSION_SOCKET_PATH,
+  extensionUpgradeAllowed,
+  type ExtensionWsData,
+} from "./browser-extension-service";
 import { ExtensionBrowserSessions } from "./browser-extension-session";
 import { browserExtensionHandlers } from "./routes/handlers/browser-extension";
 import { renderReceptionistProfile } from "./receptionist-profile.ts";
@@ -441,7 +446,15 @@ let extensionSessions: ExtensionBrowserSessions | undefined;
 export function mayUseExtension(member: string, agentId: string): boolean {
   const user = getUserById(member);
   const agent = agentManager.getAgent(agentId);
-  return !!user && !!agent && agent.userId === member && buildLiveGuardDeps().hasRoomAccess({ scope: "user", userId: member, role: user.role, capabilities: [] }, agent.roomId);
+  return (
+    !!user &&
+    !!agent &&
+    agent.userId === member &&
+    buildLiveGuardDeps().hasRoomAccess(
+      { scope: "user", userId: member, role: user.role, capabilities: [] },
+      agent.roomId,
+    )
+  );
 }
 
 function createManagers(startOpts: StartServerOpts): void {
@@ -492,11 +505,19 @@ function createManagers(startOpts: StartServerOpts): void {
       effectiveProviderAccountTarget: (userId, provider) =>
         providerAccountManager.effectiveTarget(userId, provider),
     });
-  extensionService = new BrowserExtensionService(new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")), {
-    memberExists: (member) => !!getUserById(member),
-    mayUse: mayUseExtension,
-  });
-  extensionSessions = new ExtensionBrowserSessions(extensionService, (agent) => agentManager.getAgent(agent)?.userId ?? undefined, mayUseExtension, startOpts.browserExtensionActionDeadline);
+  extensionService = new BrowserExtensionService(
+    new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")),
+    {
+      memberExists: (member) => !!getUserById(member),
+      mayUse: mayUseExtension,
+    },
+  );
+  extensionSessions = new ExtensionBrowserSessions(
+    extensionService,
+    (agent) => agentManager.getAgent(agent)?.userId ?? undefined,
+    mayUseExtension,
+    startOpts.browserExtensionActionDeadline,
+  );
   cronjobManager =
     startOpts.cronjobManager ??
     createProductionCronjobManager({
@@ -4005,12 +4026,20 @@ function buildExecutorDeps(
       },
     }),
   );
-  register(browserExtensionHandlers(extensionService!, async (member, backend) => {
-    if (extensionService!.store.record(member).backend === backend) return;
-    extensionService!.store.select(member, backend);
-    extensionService!.revalidate();
-    await extensionSessions!.endMember(member, agentManager.getAllAgents().filter((agent) => agent.userId === member).map((agent) => agent.id));
-  }));
+  register(
+    browserExtensionHandlers(extensionService!, async (member, backend) => {
+      if (extensionService!.store.record(member).backend === backend) return;
+      extensionService!.store.select(member, backend);
+      extensionService!.revalidate();
+      await extensionSessions!.endMember(
+        member,
+        agentManager
+          .getAllAgents()
+          .filter((agent) => agent.userId === member)
+          .map((agent) => agent.id),
+      );
+    }),
+  );
   // Personal preferences. Self-only, same audience posture as view.*: the
   // handler is a pure REST mapper and this seam owns mutate -> emit.
   register(
@@ -4781,7 +4810,8 @@ function routeAgentEvent(event: AgentEvent) {
 // the pre-removal roomId, so it rides the registry's room-ACL audience
 // (carriedRoomId) instead of the old broadcast-all.
 function emitAgentEvent(event: AgentEvent): void {
-  if (event.type === "agent_updated" || event.type === "agent_removed") extensionService?.revalidate();
+  if (event.type === "agent_updated" || event.type === "agent_removed")
+    extensionService?.revalidate();
   switch (event.type) {
     case "browser_action": {
       const userId = agentManager.getAgent(event.agentId)?.userId;
@@ -5568,8 +5598,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const url = new URL(req.url);
 
         if (url.pathname === EXTENSION_SOCKET_PATH) {
-          if (!extensionUpgradeAllowed(req, buildPublicOrigin().origin)) return new Response("Browser connection refused", { status: 403 });
-          if (server.upgrade(req, { data: { kind: "extension", origin: req.headers.get("origin")! } })) return;
+          if (!extensionUpgradeAllowed(req, buildPublicOrigin().origin))
+            return new Response("Browser connection refused", { status: 403 });
+          if (
+            server.upgrade(req, {
+              data: { kind: "extension", origin: req.headers.get("origin")! },
+            })
+          )
+            return;
           return new Response("WebSocket upgrade failed", { status: 400 });
         }
 
@@ -6165,7 +6201,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // `ws.data` is discriminated, but `ServerWebSocket<T>` is invariant in T,
       // so the runtime check is what makes it sound.
       open(socket) {
-        if (socket.data.kind === "extension") { extensionService!.open(socket as ServerWebSocket<ExtensionWsData>); return; }
+        if (socket.data.kind === "extension") {
+          extensionService!.open(socket as ServerWebSocket<ExtensionWsData>);
+          return;
+        }
         if (socket.data.kind === "api") {
           const ws = socket as ServerWebSocket<ApiTokenWsData>;
           if (liveTokenSocket(ws)) apiTokenSockets.add(ws);
@@ -6341,7 +6380,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         sendPresenceListTo(ws);
       },
       message(socket, data) {
-        if (socket.data.kind === "extension") { extensionService!.message(socket as ServerWebSocket<ExtensionWsData>, data); return; }
+        if (socket.data.kind === "extension") {
+          extensionService!.message(
+            socket as ServerWebSocket<ExtensionWsData>,
+            data,
+          );
+          return;
+        }
         if (socket.data.kind === "api") {
           // Receive-only. Commands remain on the authenticated REST surface.
           liveTokenSocket(socket as ServerWebSocket<ApiTokenWsData>);
@@ -6380,7 +6425,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           watch.frames.flush();
       },
       close(socket, code, reason) {
-        if (socket.data.kind === "extension") { extensionService!.close(socket as ServerWebSocket<ExtensionWsData>); return; }
+        if (socket.data.kind === "extension") {
+          extensionService!.close(socket as ServerWebSocket<ExtensionWsData>);
+          return;
+        }
         if (socket.data.kind === "api") {
           apiTokenSockets.delete(socket as ServerWebSocket<ApiTokenWsData>);
           return;

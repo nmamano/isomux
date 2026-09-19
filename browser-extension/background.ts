@@ -6,7 +6,15 @@ import {
   type Fields,
 } from "../shared/browser-extension-protocol";
 
-type OwnedTab = { tabId: number; children: Set<string>; targetId?: string; parentTabId?: number; leafTabId?: number; popups: Map<string, OwnedTab>; attaching?: boolean };
+type OwnedTab = {
+  tabId: number;
+  children: Set<string>;
+  targetId?: string;
+  parentTabId?: number;
+  leafTabId?: number;
+  popups: Map<string, OwnedTab>;
+  attaching?: boolean;
+};
 type Connection = {
   ws: WebSocket;
   generation?: string;
@@ -54,7 +62,13 @@ function close(c: Connection): void {
   if (!c.terminal) {
     clearTimeout(reconnect);
     void chrome.alarms.create("reconnect", { delayInMinutes: 0.5 });
-    reconnect = setTimeout(() => { void configure(false); }, Math.min(30_000, 1000 * 2 ** Math.min(retry++, 5)) + Math.floor(Math.random() * 250));
+    reconnect = setTimeout(
+      () => {
+        void configure(false);
+      },
+      Math.min(30_000, 1000 * 2 ** Math.min(retry++, 5)) +
+        Math.floor(Math.random() * 250),
+    );
   }
 }
 
@@ -70,7 +84,11 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     check(c);
     if (!c.creating.has(id)) throw new Error("Browser control ended");
     if (tab.id === undefined) throw new Error("Task tab creation failed");
-    const owned: OwnedTab = { tabId: tab.id, children: new Set(), popups: new Map() };
+    const owned: OwnedTab = {
+      tabId: tab.id,
+      children: new Set(),
+      popups: new Map(),
+    };
     c.tabs.set(id, owned);
     try {
       await chrome.debugger.attach({ tabId: tab.id }, "1.3");
@@ -112,8 +130,18 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   )
     throw new Error("Unsupported page command");
   const requested = args.sessionId;
-  const selected = typeof requested === "string" ? tab.popups.get(requested) ?? [...tab.popups.values()].find((popup) => popup.children.has(requested)) ?? tab : tab;
-  const child = typeof requested === "string" && tab.popups.has(requested) ? undefined : requested;
+  const selected =
+    typeof requested === "string"
+      ? (tab.popups.get(requested) ??
+        [...tab.popups.values()].find((popup) =>
+          popup.children.has(requested),
+        ) ??
+        tab)
+      : tab;
+  const child =
+    typeof requested === "string" && tab.popups.has(requested)
+      ? undefined
+      : requested;
   if (
     child !== undefined &&
     (typeof child !== "string" || !selected.children.has(child))
@@ -144,7 +172,10 @@ async function configure(reset = true): Promise<void> {
   void chrome.alarms.clear("reconnect");
   if (reset) retry = 0;
   const serial = ++configuration;
-  if (current) { current.terminal = true; close(current); }
+  if (current) {
+    current.terminal = true;
+    close(current);
+  }
   await chrome.storage.local.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
@@ -153,7 +184,10 @@ async function configure(reset = true): Promise<void> {
   try {
     const config = fields(stored.connection);
     if (config.blocked === true) return;
-    if (typeof config.url !== "string" || (typeof config.credential !== "string" && typeof config.code !== "string"))
+    if (
+      typeof config.url !== "string" ||
+      (typeof config.credential !== "string" && typeof config.code !== "string")
+    )
       return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -166,29 +200,54 @@ async function configure(reset = true): Promise<void> {
     const refuse = () => {
       c.terminal = true;
       void chrome.alarms.clear("reconnect");
-      void chrome.storage.local.set({ connection: { ...config, blocked: true } });
+      void chrome.storage.local.set({
+        connection: { ...config, blocked: true },
+      });
       close(c);
     };
     ws.onopen = () =>
       send(c, {
         kind: "hello",
         version: BROWSER_EXTENSION_PROTOCOL,
-        ...(typeof config.credential === "string" ? { credential: config.credential } : { code: config.code }),
+        ...(typeof config.credential === "string"
+          ? { credential: config.credential }
+          : { code: config.code }),
       });
-    ws.onclose = (event) => { if (event.code === 4003) { refuse(); return; } close(c); };
+    ws.onclose = (event) => {
+      if (event.code === 4003) {
+        refuse();
+        return;
+      }
+      close(c);
+    };
     ws.onerror = () => close(c);
     ws.onmessage = (event: MessageEvent<string>) => {
       if (c.closed || current !== c) return;
       try {
-        if (event.data.length > 8 * 1024 * 1024) throw new Error("Invalid message");
+        if (event.data.length > 8 * 1024 * 1024)
+          throw new Error("Invalid message");
         const msg = fields(JSON.parse(event.data));
-        if (msg.kind === "refused") { refuse(); return; }
-        if (msg.kind === "paired" && msg.version === BROWSER_EXTENSION_PROTOCOL && typeof msg.credential === "string" && !c.generation) {
-          savedCredential = msg.credential;
-          void chrome.storage.local.set({ connection: { url: config.url, credential: msg.credential } });
+        if (msg.kind === "refused") {
+          refuse();
           return;
         }
-        if (msg.kind === "ping" && msg.generation === c.generation && c.generation) {
+        if (
+          msg.kind === "paired" &&
+          msg.version === BROWSER_EXTENSION_PROTOCOL &&
+          typeof msg.credential === "string" &&
+          !c.generation
+        ) {
+          savedCredential = msg.credential;
+          void chrome.storage.local.set({
+            connection: { url: config.url, credential: msg.credential },
+          });
+          return;
+        }
+        if (
+          msg.kind === "ping" &&
+          msg.generation === c.generation &&
+          c.generation
+        ) {
           clearTimeout(c.watchdog);
           c.watchdog = setTimeout(() => close(c), 45_000);
           send(c, { kind: "pong", generation: c.generation });
@@ -239,7 +298,9 @@ chrome.debugger.onEvent.addListener((source, method, params = {}) => {
   const c = current;
   if (!c || c.closed || !c.generation) return;
   for (const [assignment, main] of c.tabs) {
-    const popupEntry = [...main.popups].find(([, popup]) => popup.tabId === source.tabId);
+    const popupEntry = [...main.popups].find(
+      ([, popup]) => popup.tabId === source.tabId,
+    );
     const tab = popupEntry?.[1] ?? main;
     if (
       tab.tabId !== source.tabId ||
@@ -271,33 +332,89 @@ chrome.debugger.onEvent.addListener((source, method, params = {}) => {
 });
 chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
   const c = current;
-  if (!c || c.closed || !c.generation || !Number.isSafeInteger(event.tabId) || !Number.isSafeInteger(event.sourceTabId)) return;
+  if (
+    !c ||
+    c.closed ||
+    !c.generation ||
+    !Number.isSafeInteger(event.tabId) ||
+    !Number.isSafeInteger(event.sourceTabId)
+  )
+    return;
   for (const [assignment, main] of c.tabs) {
     // Source identity is authoritative. Do not retain the event or its URL.
-    const opener = main.tabId === event.sourceTabId ? main : [...main.popups.values()].find((node) => node.tabId === event.sourceTabId);
-    if (!opener || opener.tabId !== (main.leafTabId ?? main.tabId) || !opener.targetId || main.attaching || main.popups.size >= 8) continue;
-    if ([...c.tabs.values()].some((root) => root.tabId === event.tabId || [...root.popups.values()].some((node) => node.tabId === event.tabId))) return;
+    const opener =
+      main.tabId === event.sourceTabId
+        ? main
+        : [...main.popups.values()].find(
+            (node) => node.tabId === event.sourceTabId,
+          );
+    if (
+      !opener ||
+      opener.tabId !== (main.leafTabId ?? main.tabId) ||
+      !opener.targetId ||
+      main.attaching ||
+      main.popups.size >= 8
+    )
+      continue;
+    if (
+      [...c.tabs.values()].some(
+        (root) =>
+          root.tabId === event.tabId ||
+          [...root.popups.values()].some((node) => node.tabId === event.tabId),
+      )
+    )
+      return;
     main.attaching = true;
-    const popup: OwnedTab = { tabId: event.tabId, parentTabId: opener.tabId, children: new Set(), popups: new Map() };
+    const popup: OwnedTab = {
+      tabId: event.tabId,
+      parentTabId: opener.tabId,
+      children: new Set(),
+      popups: new Map(),
+    };
     const sessionId = crypto.randomUUID();
     main.popups.set(sessionId, popup);
     const owned = () => {
       check(c);
-      if (c.tabs.get(assignment) !== main || main.popups.get(sessionId) !== popup || opener.tabId !== (main.leafTabId ?? main.tabId) || (opener !== main && ![...main.popups.values()].includes(opener))) throw new Error("Control ended");
+      if (
+        c.tabs.get(assignment) !== main ||
+        main.popups.get(sessionId) !== popup ||
+        opener.tabId !== (main.leafTabId ?? main.tabId) ||
+        (opener !== main && ![...main.popups.values()].includes(opener))
+      )
+        throw new Error("Control ended");
     };
     void (async () => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
         owned();
-        const result = fields(await chrome.debugger.sendCommand({ tabId: popup.tabId }, "Target.getTargetInfo"));
+        const result = fields(
+          await chrome.debugger.sendCommand(
+            { tabId: popup.tabId },
+            "Target.getTargetInfo",
+          ),
+        );
         owned();
         const info = fields(result.targetInfo);
-        if (info.type !== "page" || typeof info.targetId !== "string") throw new Error("Invalid popup target");
+        if (info.type !== "page" || typeof info.targetId !== "string")
+          throw new Error("Invalid popup target");
         popup.targetId = info.targetId;
         main.leafTabId = popup.tabId;
-        send(c, { kind: "event", generation: c.generation, assignment, method: "popup", params: { sessionId, targetInfo: { ...info, openerId: opener.targetId } } });
-      } catch { main.popups.delete(sessionId); await detach(popup); }
-      finally { main.attaching = false; }
+        send(c, {
+          kind: "event",
+          generation: c.generation,
+          assignment,
+          method: "popup",
+          params: {
+            sessionId,
+            targetInfo: { ...info, openerId: opener.targetId },
+          },
+        });
+      } catch {
+        main.popups.delete(sessionId);
+        await detach(popup);
+      } finally {
+        main.attaching = false;
+      }
     })();
     break;
   }
@@ -309,26 +426,53 @@ chrome.debugger.onDetach.addListener((source) => {
     if (source.tabId === tab.tabId) {
       c.tabs.delete(assignment);
       void detach(tab);
-      send(c, { kind: "event", generation: c.generation, assignment, method: "detached", params: {} });
+      send(c, {
+        kind: "event",
+        generation: c.generation,
+        assignment,
+        method: "detached",
+        params: {},
+      });
       continue;
     }
-    const popup = [...tab.popups].find(([, owned]) => owned.tabId === source.tabId);
+    const popup = [...tab.popups].find(
+      ([, owned]) => owned.tabId === source.tabId,
+    );
     if (popup) {
       const removed = new Set([popup[1].tabId]);
       let changed = true;
       while (changed) {
         changed = false;
-        for (const node of tab.popups.values()) if (node.parentTabId !== undefined && removed.has(node.parentTabId) && !removed.has(node.tabId)) { removed.add(node.tabId); changed = true; }
+        for (const node of tab.popups.values())
+          if (
+            node.parentTabId !== undefined &&
+            removed.has(node.parentTabId) &&
+            !removed.has(node.tabId)
+          ) {
+            removed.add(node.tabId);
+            changed = true;
+          }
       }
       // Detach descendants first, so both the server and Playwright return
       // through the exact parent chain rather than map insertion order.
-      const retiring = [...tab.popups].filter(([, node]) => removed.has(node.tabId));
+      const retiring = [...tab.popups].filter(([, node]) =>
+        removed.has(node.tabId),
+      );
       while (retiring.length) {
-        const index = retiring.findIndex(([, node]) => !retiring.some(([, child]) => child.parentTabId === node.tabId));
+        const index = retiring.findIndex(
+          ([, node]) =>
+            !retiring.some(([, child]) => child.parentTabId === node.tabId),
+        );
         const [sessionId, node] = retiring.splice(index, 1)[0];
         tab.popups.delete(sessionId);
         void detach(node);
-        send(c, { kind: "event", generation: c.generation, assignment, method: "popupDetached", params: { sessionId } });
+        send(c, {
+          kind: "event",
+          generation: c.generation,
+          assignment,
+          method: "popupDetached",
+          params: { sessionId },
+        });
       }
       tab.leafTabId = popup[1].parentTabId ?? tab.tabId;
     }
@@ -336,8 +480,13 @@ chrome.debugger.onDetach.addListener((source) => {
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  const connection = (changes as { connection?: { newValue?: { credential?: string } } }).connection;
-  if (connection?.newValue?.credential === savedCredential && savedCredential) { savedCredential = undefined; return; }
+  const connection = (
+    changes as { connection?: { newValue?: { credential?: string } } }
+  ).connection;
+  if (connection?.newValue?.credential === savedCredential && savedCredential) {
+    savedCredential = undefined;
+    return;
+  }
   void configure();
 });
 chrome.alarms.onAlarm.addListener((alarm) => {

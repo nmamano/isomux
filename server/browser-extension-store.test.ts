@@ -2,7 +2,15 @@ import { browserPool } from "./browser-session";
 import { BrowserExtensionService } from "./browser-extension-service";
 import { ExtensionBrowserSessions } from "./browser-extension-session";
 import { test, expect, spyOn } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, statSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  mkdirSync,
+  writeFileSync,
+  statSync,
+  readdirSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -18,16 +26,29 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     const first = store.pair("one", false);
     expect(first.code.length).toBe(43);
     const paired = store.redeem(first.code, origin, () => true);
-    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBe("one");
+    expect(
+      store.memberForHash(browserCredentialHash(paired.credential), origin),
+    ).toBe("one");
     expect(() => store.redeem(first.code, origin, () => true)).toThrow();
     expect(() => store.pair("one", false)).toThrow();
     const replacement = store.pair("one", true);
-    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBe("one");
+    expect(
+      store.memberForHash(browserCredentialHash(paired.credential), origin),
+    ).toBe("one");
     const second = store.redeem(replacement.code, origin, () => true);
     expect(() => store.redeem(replacement.code, origin, () => true)).toThrow();
-    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBeUndefined();
-    expect(store.memberForHash(browserCredentialHash(second.credential), origin)).toBe("one");
-    expect(store.memberForHash(browserCredentialHash(second.credential), "chrome-extension://" + "b".repeat(32))).toBeUndefined();
+    expect(
+      store.memberForHash(browserCredentialHash(paired.credential), origin),
+    ).toBeUndefined();
+    expect(
+      store.memberForHash(browserCredentialHash(second.credential), origin),
+    ).toBe("one");
+    expect(
+      store.memberForHash(
+        browserCredentialHash(second.credential),
+        "chrome-extension://" + "b".repeat(32),
+      ),
+    ).toBeUndefined();
     store.select("one", "extension");
     const saved = readFileSync(path, "utf8");
     expect(saved).not.toContain(second.credential);
@@ -35,7 +56,9 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     const pending = store.pair("two", false);
     const restart = new BrowserExtensionStore(path);
     expect(restart.record("one").backend).toBe("extension");
-    expect(restart.memberForHash(browserCredentialHash(second.credential), origin)).toBe("one");
+    expect(
+      restart.memberForHash(browserCredentialHash(second.credential), origin),
+    ).toBe("one");
     expect(() => restart.redeem(pending.code, origin, () => true)).toThrow();
     now = pending.expiresAt;
     expect(() => store.redeem(pending.code, origin, () => true)).toThrow();
@@ -45,9 +68,10 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     expect(store.redeem(fresh.code, origin, () => true).member).toBe("two");
     restart.revoke("one");
     expect(restart.record("one").hash).toBeUndefined();
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
-
 
 test("malformed and unreadable browser state requires selection and preserves source bytes", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-store-invalid-"));
@@ -57,7 +81,9 @@ test("malformed and unreadable browser state requires selection and preserves so
       writeFileSync(path, content);
       const store = new BrowserExtensionStore(path);
       expect(store.record("member")).toEqual({ backend: null });
-      expect(store.memberForHash(browserCredentialHash("old credential"))).toBeUndefined();
+      expect(
+        store.memberForHash(browserCredentialHash("old credential")),
+      ).toBeUndefined();
       expect(readFileSync(path, "utf8")).toBe(content);
     }
     // A directory deterministically rejects readFileSync, even under root.
@@ -68,8 +94,12 @@ test("malformed and unreadable browser state requires selection and preserves so
     expect(unreadable.record("member")).toEqual({ backend: null });
     const inode = statSync(path).ino;
     unreadable.select("member", "extension");
-    expect(new BrowserExtensionStore(path).record("member").backend).toBe("extension");
-    const savedDirectory = readdirSync(dir).find((name) => name.startsWith("connections.json.unavailable-"))!;
+    expect(new BrowserExtensionStore(path).record("member").backend).toBe(
+      "extension",
+    );
+    const savedDirectory = readdirSync(dir).find((name) =>
+      name.startsWith("connections.json.unavailable-"),
+    )!;
     expect(statSync(join(dir, savedDirectory)).isDirectory()).toBe(true);
     expect(statSync(join(dir, savedDirectory)).ino).toBe(inode);
     rmSync(join(dir, savedDirectory), { recursive: true });
@@ -78,15 +108,26 @@ test("malformed and unreadable browser state requires selection and preserves so
     const recovered = new BrowserExtensionStore(path);
     expect(() => recovered.pair("member", false)).toThrow();
     recovered.select("member", "extension");
-    const preserved = readdirSync(dir).find((name) => name.startsWith("connections.json.unavailable-"))!;
+    const preserved = readdirSync(dir).find((name) =>
+      name.startsWith("connections.json.unavailable-"),
+    )!;
     expect(readFileSync(join(dir, preserved), "utf8")).toBe("{");
-    expect(new BrowserExtensionStore(path).record("another member").backend).toBeNull();
+    expect(
+      new BrowserExtensionStore(path).record("another member").backend,
+    ).toBeNull();
     const pair = recovered.pair("member", false);
     const redeemed = recovered.redeem(pair.code, origin, () => true);
-    expect(new BrowserExtensionStore(path).memberForHash(browserCredentialHash(redeemed.credential), origin)).toBe("member");
+    expect(
+      new BrowserExtensionStore(path).memberForHash(
+        browserCredentialHash(redeemed.credential),
+        origin,
+      ),
+    ).toBe("member");
     expect(readFileSync(path, "utf8")).not.toContain(redeemed.credential);
     expect(statSync(path).mode & 0o777).toBe(0o600);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("failed selection write restores the unavailable source before restart", () => {
@@ -94,7 +135,8 @@ test("failed selection write restores the unavailable source before restart", ()
   const path = join(dir, "connections.json");
   try {
     for (const directory of [false, true]) {
-      if (directory) mkdirSync(path); else writeFileSync(path, "{");
+      if (directory) mkdirSync(path);
+      else writeFileSync(path, "{");
       const inode = statSync(path).ino;
       const store = new BrowserExtensionStore(path);
       expect(store.record("member").backend).toBeNull();
@@ -103,53 +145,96 @@ test("failed selection write restores the unavailable source before restart", ()
       expect(() => store.select("member", "headless")).toThrow();
       expect(statSync(path).ino).toBe(inode);
       if (!directory) expect(readFileSync(path, "utf8")).toBe("{");
-      expect(new BrowserExtensionStore(path).record("member").backend).toBeNull();
-      expect(readdirSync(dir).filter((name) => name.includes(".unavailable-"))).toHaveLength(0);
+      expect(
+        new BrowserExtensionStore(path).record("member").backend,
+      ).toBeNull();
+      expect(
+        readdirSync(dir).filter((name) => name.includes(".unavailable-")),
+      ).toHaveLength(0);
       rmSync(path + ".tmp", { recursive: true });
       store.select("member", "headless");
-      expect(new BrowserExtensionStore(path).record("member").backend).toBe("headless");
-      const backup = readdirSync(dir).find((name) => name.includes(".unavailable-"))!;
+      expect(new BrowserExtensionStore(path).record("member").backend).toBe(
+        "headless",
+      );
+      const backup = readdirSync(dir).find((name) =>
+        name.includes(".unavailable-"),
+      )!;
       expect(statSync(join(dir, backup)).ino).toBe(inode);
       rmSync(join(dir, backup), { recursive: true });
       rmSync(path);
     }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
-
 
 test("invalid stored backend blocks only that member until explicit selection", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-selection-invalid-"));
   const path = join(dir, "connections.json");
   try {
     for (const backend of ["invalid", 3, null, {}, undefined]) {
-      const original = JSON.stringify({ bad: { backend }, good: { backend: "extension" } });
+      const original = JSON.stringify({
+        bad: { backend },
+        good: { backend: "extension" },
+      });
       writeFileSync(path, original);
       const store = new BrowserExtensionStore(path);
       expect(store.record("bad").backend).toBeNull();
       expect(store.record("good").backend).toBe("extension");
       expect(store.record("new").backend).toBe("headless");
       store.select("bad", "headless");
-      expect(new BrowserExtensionStore(path).record("bad").backend).toBe("headless");
-      expect(readdirSync(dir).filter((name) => name.startsWith("connections.json.unavailable-")).some((name) => readFileSync(join(dir, name), "utf8") === original)).toBe(true);
+      expect(new BrowserExtensionStore(path).record("bad").backend).toBe(
+        "headless",
+      );
+      expect(
+        readdirSync(dir)
+          .filter((name) => name.startsWith("connections.json.unavailable-"))
+          .some((name) => readFileSync(join(dir, name), "utf8") === original),
+      ).toBe(true);
     }
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
-
 
 test("unavailable selections never invoke the headless pool", async () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-no-fallback-"));
   const path = join(dir, "connections.json");
-  const headless = spyOn(browserPool, "run").mockResolvedValue({ ok: true, url: "", title: "", closed: true });
+  const headless = spyOn(browserPool, "run").mockResolvedValue({
+    ok: true,
+    url: "",
+    title: "",
+    closed: true,
+  });
   try {
-    for (const content of ["{", JSON.stringify({ member: { backend: "invalid" } }), null]) {
+    for (const content of [
+      "{",
+      JSON.stringify({ member: { backend: "invalid" } }),
+      null,
+    ]) {
       rmSync(path, { recursive: true, force: true });
-      if (content === null) mkdirSync(path); else writeFileSync(path, content);
-      const service = new BrowserExtensionService(new BrowserExtensionStore(path), { memberExists: () => true, mayUse: () => true });
-      const sessions = new ExtensionBrowserSessions(service, () => "member", () => true);
+      if (content === null) mkdirSync(path);
+      else writeFileSync(path, content);
+      const service = new BrowserExtensionService(
+        new BrowserExtensionStore(path),
+        { memberExists: () => true, mayUse: () => true },
+      );
+      const sessions = new ExtensionBrowserSessions(
+        service,
+        () => "member",
+        () => true,
+      );
       expect(service.status("member").selectionRequired).toBe(true);
-      expect(await sessions.run("agent", { action: "close" })).toMatchObject({ ok: false, code: "browser_selection_required" });
+      expect(await sessions.run("agent", { action: "close" })).toMatchObject({
+        ok: false,
+        code: "browser_selection_required",
+      });
       expect(headless).not.toHaveBeenCalled();
-      sessions.stop(); service.stop();
+      sessions.stop();
+      service.stop();
     }
-  } finally { headless.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    headless.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

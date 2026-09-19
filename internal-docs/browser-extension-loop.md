@@ -64,6 +64,15 @@ The old browser is removed only after the replacement passes Nil's tests.
     Use the scoped build, type, lint and behavior gates; continue to the next
     slice after review approval. Do not launch another full CI during this
     implementation loop. Any final release gate is a separate checkpoint.
+17. PM, 2026-09-19: `webNavigation` is approved for popup ownership through
+    `onCreatedNavigationTarget.sourceTabId -> tabId`. Discard unrelated sources
+    before retaining/transmitting event data. Revalidate generation/assignment
+    after async attachment. No focus, timing or URL correlation. Document the
+    Chrome permission warning `Read your browsing history`. No history capture.
+18. PM, 2026-09-19: corrupt/unreadable/invalid browser selection state keeps
+    office startup available but browser actions unavailable until explicit
+    member selection. No silent headless fallback. An absent legacy state file
+    alone receives the migration default. Preserve invalid state for diagnosis.
 
 ## Accepted defaults
 
@@ -125,7 +134,15 @@ commands and results; never infer success from a wrapper.
   PM full CI was stopped by Nil's ruling before the full suite completed;
   this is not a CI pass. Its build:ui, build:extension, ci:web, tsc,
   format:check and lint stages passed. Proceed on approved scoped gates.
-- [ ] 2. Complete member pairing, routing, tab ownership and recovery.
+- [x] 2. Complete member pairing, routing, tab ownership and recovery.
+  Reviewer approved `794bcd8f82d27b40877f362877617a6b1248bf61` on 2026-09-19.
+  Independent final gate: 275 pass / 2,236 assertions in 14 files,
+  `/tmp/reviewer1-slice2-r3-final-tests.log`; focused persistence/routes:
+  `/tmp/reviewer1-slice2-r3-focused.log`. Real-office Chrome run:
+  `/tmp/worker1-slice2-r2-live.log`, 1 pass / 23 assertions at `249b660a`;
+  later revisions only changed storage repair, unit tests and internal prose.
+  Final worker type/build/lint evidence: `/tmp/worker1-slice2-r3-gates.log`.
+  Windows/real-site acceptance remains with Nil. No full CI between slices.
 - [ ] 3. Complete member UI, extension UI, packaging, agent guidance and docs.
 - [ ] 4. Run end-to-end sanity checks, prepare Nil's Windows installation and
   real-site acceptance. Propose removal only after Nil's results.
@@ -243,9 +260,75 @@ removed/replaced assertions and slice-3 requirements. Transfer token to PM.
 
 ## SLICE-3 PICKUP
 
-Pending slice 2 evidence. Finish extension/member UI and installation package.
-Update relevant surfaces from internal-docs/documentation.md. Collect all
-customer-facing and agent-facing prose for Nil's final sign-off.
+Goal: make the approved production bridge installable and usable by Nil from
+Windows Chrome without developer tools. Read the whole plan and maintained
+`internal-docs/browser-extension.md`. Slice 2 approved hash is `794bcd8f`.
+Plan-gate with Reviewer 1, then implement in main with the edit token.
+
+Add a Browser section to the member's existing personal settings. Show the
+selected mode, paired/online state and browser owner. Select server browser or
+Chrome explicitly. Generate/copy an expiring pairing code, replace a previous
+pairing explicitly, and revoke it. Handle backend:null/selectionRequired by
+asking for an explicit choice. Keep the flow short. No standalone Browsers page,
+no per-action approvals, no tab groups and no remote streaming controls.
+
+Finish the extension setup page/popup: office HTTPS URL, pairing-code input,
+connection status, member identity, assigned agents/tabs, reconnect/disconnect
+and unpair as appropriate. Accept a normal office origin and derive the socket
+path internally. Reject credentials/query/fragment in connection URLs. Do not
+make customers enter a WebSocket path, token or raw JSON. Store credentials only
+in trusted extension storage; do not expose them to ordinary pages or logs.
+Disconnect must stop reconnect until the member reconnects; revocation requires
+pairing again. Add sanitized display metadata to the authenticated protocol,
+derived from current server-side member/agent records, not client claims.
+
+Chrome toolbar badge must distinguish offline, connected and control of the
+current tab. Popup lists the assigned agent, can focus its owned tab, and has
+a clear stop-control action that leaves the page open. A tab keeps its agent;
+do not add transfers. No injected page overlay or title rewriting. Keep Chrome's
+own debugger warning. Ensure normal Chrome audio playback is left alone, as
+Nil's YouTube task ends with music playing after control stops.
+
+Deliver a downloadable ZIP with manifest at its root after extraction, built
+from repository sources. Serve it through the appropriate existing office auth
+and host boundary, with a settings download link and version. Make the normal
+UI/install/update build path also produce the extension package, so customers
+never need a manual server rebuild step after updates. Check release/install
+surfaces before choosing the smallest integration. No Web Store publication
+or external account setup. Test packaged bytes, not just a source directory.
+Do not add a third-party ZIP dependency when existing tooling suffices.
+
+Update `server/system-prompt.ts` browser guidance and relevant documentation
+surfaces. Explain browser ownership, native tab control, explicit mode choice,
+offline/unknown outcomes, retained tabs/music, ignored extension viewport, and
+desktop-localhost vs server preview. Existing old-profile claims must be
+conditional on headless mode. Update shared API contract comments accordingly.
+Add ROUTE_LABELS for any agent-facing routes and route gates for any HTTP change.
+Keep public prose short; collect all customer-facing prose, rare errors and
+agent instructions verbatim for Nil's sign-off. Internal docs need no copy
+approval. Include the Chrome `Read your browsing history` permission warning
+and its popup-binding purpose in installation guidance/report. Translate new
+UI strings using the existing catalogs; report English only to PM.
+
+Acceptance: isolated production office plus actual packaged Chrome extension
+can complete the member settings -> download -> pair -> connected flow. UI
+shows the correct member and agent; current-tab badge changes correctly; stop
+control leaves the page, unpair ends access, offline state is accurate. Check
+the settings UI and extension UI visually and preserve screenshots. Cover
+ineligible-member/foreign-origin boundaries when adding metadata or routes.
+Reuse slice 2 fixture rather than inventing a parallel server. No real account
+mutation, Windows claims or latency benchmark. Nil judges those after deploy.
+
+Decide with reviewer: component placement, UI composition, download route and
+build integration, minimal protocol metadata. Locked: RULINGS above. Raise new
+permissions, product-policy changes or missing tools to PM. No full CI, server
+restart or push. Run build:ui, build:extension, scoped behavior/DOM/route tests,
+touched-file eslint and tsc at the committed handoff hash. Include build:demo
+if its trigger files change. Read the DOM testing guide first.
+
+Report once approved: exact hash, path, all checks/evidence, screenshots and ZIP
+location, literal public/agent copy, removed/replaced assertions, remaining
+Windows installation steps and limitations. Transfer token to PM.
 
 ## SLICE-4 PICKUP
 

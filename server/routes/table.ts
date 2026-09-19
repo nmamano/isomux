@@ -836,10 +836,34 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  defineRoute({ opId: "browser.get", method: "GET", path: "/api/me/browser", auth: cap("user:self", authenticated), emits: [] }),
-  defineRoute({ opId: "browser.select", method: "PATCH", path: "/api/me/browser", auth: cap("user:self", authenticated), emits: [] }),
-  defineRoute({ opId: "browser.pair", method: "POST", path: "/api/me/browser/pair", auth: cap("user:self", authenticated), emits: [] }),
-  defineRoute({ opId: "browser.revoke", method: "DELETE", path: "/api/me/browser", auth: cap("user:self", authenticated), emits: [] }),
+  defineRoute({
+    opId: "browser.get",
+    method: "GET",
+    path: "/api/me/browser",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "browser.select",
+    method: "PATCH",
+    path: "/api/me/browser",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "browser.pair",
+    method: "POST",
+    path: "/api/me/browser/pair",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
+  defineRoute({
+    opId: "browser.revoke",
+    method: "DELETE",
+    path: "/api/me/browser",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
 
   // Settings that follow a member across devices (reply language). Sibling of
   // the view.* surface rather than a field on
@@ -1547,7 +1571,13 @@ export const API_ROUTES: readonly RouteDef[] = [
 // cookie-minting browser surface); they are never dispatched through authorize().
 export const PUBLIC_ROUTES: readonly RouteDef[] = [
   // Browser-only first-frame authentication; never passed to office auth.
-  defineRoute({ opId: "browser.socket", method: "GET", path: "/browser-extension/ws", auth: pub, emits: [] }),
+  defineRoute({
+    opId: "browser.socket",
+    method: "GET",
+    path: "/browser-extension/ws",
+    auth: pub,
+    emits: [],
+  }),
   defineRoute({
     opId: "auth.loginPage",
     method: "GET",

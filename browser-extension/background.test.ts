@@ -18,7 +18,12 @@ async function harness() {
   const calls: string[] = [];
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
   let attach: () => Promise<void> = async () => {};
-  let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({ targetInfo: { targetId: tabId === 7 ? "owned" : `target-${tabId}`, type: "page" } });
+  let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({
+    targetInfo: {
+      targetId: tabId === 7 ? "owned" : `target-${tabId}`,
+      type: "page",
+    },
+  });
   let changed!: (_changes: unknown, area: string) => void;
   let created: () => Promise<{ id: number }> = () => Promise.resolve({ id: 7 });
   class FakeSocket {
@@ -44,7 +49,11 @@ async function harness() {
     }
   }
   const chrome = {
-    alarms: { create: async () => {}, clear: async () => true, onAlarm: { addListener() {} } },
+    alarms: {
+      create: async () => {},
+      clear: async () => true,
+      onAlarm: { addListener() {} },
+    },
     storage: {
       local: {
         set: () => Promise.resolve(),
@@ -67,7 +76,13 @@ async function harness() {
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
-    webNavigation: { onCreatedNavigationTarget: { addListener: (fn: typeof navigation) => { navigation = fn; } } },
+    webNavigation: {
+      onCreatedNavigationTarget: {
+        addListener: (fn: typeof navigation) => {
+          navigation = fn;
+        },
+      },
+    },
     tabs: {
       create: () => {
         calls.push("create");
@@ -85,7 +100,9 @@ async function harness() {
       },
       sendCommand: (target: { tabId: number }, method: string) => {
         calls.push(method);
-        return method === "Target.getTargetInfo" ? targetInfo(target.tabId) : Promise.resolve({});
+        return method === "Target.getTargetInfo"
+          ? targetInfo(target.tabId)
+          : Promise.resolve({});
       },
       onEvent: { addListener() {} },
       onDetach: { addListener() {} },
@@ -93,8 +110,15 @@ async function harness() {
   };
   const timers = new Map<number, () => void>();
   let timerId = 0;
-  runInNewContext(source, { chrome, WebSocket: FakeSocket, URL, crypto,
-    setTimeout: (fn: () => void) => { timers.set(++timerId, fn); return timerId; },
+  runInNewContext(source, {
+    chrome,
+    WebSocket: FakeSocket,
+    URL,
+    crypto,
+    setTimeout: (fn: () => void) => {
+      timers.set(++timerId, fn);
+      return timerId;
+    },
     clearTimeout: (id: number) => timers.delete(id),
   });
   await settle();
@@ -106,11 +130,23 @@ async function harness() {
     sockets,
     calls,
     timers,
-    navigation: (sourceTabId: number, tabId: number) => navigation({ sourceTabId, tabId }),
+    navigation: (sourceTabId: number, tabId: number) =>
+      navigation({ sourceTabId, tabId }),
     delayPopup: (stage: "attach" | "target") => {
       let resolve!: () => void;
-      if (stage === "attach") attach = () => new Promise<void>((done) => { resolve = done; });
-      else targetInfo = (tabId) => new Promise((done) => { resolve = () => done({ targetInfo: { targetId: `target-${tabId}`, type: "page" } }); });
+      if (stage === "attach")
+        attach = () =>
+          new Promise<void>((done) => {
+            resolve = done;
+          });
+      else
+        targetInfo = (tabId) =>
+          new Promise((done) => {
+            resolve = () =>
+              done({
+                targetInfo: { targetId: `target-${tabId}`, type: "page" },
+              });
+          });
       return () => resolve();
     },
     reconnect: async () => {
@@ -228,16 +264,24 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached);
   h.navigation(7, 8);
   await settle();
-  expect(h.socket.sent.filter((message) => message.method === "popup")).toHaveLength(1);
+  expect(
+    h.socket.sent.filter((message) => message.method === "popup"),
+  ).toHaveLength(1);
   const event = h.socket.sent.find((message) => message.method === "popup")!;
   expect(fields(fields(event.params).targetInfo).openerId).toBe("owned");
   h.navigation(7, 9);
   await settle();
-  expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached + 1);
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(
+    attached + 1,
+  );
   h.navigation(8, 10);
   await settle();
-  expect(h.socket.sent.filter((message) => message.method === "popup")).toHaveLength(2);
-  expect(fields(fields(h.socket.sent.at(-1)!.params).targetInfo).openerId).toBe("target-8");
+  expect(
+    h.socket.sent.filter((message) => message.method === "popup"),
+  ).toHaveLength(2);
+  expect(fields(fields(h.socket.sent.at(-1)!.params).targetInfo).openerId).toBe(
+    "target-8",
+  );
   h.socket.receive({ kind: "refused" });
 });
 
@@ -253,7 +297,9 @@ for (const stage of ["attach", "target"] as const) {
     h.command(2, "detach");
     finish();
     await settle();
-    expect(h.socket.sent.some((message) => message.method === "popup")).toBe(false);
+    expect(h.socket.sent.some((message) => message.method === "popup")).toBe(
+      false,
+    );
     expect(h.calls).toContain("detach");
     h.socket.receive({ kind: "refused" });
   });
