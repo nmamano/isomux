@@ -5,6 +5,7 @@ import type { ExtensionConnection } from "./browser-extension-bridge";
 export function browserExtensionTransport(
   connection: ExtensionConnection,
   agentId: string,
+  retainGrant = false,
 ): ConnectOverCDPTransport & { signal: AbortSignal } {
   let closed = false;
   const controller = new AbortController();
@@ -34,6 +35,6 @@ export function browserExtensionTransport(
       if (!closed) transport.onmessage?.(message);
     },
     close: () => transport.close(),
-  });
+  }, retainGrant);
   return transport;
 }

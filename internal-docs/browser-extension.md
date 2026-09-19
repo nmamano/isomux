@@ -137,7 +137,7 @@ uses the fixed per-offer expiry selected in the popup, defaulting to Never.
 Expiry detaches control and leaves the real page open; actions do not extend it.
 
 Stable extension errors are `browser_selection_required`, `browser_not_paired`, `browser_offline`,
-`browser_control_ended`, and `action_failed`. Control loss, deadline or revocation
+`browser_control_ended`, `action_timeout`, and `action_failed`. Control loss, an action timeout or revocation
 can leave a side effect with an unknown outcome. The server never retries it.
 Invalid requests and missing task pages retain the existing validation errors.
 
@@ -280,3 +280,14 @@ Protocol 3 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server
 The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. The old Desktop Chrome session idle timer is removed; Server browser idle behavior is unchanged. Off, close, access loss, disconnect and reload still release grants and never replay work.
 
 Protocol 2 extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.
+
+
+## Action timeout and command settlement
+
+Desktop Chrome action timeouts preserve the offered assignment, its deadline and ON badge. Playwright receives the operation deadline; a separate watchdog runs one second later so normal TimeoutError cancellation can settle first. Both return action_timeout with unknown-outcome guidance. A timeout never proves that an already-dispatched Chrome command stopped.
+
+The per-agent caller queue checks a separate recovery barrier before dispatch. A timed-out operation and its pending CDP commands must settle before a different action runs. A one-second cleanup wait bounds the response; if work remains, subsequent calls return action_timeout with a still-settling message and dispatch nothing. There is no retry or replay. Off, expiry, access loss and actual connection loss still release the grant.
+
+For goto only, the bridge sends Page.stopLoading to the assignment’s owned root or active popup, then drains the original navigation command. Fill uses Runtime checks and Input.insertText; click uses Runtime/DOM checks and Input.dispatchMouseEvent; press uses Input.dispatchKeyEvent; payload upload uses Runtime.callFunctionOn. These commands have no generic cancellation claim: they remain fenced until their actual result or ownership loss. A command whose response deadline expires remains a tombstone; its late response resolves the barrier and is not delivered twice to Playwright. A retained client disconnect does not revoke the user offer, and replacement clients cannot attach over pending commands.
+
+Extension 0.3.1 adds Page.stopLoading to the owned-page allowlist; wire protocol remains 3. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count and settlement/release state, never selectors, text, URLs, file contents or CDP payloads.

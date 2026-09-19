@@ -22,7 +22,7 @@ function peer() {
     },
   };
 }
-async function harness() {
+async function harness(retainGrant = false) {
   let authorized = true;
   const credential = "test-browser-credential";
   const extension = peer();
@@ -39,7 +39,7 @@ async function harness() {
   const connection = bridge.connect(credential, extension);
   const client = peer();
   await offer(connection, extension.messages, "agent", "owned");
-  const agent = connection.assign("agent", client);
+  const agent = connection.assign("agent", client, retainGrant);
   return {
     bridge,
     connection,
@@ -525,5 +525,76 @@ test("a result arriving after expiry releases only its grant when the timer is d
     expect(client.messages.find(m => m.id === 2)).toBeUndefined();
     expect(h.extension.closed).toBe(false);
     expect(h.connection.offered("other")).toBe(other);
+  } finally { h.connection.close(); }
+});
+
+test("timed-out CDP keeps a settlement tombstone and the offered grant", async () => {
+  const h = await harness();
+  const { sessionId, assignment } = await create(h);
+  const native = globalThis.setTimeout;
+  let expire!: () => void;
+  // Only accelerate the real bridge command timeout, not a separate test clock.
+  const spy = (await import("bun:test")).spyOn(globalThis, "setTimeout").mockImplementation(((callback: () => void, ms: number) => {
+    if (ms === 30_000) expire = callback;
+    return native(callback, ms);
+  }) as typeof setTimeout);
+  try {
+    const action = h.agent.receive({ id: 9, sessionId, method: "Input.insertText", params: { text: "fixture" } });
+    const command = h.extension.messages.at(-1)!;
+    expect(command.method).toBe("cdp");
+    expect(h.connection.pendingCount(assignment)).toBe(1);
+    expire(); await action;
+    expect(h.connection.pendingTimedOut(assignment)).toBe(true);
+    expect(h.connection.offered("agent")).toBe(assignment);
+    expect(h.extension.closed).toBe(false);
+    let settled = false;
+    const drained = h.connection.drain(assignment).then(() => { settled = true; });
+    await Promise.resolve(); expect(settled).toBe(false);
+    const replies = h.client.messages.filter(m => m.id === 9).length;
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    await drained;
+    expect(h.connection.pendingCount(assignment)).toBe(0);
+    expect(h.client.messages.filter(m => m.id === 9)).toHaveLength(replies);
+    expect(h.extension.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+  } finally { spy.mockRestore(); h.connection.close(); }
+});
+
+test("navigation stop is assignment-scoped and foreign page sessions remain refused", async () => {
+  const h = await harness();
+  const { assignment } = await create(h);
+  try {
+    const before = h.extension.messages.length;
+    await h.agent.receive({ id: 8, sessionId: "foreign", method: "Page.stopLoading", params: {} });
+    expect(h.extension.messages).toHaveLength(before);
+    expect(h.client.messages.at(-1)?.error).toBeDefined();
+    expect(await h.connection.stopLoading("foreign").then(() => false, () => true)).toBe(true);
+    const stopped = h.connection.stopLoading(assignment);
+    const command = h.extension.messages.at(-1)!;
+    expect(command).toMatchObject({ assignment, method: "cdp", params: { method: "Page.stopLoading" } });
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    await stopped;
+    expect(h.connection.offered("agent")).toBe(assignment);
+  } finally { h.connection.close(); }
+});
+
+test("retired client cannot release a replacement client or deliver its old reply", async () => {
+  const h = await harness(true);
+  const { sessionId, assignment } = await create(h);
+  try {
+    const action = h.agent.receive({ id: 9, sessionId, method: "Runtime.evaluate", params: { expression: "1" } });
+    const command = h.extension.messages.at(-1)!;
+    h.agent.close();
+    expect(h.connection.offered("agent")).toBe(assignment);
+    const nextPeer = peer();
+    expect(() => h.connection.assign("agent", nextPeer, true)).toThrow();
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    const next = h.connection.assign("agent", nextPeer, true);
+    await action;
+    expect(nextPeer.messages.some(m => m.id === 9)).toBe(false);
+    h.agent.close();
+    await next.receive({ id: 10, method: "Target.setAutoAttach", params: { autoAttach: true } });
+    expect(nextPeer.messages.some(m => m.method === "Target.attachedToTarget")).toBe(true);
+    expect(h.connection.offered("agent")).toBe(assignment);
+    expect(h.extension.messages.some(m => m.method === "detach")).toBe(false);
   } finally { h.connection.close(); }
 });

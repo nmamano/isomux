@@ -142,17 +142,25 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (element as HTMLInputElement).value = "[redeemed]";
       });
       await settings.screenshot({ path: join(dir, "settings-connected.png") });
+      let releaseNavigation!: () => void;
+      let navigationReached!: () => void;
+      const navigationStarted = new Promise<void>(resolve => { navigationReached = resolve; });
+      const navigationHeld = new Promise<void>(resolve => { releaseNavigation = resolve; });
       site = Bun.serve({
         hostname: "0.0.0.0",
         port: 0,
-        fetch(req) {
+        async fetch(req) {
           const url = new URL(req.url);
+          if (url.pathname === "/held-navigation") {
+            navigationReached(); await navigationHeld;
+            return new Response("<title>Late document</title><p id=late>Late navigation</p>", { headers: { "Content-Type": "text/html" } });
+          }
           const html =
             url.pathname === "/popup"
               ? '<title>Popup</title><button onclick="window.close()">Return</button>'
               : url.pathname === "/frame"
                 ? "<label>Frame field<input></label>"
-                : `<title>Main</title><input type="file" id="attachment" oninput="this.dataset.input=String(Number(this.dataset.input||0)+1)" onchange="this.dataset.change=String(Number(this.dataset.change||0)+1)"><input type="file" id="other-attachment"><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
+                : `<title>Main</title><input type="file" id="attachment" oninput="this.dataset.input=String(Number(this.dataset.input||0)+1)" onchange="this.dataset.change=String(Number(this.dataset.change||0)+1)"><input type="file" id="other-attachment"><input id="hidden-timeout" hidden><input id="readonly-timeout" readonly><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
           });
@@ -379,16 +387,34 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await popup.close();
       await offer(secondPage, second.id);
       expect((await action(second.id, { action: "text" })).status).toBe(200);
-      actionDeadline = 100;
-      expect(
-        (
-          await action(second.id, {
-            action: "fill",
-            selector: "#missing-timeout-fixture",
-            text: "unused",
-          })
-        ).body.error.code,
-      ).toBe("browser_control_ended");
+      popup = await openPopup(secondTarget);
+      const timeoutGrant = await popup.read<{ id: string; expiresAt: number | null }>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(second.id)}))`);
+      await popup.close();
+      for (const selector of ["#missing-timeout-fixture", "#hidden-timeout", "#readonly-timeout"]) {
+        actionDeadline = 150;
+        expect((await action(second.id, { action: "fill", selector, text: "unused" })).body.error.code).toBe("action_timeout");
+        actionDeadline = 3000;
+        expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
+        expect((await action(second.id, { action: "fill", selector: "#message", text: "after timeout" })).status).toBe(200);
+        expect((await action(second.id, { action: "click", selector: "#apply" })).status).toBe(200);
+        expect(await secondPage.locator("#out").innerText()).toBe("after timeout");
+      }
+      const beforeNavigationURL = secondPage.url();
+      actionDeadline = 150;
+      const navigation = action(second.id, { action: "goto", url: `http://localhost:${site.port}/held-navigation` });
+      await navigationStarted;
+      expect((await navigation).body.error.code).toBe("action_timeout");
+      actionDeadline = 3000;
+      expect((await action(second.id, { action: "fill", selector: "#message", text: "after stopped navigation" })).status).toBe(200);
+      releaseNavigation(); await Bun.sleep(250);
+      expect(secondPage.url()).toBe(beforeNavigationURL);
+      expect(await secondPage.locator("#message").inputValue()).toBe("after stopped navigation");
+      expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
+      popup = await openPopup(secondTarget);
+      expect(await popup.read(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(second.id)}))`)).toMatchObject({ id: timeoutGrant.id, expiresAt: timeoutGrant.expiresAt, phase: "on" });
+      expect(await popup.read<boolean>('document.querySelector("#allow").checked')).toBe(true);
+      await popup.screenshot(join(dir, "extension-timeout-retained.png"));
+      await popup.close();
       await secondPage.bringToFront();
       popup = await openPopup(secondTarget);
       await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');

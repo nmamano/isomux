@@ -18,6 +18,9 @@ type Pending = {
   resolve(value: Fields): void;
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
+  done: Promise<void>;
+  settled(): void;
+  timedOut: boolean;
 };
 interface GrantClock {
   now(): number;
@@ -129,16 +132,23 @@ export class ExtensionConnection {
   assign(
     agentId: string,
     peer: BridgePeer,
+    retainGrant = false,
   ): { receive(message: unknown): Promise<void>; close(): void } {
     const assignment = [...this.assignments.values()].find((a) => a.agentId === agentId);
-    if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected)
+    if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected || this.pendingCount(assignment.id))
       throw new Error("Offer a tab with Allow agent control in the Chrome extension popup");
     this.check(assignment);
     assignment.peer = peer;
     assignment.connected = true;
+    assignment.announced = false;
     return {
       receive: (message) => this.dispatch(assignment, message),
-      close: () => this.release(assignment),
+      close: () => {
+        if (!retainGrant) { this.release(assignment); return; }
+        if (assignment.peer !== peer) return;
+        assignment.connected = false;
+        assignment.peer = { send() {}, close() {} };
+      },
     };
   }
 
@@ -224,6 +234,28 @@ export class ExtensionConnection {
     }
   }
 
+  async stopLoading(grant: string): Promise<void> {
+    const a = this.assignments.get(grant);
+    if (!a) throw new Error("Browser control ended");
+    this.check(a);
+    const popup = [...a.popups].find(([, target]) => target.targetId === a.leafTargetId);
+    await this.request(a, "cdp", { method: "Page.stopLoading", params: {},
+      sessionId: popup?.[0] });
+  }
+
+  pendingCount(grant: string): number {
+    return [...this.pending.values()].filter(p => p.assignment === grant).length;
+  }
+
+  pendingTimedOut(grant: string): boolean {
+    return [...this.pending.values()].some(p => p.assignment === grant && p.timedOut);
+  }
+
+  async drain(grant: string): Promise<void> {
+    while (this.pendingCount(grant))
+      await Promise.all([...this.pending.values()].filter(p => p.assignment === grant).map(p => p.done));
+  }
+
   private request(
     a: Assignment,
     method: string,
@@ -232,8 +264,18 @@ export class ExtensionConnection {
     this.check(a);
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => this.close(), 30_000);
-      this.pending.set(id, { assignment: a.id, resolve, reject, timer });
+      let settled!: () => void;
+      const done = new Promise<void>(r => { settled = r; });
+      const timer = setTimeout(() => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        if (method === "attach") { this.release(a); return; }
+        // A timeout is not evidence of socket loss. Retain this entry until the
+        // real response or ownership loss, so the next action cannot overtake it.
+        pending.timedOut = true;
+        reject(new Error("Browser command timed out"));
+      }, 30_000);
+      this.pending.set(id, { assignment: a.id, resolve, reject, timer, done, settled, timedOut: false });
       try {
         this.peer.send({
           kind: "command",
@@ -283,6 +325,8 @@ export class ExtensionConnection {
         const result = msg.error ? undefined : fields(msg.result);
         this.pending.delete(msg.id);
         clearTimeout(pending.timer);
+        pending.settled();
+        if (pending.timedOut) return;
         if (msg.error) pending.reject(new Error("Browser command failed"));
         else pending.resolve(result!);
         return;
@@ -395,6 +439,7 @@ export class ExtensionConnection {
       return;
     }
     const { id, method, sessionId } = msg;
+    const peer = a.peer;
     if (!Number.isSafeInteger(id) || typeof method !== "string") {
       this.release(a);
       return;
@@ -408,10 +453,10 @@ export class ExtensionConnection {
         sessionId,
       );
       this.check(a);
-      a.peer.send({ id, sessionId, result });
+      if (a.peer === peer) peer.send({ id, sessionId, result });
     } catch {
-      if (this.active && !a.closed)
-        a.peer.send({
+      if (this.active && !a.closed && a.peer === peer)
+        peer.send({
           id,
           sessionId,
           error: { code: -32000, message: "Browser command refused or failed" },
@@ -492,12 +537,15 @@ export class ExtensionConnection {
 
   private release(a: Assignment): void {
     if (a.closed) return;
+    console.info("[browser-extension] " + JSON.stringify({ reason: "grant_released", generation: this.generation,
+      assignment: a.id, controlSession: a.session, pending: this.pendingCount(a.id) }));
     a.closed = true;
     a.cancelExpiry?.();
     this.assignments.delete(a.id);
     for (const [id, pending] of this.pending) {
       if (pending.assignment !== a.id) continue;
       clearTimeout(pending.timer);
+      pending.settled();
       pending.reject(
         new Error("Browser control ended; pending outcomes may be unknown"),
       );
@@ -524,6 +572,7 @@ export class ExtensionConnection {
     this.active = false;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
+      pending.settled();
       pending.reject(
         new Error("Browser disconnected; pending outcomes may be unknown"),
       );

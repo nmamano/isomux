@@ -390,3 +390,158 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false) {
+  const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 20);
+  store.select("member", "extension");
+  const { code } = store.pair("member", false);
+  const { credential } = store.redeem(code, origin, () => true);
+  const messages: Record<string, unknown>[] = [];
+  const connection = service.bridge.connect(credential, { send: m => {
+    messages.push(m);
+    if ((m.params as { method?: string } | undefined)?.method === "Page.stopLoading")
+      queueMicrotask(() => {
+        for (const command of messages.filter(message => message.method === "cdp"))
+          connection.receive({ kind: "result", generation: connection.generation, id: command.id, result: {} });
+      });
+  }, close() {} });
+  const grant = crypto.randomUUID();
+  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, agent: "agent" });
+  connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
+    result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
+  await Promise.resolve();
+  let calls = 0;
+  let settled = false;
+  let transport!: import("playwright-core").ConnectOverCDPTransport;
+  let sessionId: unknown;
+  const connect = spyOn(chromium, "connectOverCDP").mockImplementation(async wire => {
+    transport = wire as import("playwright-core").ConnectOverCDPTransport;
+    transport.onmessage = message => { const m = message as { method?: string; params?: { sessionId: string } }; if (m.method === "Target.attachedToTarget") sessionId = m.params?.sessionId; };
+    transport.send({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
+    await Promise.resolve();
+    const timeout = async () => {
+      if (held === true || held === "navigation") transport.send({ id: 2,
+        method: held === "navigation" ? "Page.navigate" : "Input.insertText",
+        sessionId: sessionId as string, params: held === "navigation" ? { url: "https://example.com/next" } : { text: "fixture" } });
+      await Bun.sleep(held === "watchdog" ? 1200 : 20);
+      settled = true;
+      throw Object.assign(new Error("fixture timeout"), { name: "TimeoutError" });
+    };
+    const page = {
+      url: () => "https://example.com/", title: async () => "Fixture",
+      innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; },
+      fill: timeout, goto: timeout,
+      click: async () => { calls++; expect(settled).toBe(true); },
+    };
+    return { contexts: () => [{ pages: () => [page], on() {} }], isConnected: () => true, on() {},
+      close: async () => { transport.close(); } } as unknown as Browser;
+  });
+  return { sessions, connection, messages, grant, calls: () => calls, connect,
+    stop: () => { sessions.stop(); service.stop(); connect.mockRestore(); rmSync(dir, { recursive: true, force: true }); } };
+}
+
+test("settled selector timeout retains the same grant/session and queued different action runs", async () => {
+  const h = await timeoutSessionFixture();
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const timeout = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "private fixture" });
+    const next = h.sessions.run("agent", { action: "text" });
+    expect(await timeout).toMatchObject({ ok: false, code: "action_timeout" });
+    expect(await next).toMatchObject({ ok: true, text: "fixture" });
+    expect(await h.sessions.run("agent", { action: "click", selector: "button" })).toMatchObject({ ok: true });
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    expect(h.connect).toHaveBeenCalledTimes(1);
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+    const log = diagnostics.mock.calls.flat().join(" ");
+    expect(log).toContain("operation_timeout");
+    expect(log).not.toContain("watchdog_timeout");
+    expect(log).not.toContain("private fixture");
+    expect(log).not.toContain("#fixture");
+  } finally { diagnostics.mockRestore(); h.stop(); }
+});
+
+test("unsettled command keeps ON and fences later work until the real late response", async () => {
+  const h = await timeoutSessionFixture(true);
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    expect(await h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" })).toMatchObject({ code: "action_timeout" });
+    const command = h.messages.find(m => m.method === "cdp")!;
+    expect(command).toBeDefined();
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({ code: "action_timeout" });
+    expect(h.calls()).toBe(0);
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    await Bun.sleep(0);
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({ ok: true });
+    expect(h.connect).toHaveBeenCalledTimes(1);
+    expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+  } finally { diagnostics.mockRestore(); h.stop(); }
+});
+
+test("watchdog response waits for old operation settlement without releasing the grant", async () => {
+  const h = await timeoutSessionFixture("watchdog");
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const pending = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" });
+    const next = h.sessions.run("agent", { action: "text" });
+    expect(await pending).toMatchObject({ code: "action_timeout" });
+    expect(await next).toMatchObject({ ok: true });
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    expect(h.connect).toHaveBeenCalledTimes(1);
+    expect(diagnostics.mock.calls.flat().join(" ")).toContain("watchdog_timeout");
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+  } finally { diagnostics.mockRestore(); h.stop(); }
+});
+
+test("Playwright initialization timeout retains the offer while outstanding initialization drains", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-init-timeout-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 20);
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    store.select("member", "extension");
+    const { code } = store.pair("member", false);
+    const { credential } = store.redeem(code, origin, () => true);
+    const messages: Record<string, unknown>[] = [];
+    const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
+    const grant = crypto.randomUUID();
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, agent: "agent" });
+    connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
+      result: { targetInfo: { targetId: "owned", browserContextId: "context", type: "page", url: "https://example.com/" } } });
+    await Promise.resolve();
+    expect(await sessions.run("agent", { action: "snapshot" })).toMatchObject({ code: "action_timeout" });
+    expect(connection.pendingCount(grant)).toBeGreaterThan(0);
+    expect(connection.offered("agent")).toBe(grant);
+    expect(service.bridge.forMember("member")).toBe(connection);
+    expect(messages.some(m => m.method === "detach")).toBe(false);
+    const count = messages.length;
+    expect(await sessions.run("agent", { action: "text" })).toMatchObject({ code: "action_timeout" });
+    expect(messages).toHaveLength(count);
+    connection.revoke("agent");
+    await Bun.sleep(0);
+    expect(connection.offered("agent")).toBeUndefined();
+  } finally { sessions.stop(); service.stop(); diagnostics.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("navigation timeout sends owned stop and drains before the queued inspection", async () => {
+  const h = await timeoutSessionFixture("navigation");
+  const diagnostics = spyOn(console, "info").mockImplementation(() => {});
+  try {
+    const timeout = h.sessions.run("agent", { action: "goto", url: "https://example.com/next" });
+    const next = h.sessions.run("agent", { action: "text" });
+    expect(await timeout).toMatchObject({ code: "action_timeout" });
+    expect(await next).toMatchObject({ ok: true });
+    expect(h.connection.offered("agent")).toBe(h.grant);
+    expect(h.connection.pendingCount(h.grant)).toBe(0);
+    expect(h.messages.filter(m => m.method === "cdp").map(m => (m.params as { method: string }).method))
+      .toEqual(["Page.navigate", "Page.stopLoading"]);
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+    expect(h.connect).toHaveBeenCalledTimes(1);
+  } finally { diagnostics.mockRestore(); h.stop(); }
+});

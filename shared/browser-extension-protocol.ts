@@ -53,6 +53,7 @@ const PAGE_COMMANDS = new Set([
   "Page.removeScriptToEvaluateOnNewDocument",
   "Page.createIsolatedWorld",
   "Page.navigate",
+  "Page.stopLoading",
   "Page.reload",
   "Page.getNavigationHistory",
   "Page.navigateToHistoryEntry",
