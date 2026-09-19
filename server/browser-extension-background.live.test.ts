@@ -27,12 +27,18 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       ], { stdout: "ignore", stderr: "ignore" });
       const portFile = join(dir, "profile", "DevToolsActivePort");
       const launchDeadline = Date.now() + 10_000;
-      while (!existsSync(portFile)) {
+      let endpoint = "";
+      while (!endpoint) {
+        if (existsSync(portFile)) {
+          const [port, path] = readFileSync(portFile, "utf8").trim().split("\n");
+          if (/^\d+$/.test(port ?? "") && path?.startsWith("/devtools/browser/"))
+            endpoint = "ws://127.0.0.1:" + port + path;
+        }
+        if (endpoint) break;
         if (Date.now() >= launchDeadline) throw new Error("Isolated Chrome did not start");
         await new Promise(resolve => setTimeout(resolve, 20));
       }
-      const [port, path] = readFileSync(portFile, "utf8").trim().split("\n");
-      const socket = new WebSocket("ws://127.0.0.1:" + port + path);
+      const socket = new WebSocket(endpoint);
       await new Promise<void>((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error("Isolated CDP socket did not open")), 5000);
         socket.onopen = () => { clearTimeout(timer); resolve(); };
