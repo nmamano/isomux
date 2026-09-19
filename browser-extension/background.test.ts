@@ -478,3 +478,23 @@ test("root ownership lost during focus setup cannot publish its target", async (
   expect(h.calls).toContain("detach");
   h.socket.close();
 });
+
+
+test("detach restores focus on only the root and its owned popup", async () => {
+  const h = await harness();
+  h.command(1, "create");
+  await settle();
+  h.navigation(7, 8);
+  await settle();
+  h.navigation(900, 901);
+  h.command(2, "detach");
+  await settle();
+  expect(h.focused).toEqual([
+    { tabId: 7, params: { enabled: true } },
+    { tabId: 8, params: { enabled: true } },
+    { tabId: 8, params: { enabled: false } },
+    { tabId: 7, params: { enabled: false } },
+  ]);
+  expect(h.calls.filter(c => c === "detach")).toHaveLength(2);
+  h.socket.close();
+});

@@ -239,6 +239,11 @@ async function detach(tab: OwnedTab): Promise<void> {
   for (const popup of tab.popups.values()) await detach(popup);
   tab.popups.clear();
   try {
+    await chrome.debugger.sendCommand(
+      { tabId: tab.tabId }, "Emulation.setFocusEmulationEnabled", { enabled: false },
+    );
+  } catch {}
+  try {
     await chrome.debugger.detach({ tabId: tab.tabId });
   } catch {}
 }
