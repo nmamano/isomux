@@ -282,7 +282,10 @@ function check(c: Connection): void {
     throw new Error("Browser disconnected");
 }
 async function detach(tab: OwnedTab): Promise<void> {
-  for (const popup of tab.popups.values()) { await popup.work?.catch(() => {}); await detach(popup); }
+  for (const [id, popup] of tab.popups) {
+    await popup.work?.catch(() => {});
+    if (tab.popups.get(id) === popup) await detach(popup);
+  }
   tab.popups.clear();
   try {
     await chrome.debugger.sendCommand(
@@ -712,8 +715,8 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
           },
         });
       } catch {
-        main.popups.delete(sessionId);
         await detach(popup);
+        if (main.popups.get(sessionId) === popup) main.popups.delete(sessionId);
       } finally {
         main.attaching = false;
       }

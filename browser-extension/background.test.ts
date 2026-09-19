@@ -18,6 +18,7 @@ async function harness() {
   const calls: string[] = [];
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
   let attach: () => Promise<void> = async () => {};
+  let detach: (tabId: number) => Promise<void> = async () => {};
   let focus: () => Promise<unknown> = async () => ({});
   const focused: Array<{ tabId: number; params: unknown }> = [];
   let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({
@@ -124,9 +125,9 @@ async function harness() {
         calls.push("attach");
         return attach();
       },
-      detach: () => {
+      detach: (target: { tabId: number }) => {
         calls.push("detach");
-        return Promise.resolve();
+        return detach(target.tabId);
       },
       sendCommand: (target: { tabId: number }, method: string, params?: unknown) => {
         calls.push(method);
@@ -208,6 +209,17 @@ async function harness() {
     timers,
     navigation: (sourceTabId: number, tabId: number) =>
       navigation({ sourceTabId, tabId }),
+    delayDetach: (tabId: number) => {
+      let reached = false;
+      let finish!: () => void;
+      const pending = new Promise<void>(resolve => { finish = resolve; });
+      detach = async (id) => {
+        if (id !== tabId) return;
+        reached = true;
+        await pending;
+      };
+      return { reached: () => reached, finish };
+    },
     delayPopup: (stage: "attach" | "target" | "focus") => {
       let resolve!: () => void;
       if (stage === "attach")
@@ -595,4 +607,33 @@ test("obsolete ready protocol fails closed without a tab grant", async () => {
   expect(fresh.readyState).toBe(3);
   expect(h.config()?.blocked).toBe(true);
   expect(h.calls).toHaveLength(0);
+});
+
+
+test("a failed popup cleanup retains its tab reservation until detach finishes", async () => {
+  const h = await harness();
+  await h.offer();
+  const finishTarget = h.delayPopup("target");
+  h.navigation(7, 8);
+  await settle();
+  const oldDetach = h.delayDetach(8);
+  const stopping = h.ui({ action: "stop", generation: "generation-1", assignment: h.assignment() });
+  finishTarget();
+  await settle();
+  expect(oldDetach.reached()).toBe(true);
+  h.selected(8);
+  const conflicting = h.ui({ action: "offer", generation: "generation-1", agent: "b" });
+  await settle();
+  expect(h.socket.sent.filter(message => message.kind === "offer")).toHaveLength(1);
+  expect(await conflicting).toHaveProperty("error");
+  oldDetach.finish();
+  await stopping;
+  expect(h.calls.filter(call => call === "detach")).toHaveLength(2);
+  const next = h.ui({ action: "offer", generation: "generation-1", agent: "b" });
+  await settle();
+  const offers = h.socket.sent.filter(message => message.kind === "offer");
+  expect(offers).toHaveLength(2);
+  expect(offers[1].agent).toBe("b");
+  h.socket.close();
+  await next;
 });
