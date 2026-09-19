@@ -2,10 +2,10 @@
 // GET /api/users/:username/env/names is the only route this section reads.
 //
 // The member half of the same behaviour is here too, because "owners only" is
-// half a rule until something proves the other half: a member's own profile
+// half a rule until something proves the other half: a user's own profile
 // shows no such section, and the shim would answer if it were asked.
 //
-// Its own file because it renders the settings page twice and the 5 s cap is
+// Its own file because it renders the settings page and the 5 s cap is
 // per file. The route's refusal is pinned server-side in
 // server/test-support/routes-user-env-rest.test.ts.
 
@@ -92,6 +92,22 @@ async function openProfile(state: typeof initialState, name: string) {
 }
 
 describe("individual connections on a member's profile", () => {
+  it("keeps an owner's own connections in the dedicated pane", async () => {
+    const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Profile");
+
+    expect(view.container.querySelectorAll("h5").length).toBeGreaterThan(0);
+    expect(view.queryByText("GH_TOKEN")).toBeNull();
+    expect(asked.some((path) => path.endsWith("/env/names"))).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: /individual connections/i }));
+    });
+    expect(
+      view.container.querySelectorAll('[data-provider-account-state="unavailable"]'),
+    ).toHaveLength(2);
+    expect(asked.some((path) => path.startsWith("/api/me/provider-accounts"))).toBe(true);
+  });
+
   it("shows an owner the member's variable names and provider status", async () => {
     const view = await openProfile(signedInAs("Ricky", "u1", "owner"), "Beth");
 

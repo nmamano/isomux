@@ -1729,10 +1729,9 @@ function UserEditPanel({
           }}
         />
 
-        {/* Owner viewers only, per the route's own gate. Placed with the other
-            sections that change how this user's agents run, not with the
-            record fields the owner can edit - nothing here is editable. */}
-        {isOwner && (
+        {/* Owners inspect other members here; their own connections have a
+            dedicated sidebar pane. */}
+        {isOwner && !isMe && (
           <MemberVariableNames key={user.name} username={user.name} />
         )}
 
