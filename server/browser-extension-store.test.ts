@@ -53,7 +53,7 @@ test("malformed and unreadable browser state requires selection and preserves so
   const dir = mkdtempSync(join(tmpdir(), "browser-store-invalid-"));
   const path = join(dir, "connections.json");
   try {
-    for (const content of ["{", "null", "[]", "7", '\"invalid\"']) {
+    for (const content of ["{", "null", "[]", "7", '"invalid"']) {
       writeFileSync(path, content);
       const store = new BrowserExtensionStore(path);
       expect(store.record("member")).toEqual({ backend: null });
