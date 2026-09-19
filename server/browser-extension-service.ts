@@ -70,7 +70,7 @@ export class BrowserExtensionService {
         if (msg.version !== BROWSER_EXTENSION_PROTOCOL || msg.kind !== "hello" || !extensionOrigin(ws.data.origin)) throw new Error();
         let credential: string;
         if (typeof msg.code === "string" && msg.credential === undefined) {
-          const paired = this.store.redeem(msg.code, ws.data.origin, this.access.memberExists);
+          const paired = this.store.redeem(msg.code, ws.data.origin, (member) => this.access.memberExists(member));
           this.disconnect(paired.member, true);
           credential = paired.credential;
           ws.send(JSON.stringify({ kind: "paired", version: BROWSER_EXTENSION_PROTOCOL, credential }));

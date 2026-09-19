@@ -34,6 +34,13 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     setup = await chromium.launchPersistentContext(join(dir, "profile"), { executablePath: "/usr/bin/google-chrome", headless: false, args: ["--enable-unsafe-extension-debugging"], ignoreDefaultArgs: ["--disable-extensions"], timeout: 10_000 });
     const setupCDP = await setup.browser()!.newBrowserCDPSession();
     const { id } = await setupCDP.send("Extensions.loadUnpacked", { path: join(dir, "extension") });
+    const worker = setup.serviceWorkers()[0] ?? await setup.waitForEvent("serviceworker");
+    await worker.evaluate(() => {
+      const scope = globalThis as unknown as { seen: unknown[]; chrome: { tabs: { onCreated: { addListener(fn: (tab: { id?: number; openerTabId?: number }) => void): void } }; debugger: { onDetach: { addListener(fn: (source: { tabId: number }, reason: string) => void): void } } } };
+      scope.seen = [];
+      scope.chrome.tabs.onCreated.addListener((tab) => scope.seen.push({ tab: tab.id, opener: tab.openerTabId }));
+      scope.chrome.debugger.onDetach.addListener((source, reason) => scope.seen.push({ detached: source.tabId, reason }));
+    });
     const config = await setup.newPage();
     await config.goto(`chrome-extension://${id}/connection.html`);
     await config.evaluate(async (connection) => {
@@ -60,7 +67,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     expect(snapshot.body.snapshot).toContain("textbox");
     expect((await action(first.id, { action: "screenshot" })).status).toBe(200);
     expect((await action(first.id, { action: "click", selector: "#open" })).status).toBe(200);
-    await wait(async () => (await action(first.id, { action: "text" })).body.title === "Popup");
+    try { await wait(async () => (await action(first.id, { action: "text" })).body.title === "Popup"); }
+    catch (error) { console.log("popup fixture diagnostics", await worker.evaluate(() => (globalThis as unknown as { seen: unknown[] }).seen)); throw error; }
     expect((await action(first.id, { action: "click", selector: "button" })).status).toBe(200);
     expect((await action(first.id, { action: "text" })).body.title).toBe("Main");
     expect((await action(first.id, { action: "close" })).body.closed).toBe(true);

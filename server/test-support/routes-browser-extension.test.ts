@@ -22,7 +22,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   const paired = await socket.wait("paired");
   const ready = await socket.wait("ready");
   expect(typeof paired.credential).toBe("string");
-  expect((await server.http("/api/me/browser", { headers: { Authorization: `Bearer ${paired.credential}` } })).status).toBe(401);
+  expect((await server.http("/api/me/browser", { headers: { Authorization: `Bearer ${String(paired.credential)}` } })).status).toBe(401);
   const duplicate = await extensionSocket(server, { kind: "hello", version: 1, credential: paired.credential });
   await duplicate.wait("refused");
   expect(socket.closed()).toBe(false);

@@ -208,8 +208,11 @@ export class ExtensionConnection {
       }
       if (msg.method === "popupDetached") {
         const params = fields(msg.params);
-        if (typeof params.sessionId !== "string" || !a.popups.delete(params.sessionId)) return;
-        a.peer.send({ method: "Target.detachedFromTarget", params: { sessionId: params.sessionId } });
+        if (typeof params.sessionId !== "string") return;
+        const popup = a.popups.get(params.sessionId);
+        if (!popup) return;
+        a.popups.delete(params.sessionId);
+        a.peer.send({ method: "Target.detachedFromTarget", params: { sessionId: params.sessionId, targetId: popup.targetId } });
         return;
       }
 
