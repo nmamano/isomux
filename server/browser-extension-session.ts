@@ -46,7 +46,6 @@ export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
   private recovering = new Map<string, { connection: ExtensionConnection; grant: string; done: Promise<void> }>();
-  private epochs = new Map<string, number>();
   constructor(
     private service: BrowserExtensionService,
     private owner: (agent: string) => string | undefined,
@@ -59,11 +58,6 @@ export class ExtensionBrowserSessions {
     this.sessions.delete(agent);
     void session.browser.close().catch(() => {});
   }
-  async endMember(member: string): Promise<void> {
-    this.epochs.set(member, (this.epochs.get(member) ?? 0) + 1);
-    for (const [agent, session] of this.sessions)
-      if (session.member === member) this.end(agent);
-  }
   stop(): void {
     for (const agent of this.sessions.keys()) this.end(agent);
   }
@@ -71,7 +65,6 @@ export class ExtensionBrowserSessions {
     const params = parseBrowserParams(body);
     if (!params.ok) return Promise.resolve(params);
     const member = this.owner(agent);
-    const epoch = member ? (this.epochs.get(member) ?? 0) : 0;
     const queuedConnection = member ? this.service.bridge.forMember(member) : undefined;
     const queuedGrant = queuedConnection?.offered(agent);
     const previous = this.queues.get(agent) ?? Promise.resolve();
@@ -79,8 +72,7 @@ export class ExtensionBrowserSessions {
       .catch(() => {})
       .then(async (): Promise<BrowserResult> => {
         if (
-          this.owner(agent) !== member ||
-          (member && (this.epochs.get(member) ?? 0) !== epoch)
+          this.owner(agent) !== member
         )
           return ended();
         if (!member) return params.action === "close"
@@ -89,7 +81,7 @@ export class ExtensionBrowserSessions {
         if (!this.mayUse(member, agent)) return ended();
         if ((this.service.bridge.forMember(member) !== queuedConnection ||
             queuedConnection?.offered(agent) !== queuedGrant)) return ended();
-        return this.extensionAction(member, agent, body, epoch);
+        return this.extensionAction(member, agent, body);
       });
     this.queues.set(agent, work);
     void work
@@ -103,7 +95,6 @@ export class ExtensionBrowserSessions {
     member: string,
     agent: string,
     body: unknown,
-    epoch: number,
   ): Promise<BrowserResult> {
     const actionMs = this.actionDeadline();
     const params = parseBrowserParams(body);
@@ -157,7 +148,6 @@ export class ExtensionBrowserSessions {
     const valid = () =>
       this.owner(agent) === member &&
       this.mayUse(member, agent) &&
-      (this.epochs.get(member) ?? 0) === epoch &&
       this.service.bridge.forMember(member) === connection &&
       connection.offered(agent) === grant;
     if (session) watchEnd(session.signal);

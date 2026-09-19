@@ -382,6 +382,23 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
     }
   });
 
+  it("an authenticated agent can preview the office host through the same capture path", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const agent = await spawnAgent(srv, "Worker", srv.agentManager.getRooms()[0].id);
+    const previous = process.env.ISOMUX_PREVIEW_BROWSER;
+    process.env.ISOMUX_PREVIEW_BROWSER = fakeBrowserScript(srv);
+    try {
+      const result = await affordance(srv, agent.id, "preview-url", { url: srv.baseUrl + "/" }, { bearer: getAgentTokenRaw(agent.id)! });
+      expect(result.status).toBe(200);
+      expect(result.body.ok).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
+      else process.env.ISOMUX_PREVIEW_BROWSER = previous;
+    }
+  });
+
   it("missing url -> 400; embedded credentials -> 400 invalid_request", async () => {
     const srv = await startTestServer();
     server = srv;
