@@ -737,7 +737,7 @@ describe("live browser profile authorization", () => {
     const projected = bag(ownerSocket).find(m => m.type === "full_state")!.agents as AgentInfo[];
     expect(projected.find(a => a.id === agent.id)?.browserPanelAvailable).toBe(true);
     expect(server.agentManager.getAgent(agent.id)).not.toHaveProperty("browserPanelAvailable");
-    const originals = { watch: browserPool.watch, refreshCapture: browserPool.refreshCapture, selection: browserPool.selection, humanNavigate: browserPool.humanNavigate, humanInput: browserPool.humanInput };
+    const originals = { watch: browserPool.watch.bind(browserPool), refreshCapture: browserPool.refreshCapture.bind(browserPool), selection: browserPool.selection.bind(browserPool), humanNavigate: browserPool.humanNavigate.bind(browserPool), humanInput: browserPool.humanInput.bind(browserPool) };
     const calls: string[] = [];
     let listener!: Parameters<typeof browserPool.watch>[1];
     let stopped = 0;
@@ -793,7 +793,7 @@ describe("live browser profile authorization", () => {
     const socket = await connectSettled(server, manager.rawSessionId);
     const agents = bag(socket).find(m => m.type === "full_state")!.agents as AgentInfo[];
     expect(agents.find(a => a.id === agent.id)?.browserPanelAvailable).toBe(false);
-    const originals = { watch: browserPool.watch, refreshCapture: browserPool.refreshCapture, selection: browserPool.selection, humanNavigate: browserPool.humanNavigate, humanInput: browserPool.humanInput };
+    const originals = { watch: browserPool.watch.bind(browserPool), refreshCapture: browserPool.refreshCapture.bind(browserPool), selection: browserPool.selection.bind(browserPool), humanNavigate: browserPool.humanNavigate.bind(browserPool), humanInput: browserPool.humanInput.bind(browserPool) };
     const calls: string[] = [];
     browserPool.watch = () => { calls.push("watch"); return () => {}; };
     browserPool.refreshCapture = () => { calls.push("refresh"); };
@@ -1075,8 +1075,8 @@ describe("live browser profile authorization", () => {
       const manager = await server.seedOwner("Boss");
       const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
       const socket = await connectSettled(server, manager.rawSessionId);
-      const originalSelection = browserPool.selection;
-      const originalNavigate = browserPool.humanNavigate;
+      const originalSelection = browserPool.selection.bind(browserPool);
+      const originalNavigate = browserPool.humanNavigate.bind(browserPool);
       let finish!: () => void;
       let started!: () => void;
       const began = new Promise<void>(resolve => { started = resolve; });

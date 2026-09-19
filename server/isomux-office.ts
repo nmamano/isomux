@@ -4385,9 +4385,8 @@ function browserPanelAvailable(agentId: string): boolean {
 
 // Returns the agent with derived browser capability if its room is
 // visible to this session, or null if not. Post-cut there is no dense `room` to
-// rewrite - agents carry a stable roomId - so this is purely a per-recipient
-// visibility filter. Callers treat the result as read-only (serialize, never
-// mutate).
+// rewrite - agents carry a stable roomId. The browser capability is derived
+// here and never written to the manager state.
 function projectAgentForSession(
   session: SessionLookup,
   agent: AgentInfo,

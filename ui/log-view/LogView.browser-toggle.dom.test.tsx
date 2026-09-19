@@ -50,11 +50,11 @@ afterAll(() => {
   );
 });
 
-const page = (browserPanel: boolean, isMobile = false, browserOpen = false) =>
+const page = (browserPanel: boolean, isMobile = false, browserOpen = false, browserPanelAvailable?: boolean) =>
   onLanguage(
     null,
     createElement(LogView, {
-      agent,
+      agent: { ...agent, browserPanelAvailable },
       logs: [],
       onBack() {},
       onEditAgent() {},
@@ -119,6 +119,18 @@ it("omits the mobile Browser panel when off and shows it when on", () => {
   expect(view.queryByRole("textbox", { name: "Address" }) === null).toBe(true);
   view.rerender(page(true, true, true));
   expect(view.queryByRole("textbox", { name: "Address" }) !== null).toBe(true);
+  view.unmount();
+});
+
+it("hides the mobile control and stored panel in Chrome mode", async () => {
+  const view = render(page(true, true, true, false));
+  expect(view.queryByRole("textbox", { name: "Address" })).toBeNull();
+  fireEvent.click(view.getByTitle("More actions"));
+  await act(async () => {});
+  expect(view.queryByText("Browser")).toBeNull();
+  view.rerender(page(true, true, false, true));
+  await act(async () => {});
+  expect(view.queryByText("Browser")).not.toBeNull();
   view.unmount();
 });
 
