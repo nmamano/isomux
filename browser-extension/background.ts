@@ -546,9 +546,11 @@ async function configure(reset = true): Promise<void> {
               return { id: a.id, agent: { id: agent.id, name: agent.name } };
             }),
           };
-          for (const tab of c.tabs.values()) {
+          for (const [id, tab] of c.tabs) {
             const agent = c.metadata.agents.find(a => a.id === tab.agent?.id);
             if (agent) tab.agent = agent;
+            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && a.agent.id === tab.agent?.id))
+              void revoke(c, id);
           }
           return;
         }

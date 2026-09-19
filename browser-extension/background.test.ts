@@ -642,3 +642,72 @@ test("a failed popup cleanup retains its tab reservation until detach finishes",
   h.socket.close();
   await next;
 });
+
+
+for (const mismatch of [false, true]) {
+  test(`authoritative metadata revokes an ON grant with ${mismatch ? "a different agent" : "no assignment"}`, async () => {
+    const h = await harness();
+    await h.offer();
+    h.navigation(7, 8);
+    await settle();
+    const metadata = {
+      kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
+      agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }],
+      assignments: mismatch ? [{ id: h.assignment(), agent: { id: "b", name: "Other" } }] : [],
+    };
+    h.socket.receive({ ...metadata, generation: "old" });
+    expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
+    expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
+    const cleanup = h.delayDetach(7);
+    h.socket.receive(metadata);
+    const state = await h.ui({ action: "state" });
+    const calls = h.calls.length;
+    h.command(9, "cdp", { method: "Runtime.evaluate", params: {} });
+    await settle();
+    const revoking = state.assignments;
+    const blocked = h.socket.sent.find(message => message.kind === "result" && message.id === 9);
+    const badge = (tabId: number) => h.badges.findLast(value => value.tabId === tabId)?.text;
+    const rootBadge = badge(7), popupBadge = badge(8);
+    const reached = cleanup.reached();
+    const detached = h.socket.sent.filter(message => message.method === "detached");
+    h.socket.receive(metadata);
+    h.command(10, "detach");
+    cleanup.finish();
+    await settle();
+    expect(revoking).toMatchObject([{ phase: "revoking" }]);
+    expect(blocked?.error).toBeTruthy();
+    expect(h.calls.slice(calls)).not.toContain("Runtime.evaluate");
+    expect(rootBadge).not.toBe("ON");
+    expect(popupBadge).not.toBe("ON");
+    expect(reached).toBe(true);
+    expect(detached).toMatchObject([{ generation: "generation-1", assignment: h.assignment() }]);
+    expect(detached).toHaveLength(1);
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+    expect(h.calls.filter(call => call === "detach")).toHaveLength(2);
+    expect(h.focused.filter(value => fields(value.params).enabled === false).map(value => value.tabId)).toEqual([8, 7]);
+    h.socket.close();
+  });
+}
+
+test("metadata before offer acknowledgement preserves the pending attachment", async () => {
+  const h = await harness();
+  const pending = await h.startOffer();
+  const finish = h.delayPopup("focus");
+  h.command(1, "attach");
+  await settle();
+  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }], assignments: [] });
+  const state = await h.ui({ action: "state" });
+  const detached = h.socket.sent.some(message => message.method === "detached");
+  finish();
+  const result = await pending.result;
+  expect(state.assignments).toMatchObject([{ phase: "offering" }]);
+  expect(detached).toBe(false);
+  expect(result.assignments).toMatchObject([{ phase: "on" }]);
+  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), agent: { id: "a", name: "Agent" } }] });
+  await settle();
+  expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
+  expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
+  h.socket.close();
+});
