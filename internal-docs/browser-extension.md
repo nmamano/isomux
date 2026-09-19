@@ -63,9 +63,9 @@ HTTPS office origin. Loopback HTTP/WS is accepted for isolated local fixtures.
 URL credentials, query strings and fragments are refused.
 
 The first frame, within five seconds and at most 4 KiB, is
-`{kind: "hello", version: 2, code}` or the same shape with `credential`.
-Pairing returns `{kind: "paired", version: 2, credential}` before
-`{kind: "ready", version: 2, generation}`. Authentication binds the credential
+`{kind: "hello", version: 3, code}` or the same shape with `credential`.
+Pairing returns `{kind: "paired", version: 3, credential}` before
+`{kind: "ready", version: 3, generation}`. Authentication binds the credential
 hash to the saved extension Origin. Duplicate live connections are refused;
 only explicit replacement displaces the current connection.
 
@@ -133,7 +133,8 @@ it does not apply the headless viewport or download policy. Desktop localhost
 means the member's computer. Upload/download behavior is not promised.
 `close` means detach and leave the page open. The old headless path still closes
 its page and retains its existing profile and idle behavior. Extension control
-also ends after 15 minutes without an action, leaving the real page open.
+uses the fixed per-offer expiry selected in the popup, defaulting to Never.
+Expiry detaches control and leaves the real page open; actions do not extend it.
 
 Stable extension errors are `browser_selection_required`, `browser_not_paired`, `browser_offline`,
 `browser_control_ended`, and `action_failed`. Control loss, deadline or revocation
@@ -239,7 +240,7 @@ blocks headless watch/input for Desktop Chrome, including stale deliveries.
 
 ## Explicit tab offers (2026-09-19)
 
-Protocol 2 and extension 0.2.0 replace automatic tab creation. Older protocol
+Protocol 3 and extension 0.3.0 require an explicit per-offer expiry choice. Older protocol
 versions fail before pairing or control. Update and reload the unpacked extension;
 all tab offers must then be made again.
 
@@ -268,3 +269,14 @@ The browser action `{action: "upload", selector: "input#attachment", path: "/abs
 Playwright serializes this payload as base64 in Runtime commands through the existing in-process transport and owned-page bridge. The 4 MiB cap leaves room below the 8 MiB extension frame limit. No desktop-path `DOM.setFileInputFiles` command or new permission is needed. Missing/offline/unoffered ownership is checked before file loading; the extension action checks its original grant again after reading. Release/disconnect keeps the existing unknown-outcome and no-replay behavior.
 
 Success adds `uploaded: {name, mimeType, size}` to url/title. Invalid paths, non-regular/unreadable/oversized/sensitive files return `invalid_request`; selector/input failures use the existing action error behavior. The action replaces one input’s selection and does not press a submit button. The site can start an upload on its input/change event. Directory and multiple-file selection are not supported by this action.
+
+
+## Per-offer expiry
+
+The popup offers Never, 15 minutes, 1 hour and 4 hours. Each new offer defaults to Never. The picker stays disabled while an offer is pending, ON or revoking; it resets only after ownership is gone. Established grants show Never or the authoritative deadline formatted in Chrome’s local time.
+
+Protocol 3 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server starts the deadline after attachment succeeds, installs one identity-bound assignment timer, then sends `offered` with `durationMinutes` and `expiresAt`. Never uses null and no timer; timed grants use an absolute epoch-millisecond deadline. Metadata and popup state carry that same pair. Missing or inconsistent pairs fail closed. Metadata lists established targets only, so a pending offer is never cancelled by an earlier empty list.
+
+The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. The old Desktop Chrome session idle timer is removed; Server browser idle behavior is unchanged. Off, close, access loss, disconnect and reload still release grants and never replay work.
+
+Protocol 2 extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.

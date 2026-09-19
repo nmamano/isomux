@@ -64,7 +64,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).json();
   const socket = await extensionSocket(server, {
     kind: "hello",
-    version: 2,
+    version: 3,
     code,
   });
   const paired = await socket.wait("paired");
@@ -79,20 +79,20 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).toBe(401);
   const duplicate = await extensionSocket(server, {
     kind: "hello",
-    version: 2,
+    version: 3,
     credential: paired.credential,
   });
   await duplicate.wait("refused");
   expect(socket.closed()).toBe(false);
   const reused = await extensionSocket(server, {
     kind: "hello",
-    version: 2,
+    version: 3,
     code,
   });
   await reused.wait("refused");
   const wrongOrigin = await extensionSocket(
     server,
-    { kind: "hello", version: 2, credential: paired.credential },
+    { kind: "hello", version: 3, credential: paired.credential },
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
@@ -106,7 +106,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   server = await server.restart();
   const restored = await extensionSocket(server, {
     kind: "hello",
-    version: 2,
+    version: 3,
     credential: paired.credential,
   });
   const next = await restored.wait("ready");
@@ -194,7 +194,7 @@ test("current manager room access loss actively detaches a pending agent action"
   ).json();
   const socket = await extensionSocket(server, {
     kind: "hello",
-    version: 2,
+    version: 3,
     code,
   });
   await socket.wait("ready");
@@ -202,7 +202,7 @@ test("current manager room access loss actively detaches a pending agent action"
     backend: "extension",
   });
   const generation = (await socket.wait("ready")).generation;
-  socket.ws.send(JSON.stringify({ kind: "offer", generation, assignment: crypto.randomUUID(), agent: agent.id }));
+  socket.ws.send(JSON.stringify({ kind: "offer", generation, durationMinutes: 0, assignment: crypto.randomUUID(), agent: agent.id }));
   const attach = await socket.wait("command");
   expect(attach.method).toBe("attach");
   socket.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,

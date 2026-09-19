@@ -150,7 +150,7 @@ Create a pairing code in Browser settings. Open the extension and enter the offi
 
 Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
 
-Open an HTTP(S) tab, choose an agent in the extension popup, and turn on **Allow agent control**. The agent can read the page immediately and navigate that same tab. Each agent can have one offered tab. Turn control off before assigning a tab to another agent.
+Open an HTTP(S) tab, choose an agent in the extension popup, and turn on **Allow agent control**. The agent can read the page immediately and navigate that same tab. Each agent can have one offered tab. Before offering it, choose when control expires: **Never** (the default), **15 minutes**, **1 hour** or **4 hours**. Timed control starts when the offer succeeds; the popup shows its local expiry time. Agent actions do not extend the deadline. Turn control off before changing its expiry or assigning the tab to another agent.
 
 Agents can attach one office-server file to an exact file input with the browser `upload` action. The file must be a regular file up to 4 MiB; sensitive files are refused. The office sends the bytes to Chrome, so the path refers to the server, not the desktop. Upload replaces the input’s selection. Sites may upload as soon as a file is selected; the action does not press Submit or Publish.
 

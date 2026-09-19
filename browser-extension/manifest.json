@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Isomux Browser",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Offer Chrome tabs to agents in an Isomux office.",
   "minimum_chrome_version": "125",
   "permissions": [

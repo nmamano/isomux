@@ -7,6 +7,13 @@ import type { Catalog } from "./en.ts";
 export const es: Catalog = {
   "browser.offerHelp": "Abre la pestaña que quieras ofrecer, elige un agente en la extensión y activa Permitir control del agente.",
   "browser.agent": "Agente",
+  "browser.expiry": "El control caduca",
+  "browser.expiryNever": "Nunca",
+  "browser.expiry15": "15 minutos",
+  "browser.expiry60": "1 hora",
+  "browser.expiry240": "4 horas",
+  "browser.expiryNeverActive": "Caduca: Nunca",
+  "browser.expiresAt": "Caduca: {time}",
   "browser.allow": "Permitir control del agente",
   "browser.assigned": "ON · {name}",
   "browser.offering": "Ofreciendo pestaña a {name}…",

@@ -4,6 +4,13 @@ import type { Catalog } from "./en.ts";
 export const zh: Catalog = {
   "browser.offerHelp": "打开要提供的标签页，在扩展弹窗中选择代理，然后开启“允许代理控制”。",
   "browser.agent": "代理",
+  "browser.expiry": "控制到期时间",
+  "browser.expiryNever": "永不",
+  "browser.expiry15": "15 分钟",
+  "browser.expiry60": "1 小时",
+  "browser.expiry240": "4 小时",
+  "browser.expiryNeverActive": "到期：永不",
+  "browser.expiresAt": "到期：{time}",
   "browser.allow": "允许代理控制",
   "browser.assigned": "ON · {name}",
   "browser.offering": "正在向 {name} 提供标签页…",

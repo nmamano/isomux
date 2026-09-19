@@ -22,6 +22,11 @@ const labels: Record<string, PlainMessageKey> = {
   "offline-help": "browser.offlineHelp",
   "agent-label": "browser.agent",
   "allow-label": "browser.allow",
+  "expiry-label": "browser.expiry",
+  "expiry-never": "browser.expiryNever",
+  "expiry-15": "browser.expiry15",
+  "expiry-60": "browser.expiry60",
+  "expiry-240": "browser.expiry240",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
@@ -29,6 +34,7 @@ let state: ExtensionUIState & { generation?: string };
 let busy = false, showPair = false;
 const picker = element("agent") as HTMLSelectElement;
 const toggle = element("allow") as HTMLInputElement;
+const expiry = element("expiry") as HTMLSelectElement;
 async function command(action: string, extra: Record<string, unknown> = {}) {
   if (busy && action !== "state" && action !== "stop") return;
   if (action !== "state") busy = true;
@@ -58,6 +64,7 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   }
 }
 function render(next: typeof state) {
+  const previous = state?.assignments.find(a => a.current);
   state = next;
   element("status").dataset.state = state.state;
   element("status").textContent = t(`browser.${state.state}`);
@@ -79,6 +86,12 @@ function render(next: typeof state) {
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
   const current = state.assignments.find((a) => a.current);
+  if (current) expiry.value = String(current.durationMinutes);
+  else if (previous) expiry.value = "0";
+  expiry.disabled = !!current || busy || state.state !== "connected";
+  element("expiry-state").textContent = current && current.phase !== "offering"
+    ? current.expiresAt === null ? t("browser.expiryNeverActive") :
+      t("browser.expiresAt", { time: new Date(current.expiresAt).toLocaleString() }) : "";
   const selected = current?.agent.id ?? picker.value;
   picker.replaceChildren();
   for (const agent of state.agents) {
@@ -118,8 +131,9 @@ picker.addEventListener("change", () => render(state));
 toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
-  else void command("offer", { agent: picker.value, tabId: state.currentTab?.id });
+  else void command("offer", { agent: picker.value, tabId: state.currentTab?.id, durationMinutes: Number(expiry.value) });
   toggle.disabled = true;
+  expiry.disabled = true;
 });
 void command("state");
 const poll = setInterval(() => void command("state"), 1000);

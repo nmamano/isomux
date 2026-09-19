@@ -172,7 +172,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       };
       const firstTarget = await targetOf(firstPage);
       const secondTarget = await targetOf(secondPage);
-      const offer = async (page: import("playwright-core").Page, agentId: string) => {
+      const offer = async (page: import("playwright-core").Page, agentId: string, durationMinutes = 0) => {
         await page.bringToFront();
         popup = await openPopup(await targetOf(page));
         await popup.waitFor(`!!document.querySelector('#agent option[value="${agentId}"]')`);
@@ -184,11 +184,19 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           console.log("Extension evidence:", dir);
           throw error;
         }
+        expect(await popup.read<string>('document.querySelector("#expiry").value')).toBe("0");
+        await popup.read(`document.querySelector("#expiry").value = ${JSON.stringify(String(durationMinutes))}`);
         await popup.click("#allow");
         await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
+        expect(await popup.read<boolean>('document.querySelector("#expiry").disabled')).toBe(true);
+        const expiresAt = await popup.read<number | null>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(agentId)}).expiresAt)`);
+        if (expiresAt !== null) expect(await popup.read<string>('document.querySelector("#expiry-state").textContent')).toContain(await popup.read<string>(`new Date(${expiresAt}).toLocaleString()`));
         await popup.close();
+        return expiresAt;
       };
-      await offer(firstPage, first.id);
+      const firstExpiresAt = await offer(firstPage, first.id, 15);
+      expect(firstExpiresAt).toBeNumber();
+      if (firstExpiresAt === null) throw new Error("Timed offer has no deadline");
       expect((await action(first.id, { action: "snapshot" })).body.snapshot).toContain("textbox");
       await secondPage.bringToFront();
       popup = await openPopup(secondTarget);
@@ -333,6 +341,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       const firstAssignment = await popup.read<{ id: string; tabId: number }>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(first.id)}))`);
       const badge = await popup.read<string>(`chrome.action.getBadgeText({ tabId: ${firstAssignment.tabId} })`);
       expect(badge).toBe("ON");
+      expect(await popup.read<number>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(first.id)}).expiresAt)`)).toBe(firstExpiresAt);
       await popup.screenshot(join(dir, "extension-control.png"));
       await popup.click("#allow");
       await popup.waitFor('!document.querySelector("#allow").checked && !document.querySelector("#agent").disabled');

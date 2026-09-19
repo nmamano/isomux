@@ -7,6 +7,13 @@ import type { Catalog } from "./en.ts";
 export const ca: Catalog = {
   "browser.offerHelp": "Obre la pestanya que vulguis oferir, tria un agent a l’extensió i activa Permet el control de l’agent.",
   "browser.agent": "Agent",
+  "browser.expiry": "El control caduca",
+  "browser.expiryNever": "Mai",
+  "browser.expiry15": "15 minuts",
+  "browser.expiry60": "1 hora",
+  "browser.expiry240": "4 hores",
+  "browser.expiryNeverActive": "Caduca: Mai",
+  "browser.expiresAt": "Caduca: {time}",
   "browser.allow": "Permet el control de l’agent",
   "browser.assigned": "ON · {name}",
   "browser.offering": "S’està oferint la pestanya a {name}…",

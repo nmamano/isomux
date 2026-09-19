@@ -1,3 +1,4 @@
+import { chromium, type Browser } from "playwright-core";
 import { browserPool } from "./browser-session";
 import { BrowserExtensionService } from "./browser-extension-service";
 import { ExtensionBrowserSessions } from "./browser-extension-session";
@@ -252,7 +253,7 @@ test("queued browser work cannot cross Off into a replacement tab offer", async 
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     const offer = async (targetId: string) => {
       const assignment = crypto.randomUUID();
-      connection.receive({ kind: "offer", generation: connection.generation, assignment, agent: "agent" });
+      connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "agent" });
       const attach = messages.at(-1)!;
       connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
         result: { targetInfo: { targetId, browserContextId: "context", type: "page", url: "https://example.com/" } } });
@@ -299,6 +300,93 @@ test("connected extension without an offered tab rejects agent actions without c
     }
   } finally {
     sessions.stop(); service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Never has no desktop idle timer and stays offered across four hours and actions", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-never-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true);
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const timers = spyOn(globalThis, "setTimeout");
+  const connect = spyOn(chromium, "connectOverCDP").mockImplementation(async transport => {
+    let connected = true;
+    return {
+      contexts: () => [{ pages: () => [{ url: () => "https://example.com/", title: async () => "Fixture", innerText: async () => "fixture" }], on() {} }],
+      isConnected: () => connected, on() {},
+      close: async () => { connected = false; (transport as unknown as { close(): void }).close(); },
+    } as unknown as Browser;
+  });
+  try {
+    store.select("member", "extension");
+    const { code } = store.pair("member", false);
+    const { credential } = store.redeem(code, origin, () => true);
+    const messages: Record<string, unknown>[] = [];
+    const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
+    const assignment = crypto.randomUUID();
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "agent" });
+    const attach = messages.at(-1)!;
+    connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
+      result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
+    await Promise.resolve();
+    expect(connection.offered("agent")).toBe(assignment);
+    expect(await sessions.run("agent", { action: "text" })).toMatchObject({ ok: true });
+    expect(timers.mock.calls.some(call => call[1] === 15 * 60_000)).toBe(false);
+    now += 4 * 60 * 60_000;
+    connection.revalidate();
+    expect(connection.offered("agent")).toBe(assignment);
+    expect(await sessions.run("agent", { action: "text" })).toMatchObject({ ok: true });
+    expect(connect).toHaveBeenCalledTimes(1);
+  } finally {
+    sessions.stop(); service.stop(); connect.mockRestore(); timers.mockRestore(); clock.mockRestore();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("timed expiry interrupts pending browser work with unknown outcome and never replays it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-expiry-pending-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 1000);
+  let now = Date.now();
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    store.select("member", "extension");
+    const { code } = store.pair("member", false);
+    const { credential } = store.redeem(code, origin, () => true);
+    const messages: Record<string, unknown>[] = [];
+    const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
+    const offer = async (durationMinutes: number, targetId: string) => {
+      const assignment = crypto.randomUUID();
+      connection.receive({ kind: "offer", durationMinutes, generation: connection.generation, assignment, agent: "agent" });
+      const attach = messages.at(-1)!;
+      connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
+        result: { targetInfo: { targetId, browserContextId: "context", type: "page", url: "https://example.com/" } } });
+      await Promise.resolve();
+      return assignment;
+    };
+    const original = await offer(15, "old");
+    expect(connection.offered("agent")).toBe(original);
+    const pending = sessions.run("agent", { action: "snapshot" });
+    for (let i = 0; i < 100 && !messages.some(m => m.method === "cdp"); i++) await Bun.sleep(2);
+    expect(messages.some(m => m.method === "cdp")).toBe(true);
+    const queued = sessions.run("agent", { action: "goto", url: "https://example.com/queued" });
+    now += 15 * 60_000;
+    connection.revalidate();
+    const replacement = await offer(0, "new");
+    expect(replacement).not.toBe(original);
+    const count = messages.filter(m => m.method === "cdp").length;
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, code: "browser_control_ended" });
+    if (!result.ok) expect(result.error).toMatch(/unknown/i);
+    expect(await queued).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(messages.filter(m => m.method === "cdp")).toHaveLength(count);
+    expect(connection.offered("agent")).toBe(replacement);
+  } finally {
+    sessions.stop(); service.stop(); clock.mockRestore();
     rmSync(dir, { recursive: true, force: true });
   }
 });

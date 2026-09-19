@@ -36,8 +36,16 @@
       <section id="tab-control">
         <label id="agent-label" for="agent"></label>
         <select id="agent" disabled></select>
+        <label id="expiry-label" for="expiry"></label>
+        <select id="expiry" disabled>
+          <option id="expiry-never" value="0" selected></option>
+          <option id="expiry-15" value="15"></option>
+          <option id="expiry-60" value="60"></option>
+          <option id="expiry-240" value="240"></option>
+        </select>
         <label><input type="checkbox" id="allow" role="switch" disabled /><span id="allow-label"></span></label>
         <p id="tab-state" role="status"></p>
+        <p id="expiry-state"></p>
       </section>
       <p id="retained"></p>
       <p id="error" role="alert"></p>

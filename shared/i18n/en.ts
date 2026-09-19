@@ -22,6 +22,13 @@
 export const en = {
   "browser.offerHelp": "Open the tab to offer, choose an agent in the extension popup, and turn on Allow agent control.",
   "browser.agent": "Agent",
+  "browser.expiry": "Control expires",
+  "browser.expiryNever": "Never",
+  "browser.expiry15": "15 minutes",
+  "browser.expiry60": "1 hour",
+  "browser.expiry240": "4 hours",
+  "browser.expiryNeverActive": "Expires: Never",
+  "browser.expiresAt": "Expires: {time}",
   "browser.allow": "Allow agent control",
   "browser.assigned": "ON · {name}",
   "browser.offering": "Offering tab to {name}…",

@@ -13,7 +13,7 @@ beforeAll(async () => {
 });
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function harness() {
+async function harness(autoAck = true) {
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
@@ -46,8 +46,8 @@ async function harness() {
     send(data: string) {
       const msg = fields(JSON.parse(data));
       this.sent.push(msg);
-      if (msg.kind === "result" && msg.id === 1) queueMicrotask(() => this.receive({
-        kind: "offered", generation: "generation-1", assignment, error: msg.error,
+      if (autoAck && msg.kind === "result" && msg.id === 1) queueMicrotask(() => this.receive({
+        kind: "offered", generation: "generation-1", assignment, durationMinutes: 0, expiresAt: null, error: msg.error,
       }));
     }
     close() {
@@ -161,18 +161,18 @@ async function harness() {
   await settle();
   const socket = sockets[0];
   socket.onopen?.();
-  socket.receive({ kind: "ready", version: 2, generation: "generation-1" });
+  socket.receive({ kind: "ready", version: 3, generation: "generation-1" });
   socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
     agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }], assignments: [] });
-  const ui = (message: unknown) => new Promise<Record<string, unknown>>((resolve) => runtimeMessage({ tabId: selected.id, windowId: 1, ...(message as object) },
+  const ui = (message: unknown) => new Promise<Record<string, unknown>>((resolve) => runtimeMessage({ durationMinutes: 0, tabId: selected.id, windowId: 1, ...(message as object) },
     { id: "fixture-id", url: "chrome-extension://fixture-id/connection.html" },
     (value) => resolve(value as Record<string, unknown>)));
   return {
     socket,
     selected: (id: number, url = "https://example.com/") => { selected = { id, url, active: true, windowId: 1 }; },
     assignment: () => assignment,
-    startOffer: async () => {
-      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, agent: "a" });
+    startOffer: async (durationMinutes = 0) => {
+      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, agent: "a", durationMinutes });
       await settle();
       assignment = String(socket.sent.findLast((m) => m.kind === "offer")!.assignment);
       return { result, assignment };
@@ -191,7 +191,7 @@ async function harness() {
     ui: (message: unknown) =>
       new Promise<Record<string, unknown>>((resolve) =>
         runtimeMessage(
-          { tabId: selected.id, windowId: 1, ...(message as object) },
+          { durationMinutes: 0, tabId: selected.id, windowId: 1, ...(message as object) },
           {
             id: "fixture-id",
             url: "chrome-extension://fixture-id/connection.html",
@@ -283,7 +283,7 @@ test("built worker does not dispatch stale-generation or disconnected commands",
   expect(h.calls).toContain("detach");
   const fresh = await h.reconnect();
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 2, generation: "generation-2" });
+  fresh.receive({ kind: "ready", version: 3, generation: "generation-2" });
   fresh.receive({
     kind: "command",
     assignment: "assignment",
@@ -339,7 +339,7 @@ test("transient loss schedules reconnect but refusal stays terminal", async () =
   expect(h.sockets).toHaveLength(2);
   const fresh = h.sockets[1];
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 2, generation: "fresh" });
+  fresh.receive({ kind: "ready", version: 3, generation: "fresh" });
   fresh.receive({ kind: "refused" });
   expect(fresh.readyState).toBe(3);
   expect(h.timers.size).toBe(0);
@@ -607,7 +607,7 @@ test("obsolete ready protocol fails closed without a tab grant", async () => {
   h.socket.close();
   const fresh = await h.reconnect();
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 1, generation: "obsolete" });
+  fresh.receive({ kind: "ready", version: 2, generation: "obsolete" });
   await settle();
   expect(fresh.readyState).toBe(3);
   expect(h.config()?.blocked).toBe(true);
@@ -653,7 +653,7 @@ for (const mismatch of [false, true]) {
     const metadata = {
       kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
       agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }],
-      assignments: mismatch ? [{ id: h.assignment(), agent: { id: "b", name: "Other" } }] : [],
+      assignments: mismatch ? [{ id: h.assignment(), agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] : [],
     };
     h.socket.receive({ ...metadata, generation: "old" });
     expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
@@ -705,9 +705,53 @@ test("metadata before offer acknowledgement preserves the pending attachment", a
   expect(detached).toBe(false);
   expect(result.assignments).toMatchObject([{ phase: "on" }]);
   h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), agent: { id: "a", name: "Agent" } }] });
+    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), agent: { id: "a", name: "Agent" }, durationMinutes: 0, expiresAt: null }] });
   await settle();
   expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
   expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
   h.socket.close();
 });
+
+test("timed offer uses the acknowledged deadline and metadata cannot silently extend it", async () => {
+  const h = await harness(false);
+  const pending = await h.startOffer(15);
+  expect(h.socket.sent.find(m => m.kind === "offer")?.durationMinutes).toBe(15);
+  h.command(1, "attach");
+  await settle();
+  const expiresAt = Date.now() + 15 * 60_000;
+  h.socket.receive({ kind: "offered", generation: "generation-1", assignment: pending.assignment, durationMinutes: 15, expiresAt });
+  expect((await pending.result).assignments).toMatchObject([{ phase: "on", durationMinutes: 15, expiresAt }]);
+  const metadata = { kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "a", name: "Agent" }],
+    assignments: [{ id: pending.assignment, agent: { id: "a", name: "Agent" }, durationMinutes: 15, expiresAt }] };
+  h.socket.receive(metadata);
+  expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on", expiresAt }]);
+  h.socket.receive({ ...metadata, assignments: [{ ...metadata.assignments[0], expiresAt: expiresAt + 1 }] });
+  await settle();
+  expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  expect(h.calls).toContain("detach");
+  h.socket.close();
+});
+
+for (const pair of [
+  {}, { durationMinutes: 0, expiresAt: 1800000000000 },
+  { durationMinutes: 15, expiresAt: null }, { durationMinutes: 1, expiresAt: 1800000000000 },
+  { durationMinutes: 15, expiresAt: 1.5 }, { durationMinutes: 15, expiresAt: Number.MAX_SAFE_INTEGER },
+]) {
+  test(`invalid expiry pair fails closed in ack and metadata ${JSON.stringify(pair)}`, async () => {
+    const pendingHarness = await harness(false);
+    const pending = await pendingHarness.startOffer(15);
+    pendingHarness.command(1, "attach");
+    await settle();
+    pendingHarness.socket.receive({ kind: "offered", generation: "generation-1", assignment: pending.assignment, ...pair });
+    const result = await pending.result;
+    expect(result.error).toBeDefined();
+    expect(pendingHarness.socket.readyState).toBe(3);
+    const active = await harness();
+    await active.offer();
+    active.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "a", name: "Agent" }],
+      assignments: [{ id: active.assignment(), agent: { id: "a", name: "Agent" }, ...pair }] });
+    await settle();
+    expect((await active.ui({ action: "state" })).assignments).toHaveLength(0);
+    expect(active.socket.readyState).toBe(3);
+  });
+}

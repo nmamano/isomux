@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  validGrantDuration,
+  type BrowserGrantDuration,
   fields,
   pageCommandAllowed,
   type BridgePeer,
@@ -17,7 +19,22 @@ type Pending = {
   reject(error: Error): void;
   timer: ReturnType<typeof setTimeout>;
 };
+interface GrantClock {
+  now(): number;
+  schedule(callback: () => void, delayMs: number): () => void;
+}
+const grantClock: GrantClock = {
+  now: () => Date.now(),
+  schedule(callback, delayMs) {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref?.();
+    return () => clearTimeout(timer);
+  },
+};
 type Assignment = {
+  durationMinutes: BrowserGrantDuration;
+  expiresAt: number | null;
+  cancelExpiry?: () => void;
   id: string;
   agentId: string;
   session: string;
@@ -45,6 +62,7 @@ export class BrowserExtensionBridge {
       agentDisplay?(agent: string): BrowserDisplay;
       agents?(member: string): string[];
     },
+    private clock: GrantClock = grantClock,
   ) {}
 
   connect(credential: string, peer: BridgePeer): ExtensionConnection {
@@ -69,6 +87,7 @@ export class BrowserExtensionBridge {
         ? (agent) => this.access.agentDisplay!(agent)
         : undefined,
       () => this.access.agents?.(member) ?? [],
+      this.clock,
     );
     this.connections.set(member, connection);
     try {
@@ -104,6 +123,7 @@ export class ExtensionConnection {
     private memberDisplay?: () => BrowserDisplay,
     private agentDisplay?: (agent: string) => BrowserDisplay,
     private agents: () => string[] = () => [],
+    private clock: GrantClock = grantClock,
   ) {}
 
   assign(
@@ -113,6 +133,7 @@ export class ExtensionConnection {
     const assignment = [...this.assignments.values()].find((a) => a.agentId === agentId);
     if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected)
       throw new Error("Offer a tab with Allow agent control in the Chrome extension popup");
+    this.check(assignment);
     assignment.peer = peer;
     assignment.connected = true;
     return {
@@ -123,6 +144,7 @@ export class ExtensionConnection {
 
   offered(agentId: string): string | undefined {
     const a = [...this.assignments.values()].find((a) => a.agentId === agentId);
+    if (a && this.expired(a)) { this.release(a); return undefined; }
     return this.active && this.authorize(agentId) && a?.target ? a.id : undefined;
   }
 
@@ -131,13 +153,14 @@ export class ExtensionConnection {
     if (a) this.release(a);
   }
 
-  private async offer(id: string, agentId: string): Promise<void> {
+  private async offer(id: string, agentId: string, durationMinutes: BrowserGrantDuration): Promise<void> {
     if (!this.authorize(agentId) || this.assignments.has(id) ||
         [...this.assignments.values()].some((a) => a.agentId === agentId)) {
       this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
       return;
     }
     const a: Assignment = {
+      durationMinutes, expiresAt: null,
       id, agentId, session: crypto.randomUUID(), browserSession: crypto.randomUUID(),
       peer: { send() {}, close() {} }, children: new Map(), popups: new Map(),
       creating: true, connected: false, announced: false, closed: false,
@@ -152,7 +175,12 @@ export class ExtensionConnection {
         throw new Error("Invalid offered target");
       a.target = target;
       a.creating = false;
-      this.peer.send({ kind: "offered", generation: this.generation, assignment: id });
+      a.expiresAt = durationMinutes === 0 ? null : this.clock.now() + durationMinutes * 60_000;
+      if (a.expiresAt !== null) a.cancelExpiry = this.clock.schedule(() => {
+        if (this.assignments.get(id) === a) this.release(a);
+      }, durationMinutes * 60_000);
+      this.peer.send({ kind: "offered", generation: this.generation, assignment: id,
+        durationMinutes, expiresAt: a.expiresAt });
       this.sendMetadata();
     } catch {
       this.release(a);
@@ -162,7 +190,7 @@ export class ExtensionConnection {
 
   revalidate(): void {
     for (const a of this.assignments.values())
-      if (!this.authorize(a.agentId)) this.release(a);
+      if (!this.authorize(a.agentId) || this.expired(a)) this.release(a);
     this.sendMetadata();
   }
 
@@ -174,15 +202,20 @@ export class ExtensionConnection {
       member: this.memberDisplay(),
       agents: this.agents().filter((agent) => this.authorize(agent)).map((agent) => this.agentDisplay!(agent)),
       assignments: [...this.assignments.values()]
-        .filter((a) => this.authorize(a.agentId))
-        .map((a) => ({ id: a.id, agent: this.agentDisplay!(a.agentId) })),
+        .filter((a) => a.target && this.authorize(a.agentId))
+        .map((a) => ({ id: a.id, agent: this.agentDisplay!(a.agentId), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt })),
     });
+  }
+
+  private expired(a: Assignment): boolean {
+    return a.expiresAt !== null && this.clock.now() >= a.expiresAt;
   }
 
   private check(a: Assignment): void {
     if (
       !this.active ||
       a.closed ||
+      this.expired(a) ||
       this.assignments.get(a.id) !== a ||
       !this.authorize(a.agentId)
     ) {
@@ -231,9 +264,9 @@ export class ExtensionConnection {
       const msg = fields(message);
       if (msg.generation !== this.generation) return;
       if (msg.kind === "offer") {
-        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || typeof msg.agent !== "string")
+        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || typeof msg.agent !== "string" || !validGrantDuration(msg.durationMinutes))
           throw new Error("Invalid offer");
-        void this.offer(msg.assignment, msg.agent);
+        void this.offer(msg.assignment, msg.agent, msg.durationMinutes);
         return;
       }
       if (msg.kind === "agents") { this.revalidate(); return; }
@@ -242,7 +275,7 @@ export class ExtensionConnection {
         if (!pending) return;
         const owner = this.assignments.get(pending.assignment);
         if (!owner) return;
-        if (!this.authorize(owner.agentId)) {
+        if (!this.authorize(owner.agentId) || this.expired(owner)) {
           this.release(owner);
           return;
         }
@@ -258,7 +291,7 @@ export class ExtensionConnection {
         throw new Error("Invalid event");
       const a = this.assignments.get(msg.assignment);
       if (!a) return;
-      if (!this.authorize(a.agentId)) {
+      if (!this.authorize(a.agentId) || this.expired(a)) {
         this.release(a);
         return;
       }
@@ -460,6 +493,7 @@ export class ExtensionConnection {
   private release(a: Assignment): void {
     if (a.closed) return;
     a.closed = true;
+    a.cancelExpiry?.();
     this.assignments.delete(a.id);
     for (const [id, pending] of this.pending) {
       if (pending.assignment !== a.id) continue;

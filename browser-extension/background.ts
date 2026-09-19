@@ -1,6 +1,9 @@
 import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
+  validGrantDuration,
+  validGrantExpiry,
+  type BrowserGrantDuration,
   browserSocketURL,
   officeSocketURL,
   type BrowserMetadata,
@@ -19,6 +22,8 @@ type OwnedTab = {
   popups: Map<string, OwnedTab>;
   attaching?: boolean;
   agent?: { id: string; name: string };
+  durationMinutes?: BrowserGrantDuration;
+  expiresAt?: number | null;
   phase?: "offering" | "on" | "revoking";
   work?: Promise<Fields>;
   releasing?: Promise<void>;
@@ -134,6 +139,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
     assignments: online
       ? [...c.tabs].flatMap(([id, tab]) => tab.agent ? [{
           id, agent: tab.agent, tabId: tab.tabId, phase: tab.phase ?? "offering",
+          durationMinutes: tab.durationMinutes!, expiresAt: tab.expiresAt ?? null,
           current: selected?.id === tab.tabId || [...tab.popups.values()].some((p) => p.tabId === selected?.id),
         }] : []) : [],
   };
@@ -180,16 +186,16 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       const selected = await currentTab(msg.tabId);
       check(c);
       const agent = c.metadata?.agents.find((a) => a.id === msg.agent);
-      if (!selected?.eligible || !selected.active || selected.windowId !== msg.windowId || !agent ||
+      if (!validGrantDuration(msg.durationMinutes) || !selected?.eligible || !selected.active || selected.windowId !== msg.windowId || !agent ||
           [...c.tabs.values()].some((tab) => tab.agent?.id === agent.id || tab.tabId === selected.id ||
             [...tab.popups.values()].some((popup) => popup.tabId === selected.id))) throw new Error();
       const id = crypto.randomUUID();
-      const tab: OwnedTab = { tabId: selected.id, agent, phase: "offering", children: new Set(), popups: new Map() };
+      const tab: OwnedTab = { tabId: selected.id, agent, durationMinutes: msg.durationMinutes, expiresAt: null, phase: "offering", children: new Set(), popups: new Map() };
       c.tabs.set(id, tab);
       const accepted = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => { close(c); }, 30_000);
         c.offers.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
-        send(c, { kind: "offer", generation: c.generation, assignment: id, agent: agent.id });
+        send(c, { kind: "offer", generation: c.generation, assignment: id, agent: agent.id, durationMinutes: msg.durationMinutes });
       });
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
         await revoke(c, id);
@@ -540,21 +546,28 @@ async function configure(reset = true): Promise<void> {
               if (
                 typeof a.id !== "string" ||
                 typeof agent.id !== "string" ||
-                typeof agent.name !== "string"
+                typeof agent.name !== "string" ||
+                !validGrantDuration(a.durationMinutes) || !validGrantExpiry(a.durationMinutes, a.expiresAt)
               )
                 throw new Error();
-              return { id: a.id, agent: { id: agent.id, name: agent.name } };
+              return { id: a.id, agent: { id: agent.id, name: agent.name }, durationMinutes: a.durationMinutes, expiresAt: a.expiresAt };
             }),
           };
           for (const [id, tab] of c.tabs) {
             const agent = c.metadata.agents.find(a => a.id === tab.agent?.id);
             if (agent) tab.agent = agent;
-            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && a.agent.id === tab.agent?.id))
+            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && a.agent.id === tab.agent?.id && a.durationMinutes === tab.durationMinutes && a.expiresAt === tab.expiresAt))
               void revoke(c, id);
           }
           return;
         }
         if (msg.kind === "offered" && typeof msg.assignment === "string") {
+          const tab = c.tabs.get(msg.assignment);
+          if (!c.offers.has(msg.assignment) || !tab || tab.phase !== "offering") return;
+          if (!msg.error) {
+            if (msg.durationMinutes !== tab.durationMinutes || !validGrantExpiry(msg.durationMinutes, msg.expiresAt)) throw new Error("Invalid grant expiry");
+            tab.expiresAt = msg.expiresAt;
+          }
           c.offers.get(msg.assignment)?.(!msg.error);
           c.offers.delete(msg.assignment);
           return;

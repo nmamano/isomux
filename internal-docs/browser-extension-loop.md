@@ -395,7 +395,7 @@ integration, preserving the settings improvements and icon. Nil granted PM
 standing restart permission. No push or publication authorized.
 
 
-Implementation of the approved per-tab contract uses protocol 2 / extension 0.2.0.
+Implementation of the approved per-tab contract uses protocol 3 / extension 0.3.0.
 The generation-bound offer reserves the selected agent and exact local tab before
 attach. Off cancels pending or active ownership; reconnect and reload require a
 new offer. The packaged office sanity fixture uses raw Chrome without Playwright
@@ -406,3 +406,8 @@ a trusted background click with a screenshot, conflicts, and retained-page Off.
 ### Attachment acceptance
 
 The office live fixture attaches a 4 MiB binary fixture through the packaged extension and the browser upload API. It checks the page File’s exact SHA256, basename, MIME type, size and input/change events; no server path or desktop-path CDP command may cross the bridge. The fixture also checks ambiguous selectors, another agent, and Off during a held upload response. An interrupted attachment may already have selected the file, so the agent must inspect before any retry. This fixture never submits or publishes content.
+
+
+### Expiry acceptance
+
+Control expiry is a fixed per-offer deadline selected in the popup, default Never. Deterministic bridge tests cover expiry before the first action, actions that preserve the deadline, held work interrupted at expiry, and stale timers after re-offer. Session tests prove Never has no Desktop Chrome idle timer and expiry does not replay queued work. Popup tests cover the default, disabled pending/ON/revoking control, local deadline display and reset after Off. The packaged fixture checks a timed offer’s displayed deadline without waiting for wall-clock expiry.

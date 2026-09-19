@@ -54,7 +54,7 @@ async function harness() {
 }
 async function offer(connection: import("./browser-extension-bridge").ExtensionConnection, messages: Fields[], agent: string, targetId: string) {
   const assignment = crypto.randomUUID();
-  connection.receive({ kind: "offer", generation: connection.generation, assignment, agent });
+  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent });
   const command = messages.at(-1)!;
   connection.receive({ kind: "result", generation: connection.generation, id: command.id,
     result: { targetInfo: { targetId, type: "page", url: "https://example.com/" } } });
@@ -76,7 +76,7 @@ describe("browser extension isolation", () => {
       await new Promise<void>((resolve, reject) => {
         ws.onopen = () =>
           ws.send(
-            JSON.stringify({ kind: "hello", version: 2, credential: "wrong" }),
+            JSON.stringify({ kind: "hello", version: 3, credential: "wrong" }),
           );
         ws.onmessage = (event) => received.push(String(event.data));
         ws.onclose = () => resolve();
@@ -195,7 +195,7 @@ describe("browser extension isolation", () => {
     const nextPeer = peer();
     const fresh = h.bridge.connect(h.credential, nextPeer);
     const assignment = crypto.randomUUID();
-    fresh.receive({ kind: "offer", generation: fresh.generation, assignment, agent: "agent" });
+    fresh.receive({ kind: "offer", durationMinutes: 0, generation: fresh.generation, assignment, agent: "agent" });
     const freshSent = nextPeer.messages.at(-1)!;
     fresh.receive({ kind: "result", generation: h.connection.generation, id: freshSent.id,
       result: { targetInfo: { targetId: "old", type: "page", url: "https://example.com/" } } });
@@ -348,7 +348,7 @@ for (const outcome of ["off", "access", "error", "invalid-target", "disconnect"]
     const h = await harness();
     h.connection.revoke("agent");
     const assignment = crypto.randomUUID();
-    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment, agent: "agent" });
+    h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment, agent: "agent" });
     const pending = h.extension.messages.at(-1)!;
     expect(pending.method).toBe("attach");
     expect(() => h.connection.assign("agent", peer())).toThrow();
@@ -367,7 +367,7 @@ for (const outcome of ["off", "access", "error", "invalid-target", "disconnect"]
 test("offer rechecks access and reserves one agent before attachment completes", async () => {
   const h = await harness();
   h.connection.revoke("agent");
-  const send = (agent: string) => h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment: crypto.randomUUID(), agent });
+  const send = (agent: string) => h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment: crypto.randomUUID(), agent });
   send("foreign-agent");
   expect(h.extension.messages.at(-1)!.error).toBe(true);
   send("agent");
@@ -376,4 +376,154 @@ test("offer rechecks access and reserves one agent before attachment completes",
   expect(h.extension.messages.at(-1)!.error).toBe(true);
   expect(h.extension.messages.filter(m => m.method === "attach")).toHaveLength(count);
   h.connection.close();
+});
+
+function expiryHarness() {
+  let now = 1_800_000_000_000;
+  const timers: Array<{ callback: () => void; at: number; cancelled: boolean }> = [];
+  const extension = peer();
+  const bridge = new BrowserExtensionBridge({
+    memberForCredentialHash: () => "member", mayUse: () => true,
+    memberDisplay: () => ({ id: "member", name: "Member" }),
+    agentDisplay: id => ({ id, name: id }), agents: () => ["agent"],
+  }, {
+    now: () => now,
+    schedule: (callback, delayMs) => {
+      const timer = { callback, at: now + delayMs, cancelled: false };
+      timers.push(timer);
+      return () => { timer.cancelled = true; };
+    },
+  });
+  const connection = bridge.connect("credential", extension);
+  const start = (durationMinutes: unknown, assignment = crypto.randomUUID()) => {
+    connection.receive({ kind: "offer", generation: connection.generation, assignment, agent: "agent", durationMinutes });
+    return assignment;
+  };
+  const accept = async () => {
+    const attach = extension.messages.findLast(m => m.method === "attach")!;
+    connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
+      result: { targetInfo: { targetId: crypto.randomUUID(), type: "page", url: "https://example.com/" } } });
+    await Promise.resolve();
+    return extension.messages.findLast(m => m.kind === "offered")!;
+  };
+  return { connection, extension, timers, start, accept, now: () => now,
+    advance: (ms: number, fire = true) => {
+      now += ms;
+      if (fire) for (const timer of [...timers]) if (!timer.cancelled && timer.at <= now) timer.callback();
+    } };
+}
+
+test("grant deadline starts after attachment, expires before any action and cannot revoke a replacement", async () => {
+  const h = expiryHarness();
+  try {
+    const original = h.start(15);
+    h.advance(5 * 60_000);
+    expect(h.timers).toHaveLength(0);
+    const ack = await h.accept();
+    expect(ack).toMatchObject({ assignment: original, durationMinutes: 15, expiresAt: h.now() + 15 * 60_000 });
+    expect(h.connection.offered("agent")).toBe(original);
+    expect(h.timers).toHaveLength(1);
+    const oldTimer = h.timers[0];
+    h.advance(15 * 60_000);
+    expect(h.connection.offered("agent")).toBeUndefined();
+    expect(h.extension.messages).toContainEqual(expect.objectContaining({ method: "detach", assignment: original }));
+    expect(oldTimer.cancelled).toBe(true);
+    const replacement = h.start(0);
+    await h.accept();
+    expect(replacement).not.toBe(original);
+    expect(h.connection.offered("agent")).toBe(replacement);
+    oldTimer.callback();
+    h.advance(4 * 60 * 60_000);
+    expect(h.connection.offered("agent")).toBe(replacement);
+    expect(h.timers).toHaveLength(1);
+    expect(h.extension.messages.findLast(m => m.kind === "metadata")?.assignments).toMatchObject([
+      { id: replacement, durationMinutes: 0, expiresAt: null },
+    ]);
+  } finally { h.connection.close(); }
+});
+
+test("actions do not extend a grant; deadline interrupts held commands without replay", async () => {
+  const h = expiryHarness();
+  try {
+    const id = h.start(60);
+    const ack = await h.accept();
+    const client = peer();
+    const agent = h.connection.assign("agent", client);
+    await agent.receive({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
+    const sessionId = fields(client.messages.find(m => m.method === "Target.attachedToTarget")!.params).sessionId;
+    h.advance(30 * 60_000);
+    const pending = agent.receive({ id: 2, sessionId, method: "Runtime.evaluate", params: { expression: "1" } });
+    const command = h.extension.messages.findLast(m => m.method === "cdp")!;
+    expect(fields(command.params).method).toBe("Runtime.evaluate");
+    expect(command.assignment).toBe(id);
+    expect(h.connection.offered("agent")).toBe(id);
+    h.connection.sendMetadata();
+    expect(h.extension.messages.findLast(m => m.kind === "metadata")?.assignments).toMatchObject([{ expiresAt: ack.expiresAt }]);
+    expect(h.timers).toHaveLength(1);
+    h.advance(30 * 60_000);
+    await pending;
+    expect(client.closed).toBe(true);
+    expect(client.messages.find(m => m.id === 2)).toBeUndefined();
+    expect(h.connection.offered("agent")).toBeUndefined();
+    const replacement = h.start(15);
+    await h.accept();
+    expect(replacement).not.toBe(id);
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    expect(h.connection.offered("agent")).toBe(replacement);
+    expect(h.extension.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+  } finally { h.connection.close(); }
+});
+
+test("ownership checks enforce elapsed deadlines even before the timer callback runs", async () => {
+  for (const boundary of ["offered", "assign", "command", "revalidate"] as const) {
+    const h = expiryHarness();
+    try {
+      h.start(15); await h.accept();
+      const client = peer();
+      const agent = boundary === "command" ? h.connection.assign("agent", client) : undefined;
+      h.advance(15 * 60_000, false);
+      if (boundary === "assign") expect(() => h.connection.assign("agent", client)).toThrow();
+      else if (boundary === "command") await agent!.receive({ id: 1, method: "Browser.getVersion" });
+      else if (boundary === "revalidate") h.connection.revalidate();
+      else expect(h.connection.offered("agent")).toBeUndefined();
+      expect(h.timers[0].cancelled).toBe(true);
+      expect(h.connection.offered("agent")).toBeUndefined();
+    } finally { h.connection.close(); }
+  }
+});
+
+test("offer rejects missing or non-member durations without attaching", () => {
+  for (const value of [undefined, null, "15", -1, 1, 15.5, Infinity, NaN]) {
+    const h = expiryHarness();
+    try {
+      h.start(value);
+      expect(h.extension.closed).toBe(true);
+      expect(h.extension.messages.some(m => m.method === "attach")).toBe(false);
+    } finally { h.connection.close(); }
+  }
+});
+
+test("a result arriving after expiry releases only its grant when the timer is delayed", async () => {
+  const h = expiryHarness();
+  try {
+    h.start(15); await h.accept();
+    const client = peer();
+    const agent = h.connection.assign("agent", client);
+    await agent.receive({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
+    const sessionId = fields(client.messages.find(m => m.method === "Target.attachedToTarget")!.params).sessionId;
+    const pending = agent.receive({ id: 2, sessionId, method: "Runtime.evaluate", params: { expression: "1" } });
+    const command = h.extension.messages.findLast(m => m.method === "cdp")!;
+    expect(command).toBeDefined();
+    const other = crypto.randomUUID();
+    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment: other, agent: "other", durationMinutes: 0 });
+    await h.accept();
+    expect(h.connection.offered("other")).toBe(other);
+    h.advance(15 * 60_000, false);
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    await pending;
+    expect(client.closed).toBe(true);
+    expect(client.messages.find(m => m.id === 2)).toBeUndefined();
+    expect(h.extension.closed).toBe(false);
+    expect(h.connection.offered("other")).toBe(other);
+  } finally { h.connection.close(); }
 });

@@ -20,7 +20,6 @@ type Session = {
   pages: Page[];
   parents: Map<Page, Page>;
   opened: boolean;
-  timer?: ReturnType<typeof setTimeout>;
 };
 const failure = (
   code:
@@ -53,7 +52,6 @@ export class ExtensionBrowserSessions {
     const session = this.sessions.get(agent);
     if (!session) return;
     this.sessions.delete(agent);
-    clearTimeout(session.timer);
     void session.browser.close().catch(() => {});
   }
   async endMember(member: string, agents: string[]): Promise<void> {
@@ -213,7 +211,6 @@ export class ExtensionBrowserSessions {
         context.on("page", adoptPopup);
         browser.on("disconnected", () => {
           if (this.sessions.get(agent) === owned) {
-            clearTimeout(owned.timer);
             this.sessions.delete(agent);
           }
         });
@@ -222,7 +219,6 @@ export class ExtensionBrowserSessions {
         this.end(agent);
         return ended();
       }
-      clearTimeout(session.timer);
       const timeout = actionMs;
       const page = session.page;
       let uploaded: UploadedFile | undefined;
@@ -281,8 +277,6 @@ export class ExtensionBrowserSessions {
         this.end(agent);
         return ended();
       }
-      session.timer = setTimeout(() => this.end(agent), 15 * 60_000);
-      session.timer.unref?.();
       return result;
     };
     try {
