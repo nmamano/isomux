@@ -8,7 +8,7 @@ import { browserExtensionFixture } from "./test-support/browser-extension-fixtur
 import { browserExtensionTransport } from "./browser-extension-transport";
 
 test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
-  "owned background roots and popups click without activating tabs and restore focus on detach",
+  "owned background roots and popups click without activating tabs and disable emulation on detach",
   async () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-background-proof-"));
     const fixture = browserExtensionFixture();
@@ -63,6 +63,26 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         if (Date.now() >= deadline) throw new Error("Fixture connection did not settle");
         await new Promise(resolve => setTimeout(resolve, 20));
       }
+      const worker = setup.serviceWorkers().find(w => w.url().endsWith("/background.js"))!;
+      expect(worker).toBeDefined();
+      await worker.evaluate(() => {
+        const g = globalThis as unknown as {
+          chrome: { debugger: { sendCommand(target: { tabId: number }, method: string, params?: Record<string, unknown>): Promise<unknown> } };
+          beforeFocus: Array<{ tabId: number; state: unknown }>;
+        };
+        g.beforeFocus = [];
+        const original = g.chrome.debugger.sendCommand.bind(g.chrome.debugger);
+        g.chrome.debugger.sendCommand = async (target, method, params) => {
+          if (method === "Emulation.setFocusEmulationEnabled" && params?.enabled === true) {
+            const state = await original(target, "Runtime.evaluate", {
+              expression: "JSON.stringify({focused:document.hasFocus(),visibility:document.visibilityState})",
+              userGesture: false, returnByValue: true,
+            });
+            g.beforeFocus.push({ tabId: target.tabId, state });
+          }
+          return original(target, method, params);
+        };
+      });
       // noDefaults on this administrator is essential: normal Playwright
       // initialization emulates focus on all pages and would mask this defect.
       const state = () => ({ visibility: document.visibilityState, focused: document.hasFocus() });
@@ -119,12 +139,18 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         const tabId = before.targets.find(t => t.id === target.targetId)?.tabId;
         expect(tabId).toBeNumber();
         taskTabIds.push(tabId!);
+        if (role === "root") {
+          const beforeEnable = await worker.evaluate(tabId => {
+            const snapshots = (globalThis as unknown as { beforeFocus: Array<{ tabId: number; state: { result: { value: string } } }> }).beforeFocus;
+            return JSON.parse(snapshots.find(s => s.tabId === tabId)!.state.result.value) as { visibility: string; focused: boolean };
+          }, tabId!);
+          expect(beforeEnable.visibility).toBe("hidden");
+          evidence.push({ beforeEnable, tabId });
+        }
         expect(before.tabs.find(t => t.id === tabId)?.active).toBe(false);
         expect(activeTabs(before)).toEqual(activeBefore);
         expect(await unrelated.evaluate(state)).toEqual(unrelatedBefore);
         const controlled = await page.evaluate(state);
-        expect(controlled.focused).toBe(true);
-        expect(controlled.visibility).toBe("visible");
         expect(await page.evaluate(() => document.body.dataset.clicks)).toBe("0");
         let error: string | undefined;
         try {
@@ -137,6 +163,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         evidence.push({ role, target: target.targetId, tabId, controlled, clicks, error, activeBefore: activeTabs(before), activeAfter: activeTabs(after) });
         expect(error).toBeUndefined();
         expect(clicks).toBe("1");
+        expect(controlled.focused).toBe(true);
+        expect(controlled.visibility).toBe("visible");
         expect(activeTabs(after)).toEqual(activeBefore);
         expect(await unrelated.evaluate(state)).toEqual(unrelatedBefore);
       }
@@ -144,19 +172,34 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       agent = undefined;
       const retained = setup.pages().filter(p => p.url() === fixture.origin + "/form");
       expect(retained).toHaveLength(2);
-      // The bridge requests detach asynchronously. Observe its completed effect,
-      // without replaying an action or changing the tab's focus.
+      // Native CDP input can leave hasFocus=true even without emulation.
+      // The 2026-09-19 native-only probe had no DOM click, so it proves no
+      // delivered action. Check override cleanup and debugger ownership here.
       for (const page of retained) {
+        const role = await page.evaluate(() => document.body.dataset.role);
+        const tabId = taskTabIds[role === "root" ? 0 : 1];
+        const detached = () => extensionPage.evaluate(async tabId => {
+          const chrome = (globalThis as unknown as { chrome: { debugger: {
+            sendCommand(target: { tabId: number }, method: string, params: object): Promise<unknown>;
+          } } }).chrome;
+          try {
+            await chrome.debugger.sendCommand({ tabId }, "Runtime.evaluate", { expression: "0", userGesture: false });
+            return false;
+          } catch (error) {
+            return String(error).includes("Debugger is not attached");
+          }
+        }, tabId);
         const deadline = Date.now() + 5000;
-        let released = await page.evaluate(state);
-        while ((released.focused || released.visibility !== backgroundState.visibility) && Date.now() < deadline) {
+        let isDetached = await detached();
+        while (!isDetached && Date.now() < deadline) {
           await new Promise(resolve => setTimeout(resolve, 20));
-          released = await page.evaluate(state);
+          isDetached = await detached();
         }
-        expect(released.focused).toBe(backgroundState.focused);
+        expect(isDetached).toBe(true);
+        const released = await page.evaluate(state);
         expect(released.visibility).toBe(backgroundState.visibility);
         expect(await page.evaluate(() => document.body.dataset.clicks)).toBe("1");
-        evidence.push({ released, role: await page.evaluate(() => document.body.dataset.role) });
+        evidence.push({ released, role, isDetached });
       }
       const afterDetach = await inventory();
       expect(taskTabIds.every(id => afterDetach.tabs.some(tab => tab.id === id))).toBe(true);

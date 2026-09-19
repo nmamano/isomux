@@ -189,7 +189,7 @@ async function harness() {
             resolve = done;
           });
       else if (stage === "focus")
-        focus = () => new Promise<void>(done => { resolve = done; });
+        focus = () => { focus = async () => ({}); return new Promise<void>(done => { resolve = done; }); };
       else
         targetInfo = (tabId) =>
           new Promise((done) => {
@@ -311,6 +311,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   await settle();
   const attached = h.calls.filter((call) => call === "attach").length;
   expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }]);
+  expect(h.calls).toEqual(["create", "attach", "Emulation.setFocusEmulationEnabled", "Target.getTargetInfo"]);
   h.navigation(900, 901);
   await settle();
   expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached);
@@ -320,6 +321,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
     h.socket.sent.filter((message) => message.method === "popup"),
   ).toHaveLength(1);
   expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }, { tabId: 8, params: { enabled: true } }]);
+  expect(h.calls.slice(-3)).toEqual(["attach", "Emulation.setFocusEmulationEnabled", "Target.getTargetInfo"]);
   const event = h.socket.sent.find((message) => message.method === "popup")!;
   expect(fields(fields(event.params).targetInfo).openerId).toBe("owned");
   h.navigation(7, 9);
@@ -496,5 +498,6 @@ test("detach restores focus on only the root and its owned popup", async () => {
     { tabId: 7, params: { enabled: false } },
   ]);
   expect(h.calls.filter(c => c === "detach")).toHaveLength(2);
+  expect(h.calls.slice(-4)).toEqual(["Emulation.setFocusEmulationEnabled", "detach", "Emulation.setFocusEmulationEnabled", "detach"]);
   h.socket.close();
 });
