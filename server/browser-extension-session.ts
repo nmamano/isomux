@@ -1,7 +1,7 @@
 import { chromium, type Browser, type Page } from "playwright-core";
 import { browserExtensionTransport } from "./browser-extension-transport";
 import type { BrowserExtensionService } from "./browser-extension-service";
-import { browserPool, parseBrowserParams, describeShot, MAX_TEXT_CHARS, MAX_SNAPSHOT_CHARS, type BrowserResult } from "./browser-session";
+import { BROWSER_ACTION_DEADLINE_MS, browserPool, parseBrowserParams, describeShot, MAX_TEXT_CHARS, MAX_SNAPSHOT_CHARS, type BrowserResult } from "./browser-session";
 
 type Session = { member: string; browser: Browser; page: Page; pages: Page[]; parents: Map<Page, Page>; opened: boolean; timer?: ReturnType<typeof setTimeout> };
 const failure = (code: "browser_not_paired" | "browser_offline" | "browser_control_ended" | "action_failed", error: string): BrowserResult => ({ ok: false, status: 500, code, error });
@@ -12,7 +12,7 @@ export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
   private epochs = new Map<string, number>();
-  constructor(private service: BrowserExtensionService, private owner: (agent: string) => string | undefined, private mayUse: (member: string, agent: string) => boolean) {}
+  constructor(private service: BrowserExtensionService, private owner: (agent: string) => string | undefined, private mayUse: (member: string, agent: string) => boolean, private actionDeadline: () => number = () => BROWSER_ACTION_DEADLINE_MS) {}
   private end(agent: string): void {
     const session = this.sessions.get(agent);
     if (!session) return;
@@ -45,6 +45,7 @@ export class ExtensionBrowserSessions {
     return work;
   }
   private async extensionAction(member: string, agent: string, body: unknown, epoch: number): Promise<BrowserResult> {
+    const actionMs = this.actionDeadline();
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
     if (params.action === "close") { this.end(agent); return { ok: true, url: "", title: "", closed: true }; }
@@ -62,7 +63,7 @@ export class ExtensionBrowserSessions {
       const createdPage = !session;
       if (!session) {
         transport = browserExtensionTransport(connection, agent);
-        const browser = await chromium.connectOverCDP(transport, { noDefaults: true, timeout: 30_000 });
+        const browser = await chromium.connectOverCDP(transport, { noDefaults: true, timeout: actionMs });
         if (!valid() || timedOut) { await browser.close(); return ended(); }
         const context = browser.contexts()[0];
         const page = await context.newPage();
@@ -86,7 +87,7 @@ export class ExtensionBrowserSessions {
       }
       if (!valid() || timedOut) { this.end(agent); return ended(); }
       clearTimeout(session.timer);
-      const timeout = 30_000;
+      const timeout = actionMs;
       const page = session.page;
       switch (params.action) {
         case "goto": await page.goto(params.url!.toString(), { waitUntil: "load", timeout }); session.opened = true; break;
@@ -105,7 +106,7 @@ export class ExtensionBrowserSessions {
       return result;
     };
     try {
-      return await Promise.race([task(), new Promise<BrowserResult>((resolve) => { timer = setTimeout(() => { timedOut = true; transport?.close(); this.end(agent); resolve(ended()); }, 30_000); })]);
+      return await Promise.race([task(), new Promise<BrowserResult>((resolve) => { timer = setTimeout(() => { timedOut = true; transport?.close(); this.end(agent); resolve(ended()); }, actionMs); })]);
     } catch (error) {
       if (error instanceof Error && error.name === "TimeoutError") { transport?.close(); this.end(agent); return ended(); }
       if (!session) transport?.close();

@@ -496,7 +496,7 @@ function createManagers(startOpts: StartServerOpts): void {
     memberExists: (member) => !!getUserById(member),
     mayUse: mayUseExtension,
   });
-  extensionSessions = new ExtensionBrowserSessions(extensionService, (agent) => agentManager.getAgent(agent)?.userId ?? undefined, mayUseExtension);
+  extensionSessions = new ExtensionBrowserSessions(extensionService, (agent) => agentManager.getAgent(agent)?.userId ?? undefined, mayUseExtension, startOpts.browserExtensionActionDeadline);
   cronjobManager =
     startOpts.cronjobManager ??
     createProductionCronjobManager({
@@ -6587,6 +6587,8 @@ function runBackgroundBoot(
 // enforces this with a process-global lock; a direct caller must self-manage.
 
 export interface StartServerOpts {
+  // Isolated browser-action deadline seam; production uses 30 seconds.
+  browserExtensionActionDeadline?: () => number;
   // Tests override the production install-kind marker without touching /etc.
   installKind?: InstallKind;
   // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for

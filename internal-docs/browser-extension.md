@@ -33,7 +33,10 @@ the code. The member pairs again after a lost paired response.
 
 `browser-connections.json` is an atomic 0600 file keyed by member id. Records
 contain the selected backend, credential SHA-256 hash and extension Origin.
-Missing backend values read as headless. No raw credential or pairing code is
+Missing backend values read as headless. Malformed or unreadable browser state
+starts unpaired with headless defaults and does not prevent office startup. The
+server preserves the unreadable file until an explicit member write replaces it.
+No raw credential or pairing code is
 stored server-side. Raw credentials travel only in the paired WebSocket frame
 and trusted extension-local storage. They are not office authentication tokens.
 
@@ -134,7 +137,8 @@ Slice 1 proved real Chrome attachment and form/text/snapshot/click/screenshot
 through the public seam, assigned-only discovery, no replay after connection
 loss, and detach leaving pages open. The slice-2 opt-in real-extension test uses
 the actual office routes and isolated member/profile state, two task agents,
-frames, popup return, screenshot action, and revocation. Unit and route tests
+frames, popup return, screenshot action, revocation, and a short injected action
+deadline. The fixture asserts the unchanged 30-second production default. Unit and route tests
 cover code expiry/reuse/hash persistence, restart, Origin and app-host exclusion,
 credential separation, active access loss, popup ownership and stale generations.
 Gate logs identify the committed hash and results; no Windows or real-site

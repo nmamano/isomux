@@ -15,14 +15,22 @@ export class BrowserExtensionStore {
   private codes = new Map<string, { member: string; expiresAt: number; replace: boolean }>();
   constructor(private path: string, private now = Date.now) {
     if (!existsSync(path)) return;
-    const raw = JSON.parse(readFileSync(path, "utf8"));
-    for (const [member, entry] of Object.entries(raw)) {
-      if (!entry || typeof entry !== "object") continue;
-      const r = entry as BrowserRecord;
-      this.records[member] = {
-        backend: r.backend === "extension" ? "extension" : "headless",
-        ...(typeof r.hash === "string" && /^[a-f0-9]{64}$/.test(r.hash) && typeof r.origin === "string" && extensionOrigin(r.origin) ? { hash: r.hash, origin: r.origin } : {}),
-      };
+    try {
+      const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+      for (const [member, entry] of Object.entries(raw)) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+        const r = entry as BrowserRecord;
+        this.records[member] = {
+          backend: r.backend === "extension" ? "extension" : "headless",
+          ...(typeof r.hash === "string" && /^[a-f0-9]{64}$/.test(r.hash) && typeof r.origin === "string" && extensionOrigin(r.origin) ? { hash: r.hash, origin: r.origin } : {}),
+        };
+      }
+    } catch {
+      // Optional browser state cannot prevent office startup. Keep the file
+      // for inspection; only a later explicit member write replaces it.
+      // Never include persisted content or read errors in logs.
+      this.records = Object.create(null);
     }
   }
   record(member: string): Readonly<BrowserRecord> {

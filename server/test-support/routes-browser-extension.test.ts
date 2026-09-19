@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
 import { startFlatOffice, raw, WS_UPGRADE_HEADERS } from "./app-host-test-kit";
@@ -85,4 +87,16 @@ test("app host dispatch cannot reach pairing or browser sockets", async () => {
     const response = await raw(server.port, { host: "unknown.office.example", path, ...(path.endsWith("/ws") ? { headers: { ...WS_UPGRADE_HEADERS, Origin: origin } } : { method: "POST" }) });
     expect(response.status).toBe(404);
   }
+});
+
+
+test("corrupt optional browser state does not prevent office restart", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner();
+  expect((await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "extension" })).status).toBe(204);
+  writeFileSync(join(server.stateRoot, "browser-connections.json"), "{");
+  server = await server.restart();
+  const response = await memberRequest(server, owner, "GET", "/api/me/browser");
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ backend: "headless", paired: false, online: false });
 });

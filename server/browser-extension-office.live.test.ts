@@ -1,3 +1,4 @@
+import { BROWSER_ACTION_DEADLINE_MS } from "./browser-session";
 import { test, expect } from "bun:test";
 import { chromium, type BrowserContext } from "playwright-core";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -19,7 +20,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
   let office: TestServer | undefined;
   let site: ReturnType<typeof Bun.serve> | undefined;
   try {
-    office = await startTestServer();
+    expect(BROWSER_ACTION_DEADLINE_MS).toBe(30_000);
+    let actionDeadline = BROWSER_ACTION_DEADLINE_MS;
+    office = await startTestServer({ startServer: { browserExtensionActionDeadline: () => actionDeadline } });
     const owner = await office.seedOwner();
     const first = await ownedAgent(office, owner, "first");
     const second = await ownedAgent(office, owner, "second");
@@ -67,6 +70,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")("real office rout
     expect((await action(second.id, { action: "text" })).status).toBe(200);
     const targets = await setupCDP.send("Target.getTargets");
     expect(targets.targetInfos.filter((target) => target.url === url)).toHaveLength(2);
+    actionDeadline = 100;
     expect((await action(second.id, { action: "fill", selector: "#missing-timeout-fixture", text: "unused" })).body.error.code).toBe("browser_control_ended");
     expect((await memberRequest(office, owner, "DELETE", "/api/me/browser")).status).toBe(204);
     expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_not_paired");

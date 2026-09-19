@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -42,5 +42,33 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     expect(store.redeem(fresh.code, origin, () => true).member).toBe("two");
     restart.revoke("one");
     expect(restart.record("one").hash).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test("malformed and unreadable browser state starts unpaired with headless defaults", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-store-invalid-"));
+  const path = join(dir, "connections.json");
+  try {
+    for (const content of ["{", "null", "[]", "7", '\"invalid\"']) {
+      writeFileSync(path, content);
+      const store = new BrowserExtensionStore(path);
+      expect(store.record("member")).toEqual({ backend: "headless" });
+      expect(store.memberForHash(browserCredentialHash("old credential"))).toBeUndefined();
+      expect(readFileSync(path, "utf8")).toBe(content);
+    }
+    // A directory deterministically rejects readFileSync, even under root.
+    rmSync(path);
+    mkdirSync(path);
+    expect(() => readFileSync(path, "utf8")).toThrow();
+    expect(new BrowserExtensionStore(path).record("member")).toEqual({ backend: "headless" });
+    rmSync(path, { recursive: true });
+    writeFileSync(path, "{");
+    const recovered = new BrowserExtensionStore(path);
+    const pair = recovered.pair("member", false);
+    const redeemed = recovered.redeem(pair.code, origin, () => true);
+    expect(new BrowserExtensionStore(path).memberForHash(browserCredentialHash(redeemed.credential), origin)).toBe("member");
+    expect(readFileSync(path, "utf8")).not.toContain(redeemed.credential);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
