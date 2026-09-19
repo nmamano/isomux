@@ -1,8 +1,8 @@
 # General-purpose Isomux container
 
-Design proposal, 2026-09-19. Task 91403f8f. Code inspected at `abe2f213`.
-No image or AWS deployment is verified by this document. Implementation waits
-for Nil's design go/no-go in the consolidated batch report.
+Design approved, 2026-09-20. Task 91403f8f. Original code inspection: `abe2f213`.
+The implementation and local image checks are complete. Real AWS acceptance
+remains pending; see [the container reference](../deploy/container/README.md).
 
 ## Recommendation
 

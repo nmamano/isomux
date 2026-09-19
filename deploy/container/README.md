@@ -47,7 +47,7 @@ Open the HTTPS office and enter the setup key and owner name. Remove the key
 from the deployment configuration after claim. The office launcher removes it
 from its environment, but the supervisor retains its original environment until
 container replacement. Replace the container immediately after removing the key.
-Connect providers through Settings → You → Connections.
+Connect providers through Settings → You → Individual connections.
 Real provider login and turns need acceptance checks on the target deployment.
 
 The image probe sends `GET /`: setup returns 200; the office returns 401 without
@@ -165,7 +165,7 @@ checks the reference command with isolated storage, stop/start persistence,
 resource limits, and missing-directory refusal. Host mount ordering and reboot
 still need the AWS check.
 
-Nil must verify the real AWS deployment: owner claim and invites; required
+Before production use, verify the real AWS deployment: owner claim and invites; required
 provider logins and turns; terminal and browser preview; app HTTPS, access, and
 WebSockets; office restart; container replacement; host reboot; missing-volume
 startup refusal; and snapshot restore. Record the date, image digest, runtime,
