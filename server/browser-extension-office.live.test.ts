@@ -50,32 +50,63 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         return { status: response.status, body: await response.json() };
       };
       setup = await chromium.launchPersistentContext(join(dir, "profile"), {
-        executablePath: "/usr/bin/google-chrome", headless: false,
+        executablePath: "/usr/bin/google-chrome",
+        headless: false,
         args: ["--enable-unsafe-extension-debugging"],
-        ignoreDefaultArgs: ["--disable-extensions"], timeout: 10_000,
+        ignoreDefaultArgs: ["--disable-extensions"],
+        timeout: 10_000,
       });
       const { t } = translatorFor("en");
       const officeOrigin = buildPublicOrigin().origin;
-      await setup.addCookies([{ name: "isomux_session", value: owner.rawSessionId, url: officeOrigin }]);
+      await setup.addCookies([
+        {
+          name: "isomux_session",
+          value: owner.rawSessionId,
+          url: officeOrigin,
+        },
+      ]);
       const settings = await setup.newPage();
       await settings.goto(officeOrigin + "/settings");
-      await settings.getByRole("button", { name: t("browser.title"), exact: true }).click();
+      await settings
+        .getByRole("button", { name: t("browser.title"), exact: true })
+        .click();
       await settings.getByTestId("browser-backend").selectOption("extension");
-      await wait(async () => (await (await memberRequest(office!, owner, "GET", "/api/me/browser")).json()).backend === "extension");
-      expect((await action(first.id, { action: "goto", url: "http://localhost/" })).body.error.code).toBe("browser_not_paired");
+      await wait(
+        async () =>
+          (
+            await (
+              await memberRequest(office!, owner, "GET", "/api/me/browser")
+            ).json()
+          ).backend === "extension",
+      );
+      expect(
+        (await action(first.id, { action: "goto", url: "http://localhost/" }))
+          .body.error.code,
+      ).toBe("browser_not_paired");
       const downloadPromise = settings.waitForEvent("download");
       await settings.locator('a[download="isomux-browser.zip"]').click();
       const download = await downloadPromise;
       await download.saveAs(join(dir, "isomux-browser.zip"));
-      expect(Bun.spawnSync(["unzip", "-q", join(dir, "isomux-browser.zip"), "-d", join(dir, "extension")]).exitCode).toBe(0);
+      expect(
+        Bun.spawnSync([
+          "unzip",
+          "-q",
+          join(dir, "isomux-browser.zip"),
+          "-d",
+          join(dir, "extension"),
+        ]).exitCode,
+      ).toBe(0);
       await settings.getByTestId("browser-pair").click();
       const code = await settings.getByTestId("browser-code").inputValue();
       const setupCDP = await setup.browser()!.newBrowserCDPSession();
-      const { id } = await setupCDP.send("Extensions.loadUnpacked", { path: join(dir, "extension") });
+      const { id } = await setupCDP.send("Extensions.loadUnpacked", {
+        path: join(dir, "extension"),
+      });
       const openPopup = async (targetId?: string) => {
         if (!targetId) {
           const session = await setup!.newCDPSession(settings);
-          targetId = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
+          targetId = (await session.send("Target.getTargetInfo")).targetInfo
+            .targetId;
           await session.detach();
         }
         popup = await openExtensionActionPopup(setupCDP, id, targetId);
@@ -85,14 +116,24 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await popup.fill("#office", officeOrigin);
       await popup.fill("#code", code);
       await popup.click("#pair");
-      await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');
-      expect(await popup.read<string>('document.querySelector("#member").textContent')).toContain(owner.username);
+      await popup.waitFor(
+        'document.querySelector("#status").dataset.state === "connected"',
+      );
+      expect(
+        await popup.read<string>(
+          'document.querySelector("#member").textContent',
+        ),
+      ).toContain(owner.username);
       await popup.screenshot(join(dir, "extension-connected.png"));
       await popup.close();
       await settings.bringToFront();
-      await settings.locator('[data-testid="browser-state"][data-online="true"]').waitFor();
+      await settings
+        .locator('[data-testid="browser-state"][data-online="true"]')
+        .waitFor();
       // Do not preserve a pairing code in evidence, even after redemption.
-      await settings.getByTestId("browser-code").evaluate(element => { (element as HTMLInputElement).value = "[redeemed]"; });
+      await settings.getByTestId("browser-code").evaluate((element) => {
+        (element as HTMLInputElement).value = "[redeemed]";
+      });
       await settings.screenshot({ path: join(dir, "settings-connected.png") });
       site = Bun.serve({
         hostname: "0.0.0.0",
@@ -179,41 +220,127 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect((await action(first.id, { action: "text" })).body.title).toBe(
         "Main",
       );
-      const taskTargets = (await setupCDP.send("Target.getTargets")).targetInfos.filter(target => target.url === url);
+      const taskTargets = (
+        await setupCDP.send("Target.getTargets")
+      ).targetInfos.filter((target) => target.url === url);
       popup = await openPopup(taskTargets[0].targetId);
-      await popup.waitFor('document.querySelectorAll("#assignments section").length === 2');
-      expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("first");
-      expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("second");
-      const firstAssignment = await popup.read<{ id: string; tabId: number }>(`(() => { const row=[...document.querySelectorAll("#assignments section")].find(e=>e.querySelector("p").textContent === "first"); return {id:row.dataset.assignment,tabId:Number(row.dataset.tabId)}; })()`);
-      const badge = await setup.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId);
+      await popup.waitFor(
+        'document.querySelectorAll("#assignments section").length === 2',
+      );
+      expect(
+        await popup.read<string>(
+          'document.querySelector("#assignments").textContent',
+        ),
+      ).toContain("first");
+      expect(
+        await popup.read<string>(
+          'document.querySelector("#assignments").textContent',
+        ),
+      ).toContain("second");
+      const firstAssignment = await popup.read<{ id: string; tabId: number }>(
+        `(() => { const row=[...document.querySelectorAll("#assignments section")].find(e=>e.querySelector("p").textContent === "first"); return {id:row.dataset.assignment,tabId:Number(row.dataset.tabId)}; })()`,
+      );
+      const badge = await setup
+        .serviceWorkers()
+        .find(
+          (worker) => worker.url() === `chrome-extension://${id}/background.js`,
+        )!
+        .evaluate(
+          async (tabId) =>
+            (
+              globalThis as unknown as {
+                chrome: {
+                  action: {
+                    getBadgeText(v: { tabId: number }): Promise<string>;
+                  };
+                };
+              }
+            ).chrome.action.getBadgeText({ tabId }),
+          firstAssignment.tabId,
+        );
       expect(badge).toBe("CTRL");
       await popup.screenshot(join(dir, "extension-control.png"));
-      await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="focus"]`);
-      await wait(async () => setup!.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => {
-        const c = (globalThis as unknown as { chrome: { tabs: { query(v: unknown): Promise<{ id: number }[]> } } }).chrome;
-        return (await c.tabs.query({ active: true, lastFocusedWindow: true })).some(tab => tab.id === tabId);
-      }, firstAssignment.tabId));
+      await popup.click(
+        `[data-assignment="${firstAssignment.id}"] [data-action="focus"]`,
+      );
+      await wait(async () =>
+        setup!
+          .serviceWorkers()
+          .find(
+            (worker) =>
+              worker.url() === `chrome-extension://${id}/background.js`,
+          )!
+          .evaluate(async (tabId) => {
+            const c = (
+              globalThis as unknown as {
+                chrome: {
+                  tabs: { query(v: unknown): Promise<{ id: number }[]> };
+                };
+              }
+            ).chrome;
+            return (
+              await c.tabs.query({ active: true, lastFocusedWindow: true })
+            ).some((tab) => tab.id === tabId);
+          }, firstAssignment.tabId),
+      );
       await popup.close();
       popup = await openPopup(taskTargets[0].targetId);
-      await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="stop"]`);
-      await popup.waitFor(`document.querySelectorAll("#assignments section").length === 1 && !document.querySelector('[data-assignment="${firstAssignment.id}"]')`);
+      await popup.click(
+        `[data-assignment="${firstAssignment.id}"] [data-action="stop"]`,
+      );
+      await popup.waitFor(
+        `document.querySelectorAll("#assignments section").length === 1 && !document.querySelector('[data-assignment="${firstAssignment.id}"]')`,
+      );
       await popup.screenshot(join(dir, "extension-stopped.png"));
-      expect(await setup.serviceWorkers().find(worker => worker.url() === `chrome-extension://${id}/background.js`)!.evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId)).toBe("ON");
-      expect((await setupCDP.send("Target.getTargets")).targetInfos.filter(target => target.url === url)).toHaveLength(2);
+      expect(
+        await setup
+          .serviceWorkers()
+          .find(
+            (worker) =>
+              worker.url() === `chrome-extension://${id}/background.js`,
+          )!
+          .evaluate(
+            async (tabId) =>
+              (
+                globalThis as unknown as {
+                  chrome: {
+                    action: {
+                      getBadgeText(v: { tabId: number }): Promise<string>;
+                    };
+                  };
+                }
+              ).chrome.action.getBadgeText({ tabId }),
+            firstAssignment.tabId,
+          ),
+      ).toBe("ON");
+      expect(
+        (await setupCDP.send("Target.getTargets")).targetInfos.filter(
+          (target) => target.url === url,
+        ),
+      ).toHaveLength(2);
       let retained;
-      for (const page of setup.pages().filter(page => page.url() === url)) {
-        if (await page.locator("#out").textContent() === "first tab") retained = page;
+      for (const page of setup.pages().filter((page) => page.url() === url)) {
+        if ((await page.locator("#out").textContent()) === "first tab")
+          retained = page;
       }
       if (!retained) throw new Error("Owned task page was not retained");
       expect(retained.isClosed()).toBe(false);
       await retained.screenshot({ path: join(dir, "retained-page.png") });
       await popup.click("#disconnect");
-      await popup.waitFor('document.querySelector("#status").dataset.state === "disabled"');
-      expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_offline");
+      await popup.waitFor(
+        'document.querySelector("#status").dataset.state === "disabled"',
+      );
+      expect(
+        (await action(second.id, { action: "text" })).body.error.code,
+      ).toBe("browser_offline");
       await popup.click("#reconnect");
-      await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');
+      await popup.waitFor(
+        'document.querySelector("#status").dataset.state === "connected"',
+      );
       // Recovery starts a fresh task tab; prior pages remain open.
-      expect((await action(second.id, { action: "goto", url })).status).toBe(200);
+      expect((await action(second.id, { action: "goto", url })).status).toBe(
+        200,
+      );
       expect((await action(second.id, { action: "text" })).status).toBe(200);
       const targets = await setupCDP.send("Target.getTargets");
       expect(
@@ -230,10 +357,31 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         ).body.error.code,
       ).toBe("browser_control_ended");
       await popup.click("#unpair");
-      await popup.waitFor('document.querySelector("#status").dataset.state === "unpaired"');
-      expect((await (await memberRequest(office, owner, "GET", "/api/me/browser")).json()).paired).toBe(false);
+      await popup.waitFor(
+        'document.querySelector("#status").dataset.state === "unpaired"',
+      );
+      expect(
+        (
+          await (
+            await memberRequest(office, owner, "GET", "/api/me/browser")
+          ).json()
+        ).paired,
+      ).toBe(false);
       await popup.screenshot(join(dir, "extension-unpaired.png"));
-      writeFileSync(join(dir, "evidence.json"), JSON.stringify({ date: "2026-09-19", packaged: true, member: owner.username, agents: ["first", "second"], actionPopup: true, badge, retainedTabs: 3, disconnectReconnect: true, unpaired: true }));
+      writeFileSync(
+        join(dir, "evidence.json"),
+        JSON.stringify({
+          date: "2026-09-19",
+          packaged: true,
+          member: owner.username,
+          agents: ["first", "second"],
+          actionPopup: true,
+          badge,
+          retainedTabs: 3,
+          disconnectReconnect: true,
+          unpaired: true,
+        }),
+      );
       console.log("Extension evidence:", dir);
       expect(
         (await action(second.id, { action: "text" })).body.error.code,

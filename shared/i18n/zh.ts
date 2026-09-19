@@ -18,8 +18,10 @@ export const zh: Catalog = {
   "browser.blocked": "请在办公室设置中重新配对。",
   "browser.unknown": "解除配对的结果未知。请检查办公室设置。",
   "browser.download": "下载扩展 {version}",
-  "browser.install": "解压 ZIP。在桌面 Chrome 中打开 chrome://extensions，启用开发者模式，选择“加载已解压的扩展程序”，然后选择解压后的文件夹。将 Isomux Browser 固定到工具栏。",
-  "browser.permission": "Chrome 会提示“读取您的浏览记录”。扩展使用此权限将网站打开的弹出窗口关联到相应代理的标签页；扩展不收集浏览记录。",
+  "browser.install":
+    "解压 ZIP。在桌面 Chrome 中打开 chrome://extensions，启用开发者模式，选择“加载已解压的扩展程序”，然后选择解压后的文件夹。将 Isomux Browser 固定到工具栏。",
+  "browser.permission":
+    "Chrome 会提示“读取您的浏览记录”。扩展使用此权限将网站打开的弹出窗口关联到相应代理的标签页；扩展不收集浏览记录。",
   "browser.generate": "创建配对码",
   "browser.replace": "替换配对",
   "browser.replaceHint": "使用新配对码后，原浏览器将失去访问权限。",
@@ -37,7 +39,8 @@ export const zh: Catalog = {
   "browser.focus": "显示标签页",
   "browser.stop": "停止控制",
   "browser.retained": "停止控制后，页面保持打开，音乐继续播放。",
-  "browser.offlineHelp": "离线时如需撤销访问权限，请使用办公室设置中的“浏览器”。",
+  "browser.offlineHelp":
+    "离线时如需撤销访问权限，请使用办公室设置中的“浏览器”。",
   "browser.failed": "浏览器请求失败。请检查连接后重试。",
 
   "lobby.moveHere": "移到这里",

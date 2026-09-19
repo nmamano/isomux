@@ -26,7 +26,8 @@ export const en = {
   "browser.choose": "Select a browser to continue.",
   "browser.server": "Server browser",
   "browser.chrome": "Desktop Chrome",
-  "browser.ownership": "Agents use their manager’s browser. Each agent controls its own tab.",
+  "browser.ownership":
+    "Agents use their manager’s browser. Each agent controls its own tab.",
   "browser.paired": "Paired",
   "browser.unpaired": "Not paired",
   "browser.offline": "Offline",
@@ -36,17 +37,21 @@ export const en = {
   "browser.blocked": "Pair again in office settings.",
   "browser.unknown": "Unpair result unknown. Check office settings.",
   "browser.download": "Download extension {version}",
-  "browser.install": "Extract the ZIP. In desktop Chrome, open chrome://extensions, enable Developer mode, select Load unpacked and choose the extracted folder. Pin Isomux Browser in the toolbar.",
-  "browser.permission": "Chrome warns “Read your browsing history”. The extension uses this permission to bind site-opened popups to their agent’s tab; it does not collect browsing history.",
+  "browser.install":
+    "Extract the ZIP. In desktop Chrome, open chrome://extensions, enable Developer mode, select Load unpacked and choose the extracted folder. Pin Isomux Browser in the toolbar.",
+  "browser.permission":
+    "Chrome warns “Read your browsing history”. The extension uses this permission to bind site-opened popups to their agent’s tab; it does not collect browsing history.",
   "browser.generate": "Create pairing code",
   "browser.replace": "Replace pairing",
-  "browser.replaceHint": "The previous browser loses access when the new code is used.",
+  "browser.replaceHint":
+    "The previous browser loses access when the new code is used.",
   "browser.code": "Pairing code",
   "browser.expires": "Expires at {time}",
   "browser.expired": "Pairing code expired. Create a new code.",
   "browser.copy": "Copy code",
   "browser.copied": "Copied",
-  "browser.pairHelp": "Open Isomux Browser and enter this office address and the pairing code.",
+  "browser.pairHelp":
+    "Open Isomux Browser and enter this office address and the pairing code.",
   "browser.office": "Office address",
   "browser.pair": "Pair Chrome",
   "browser.reconnect": "Reconnect",
@@ -55,8 +60,10 @@ export const en = {
   "browser.focus": "Show tab",
   "browser.stop": "Stop control",
   "browser.retained": "Stopping control leaves pages open and music playing.",
-  "browser.offlineHelp": "To revoke access while offline, use Browser in office settings.",
-  "browser.failed": "Browser request failed. Check the connection and try again.",
+  "browser.offlineHelp":
+    "To revoke access while offline, use Browser in office settings.",
+  "browser.failed":
+    "Browser request failed. Check the connection and try again.",
 
   "lobby.moveHere": "Move here",
   "templates.shared.firstTurn": `To start, learn what the member wants and propose a direction.`,

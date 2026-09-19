@@ -112,69 +112,140 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
 test("metadata uses current records; unpair is bound to authenticated generation and origin", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-metadata-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
-  let member = true, permitted = true, name = "A\nname\u202e";
+  let member = true,
+    permitted = true,
+    name = "A\nname\u202e";
   const service = new BrowserExtensionService(store, {
-    memberExists: () => member, mayUse: () => permitted,
-    memberName: () => "Member\u0000", agentName: () => name,
+    memberExists: () => member,
+    mayUse: () => permitted,
+    memberName: () => "Member\u0000",
+    agentName: () => name,
   });
   const messages: Fields[] = [];
   const ws = {
-    data: { kind: "extension", origin: "chrome-extension://" + "a".repeat(32) } as ExtensionWsData,
+    data: {
+      kind: "extension",
+      origin: "chrome-extension://" + "a".repeat(32),
+    } as ExtensionWsData,
     send: (text: string) => messages.push(JSON.parse(text)),
-    close: () => service.close(ws as unknown as ServerWebSocket<ExtensionWsData>),
+    close: () =>
+      service.close(ws as unknown as ServerWebSocket<ExtensionWsData>),
   };
   const socket = ws as unknown as ServerWebSocket<ExtensionWsData>;
   try {
     store.select("m", "extension");
     const { code } = store.pair("m", false);
     service.open(socket);
-    service.message(socket, JSON.stringify({ kind: "hello", version: 1, code }));
+    service.message(
+      socket,
+      JSON.stringify({ kind: "hello", version: 1, code }),
+    );
     const connection = ws.data.connection!;
     let ended = false;
-    connection.assign("a", { send() {}, close() { ended = true; } });
-    const metadata = () => messages.filter(m => m.kind === "metadata").at(-1)!;
-    expect(metadata()).toEqual({ kind: "metadata", generation: connection.generation, member: { id: "m", name: "Member" }, assignments: [{ id: expect.any(String), agent: { id: "a", name: "Aname" } }] });
+    connection.assign("a", {
+      send() {},
+      close() {
+        ended = true;
+      },
+    });
+    const metadata = () =>
+      messages.filter((m) => m.kind === "metadata").at(-1)!;
+    expect(metadata()).toEqual({
+      kind: "metadata",
+      generation: connection.generation,
+      member: { id: "m", name: "Member" },
+      assignments: [
+        { id: expect.any(String), agent: { id: "a", name: "Aname" } },
+      ],
+    });
     name = "Renamed";
     service.revalidate();
-    expect((metadata().assignments as { agent: { name: string } }[])[0].agent.name).toBe("Renamed");
+    expect(
+      (metadata().assignments as { agent: { name: string } }[])[0].agent.name,
+    ).toBe("Renamed");
     permitted = false;
     service.revalidate();
     expect(ended).toBe(true);
     expect(metadata().assignments).toEqual([]);
     // A forged generation cannot revoke even its own member's pairing.
-    service.message(socket, JSON.stringify({ kind: "unpair", generation: "stale" }));
+    service.message(
+      socket,
+      JSON.stringify({ kind: "unpair", generation: "stale" }),
+    );
     expect(store.record("m").hash).toBeDefined();
-    expect(messages.some(m => m.kind === "unpaired")).toBe(false);
-    const credential = String(messages.find(m => m.kind === "paired")!.credential);
+    expect(messages.some((m) => m.kind === "unpaired")).toBe(false);
+    const credential = String(
+      messages.find((m) => m.kind === "paired")!.credential,
+    );
     const reconnect = () => {
-      ws.data = { kind: "extension", origin: "chrome-extension://" + "a".repeat(32) };
+      ws.data = {
+        kind: "extension",
+        origin: "chrome-extension://" + "a".repeat(32),
+      };
       service.open(socket);
-      service.message(socket, JSON.stringify({ kind: "hello", version: 1, credential }));
+      service.message(
+        socket,
+        JSON.stringify({ kind: "hello", version: 1, credential }),
+      );
     };
     reconnect();
     ws.data.origin = "chrome-extension://" + "b".repeat(32);
-    service.message(socket, JSON.stringify({ kind: "unpair", generation: ws.data.connection!.generation }));
+    service.message(
+      socket,
+      JSON.stringify({
+        kind: "unpair",
+        generation: ws.data.connection!.generation,
+      }),
+    );
     expect(store.record("m").hash).toBeDefined();
     reconnect();
-    service.message(socket, JSON.stringify({ kind: "unpair", generation: ws.data.connection!.generation }));
+    service.message(
+      socket,
+      JSON.stringify({
+        kind: "unpair",
+        generation: ws.data.connection!.generation,
+      }),
+    );
     expect(store.record("m").hash).toBeUndefined();
-    expect(messages.some(m => m.kind === "unpaired")).toBe(true);
+    expect(messages.some((m) => m.kind === "unpaired")).toBe(true);
     const fresh = store.pair("m", false);
     member = false;
-    ws.data = { kind: "extension", origin: "chrome-extension://" + "a".repeat(32) };
-    const count = messages.filter(m => m.kind === "metadata").length;
+    ws.data = {
+      kind: "extension",
+      origin: "chrome-extension://" + "a".repeat(32),
+    };
+    const count = messages.filter((m) => m.kind === "metadata").length;
     service.open(socket);
-    service.message(socket, JSON.stringify({ kind: "hello", version: 1, code: fresh.code }));
-    expect(messages.filter(m => m.kind === "metadata")).toHaveLength(count);
-  } finally { service.stop(); rmSync(dir, { recursive: true, force: true }); }
+    service.message(
+      socket,
+      JSON.stringify({ kind: "hello", version: 1, code: fresh.code }),
+    );
+    expect(messages.filter((m) => m.kind === "metadata")).toHaveLength(count);
+  } finally {
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-
 test("missing extension package fails closed instead of serving the app shell", async () => {
-  const { browserExtensionHandlers } = await import("./routes/handlers/browser-extension");
-  const store = new BrowserExtensionStore("/nonexistent/browser-connections.json");
-  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
-  const handler = browserExtensionHandlers(service, async () => {}, "/nonexistent/isomux-extension.zip")["browser.download"];
+  const { browserExtensionHandlers } =
+    await import("./routes/handlers/browser-extension");
+  const store = new BrowserExtensionStore(
+    "/nonexistent/browser-connections.json",
+  );
+  const service = new BrowserExtensionService(store, {
+    memberExists: () => true,
+    mayUse: () => true,
+  });
+  const handler = browserExtensionHandlers(
+    service,
+    async () => {},
+    "/nonexistent/isomux-extension.zip",
+  )["browser.download"];
   const result = await handler({} as Parameters<typeof handler>[0]);
-  expect(result).toMatchObject({ kind: "error", status: 404, code: "extension_unavailable" });
+  expect(result).toMatchObject({
+    kind: "error",
+    status: 404,
+    code: "extension_unavailable",
+  });
 });

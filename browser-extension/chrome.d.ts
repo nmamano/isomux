@@ -9,16 +9,32 @@ declare const chrome: {
     onAlarm: { addListener(callback: (alarm: { name: string }) => void): void };
   };
   action: {
-    setBadgeText(options: { text: string | null; tabId?: number }): Promise<void>;
-    setBadgeBackgroundColor(options: { color: string; tabId?: number }): Promise<void>;
+    setBadgeText(options: {
+      text: string | null;
+      tabId?: number;
+    }): Promise<void>;
+    setBadgeBackgroundColor(options: {
+      color: string;
+      tabId?: number;
+    }): Promise<void>;
     setTitle(options: { title: string; tabId?: number }): Promise<void>;
   };
-  windows: { update(id: number, options: { focused: boolean }): Promise<unknown> };
+  windows: {
+    update(id: number, options: { focused: boolean }): Promise<unknown>;
+  };
   runtime: {
     id: string;
     getURL(path: string): string;
     sendMessage(message: unknown): Promise<unknown>;
-    onMessage: { addListener(callback: (message: unknown, sender: { id?: string; url?: string }, reply: (value: unknown) => void) => boolean | undefined): void };
+    onMessage: {
+      addListener(
+        callback: (
+          message: unknown,
+          sender: { id?: string; url?: string },
+          reply: (value: unknown) => void,
+        ) => boolean | undefined,
+      ): void;
+    };
 
     onStartup: { addListener(callback: () => void): void };
     onInstalled: { addListener(callback: () => void): void };
@@ -44,8 +60,10 @@ declare const chrome: {
   };
   tabs: {
     create(options: { url: string; active: boolean }): Promise<{ id?: number }>;
-    update(id: number, options: { active: boolean }): Promise<{ windowId: number }>;
-
+    update(
+      id: number,
+      options: { active: boolean },
+    ): Promise<{ windowId: number }>;
   };
   debugger: {
     attach(target: ChromeDebuggee, version: string): Promise<void>;

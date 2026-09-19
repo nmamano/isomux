@@ -143,7 +143,16 @@ commands and results; never infer success from a wrapper.
   later revisions only changed storage repair, unit tests and internal prose.
   Final worker type/build/lint evidence: `/tmp/worker1-slice2-r3-gates.log`.
   Windows/real-site acceptance remains with Nil. No full CI between slices.
-- [ ] 3. Complete member UI, extension UI, packaging, agent guidance and docs.
+- [x] 3. Complete member UI, extension UI, packaging, agent guidance and docs.
+  Reviewer approved `6534ccf31c8db250aea472d086d6ba45a3f1a6a8` on 2026-09-19:
+  `/tmp/reviewer1-slice3-final-tests.log`, 286 pass / 34,259 assertions.
+  Worker build/type/lint: `/tmp/worker1-slice3-final3-gates.log`.
+  Real downloaded-package check: `/tmp/worker1-slice3-popup-worker.log`,
+  1 pass / 33 assertions at `d38719f8`; later edits only narrow test types.
+  Live ZIP SHA256: `2dee6f0efce6b08fef56dfdd32853ccd7c07b16e0547fa76bfe74062560f4ba8`.
+  Screenshots and sanitized evidence: `/tmp/isomux-extension-office-Lnh6q1/`.
+  PM inspected settings and control-popup screenshots. Copy inventory:
+  `/tmp/worker1-slice3-copy.md`. Final copy and restart await Nil.
 - [ ] 4. Run end-to-end sanity checks, prepare Nil's Windows installation and
   real-site acceptance. Propose removal only after Nil's results.
 
@@ -332,6 +341,21 @@ Windows installation steps and limitations. Transfer token to PM.
 
 ## SLICE-4 PICKUP
 
-Pending slice 3 evidence. Sanity-check installation, reconnect and two-agent
-use; prepare deployment/restart checkpoint and Windows installation for Nil.
-The live-site tests belong to Nil. Leave removal behind that acceptance gate.
+PM close-out, no additional implementation lane unless a concrete gap appears.
+Slice 3's actual packaged-extension run already covers installation/pairing UI,
+two agents, frame/popup use, disconnect/reconnect, stop control and unpair.
+Do not repeat that successful run or create a broader performance campaign.
+Format touched files, build main and package, and run focused post-format checks.
+Show the reviewed screenshots and copy to Nil. Ask for the production restart
+only after the reviewable package is ready. On explicit current approval,
+schedule a wake-up then restart once; verify service and HTTP health. Help Nil
+load the unpacked extension on Windows and pair it with this office.
+
+Nil owns the Amazon/X/YouTube acceptance and responsiveness judgment. Browser
+restart/laptop-sleep behavior has unit/lifecycle coverage but physical Windows
+sleep and actual media playback are not established by local fixtures. State
+those limits without treating synthetic timings as user experience evidence.
+Keep the headless/preview path until Nil accepts the replacement and authorizes
+removal. Do not mark the board task done before the end-to-end delivery checkpoint.
+No push or Web Store publication is authorized. Remove this loop file when the
+loop closes, leaving maintained design/docs and task evidence intact.

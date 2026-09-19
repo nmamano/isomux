@@ -1,14 +1,19 @@
 // Small, deterministic ZIP (stored entries). No customer-side archive tool.
-export function extensionZip(entries: { name: string; data: Uint8Array }[]): Buffer {
-  const locals: Buffer[] = [], directory: Buffer[] = [];
+export function extensionZip(
+  entries: { name: string; data: Uint8Array }[],
+): Buffer {
+  const locals: Buffer[] = [],
+    directory: Buffer[] = [];
   let offset = 0;
   for (const { name, data } of entries) {
-    if (!/^[a-zA-Z0-9_.-]+$/.test(name)) throw new Error("Invalid extension entry");
+    if (!/^[a-zA-Z0-9_.-]+$/.test(name))
+      throw new Error("Invalid extension entry");
     const filename = Buffer.from(name);
     let crc = 0xffffffff;
     for (const byte of data) {
       crc ^= byte;
-      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      for (let bit = 0; bit < 8; bit++)
+        crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
     }
     crc = (crc ^ 0xffffffff) >>> 0;
     const local = Buffer.alloc(30);
@@ -33,7 +38,8 @@ export function extensionZip(entries: { name: string; data: Uint8Array }[]): Buf
     directory.push(central, filename);
     offset += local.length + filename.length + data.length;
   }
-  const central = Buffer.concat(directory), end = Buffer.alloc(22);
+  const central = Buffer.concat(directory),
+    end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
   end.writeUInt16LE(entries.length, 8);
   end.writeUInt16LE(entries.length, 10);

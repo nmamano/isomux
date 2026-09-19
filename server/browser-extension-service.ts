@@ -66,15 +66,22 @@ export class BrowserExtensionService {
       mayUse: (member, agent) =>
         store.record(member).backend === "extension" &&
         access.mayUse(member, agent),
-      ...(access.memberName && access.agentName ? {
-        memberDisplay: (member: string) => browserDisplay(member, access.memberName!(member)),
-        agentDisplay: (agent: string) => browserDisplay(agent, access.agentName!(agent)),
-      } : {}),
+      ...(access.memberName && access.agentName
+        ? {
+            memberDisplay: (member: string) =>
+              browserDisplay(member, access.memberName!(member)),
+            agentDisplay: (agent: string) =>
+              browserDisplay(agent, access.agentName!(agent)),
+          }
+        : {}),
     });
   }
   status(member: string) {
     return {
-      member: browserDisplay(member, this.access.memberName?.(member) ?? member),
+      member: browserDisplay(
+        member,
+        this.access.memberName?.(member) ?? member,
+      ),
       version: manifest.version,
       backend: this.store.record(member).backend,
       selectionRequired: this.store.record(member).backend === null,
@@ -159,12 +166,21 @@ export class BrowserExtensionService {
         ws.data.heartbeat.unref?.();
       } else if (msg.kind === "unpair") {
         const connection = ws.data.connection;
-        if (msg.generation !== connection.generation ||
+        if (
+          msg.generation !== connection.generation ||
           this.bridge.forMember(connection.memberId) !== connection ||
           !this.access.memberExists(connection.memberId) ||
-          this.store.memberForHash(ws.data.credentialHash!, ws.data.origin) !== connection.memberId) throw new Error();
+          this.store.memberForHash(ws.data.credentialHash!, ws.data.origin) !==
+            connection.memberId
+        )
+          throw new Error();
         this.store.revoke(connection.memberId);
-        ws.send(JSON.stringify({ kind: "unpaired", generation: connection.generation }));
+        ws.send(
+          JSON.stringify({
+            kind: "unpaired",
+            generation: connection.generation,
+          }),
+        );
         connection.close();
       } else if (
         msg.kind === "pong" &&

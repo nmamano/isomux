@@ -510,8 +510,8 @@ function createManagers(startOpts: StartServerOpts): void {
     {
       memberExists: (member) => !!getUserById(member),
       mayUse: mayUseExtension,
-      memberName: member => getUserById(member)?.name ?? "",
-      agentName: agent => agentManager.getAgent(agent)?.name ?? "",
+      memberName: (member) => getUserById(member)?.name ?? "",
+      agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",
     },
   );
   extensionSessions = new ExtensionBrowserSessions(

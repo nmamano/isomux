@@ -11,8 +11,16 @@ export function browserExtensionHandlers(
   return {
     "browser.download": async () => {
       const path = packagePath;
-      if (!(await Bun.file(path).exists())) return fail(404, "extension_unavailable", "The Chrome extension package is unavailable.");
-      return file(path, "application/zip", { "Cache-Control": "no-store", "Content-Disposition": 'attachment; filename="isomux-browser.zip"' });
+      if (!(await Bun.file(path).exists()))
+        return fail(
+          404,
+          "extension_unavailable",
+          "The Chrome extension package is unavailable.",
+        );
+      return file(path, "application/zip", {
+        "Cache-Control": "no-store",
+        "Content-Disposition": 'attachment; filename="isomux-browser.zip"',
+      });
     },
     "browser.get": (ctx) => ok(service.status(ctx.identity.userId!)),
     "browser.select": async (ctx) => {

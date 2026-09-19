@@ -226,7 +226,11 @@ test("app host dispatch cannot reach pairing or browser sockets", async () => {
   server = await startFlatOffice((s) => {
     server = s;
   });
-  for (const path of ["/api/me/browser/pair", "/browser-extension/ws", "/api/me/browser/extension.zip"]) {
+  for (const path of [
+    "/api/me/browser/pair",
+    "/browser-extension/ws",
+    "/api/me/browser/extension.zip",
+  ]) {
     const response = await raw(server.port, {
       host: "unknown.office.example",
       path,
@@ -299,7 +303,13 @@ test("extension ZIP download is self-authenticated and metadata is the current m
   const agent = await ownedAgent(server, owner, "Package agent");
   const path = "/api/me/browser/extension.zip";
   expect((await server.http(path)).status).toBe(401);
-  expect((await server.http(path, { headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}` } })).status).toBe(403);
+  expect(
+    (
+      await server.http(path, {
+        headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}` },
+      })
+    ).status,
+  ).toBe(403);
   const response = await memberRequest(server, owner, "GET", path);
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("no-store");
@@ -307,10 +317,20 @@ test("extension ZIP download is self-authenticated and metadata is the current m
   expect(response.headers.get("content-type")).toBe("application/zip");
   const bytes = new Uint8Array(await response.arrayBuffer());
   expect([...bytes.slice(0, 4)]).toEqual([80, 75, 3, 4]);
-  const status = await (await memberRequest(server, owner, "GET", "/api/me/browser")).json();
-  expect(status.member).toEqual({ id: getUserByName(owner.username)!.id, name: owner.username });
+  const status = await (
+    await memberRequest(server, owner, "GET", "/api/me/browser")
+  ).json();
+  expect(status.member).toEqual({
+    id: getUserByName(owner.username)!.id,
+    name: owner.username,
+  });
   expect(status.version).toMatch(/^\d+\.\d+\.\d+$/);
   // Safe GETs use the existing cookie/SameSite + no-CORS boundary, not the write CSRF gate.
-  const foreign = await fetch(server.baseUrl + path, { headers: { Cookie: `isomux_session=${owner.rawSessionId}`, Origin: "https://foreign.example" } });
+  const foreign = await fetch(server.baseUrl + path, {
+    headers: {
+      Cookie: `isomux_session=${owner.rawSessionId}`,
+      Origin: "https://foreign.example",
+    },
+  });
   expect(foreign.headers.get("access-control-allow-origin")).toBeNull();
 });

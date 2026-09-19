@@ -48,13 +48,23 @@ async function harness() {
       this.onmessage?.({ data: JSON.stringify(message) });
     }
   }
-  let runtimeMessage!: (value: unknown, sender: { id?: string; url?: string }, reply: (value: unknown) => void) => boolean | undefined;
-  let config: Record<string, unknown> | null = { url: "ws://127.0.0.1/extension", credential: "fixture" };
+  let runtimeMessage!: (
+    value: unknown,
+    sender: { id?: string; url?: string },
+    reply: (value: unknown) => void,
+  ) => boolean | undefined;
+  let config: Record<string, unknown> | null = {
+    url: "ws://127.0.0.1/extension",
+    credential: "fixture",
+  };
   const badges: { text: string | null; tabId?: number }[] = [];
   const chrome = {
     action: {
-      setBadgeText: async (value: { text: string | null; tabId?: number }) => { badges.push(value); },
-      setBadgeBackgroundColor: async () => {}, setTitle: async () => {},
+      setBadgeText: async (value: { text: string | null; tabId?: number }) => {
+        badges.push(value);
+      },
+      setBadgeBackgroundColor: async () => {},
+      setTitle: async () => {},
     },
     windows: { update: async () => {} },
     alarms: {
@@ -80,7 +90,11 @@ async function harness() {
     runtime: {
       id: "fixture-id",
       getURL: (path: string) => "chrome-extension://fixture-id/" + path,
-      onMessage: { addListener: (fn: typeof runtimeMessage) => { runtimeMessage = fn; } },
+      onMessage: {
+        addListener: (fn: typeof runtimeMessage) => {
+          runtimeMessage = fn;
+        },
+      },
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
@@ -140,8 +154,21 @@ async function harness() {
     sockets,
     badges,
     config: () => config,
-    ui: (message: unknown) => new Promise<Record<string, unknown>>(resolve => runtimeMessage(message, { id: "fixture-id", url: "chrome-extension://fixture-id/connection.html" }, value => resolve(value as Record<string, unknown>))),
-    foreign: (sender: { id?: string; url?: string }) => runtimeMessage({ action: "state" }, sender, () => { throw new Error("Foreign reply"); }),
+    ui: (message: unknown) =>
+      new Promise<Record<string, unknown>>((resolve) =>
+        runtimeMessage(
+          message,
+          {
+            id: "fixture-id",
+            url: "chrome-extension://fixture-id/connection.html",
+          },
+          (value) => resolve(value as Record<string, unknown>),
+        ),
+      ),
+    foreign: (sender: { id?: string; url?: string }) =>
+      runtimeMessage({ action: "state" }, sender, () => {
+        throw new Error("Foreign reply");
+      }),
     calls,
     timers,
     navigation: (sourceTabId: number, tabId: number) =>
@@ -321,9 +348,21 @@ for (const stage of ["attach", "target"] as const) {
 
 test("popup is exact-extension-only, does not disclose credentials, and stops only its assignment", async () => {
   const h = await harness();
-  expect(h.foreign({ id: "fixture-id", url: "https://example.com/" })).toBeUndefined();
-  expect(h.foreign({ id: "foreign", url: "chrome-extension://fixture-id/connection.html" })).toBeUndefined();
-  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, assignments: [{ id: "assignment", agent: { id: "a", name: "Agent" } }] });
+  expect(
+    h.foreign({ id: "fixture-id", url: "https://example.com/" }),
+  ).toBeUndefined();
+  expect(
+    h.foreign({
+      id: "foreign",
+      url: "chrome-extension://fixture-id/connection.html",
+    }),
+  ).toBeUndefined();
+  h.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    assignments: [{ id: "assignment", agent: { id: "a", name: "Agent" } }],
+  });
   h.command(1, "create");
   await settle();
   const state = await h.ui({ action: "state" });
@@ -332,13 +371,27 @@ test("popup is exact-extension-only, does not disclose credentials, and stops on
   expect(state).not.toHaveProperty("code");
   expect(state.assignments).toHaveLength(1);
   expect(h.badges).toContainEqual({ tabId: 7, text: "CTRL" });
-  expect(await h.ui({ action: "stop", generation: "old", assignment: "assignment" })).toHaveProperty("error");
+  expect(
+    await h.ui({ action: "stop", generation: "old", assignment: "assignment" }),
+  ).toHaveProperty("error");
   expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
-  await h.ui({ action: "stop", generation: "generation-1", assignment: "assignment" });
+  await h.ui({
+    action: "stop",
+    generation: "generation-1",
+    assignment: "assignment",
+  });
   expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
   expect(h.calls).toContain("detach");
-  expect(h.socket.sent).toContainEqual({ kind: "event", generation: "generation-1", assignment: "assignment", method: "detached", params: {} });
-  expect(h.calls.filter(call => /close|remove|media|audio/i.test(call))).toHaveLength(0);
+  expect(h.socket.sent).toContainEqual({
+    kind: "event",
+    generation: "generation-1",
+    assignment: "assignment",
+    method: "detached",
+    params: {},
+  });
+  expect(
+    h.calls.filter((call) => /close|remove|media|audio/i.test(call)),
+  ).toHaveLength(0);
   h.socket.close();
 });
 
@@ -364,7 +417,10 @@ test("unpair claims success only after generation-bound acknowledgement", async 
   const h = await harness();
   const pending = h.ui({ action: "unpair", generation: "generation-1" });
   await settle();
-  expect(h.socket.sent.at(-1)).toEqual({ kind: "unpair", generation: "generation-1" });
+  expect(h.socket.sent.at(-1)).toEqual({
+    kind: "unpair",
+    generation: "generation-1",
+  });
   h.socket.receive({ kind: "unpaired", generation: "old" });
   expect(h.config()?.credential).toBe("fixture");
   h.socket.receive({ kind: "unpaired", generation: "generation-1" });

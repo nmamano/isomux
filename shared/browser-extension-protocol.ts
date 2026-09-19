@@ -95,8 +95,10 @@ export function pageCommandAllowed(method: string, params: Fields): boolean {
   );
 }
 
-
-export interface BrowserDisplay { id: string; name: string }
+export interface BrowserDisplay {
+  id: string;
+  name: string;
+}
 export interface BrowserMetadata {
   member: BrowserDisplay;
   assignments: { id: string; agent: BrowserDisplay }[];
@@ -111,16 +113,32 @@ export interface MemberBrowserStatus {
 }
 export interface ExtensionUIState {
   office: string;
-  state: "unpaired" | "offline" | "connecting" | "connected" | "disabled" | "blocked" | "unknown";
+  state:
+    | "unpaired"
+    | "offline"
+    | "connecting"
+    | "connected"
+    | "disabled"
+    | "blocked"
+    | "unknown";
   member?: BrowserDisplay;
   assignments: { id: string; agent: BrowserDisplay; tabId: number }[];
 }
 export function officeSocketURL(value: string): string {
   const url = new URL(value);
   const loopback = ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname);
-  if (/[?#@]/.test(value) || url.username || url.password || url.search || url.hash || url.pathname !== "/" ||
-    !(url.protocol === "https:" || (url.protocol === "http:" && loopback)))
-    throw new Error("Enter an HTTPS office address without a path, query or fragment.");
+  if (
+    /[?#@]/.test(value) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/" ||
+    !(url.protocol === "https:" || (url.protocol === "http:" && loopback))
+  )
+    throw new Error(
+      "Enter an HTTPS office address without a path, query or fragment.",
+    );
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/browser-extension/ws";
   return url.href;

@@ -11,7 +11,8 @@ export const ca: Catalog = {
   "browser.choose": "Selecciona un navegador per continuar.",
   "browser.server": "Navegador del servidor",
   "browser.chrome": "Chrome d’escriptori",
-  "browser.ownership": "Els agents fan servir el navegador del seu responsable. Cada agent controla la seva pestanya.",
+  "browser.ownership":
+    "Els agents fan servir el navegador del seu responsable. Cada agent controla la seva pestanya.",
   "browser.paired": "Vinculat",
   "browser.unpaired": "Sense vincular",
   "browser.offline": "Sense connexió",
@@ -19,19 +20,24 @@ export const ca: Catalog = {
   "browser.connected": "Connectat",
   "browser.disabled": "Desconnectat pel membre",
   "browser.blocked": "Torna a vincular-lo des de la configuració de l’oficina.",
-  "browser.unknown": "Resultat de desvinculació desconegut. Comprova la configuració de l’oficina.",
+  "browser.unknown":
+    "Resultat de desvinculació desconegut. Comprova la configuració de l’oficina.",
   "browser.download": "Descarrega l’extensió {version}",
-  "browser.install": "Extreu el ZIP. A Chrome d’escriptori, obre chrome://extensions, activa el mode de desenvolupador, selecciona Carrega una extensió desempaquetada i tria la carpeta extreta. Fixa Isomux Browser a la barra d’eines.",
-  "browser.permission": "Chrome avisa «Llegeix l’historial de navegació». L’extensió fa servir aquest permís per vincular les finestres obertes pels llocs amb la pestanya del seu agent; no recull l’historial.",
+  "browser.install":
+    "Extreu el ZIP. A Chrome d’escriptori, obre chrome://extensions, activa el mode de desenvolupador, selecciona Carrega una extensió desempaquetada i tria la carpeta extreta. Fixa Isomux Browser a la barra d’eines.",
+  "browser.permission":
+    "Chrome avisa «Llegeix l’historial de navegació». L’extensió fa servir aquest permís per vincular les finestres obertes pels llocs amb la pestanya del seu agent; no recull l’historial.",
   "browser.generate": "Crea un codi de vinculació",
   "browser.replace": "Substitueix la vinculació",
-  "browser.replaceHint": "El navegador anterior perd l’accés quan es fa servir el codi nou.",
+  "browser.replaceHint":
+    "El navegador anterior perd l’accés quan es fa servir el codi nou.",
   "browser.code": "Codi de vinculació",
   "browser.expires": "Caduca a les {time}",
   "browser.expired": "El codi ha caducat. Crea’n un de nou.",
   "browser.copy": "Copia el codi",
   "browser.copied": "Copiat",
-  "browser.pairHelp": "Obre Isomux Browser i introdueix l’adreça d’aquesta oficina i el codi de vinculació.",
+  "browser.pairHelp":
+    "Obre Isomux Browser i introdueix l’adreça d’aquesta oficina i el codi de vinculació.",
   "browser.office": "Adreça de l’oficina",
   "browser.pair": "Vincula Chrome",
   "browser.reconnect": "Torna a connectar",
@@ -39,9 +45,12 @@ export const ca: Catalog = {
   "browser.unpair": "Desvincula",
   "browser.focus": "Mostra la pestanya",
   "browser.stop": "Atura el control",
-  "browser.retained": "Aturar el control deixa les pàgines obertes i la música sonant.",
-  "browser.offlineHelp": "Per revocar l’accés sense connexió, fes servir Navegador a la configuració de l’oficina.",
-  "browser.failed": "La sol·licitud al navegador ha fallat. Comprova la connexió i torna-ho a provar.",
+  "browser.retained":
+    "Aturar el control deixa les pàgines obertes i la música sonant.",
+  "browser.offlineHelp":
+    "Per revocar l’accés sense connexió, fes servir Navegador a la configuració de l’oficina.",
+  "browser.failed":
+    "La sol·licitud al navegador ha fallat. Comprova la connexió i torna-ho a provar.",
 
   "lobby.moveHere": "Mou-te aquí",
   "templates.shared.firstTurn": `Per començar, esbrina què vol el membre i proposa una direcció.`,

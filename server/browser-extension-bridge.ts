@@ -59,8 +59,12 @@ export class BrowserExtensionBridge {
         if (this.connections.get(member) === connection)
           this.connections.delete(member);
       },
-      this.access.memberDisplay ? () => this.access.memberDisplay!(member) : undefined,
-      this.access.agentDisplay ? agent => this.access.agentDisplay!(agent) : undefined,
+      this.access.memberDisplay
+        ? () => this.access.memberDisplay!(member)
+        : undefined,
+      this.access.agentDisplay
+        ? (agent) => this.access.agentDisplay!(agent)
+        : undefined,
     );
     this.connections.set(member, connection);
     try {
@@ -135,9 +139,13 @@ export class ExtensionConnection {
 
   sendMetadata(): void {
     if (!this.active || !this.memberDisplay || !this.agentDisplay) return;
-    this.peer.send({ kind: "metadata", generation: this.generation,
+    this.peer.send({
+      kind: "metadata",
+      generation: this.generation,
       member: this.memberDisplay(),
-      assignments: [...this.assignments.values()].filter(a => this.authorize(a.agentId)).map(a => ({ id: a.id, agent: this.agentDisplay!(a.agentId) })),
+      assignments: [...this.assignments.values()]
+        .filter((a) => this.authorize(a.agentId))
+        .map((a) => ({ id: a.id, agent: this.agentDisplay!(a.agentId) })),
     });
   }
 
