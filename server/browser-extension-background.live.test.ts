@@ -67,20 +67,22 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(worker).toBeDefined();
       await worker.evaluate(() => {
         const g = globalThis as unknown as {
-          chrome: { debugger: { sendCommand(target: { tabId: number }, method: string, params?: Record<string, unknown>): Promise<unknown> } };
+          chrome: { debugger: {
+            attach(target: { tabId: number }, version: string): Promise<void>;
+            sendCommand(target: { tabId: number }, method: string, params?: Record<string, unknown>): Promise<unknown>;
+          } };
           beforeFocus: Array<{ tabId: number; state: unknown }>;
         };
         g.beforeFocus = [];
-        const original = g.chrome.debugger.sendCommand.bind(g.chrome.debugger);
-        g.chrome.debugger.sendCommand = async (target, method, params) => {
-          if (method === "Emulation.setFocusEmulationEnabled" && params?.enabled === true) {
-            const state = await original(target, "Runtime.evaluate", {
-              expression: "JSON.stringify({focused:document.hasFocus(),visibility:document.visibilityState})",
-              userGesture: false, returnByValue: true,
-            });
-            g.beforeFocus.push({ tabId: target.tabId, state });
-          }
-          return original(target, method, params);
+        const attach = g.chrome.debugger.attach.bind(g.chrome.debugger);
+        const send = g.chrome.debugger.sendCommand.bind(g.chrome.debugger);
+        g.chrome.debugger.attach = async (target, version) => {
+          await attach(target, version);
+          const state = await send(target, "Runtime.evaluate", {
+            expression: "JSON.stringify({focused:document.hasFocus(),visibility:document.visibilityState})",
+            userGesture: false, returnByValue: true,
+          });
+          g.beforeFocus.push({ tabId: target.tabId, state });
         };
       });
       // noDefaults on this administrator is essential: normal Playwright
@@ -140,10 +142,12 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         expect(tabId).toBeNumber();
         taskTabIds.push(tabId!);
         if (role === "root") {
-          const beforeEnable = await worker.evaluate(tabId => {
+          const snapshot = await worker.evaluate(tabId => {
             const snapshots = (globalThis as unknown as { beforeFocus: Array<{ tabId: number; state: { result: { value: string } } }> }).beforeFocus;
-            return JSON.parse(snapshots.find(s => s.tabId === tabId)!.state.result.value) as { visibility: string; focused: boolean };
+            return snapshots.find(s => s.tabId === tabId) ?? null;
           }, tabId!);
+          expect(snapshot).not.toBeNull();
+          const beforeEnable = JSON.parse(snapshot!.state.result.value) as { visibility: string; focused: boolean };
           expect(beforeEnable.visibility).toBe("hidden");
           evidence.push({ beforeEnable, tabId });
         }
