@@ -1036,15 +1036,21 @@ describe("live browser profile authorization", () => {
     }
   });
 
-  it("does not emit a panel notification when the extension creates a page", async () => {
+  it("does not emit a panel notification when the extension controls an offered page", async () => {
     server = await boot();
     const manager = await server.seedOwner("Boss");
     const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
     const socket = await connectSettled(server, manager.rawSessionId);
     await memberRequest(server, manager, "PATCH", "/api/me/browser", { backend: "extension" });
     const { code } = await (await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})).json();
-    const extension = await extensionSocket(server, { kind: "hello", version: 1, code });
-    await extension.wait("ready");
+    const extension = await extensionSocket(server, { kind: "hello", version: 3, code });
+    const { generation } = await extension.wait("ready");
+    extension.ws.send(JSON.stringify({ kind: "offer", generation, assignment: crypto.randomUUID(), agent: agent.id, durationMinutes: 0 }));
+    const attach = await extension.wait("command");
+    expect(attach.method).toBe("attach");
+    extension.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,
+      result: { targetInfo: { type: "page", targetId: "owned", browserContextId: "context", url: "https://example.test" } } }));
+    await extension.wait("offered");
     let navigated = false;
     const page = {
       goto: async () => { navigated = true; },
@@ -1052,7 +1058,7 @@ describe("live browser profile authorization", () => {
       title: async () => "Example",
     };
     const connect = spyOn(chromium, "connectOverCDP").mockResolvedValue({
-      contexts: () => [{ newPage: async () => page, on: () => {} }],
+      contexts: () => [{ pages: () => [page], on: () => {} }],
       on: () => {},
       isConnected: () => true,
       close: async () => {},
