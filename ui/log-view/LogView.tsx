@@ -1879,7 +1879,7 @@ export function LogView({
   // message - instead of being copied into the draft. Everything else (skills,
   // and commands that take an argument) inserts `/name ` at the caret so the
   // user can type the rest. Draft-driven picks replace only the slash token;
-  // the menu closes before arguments can be present.
+  // any whitespace and arguments after it stay in the draft.
   function handleSkillPick(name: string, autoRun?: boolean) {
     const pickedFromDraft = showSlashMenu;
     // Only a literal true executes - any other value (mixed-version or replay
@@ -1896,8 +1896,20 @@ export function LogView({
     if (pickedFromDraft) {
       setSkillsOpen(false);
       setSlashMenuDismissed(true);
-      setInput(`/${name} `);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      const current = inputRef.current;
+      const tokenEnd = current.search(/\s/);
+      const suffix = tokenEnd < 0 ? "" : current.slice(tokenEnd);
+      const command = `/${name}`;
+      const newDraft = command + (suffix || " ");
+      const caretPos = command.length + (suffix ? 0 : 1);
+      setInput(newDraft);
+      requestAnimationFrame(() => {
+        const ta = textareaRef.current;
+        if (!ta) return;
+        ta.focus({ preventScroll: true });
+        ta.setSelectionRange(caretPos, caretPos);
+        autoResize(ta);
+      });
       return;
     }
     const current = inputRef.current;
