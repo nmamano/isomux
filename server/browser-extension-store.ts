@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, linkSync } from "node:fs";
 import { atomicWriteFileSync } from "./persistence";
 import { browserCredentialHash } from "./browser-extension-bridge";
 
 export type BrowserBackend = "headless" | "extension";
-type BrowserRecord = { backend: BrowserBackend; hash?: string; origin?: string };
+type BrowserRecord = { backend: BrowserBackend | null; hash?: string; origin?: string };
 export const extensionOrigin = (value: string): boolean => /^chrome-extension:\/\/[a-p]{32}$/.test(value);
 const secret = () => randomBytes(32).toString("base64url");
 
@@ -13,38 +13,63 @@ const secret = () => randomBytes(32).toString("base64url");
 export class BrowserExtensionStore {
   private records: Record<string, BrowserRecord> = Object.create(null);
   private codes = new Map<string, { member: string; expiresAt: number; replace: boolean }>();
+  private selectionRequired = false;
+  private preserveSource = false;
   constructor(private path: string, private now = Date.now) {
-    if (!existsSync(path)) return;
     try {
       const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
-      for (const [member, entry] of Object.entries(raw)) {
-        if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error();
+      let members: object = raw;
+      if ("version" in raw) {
+        const envelope = raw as { version?: unknown; selectionRequired?: unknown; members?: unknown };
+        if (envelope.version !== 1 || typeof envelope.selectionRequired !== "boolean" || !envelope.members || typeof envelope.members !== "object" || Array.isArray(envelope.members)) throw new Error();
+        this.selectionRequired = envelope.selectionRequired;
+        members = envelope.members;
+      }
+      for (const [member, entry] of Object.entries(members)) {
+        if ("version" in raw && entry && typeof entry === "object" && !Array.isArray(entry) && entry.backend === null) {
+          this.records[member] = { backend: null };
+          continue;
+        }
+        if (!entry || typeof entry !== "object" || Array.isArray(entry) || (entry.backend !== "headless" && entry.backend !== "extension")) {
+          this.records[member] = { backend: null };
+          this.preserveSource = true;
+          continue;
+        }
         const r = entry as BrowserRecord;
         this.records[member] = {
-          backend: r.backend === "extension" ? "extension" : "headless",
+          backend: r.backend,
           ...(typeof r.hash === "string" && /^[a-f0-9]{64}$/.test(r.hash) && typeof r.origin === "string" && extensionOrigin(r.origin) ? { hash: r.hash, origin: r.origin } : {}),
         };
       }
-    } catch {
-      // Optional browser state cannot prevent office startup. Keep the file
-      // for inspection; only a later explicit member write replaces it.
-      // Never include persisted content or read errors in logs.
+    } catch (error) {
+      // Only a genuinely absent file gets the migration default. Never log
+      // browser state or error content. Other failures require explicit choice.
+      if ((error as { code?: string }).code === "ENOENT") return;
       this.records = Object.create(null);
+      this.selectionRequired = true;
+      this.preserveSource = true;
     }
   }
   record(member: string): Readonly<BrowserRecord> {
-    return this.records[member] ?? { backend: "headless" };
+    return this.records[member] ?? { backend: this.selectionRequired ? null : "headless" };
   }
   private write(member: string, record: BrowserRecord): void {
     const next = { ...this.records, [member]: record };
-    atomicWriteFileSync(this.path, JSON.stringify(next), 0o600);
+    if (this.preserveSource) {
+      // Retain the original inode without reading unreadable bytes. Atomic
+      // replacement below leaves this diagnostic copy intact, even on failure.
+      linkSync(this.path, `${this.path}.unavailable-${secret()}`);
+      this.preserveSource = false;
+    }
+    atomicWriteFileSync(this.path, JSON.stringify({ version: 1, selectionRequired: this.selectionRequired, members: next }), 0o600);
     this.records = next;
   }
   select(member: string, backend: BrowserBackend): void {
     this.write(member, { ...this.record(member), backend });
   }
   pair(member: string, replace: boolean): { code: string; expiresAt: number } {
+    if (this.record(member).backend === null) throw new Error("browser_selection_required");
     if (this.record(member).hash && !replace) throw new Error("browser_already_paired");
     for (const [hash, code] of this.codes) {
       if (code.member === member || code.expiresAt <= this.now()) this.codes.delete(hash);

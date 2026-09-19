@@ -15,6 +15,7 @@ export function browserExtensionHandlers(service: BrowserExtensionService, selec
       const body = ctx.body ?? {};
       if (typeof body !== "object" || Array.isArray(body) || ("replace" in body && typeof body.replace !== "boolean")) return fail(422, "invalid_request", "replace must be a boolean");
       const member = ctx.identity.userId!;
+      if (service.store.record(member).backend === null) return fail(409, "browser_selection_required", "Browser selection is unavailable; select a browser backend again");
       if (service.store.record(member).hash && !("replace" in body && body.replace)) return fail(409, "browser_already_paired", "A Chrome browser is already paired");
       return ok(service.store.pair(member, "replace" in body && body.replace === true));
     },

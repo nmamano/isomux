@@ -33,10 +33,16 @@ the code. The member pairs again after a lost paired response.
 
 `browser-connections.json` is an atomic 0600 file keyed by member id. Records
 contain the selected backend, credential SHA-256 hash and extension Origin.
-Missing backend values read as headless. Malformed or unreadable browser state
-starts unpaired with headless defaults and does not prevent office startup. The
-server preserves the unreadable file until an explicit member write replaces it.
-No raw credential or pairing code is
+A genuinely absent file uses the headless migration default. Corrupt or unreadable
+state leaves browser selection unavailable, without preventing office startup.
+An invalid stored backend blocks that member. Actions return
+`browser_selection_required` and never call the headless pool until an explicit
+member selection. Status reports `backend: null` and `selectionRequired: true`.
+The server preserves the source inode under a unique `.unavailable-` filename
+before atomic replacement. The version-1 file envelope retains the unavailable
+default for other members after one member repairs their selection; legacy member
+maps still load. No source content is logged or returned. PM confirmed this rule
+on 2026-09-19. No raw credential or pairing code is
 stored server-side. Raw credentials travel only in the paired WebSocket frame
 and trusted extension-local storage. They are not office authentication tokens.
 
@@ -126,7 +132,7 @@ means the member's computer. Upload/download behavior is not promised.
 its page and retains its existing profile and idle behavior. Extension control
 also ends after 15 minutes without an action, leaving the real page open.
 
-Stable extension errors are `browser_not_paired`, `browser_offline`,
+Stable extension errors are `browser_selection_required`, `browser_not_paired`, `browser_offline`,
 `browser_control_ended`, and `action_failed`. Control loss, deadline or revocation
 can leave a side effect with an unknown outcome. The server never retries it.
 Invalid requests and missing task pages retain the existing validation errors.
@@ -159,6 +165,7 @@ Setup placeholder: `Browser connection setup is not available in this build.`
 
 New route/action messages, verbatim:
 
+- `Browser selection is unavailable; select a browser backend again`
 - `backend must be headless or extension`
 - `replace must be a boolean`
 - `A Chrome browser is already paired`

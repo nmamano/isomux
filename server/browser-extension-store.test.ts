@@ -1,5 +1,8 @@
-import { test, expect } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, statSync } from "node:fs";
+import { browserPool } from "./browser-session";
+import { BrowserExtensionService } from "./browser-extension-service";
+import { ExtensionBrowserSessions } from "./browser-extension-session";
+import { test, expect, spyOn } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync, statSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { BrowserExtensionStore } from "./browser-extension-store";
@@ -46,14 +49,14 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
 });
 
 
-test("malformed and unreadable browser state starts unpaired with headless defaults", () => {
+test("malformed and unreadable browser state requires selection and preserves source bytes", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-store-invalid-"));
   const path = join(dir, "connections.json");
   try {
     for (const content of ["{", "null", "[]", "7", '\"invalid\"']) {
       writeFileSync(path, content);
       const store = new BrowserExtensionStore(path);
-      expect(store.record("member")).toEqual({ backend: "headless" });
+      expect(store.record("member")).toEqual({ backend: null });
       expect(store.memberForHash(browserCredentialHash("old credential"))).toBeUndefined();
       expect(readFileSync(path, "utf8")).toBe(content);
     }
@@ -61,14 +64,57 @@ test("malformed and unreadable browser state starts unpaired with headless defau
     rmSync(path);
     mkdirSync(path);
     expect(() => readFileSync(path, "utf8")).toThrow();
-    expect(new BrowserExtensionStore(path).record("member")).toEqual({ backend: "headless" });
+    expect(new BrowserExtensionStore(path).record("member")).toEqual({ backend: null });
     rmSync(path, { recursive: true });
     writeFileSync(path, "{");
     const recovered = new BrowserExtensionStore(path);
+    expect(() => recovered.pair("member", false)).toThrow();
+    recovered.select("member", "extension");
+    const preserved = readdirSync(dir).find((name) => name.startsWith("connections.json.unavailable-"))!;
+    expect(readFileSync(join(dir, preserved), "utf8")).toBe("{");
+    expect(new BrowserExtensionStore(path).record("another member").backend).toBeNull();
     const pair = recovered.pair("member", false);
     const redeemed = recovered.redeem(pair.code, origin, () => true);
     expect(new BrowserExtensionStore(path).memberForHash(browserCredentialHash(redeemed.credential), origin)).toBe("member");
     expect(readFileSync(path, "utf8")).not.toContain(redeemed.credential);
     expect(statSync(path).mode & 0o777).toBe(0o600);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test("invalid stored backend blocks only that member until explicit selection", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-selection-invalid-"));
+  const path = join(dir, "connections.json");
+  try {
+    for (const backend of ["invalid", 3, null, {}, undefined]) {
+      const original = JSON.stringify({ bad: { backend }, good: { backend: "extension" } });
+      writeFileSync(path, original);
+      const store = new BrowserExtensionStore(path);
+      expect(store.record("bad").backend).toBeNull();
+      expect(store.record("good").backend).toBe("extension");
+      expect(store.record("new").backend).toBe("headless");
+      store.select("bad", "headless");
+      expect(new BrowserExtensionStore(path).record("bad").backend).toBe("headless");
+      expect(readdirSync(dir).filter((name) => name.startsWith("connections.json.unavailable-")).some((name) => readFileSync(join(dir, name), "utf8") === original)).toBe(true);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+
+test("unavailable selections never invoke the headless pool", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-no-fallback-"));
+  const path = join(dir, "connections.json");
+  const headless = spyOn(browserPool, "run").mockResolvedValue({ ok: true, url: "", title: "", closed: true });
+  try {
+    for (const content of ["{", JSON.stringify({ member: { backend: "invalid" } }), null]) {
+      rmSync(path, { recursive: true, force: true });
+      if (content === null) mkdirSync(path); else writeFileSync(path, content);
+      const service = new BrowserExtensionService(new BrowserExtensionStore(path), { memberExists: () => true, mayUse: () => true });
+      const sessions = new ExtensionBrowserSessions(service, () => "member", () => true);
+      expect(service.status("member").selectionRequired).toBe(true);
+      expect(await sessions.run("agent", { action: "close" })).toMatchObject({ ok: false, code: "browser_selection_required" });
+      expect(headless).not.toHaveBeenCalled();
+      sessions.stop(); service.stop();
+    }
+  } finally { headless.mockRestore(); rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1,10 +1,11 @@
+import { browserPool } from "../browser-session";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
 import { startFlatOffice, raw, WS_UPGRADE_HEADERS } from "./app-host-test-kit";
 import { memberRequest, ownedAgent, extensionSocket, origin } from "./browser-extension-route-fixture";
-import { afterEach, test, expect } from "bun:test";
+import { afterEach, test, expect, spyOn } from "bun:test";
 import { startTestServer, type TestServer } from "./harness";
 import { getAgentTokenRaw } from "../identity/tokens";
 import { extensionUpgradeAllowed } from "../browser-extension-service";
@@ -94,9 +95,19 @@ test("corrupt optional browser state does not prevent office restart", async () 
   server = await startTestServer();
   const owner = await server.seedOwner();
   expect((await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "extension" })).status).toBe(204);
+  const agent = await ownedAgent(server, owner, "corrupt state browser");
   writeFileSync(join(server.stateRoot, "browser-connections.json"), "{");
   server = await server.restart();
   const response = await memberRequest(server, owner, "GET", "/api/me/browser");
   expect(response.status).toBe(200);
-  expect(await response.json()).toMatchObject({ backend: "headless", paired: false, online: false });
+  expect(await response.json()).toMatchObject({ backend: null, selectionRequired: true, paired: false, online: false });
+  const headless = spyOn(browserPool, "run").mockResolvedValue({ ok: true, closed: true, url: "", title: "" });
+  const action = () => server!.http(`/api/agents/${agent.id}/browser`, { method: "POST", headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`, "Content-Type": "application/json" }, body: JSON.stringify({ action: "close" }) });
+  try {
+    expect((await (await action()).json()).error.code).toBe("browser_selection_required");
+    expect(headless).not.toHaveBeenCalled();
+    expect((await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "headless" })).status).toBe(204);
+    expect((await action()).status).toBe(200);
+    expect(headless).toHaveBeenCalledTimes(1);
+  } finally { headless.mockRestore(); }
 });

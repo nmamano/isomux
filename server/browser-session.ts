@@ -104,6 +104,7 @@ export const BROWSER_ACTIONS = [
 export type BrowserAction = (typeof BROWSER_ACTIONS)[number];
 
 export type BrowserErrorCode =
+  | "browser_selection_required"
   | "browser_not_paired"
   | "browser_offline"
   | "browser_control_ended"

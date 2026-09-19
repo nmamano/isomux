@@ -40,7 +40,7 @@ export class BrowserExtensionService {
     });
   }
   status(member: string) {
-    return { backend: this.store.record(member).backend, paired: !!this.store.record(member).hash, online: !!this.bridge.forMember(member) };
+    return { backend: this.store.record(member).backend, selectionRequired: this.store.record(member).backend === null, paired: !!this.store.record(member).hash, online: !!this.bridge.forMember(member) };
   }
   disconnect(member: string, terminal = false): void {
     for (const ws of this.sockets) {

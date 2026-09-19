@@ -4,7 +4,7 @@ import type { BrowserExtensionService } from "./browser-extension-service";
 import { BROWSER_ACTION_DEADLINE_MS, browserPool, parseBrowserParams, describeShot, MAX_TEXT_CHARS, MAX_SNAPSHOT_CHARS, type BrowserResult } from "./browser-session";
 
 type Session = { member: string; browser: Browser; page: Page; pages: Page[]; parents: Map<Page, Page>; opened: boolean; timer?: ReturnType<typeof setTimeout> };
-const failure = (code: "browser_not_paired" | "browser_offline" | "browser_control_ended" | "action_failed", error: string): BrowserResult => ({ ok: false, status: 500, code, error });
+const failure = (code: "browser_selection_required" | "browser_not_paired" | "browser_offline" | "browser_control_ended" | "action_failed", error: string): BrowserResult => ({ ok: false, status: 500, code, error });
 const ended = () => failure("browser_control_ended", "Browser control ended; pending outcomes may be unknown");
 const cap = (s: string, n: number) => s.length > n ? `${s.slice(0, n)}\n[truncated at ${n} characters]` : s;
 
@@ -32,6 +32,7 @@ export class ExtensionBrowserSessions {
     const previous = this.queues.get(agent) ?? Promise.resolve();
     const work = previous.catch(() => {}).then(async () => {
       if (this.owner(agent) !== member || (member && (this.epochs.get(member) ?? 0) !== epoch)) return ended();
+      if (member && this.service.store.record(member).backend === null) return failure("browser_selection_required", "Browser selection is unavailable; select a browser backend again");
       if (!member || this.service.store.record(member).backend === "headless") {
         const result = await browserPool.run(agent, body, member ?? null);
         if (this.owner(agent) !== member || (member && (this.epochs.get(member) ?? 0) !== epoch)) { await browserPool.interrupt(agent); return ended(); }
