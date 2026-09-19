@@ -802,7 +802,7 @@ describe("live browser profile authorization", () => {
     browserPool.humanInput = async () => { calls.push("input"); return true; };
     try {
       for (const missingManager of [false, true]) {
-        if (missingManager) server.agentManager.getAgent(agent.id)!.userId = undefined;
+        if (missingManager) server.agentManager.getAgent(agent.id)!.userId = null;
         socket.send({ type: "browser_watch", agentId: agent.id, watching: true });
         for (const input of [{ kind: "selection", requestId: 1 }, { kind: "navigate", action: "open" }, { kind: "key", event: "keyDown", key: "a" }])
           socket.send({ type: "browser_input", agentId: agent.id, input });
