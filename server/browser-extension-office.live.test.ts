@@ -10,6 +10,7 @@ import {
   ownedAgent,
 } from "./test-support/browser-extension-route-fixture";
 import { buildPublicOrigin } from "./auth";
+import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { translatorFor } from "../shared/i18n/translate";
 import { getAgentTokenRaw } from "./identity/tokens";
 
@@ -27,6 +28,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     let setup: BrowserContext | undefined;
     let office: TestServer | undefined;
     let site: ReturnType<typeof Bun.serve> | undefined;
+    let popup: Awaited<ReturnType<typeof openExtensionActionPopup>> | undefined;
     try {
       expect(BROWSER_ACTION_DEADLINE_MS).toBe(30_000);
       let actionDeadline = BROWSER_ACTION_DEADLINE_MS;
@@ -76,32 +78,16 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           targetId = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
           await session.detach();
         }
-        const pageTarget = (await setupCDP.send("Target.getTargetInfo", { targetId })).targetInfo;
-        const tabs = (await setupCDP.send("Target.getTargets", { filter: [{ type: "tab" }, { exclude: true }] })).targetInfos;
-        const tab = tabs.find(tab => tab.url === pageTarget.url);
-        if (!tab) throw new Error("No Chrome tab target for action popup");
-        targetId = tab.targetId;
-        const page = setup!.waitForEvent("page", { timeout: 5000 });
-        void page.catch(() => {});
-        try {
-          await setupCDP.send("Extensions.triggerAction", { id, targetId });
-        } catch (error) { console.log("Action trigger failure:", String(error)); throw error; }
-        let opened;
-        try { opened = await page; }
-        catch (error) {
-          console.log("Action targets:", (await setupCDP.send("Target.getTargets")).targetInfos.map(target => ({ type: target.type, extension: target.url.startsWith(`chrome-extension://${id}/`) })));
-          throw error;
-        }
-        await opened.waitForURL(`chrome-extension://${id}/connection.html`);
-        return opened;
+        popup = await openExtensionActionPopup(setupCDP, id, targetId);
+        return popup;
       };
-      let popup = await openPopup();
-      await popup.locator("#office").fill(officeOrigin);
-      await popup.locator("#code").fill(code);
-      await popup.locator("#pair").click();
-      await popup.locator('#status[data-state="connected"]').waitFor();
-      expect(await popup.locator("#member").textContent()).toContain(owner.username);
-      await popup.screenshot({ path: join(dir, "extension-connected.png") });
+      popup = await openPopup();
+      await popup.fill("#office", officeOrigin);
+      await popup.fill("#code", code);
+      await popup.click("#pair");
+      await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');
+      expect(await popup.read<string>('document.querySelector("#member").textContent')).toContain(owner.username);
+      await popup.screenshot(join(dir, "extension-connected.png"));
       await popup.close();
       await settings.bringToFront();
       await settings.locator('[data-testid="browser-state"][data-online="true"]').waitFor();
@@ -195,39 +181,34 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       );
       const taskTargets = (await setupCDP.send("Target.getTargets")).targetInfos.filter(target => target.url === url);
       popup = await openPopup(taskTargets[0].targetId);
-      await popup.locator("#assignments section").first().waitFor();
-      expect(await popup.locator("#assignments").textContent()).toContain("first");
-      expect(await popup.locator("#assignments").textContent()).toContain("second");
-      const firstRow = popup.locator("#assignments section").filter({ has: popup.locator("p", { hasText: /^first$/ }) });
-      const badge = await popup.evaluate(async () => {
-        const c = (globalThis as unknown as { chrome: { runtime: { sendMessage(v: unknown): Promise<{ assignments: { agent: { name: string }; tabId: number }[] }> }; action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome;
-        const state = await c.runtime.sendMessage({ action: "state" });
-        const tab = state.assignments.find(a => a.agent.name === "first")!;
-        return { tabId: tab.tabId, text: await c.action.getBadgeText({ tabId: tab.tabId }) };
-      });
-      expect(badge.text).toBe("CTRL");
-      await popup.screenshot({ path: join(dir, "extension-control.png") });
-      await firstRow.locator('[data-action="focus"]').click();
+      await popup.waitFor('document.querySelectorAll("#assignments section").length === 2');
+      expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("first");
+      expect(await popup.read<string>('document.querySelector("#assignments").textContent')).toContain("second");
+      const firstAssignment = await popup.read<{ id: string; tabId: number }>(`(() => { const row=[...document.querySelectorAll("#assignments section")].find(e=>e.querySelector("p").textContent === "first"); return {id:row.dataset.assignment,tabId:Number(row.dataset.tabId)}; })()`);
+      const badge = await setup.serviceWorkers()[0].evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId);
+      expect(badge).toBe("CTRL");
+      await popup.screenshot(join(dir, "extension-control.png"));
+      await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="focus"]`);
       await wait(async () => setup!.serviceWorkers()[0].evaluate(async tabId => {
         const c = (globalThis as unknown as { chrome: { tabs: { query(v: unknown): Promise<{ id: number }[]> } } }).chrome;
         return (await c.tabs.query({ active: true, lastFocusedWindow: true })).some(tab => tab.id === tabId);
-      }, badge.tabId));
-      if (!popup.isClosed()) await popup.close();
+      }, firstAssignment.tabId));
+      await popup.close();
       popup = await openPopup(taskTargets[0].targetId);
-      const stop = popup.locator("#assignments section").filter({ has: popup.locator("p", { hasText: /^first$/ }) }).locator('[data-action="stop"]');
-      await stop.click();
-      await wait(async () => (await popup.locator("#assignments section").count()) === 1);
-      await popup.screenshot({ path: join(dir, "extension-stopped.png") });
-      expect(await popup.evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), badge.tabId)).toBe("ON");
+      await popup.click(`[data-assignment="${firstAssignment.id}"] [data-action="stop"]`);
+      await popup.waitFor(`document.querySelectorAll("#assignments section").length === 1 && !document.querySelector('[data-assignment="${firstAssignment.id}"]')`);
+      await popup.screenshot(join(dir, "extension-stopped.png"));
+      expect(await setup.serviceWorkers()[0].evaluate(async tabId => (globalThis as unknown as { chrome: { action: { getBadgeText(v: { tabId: number }): Promise<string> } } }).chrome.action.getBadgeText({ tabId }), firstAssignment.tabId)).toBe("ON");
       expect((await setupCDP.send("Target.getTargets")).targetInfos.filter(target => target.url === url)).toHaveLength(2);
-      await popup.locator("#disconnect").click();
-      await popup.locator('#status[data-state="disabled"]').waitFor();
+      const retained = setup.pages().find(page => page.url() === url)!;
+      await retained.screenshot({ path: join(dir, "retained-page.png") });
+      await popup.click("#disconnect");
+      await popup.waitFor('document.querySelector("#status").dataset.state === "disabled"');
       expect((await action(second.id, { action: "text" })).body.error.code).toBe("browser_offline");
-      await popup.locator("#reconnect").click();
-      await popup.locator('#status[data-state="connected"]').waitFor();
+      await popup.click("#reconnect");
+      await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');
       // Recovery starts a fresh task tab; prior pages remain open.
       expect((await action(second.id, { action: "goto", url })).status).toBe(200);
-
       expect((await action(second.id, { action: "text" })).status).toBe(200);
       const targets = await setupCDP.send("Target.getTargets");
       expect(
@@ -243,16 +224,17 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           })
         ).body.error.code,
       ).toBe("browser_control_ended");
-      await popup.locator("#unpair").click();
-      await popup.locator('#status[data-state="unpaired"]').waitFor();
+      await popup.click("#unpair");
+      await popup.waitFor('document.querySelector("#status").dataset.state === "unpaired"');
       expect((await (await memberRequest(office, owner, "GET", "/api/me/browser")).json()).paired).toBe(false);
-      await popup.screenshot({ path: join(dir, "extension-unpaired.png") });
+      await popup.screenshot(join(dir, "extension-unpaired.png"));
       writeFileSync(join(dir, "evidence.json"), JSON.stringify({ date: "2026-09-19", packaged: true, member: owner.username, agents: ["first", "second"], actionPopup: true, badge, retainedTabs: 3, disconnectReconnect: true, unpaired: true }));
       console.log("Extension evidence:", dir);
       expect(
         (await action(second.id, { action: "text" })).body.error.code,
       ).toBe("browser_not_paired");
     } finally {
+      await popup?.close();
       await setup?.close();
       await office?.stop();
       await site?.stop(true);

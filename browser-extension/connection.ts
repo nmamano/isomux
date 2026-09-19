@@ -46,6 +46,7 @@ function render(next: typeof state) {
     for (const assignment of state.assignments) {
       const section = document.createElement("section"), label = document.createElement("p");
       section.dataset.assignment = assignment.id;
+      section.dataset.tabId = String(assignment.tabId);
       label.textContent = assignment.agent.name;
       section.append(label);
       for (const action of ["focus", "stop"] as const) {
