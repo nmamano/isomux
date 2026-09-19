@@ -83,11 +83,7 @@ export class BrowserExtensionService {
         });
         clearTimeout(ws.data.deadline);
         ws.data.lastPong = Date.now();
-        ws.data.heartbeat = setInterval(() => {
-          this.revalidate();
-          if (Date.now() - ws.data.lastPong! > 45_000) { ws.data.connection?.close(); return; }
-          ws.send(JSON.stringify({ kind: "ping", generation: ws.data.connection?.generation }));
-        }, 15_000);
+        ws.data.heartbeat = setInterval(() => this.heartbeat(ws), 15_000);
         ws.data.heartbeat.unref?.();
       } else if (msg.kind === "pong" && msg.generation === ws.data.connection.generation) {
         ws.data.lastPong = Date.now();
@@ -97,6 +93,12 @@ export class BrowserExtensionService {
       ws.data.connection?.close();
       ws.close(4003);
     }
+  }
+  heartbeat(ws: ServerWebSocket<ExtensionWsData>): void {
+    this.revalidate();
+    if (!this.sockets.has(ws)) return;
+    if (Date.now() - ws.data.lastPong! > 45_000) { ws.data.connection?.close(); return; }
+    ws.send(JSON.stringify({ kind: "ping", generation: ws.data.connection?.generation }));
   }
   close(ws: ServerWebSocket<ExtensionWsData>): void {
     clearTimeout(ws.data.deadline);

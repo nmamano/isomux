@@ -16,6 +16,9 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 async function harness() {
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
+  let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
+  let attach: () => Promise<void> = async () => {};
+  let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({ targetInfo: { targetId: tabId === 7 ? "owned" : `target-${tabId}`, type: "page" } });
   let changed!: (_changes: unknown, area: string) => void;
   let created: () => Promise<{ id: number }> = () => Promise.resolve({ id: 7 });
   class FakeSocket {
@@ -64,8 +67,8 @@ async function harness() {
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
+    webNavigation: { onCreatedNavigationTarget: { addListener: (fn: typeof navigation) => { navigation = fn; } } },
     tabs: {
-      onCreated: { addListener() {} },
       create: () => {
         calls.push("create");
         return created();
@@ -74,19 +77,15 @@ async function harness() {
     debugger: {
       attach: () => {
         calls.push("attach");
-        return Promise.resolve();
+        return attach();
       },
       detach: () => {
         calls.push("detach");
         return Promise.resolve();
       },
-      sendCommand: (_target: unknown, method: string) => {
+      sendCommand: (target: { tabId: number }, method: string) => {
         calls.push(method);
-        return Promise.resolve(
-          method === "Target.getTargetInfo"
-            ? { targetInfo: { targetId: "owned", type: "page" } }
-            : {},
-        );
+        return method === "Target.getTargetInfo" ? targetInfo(target.tabId) : Promise.resolve({});
       },
       onEvent: { addListener() {} },
       onDetach: { addListener() {} },
@@ -107,6 +106,13 @@ async function harness() {
     sockets,
     calls,
     timers,
+    navigation: (sourceTabId: number, tabId: number) => navigation({ sourceTabId, tabId }),
+    delayPopup: (stage: "attach" | "target") => {
+      let resolve!: () => void;
+      if (stage === "attach") attach = () => new Promise<void>((done) => { resolve = done; });
+      else targetInfo = (tabId) => new Promise((done) => { resolve = () => done({ targetInfo: { targetId: `target-${tabId}`, type: "page" } }); });
+      return () => resolve();
+    },
     reconnect: async () => {
       changed({}, "local");
       await settle();
@@ -211,3 +217,44 @@ test("transient loss schedules reconnect but refusal stays terminal", async () =
   expect(fresh.readyState).toBe(3);
   expect(h.timers.size).toBe(0);
 });
+
+test("navigation ownership uses only an assigned source and admits one leaf chain", async () => {
+  const h = await harness();
+  h.command(1, "create");
+  await settle();
+  const attached = h.calls.filter((call) => call === "attach").length;
+  h.navigation(900, 901);
+  await settle();
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached);
+  h.navigation(7, 8);
+  await settle();
+  expect(h.socket.sent.filter((message) => message.method === "popup")).toHaveLength(1);
+  const event = h.socket.sent.find((message) => message.method === "popup")!;
+  expect(fields(fields(event.params).targetInfo).openerId).toBe("owned");
+  h.navigation(7, 9);
+  await settle();
+  expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached + 1);
+  h.navigation(8, 10);
+  await settle();
+  expect(h.socket.sent.filter((message) => message.method === "popup")).toHaveLength(2);
+  expect(fields(fields(h.socket.sent.at(-1)!.params).targetInfo).openerId).toBe("target-8");
+  h.socket.receive({ kind: "refused" });
+});
+
+for (const stage of ["attach", "target"] as const) {
+  test(`popup ownership lost during ${stage} never publishes the popup`, async () => {
+    const h = await harness();
+    h.command(1, "create");
+    await settle();
+    const finish = h.delayPopup(stage);
+    h.navigation(7, 8);
+    await settle();
+    expect(h.calls.filter((call) => call === "attach")).toHaveLength(2);
+    h.command(2, "detach");
+    finish();
+    await settle();
+    expect(h.socket.sent.some((message) => message.method === "popup")).toBe(false);
+    expect(h.calls).toContain("detach");
+    h.socket.receive({ kind: "refused" });
+  });
+}

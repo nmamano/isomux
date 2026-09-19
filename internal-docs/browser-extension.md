@@ -92,8 +92,20 @@ an explicit allowlist; iframe child sessions must come from an owned debugger
 attachment. Same-origin frames use their page session; cross-origin frames use
 flattened child sessions.
 
-Popup ownership comes from `tabs.onCreated.openerTabId`, never the active tab.
-Only the current leaf of an owned chain can acquire the next popup. Siblings and
+Popup ownership comes only from
+`webNavigation.onCreatedNavigationTarget.sourceTabId -> tabId`. The extension
+rejects unrelated source tabs before retaining or transmitting event data. Only
+the current leaf of an owned chain can acquire the next popup. The extension
+stores explicit parent links and rechecks ownership after each async attach step.
+On 2026-09-19, the local Chrome fixture showed `tabs.onCreated.openerTabId`
+pointing to the active setup tab even though CDP identified the assigned main
+page as the true opener. Parent-scoped CDP page auto-attach emitted no target.
+PM approved `webNavigation` for the exact source/target event. Chrome documents
+its permission warning as `Read your browsing history`. The extension does not
+request `history`, collect history, or correlate tabs by focus, time or URL.
+See [the event API](https://developer.chrome.com/docs/extensions/reference/api/webNavigation)
+and [Chrome permissions](https://developer.chrome.com/docs/extensions/reference/permissions-list).
+ Siblings and
 foreign openers cannot acquire control. The chain has a sanity ceiling of eight
 popups. Each popup has a separate debugger attachment and synthetic CDP session;
 the server checks its opener again before exposing it to Playwright. Actions use
@@ -157,7 +169,9 @@ Existing bridge messages remain: `Browser connection refused`,
 `Browser disconnected; pending outcomes may be unknown`.
 The upgrade can return `WebSocket upgrade failed`. Existing request validation,
 no-page errors, truncation labels and screenshot captions remain.
-Chrome supplies its own debugger warning.
+Chrome supplies its own debugger warning. The new `webNavigation` permission
+adds the documented Chrome warning `Read your browsing history`; include it in
+Nil's installation report.
 
 Slice 3 supplies member settings, pairing input, extension ownership/status badge
 and popup, disconnect/re-pair controls, installation packaging, and agent guidance.

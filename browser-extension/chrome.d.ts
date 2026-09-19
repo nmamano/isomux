@@ -24,8 +24,10 @@ declare const chrome: {
       addListener(callback: (_changes: unknown, area: string) => void): void;
     };
   };
+  webNavigation: {
+    onCreatedNavigationTarget: { addListener(callback: (event: { sourceTabId: number; tabId: number }) => void): void };
+  };
   tabs: {
-    onCreated: { addListener(callback: (tab: { id?: number; openerTabId?: number }) => void): void };
     create(options: { url: string; active: boolean }): Promise<{ id?: number }>;
   };
   debugger: {

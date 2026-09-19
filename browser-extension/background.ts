@@ -6,7 +6,7 @@ import {
   type Fields,
 } from "../shared/browser-extension-protocol";
 
-type OwnedTab = { tabId: number; children: Set<string>; targetId?: string; popups: Map<string, OwnedTab>; attaching?: boolean };
+type OwnedTab = { tabId: number; children: Set<string>; targetId?: string; parentTabId?: number; leafTabId?: number; popups: Map<string, OwnedTab>; attaching?: boolean };
 type Connection = {
   ws: WebSocket;
   generation?: string;
@@ -269,25 +269,32 @@ chrome.debugger.onEvent.addListener((source, method, params = {}) => {
     });
   }
 });
-chrome.tabs.onCreated.addListener((tab) => {
+chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
   const c = current;
-  if (!c || c.closed || !c.generation || tab.id === undefined || tab.openerTabId === undefined) return;
+  if (!c || c.closed || !c.generation || !Number.isSafeInteger(event.tabId) || !Number.isSafeInteger(event.sourceTabId)) return;
   for (const [assignment, main] of c.tabs) {
-    const opener = [...main.popups.values()].at(-1) ?? main;
-    if (opener.tabId !== tab.openerTabId || !opener.targetId || main.attaching || main.popups.size >= 8) continue;
+    // Source identity is authoritative. Do not retain the event or its URL.
+    const opener = main.tabId === event.sourceTabId ? main : [...main.popups.values()].find((node) => node.tabId === event.sourceTabId);
+    if (!opener || opener.tabId !== (main.leafTabId ?? main.tabId) || !opener.targetId || main.attaching || main.popups.size >= 8) continue;
+    if ([...c.tabs.values()].some((root) => root.tabId === event.tabId || [...root.popups.values()].some((node) => node.tabId === event.tabId))) return;
     main.attaching = true;
-    const popup: OwnedTab = { tabId: tab.id, children: new Set(), popups: new Map() };
+    const popup: OwnedTab = { tabId: event.tabId, parentTabId: opener.tabId, children: new Set(), popups: new Map() };
     const sessionId = crypto.randomUUID();
     main.popups.set(sessionId, popup);
+    const owned = () => {
+      check(c);
+      if (c.tabs.get(assignment) !== main || main.popups.get(sessionId) !== popup || opener.tabId !== (main.leafTabId ?? main.tabId) || (opener !== main && ![...main.popups.values()].includes(opener))) throw new Error("Control ended");
+    };
     void (async () => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
-        check(c);
-        if (c.tabs.get(assignment) !== main || main.popups.get(sessionId) !== popup) throw new Error("Control ended");
+        owned();
         const result = fields(await chrome.debugger.sendCommand({ tabId: popup.tabId }, "Target.getTargetInfo"));
+        owned();
         const info = fields(result.targetInfo);
-        popup.targetId = info.targetId as string;
-        check(c);
+        if (info.type !== "page" || typeof info.targetId !== "string") throw new Error("Invalid popup target");
+        popup.targetId = info.targetId;
+        main.leafTabId = popup.tabId;
         send(c, { kind: "event", generation: c.generation, assignment, method: "popup", params: { sessionId, targetInfo: { ...info, openerId: opener.targetId } } });
       } catch { main.popups.delete(sessionId); await detach(popup); }
       finally { main.attaching = false; }
@@ -307,8 +314,23 @@ chrome.debugger.onDetach.addListener((source) => {
     }
     const popup = [...tab.popups].find(([, owned]) => owned.tabId === source.tabId);
     if (popup) {
-      tab.popups.delete(popup[0]);
-      send(c, { kind: "event", generation: c.generation, assignment, method: "popupDetached", params: { sessionId: popup[0] } });
+      const removed = new Set([popup[1].tabId]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const node of tab.popups.values()) if (node.parentTabId !== undefined && removed.has(node.parentTabId) && !removed.has(node.tabId)) { removed.add(node.tabId); changed = true; }
+      }
+      // Detach descendants first, so both the server and Playwright return
+      // through the exact parent chain rather than map insertion order.
+      const retiring = [...tab.popups].filter(([, node]) => removed.has(node.tabId));
+      while (retiring.length) {
+        const index = retiring.findIndex(([, node]) => !retiring.some(([, child]) => child.parentTabId === node.tabId));
+        const [sessionId, node] = retiring.splice(index, 1)[0];
+        tab.popups.delete(sessionId);
+        void detach(node);
+        send(c, { kind: "event", generation: c.generation, assignment, method: "popupDetached", params: { sessionId } });
+      }
+      tab.leafTabId = popup[1].parentTabId ?? tab.tabId;
     }
   }
 });

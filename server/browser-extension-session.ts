@@ -3,7 +3,7 @@ import { browserExtensionTransport } from "./browser-extension-transport";
 import type { BrowserExtensionService } from "./browser-extension-service";
 import { browserPool, parseBrowserParams, describeShot, MAX_TEXT_CHARS, MAX_SNAPSHOT_CHARS, type BrowserResult } from "./browser-session";
 
-type Session = { member: string; browser: Browser; page: Page; pages: Page[]; opened: boolean; timer?: ReturnType<typeof setTimeout> };
+type Session = { member: string; browser: Browser; page: Page; pages: Page[]; parents: Map<Page, Page>; opened: boolean; timer?: ReturnType<typeof setTimeout> };
 const failure = (code: "browser_not_paired" | "browser_offline" | "browser_control_ended" | "action_failed", error: string): BrowserResult => ({ ok: false, status: 500, code, error });
 const ended = () => failure("browser_control_ended", "Browser control ended; pending outcomes may be unknown");
 const cap = (s: string, n: number) => s.length > n ? `${s.slice(0, n)}\n[truncated at ${n} characters]` : s;
@@ -66,16 +66,20 @@ export class ExtensionBrowserSessions {
         if (!valid() || timedOut) { await browser.close(); return ended(); }
         const context = browser.contexts()[0];
         const page = await context.newPage();
-        session = { member, browser, page, pages: [page], opened: false };
+        session = { member, browser, page, pages: [page], parents: new Map(), opened: false };
         const owned = session;
         this.sessions.set(agent, session);
         context.on("page", (popup) => {
           // The bridge has already bound the popup to this assignment.
           owned.pages.push(popup);
           owned.page = popup;
+          void popup.opener().then((opener) => { if (opener && owned.pages.includes(opener)) owned.parents.set(popup, opener); });
           popup.on("close", () => {
             owned.pages = owned.pages.filter((p) => p !== popup && !p.isClosed());
-            owned.page = owned.pages.at(-1) ?? page;
+            if (owned.page !== popup && !owned.page.isClosed()) return;
+            let parent = owned.parents.get(popup);
+            while (parent?.isClosed()) parent = owned.parents.get(parent);
+            owned.page = parent ?? page;
           });
         });
         browser.on("disconnected", () => { if (this.sessions.get(agent) === owned) { clearTimeout(owned.timer); this.sessions.delete(agent); } });
@@ -103,6 +107,7 @@ export class ExtensionBrowserSessions {
     try {
       return await Promise.race([task(), new Promise<BrowserResult>((resolve) => { timer = setTimeout(() => { timedOut = true; transport?.close(); this.end(agent); resolve(ended()); }, 30_000); })]);
     } catch {
+      if (!session) transport?.close();
       if (!valid() || (session && !session.browser.isConnected())) return ended();
       return failure("action_failed", "The Chrome browser action failed");
     } finally { clearTimeout(timer); }

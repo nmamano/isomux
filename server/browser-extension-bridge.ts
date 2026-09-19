@@ -25,6 +25,7 @@ type Assignment = {
   target?: Fields;
   children: Map<string, string>;
   popups: Map<string, Fields>;
+  leafTargetId?: string;
   creating: boolean;
   closed: boolean;
 };
@@ -200,9 +201,10 @@ export class ExtensionConnection {
       if (msg.method === "popup") {
         const params = fields(msg.params);
         const target = fields(params.targetInfo);
-        const opener = [...a.popups.values()].at(-1) ?? a.target;
-        if (target.type !== "page" || typeof target.targetId !== "string" || target.openerId !== opener.targetId || this.knownTarget(target.targetId) || typeof params.sessionId !== "string" || a.popups.size >= 8 || [...this.assignments.values()].some((owner) => owner.popups.has(params.sessionId as string) || owner.children.has(params.sessionId as string) || owner.session === params.sessionId || owner.browserSession === params.sessionId)) throw new Error("Invalid popup");
+        const openerId = a.leafTargetId ?? a.target.targetId;
+        if (target.type !== "page" || typeof target.targetId !== "string" || target.openerId !== openerId || this.knownTarget(target.targetId) || typeof params.sessionId !== "string" || a.popups.size >= 8 || [...this.assignments.values()].some((owner) => owner.popups.has(params.sessionId as string) || owner.children.has(params.sessionId as string) || owner.session === params.sessionId || owner.browserSession === params.sessionId)) throw new Error("Invalid popup");
         a.popups.set(params.sessionId, target);
+        a.leafTargetId = target.targetId;
         a.peer.send({ method: "Target.attachedToTarget", params: { sessionId: params.sessionId, targetInfo: { ...target, attached: true }, waitingForDebugger: false } });
         return;
       }
@@ -212,6 +214,7 @@ export class ExtensionConnection {
         const popup = a.popups.get(params.sessionId);
         if (!popup) return;
         a.popups.delete(params.sessionId);
+        if (a.leafTargetId === popup.targetId) a.leafTargetId = popup.openerId as string;
         a.peer.send({ method: "Target.detachedFromTarget", params: { sessionId: params.sessionId, targetId: popup.targetId } });
         return;
       }
