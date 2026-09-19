@@ -2,157 +2,174 @@
 
 ## Scope and status
 
-Slice 1 proves the browser transport. The production `/browser` route and
-headless preview code still use their existing implementation. No production
-route imports this bridge or its isolated fixture. Pairing, persistent browser
-records, agent routing, reconnect UI, owned popups, badge/popup, and installation
-instructions belong to later slices. Windows and real-site acceptance belong
-to Nil. This document is the maintained protocol and ownership reference.
+Slice 2 connects the Chrome extension to the production browser action route.
+The member API is ready for the slice-3 settings and extension UI. Headless
+browser use remains the default, and preview capture stays on the office server.
+No production restart has been authorized. Windows and real-site acceptance
+belong to Nil. This is the maintained protocol and ownership reference.
 
-## Public Playwright seam
+## Member flow and state
 
-Playwright 1.62.1 runs in the Bun office process. Its public
-`chromium.connectOverCDP(transport, { noDefaults: true })` overload accepts a
-`ConnectOverCDPTransport`. `server/browser-extension-transport.ts` connects
-that object directly to one authorized bridge assignment. There is no agent
-CDP HTTP or WebSocket endpoint. No private Playwright module is imported.
+The normal route table declares these self-scoped routes. All four require
+`cap("user:self", authenticated)`, as personal preferences do. An agent token
+cannot use them. Other identities need that actual capability; owning another
+member's office does not select that member's browser.
 
-On 2026-09-19 (office date), the endpoint overload failed against an isolated
-Bun 1.3.11 WebSocket server: Playwright's bundled WebSocket client treated the
-HTTP 101 upgrade as a normal response. The direct public transport bypasses
-that client. PM approved this seam without a runtime upgrade or a child process.
-The pinned Chromium implementation sends commands without calling the optional
-transport `open`, so the adapter establishes its assignment at construction.
+| Method | Path | Operation |
+| --- | --- | --- |
+| GET | `/api/me/browser` | Read backend, paired and online state |
+| PATCH | `/api/me/browser` | Select `headless` or `extension` |
+| POST | `/api/me/browser/pair` | Create a pairing code; `replace: true` permits replacement |
+| DELETE | `/api/me/browser` | Revoke the credential and end control |
 
-`noDefaults` preserves the default context's download, focus, and media
-settings. The root adapter handles only `Browser.getVersion`,
-`Target.setAutoAttach`, `Target.getTargets`, `Target.getTargetInfo`,
-`Target.createTarget`, and `Target.attachToBrowserTarget`. The last command
-creates a synthetic browser session with the same restricted assignment view.
-It never attaches a real profile-wide debugger session. Other root commands,
-including cookie/storage/browser-context access, fail. The shared protocol
-lists allowed page-session methods. Unknown methods fail instead of using an
-arbitrary attached tab.
+The server creates a 32-byte random base64url code, valid for five minutes and
+one redemption. A new code replaces the member's pending code. Code hashes live
+only in memory. The authenticated response contains the code and expiry.
+Creating a replacement code leaves the live browser alone. Redemption validates
+protocol version, code, current member existence and exact extension Origin,
+consumes the code, atomically writes the new credential hash and Origin, closes
+the old connection, then sends the new credential. A failed send does not restore
+the code. The member pairs again after a lost paired response.
 
-## Ownership and transport
+`browser-connections.json` is an atomic 0600 file keyed by member id. Records
+contain the selected backend, credential SHA-256 hash and extension Origin.
+Missing backend values read as headless. No raw credential or pairing code is
+stored server-side. Raw credentials travel only in the paired WebSocket frame
+and trusted extension-local storage. They are not office authentication tokens.
 
-`BrowserExtensionBridge` receives a credential-hash lookup and a live
-member/agent authorization callback. It hashes the presented browser credential
-and retains the hash for revalidation. One live extension connection belongs
-to one member. Each agent has a separate assignment and synthetic CDP session;
-each assignment can create one main task tab. Creating a second task tab fails.
-The member's active tab never selects or changes an assignment.
+Selection is explicit. Pairing does not select extension mode. A backend switch
+ends that member's old sessions across agents. Extension mode never falls back
+to headless while offline. No website cookies or profile state are exported,
+reset or imported by the extension path.
 
-Only the extension creates and attaches a task tab. The server checks the
-assignment and generation before sending page commands. The extension checks
-its own assignment map before calling `chrome.debugger.sendCommand`. Both sides
-track child sessions from the owned debugger attachment. The extension limits
-auto-attach to iframe targets. Root discovery reports only the task target;
-unrelated tabs never enter the agent target map. No popup support is claimed yet.
+## Socket and recovery
 
-The MV3 worker opens an outbound WebSocket. Remote URLs require `wss:`;
-unencrypted `ws:` is accepted only with exact loopback hostnames for local
-fixtures. URL credentials, queries and fragments are refused. The first frame
-is `{kind: "hello", version: 1, credential}`. The listener authenticates before
-calling `bridge.connect`. The reply is `{kind: "ready", version: 1, generation}`.
-The fixture supplies a random browser-only credential bound to one fake member;
-no production pairing bypass exists. Extension-local storage is restricted to
-trusted extension contexts. There is no content script, externally-connectable
-declaration, web-accessible resource, or page-to-extension messaging handler.
+The extension opens `/browser-extension/ws` on the office host. App host diversion
+runs first. The socket has its own dispatch discriminator and cannot enter the
+office event stream. The upgrade requires the canonical office Host and exact
+`chrome-extension://[a-p]{32}` Origin. Remote configuration requires WSS and an
+HTTPS office origin. Loopback HTTP/WS is accepted for isolated local fixtures.
+URL credentials, query strings and fragments are refused.
 
-The version-1 command envelope contains `kind`, `generation`, `id`,
-`assignment`, `method`, and `params`. Methods are `create`, `cdp`, and `detach`.
-Results echo the generation and request id, with a result object or a generic
-error. Events carry the generation, assignment, method, params, and optional
-child session id. CDP payloads and credentials are never logged. Request ids
-increase within a connection; a new connection has a fresh random generation.
+The first frame, within five seconds and at most 4 KiB, is
+`{kind: "hello", version: 1, code}` or the same shape with `credential`.
+Pairing returns `{kind: "paired", version: 1, credential}` before
+`{kind: "ready", version: 1, generation}`. Authentication binds the credential
+hash to the saved extension Origin. Duplicate live connections are refused;
+only explicit replacement displaces the current connection.
 
-## Disconnect and end control
+Later messages are limited to 8 MiB before JSON parsing. Each command has a
+30-second deadline. The server sends a ping every 15 seconds and closes control
+when a pong is absent for 45 seconds. The extension has a matching watchdog.
+Transient loss reconnects with 1/2/4/8/16/30-second backoff plus small jitter.
+A Chrome alarm wakes a suspended extension worker to retry; startup also reads
+its saved connection. Chrome may delay alarms; this is recovery, not a timing
+guarantee. See the [Chrome alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms).
+Authentication or revocation refusal persists a blocked configuration until the
+member changes it. No command queue survives disconnection or either restart.
+A new connection gets a fresh generation, Playwright object and task assignment.
+The new assignment may open a new tab. Previously opened pages remain open.
 
-Connection loss rejects all pending requests, closes every affected Playwright
-transport, clears assignments, and detaches the extension's debugger sessions.
-No command queue survives. Late results and events from old generations are
-discarded. A fresh connection needs a fresh Playwright object and assignment.
-Already dispatched page code may have taken effect: callers receive an unknown
-outcome, never an automatic retry. Closing one agent's transport detaches its
-tab and leaves the real page open. Detach during tab creation prevents the
-pending creation from acquiring a debugger after control ends.
+## Public Playwright seam and ownership
 
-Each in-flight extension request currently has a 30-second deadline. A deadline
-closes the connection as an unknown outcome. Slice 2 must integrate this with
-action cancellation, revocation notifications and member-wide connection loss.
-It must not retry commands after the deadline. Authentication is rechecked on
-dispatch and event delivery; persistent revocation must also actively close the
-connection. No automatic reconnect is shipped in this slice.
+Pinned Playwright 1.62.1 runs inside the Bun office process. The public
+`chromium.connectOverCDP(transport, { noDefaults: true })` overload connects
+directly to an authorized assignment through `browser-extension-transport.ts`.
+There is no agent CDP HTTP/WS endpoint, private Playwright patch or Node child.
+The public seam avoids the bundled WebSocket client's rejection of Bun's HTTP
+101 upgrade observed on 2026-09-19. The real extension uses outbound WebSocket.
+
+Each action reads the current manager id from the agent record. Assignments,
+commands, results and events require that exact member, current member existence,
+and access to the agent's current room. Mutation hooks actively revalidate;
+heartbeat is a backstop. The latest chat speaker never supplies browser identity.
+
+Each agent has one main task tab. Root discovery exposes only that assignment's
+main tab and related popups. Profile-level cookie, storage, context and arbitrary
+root CDP commands fail. Synthetic browser sessions retain the same restricted
+view. `noDefaults` preserves the desktop profile's settings. Page commands use
+an explicit allowlist; iframe child sessions must come from an owned debugger
+attachment. Same-origin frames use their page session; cross-origin frames use
+flattened child sessions.
+
+Popup ownership comes from `tabs.onCreated.openerTabId`, never the active tab.
+Only the current leaf of an owned chain can acquire the next popup. Siblings and
+foreign openers cannot acquire control. The chain has a sanity ceiling of eight
+popups. Each popup has a separate debugger attachment and synthetic CDP session;
+the server checks its opener again before exposing it to Playwright. Actions use
+the leaf popup, then return to its retained opener when it closes. Main pages stay
+open for OAuth return. Ending one assignment detaches its whole chain without
+closing any page or stopping another agent's task tab.
+
+## Action contract and errors
+
+`POST /api/agents/:id/browser` keeps its existing actions and screenshot-card
+shape. `preview-url` is unchanged. The extension uses the actual desktop viewport;
+it does not apply the headless viewport or download policy. Desktop localhost
+means the member's computer. Upload/download behavior is not promised.
+`close` means detach and leave the page open. The old headless path still closes
+its page and retains its existing profile and idle behavior. Extension control
+also ends after 15 minutes without an action, leaving the real page open.
+
+Stable extension errors are `browser_not_paired`, `browser_offline`,
+`browser_control_ended`, and `action_failed`. Control loss, deadline or revocation
+can leave a side effect with an unknown outcome. The server never retries it.
+Invalid requests and missing task pages retain the existing validation errors.
 
 ## Evidence and checks
 
-The live check loads the actual built extension through the public CDP
-`Extensions.loadUnpacked` command in a fresh Chrome profile. Setup uses
-Playwright's private pipe and `--enable-unsafe-extension-debugging`; it omits
-Playwright's `--disable-extensions` launch default. It exposes no debug port.
-The setup connection only loads/configures the extension, creates an unrelated
-tab, and inspects final target existence. All task-page reads, actions and the
-screenshot pass through the extension bridge.
+Slice 1 proved real Chrome attachment and form/text/snapshot/click/screenshot
+through the public seam, assigned-only discovery, no replay after connection
+loss, and detach leaving pages open. The slice-2 opt-in real-extension test uses
+the actual office routes and isolated member/profile state, two task agents,
+frames, popup return, screenshot action, and revocation. Unit and route tests
+cover code expiry/reuse/hash persistence, restart, Origin and app-host exclusion,
+credential separation, active access loss, popup ownership and stale generations.
+Gate logs identify the committed hash and results; no Windows or real-site
+acceptance is inferred from Linux fixtures. No account mutation is a test step.
 
-The local form check proves snapshot/text, fill, trusted mouse click and PNG
-capture. The lifecycle check observes a site-side counter before cutting the
-connection while evaluation waits, requires rejection, then creates a fresh
-connection and verifies the counter remains one. It also checks assigned-only
-discovery, refusal of a second task tab and root cookie access, and that ending
-control leaves task and unrelated pages open.
+Build: `bun run build:extension`; output: `browser-extension/dist/` (ignored).
+Run the opt-in office check with:
 
-Development evidence, 2026-09-19 office date: Chrome 151.0.7922.137,
-Playwright 1.62.1, Bun 1.3.11; successful local proof in
-`/tmp/isomux-extension-proof-qdvGaq/` (development tree, not a release gate).
-Final gate logs record the committed start and end hash; the review handoff
-identifies those paths. These are functional sanity checks, not latency results.
-No account mutations or Windows acceptance are inferred from them.
+```
+systemd-run --user --scope -p MemoryMax=2G timeout 75s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-office.live.test.ts
+```
 
-Build: `bun run build:extension`. Output: `browser-extension/dist/` (ignored).
-Normal checks include extension sources in root TypeScript and ESLint, build
-the extension during CI, and run the three focused test files above. The real
-Chrome command is recorded in [the testing guide](testing-guide.md).
+## Copy inventory and slice 3
 
-## Copy inventory
-
-Extension manifest name and page title: `Isomux Browser`.
+Existing manifest/title: `Isomux Browser`.
 Manifest description: `Connect Chrome task tabs to an Isomux office.`
-Setup page: `Browser connection setup is not available in this build.`
-No badge, popup, or other extension status UI exists in this slice.
+Setup placeholder: `Browser connection setup is not available in this build.`
 
-Errors that can reach the Playwright caller: `Browser connection refused`,
+New route/action messages, verbatim:
+
+- `backend must be headless or extension`
+- `replace must be a boolean`
+- `A Chrome browser is already paired`
+- `No Chrome browser is paired`
+- `The Chrome browser is offline`
+- `The Chrome browser action failed`
+
+Existing bridge messages remain: `Browser connection refused`,
 `Browser assignment refused`, `Browser transport is not available`,
-`Browser command refused or failed`, and
-`Browser control ended; pending outcomes may be unknown`.
-The bridge's internal pending errors also use `Browser command failed` and
-`Browser disconnected; pending outcomes may be unknown`; CDP emits the generic
-failure above. No browser or protocol payload is included in these strings.
+`Browser command refused or failed`, `Browser command failed`,
+`Browser control ended; pending outcomes may be unknown`, and
+`Browser disconnected; pending outcomes may be unknown`.
+The upgrade can return `WebSocket upgrade failed`. Existing request validation,
+no-page errors, truncation labels and screenshot captions remain.
+Chrome supplies its own debugger warning.
 
-The fixture page alone shows `Bridge form`, `Message`, `Apply`, and, after the
-test, `extension proof`; its unrelated page shows `Unrelated fixture tab`.
-Chrome supplies its own debugger warning; its wording is not owned by Isomux.
+Slice 3 supplies member settings, pairing input, extension ownership/status badge
+and popup, disconnect/re-pair controls, installation packaging, and agent guidance.
+It must show the member identity and active assignments and explain desktop
+localhost, retained pages, popup return and unknown outcomes. Public prose belongs
+in the surfaces listed in `documentation.md`; collect it for Nil's sign-off.
+No remote streaming panel or Browsers page is part of this loop.
 
-## Prior art and next-slice limits
+## Prior art
 
-The pinned package's `BrowserModel`, `ExtensionProtocolV2`, and `CDPRelayServer`
-were read as prior art. The upstream relay virtualizes browser-level commands
-and maps tab debugger events to CDP sessions. This bridge changes that model
-to assignment-only discovery and rejects arbitrary profile commands.
-Reference: [official Playwright relay source](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/tools/mcp/cdpRelay.ts).
-
-Chrome restricts debugger domains and supports flattened child sessions from
-Chrome 125. Its target auto-attach needs explicit handling for frame trees.
-Reference: [Chrome debugger API](https://developer.chrome.com/docs/extensions/reference/api/debugger).
-The test loader is the public
-[CDP Extensions API](https://chromedevtools.github.io/devtools-protocol/tot/Extensions/).
-
-Slice 2 must add production pairing, credential persistence/revocation,
-manager-derived identity, explicit backend selection, socket heartbeat and
-reconnect, popup ownership and frame tests. It must validate the production
-WebSocket handshake and TLS deployment, including Origin and office binding;
-the loopback fixture is not that authorization boundary. The page-method list
-does not promise downloads, uploads, cookies, permissions, popup behavior or
-arbitrary CDP compatibility. Server-local preview remains a separate path.
-Later copy belongs in the surfaces listed in `documentation.md`; this slice
-does not add a member-visible production feature.
+The pinned Playwright BrowserModel, ExtensionProtocolV2 and CDPRelayServer
+informed the restricted adapter. References:
+[Playwright relay](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/tools/mcp/cdpRelay.ts),
+[Chrome debugger API](https://developer.chrome.com/docs/extensions/reference/api/debugger),
+[CDP extension loader](https://chromedevtools.github.io/devtools-protocol/tot/Extensions/).

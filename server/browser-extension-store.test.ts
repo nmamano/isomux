@@ -1,0 +1,45 @@
+import { test, expect } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { BrowserExtensionStore } from "./browser-extension-store";
+import { browserCredentialHash } from "./browser-extension-bridge";
+const origin = "chrome-extension://" + "a".repeat(32);
+test("pairing is single use, expires, stores hashes only, and replacement waits for redemption", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-store-"));
+  const path = join(dir, "connections.json");
+  let now = 0;
+  try {
+    const store = new BrowserExtensionStore(path, () => now);
+    expect(store.record("one").backend).toBe("headless");
+    const first = store.pair("one", false);
+    expect(first.code.length).toBe(43);
+    const paired = store.redeem(first.code, origin, () => true);
+    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBe("one");
+    expect(() => store.redeem(first.code, origin, () => true)).toThrow();
+    expect(() => store.pair("one", false)).toThrow();
+    const replacement = store.pair("one", true);
+    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBe("one");
+    const second = store.redeem(replacement.code, origin, () => true);
+    expect(store.memberForHash(browserCredentialHash(paired.credential), origin)).toBeUndefined();
+    expect(store.memberForHash(browserCredentialHash(second.credential), origin)).toBe("one");
+    expect(store.memberForHash(browserCredentialHash(second.credential), "chrome-extension://" + "b".repeat(32))).toBeUndefined();
+    store.select("one", "extension");
+    const saved = readFileSync(path, "utf8");
+    expect(saved).not.toContain(second.credential);
+    expect(saved).not.toContain(replacement.code);
+    const pending = store.pair("two", false);
+    const restart = new BrowserExtensionStore(path);
+    expect(restart.record("one").backend).toBe("extension");
+    expect(restart.memberForHash(browserCredentialHash(second.credential), origin)).toBe("one");
+    expect(() => restart.redeem(pending.code, origin, () => true)).toThrow();
+    now = pending.expiresAt;
+    expect(() => store.redeem(pending.code, origin, () => true)).toThrow();
+    const fresh = store.pair("two", false);
+    expect(() => store.redeem(fresh.code, "null", () => true)).toThrow();
+    expect(() => store.redeem(fresh.code, origin, () => false)).toThrow();
+    expect(store.redeem(fresh.code, origin, () => true).member).toBe("two");
+    restart.revoke("one");
+    expect(restart.record("one").hash).toBeUndefined();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

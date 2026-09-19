@@ -9096,6 +9096,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 // resolver, and registers the office-env-file provider for env-loader. isomux-office.ts
 // calls this at boot; tests construct createAgentManager(...) with fakes.
 export function createProductionAgentManager(overrides?: {
+  runBrowserAction?: ManagerDeps["runBrowserAction"];
   resolveBackend?: typeof defaultResolveBackend;
   listProviderAccounts?: (
     userId: string,
@@ -9129,6 +9130,7 @@ export function createProductionAgentManager(overrides?: {
   });
   const manager = createAgentManager({
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
+    runBrowserAction: overrides?.runBrowserAction,
     officeState,
     initialRooms: initialLoadedAgents,
     listProviderAccounts: overrides?.listProviderAccounts,

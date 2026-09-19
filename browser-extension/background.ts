@@ -6,16 +6,21 @@ import {
   type Fields,
 } from "../shared/browser-extension-protocol";
 
-type OwnedTab = { tabId: number; children: Set<string> };
+type OwnedTab = { tabId: number; children: Set<string>; targetId?: string; popups: Map<string, OwnedTab>; attaching?: boolean };
 type Connection = {
   ws: WebSocket;
   generation?: string;
   tabs: Map<string, OwnedTab>;
   creating: Set<string>;
   closed: boolean;
+  terminal?: boolean;
+  watchdog?: ReturnType<typeof setTimeout>;
 };
 let current: Connection | undefined;
 let configuration = 0;
+let retry = 0;
+let reconnect: ReturnType<typeof setTimeout> | undefined;
+let savedCredential: string | undefined;
 
 function send(c: Connection, message: Fields): void {
   if (!c.closed && current === c && c.ws.readyState === WebSocket.OPEN)
@@ -31,6 +36,8 @@ function check(c: Connection): void {
     throw new Error("Browser disconnected");
 }
 async function detach(tab: OwnedTab): Promise<void> {
+  for (const popup of tab.popups.values()) await detach(popup);
+  tab.popups.clear();
   try {
     await chrome.debugger.detach({ tabId: tab.tabId });
   } catch {}
@@ -38,11 +45,17 @@ async function detach(tab: OwnedTab): Promise<void> {
 function close(c: Connection): void {
   if (c.closed) return;
   c.closed = true;
+  clearTimeout(c.watchdog);
   if (current === c) current = undefined;
   c.ws.close();
   for (const tab of c.tabs.values()) void detach(tab);
   c.tabs.clear();
   c.creating.clear();
+  if (!c.terminal) {
+    clearTimeout(reconnect);
+    void chrome.alarms.create("reconnect", { delayInMinutes: 0.5 });
+    reconnect = setTimeout(() => { void configure(false); }, Math.min(30_000, 1000 * 2 ** Math.min(retry++, 5)) + Math.floor(Math.random() * 250));
+  }
 }
 
 async function command(c: Connection, msg: Fields): Promise<Fields> {
@@ -57,7 +70,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     check(c);
     if (!c.creating.has(id)) throw new Error("Browser control ended");
     if (tab.id === undefined) throw new Error("Task tab creation failed");
-    const owned: OwnedTab = { tabId: tab.id, children: new Set() };
+    const owned: OwnedTab = { tabId: tab.id, children: new Set(), popups: new Map() };
     c.tabs.set(id, owned);
     try {
       await chrome.debugger.attach({ tabId: tab.id }, "1.3");
@@ -71,6 +84,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
       );
       check(c);
       if (!c.creating.has(id)) throw new Error("Browser control ended");
+      owned.targetId = fields(result.targetInfo).targetId as string;
       return result;
     } catch (error) {
       await detach(owned);
@@ -97,10 +111,12 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     !pageCommandAllowed(args.method, params)
   )
     throw new Error("Unsupported page command");
-  const child = args.sessionId;
+  const requested = args.sessionId;
+  const selected = typeof requested === "string" ? tab.popups.get(requested) ?? [...tab.popups.values()].find((popup) => popup.children.has(requested)) ?? tab : tab;
+  const child = typeof requested === "string" && tab.popups.has(requested) ? undefined : requested;
   if (
     child !== undefined &&
-    (typeof child !== "string" || !tab.children.has(child))
+    (typeof child !== "string" || !selected.children.has(child))
   )
     throw new Error("Unknown child session");
   // Never let the client broaden auto-attach to unrelated targets or popups.
@@ -114,7 +130,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         }
       : params;
   const result = await chrome.debugger.sendCommand(
-    { tabId: tab.tabId, sessionId: child },
+    { tabId: selected.tabId, sessionId: child },
     args.method,
     commandParams,
   );
@@ -123,9 +139,12 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   return fields(result ?? {});
 }
 
-async function configure(): Promise<void> {
+async function configure(reset = true): Promise<void> {
+  clearTimeout(reconnect);
+  void chrome.alarms.clear("reconnect");
+  if (reset) retry = 0;
   const serial = ++configuration;
-  if (current) close(current);
+  if (current) { current.terminal = true; close(current); }
   await chrome.storage.local.setAccessLevel({
     accessLevel: "TRUSTED_CONTEXTS",
   });
@@ -133,7 +152,8 @@ async function configure(): Promise<void> {
   if (serial !== configuration || !stored.connection) return;
   try {
     const config = fields(stored.connection);
-    if (typeof config.url !== "string" || typeof config.credential !== "string")
+    if (config.blocked === true) return;
+    if (typeof config.url !== "string" || (typeof config.credential !== "string" && typeof config.code !== "string"))
       return;
     const ws = new WebSocket(browserSocketURL(config.url));
     const c: Connection = {
@@ -143,18 +163,38 @@ async function configure(): Promise<void> {
       closed: false,
     };
     current = c;
+    const refuse = () => {
+      c.terminal = true;
+      void chrome.alarms.clear("reconnect");
+      void chrome.storage.local.set({ connection: { ...config, blocked: true } });
+      close(c);
+    };
     ws.onopen = () =>
       send(c, {
         kind: "hello",
         version: BROWSER_EXTENSION_PROTOCOL,
-        credential: config.credential,
+        ...(typeof config.credential === "string" ? { credential: config.credential } : { code: config.code }),
       });
-    ws.onclose = () => close(c);
+    ws.onclose = (event) => { if (event.code === 4003) { refuse(); return; } close(c); };
     ws.onerror = () => close(c);
     ws.onmessage = (event: MessageEvent<string>) => {
       if (c.closed || current !== c) return;
       try {
+        if (event.data.length > 8 * 1024 * 1024) throw new Error("Invalid message");
         const msg = fields(JSON.parse(event.data));
+        if (msg.kind === "refused") { refuse(); return; }
+        if (msg.kind === "paired" && msg.version === BROWSER_EXTENSION_PROTOCOL && typeof msg.credential === "string" && !c.generation) {
+          savedCredential = msg.credential;
+          void chrome.storage.local.set({ connection: { url: config.url, credential: msg.credential } });
+          return;
+        }
+        if (msg.kind === "ping" && msg.generation === c.generation && c.generation) {
+          clearTimeout(c.watchdog);
+          c.watchdog = setTimeout(() => close(c), 45_000);
+          send(c, { kind: "pong", generation: c.generation });
+          return;
+        }
+
         if (
           msg.kind === "ready" &&
           msg.version === BROWSER_EXTENSION_PROTOCOL &&
@@ -162,6 +202,9 @@ async function configure(): Promise<void> {
           !c.generation
         ) {
           c.generation = msg.generation;
+          retry = 0;
+          void chrome.alarms.clear("reconnect");
+          c.watchdog = setTimeout(() => close(c), 45_000);
           return;
         }
         if (msg.generation !== c.generation || !c.generation) return;
@@ -195,7 +238,9 @@ async function configure(): Promise<void> {
 chrome.debugger.onEvent.addListener((source, method, params = {}) => {
   const c = current;
   if (!c || c.closed || !c.generation) return;
-  for (const [assignment, tab] of c.tabs) {
+  for (const [assignment, main] of c.tabs) {
+    const popupEntry = [...main.popups].find(([, popup]) => popup.tabId === source.tabId);
+    const tab = popupEntry?.[1] ?? main;
     if (
       tab.tabId !== source.tabId ||
       (source.sessionId && !tab.children.has(source.sessionId))
@@ -220,27 +265,61 @@ chrome.debugger.onEvent.addListener((source, method, params = {}) => {
       assignment,
       method,
       params,
-      sessionId: source.sessionId,
+      sessionId: source.sessionId ?? popupEntry?.[0],
     });
+  }
+});
+chrome.tabs.onCreated.addListener((tab) => {
+  const c = current;
+  if (!c || c.closed || !c.generation || tab.id === undefined || tab.openerTabId === undefined) return;
+  for (const [assignment, main] of c.tabs) {
+    const opener = [...main.popups.values()].at(-1) ?? main;
+    if (opener.tabId !== tab.openerTabId || !opener.targetId || main.attaching || main.popups.size >= 8) continue;
+    main.attaching = true;
+    const popup: OwnedTab = { tabId: tab.id, children: new Set(), popups: new Map() };
+    const sessionId = crypto.randomUUID();
+    main.popups.set(sessionId, popup);
+    void (async () => {
+      try {
+        await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
+        check(c);
+        if (c.tabs.get(assignment) !== main || main.popups.get(sessionId) !== popup) throw new Error("Control ended");
+        const result = fields(await chrome.debugger.sendCommand({ tabId: popup.tabId }, "Target.getTargetInfo"));
+        const info = fields(result.targetInfo);
+        popup.targetId = info.targetId as string;
+        check(c);
+        send(c, { kind: "event", generation: c.generation, assignment, method: "popup", params: { sessionId, targetInfo: { ...info, openerId: opener.targetId } } });
+      } catch { main.popups.delete(sessionId); await detach(popup); }
+      finally { main.attaching = false; }
+    })();
+    break;
   }
 });
 chrome.debugger.onDetach.addListener((source) => {
   const c = current;
   if (!c) return;
   for (const [assignment, tab] of c.tabs) {
-    if (source.tabId !== tab.tabId) continue;
-    c.tabs.delete(assignment);
-    send(c, {
-      kind: "event",
-      generation: c.generation,
-      assignment,
-      method: "detached",
-      params: {},
-    });
+    if (source.tabId === tab.tabId) {
+      c.tabs.delete(assignment);
+      void detach(tab);
+      send(c, { kind: "event", generation: c.generation, assignment, method: "detached", params: {} });
+      continue;
+    }
+    const popup = [...tab.popups].find(([, owned]) => owned.tabId === source.tabId);
+    if (popup) {
+      tab.popups.delete(popup[0]);
+      send(c, { kind: "event", generation: c.generation, assignment, method: "popupDetached", params: { sessionId: popup[0] } });
+    }
   }
 });
-chrome.storage.onChanged.addListener((_changes, area) => {
-  if (area === "local") void configure();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  const connection = (changes as { connection?: { newValue?: { credential?: string } } }).connection;
+  if (connection?.newValue?.credential === savedCredential && savedCredential) { savedCredential = undefined; return; }
+  void configure();
+});
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "reconnect" && !current) void configure(false);
 });
 chrome.runtime.onStartup.addListener(() => {
   void configure();

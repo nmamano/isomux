@@ -24,6 +24,7 @@ type Assignment = {
   peer: BridgePeer;
   target?: Fields;
   children: Map<string, string>;
+  popups: Map<string, Fields>;
   creating: boolean;
   closed: boolean;
 };
@@ -105,6 +106,7 @@ export class ExtensionConnection {
       browserSession: crypto.randomUUID(),
       peer,
       children: new Map(),
+      popups: new Map(),
       creating: false,
       closed: false,
     };
@@ -113,6 +115,10 @@ export class ExtensionConnection {
       receive: (message) => this.dispatch(assignment, message),
       close: () => this.release(assignment),
     };
+  }
+
+  revalidate(): void {
+    for (const a of this.assignments.values()) if (!this.authorize(a.agentId)) this.release(a);
   }
 
   private check(a: Assignment): void {
@@ -156,6 +162,7 @@ export class ExtensionConnection {
     return [...this.assignments.values()].some(
       (a) =>
         a.target?.targetId === targetId ||
+        [...a.popups.values()].some((t) => t.targetId === targetId) ||
         [...a.children.values()].includes(targetId),
     );
   }
@@ -168,6 +175,10 @@ export class ExtensionConnection {
       if (msg.kind === "result" && typeof msg.id === "number") {
         const pending = this.pending.get(msg.id);
         if (!pending) return;
+        const owner = this.assignments.get(pending.assignment);
+        if (!owner) return;
+        if (!this.authorize(owner.agentId)) { this.release(owner); return; }
+        this.check(owner);
         const result = msg.error ? undefined : fields(msg.result);
         this.pending.delete(msg.id);
         clearTimeout(pending.timer);
@@ -179,15 +190,32 @@ export class ExtensionConnection {
         throw new Error("Invalid event");
       const a = this.assignments.get(msg.assignment);
       if (!a) return;
+      if (!this.authorize(a.agentId)) { this.release(a); return; }
       this.check(a);
       if (msg.method === "detached") {
         this.release(a);
         return;
       }
       if (!a.target || typeof msg.method !== "string") return;
+      if (msg.method === "popup") {
+        const params = fields(msg.params);
+        const target = fields(params.targetInfo);
+        const opener = [...a.popups.values()].at(-1) ?? a.target;
+        if (target.type !== "page" || typeof target.targetId !== "string" || target.openerId !== opener.targetId || this.knownTarget(target.targetId) || typeof params.sessionId !== "string" || a.popups.size >= 8 || [...this.assignments.values()].some((owner) => owner.popups.has(params.sessionId as string) || owner.children.has(params.sessionId as string) || owner.session === params.sessionId || owner.browserSession === params.sessionId)) throw new Error("Invalid popup");
+        a.popups.set(params.sessionId, target);
+        a.peer.send({ method: "Target.attachedToTarget", params: { sessionId: params.sessionId, targetInfo: { ...target, attached: true }, waitingForDebugger: false } });
+        return;
+      }
+      if (msg.method === "popupDetached") {
+        const params = fields(msg.params);
+        if (typeof params.sessionId !== "string" || !a.popups.delete(params.sessionId)) return;
+        a.peer.send({ method: "Target.detachedFromTarget", params: { sessionId: params.sessionId } });
+        return;
+      }
+
       const child =
         typeof msg.sessionId === "string" ? msg.sessionId : undefined;
-      if (child && !a.children.has(child)) return;
+      if (child && !a.children.has(child) && !a.popups.has(child)) return;
       const params = fields(msg.params);
       if (msg.method === "Target.attachedToTarget") {
         const info = fields(params.targetInfo);
@@ -199,6 +227,7 @@ export class ExtensionConnection {
           [...this.assignments.values()].some(
             (owner) =>
               owner.children.has(params.sessionId as string) ||
+              owner.popups.has(params.sessionId as string) ||
               owner.session === params.sessionId ||
               owner.browserSession === params.sessionId,
           )
@@ -277,7 +306,7 @@ export class ExtensionConnection {
         case "Target.setAutoAttach":
           return {};
         case "Target.getTargets":
-          return { targetInfos: a.target ? [a.target] : [] };
+          return { targetInfos: a.target ? [a.target, ...a.popups.values()] : [] };
         case "Target.getTargetInfo":
           if (
             params.targetId !== undefined &&
@@ -321,16 +350,16 @@ export class ExtensionConnection {
     if (
       typeof sessionId !== "string" ||
       !a.target ||
-      (sessionId !== a.session && !a.children.has(sessionId))
+      (sessionId !== a.session && !a.children.has(sessionId) && !a.popups.has(sessionId))
     )
       throw new Error("Unknown session");
     if (method === "Target.getTargetInfo") {
       if (
         params.targetId !== undefined &&
-        params.targetId !== a.target.targetId
+        params.targetId !== (a.popups.get(sessionId)?.targetId ?? a.target.targetId)
       )
         throw new Error("Unknown target");
-      return { targetInfo: a.target };
+      return { targetInfo: a.popups.get(sessionId) ?? a.target };
     }
     if (!pageCommandAllowed(method, params))
       throw new Error("Unsupported page command");

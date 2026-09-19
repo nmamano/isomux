@@ -3,12 +3,18 @@ interface ChromeDebuggee {
   sessionId?: string;
 }
 declare const chrome: {
+  alarms: {
+    create(name: string, options: { delayInMinutes: number }): Promise<void>;
+    clear(name: string): Promise<boolean>;
+    onAlarm: { addListener(callback: (alarm: { name: string }) => void): void };
+  };
   runtime: {
     onStartup: { addListener(callback: () => void): void };
     onInstalled: { addListener(callback: () => void): void };
   };
   storage: {
     local: {
+      set(value: Record<string, unknown>): Promise<void>;
       get(key: string): Promise<Record<string, unknown>>;
       setAccessLevel(options: {
         accessLevel: "TRUSTED_CONTEXTS";
@@ -19,6 +25,7 @@ declare const chrome: {
     };
   };
   tabs: {
+    onCreated: { addListener(callback: (tab: { id?: number; openerTabId?: number }) => void): void };
     create(options: { url: string; active: boolean }): Promise<{ id?: number }>;
   };
   debugger: {

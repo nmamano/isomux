@@ -1,3 +1,7 @@
+import { BrowserExtensionStore } from "./browser-extension-store";
+import { BrowserExtensionService, EXTENSION_SOCKET_PATH, extensionUpgradeAllowed, type ExtensionWsData } from "./browser-extension-service";
+import { ExtensionBrowserSessions } from "./browser-extension-session";
+import { browserExtensionHandlers } from "./routes/handlers/browser-extension";
 import { renderReceptionistProfile } from "./receptionist-profile.ts";
 import {
   RECEPTIONIST_PROFILE_KEY,
@@ -432,6 +436,14 @@ let discoverWelcomeOpenCodeModels:
   | ((userId: string) => Promise<BackendModelWire[]>)
   | undefined;
 
+let extensionService: BrowserExtensionService | undefined;
+let extensionSessions: ExtensionBrowserSessions | undefined;
+function mayUseExtension(member: string, agentId: string): boolean {
+  const user = getUserById(member);
+  const agent = agentManager.getAgent(agentId);
+  return !!user && !!agent && agent.userId === member && buildLiveGuardDeps().hasRoomAccess({ scope: "user", userId: member, role: user.role, capabilities: [] }, agent.roomId);
+}
+
 function createManagers(startOpts: StartServerOpts): void {
   // createProductionAgentManager() loads the persisted office/agents snapshot
   // synchronously (getRooms() valid before the async restore) and registers the
@@ -457,6 +469,7 @@ function createManagers(startOpts: StartServerOpts): void {
   agentManager =
     startOpts.agentManager ??
     createProductionAgentManager({
+      runBrowserAction: (agent, body) => extensionSessions!.run(agent, body),
       resolveBackend: startOpts.resolveBackend,
       listProviderAccounts: async (userId, options) => {
         const accounts = await providerAccountManager.list(
@@ -479,6 +492,11 @@ function createManagers(startOpts: StartServerOpts): void {
       effectiveProviderAccountTarget: (userId, provider) =>
         providerAccountManager.effectiveTarget(userId, provider),
     });
+  extensionService = new BrowserExtensionService(new BrowserExtensionStore(join(STATE_ROOT, "browser-connections.json")), {
+    memberExists: (member) => !!getUserById(member),
+    mayUse: mayUseExtension,
+  });
+  extensionSessions = new ExtensionBrowserSessions(extensionService, (agent) => agentManager.getAgent(agent)?.userId ?? undefined, mayUseExtension);
   cronjobManager =
     startOpts.cronjobManager ??
     createProductionCronjobManager({
@@ -665,6 +683,7 @@ function registerBootHooks(): void {
   setOnSessionsChanged(() => {
     emitSessionsList();
     recheckOpenAppSockets();
+    extensionService?.revalidate();
   });
 
   // Role changes (promote/demote) refresh the cached ws.data.session on the
@@ -695,6 +714,7 @@ function registerBootHooks(): void {
       ws.data.session = fresh;
     }
     recheckOpenAppSockets();
+    extensionService?.revalidate();
   });
 
   // First-install onboarding: pre-spawn one welcome agent for each backend.
@@ -861,7 +881,7 @@ interface ApiTokenWsData {
   tokenId: string;
   userId: string;
 }
-type WsData = OfficeWsData | ApiTokenWsData | AppRelayWsData;
+type WsData = OfficeWsData | ApiTokenWsData | AppRelayWsData | ExtensionWsData;
 type EventSocket =
   | ServerWebSocket<OfficeWsData>
   | ServerWebSocket<ApiTokenWsData>;
@@ -2086,6 +2106,7 @@ function announceAppAudienceChanges(
     console.error("[apps] could not announce a dependency change:", err);
   }
   recheckOpenAppSockets();
+  extensionService?.revalidate();
 }
 
 // Assemble the executor deps for the migrated /api surface. Called from
@@ -3984,6 +4005,12 @@ function buildExecutorDeps(
       },
     }),
   );
+  register(browserExtensionHandlers(extensionService!, async (member, backend) => {
+    if (extensionService!.store.record(member).backend === backend) return;
+    extensionService!.store.select(member, backend);
+    extensionService!.revalidate();
+    await extensionSessions!.endMember(member, agentManager.getAllAgents().filter((agent) => agent.userId === member).map((agent) => agent.id));
+  }));
   // Personal preferences. Self-only, same audience posture as view.*: the
   // handler is a pure REST mapper and this seam owns mutate -> emit.
   register(
@@ -4754,6 +4781,7 @@ function routeAgentEvent(event: AgentEvent) {
 // the pre-removal roomId, so it rides the registry's room-ACL audience
 // (carriedRoomId) instead of the old broadcast-all.
 function emitAgentEvent(event: AgentEvent): void {
+  if (event.type === "agent_updated" || event.type === "agent_removed") extensionService?.revalidate();
   switch (event.type) {
     case "browser_action": {
       const userId = agentManager.getAgent(event.agentId)?.userId;
@@ -5539,6 +5567,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       const officeHostResponse = await (async () => {
         const url = new URL(req.url);
 
+        if (url.pathname === EXTENSION_SOCKET_PATH) {
+          if (!extensionUpgradeAllowed(req, buildPublicOrigin().origin)) return new Response("Browser connection refused", { status: 403 });
+          if (server.upgrade(req, { data: { kind: "extension", origin: req.headers.get("origin")! } })) return;
+          return new Response("WebSocket upgrade failed", { status: 400 });
+        }
+
         // WebSocket upgrade - authenticated and origin-checked. The upgrade
         // carries the session into ws.data so per-message handlers can attribute
         // writes without trusting client-supplied username fields.
@@ -6131,6 +6165,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // `ws.data` is discriminated, but `ServerWebSocket<T>` is invariant in T,
       // so the runtime check is what makes it sound.
       open(socket) {
+        if (socket.data.kind === "extension") { extensionService!.open(socket as ServerWebSocket<ExtensionWsData>); return; }
         if (socket.data.kind === "api") {
           const ws = socket as ServerWebSocket<ApiTokenWsData>;
           if (liveTokenSocket(ws)) apiTokenSockets.add(ws);
@@ -6306,6 +6341,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         sendPresenceListTo(ws);
       },
       message(socket, data) {
+        if (socket.data.kind === "extension") { extensionService!.message(socket as ServerWebSocket<ExtensionWsData>, data); return; }
         if (socket.data.kind === "api") {
           // Receive-only. Commands remain on the authenticated REST surface.
           liveTokenSocket(socket as ServerWebSocket<ApiTokenWsData>);
@@ -6344,6 +6380,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           watch.frames.flush();
       },
       close(socket, code, reason) {
+        if (socket.data.kind === "extension") { extensionService!.close(socket as ServerWebSocket<ExtensionWsData>); return; }
         if (socket.data.kind === "api") {
           apiTokenSockets.delete(socket as ServerWebSocket<ApiTokenWsData>);
           return;
@@ -6618,6 +6655,8 @@ function resetServerModuleState(): void {
 async function stopServer(server: Server<WsData>): Promise<void> {
   // Force-close active sockets and stop accepting, freeing the (ephemeral) port
   // before the next harness boot.
+  extensionService?.stop();
+  extensionSessions?.stop();
   await server.stop(true);
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no

@@ -274,3 +274,34 @@ describe("browser extension isolation", () => {
     h.connection.close();
   });
 });
+
+test("owned popup chain is visible only to its assignment and rejects a foreign opener", async () => {
+  const h = harness();
+  const { assignment } = await create(h);
+  const other = peer();
+  const otherAssignment = h.connection.assign("other-agent", other);
+  h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "popup", params: { sessionId: "popup-session", targetInfo: { type: "page", targetId: "popup", openerId: "owned" } } });
+  expect(h.client.messages.some((m) => m.method === "Target.attachedToTarget" && fields(m.params).sessionId === "popup-session")).toBe(true);
+  await otherAssignment.receive({ id: 20, method: "Target.getTargets", params: {} });
+  expect(fields(other.messages.at(-1)!.result).targetInfos).toEqual([]);
+  h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "popupDetached", params: { sessionId: "popup-session" } });
+  expect(h.client.messages.at(-1)!.method).toBe("Target.detachedFromTarget");
+  h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "popup", params: { sessionId: "foreign-session", targetInfo: { type: "page", targetId: "foreign-popup", openerId: "foreign-tab" } } });
+  expect(h.extension.closed).toBe(true);
+  expect(h.client.messages.some((m) => m.method === "Target.attachedToTarget" && fields(m.params).sessionId === "foreign-session")).toBe(false);
+});
+
+test("active authorization loss rejects pending work before a result is delivered", async () => {
+  const h = harness();
+  const { sessionId } = await create(h);
+  const work = h.agent.receive({ id: 4, sessionId, method: "Runtime.evaluate", params: { expression: "1" } });
+  const sent = h.extension.messages.at(-1)!;
+  expect(sent.method).toBe("cdp");
+  h.revoke();
+  h.connection.revalidate();
+  expect(h.client.closed).toBe(true);
+  h.connection.receive({ kind: "result", generation: h.connection.generation, id: sent.id, result: { result: { value: 1 } } });
+  await work;
+  expect(h.client.messages.some((message) => message.id === 4 && message.result)).toBe(false);
+  h.connection.close();
+});

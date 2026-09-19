@@ -22,7 +22,7 @@ async function harness() {
     static OPEN = 1;
     readyState = 1;
     onopen?: () => void;
-    onclose?: () => void;
+    onclose?: (event: { code: number }) => void;
     onerror?: () => void;
     onmessage?: (event: { data: string }) => void;
     sent: Fields[] = [];
@@ -34,15 +34,17 @@ async function harness() {
     }
     close() {
       this.readyState = 3;
-      this.onclose?.();
+      this.onclose?.({ code: 1000 });
     }
     receive(message: Fields) {
       this.onmessage?.({ data: JSON.stringify(message) });
     }
   }
   const chrome = {
+    alarms: { create: async () => {}, clear: async () => true, onAlarm: { addListener() {} } },
     storage: {
       local: {
+        set: () => Promise.resolve(),
         setAccessLevel: () => Promise.resolve(),
         get: () =>
           Promise.resolve({
@@ -63,6 +65,7 @@ async function harness() {
       onInstalled: { addListener() {} },
     },
     tabs: {
+      onCreated: { addListener() {} },
       create: () => {
         calls.push("create");
         return created();
@@ -89,7 +92,12 @@ async function harness() {
       onDetach: { addListener() {} },
     },
   };
-  runInNewContext(source, { chrome, WebSocket: FakeSocket, URL });
+  const timers = new Map<number, () => void>();
+  let timerId = 0;
+  runInNewContext(source, { chrome, WebSocket: FakeSocket, URL, crypto,
+    setTimeout: (fn: () => void) => { timers.set(++timerId, fn); return timerId; },
+    clearTimeout: (id: number) => timers.delete(id),
+  });
   await settle();
   const socket = sockets[0];
   socket.onopen?.();
@@ -98,6 +106,7 @@ async function harness() {
     socket,
     sockets,
     calls,
+    timers,
     reconnect: async () => {
       changed({}, "local");
       await settle();
@@ -185,4 +194,20 @@ test("built worker refuses unknown child sessions and profile commands", async (
     h.socket.sent.filter((msg) => msg.kind === "result" && msg.error),
   ).toHaveLength(2);
   h.socket.close();
+});
+
+test("transient loss schedules reconnect but refusal stays terminal", async () => {
+  const h = await harness();
+  h.socket.close();
+  expect(h.timers.size).toBe(1);
+  const reconnect = [...h.timers.values()][0];
+  reconnect();
+  await settle();
+  expect(h.sockets).toHaveLength(2);
+  const fresh = h.sockets[1];
+  fresh.onopen?.();
+  fresh.receive({ kind: "ready", version: 1, generation: "fresh" });
+  fresh.receive({ kind: "refused" });
+  expect(fresh.readyState).toBe(3);
+  expect(h.timers.size).toBe(0);
 });

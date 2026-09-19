@@ -104,6 +104,9 @@ export const BROWSER_ACTIONS = [
 export type BrowserAction = (typeof BROWSER_ACTIONS)[number];
 
 export type BrowserErrorCode =
+  | "browser_not_paired"
+  | "browser_offline"
+  | "browser_control_ended"
   | "invalid_request"
   | "no_browser"
   | "launch_failed"
@@ -1436,6 +1439,12 @@ export class BrowserPool {
       this.idlePages.delete(agentId);
       return this.closeNow(agentId);
     });
+  }
+
+  /** Cancel control immediately when the selected backend changes. */
+  async interrupt(agentId: string): Promise<void> {
+    this.idlePages.delete(agentId);
+    await this.closeNow(agentId);
   }
 
   /** close() without the agent queue. Only call from inside queued work. */
