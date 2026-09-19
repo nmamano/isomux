@@ -1,3 +1,5 @@
+import manifest from "../browser-extension/manifest.json";
+import { browserDisplay } from "./browser-extension-display";
 import type { ServerWebSocket } from "bun";
 import {
   BrowserExtensionBridge,
@@ -20,6 +22,7 @@ export interface ExtensionWsData {
   deadline?: ReturnType<typeof setTimeout>;
   heartbeat?: ReturnType<typeof setInterval>;
   lastPong?: number;
+  credentialHash?: string;
 }
 export const EXTENSION_SOCKET_PATH = "/browser-extension/ws";
 export const EXTENSION_MAX_BYTES = 8 * 1024 * 1024;
@@ -51,6 +54,8 @@ export class BrowserExtensionService {
     private access: {
       memberExists(member: string): boolean;
       mayUse(member: string, agent: string): boolean;
+      memberName?(member: string): string;
+      agentName?(agent: string): string;
     },
   ) {
     this.bridge = new BrowserExtensionBridge({
@@ -61,10 +66,16 @@ export class BrowserExtensionService {
       mayUse: (member, agent) =>
         store.record(member).backend === "extension" &&
         access.mayUse(member, agent),
+      ...(access.memberName && access.agentName ? {
+        memberDisplay: (member: string) => browserDisplay(member, access.memberName!(member)),
+        agentDisplay: (agent: string) => browserDisplay(agent, access.agentName!(agent)),
+      } : {}),
     });
   }
   status(member: string) {
     return {
+      member: browserDisplay(member, this.access.memberName?.(member) ?? member),
+      version: manifest.version,
       backend: this.store.record(member).backend,
       selectionRequired: this.store.record(member).backend === null,
       paired: !!this.store.record(member).hash,
@@ -141,10 +152,20 @@ export class BrowserExtensionService {
           },
           close: () => ws.close(),
         });
+        ws.data.credentialHash = browserCredentialHash(credential);
         clearTimeout(ws.data.deadline);
         ws.data.lastPong = Date.now();
         ws.data.heartbeat = setInterval(() => this.heartbeat(ws), 15_000);
         ws.data.heartbeat.unref?.();
+      } else if (msg.kind === "unpair") {
+        const connection = ws.data.connection;
+        if (msg.generation !== connection.generation ||
+          this.bridge.forMember(connection.memberId) !== connection ||
+          !this.access.memberExists(connection.memberId) ||
+          this.store.memberForHash(ws.data.credentialHash!, ws.data.origin) !== connection.memberId) throw new Error();
+        this.store.revoke(connection.memberId);
+        ws.send(JSON.stringify({ kind: "unpaired", generation: connection.generation }));
+        connection.close();
       } else if (
         msg.kind === "pong" &&
         msg.generation === ws.data.connection.generation

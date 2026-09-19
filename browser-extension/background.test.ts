@@ -48,7 +48,15 @@ async function harness() {
       this.onmessage?.({ data: JSON.stringify(message) });
     }
   }
+  let runtimeMessage!: (value: unknown, sender: { id?: string; url?: string }, reply: (value: unknown) => void) => boolean | undefined;
+  let config: Record<string, unknown> | null = { url: "ws://127.0.0.1/extension", credential: "fixture" };
+  const badges: { text: string | null; tabId?: number }[] = [];
   const chrome = {
+    action: {
+      setBadgeText: async (value: { text: string | null; tabId?: number }) => { badges.push(value); },
+      setBadgeBackgroundColor: async () => {}, setTitle: async () => {},
+    },
+    windows: { update: async () => {} },
     alarms: {
       create: async () => {},
       clear: async () => true,
@@ -56,15 +64,12 @@ async function harness() {
     },
     storage: {
       local: {
-        set: () => Promise.resolve(),
+        set: async (value: { connection: Record<string, unknown> | null }) => {
+          config = value.connection;
+          changed({ connection: { newValue: config } }, "local");
+        },
         setAccessLevel: () => Promise.resolve(),
-        get: () =>
-          Promise.resolve({
-            connection: {
-              url: "ws://127.0.0.1/extension",
-              credential: "fixture",
-            },
-          }),
+        get: async () => ({ connection: config }),
       },
       onChanged: {
         addListener: (callback: typeof changed) => {
@@ -73,6 +78,9 @@ async function harness() {
       },
     },
     runtime: {
+      id: "fixture-id",
+      getURL: (path: string) => "chrome-extension://fixture-id/" + path,
+      onMessage: { addListener: (fn: typeof runtimeMessage) => { runtimeMessage = fn; } },
       onStartup: { addListener() {} },
       onInstalled: { addListener() {} },
     },
@@ -84,6 +92,7 @@ async function harness() {
       },
     },
     tabs: {
+      update: async () => ({ windowId: 1 }),
       create: () => {
         calls.push("create");
         return created();
@@ -128,6 +137,10 @@ async function harness() {
   return {
     socket,
     sockets,
+    badges,
+    config: () => config,
+    ui: (message: unknown) => new Promise<Record<string, unknown>>(resolve => runtimeMessage(message, { id: "fixture-id", url: "chrome-extension://fixture-id/connection.html" }, value => resolve(value as Record<string, unknown>))),
+    foreign: (sender: { id?: string; url?: string }) => runtimeMessage({ action: "state" }, sender, () => { throw new Error("Foreign reply"); }),
     calls,
     timers,
     navigation: (sourceTabId: number, tabId: number) =>
@@ -304,3 +317,62 @@ for (const stage of ["attach", "target"] as const) {
     h.socket.receive({ kind: "refused" });
   });
 }
+
+test("popup is exact-extension-only, does not disclose credentials, and stops only its assignment", async () => {
+  const h = await harness();
+  expect(h.foreign({ id: "fixture-id", url: "https://example.com/" })).toBeUndefined();
+  expect(h.foreign({ id: "foreign", url: "chrome-extension://fixture-id/connection.html" })).toBeUndefined();
+  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, assignments: [{ id: "assignment", agent: { id: "a", name: "Agent" } }] });
+  h.command(1, "create");
+  await settle();
+  const state = await h.ui({ action: "state" });
+  expect(state.member).toEqual({ id: "m", name: "Member" });
+  expect(state).not.toHaveProperty("credential");
+  expect(state).not.toHaveProperty("code");
+  expect(state.assignments).toHaveLength(1);
+  expect(h.badges).toContainEqual({ tabId: 7, text: "CTRL" });
+  expect(await h.ui({ action: "stop", generation: "old", assignment: "assignment" })).toHaveProperty("error");
+  expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
+  await h.ui({ action: "stop", generation: "generation-1", assignment: "assignment" });
+  expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  expect(h.calls).toContain("detach");
+  expect(h.socket.sent).toContainEqual({ kind: "event", generation: "generation-1", assignment: "assignment", method: "detached", params: {} });
+  expect(h.calls.filter(call => /close|remove|media|audio/i.test(call))).toHaveLength(0);
+  h.socket.close();
+});
+
+test("deliberate disconnect survives retries; terminal refusal cannot reconnect", async () => {
+  const h = await harness();
+  await h.ui({ action: "disconnect" });
+  await settle();
+  expect(h.config()?.disabled).toBe(true);
+  const before = h.sockets.length;
+  await h.reconnect();
+  expect(h.sockets).toHaveLength(before);
+  await h.ui({ action: "reconnect" });
+  await settle();
+  expect(h.sockets).toHaveLength(before + 1);
+  h.sockets.at(-1)!.receive({ kind: "refused" });
+  await settle();
+  expect(h.config()?.blocked).toBe(true);
+  expect(await h.ui({ action: "reconnect" })).toHaveProperty("error");
+  expect(h.sockets).toHaveLength(before + 1);
+});
+
+test("unpair claims success only after generation-bound acknowledgement", async () => {
+  const h = await harness();
+  const pending = h.ui({ action: "unpair", generation: "generation-1" });
+  await settle();
+  expect(h.socket.sent.at(-1)).toEqual({ kind: "unpair", generation: "generation-1" });
+  h.socket.receive({ kind: "unpaired", generation: "old" });
+  expect(h.config()?.credential).toBe("fixture");
+  h.socket.receive({ kind: "unpaired", generation: "generation-1" });
+  expect((await pending).state).toBe("unpaired");
+  expect(h.config()).toBeNull();
+  const lost = await harness();
+  const unknown = lost.ui({ action: "unpair", generation: "generation-1" });
+  await settle();
+  lost.socket.close();
+  expect((await unknown).state).toBe("unknown");
+  expect(await lost.ui({ action: "reconnect" })).toHaveProperty("error");
+});

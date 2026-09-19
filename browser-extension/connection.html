@@ -2,9 +2,33 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Isomux Browser</title>
+    <link rel="stylesheet" href="connection.css" />
+    <script type="module" src="connection.js"></script>
   </head>
   <body>
-    <p>Browser connection setup is not available in this build.</p>
+    <main>
+      <h1>Isomux Browser</h1>
+      <p id="status" role="status"></p>
+      <p id="member"></p>
+      <p id="office-display"></p>
+      <form id="pair-form">
+        <label id="office-label" for="office"></label>
+        <input id="office" type="url" required placeholder="https://office.example.com" autocomplete="url" />
+        <label id="code-label" for="code"></label>
+        <input id="code" required autocomplete="off" spellcheck="false" />
+        <button id="pair" type="submit"></button>
+      </form>
+      <div id="controls">
+        <button id="reconnect"></button>
+        <button id="disconnect"></button>
+        <button id="unpair"></button>
+      </div>
+      <p id="offline-help"></p>
+      <div id="assignments"></div>
+      <p id="retained"></p>
+      <p id="error" role="alert"></p>
+    </main>
   </body>
 </html>

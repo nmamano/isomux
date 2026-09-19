@@ -1,0 +1,16 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; color: #e7e9ef; background: #181c25; }
+body { margin: 0; min-width: 350px; }
+main { width: 350px; box-sizing: border-box; margin: 0 auto; padding: 20px; }
+h1 { font-size: 20px; margin: 0 0 16px; }
+p { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+label { display: block; font-size: 13px; margin: 14px 0 5px; }
+input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #687286; border-radius: 6px; background: #232a37; color: inherit; }
+button { font: inherit; font-size: 13px; padding: 8px 10px; margin: 10px 6px 0 0; border: 1px solid #687286; border-radius: 6px; background: #2c3547; color: inherit; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+input:focus-visible, button:focus-visible { outline: 2px solid #99b8ff; outline-offset: 2px; }
+#status { border-left: 3px solid #93b4ff; padding-left: 9px; }
+#assignments section { margin: 14px 0; padding: 12px; background: #242b38; border-radius: 8px; }
+#assignments p { margin: 0; }
+#error { color: #ffb8b8; }
+#retained, #offline-help { color: #bbc3d4; }
+[hidden] { display: none !important; }

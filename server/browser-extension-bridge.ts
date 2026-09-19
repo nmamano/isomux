@@ -5,6 +5,7 @@ import {
   pageCommandAllowed,
   type BridgePeer,
   type Fields,
+  type BrowserDisplay,
 } from "../shared/browser-extension-protocol";
 
 export const browserCredentialHash = (credential: string): string =>
@@ -38,6 +39,8 @@ export class BrowserExtensionBridge {
     private readonly access: {
       memberForCredentialHash(hash: string): string | undefined;
       mayUse(memberId: string, agentId: string): boolean;
+      memberDisplay?(member: string): BrowserDisplay;
+      agentDisplay?(agent: string): BrowserDisplay;
     },
   ) {}
 
@@ -56,6 +59,8 @@ export class BrowserExtensionBridge {
         if (this.connections.get(member) === connection)
           this.connections.delete(member);
       },
+      this.access.memberDisplay ? () => this.access.memberDisplay!(member) : undefined,
+      this.access.agentDisplay,
     );
     this.connections.set(member, connection);
     try {
@@ -64,6 +69,7 @@ export class BrowserExtensionBridge {
         version: BROWSER_EXTENSION_PROTOCOL,
         generation: connection.generation,
       });
+      connection.sendMetadata();
     } catch (error) {
       connection.close();
       throw error;
@@ -87,6 +93,8 @@ export class ExtensionConnection {
     private peer: BridgePeer,
     private authorize: (agentId: string) => boolean,
     private onClose: () => void,
+    private memberDisplay?: () => BrowserDisplay,
+    private agentDisplay?: (agent: string) => BrowserDisplay,
   ) {}
 
   assign(
@@ -112,6 +120,7 @@ export class ExtensionConnection {
       closed: false,
     };
     this.assignments.set(assignment.id, assignment);
+    this.sendMetadata();
     return {
       receive: (message) => this.dispatch(assignment, message),
       close: () => this.release(assignment),
@@ -121,6 +130,15 @@ export class ExtensionConnection {
   revalidate(): void {
     for (const a of this.assignments.values())
       if (!this.authorize(a.agentId)) this.release(a);
+    this.sendMetadata();
+  }
+
+  sendMetadata(): void {
+    if (!this.active || !this.memberDisplay || !this.agentDisplay) return;
+    this.peer.send({ kind: "metadata", generation: this.generation,
+      member: this.memberDisplay(),
+      assignments: [...this.assignments.values()].filter(a => this.authorize(a.agentId)).map(a => ({ id: a.id, agent: this.agentDisplay!(a.agentId) })),
+    });
   }
 
   private check(a: Assignment): void {
@@ -439,6 +457,7 @@ export class ExtensionConnection {
       } catch {}
     }
     a.peer.close();
+    this.sendMetadata();
   }
 
   close(): void {

@@ -837,6 +837,13 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   defineRoute({
+    opId: "browser.download",
+    method: "GET",
+    path: "/api/me/browser/extension.zip",
+    auth: cap("user:self", authenticated),
+    emits: [],
+  }),
+  defineRoute({
     opId: "browser.get",
     method: "GET",
     path: "/api/me/browser",

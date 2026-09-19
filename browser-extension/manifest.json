@@ -6,5 +6,6 @@
   "minimum_chrome_version": "125",
   "permissions": ["debugger", "storage", "alarms", "webNavigation"],
   "background": { "service_worker": "background.js", "type": "module" },
-  "options_page": "connection.html"
+  "options_page": "connection.html",
+  "action": { "default_popup": "connection.html", "default_title": "Isomux Browser" }
 }

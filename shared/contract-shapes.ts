@@ -287,10 +287,13 @@ export type AgentSubscriptionUsageResp =
     };
 
 /**
- * POST /api/agents/:id/browser - drive a page in the office browser.
- * `action` picks what happens; the rest of the fields belong to that action.
- * See server/browser-session.ts for the rules (http(s) only, no credentials in
- * the URL, no downloads) and internal-docs/browser-use-exploration.md for why.
+ * POST /api/agents/:id/browser - use the manager's explicitly selected browser.
+ * Chrome mode controls one owned task tab plus its site-created popup chain.
+ * `close` detaches and leaves pages/music running; viewport is ignored.
+ * Headless mode uses the server profile and closes its page on `close`.
+ * An offline Chrome connection never falls back to headless. A lost command
+ * can have an unknown outcome and is never replayed. preview-url stays server-side.
+ * See internal-docs/browser-extension.md and server/browser-session.ts.
  */
 export interface AffordanceBrowserReq {
   action:
@@ -312,7 +315,7 @@ export interface AffordanceBrowserReq {
   key?: string;
   /** `screenshot`: capture the whole page instead of the viewport. */
   fullPage?: boolean;
-  /** Integers, 320..2560 each. Default 1280x800. Applied when the context opens. */
+  /** Headless only: integers 320..2560, default 1280x800. Chrome keeps its desktop viewport. */
   viewport?: { width: number; height: number };
 }
 

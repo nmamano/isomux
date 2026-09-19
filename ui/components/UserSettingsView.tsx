@@ -57,6 +57,7 @@ import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
+import { BrowserPane } from "./BrowserPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { ApiTokensPane } from "./ApiTokensPane.tsx";
 import { ConnectionsPane } from "./ConnectionsPane.tsx";
@@ -85,6 +86,7 @@ export type SettingsSection =
   | "sessions"
   | "connectionsOffice"
   | "prefs"
+  | "browser"
   | "connectionsPersonal"
   | "apiTokens"
   | "signInLinks"
@@ -400,6 +402,7 @@ export function UserSettingsView({
                 ]
               : []),
             sectionRow("prefs", t("common.preferences")),
+            sectionRow("browser", t("browser.title")),
             sectionRow(
               "connectionsPersonal",
               t("settings.sidebar.connectionsPersonal"),
@@ -802,6 +805,8 @@ export function UserSettingsView({
                   <SessionsPane />
                 ) : selection.section === "signInLinks" && sessionContext ? (
                   <MyDevicesPane />
+                ) : selection.section === "browser" && sessionContext ? (
+                  <BrowserPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
                 ) : selection.section === "connectionsOffice" &&

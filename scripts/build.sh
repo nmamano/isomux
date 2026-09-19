@@ -38,3 +38,6 @@ cp ui/icon.svg ui/dist/icons/icon.svg
 # unauth visitor sees the same thing as someone browsing isomux.com - no
 # state from this specific deployment leaks.
 cp site/screenshot.png ui/dist/login-bg.png
+
+# Also supplies the authenticated extension download on install and update.
+bun run scripts/build-browser-extension.ts

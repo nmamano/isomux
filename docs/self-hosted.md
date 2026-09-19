@@ -137,14 +137,28 @@ Then open `http://localhost:5173`.
 - If you've hand-edited a package's config file - `/etc/caddy/Caddyfile` is the likely one - the installer and `isomux-update` keep your version when the package ships a new one, and name the files they kept. The package's version is parked beside each as `<file>.dpkg-dist`; reconciling the two is up to you.
 - The service is system-level: restart with `systemctl restart isomux` as root. An office on [your own hardware](#your-own-hardware) runs a user-level service instead, where the commands are `systemctl --user`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
-- Chrome backs page-preview cards, app screenshot previews, and the browser agents drive. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
-- The live Browser panel is experimental and off by default. An owner can enable **Browser panel (experimental)** in Settings → Office → Office Settings. This setting does not change the browser API or preview cards.
-- Agent browser logins are stored under the office state root, one profile per member. All agents managed by that member share the profile. When the Browser panel is enabled, anyone with room access can watch the pages, only the manager can navigate, click, type, select and copy text, or close a page, and a manager watching the page suspends its five-minute idle close. Other members' agents do not load the profile.
+- Chrome on the server backs page-preview cards, app screenshot previews, and Server browser mode. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
+- The live Browser panel applies to Server browser mode. It is experimental and off by default. An owner can enable **Browser panel (experimental)** in Settings → Office → Office Settings. This setting does not change the browser API or preview cards.
+- In Server browser mode, agent browser logins are stored under the office state root, one profile per member. All agents managed by that member share the profile. When the Browser panel is enabled, anyone with room access can watch the pages, only the manager can navigate, click, type, select and copy text, or close a page, and a manager watching the page suspends its 15-minute idle close. Other members' agents do not load the profile.
 - Authenticated members effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
+
+### Desktop Chrome extension
+
+In **Settings → You → Browser**, select **Desktop Chrome**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
+
+Create a pairing code in Browser settings. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browser; agents use their manager's connection and keep separate task tabs. Another chat speaker does not change the browser owner.
+
+Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
+
+The toolbar badge shows offline, connected, or control of the current tab. The popup lists agents and can focus a tab, stop control, disconnect or unpair. Stop control leaves pages open and music playing. Disconnect stays off until Reconnect. Offline revocation is available in office Browser settings. If an unpair acknowledgement is lost, the popup reports an unknown result; check the office settings. Replace pairing ends the previous browser's access when the new code is used.
+
+Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection never switches to Server browser mode or repeats a command. Check the page before repeating an action with an unknown outcome.
+
+Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. No Web Store installation is available.
 
 ## Your own hardware
 
-A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 24 (LTS), which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards, app screenshot previews, and the browser agents drive.
+A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 24 (LTS), which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards, app screenshot previews, and Server browser mode.
 
 On Debian/Ubuntu, also install the native build tools: `sudo apt install python3 build-essential`.
 

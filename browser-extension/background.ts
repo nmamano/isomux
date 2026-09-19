@@ -1,6 +1,9 @@
 import {
   BROWSER_EXTENSION_PROTOCOL,
   browserSocketURL,
+  officeSocketURL,
+  type BrowserMetadata,
+  type ExtensionUIState,
   fields,
   pageCommandAllowed,
   type Fields,
@@ -23,12 +26,105 @@ type Connection = {
   closed: boolean;
   terminal?: boolean;
   watchdog?: ReturnType<typeof setTimeout>;
+  metadata?: BrowserMetadata;
+  unpairResult?: (ok: boolean) => void;
 };
 let current: Connection | undefined;
 let configuration = 0;
 let retry = 0;
 let reconnect: ReturnType<typeof setTimeout> | undefined;
 let savedCredential: string | undefined;
+let badgeTabs = new Set<number>();
+let badgeWork = Promise.resolve();
+function refreshBadges(): void {
+  badgeWork = badgeWork.catch(() => {}).then(async () => {
+    const c = current;
+    const online = !!c?.generation && !c.closed;
+    const owned = new Set<number>();
+    if (online) for (const tab of c.tabs.values()) {
+      owned.add(tab.tabId);
+      for (const popup of tab.popups.values()) owned.add(popup.tabId);
+    }
+    await chrome.action.setBadgeText({ text: online ? "ON" : "OFF" });
+    await chrome.action.setBadgeBackgroundColor({ color: online ? "#207451" : "#6b7280" });
+    await chrome.action.setTitle({ title: online ? "Isomux Browser: connected" : "Isomux Browser: offline" });
+    for (const tabId of new Set([...badgeTabs, ...owned])) {
+      try {
+        await chrome.action.setBadgeText({ tabId, text: owned.has(tabId) ? "CTRL" : null });
+        await chrome.action.setBadgeBackgroundColor({ tabId, color: owned.has(tabId) ? "#a34c12" : (online ? "#207451" : "#6b7280") });
+        await chrome.action.setTitle({ tabId, title: owned.has(tabId) ? "Isomux Browser: agent control" : "Isomux Browser" });
+      } catch { /* A user may have closed this tab. */ }
+    }
+    badgeTabs = owned;
+  });
+}
+async function uiState(): Promise<ExtensionUIState> {
+  const { connection } = await chrome.storage.local.get("connection");
+  const config = connection ? fields(connection) : {};
+  const c = current;
+  const online = !!c?.generation && !c.closed;
+  let office = "";
+  if (typeof config.url === "string") {
+    try { const u = new URL(config.url); u.protocol = u.protocol === "wss:" ? "https:" : "http:"; office = u.origin; } catch {}
+  }
+  return { office,
+    state: online ? "connected" : config.blocked ? "blocked" : config.unknown ? "unknown" : config.disabled ? "disabled" : c ? "connecting" : config.credential || config.code ? "offline" : "unpaired",
+    member: online ? c.metadata?.member : undefined,
+    assignments: online ? (c.metadata?.assignments ?? []).flatMap(a => {
+      const tab = c.tabs.get(a.id);
+      return tab ? [{ ...a, tabId: tab.leafTabId ?? tab.tabId }] : [];
+    }) : [],
+  };
+}
+async function uiCommand(value: unknown): Promise<ExtensionUIState> {
+  const msg = fields(value);
+  if (msg.action === "state") return uiState();
+  if (msg.action === "pair") {
+    if (typeof msg.office !== "string" || typeof msg.code !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(msg.code.trim())) throw new Error();
+    await chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
+    await chrome.storage.local.set({ connection: { url: officeSocketURL(msg.office.trim()), code: msg.code.trim() } });
+  } else if (msg.action === "disconnect" || msg.action === "reconnect") {
+    const stored = await chrome.storage.local.get("connection");
+    const config = fields(stored.connection);
+    if (msg.action === "reconnect" && (config.blocked || config.unknown || !config.credential)) throw new Error();
+    await chrome.storage.local.set({ connection: { ...config, disabled: msg.action === "disconnect" } });
+  } else {
+    const c = current;
+    if (!c) throw new Error();
+    check(c);
+    if (msg.generation !== c.generation) throw new Error();
+    if (msg.action === "unpair") {
+      const acknowledged = await new Promise<boolean>(resolve => {
+        const timer = setTimeout(() => { c.terminal = true; close(c); }, 5000);
+        c.unpairResult = ok => { clearTimeout(timer); resolve(ok); };
+        send(c, { kind: "unpair", generation: c.generation });
+      });
+      const stored = await chrome.storage.local.get("connection");
+      await chrome.storage.local.set({ connection: acknowledged ? null : { ...fields(stored.connection), disabled: true, unknown: true } });
+    } else {
+      if (typeof msg.assignment !== "string") throw new Error();
+      const tab = c.tabs.get(msg.assignment);
+      if (!tab) throw new Error();
+      if (msg.action === "focus") {
+        const target = await chrome.tabs.update(tab.leafTabId ?? tab.tabId, { active: true });
+        await chrome.windows.update(target.windowId, { focused: true });
+      } else if (msg.action === "stop") {
+        c.tabs.delete(msg.assignment);
+        c.creating.delete(msg.assignment);
+        if (c.metadata) c.metadata.assignments = c.metadata.assignments.filter(a => a.id !== msg.assignment);
+        send(c, { kind: "event", generation: c.generation, assignment: msg.assignment, method: "detached", params: {} });
+        await detach(tab);
+        refreshBadges();
+      } else throw new Error();
+    }
+  }
+  return uiState();
+}
+chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("connection.html")) return;
+  void uiCommand(message).then(state => reply({ ...state, generation: current?.generation }), () => reply({ error: "Browser request failed. Check the office address and pairing code, or reconnect." }));
+  return true;
+});
 
 function send(c: Connection, message: Fields): void {
   if (!c.closed && current === c && c.ws.readyState === WebSocket.OPEN)
@@ -53,12 +149,16 @@ async function detach(tab: OwnedTab): Promise<void> {
 function close(c: Connection): void {
   if (c.closed) return;
   c.closed = true;
+  c.metadata = undefined;
+  c.unpairResult?.(false);
+  c.unpairResult = undefined;
   clearTimeout(c.watchdog);
   if (current === c) current = undefined;
   c.ws.close();
   for (const tab of c.tabs.values()) void detach(tab);
   c.tabs.clear();
   c.creating.clear();
+  refreshBadges();
   if (!c.terminal) {
     clearTimeout(reconnect);
     void chrome.alarms.create("reconnect", { delayInMinutes: 0.5 });
@@ -103,6 +203,7 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
       check(c);
       if (!c.creating.has(id)) throw new Error("Browser control ended");
       owned.targetId = fields(result.targetInfo).targetId as string;
+      refreshBadges();
       return result;
     } catch (error) {
       await detach(owned);
@@ -117,7 +218,9 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     c.creating.delete(id);
     if (tab) {
       c.tabs.delete(id);
+      if (c.metadata) c.metadata.assignments = c.metadata.assignments.filter(a => a.id !== id);
       await detach(tab);
+      refreshBadges();
     }
     return {};
   }
@@ -180,10 +283,11 @@ async function configure(reset = true): Promise<void> {
     accessLevel: "TRUSTED_CONTEXTS",
   });
   const stored = await chrome.storage.local.get("connection");
+  refreshBadges();
   if (serial !== configuration || !stored.connection) return;
   try {
     const config = fields(stored.connection);
-    if (config.blocked === true) return;
+    if (config.blocked === true || config.disabled === true) return;
     if (
       typeof config.url !== "string" ||
       (typeof config.credential !== "string" && typeof config.code !== "string")
@@ -261,12 +365,30 @@ async function configure(reset = true): Promise<void> {
           !c.generation
         ) {
           c.generation = msg.generation;
+          refreshBadges();
           retry = 0;
           void chrome.alarms.clear("reconnect");
           c.watchdog = setTimeout(() => close(c), 45_000);
           return;
         }
         if (msg.generation !== c.generation || !c.generation) return;
+        if (msg.kind === "metadata") {
+          const member = fields(msg.member);
+          if (typeof member.id !== "string" || typeof member.name !== "string" || !Array.isArray(msg.assignments)) throw new Error();
+          c.metadata = { member: { id: member.id, name: member.name }, assignments: msg.assignments.map(value => {
+            const a = fields(value), agent = fields(a.agent);
+            if (typeof a.id !== "string" || typeof agent.id !== "string" || typeof agent.name !== "string") throw new Error();
+            return { id: a.id, agent: { id: agent.id, name: agent.name } };
+          }) };
+          return;
+        }
+        if (msg.kind === "unpaired" && c.unpairResult) {
+          c.terminal = true;
+          c.unpairResult(true);
+          c.unpairResult = undefined;
+          close(c);
+          return;
+        }
         if (msg.kind !== "command" || !Number.isSafeInteger(msg.id))
           throw new Error("Invalid command");
         void command(c, msg).then(
@@ -399,6 +521,7 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
           throw new Error("Invalid popup target");
         popup.targetId = info.targetId;
         main.leafTabId = popup.tabId;
+        refreshBadges();
         send(c, {
           kind: "event",
           generation: c.generation,
@@ -420,11 +543,13 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
   }
 });
 chrome.debugger.onDetach.addListener((source) => {
+  refreshBadges();
   const c = current;
   if (!c) return;
   for (const [assignment, tab] of c.tabs) {
     if (source.tabId === tab.tabId) {
       c.tabs.delete(assignment);
+      if (c.metadata) c.metadata.assignments = c.metadata.assignments.filter(a => a.id !== assignment);
       void detach(tab);
       send(c, {
         kind: "event",

@@ -182,3 +182,9 @@ API failures use JSON with an `error` object:
 ```
 
 Use the stable `code` for program logic. Show `message` to a person, and follow `resolution` when an agent can recover.
+
+## Browser selection
+
+`GET /api/me/browser` returns the member's selected backend, pairing and online state, owner label and extension version. `PATCH /api/me/browser` selects `headless` or `extension`; a null backend requires an explicit selection. `POST /api/me/browser/pair` creates a five-minute code; `replace: true` permits replacement. `DELETE /api/me/browser` revokes the pairing. `GET /api/me/browser/extension.zip` downloads the extension. These routes use the authenticated member's `user:self` capability; agent tokens cannot use them.
+
+Agents retain `POST /api/agents/:id/browser`. Chrome mode uses the agent manager's browser and ignores viewport settings. `close` detaches, leaving tabs and music open. Offline mode never falls back. A lost action can have an unknown outcome and is never replayed. `preview-url` still runs on the server. See [installation](self-hosted.md#desktop-chrome-extension).

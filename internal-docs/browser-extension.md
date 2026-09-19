@@ -2,22 +2,22 @@
 
 ## Scope and status
 
-Slice 2 connects the Chrome extension to the production browser action route.
-The member API is ready for the slice-3 settings and extension UI. Headless
-browser use remains the default, and preview capture stays on the office server.
-No production restart has been authorized. Windows and real-site acceptance
-belong to Nil. This is the maintained protocol and ownership reference.
+Slice 3 adds member settings, the extension action popup and a downloadable
+package to the production bridge. Headless remains the legacy default; selecting
+Chrome is explicit. Preview capture stays on the server. Windows and real-site
+acceptance remain with Nil. No production restart is authorized.
 
 ## Member flow and state
 
-The normal route table declares these self-scoped routes. All four require
+The normal route table declares these self-scoped routes. All five require
 `cap("user:self", authenticated)`, as personal preferences do. An agent token
 cannot use them. Other identities need that actual capability; owning another
 member's office does not select that member's browser.
 
 | Method | Path | Operation |
 | --- | --- | --- |
-| GET | `/api/me/browser` | Read backend, paired and online state |
+| GET | `/api/me/browser` | Read backend, paired/online state, member label and package version |
+| GET | `/api/me/browser/extension.zip` | Download the built extension with attachment/no-store headers |
 | PATCH | `/api/me/browser` | Select `headless` or `extension` |
 | POST | `/api/me/browser/pair` | Create a pairing code; `replace: true` permits replacement |
 | DELETE | `/api/me/browser` | Revoke the credential and end control |
@@ -77,7 +77,8 @@ A Chrome alarm wakes a suspended extension worker to retry; startup also reads
 its saved connection. Chrome may delay alarms; this is recovery, not a timing
 guarantee. See the [Chrome alarms API](https://developer.chrome.com/docs/extensions/reference/api/alarms).
 Authentication or revocation refusal persists a blocked configuration until the
-member changes it. No command queue survives disconnection or either restart.
+member pairs again. Deliberate disconnect is a separate persisted disabled flag;
+Reconnect cannot clear blocked or unknown-revocation state. No command queue survives disconnection or either restart.
 A new connection gets a fresh generation, Playwright object and task assignment.
 The new assignment may open a new tab. Previously opened pages remain open.
 
@@ -152,46 +153,55 @@ credential separation, active access loss, popup ownership and stale generations
 Gate logs identify the committed hash and results; no Windows or real-site
 acceptance is inferred from Linux fixtures. No account mutation is a test step.
 
-Build: `bun run build:extension`; output: `browser-extension/dist/` (ignored).
+Build: `bun run build:extension`; output: `browser-extension/dist/` and
+`browser-extension/dist.zip` (ignored). `scripts/build.sh` invokes the builder,
+so normal install/update builds produce the package. The builder removes its
+staging directory, bundles the background and popup scripts, copies a fixed
+allowlist, writes a deterministic stored-entry ZIP and atomically replaces the
+archive. No customer-side archive tool or new dependency is needed. The route
+fails closed when the archive is missing. It uses existing self authentication,
+app-host diversion and the ordinary safe-GET/no-CORS boundary.
+
+`connection.html` is both the options page and actual toolbar action popup.
+Only that exact extension URL and runtime id can call the background UI API.
+The UI API never returns raw credentials/codes. It accepts an HTTPS office
+origin (loopback HTTP for isolated fixtures), derives the socket path and rejects
+credentials, paths, query and fragment. State polls only while the popup or
+settings pane is open. Popup focus/stop actions name a current assignment and
+generation. Stop removes local ownership, detaches and sends the existing
+`detached` event; the server revalidates ownership before release. No audio or
+media command is sent. The badge distinguishes OFF, ON and CTRL on owned tabs.
+
+Generation-bound `metadata` frames contain the current member id/name and
+assigned agent id/name, never page URLs/titles. Server display sanitization is
+centralized in `browser-extension-display.ts`. Record mutation/heartbeat refreshes
+metadata; assignment/connection end clears the extension display. Names render
+as text. The authenticated generation-bound `unpair` frame revokes only the
+current socket member's credential hash and Origin, acknowledges with `unpaired`,
+then closes. Lost acknowledgements show an unknown result; office settings are
+authoritative. Offline revocation is done in office settings.
 Run the opt-in office check with:
 
 ```
 systemd-run --user --scope -p MemoryMax=2G timeout 75s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension-office.live.test.ts
 ```
 
-## Copy inventory and slice 3
+## Slice 3 review artifacts
 
-Existing manifest/title: `Isomux Browser`.
-Manifest description: `Connect Chrome task tabs to an Isomux office.`
-Setup placeholder: `Browser connection setup is not available in this build.`
+The handoff copy inventory records all new/replaced English catalog strings,
+rare errors, manifest/badge labels, documentation and browser system-prompt text
+verbatim for Nil. The live fixture loads the downloaded ZIP rather than a source
+directory and preserves settings/action-popup screenshots with sanitized
+functional evidence. It uses the existing isolated production office fixture,
+not a second server implementation. Packaged bytes, route boundaries, member
+eligibility, exact extension sender, generation checks, deliberate disconnect,
+terminal refusal and unknown unpair outcomes have focused tests. Runtime gates
+are recorded on the committed handoff hash; no full CI is run between slices.
 
-New route/action messages, verbatim:
-
-- `Browser selection is unavailable; select a browser backend again`
-- `backend must be headless or extension`
-- `replace must be a boolean`
-- `A Chrome browser is already paired`
-- `No Chrome browser is paired`
-- `The Chrome browser is offline`
-- `The Chrome browser action failed`
-
-Existing bridge messages remain: `Browser connection refused`,
-`Browser assignment refused`, `Browser transport is not available`,
-`Browser command refused or failed`, `Browser command failed`,
-`Browser control ended; pending outcomes may be unknown`, and
-`Browser disconnected; pending outcomes may be unknown`.
-The upgrade can return `WebSocket upgrade failed`. Existing request validation,
-no-page errors, truncation labels and screenshot captions remain.
-Chrome supplies its own debugger warning. The new `webNavigation` permission
-adds the documented Chrome warning `Read your browsing history`; include it in
-Nil's installation report.
-
-Slice 3 supplies member settings, pairing input, extension ownership/status badge
-and popup, disconnect/re-pair controls, installation packaging, and agent guidance.
-It must show the member identity and active assignments and explain desktop
-localhost, retained pages, popup return and unknown outcomes. Public prose belongs
-in the surfaces listed in `documentation.md`; collect it for Nil's sign-off.
-No remote streaming panel or Browsers page is part of this loop.
+Chrome's `Read your browsing history` warning is documented in the installation
+flow. Unpacked extension updates need download/extract/Reload in Chrome; office
+updates produce the package automatically. Windows lag and site/account behavior
+are not established by local Linux tests.
 
 ## Prior art
 
