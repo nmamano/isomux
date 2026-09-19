@@ -14,7 +14,8 @@ The old browser is removed only after the replacement passes Nil's tests.
    automatic lane alternation. This overrides the room worktree rule for this
    loop. Worker 1 is Astra high; Reviewer 1 is Sol high. No Claude usage.
 2. One slice at a time. Worker and reviewer use the edit token and commit
-   handoffs in main. PM owns between-slice formatting, full CI and deployment.
+   handoffs in main. PM owns formatting and deployment. Use scoped checks
+   between slices; full CI is not a slice gate (RULING 16).
 3. Desktop Chrome only. Edge, Firefox and mobile extensions are out of scope.
 4. Extension opens an authenticated encrypted WebSocket to the office. No
    laptop daemon, inbound laptop port or SSH tunnel. Local isolated test
@@ -58,6 +59,11 @@ The old browser is removed only after the replacement passes Nil's tests.
     reviewer verified the public seam in pinned Playwright 1.62.1; the real
     extension gate passed on 2026-09-19. One successful real-extension sanity
     pass is sufficient; repeat only to resolve a concrete failure.
+16. Nil, 2026-09-19: do not leave PM and worker idle while CI runs. This
+    overrides the manager skill's full-CI-after-each-slice rule for this loop.
+    Use the scoped build, type, lint and behavior gates; continue to the next
+    slice after review approval. Do not launch another full CI during this
+    implementation loop. Any final release gate is a separate checkpoint.
 
 ## Accepted defaults
 
@@ -103,10 +109,9 @@ Reviewer independently reruns the final scoped test gate and meaningful
 regression mutants. Assertions target behavior, not prose. No performance
 benchmarks or full CI in the worker/reviewer round. No worker prettier.
 
-PM formats after approval with `bun run format`, commits, and runs full
-`bun run ci` in a detached systemd unit with MemoryMax=10G and an explicit
-exit line. No tree edits during CI. Other runs that can grow large use a 2G
-memory scope. Capture commands and results; never infer success from a wrapper.
+PM formats touched files after approval and commits. Full CI is not a slice
+gate; see RULING 16. Runs that can grow large use a 2G memory scope. Capture
+commands and results; never infer success from a wrapper.
 
 ## Slice checklist
 
@@ -116,7 +121,10 @@ memory scope. Capture commands and results; never infer success from a wrapper.
   Evidence: `/tmp/reviewer1-extension-slice1-final-tests.log`,
   `/tmp/reviewer1-extension-slice1-live.log`,
   `/tmp/isomux-extension-proof-KwYXV1/evidence.json`.
-  Production browser routes remain unchanged. PM full CI pending.
+  Production browser routes remain unchanged. PM formatting commit `6062b082`.
+  PM full CI was stopped by Nil's ruling before the full suite completed;
+  this is not a CI pass. Its build:ui, build:extension, ci:web, tsc,
+  format:check and lint stages passed. Proceed on approved scoped gates.
 - [ ] 2. Complete member pairing, routing, tab ownership and recovery.
 - [ ] 3. Complete member UI, extension UI, packaging, agent guidance and docs.
 - [ ] 4. Run end-to-end sanity checks, prepare Nil's Windows installation and
@@ -167,7 +175,7 @@ Goal: make the proven bridge usable through the real office browser action
 route, with real pairing, durable credentials and recovery. Read the whole
 loop file and `internal-docs/browser-extension.md` first. Slice 1's approved
 implementation is `48e84ae9`; public in-process Playwright transport is proven.
-PM format/CI commit follows it. No separate CDP HTTP endpoint is necessary.
+PM formatting commit `6062b082` follows it. No separate CDP HTTP endpoint is necessary.
 
 First plan-gate the member flow, exact routes, persistent state and websocket
 dispatch with Reviewer 1. Choose the smallest flow consistent with existing
