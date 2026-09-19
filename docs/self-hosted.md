@@ -338,6 +338,14 @@ use their own GitHub credentials.
 Office variables load for every agent. Personal variables override office
 values.
 
+## Deploy a container
+
+The [container reference](https://github.com/nmamano/isomux/tree/main/deploy/container)
+runs one office and its generated apps with one persistent `/var/data` mount.
+It includes a source-image build and an EC2, retained-EBS, and Compose setup.
+Use HTTPS for the office and its app subdomains. Keep one data writer, and
+replace the image for updates. AWS acceptance is pending.
+
 ## Deploy on Render
 
 [Render](https://render.com) runs the office as one Docker web service on a paid compute plan with a persistent disk. The `render.yaml` at the root of the isomux repository declares that service, and Render reads it when you create a Blueprint.

@@ -51,7 +51,7 @@ test("public setup requires its secret and origin and closes after owner creatio
   expect(claims).toBe(1);
 });
 
-test("a Render setup claim seeds the three welcome agents after office boot", async () => {
+test("a container setup claim seeds the three welcome agents after office boot", async () => {
   server = await startTestServer();
   let claimedUsername: string | undefined;
   const key = "synthetic-setup-key-32-characters-long";

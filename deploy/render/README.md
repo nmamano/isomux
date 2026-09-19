@@ -4,15 +4,9 @@ Deployment steps live in the docs:
 [Deploy on Render](../../docs/self-hosted.md#deploy-on-render). This directory
 holds what that deployment runs.
 
-- `Dockerfile` and `Dockerfile.dockerignore`: the image. BuildKit reads the
-  Dockerfile-specific ignore file instead of the root `.dockerignore`, whose
-  allowlist serves the provisioner image and would drop `server/` and `ui/`.
-- `entrypoint.sh`, `office.ts`, `bootstrap.ts`: container start, the
-  setup-key claim form that runs before the office, and the office launch with
-  `ISOMUX_APP_SUPERVISOR=container`.
-- `supervisor.py`: the in-container replacement for systemd that runs the
-  generated apps (see below).
-- `render.yaml` at the repository root declares the service.
+The common image and runtime live in [deploy/container](../container/README.md).
+`render.yaml` selects that Dockerfile. The Dockerfile and ignore file here remain
+compatible with existing Render integrations and match the common image.
 
 ## Persistent storage
 
@@ -64,9 +58,9 @@ replacement.
 ```sh
 bun test server/container-app-supervisor.test.ts \
   server/test-support/container-apps.integration.test.ts \
-  deploy/render/bootstrap.test.ts deploy/render/route-selection.test.ts
+  deploy/container/bootstrap.test.ts deploy/container/route-selection.test.ts
 ```
 
 They start real app processes and the real office API with fake model backends.
-The image build is proven with `DOCKER_BUILDKIT=1 docker build -f deploy/render/Dockerfile .`
-from the repository root.
+Use the [committed-source build](../container/README.md#build-and-record-an-image)
+for local image validation. Render deployment acceptance remains separate.

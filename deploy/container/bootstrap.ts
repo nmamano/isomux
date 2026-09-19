@@ -14,7 +14,7 @@ body{font:17px system-ui;background:#111827;color:#f3f4f6;margin:0;display:grid;
 main{max-width:420px;padding:40px}h1{font-size:30px}p{line-height:1.5;color:#cbd5e1}
 label{display:block;margin-top:24px}input,button{box-sizing:border-box;width:100%;padding:12px;font:inherit;border-radius:8px;border:1px solid #64748b}
 input{margin-top:8px;background:#1f2937;color:white}button{margin-top:28px;background:#a5b4fc;color:#111827;cursor:pointer}
-</style><main><h1>Set up your office</h1><p>Enter the setup key from your Render service settings to become this office's first owner.</p>
+</style><main><h1>Set up your office</h1><p>Enter the setup key from your deployment settings to become this office's first owner.</p>
 <form method="post" action="/setup"><label>Your name<input name="name" required maxlength="64" autocomplete="name"></label>
 <label>Setup key<input name="key" type="password" required autocomplete="off"></label><button>Create office</button></form></main></html>`;
 

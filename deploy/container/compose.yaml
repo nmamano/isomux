@@ -1,0 +1,27 @@
+name: isomux
+services:
+  office:
+    image: ${ISOMUX_IMAGE:?Set an immutable image reference}
+    platform: linux/amd64
+    # systemd owns restart and mount ordering in the EC2 reference.
+    restart: "no"
+    stop_grace_period: 30s
+    mem_limit: ${ISOMUX_MEMORY_LIMIT:-4g}
+    cpus: ${ISOMUX_CPUS:-2}
+    environment:
+      ISOMUX_PUBLIC_URL: ${ISOMUX_PUBLIC_URL:?Set the office HTTPS origin}
+      ISOMUX_SETUP_KEY: ${ISOMUX_SETUP_KEY:-}
+      PORT: "10000"
+    ports:
+      - "${ISOMUX_BIND_IP:-127.0.0.1}:10000:10000"
+    volumes:
+      - type: bind
+        source: /srv/isomux-data
+        target: /var/data
+        bind:
+          create_host_path: false
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"

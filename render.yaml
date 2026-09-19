@@ -4,7 +4,7 @@ services:
     name: isomux
     runtime: docker
     plan: pro
-    dockerfilePath: ./deploy/render/Dockerfile
+    dockerfilePath: ./deploy/container/Dockerfile
     autoDeployTrigger: off
     disk:
       name: isomux-data

@@ -43,7 +43,7 @@ test("office API starts a real app, authenticates its hostname, relays WS, and p
     "python3",
     [
       fileURLToPath(
-        new URL("../../deploy/render/supervisor.py", import.meta.url),
+        new URL("../../deploy/container/supervisor.py", import.meta.url),
       ),
       "serve",
       join(root, "runtime"),

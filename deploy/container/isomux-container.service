@@ -1,0 +1,21 @@
+[Unit]
+Description=Isomux container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/isomux-data
+BindsTo=srv-isomux\x2ddata.mount
+After=srv-isomux\x2ddata.mount
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/isomux-container
+ExecStartPre=/usr/bin/mountpoint -q /srv/isomux-data
+ExecStart=/usr/bin/docker compose --env-file office.env up --no-build --pull never --abort-on-container-exit --exit-code-from office
+ExecStop=/usr/bin/docker compose --env-file office.env down --timeout 30
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

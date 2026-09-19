@@ -15,7 +15,7 @@ import type { AppRecord } from "../shared/types.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 
 const program = fileURLToPath(
-  new URL("../deploy/render/supervisor.py", import.meta.url),
+  new URL("../deploy/container/supervisor.py", import.meta.url),
 );
 let root: string;
 let daemon: ChildProcess | undefined;

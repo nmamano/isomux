@@ -74,12 +74,15 @@ export function buildSystemPrompt(
     publicOrigin.source === "localhost"
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin} - use that origin for links you give members to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
+  const containerNote = process.env.ISOMUX_APP_SUPERVISOR === "container"
+    ? "\nThis office runs in a container. Keep projects and dependency installs under /var/data/home or /var/data/workspaces; only /var/data persists across container replacement. The operator updates the office by replacing its image.\n"
+    : "";
   const remoteBossNote = `\nAn office member can also access the office remotely. When they do, their messages will look like \`[Member (API token "Phone 'alerts" (pat-123))]\`, where the id after the closing quote is their reply handle. Respond to them at the remote location with POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages, your bearer token, and JSON {"text":"..."}; a send to an unavailable token fails.\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office members, who talk to you in this chat.
 Messages are prefixed with the member's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
-${humanUrlNote}${hostedNote}
+${humanUrlNote}${hostedNote}${containerNote}
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your manager, plus the lobby agent (every member can reach the lobby: room null, roomName "Lobby", roomId "lobby"); the exact fields are id, name, desk, room (a 1-based room NUMBER, or null for the lobby agent; the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, permissionMode, sandbox (null for Claude agents), username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", "cronjob", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 Add ?killed=1 for killed agents instead - they keep their logs. This list is scoped differently from the live one above: not the rooms your manager can access, but the agents your manager SPAWNED, whatever room they sat in. Fields are id, name, agentType, lastRoomId, lastRoomName, topic, killedAt (ms) and logDir.
   curl -s "localhost:${PORT}/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"

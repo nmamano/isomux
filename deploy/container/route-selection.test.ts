@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-test("Render entrypoint and office agree on container supervisor selection", () => {
+test("Container entrypoint and office agree on container supervisor selection", () => {
   const entrypoint = readFileSync(
     new URL("./entrypoint.sh", import.meta.url),
     "utf8",

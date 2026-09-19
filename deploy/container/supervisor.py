@@ -102,7 +102,7 @@ def worker(root, name):
         return 1
     definition = json.loads((root / "definitions.json").read_text())[name]["definition"]
     env = dict(definition["env"])
-    # Deliberately narrow inheritance. Render credentials and supervisor setup
+    # Deliberately narrow inheritance. Deployment credentials and supervisor setup
     # secrets must never be copied into generated app environments.
     env.update(HOME=os.environ["HOME"], LANG="C.UTF-8")
     token_path = root / f"{name}.token.json"
@@ -224,7 +224,7 @@ class Supervisor:
         (self.root / f"{name}.exit.json").unlink(missing_ok=True)
         ready = self.root / f"{name}.ready.json"
         ready.unlink(missing_ok=True)
-        # Worker exceptions go to a private local diagnostic file, never Render logs.
+        # Worker exceptions go to a private local diagnostic file, never container logs.
         with open(self.root / f"{name}.worker.log", "wb") as log:
             proc = subprocess.Popen([sys.executable, __file__, "worker", str(self.root), name],
                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log)
@@ -492,6 +492,6 @@ if __name__ == "__main__":
         sys.exit(main())
     except Exception:
         # Detailed exceptions can contain app-authored data. Keep them out of
-        # Render stdout/stderr; a failed control operation is visible via RPC.
+        # container stdout/stderr; a failed control operation is visible via RPC.
         sys.stderr.write("Container supervision failed\n")
         sys.exit(1)

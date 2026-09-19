@@ -18,7 +18,7 @@ import {
 import type { AppRecord } from "../shared/types.ts";
 
 const client = fileURLToPath(
-  new URL("../deploy/render/supervisor.py", import.meta.url),
+  new URL("../deploy/container/supervisor.py", import.meta.url),
 );
 
 export function createContainerAppSupervisor(

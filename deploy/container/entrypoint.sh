@@ -10,8 +10,8 @@ if [[ "$(id -u)" == 0 ]]; then
   # our owned subdirectories, then drop root before any app or agent starts.
   install -d -m 700 -o node -g node "$HOME" /var/data/workspaces
   cd /opt/isomux
-  exec runuser -u node --preserve-environment -- bash deploy/render/entrypoint.sh
+  exec runuser -u node --preserve-environment -- bash deploy/container/entrypoint.sh
 fi
 mkdir -p "$HOME" "$ISOMUX_HOME/container-runtime" /var/data/workspaces
 cd /opt/isomux
-exec python3 deploy/render/supervisor.py serve "$ISOMUX_HOME/container-runtime" bun deploy/render/office.ts
+exec python3 deploy/container/supervisor.py serve "$ISOMUX_HOME/container-runtime" bun deploy/container/office.ts
