@@ -95,7 +95,18 @@ test("production routes pair, bind Origin, reject office credential use, persist
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
-  expect((await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "headless" })).status).toBe(404);
+  const retired = await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "headless" });
+  expect(retired.status).toBe(404);
+  expect(retired.headers.get("content-type")).toBe("application/json");
+  expect(await retired.json()).toEqual({ error: "not found" });
+  const anonymous = await server.http("/api/me/browser", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ backend: "headless" }),
+  });
+  expect(anonymous.status).toBe(401);
+  expect(anonymous.headers.get("content-type")).toBe("application/json");
+  expect(await anonymous.json()).toEqual({ error: "unauthenticated" });
   server = await server.restart();
   const restored = await extensionSocket(server, {
     kind: "hello",
