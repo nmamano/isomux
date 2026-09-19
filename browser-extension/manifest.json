@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Isomux Browser",
+  "version": "0.1.0",
+  "description": "Connect Chrome task tabs to an Isomux office.",
+  "minimum_chrome_version": "125",
+  "permissions": ["debugger", "storage"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "connection.html"
+}

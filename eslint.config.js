@@ -8,6 +8,7 @@ export default tseslint.config(
     ignores: [
       "node_modules/",
       "ui/dist/",
+      "browser-extension/dist/",
       "ui/sw.js",
       "internal-docs/",
       "server/backends/codex/_generated/",

@@ -260,6 +260,27 @@ unchanged.
 
 ## Seams and where they live
 
+### Chrome extension bridge
+
+`server/browser-extension-bridge.test.ts`,
+`server/browser-extension-transport.test.ts`, and
+`browser-extension/background.test.ts` cover assignment isolation, the public
+Playwright transport, and disconnect races without a browser. The worker test
+builds and executes the extension bundle against a fake Chrome API.
+`bun run build:extension` is also a CI stage.
+
+The separate local Chrome check uses a new profile and no real accounts:
+
+```sh
+systemd-run --user --scope -p MemoryMax=2G timeout 65s xvfb-run -a env ISOMUX_TEST_BROWSER_EXTENSION=1 bun test server/browser-extension.live.test.ts
+```
+
+It needs `/usr/bin/google-chrome` with the CDP `Extensions.loadUnpacked`
+command and `xvfb-run`. It removes the profile and fixture credentials, and
+keeps a screenshot and sanitized evidence under `/tmp/isomux-extension-proof-*`.
+The fixture alone opens a loopback WebSocket listener. No production office
+route imports it. See [the bridge design](browser-extension.md) for limits.
+
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation
 and lifecycle passes stay sequential, failures are visible and retried, and a
 failed lifecycle pass does not refresh health.

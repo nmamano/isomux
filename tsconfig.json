@@ -16,6 +16,7 @@
   "include": [
     "server",
     "shared",
+    "browser-extension",
     "ui",
     "api",
     "control-plane",

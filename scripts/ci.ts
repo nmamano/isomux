@@ -15,6 +15,7 @@ type StageName =
   | "lint"
   | "tsc"
   | "build:ui"
+  | "build:extension"
   | "bun test"
   | "ci:web";
 
@@ -32,6 +33,7 @@ const stages: Array<{ name: StageName; command: string[] }> = [
   { name: "lint", command: ["bun", "run", "lint"] },
   { name: "tsc", command: ["bun", "x", "tsc", "--noEmit"] },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
+  { name: "build:extension", command: ["bun", "run", "build:extension"] },
   { name: "bun test", command: ["bun", "test"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
 ];
@@ -206,6 +208,7 @@ async function main(): Promise<void> {
     const lintPromise = stage("lint");
     const tscPromise = stage("tsc");
     const buildPromise = stage("build:ui");
+    const extensionPromise = stage("build:extension");
     const webPromise = stage("ci:web");
     const testPromise = buildPromise.then((build) => {
       if (build.status === "passed") {
@@ -214,7 +217,7 @@ async function main(): Promise<void> {
       console.log("↷ bun test skipped (build:ui failed)");
       return {
         name: "bun test" as const,
-        log: join(logDir, "4.log"),
+        log: join(logDir, `${stages.findIndex(entry => entry.name === "bun test")}.log`),
         seconds: 0,
         status: "skipped" as const,
         reason: "build:ui failed",
@@ -226,6 +229,7 @@ async function main(): Promise<void> {
       lintPromise,
       tscPromise,
       buildPromise,
+      extensionPromise,
       testPromise,
       webPromise,
     ]);

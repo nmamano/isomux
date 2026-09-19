@@ -1,5 +1,6 @@
 node_modules
 ui/dist/
+browser-extension/dist/
 site/demo/demo-entry.js
 site/demo/demo-app-entry.js
 site/demo/index.html
