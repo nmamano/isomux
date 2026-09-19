@@ -204,7 +204,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       for (const page of setup.pages().filter(page => page.url() === url)) {
         if (await page.locator("#out").textContent() === "first tab") retained = page;
       }
-      expect(retained).toBeDefined();
+      if (!retained) throw new Error("Owned task page was not retained");
       expect(retained.isClosed()).toBe(false);
       await retained.screenshot({ path: join(dir, "retained-page.png") });
       await popup.click("#disconnect");
