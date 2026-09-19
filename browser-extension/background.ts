@@ -53,7 +53,7 @@ function refreshBadges(): void {
           owned.add(tab.tabId);
           for (const popup of tab.popups.values()) owned.add(popup.tabId);
         }
-      await chrome.action.setBadgeText({ text: online ? "ON" : "OFF" });
+      await chrome.action.setBadgeText({ text: "" });
       await chrome.action.setBadgeBackgroundColor({
         color: online ? "#207451" : "#6b7280",
       });
@@ -290,6 +290,13 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
       await chrome.debugger.attach({ tabId: tab.id }, "1.3");
       check(c);
       if (!c.creating.has(id)) throw new Error("Browser control ended");
+      // Match Playwright focus emulation without activating the member's tab.
+      await chrome.debugger.sendCommand(
+        { tabId: tab.id }, "Emulation.setFocusEmulationEnabled", { enabled: true },
+      );
+      check(c);
+      if (!c.creating.has(id) || c.tabs.get(id) !== owned)
+        throw new Error("Browser control ended");
       const result = fields(
         await chrome.debugger.sendCommand(
           { tabId: tab.id },
@@ -621,6 +628,10 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
     void (async () => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
+        owned();
+        await chrome.debugger.sendCommand(
+          { tabId: popup.tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true },
+        );
         owned();
         const result = fields(
           await chrome.debugger.sendCommand(

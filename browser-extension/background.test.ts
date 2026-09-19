@@ -18,6 +18,8 @@ async function harness() {
   const calls: string[] = [];
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
   let attach: () => Promise<void> = async () => {};
+  let focus: () => Promise<unknown> = async () => ({});
+  const focused: Array<{ tabId: number; params: unknown }> = [];
   let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({
     targetInfo: {
       targetId: tabId === 7 ? "owned" : `target-${tabId}`,
@@ -121,8 +123,12 @@ async function harness() {
         calls.push("detach");
         return Promise.resolve();
       },
-      sendCommand: (target: { tabId: number }, method: string) => {
+      sendCommand: (target: { tabId: number }, method: string, params?: unknown) => {
         calls.push(method);
+        if (method === "Emulation.setFocusEmulationEnabled") {
+          focused.push({ tabId: target.tabId, params });
+          return focus();
+        }
         return method === "Target.getTargetInfo"
           ? targetInfo(target.tabId)
           : Promise.resolve({});
@@ -170,16 +176,20 @@ async function harness() {
         throw new Error("Foreign reply");
       }),
     calls,
+    focused,
+    failFocus: () => { focus = async () => { throw new Error("focus failed"); }; },
     timers,
     navigation: (sourceTabId: number, tabId: number) =>
       navigation({ sourceTabId, tabId }),
-    delayPopup: (stage: "attach" | "target") => {
+    delayPopup: (stage: "attach" | "target" | "focus") => {
       let resolve!: () => void;
       if (stage === "attach")
         attach = () =>
           new Promise<void>((done) => {
             resolve = done;
           });
+      else if (stage === "focus")
+        focus = () => new Promise<void>(done => { resolve = done; });
       else
         targetInfo = (tabId) =>
           new Promise((done) => {
@@ -300,6 +310,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   h.command(1, "create");
   await settle();
   const attached = h.calls.filter((call) => call === "attach").length;
+  expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }]);
   h.navigation(900, 901);
   await settle();
   expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached);
@@ -308,6 +319,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   expect(
     h.socket.sent.filter((message) => message.method === "popup"),
   ).toHaveLength(1);
+  expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }, { tabId: 8, params: { enabled: true } }]);
   const event = h.socket.sent.find((message) => message.method === "popup")!;
   expect(fields(fields(event.params).targetInfo).openerId).toBe("owned");
   h.navigation(7, 9);
@@ -326,7 +338,7 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   h.socket.receive({ kind: "refused" });
 });
 
-for (const stage of ["attach", "target"] as const) {
+for (const stage of ["attach", "target", "focus"] as const) {
   test(`popup ownership lost during ${stage} never publishes the popup`, async () => {
     const h = await harness();
     h.command(1, "create");
@@ -371,6 +383,7 @@ test("popup is exact-extension-only, does not disclose credentials, and stops on
   expect(state).not.toHaveProperty("code");
   expect(state.assignments).toHaveLength(1);
   expect(h.badges).toContainEqual({ tabId: 7, text: "CTRL" });
+  expect(h.badges.filter((badge) => badge.tabId === undefined).every((badge) => badge.text === "")).toBe(true);
   expect(
     await h.ui({ action: "stop", generation: "old", assignment: "assignment" }),
   ).toHaveProperty("error");
@@ -432,4 +445,36 @@ test("unpair claims success only after generation-bound acknowledgement", async 
   lost.socket.close();
   expect((await unknown).state).toBe("unknown");
   expect(await lost.ui({ action: "reconnect" })).toHaveProperty("error");
+});
+
+
+for (const popup of [false, true]) {
+  test(`failed ${popup ? "popup" : "root"} focus setup detaches without publishing a target`, async () => {
+    const h = await harness();
+    if (popup) { h.command(1, "create"); await settle(); }
+    h.failFocus();
+    if (popup) h.navigation(7, 8);
+    else h.command(1, "create");
+    await settle();
+    expect(h.focused.at(-1)?.tabId).toBe(popup ? 8 : 7);
+    expect(h.calls).toContain("detach");
+    expect(h.socket.sent.some(m => m.method === "popup")).toBe(false);
+    if (!popup) expect(h.socket.sent.find(m => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+    h.socket.close();
+  });
+}
+
+test("root ownership lost during focus setup cannot publish its target", async () => {
+  const h = await harness();
+  const finish = h.delayPopup("focus");
+  h.command(1, "create");
+  await settle();
+  expect(h.focused).toHaveLength(1);
+  h.command(2, "detach");
+  finish();
+  await settle();
+  expect(h.socket.sent.find(m => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+  expect(h.calls).not.toContain("Target.getTargetInfo");
+  expect(h.calls).toContain("detach");
+  h.socket.close();
 });
