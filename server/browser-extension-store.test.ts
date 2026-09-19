@@ -64,7 +64,15 @@ test("malformed and unreadable browser state requires selection and preserves so
     rmSync(path);
     mkdirSync(path);
     expect(() => readFileSync(path, "utf8")).toThrow();
-    expect(new BrowserExtensionStore(path).record("member")).toEqual({ backend: null });
+    const unreadable = new BrowserExtensionStore(path);
+    expect(unreadable.record("member")).toEqual({ backend: null });
+    const inode = statSync(path).ino;
+    unreadable.select("member", "extension");
+    expect(new BrowserExtensionStore(path).record("member").backend).toBe("extension");
+    const savedDirectory = readdirSync(dir).find((name) => name.startsWith("connections.json.unavailable-"))!;
+    expect(statSync(join(dir, savedDirectory)).isDirectory()).toBe(true);
+    expect(statSync(join(dir, savedDirectory)).ino).toBe(inode);
+    rmSync(join(dir, savedDirectory), { recursive: true });
     rmSync(path, { recursive: true });
     writeFileSync(path, "{");
     const recovered = new BrowserExtensionStore(path);
@@ -78,6 +86,33 @@ test("malformed and unreadable browser state requires selection and preserves so
     expect(new BrowserExtensionStore(path).memberForHash(browserCredentialHash(redeemed.credential), origin)).toBe("member");
     expect(readFileSync(path, "utf8")).not.toContain(redeemed.credential);
     expect(statSync(path).mode & 0o777).toBe(0o600);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("failed selection write restores the unavailable source before restart", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-repair-rollback-"));
+  const path = join(dir, "connections.json");
+  try {
+    for (const directory of [false, true]) {
+      if (directory) mkdirSync(path); else writeFileSync(path, "{");
+      const inode = statSync(path).ino;
+      const store = new BrowserExtensionStore(path);
+      expect(store.record("member").backend).toBeNull();
+      // Force the atomic write to fail after preservation succeeds.
+      mkdirSync(path + ".tmp");
+      expect(() => store.select("member", "headless")).toThrow();
+      expect(statSync(path).ino).toBe(inode);
+      if (!directory) expect(readFileSync(path, "utf8")).toBe("{");
+      expect(new BrowserExtensionStore(path).record("member").backend).toBeNull();
+      expect(readdirSync(dir).filter((name) => name.includes(".unavailable-"))).toHaveLength(0);
+      rmSync(path + ".tmp", { recursive: true });
+      store.select("member", "headless");
+      expect(new BrowserExtensionStore(path).record("member").backend).toBe("headless");
+      const backup = readdirSync(dir).find((name) => name.includes(".unavailable-"))!;
+      expect(statSync(join(dir, backup)).ino).toBe(inode);
+      rmSync(join(dir, backup), { recursive: true });
+      rmSync(path);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

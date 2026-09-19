@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync, linkSync } from "node:fs";
+import { readFileSync, renameSync } from "node:fs";
 import { atomicWriteFileSync } from "./persistence";
 import { browserCredentialHash } from "./browser-extension-bridge";
 
@@ -56,13 +56,20 @@ export class BrowserExtensionStore {
   }
   private write(member: string, record: BrowserRecord): void {
     const next = { ...this.records, [member]: record };
+    let preserved: string | undefined;
     if (this.preserveSource) {
-      // Retain the original inode without reading unreadable bytes. Atomic
-      // replacement below leaves this diagnostic copy intact, even on failure.
-      linkSync(this.path, `${this.path}.unavailable-${secret()}`);
-      this.preserveSource = false;
+      // Rename also preserves an unreadable directory at the state path.
+      preserved = `${this.path}.unavailable-${secret()}`;
+      renameSync(this.path, preserved);
     }
-    atomicWriteFileSync(this.path, JSON.stringify({ version: 1, selectionRequired: this.selectionRequired, members: next }), 0o600);
+    try {
+      atomicWriteFileSync(this.path, JSON.stringify({ version: 1, selectionRequired: this.selectionRequired, members: next }), 0o600);
+    } catch (error) {
+      // A failed repair must not become an absent-file migration on restart.
+      if (preserved) renameSync(preserved, this.path);
+      throw error;
+    }
+    this.preserveSource = false;
     this.records = next;
   }
   select(member: string, backend: BrowserBackend): void {

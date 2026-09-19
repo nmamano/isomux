@@ -39,7 +39,9 @@ An invalid stored backend blocks that member. Actions return
 `browser_selection_required` and never call the headless pool until an explicit
 member selection. Status reports `backend: null` and `selectionRequired: true`.
 The server preserves the source inode under a unique `.unavailable-` filename
-before atomic replacement. The version-1 file envelope retains the unavailable
+by same-directory rename before atomic replacement, including an unreadable
+directory at the state path. If the write fails, the server restores the source
+path so a restart still requires selection. The version-1 file envelope retains the unavailable
 default for other members after one member repairs their selection; legacy member
 maps still load. No source content is logged or returned. PM confirmed this rule
 on 2026-09-19. No raw credential or pairing code is
