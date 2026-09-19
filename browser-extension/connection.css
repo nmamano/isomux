@@ -28,7 +28,8 @@ label {
   font-size: 13px;
   margin: 14px 0 5px;
 }
-input {
+input,
+select {
   width: 100%;
   box-sizing: border-box;
   padding: 9px;
@@ -61,13 +62,13 @@ button:focus-visible {
   border-left: 3px solid #93b4ff;
   padding-left: 9px;
 }
-#assignments section {
+#tab-control {
   margin: 14px 0;
   padding: 12px;
   background: #242b38;
   border-radius: 8px;
 }
-#assignments p {
+#tab-control p {
   margin: 0;
 }
 #error {
@@ -80,3 +81,6 @@ button:focus-visible {
 [hidden] {
   display: none !important;
 }
+
+#allow { width: auto; margin-right: 8px; accent-color: #78dca8; }
+select:disabled, input:disabled { opacity: 0.6; }

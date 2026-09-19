@@ -144,15 +144,17 @@ Then open `http://localhost:5173`.
 
 ### Desktop Chrome extension
 
-In **Settings → You → Browser**, select **Desktop Chrome**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
+In **Settings → You → Browser Use**, select **Desktop Chrome**, download the extension ZIP and extract it. In desktop Chrome, open `chrome://extensions`, enable **Developer mode**, select **Load unpacked**, and choose the extracted folder. Pin **Isomux Browser** to the toolbar.
 
-Create a pairing code in Browser settings. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browser; agents use their manager's connection and keep separate task tabs. Another chat speaker does not change the browser owner.
+Create a pairing code in Browser settings. Open the extension and enter the office HTTPS address and code. Codes expire after five minutes. Each member pairs their own browser; agents use their manager's connection. Another chat speaker does not change the browser owner.
 
 Chrome warns **Read your browsing history**. The extension uses this permission to bind site-opened popups to the agent's tab. It does not collect browsing history. Chrome also shows its own debugger warning during control.
 
-The toolbar badge shows offline, connected, or control of the current tab. The popup lists agents and can focus a tab, stop control, disconnect or unpair. Stop control leaves pages open and music playing. Disconnect stays off until Reconnect. Offline revocation is available in office Browser settings. If an unpair acknowledgement is lost, the popup reports an unknown result; check the office settings. Replace pairing ends the previous browser's access when the new code is used.
+Open an HTTP(S) tab, choose an agent in the extension popup, and turn on **Allow agent control**. The agent can read the page immediately and navigate that same tab. Each agent can have one offered tab. Turn control off before assigning a tab to another agent.
 
-Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection never switches to Server browser mode or repeats a command. Check the page before repeating an action with an unknown outcome.
+The **ON** badge marks offered tabs and their site-opened popups. Other tabs have no badge. The popup names the assigned agent. Turning control off leaves pages open and music playing. The popup can also disconnect or unpair. Disconnect stays off until Reconnect. Offline revocation is available in office Browser Use settings. If an unpair acknowledgement is lost, the popup reports an unknown result; check the office settings. Replace pairing ends the previous browser's access when the new code is used.
+
+Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab, switches to Server browser mode or repeats a command. Check the page before repeating an action with an unknown outcome.
 
 Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. No Web Store installation is available.
 

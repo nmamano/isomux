@@ -238,3 +238,42 @@ test("unavailable selections never invoke the headless pool", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("queued browser work cannot cross Off into a replacement tab offer", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-off-queue-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 500);
+  try {
+    store.select("member", "extension");
+    const { code } = store.pair("member", false);
+    const { credential } = store.redeem(code, "chrome-extension://" + "a".repeat(32), () => true);
+    const messages: Record<string, unknown>[] = [];
+    const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
+    const offer = async (targetId: string) => {
+      const assignment = crypto.randomUUID();
+      connection.receive({ kind: "offer", generation: connection.generation, assignment, agent: "agent" });
+      const attach = messages.at(-1)!;
+      connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
+        result: { targetInfo: { targetId, browserContextId: "context", type: "page", url: "https://example.com/" } } });
+      await Promise.resolve();
+      return assignment;
+    };
+    await offer("old");
+    const first = sessions.run("agent", { action: "snapshot" });
+    for (let i = 0; i < 100 && !messages.some(m => m.method === "cdp"); i++) await Bun.sleep(2);
+    expect(messages.some(m => m.method === "cdp")).toBe(true);
+    const queued = sessions.run("agent", { action: "goto", url: "https://example.com/queued" });
+    connection.revoke("agent");
+    const replacement = await offer("new");
+    const count = messages.filter(m => m.method === "cdp").length;
+    expect(connection.offered("agent")).toBe(replacement);
+    expect(await first).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(await queued).toMatchObject({ ok: false, code: "browser_control_ended" });
+    expect(messages.filter(m => m.method === "cdp")).toHaveLength(count);
+    connection.close();
+  } finally {
+    sessions.stop(); service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

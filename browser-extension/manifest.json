@@ -1,14 +1,29 @@
 {
   "manifest_version": 3,
   "name": "Isomux Browser",
-  "version": "0.1.0",
-  "description": "Connect Chrome task tabs to an Isomux office.",
+  "version": "0.2.0",
+  "description": "Offer Chrome tabs to agents in an Isomux office.",
   "minimum_chrome_version": "125",
-  "permissions": ["debugger", "storage", "alarms", "webNavigation"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": [
+    "debugger",
+    "activeTab",
+    "storage",
+    "alarms",
+    "webNavigation"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "options_page": "connection.html",
   "action": {
     "default_popup": "connection.html",
-    "default_title": "Isomux Browser"
+    "default_title": "Isomux Browser",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  },
+  "icons": {
+    "128": "icon.png"
   }
 }

@@ -1,73 +1,65 @@
 import { test, expect } from "bun:test";
 import { chromium } from "playwright-core";
-import { BrowserExtensionBridge } from "./browser-extension-bridge";
+import { BrowserExtensionBridge, type ExtensionConnection } from "./browser-extension-bridge";
 import { browserExtensionTransport } from "./browser-extension-transport";
+import { fields, type Fields } from "../shared/browser-extension-protocol";
 
-test("public Playwright direct transport initializes and closes without a socket", async () => {
-  const bridge = new BrowserExtensionBridge({
-    memberForCredentialHash: () => "member",
-    mayUse: () => true,
-  });
-  const connection = bridge.connect("fixture", { send() {}, close() {} });
-  const browser = await chromium.connectOverCDP(
-    browserExtensionTransport(connection, "agent"),
-    { noDefaults: true, timeout: 1000 },
-  );
-  expect(browser.contexts()).toHaveLength(1);
-  expect(browser.contexts()[0].pages()).toHaveLength(0);
-  const disconnected = new Promise<void>((resolve) =>
-    browser.once("disconnected", () => resolve()),
-  );
-  connection.close();
-  await disconnected;
-  expect(browser.isConnected()).toBe(false);
-}, 3000);
-
-test("closing direct transport rejects pending Playwright creation", async () => {
-  const bridge = new BrowserExtensionBridge({
-    memberForCredentialHash: () => "member",
-    mayUse: () => true,
-  });
-  let created!: () => void;
-  const command = new Promise<void>((resolve) => {
-    created = resolve;
-  });
-  const connection = bridge.connect("fixture", {
+async function offered() {
+  const bridge = new BrowserExtensionBridge({ memberForCredentialHash: () => "member", mayUse: () => true });
+  let hold = false;
+  let pending!: () => void;
+  const started = new Promise<void>(resolve => { pending = resolve; });
+  const messages: Fields[] = [];
+  const connection: ExtensionConnection = bridge.connect("fixture", {
     send(msg) {
-      if (msg.method === "create") created();
+      messages.push(msg);
+      if (msg.kind !== "command" || msg.method === "detach") return;
+      if (hold) { pending(); return; }
+      const params = fields(msg.params);
+      const result = msg.method === "attach"
+        ? { targetInfo: { type: "page", browserContextId: "context", targetId: "owned", url: "https://example.com/" } }
+        : params.method === "Page.getFrameTree"
+          ? { frameTree: { frame: { id: "owned", loaderId: "loader", url: "https://example.com/", securityOrigin: "https://example.com", mimeType: "text/html" } } }
+          : {};
+      queueMicrotask(() => connection.receive({ kind: "result", generation: connection.generation, id: msg.id, result }));
     },
     close() {},
   });
-  const browser = await chromium.connectOverCDP(
-    browserExtensionTransport(connection, "agent"),
-    { noDefaults: true, timeout: 1000 },
-  );
-  const pending = browser
-    .contexts()[0]
-    .newPage()
-    .then(
-      () => false,
-      () => true,
-    );
-  await command;
-  connection.close();
-  expect(await pending).toBe(true);
+  connection.receive({ kind: "offer", generation: connection.generation, assignment: crypto.randomUUID(), agent: "agent" });
+  await Promise.resolve(); await Promise.resolve();
+  return { connection, messages, started, hold: () => { hold = true; } };
+}
+
+test("public Playwright transport initializes the offered page and cannot create another", async () => {
+  const h = await offered();
+  const browser = await chromium.connectOverCDP(browserExtensionTransport(h.connection, "agent"), { noDefaults: true, timeout: 1000 });
+  expect(browser.contexts()).toHaveLength(1);
+  expect(browser.contexts()[0].pages()).toHaveLength(1);
+  expect(browser.contexts()[0].pages()[0].url()).toBe("https://example.com/");
+  expect(await browser.contexts()[0].newPage().then(() => false, () => true)).toBe(true);
+  expect(h.messages.some(m => m.method === "create")).toBe(false);
+  await browser.close();
+  expect(h.connection.offered("agent")).toBeUndefined();
+  h.connection.close();
+}, 3000);
+
+test("Off rejects a pending Playwright command without replay", async () => {
+  const h = await offered();
+  const browser = await chromium.connectOverCDP(browserExtensionTransport(h.connection, "agent"), { noDefaults: true, timeout: 1000 });
+  h.hold();
+  const result = browser.contexts()[0].pages()[0].goto("https://example.com/next").then(() => false, () => true);
+  await h.started;
+  h.connection.revoke("agent");
+  expect(await result).toBe(true);
+  expect(() => browserExtensionTransport(h.connection, "agent")).toThrow();
+  h.connection.close();
 }, 3000);
 
 test("direct transport loss rejects Playwright initialization", async () => {
-  const bridge = new BrowserExtensionBridge({
-    memberForCredentialHash: () => "member",
-    mayUse: () => true,
-  });
-  const connection = bridge.connect("fixture", { send() {}, close() {} });
-  const transport = browserExtensionTransport(connection, "agent");
-  transport.send = () => connection.close();
-  const error: unknown = await chromium
-    .connectOverCDP(transport, { noDefaults: true, timeout: 1000 })
-    .then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+  const h = await offered();
+  const transport = browserExtensionTransport(h.connection, "agent");
+  transport.send = () => h.connection.close();
+  const error: unknown = await chromium.connectOverCDP(transport, { noDefaults: true, timeout: 1000 }).then(() => undefined, (error: unknown) => error);
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).name).not.toBe("TimeoutError");
 }, 3000);

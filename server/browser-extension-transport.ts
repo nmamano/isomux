@@ -5,9 +5,11 @@ import type { ExtensionConnection } from "./browser-extension-bridge";
 export function browserExtensionTransport(
   connection: ExtensionConnection,
   agentId: string,
-): ConnectOverCDPTransport {
+): ConnectOverCDPTransport & { signal: AbortSignal } {
   let closed = false;
-  const transport: ConnectOverCDPTransport = {
+  const controller = new AbortController();
+  const transport: ConnectOverCDPTransport & { signal: AbortSignal } = {
+    signal: controller.signal,
     send(message) {
       if (closed || !assignment)
         throw new Error("Browser transport is not available");
@@ -16,6 +18,7 @@ export function browserExtensionTransport(
     close() {
       if (closed) return;
       closed = true;
+      controller.abort();
       assignment?.close();
       // Playwright records a command callback after send returns. Deliver close
       // on the next microtask so a synchronous refusal cannot strand that call.

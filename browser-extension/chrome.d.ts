@@ -59,7 +59,8 @@ declare const chrome: {
     };
   };
   tabs: {
-    create(options: { url: string; active: boolean }): Promise<{ id?: number }>;
+    query(options: { active: boolean; currentWindow: boolean }): Promise<{ id?: number; url?: string; active?: boolean; windowId?: number }[]>;
+    get(id: number): Promise<{ id?: number; url?: string; active?: boolean; windowId?: number }>;
     update(
       id: number,
       options: { active: boolean },

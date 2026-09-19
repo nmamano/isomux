@@ -9,6 +9,7 @@ document.documentElement.lang = language;
 const element = (id: string) => document.getElementById(id)!;
 const office = element("office") as HTMLInputElement;
 const code = element("code") as HTMLInputElement;
+const [invocationTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const labels: Record<string, PlainMessageKey> = {
   "office-label": "browser.office",
   "code-label": "browser.code",
@@ -19,21 +20,29 @@ const labels: Record<string, PlainMessageKey> = {
   unpair: "browser.unpair",
   retained: "browser.retained",
   "offline-help": "browser.offlineHelp",
+  "agent-label": "browser.agent",
+  "allow-label": "browser.allow",
 };
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
 let state: ExtensionUIState & { generation?: string };
-let busy = false,
-  lastAssignments = "",
-  showPair = false;
+let busy = false, showPair = false;
+const picker = element("agent") as HTMLSelectElement;
+const toggle = element("allow") as HTMLInputElement;
 async function command(action: string, extra: Record<string, unknown> = {}) {
-  if (busy) return;
-  busy = true;
+  if (busy && action !== "state" && action !== "stop") return;
+  if (action !== "state") busy = true;
   if (action !== "state") element("error").textContent = "";
   try {
+    if (action === "offer") {
+      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (active?.id !== invocationTab?.id) throw new Error();
+    }
     const result = (await chrome.runtime.sendMessage({
       action,
       generation: state?.generation,
+      tabId: invocationTab?.id,
+      windowId: invocationTab?.windowId,
       ...extra,
     })) as typeof state & { error?: string };
     if (!result || result.error) throw new Error();
@@ -45,7 +54,7 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   } catch {
     element("error").textContent = t("browser.failed");
   } finally {
-    busy = false;
+    if (action !== "state") busy = false;
   }
 }
 function render(next: typeof state) {
@@ -69,31 +78,31 @@ function render(next: typeof state) {
   element("unpair").hidden = state.state !== "connected";
   element("offline-help").hidden =
     state.state === "connected" || state.state === "unpaired";
-  const signature = JSON.stringify([state.generation, state.assignments]);
-  if (signature !== lastAssignments) {
-    lastAssignments = signature;
-    element("assignments").replaceChildren();
-    for (const assignment of state.assignments) {
-      const section = document.createElement("section"),
-        label = document.createElement("p");
-      section.dataset.assignment = assignment.id;
-      section.dataset.tabId = String(assignment.tabId);
-      label.textContent = assignment.agent.name;
-      section.append(label);
-      for (const action of ["focus", "stop"] as const) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.action = action;
-        button.textContent = t(`browser.${action}`);
-        button.addEventListener(
-          "click",
-          () => void command(action, { assignment: assignment.id }),
-        );
-        section.append(button);
-      }
-      element("assignments").append(section);
-    }
+  const current = state.assignments.find((a) => a.current);
+  const selected = current?.agent.id ?? picker.value;
+  picker.replaceChildren();
+  for (const agent of state.agents) {
+    const option = document.createElement("option");
+    option.value = agent.id;
+    option.textContent = agent.name;
+    picker.append(option);
   }
+  if (current && !state.agents.some((a) => a.id === current.agent.id)) {
+    const option = document.createElement("option");
+    option.value = current.agent.id;
+    option.textContent = current.agent.name;
+    picker.append(option);
+  }
+  if ([...picker.options].some((option) => option.value === selected)) picker.value = selected;
+  picker.disabled = !!current || state.state !== "connected";
+  const conflict = state.assignments.some((a) => a.agent.id === picker.value && !a.current);
+  toggle.checked = !!current && current.phase !== "revoking";
+  toggle.disabled = current ? current.phase === "revoking" :
+    state.state !== "connected" || !state.currentTab?.eligible || !picker.value || conflict;
+  element("tab-state").textContent = current
+    ? t(current.phase === "on" ? "browser.assigned" : current.phase === "offering" ? "browser.offering" : "browser.revoking", { name: current.agent.name })
+    : !state.currentTab?.eligible ? t("browser.tabIneligible")
+      : conflict ? t("browser.tabConflict") : t("browser.tabOff");
 }
 element("replace").addEventListener("click", () => {
   showPair = true;
@@ -105,6 +114,13 @@ element("pair-form").addEventListener("submit", (event) => {
 });
 for (const action of ["disconnect", "reconnect", "unpair"])
   element(action).addEventListener("click", () => void command(action));
+picker.addEventListener("change", () => render(state));
+toggle.addEventListener("change", () => {
+  const current = state.assignments.find((a) => a.current);
+  if (current) void command("stop", { assignment: current.id });
+  else void command("offer", { agent: picker.value, tabId: state.currentTab?.id });
+  toggle.disabled = true;
+});
 void command("state");
 const poll = setInterval(() => void command("state"), 1000);
 window.addEventListener("pagehide", () => clearInterval(poll));

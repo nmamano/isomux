@@ -56,6 +56,7 @@ export class BrowserExtensionService {
       mayUse(member: string, agent: string): boolean;
       memberName?(member: string): string;
       agentName?(agent: string): string;
+      agents?(member: string): string[];
     },
   ) {
     this.bridge = new BrowserExtensionBridge({
@@ -63,6 +64,7 @@ export class BrowserExtensionService {
         const member = store.memberForHash(hash);
         return member && access.memberExists(member) ? member : undefined;
       },
+      agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) =>
         store.record(member).backend === "extension" &&
         access.mayUse(member, agent),

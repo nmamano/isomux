@@ -20,7 +20,9 @@ export async function openExtensionActionPopup(
       filter: [{ type: "tab" }, { exclude: true }],
     })
   ).targetInfos;
-  const tab = tabs.find((t) => t.url === page.url);
+  const matches = tabs.filter((t) => t.targetId === page.parentId || (!page.parentId && t.url === page.url));
+  if (matches.length > 1) throw new Error("Ambiguous Chrome tab target for action popup");
+  const tab = matches[0];
   if (!tab) throw new Error("No Chrome tab target for action popup");
   await cdp.send("Extensions.triggerAction", {
     id: extensionId,
@@ -134,6 +136,7 @@ export async function openExtensionActionPopup(
       clickCount: 1,
     });
   };
+  await waitFor('!!document.querySelector("#status")?.dataset.state');
   return {
     read,
     waitFor,

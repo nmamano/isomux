@@ -33,7 +33,12 @@
         <button id="unpair"></button>
       </div>
       <p id="offline-help"></p>
-      <div id="assignments"></div>
+      <section id="tab-control">
+        <label id="agent-label" for="agent"></label>
+        <select id="agent" disabled></select>
+        <label><input type="checkbox" id="allow" role="switch" disabled /><span id="allow-label"></span></label>
+        <p id="tab-state" role="status"></p>
+      </section>
       <p id="retained"></p>
       <p id="error" role="alert"></p>
     </main>

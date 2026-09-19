@@ -63,9 +63,9 @@ HTTPS office origin. Loopback HTTP/WS is accepted for isolated local fixtures.
 URL credentials, query strings and fragments are refused.
 
 The first frame, within five seconds and at most 4 KiB, is
-`{kind: "hello", version: 1, code}` or the same shape with `credential`.
-Pairing returns `{kind: "paired", version: 1, credential}` before
-`{kind: "ready", version: 1, generation}`. Authentication binds the credential
+`{kind: "hello", version: 2, code}` or the same shape with `credential`.
+Pairing returns `{kind: "paired", version: 2, credential}` before
+`{kind: "ready", version: 2, generation}`. Authentication binds the credential
 hash to the saved extension Origin. Duplicate live connections are refused;
 only explicit replacement displaces the current connection.
 
@@ -80,7 +80,7 @@ Authentication or revocation refusal persists a blocked configuration until the
 member pairs again. Deliberate disconnect is a separate persisted disabled flag;
 Reconnect cannot clear blocked or unknown-revocation state. No command queue survives disconnection or either restart.
 A new connection gets a fresh generation, Playwright object and task assignment.
-The new assignment may open a new tab. Previously opened pages remain open.
+Every tab offer is released. Members must offer a tab again; previously opened pages remain open.
 
 ## Public Playwright seam and ownership
 
@@ -96,7 +96,7 @@ commands, results and events require that exact member, current member existence
 and access to the agent's current room. Mutation hooks actively revalidate;
 heartbeat is a backstop. The latest chat speaker never supplies browser identity.
 
-Each agent has one main task tab. Root discovery exposes only that assignment's
+Each agent has one explicitly offered main tab. Root discovery exposes only that assignment's
 main tab and related popups. Profile-level cookie, storage, context and arbitrary
 root CDP commands fail. Synthetic browser sessions retain the same restricted
 view. `noDefaults` preserves the desktop profile's settings. Page commands use
@@ -167,13 +167,13 @@ Only that exact extension URL and runtime id can call the background UI API.
 The UI API never returns raw credentials/codes. It accepts an HTTPS office
 origin (loopback HTTP for isolated fixtures), derives the socket path and rejects
 credentials, paths, query and fragment. State polls only while the popup or
-settings pane is open. Popup focus/stop actions name a current assignment and
-generation. Stop removes local ownership, detaches and sends the existing
+settings pane is open. The Allow toggle names the current tab and selected agent;
+Off names its current assignment and generation. Off cancels local ownership, detaches and sends the existing
 `detached` event; the server revalidates ownership before release. No audio or
-media command is sent. The badge distinguishes OFF, ON and CTRL on owned tabs.
+media command is sent. The badge shows ON only on owned tabs. Other tabs have no badge; connection state appears in the popup.
 
 Generation-bound `metadata` frames contain the current member id/name and
-assigned agent id/name, never page URLs/titles. Server display sanitization is
+eligible and assigned agent ids/names, never page URLs/titles. Server display sanitization is
 centralized in `browser-extension-display.ts`. Record mutation/heartbeat refreshes
 metadata; assignment/connection end clears the extension display. Names render
 as text. The authenticated generation-bound `unpair` frame revokes only the
@@ -210,3 +210,52 @@ informed the restricted adapter. References:
 [Playwright relay](https://github.com/microsoft/playwright/blob/main/packages/playwright-core/src/tools/mcp/cdpRelay.ts),
 [Chrome debugger API](https://developer.chrome.com/docs/extensions/reference/api/debugger),
 [CDP extension loader](https://chromedevtools.github.io/devtools-protocol/tot/Extensions/).
+
+
+### Background interaction correction (2026-09-19)
+
+A raw Chrome reproduction showed that a hidden task tab could navigate and
+fill, but a normal Playwright locator click waited indefinitely for animation
+frames during its stability check. The previous launch-based fixture supplied
+Playwright focus emulation and masked this difference. With `noDefaults: true`,
+our public CDP connection omits that default override.
+
+The extension now enables `Emulation.setFocusEmulationEnabled` on the exact
+owned root/popup attachment and rechecks ownership after the await. Release
+explicitly disables it before debugger detach. The real active tab and window
+stay unchanged; released pages remain open. Native CDP input itself can leave
+`document.hasFocus()` true on a hidden tab, so release does not promise that
+property becomes false. The regression checks hidden visibility, debugger
+detachment, retained pages and unchanged active tab/window instead.
+
+Approved focus fix: `5f3d20a767e9f29e9f33e304e3ec409e8feaeeee`.
+`server/browser-extension-background.live.test.ts` is the opt-in raw-Chrome
+regression. Final evidence: `/tmp/isomux-background-proof-5bOWKQ/evidence.json`;
+one live pass with 42 assertions. This proves background locator clicks on the
+fixture, not YouTube audio playback. The separate legacy-panel fix at
+`28e85f81` derives panel availability from the manager's current backend and
+blocks headless watch/input for Desktop Chrome, including stale deliveries.
+
+
+## Explicit tab offers (2026-09-19)
+
+Protocol 2 and extension 0.2.0 replace automatic tab creation. Older protocol
+versions fail before pairing or control. Update and reload the unpacked extension;
+all tab offers must then be made again.
+
+The popup captures the active tab in its current window using `activeTab`.
+On Allow, the popup checks that anchor again. The worker fetches the exact tab id
+and requires an active HTTP(S) tab in that window. It reserves
+both tab and agent locally, then sends a generation-bound `offer` with a random
+assignment id and agent id. The server checks the current manager and room access,
+reserves the agent, and sends `attach` for that id. The worker attaches only the
+locally reserved tab and returns its target. The server validates the target and
+access again before returning `offered`. No unrelated URL or title is sent.
+
+Pending offers reserve the same identities as active offers. Off makes the local
+assignment unusable before waiting for debugger cleanup and sends `detached` to
+reject server work. Late attach results cannot restore the offer. Cleanup includes
+focus emulation and the exact popup chain. The popup shows offering/revoking states.
+The server publishes sanitized current eligible agent names over the same socket.
+There is no new HTTP route. The Playwright transport consumes an existing offered
+target; Target.createTarget is refused and the session never calls newPage.

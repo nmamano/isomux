@@ -1,12 +1,12 @@
 // Internal wire protocol. No page, token, or CDP payload belongs in a log.
-export const BROWSER_EXTENSION_PROTOCOL = 1;
+export const BROWSER_EXTENSION_PROTOCOL = 2;
 export type Fields = Record<string, unknown>;
 export interface ExtensionCommand {
   kind: "command";
   generation: string;
   id: number;
   assignment: string;
-  method: "create" | "cdp" | "detach";
+  method: "attach" | "cdp" | "detach";
   params: Fields;
 }
 export interface BridgePeer {
@@ -100,6 +100,7 @@ export interface BrowserDisplay {
   name: string;
 }
 export interface BrowserMetadata {
+  agents: BrowserDisplay[];
   member: BrowserDisplay;
   assignments: { id: string; agent: BrowserDisplay }[];
 }
@@ -122,7 +123,9 @@ export interface ExtensionUIState {
     | "blocked"
     | "unknown";
   member?: BrowserDisplay;
-  assignments: { id: string; agent: BrowserDisplay; tabId: number }[];
+  agents: BrowserDisplay[];
+  currentTab?: { id: number; eligible: boolean };
+  assignments: { id: string; agent: BrowserDisplay; tabId: number; current: boolean; phase: "offering" | "on" | "revoking" }[];
 }
 export function officeSocketURL(value: string): string {
   const url = new URL(value);

@@ -36,9 +36,7 @@ test("unavailable selection stays explicit; pairing, replacement and revoke use 
   expect((view.getByTestId("browser-backend") as HTMLSelectElement).value).toBe(
     "",
   );
-  expect((view.getByTestId("browser-pair") as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect(view.queryByTestId("browser-pair")).toBeNull();
   expect(writes).toHaveLength(0);
   await act(async () =>
     fireEvent.change(view.getByTestId("browser-backend"), {
@@ -53,6 +51,7 @@ test("unavailable selection stays explicit; pairing, replacement and revoke use 
   expect((view.getByTestId("browser-code") as HTMLInputElement).value).toBe(
     "fixture-code",
   );
+  expect((view.getByTestId("browser-code") as HTMLInputElement).type).toBe("password");
   view.unmount();
   status = { ...status, paired: true, online: true };
   const paired = render(<BrowserPane />);

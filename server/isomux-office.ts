@@ -510,6 +510,7 @@ function createManagers(startOpts: StartServerOpts): void {
     {
       memberExists: (member) => !!getUserById(member),
       mayUse: mayUseExtension,
+      agents: () => agentManager.getAllAgents().map((agent) => agent.id),
       memberName: (member) => getUserById(member)?.name ?? "",
       agentName: (agent) => agentManager.getAgent(agent)?.name ?? "",
     },

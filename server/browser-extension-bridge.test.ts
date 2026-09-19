@@ -22,7 +22,7 @@ function peer() {
     },
   };
 }
-function harness() {
+async function harness() {
   let authorized = true;
   const credential = "test-browser-credential";
   const extension = peer();
@@ -38,6 +38,7 @@ function harness() {
   });
   const connection = bridge.connect(credential, extension);
   const client = peer();
+  await offer(connection, extension.messages, "agent", "owned");
   const agent = connection.assign("agent", client);
   return {
     bridge,
@@ -51,29 +52,19 @@ function harness() {
     },
   };
 }
-async function create(h: ReturnType<typeof harness>) {
-  const work = h.agent.receive({
-    id: 1,
-    method: "Target.createTarget",
-    params: { url: "about:blank" },
-  });
-  const command = h.extension.messages.at(-1)!;
-  h.connection.receive({
-    kind: "result",
-    generation: h.connection.generation,
-    id: command.id,
-    result: {
-      targetInfo: { targetId: "owned", type: "page", url: "about:blank" },
-    },
-  });
-  await work;
-  const attached = h.client.messages.find(
-    (msg) => msg.method === "Target.attachedToTarget",
-  )!;
-  return {
-    sessionId: fields(attached.params).sessionId,
-    assignment: command.assignment,
-  };
+async function offer(connection: import("./browser-extension-bridge").ExtensionConnection, messages: Fields[], agent: string, targetId: string) {
+  const assignment = crypto.randomUUID();
+  connection.receive({ kind: "offer", generation: connection.generation, assignment, agent });
+  const command = messages.at(-1)!;
+  connection.receive({ kind: "result", generation: connection.generation, id: command.id,
+    result: { targetInfo: { targetId, type: "page", url: "https://example.com/" } } });
+  await Promise.resolve();
+  return assignment;
+}
+async function create(h: Awaited<ReturnType<typeof harness>>) {
+  await h.agent.receive({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true } });
+  const attached = h.client.messages.find((msg) => msg.method === "Target.attachedToTarget")!;
+  return { sessionId: fields(attached.params).sessionId, assignment: h.connection.offered("agent")! };
 }
 
 describe("browser extension isolation", () => {
@@ -85,7 +76,7 @@ describe("browser extension isolation", () => {
       await new Promise<void>((resolve, reject) => {
         ws.onopen = () =>
           ws.send(
-            JSON.stringify({ kind: "hello", version: 1, credential: "wrong" }),
+            JSON.stringify({ kind: "hello", version: 2, credential: "wrong" }),
           );
         ws.onmessage = (event) => received.push(String(event.data));
         ws.onclose = () => resolve();
@@ -117,8 +108,8 @@ describe("browser extension isolation", () => {
     ])
       expect(() => browserSocketURL(url)).toThrow();
   });
-  test("credential and member authorization gate assignment", () => {
-    const h = harness();
+  test("credential and member authorization gate assignment", async () => {
+    const h = await harness();
     expect(() => h.bridge.connect("wrong", peer())).toThrow();
     expect(() => h.bridge.connect(h.credential, peer())).toThrow();
     expect(() => h.connection.assign("foreign-agent", peer())).toThrow();
@@ -126,12 +117,12 @@ describe("browser extension isolation", () => {
     h.connection.close();
   });
   test("target discovery filters and profile commands never leave the adapter", async () => {
-    const h = harness();
+    const h = await harness();
     const { sessionId } = await create(h);
     const before = h.extension.messages.length;
     await h.agent.receive({ id: 2, method: "Target.getTargets" });
     expect(fields(h.client.messages.at(-1)!.result).targetInfos).toEqual([
-      { targetId: "owned", type: "page", url: "about:blank" },
+      { targetId: "owned", type: "page", url: "https://example.com/" },
     ]);
     const rejected = [
       { method: "Target.createTarget", params: { url: "about:blank" } },
@@ -153,9 +144,10 @@ describe("browser extension isolation", () => {
     h.connection.close();
   });
   test("cross-agent session and event routing stays assigned", async () => {
-    const h = harness();
+    const h = await harness();
     const { sessionId, assignment } = await create(h);
     const other = peer();
+    await offer(h.connection, h.extension.messages, "other-agent", "other-owned");
     const otherAgent = h.connection.assign("other-agent", other);
     await otherAgent.receive({ id: 1, method: "Runtime.evaluate", sessionId });
     expect(other.messages.at(-1)!.error).toBeDefined();
@@ -179,7 +171,7 @@ describe("browser extension isolation", () => {
     h.connection.close();
   });
   test("disconnect rejects pending work and old generations cannot replay", async () => {
-    const h = harness();
+    const h = await harness();
     const { sessionId } = await create(h);
     const work = h.agent.receive({
       id: 5,
@@ -202,31 +194,19 @@ describe("browser extension isolation", () => {
     expect(h.extension.messages.length).toBe(count);
     const nextPeer = peer();
     const fresh = h.bridge.connect(h.credential, nextPeer);
-    const freshClient = peer();
-    const freshAgent = fresh.assign("agent", freshClient);
-    const newWork = freshAgent.receive({
-      id: 1,
-      method: "Target.createTarget",
-      params: { url: "about:blank" },
-    });
+    const assignment = crypto.randomUUID();
+    fresh.receive({ kind: "offer", generation: fresh.generation, assignment, agent: "agent" });
     const freshSent = nextPeer.messages.at(-1)!;
-    fresh.receive({
-      kind: "result",
-      generation: h.connection.generation,
-      id: freshSent.id,
-      result: { targetInfo: { targetId: "old", type: "page" } },
-    });
+    fresh.receive({ kind: "result", generation: h.connection.generation, id: freshSent.id,
+      result: { targetInfo: { targetId: "old", type: "page", url: "https://example.com/" } } });
     await Promise.resolve();
-    await Promise.resolve();
-    expect(freshClient.messages).toHaveLength(0);
-    expect(
-      nextPeer.messages.filter((msg) => msg.method === "cdp"),
-    ).toHaveLength(0);
+    expect(fresh.offered("agent")).toBeUndefined();
+    expect(() => fresh.assign("agent", peer())).toThrow();
+    expect(nextPeer.messages.filter((msg) => msg.method === "cdp")).toHaveLength(0);
     fresh.close();
-    await newWork;
   });
   test("authorization is rechecked before dispatch", async () => {
-    const h = harness();
+    const h = await harness();
     const { sessionId } = await create(h);
     h.revoke();
     await h.agent.receive({ id: 8, method: "Runtime.evaluate", sessionId });
@@ -236,7 +216,7 @@ describe("browser extension isolation", () => {
   });
   test("release and malformed responses settle in-flight work", async () => {
     for (const action of ["release", "malformed"]) {
-      const h = harness();
+      const h = await harness();
       const { sessionId } = await create(h);
       const work = h.agent.receive({
         id: 5,
@@ -258,7 +238,7 @@ describe("browser extension isolation", () => {
     }
   });
   test("a child target cannot claim another assignment's target", async () => {
-    const h = harness();
+    const h = await harness();
     const { assignment } = await create(h);
     h.connection.receive({
       kind: "event",
@@ -276,9 +256,10 @@ describe("browser extension isolation", () => {
 });
 
 test("owned popup chain is visible only to its assignment and rejects a foreign opener", async () => {
-  const h = harness();
+  const h = await harness();
   const { assignment } = await create(h);
   const other = peer();
+  await offer(h.connection, h.extension.messages, "other-agent", "other-owned");
   const otherAssignment = h.connection.assign("other-agent", other);
   h.connection.receive({
     kind: "event",
@@ -302,7 +283,7 @@ test("owned popup chain is visible only to its assignment and rejects a foreign 
     method: "Target.getTargets",
     params: {},
   });
-  expect(fields(other.messages.at(-1)!.result).targetInfos).toEqual([]);
+  expect(fields(other.messages.at(-1)!.result).targetInfos).toEqual([{ targetId: "other-owned", type: "page", url: "https://example.com/" }]);
   h.connection.receive({
     kind: "event",
     generation: h.connection.generation,
@@ -336,7 +317,7 @@ test("owned popup chain is visible only to its assignment and rejects a foreign 
 });
 
 test("active authorization loss rejects pending work before a result is delivered", async () => {
-  const h = harness();
+  const h = await harness();
   const { sessionId } = await create(h);
   const work = h.agent.receive({
     id: 4,
@@ -359,5 +340,40 @@ test("active authorization loss rejects pending work before a result is delivere
   expect(
     h.client.messages.some((message) => message.id === 4 && message.result),
   ).toBe(false);
+  h.connection.close();
+});
+
+for (const outcome of ["off", "access", "error", "invalid-target", "disconnect"] as const) {
+  test(`provisional offer cannot bind after ${outcome}`, async () => {
+    const h = await harness();
+    h.connection.revoke("agent");
+    const assignment = crypto.randomUUID();
+    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment, agent: "agent" });
+    const pending = h.extension.messages.at(-1)!;
+    expect(pending.method).toBe("attach");
+    expect(() => h.connection.assign("agent", peer())).toThrow();
+    if (outcome === "off") h.connection.receive({ kind: "event", generation: h.connection.generation, assignment, method: "detached", params: {} });
+    if (outcome === "access") h.revoke();
+    if (outcome === "disconnect") h.connection.close();
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: pending.id,
+      ...(outcome === "error" ? { error: true } : { result: { targetInfo: { type: "page", targetId: "late", url: outcome === "invalid-target" ? "chrome://settings" : "https://example.com/" } } }) });
+    await Promise.resolve(); await Promise.resolve();
+    expect(h.connection.offered("agent")).toBeUndefined();
+    expect(() => h.connection.assign("agent", peer())).toThrow();
+    h.connection.close();
+  });
+}
+
+test("offer rechecks access and reserves one agent before attachment completes", async () => {
+  const h = await harness();
+  h.connection.revoke("agent");
+  const send = (agent: string) => h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment: crypto.randomUUID(), agent });
+  send("foreign-agent");
+  expect(h.extension.messages.at(-1)!.error).toBe(true);
+  send("agent");
+  const count = h.extension.messages.filter(m => m.method === "attach").length;
+  send("agent");
+  expect(h.extension.messages.at(-1)!.error).toBe(true);
+  expect(h.extension.messages.filter(m => m.method === "attach")).toHaveLength(count);
   h.connection.close();
 });

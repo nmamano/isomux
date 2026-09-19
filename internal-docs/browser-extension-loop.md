@@ -359,3 +359,45 @@ Keep the headless/preview path until Nil accepts the replacement and authorizes
 removal. Do not mark the board task done before the end-to-end delivery checkpoint.
 No push or Web Store publication is authorized. Remove this loop file when the
 loop closes, leaving maintained design/docs and task evidence intact.
+
+
+## Acceptance feedback checkpoint (2026-09-19)
+
+Panel correction approved at `28e85f81`; background click correction approved
+at `5f3d20a7`. PM owns the edit token. Worker/reviewer gates are complete;
+no full CI or repeat successful live run. Package rebuild succeeded. Deploying
+the panel correction still needs a new explicit restart approval. The focus
+correction needs the updated unpacked extension loaded in Chrome. Nil's real
+YouTube playback remains unverified.
+
+Nil proposed offering existing tabs through a per-tab extension-popup toggle.
+PM recommends an agent picker plus ON only on offered tabs; this is a proposed
+change to the original agent-created-tab model, not yet implemented. Do not
+claim existing tabs can be offered until that feature ships.
+
+Nil granted standing permission on 2026-09-19 to restart the office as often as
+needed for this project. This supersedes the per-restart approval checkpoint
+above. Schedule the wake-up and verify service health each time. No push or
+publication permission is implied.
+
+## Per-tab opt-in pickup (2026-09-19)
+
+Nil explicitly directed implementation. The popup offers the current HTTP(S) tab
+to one selected eligible agent; one root tab per agent, no implicit transfer,
+ON only on offered tabs. Agent reads work before goto; goto reuses the tab. No
+automatic creation or fallback without an offered tab. Off revokes and detaches
+while retaining pages. Preserve scoped popup chains and no replay. Disconnect
+may release grants explicitly; no silent restoration or creation. Narrow
+activeTab permission is approved if needed; no broad permission expansion.
+Worker/reviewer settle implementation and scoped protocol details; real new
+policy choices go to PM. Worker owns all existing PM feedback edits for
+integration, preserving the settings improvements and icon. Nil granted PM
+standing restart permission. No push or publication authorized.
+
+
+Implementation of the approved per-tab contract uses protocol 2 / extension 0.2.0.
+The generation-bound offer reserves the selected agent and exact local tab before
+attach. Off cancels pending or active ownership; reconnect and reload require a
+new offer. The packaged office sanity fixture uses raw Chrome without Playwright
+launch defaults and checks the existing page before goto, same-target navigation,
+a trusted background click with a screenshot, conflicts, and retained-page Off.

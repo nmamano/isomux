@@ -21,6 +21,9 @@ export function browserExtensionFixture() {
       value === hash ? "fixture-member" : undefined,
     mayUse: (member, agent) =>
       member === "fixture-member" && agent === "fixture-agent",
+    agents: () => ["fixture-agent"],
+    memberDisplay: () => ({ id: "fixture-member", name: "Fixture member" }),
+    agentDisplay: () => ({ id: "fixture-agent", name: "Fixture agent" }),
   });
   let starts = 0;
   const server = Bun.serve<SocketData>({

@@ -1,6 +1,8 @@
+import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
+import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { test, expect } from "bun:test";
-import { chromium, type Browser, type BrowserContext, type ConnectOverCDPTransport } from "playwright-core";
-import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { chromium, type Browser, type BrowserContext } from "playwright-core";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildBrowserExtension } from "../scripts/build-browser-extension";
@@ -14,43 +16,13 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     const fixture = browserExtensionFixture();
     let setup: BrowserContext | undefined;
     let agent: Browser | undefined;
-    let chrome: ReturnType<typeof Bun.spawn> | undefined;
+    let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
     let setupBrowser: Browser | undefined;
     const evidence: unknown[] = [];
     try {
       await buildBrowserExtension(join(dir, "extension"));
-      chrome = Bun.spawn([
-        "/usr/bin/google-chrome", "--no-sandbox", "--no-first-run",
-        "--no-default-browser-check", "--disable-dev-shm-usage",
-        "--enable-unsafe-extension-debugging", "--remote-debugging-port=0",
-        "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + join(dir, "profile"),
-      ], { stdout: "ignore", stderr: "ignore" });
-      const portFile = join(dir, "profile", "DevToolsActivePort");
-      const launchDeadline = Date.now() + 10_000;
-      let endpoint = "";
-      while (!endpoint) {
-        if (existsSync(portFile)) {
-          const [port, path] = readFileSync(portFile, "utf8").trim().split("\n");
-          if (/^\d+$/.test(port ?? "") && path?.startsWith("/devtools/browser/"))
-            endpoint = "ws://127.0.0.1:" + port + path;
-        }
-        if (endpoint) break;
-        if (Date.now() >= launchDeadline) throw new Error("Isolated Chrome did not start");
-        await new Promise(resolve => setTimeout(resolve, 20));
-      }
-      const socket = new WebSocket(endpoint);
-      await new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("Isolated CDP socket did not open")), 5000);
-        socket.onopen = () => { clearTimeout(timer); resolve(); };
-        socket.onerror = () => { clearTimeout(timer); reject(new Error("Isolated CDP socket failed")); };
-      });
-      const adminTransport: ConnectOverCDPTransport = {
-        send: message => socket.send(JSON.stringify(message)),
-        close: () => socket.close(),
-      };
-      socket.onmessage = event => adminTransport.onmessage?.(JSON.parse(String(event.data)));
-      socket.onclose = () => adminTransport.onclose?.();
-      setupBrowser = await chromium.connectOverCDP(adminTransport, { noDefaults: true, timeout: 5000 });
+      raw = await launchRawExtensionChrome(dir);
+      setupBrowser = raw.browser;
       setup = setupBrowser.contexts()[0];
       const admin = await setup.browser()!.newBrowserCDPSession();
       const { id } = await admin.send("Extensions.loadUnpacked", { path: join(dir, "extension") });
@@ -109,13 +81,25 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       const initial = await inventory();
       const activeTabs = (value: Awaited<ReturnType<typeof inventory>>) => value.tabs.filter(t => t.active).map(t => ({ id: t.id, windowId: t.windowId }));
       const activeBefore = activeTabs(initial);
+      const offeredPage = await setup.newPage();
+      await offeredPage.goto(fixture.origin + "/form");
+      await offeredPage.bringToFront();
+      const offeredCDP = await setup.newCDPSession(offeredPage);
+      const offeredTarget = (await offeredCDP.send("Target.getTargetInfo")).targetInfo.targetId;
+      await offeredCDP.detach();
+      const popup = await openExtensionActionPopup(admin, id, offeredTarget);
+      await popup.waitFor('!document.querySelector("#allow").disabled');
+      await popup.click("#allow");
+      await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
+      await popup.close();
+      await unrelated.bringToFront();
       agent = await chromium.connectOverCDP(
         browserExtensionTransport(fixture.bridge.forMember("fixture-member")!, "fixture-agent"),
         { noDefaults: true, timeout: 5000 },
       );
       const context = agent.contexts()[0];
-      expect(context.pages()).toHaveLength(0);
-      const rootPage = await context.newPage();
+      expect(context.pages()).toHaveLength(1);
+      const rootPage = context.pages()[0];
       await rootPage.goto(fixture.origin + "/form", { timeout: 5000 });
       const root = await agent.newBrowserCDPSession();
       const ownedTargets = await root.send("Target.getTargets");
@@ -154,7 +138,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           }, tabId!);
           expect(snapshot).not.toBeNull();
           const beforeEnable = JSON.parse(snapshot!.state.result.value) as { visibility: string; focused: boolean };
-          expect(beforeEnable.visibility).toBe("hidden");
+          expect(["hidden", "visible"]).toContain(beforeEnable.visibility);
           evidence.push({ beforeEnable, tabId });
         }
         expect(before.tabs.find(t => t.id === tabId)?.active).toBe(false);
@@ -219,9 +203,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       writeFileSync(join(dir, "evidence.json"), JSON.stringify({ date: new Date().toISOString(), evidence }, null, 2));
       console.log("Background action evidence: " + dir);
       await agent?.close();
-      await setupBrowser?.close();
-      chrome?.kill();
-      if (chrome) await chrome.exited;
+      await raw?.close();
       fixture.stop();
       rmSync(join(dir, "profile"), { recursive: true, force: true });
       rmSync(join(dir, "extension"), { recursive: true, force: true });

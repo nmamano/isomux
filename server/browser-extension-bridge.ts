@@ -28,6 +28,8 @@ type Assignment = {
   popups: Map<string, Fields>;
   leafTargetId?: string;
   creating: boolean;
+  connected: boolean;
+  announced: boolean;
   closed: boolean;
 };
 
@@ -41,6 +43,7 @@ export class BrowserExtensionBridge {
       mayUse(memberId: string, agentId: string): boolean;
       memberDisplay?(member: string): BrowserDisplay;
       agentDisplay?(agent: string): BrowserDisplay;
+      agents?(member: string): string[];
     },
   ) {}
 
@@ -65,6 +68,7 @@ export class BrowserExtensionBridge {
       this.access.agentDisplay
         ? (agent) => this.access.agentDisplay!(agent)
         : undefined,
+      () => this.access.agents?.(member) ?? [],
     );
     this.connections.set(member, connection);
     try {
@@ -99,36 +103,61 @@ export class ExtensionConnection {
     private onClose: () => void,
     private memberDisplay?: () => BrowserDisplay,
     private agentDisplay?: (agent: string) => BrowserDisplay,
+    private agents: () => string[] = () => [],
   ) {}
 
   assign(
     agentId: string,
     peer: BridgePeer,
   ): { receive(message: unknown): Promise<void>; close(): void } {
-    if (
-      !this.active ||
-      !this.authorize(agentId) ||
-      [...this.assignments.values()].some((a) => a.agentId === agentId)
-    ) {
-      throw new Error("Browser assignment refused");
-    }
-    const assignment: Assignment = {
-      id: crypto.randomUUID(),
-      agentId,
-      session: crypto.randomUUID(),
-      browserSession: crypto.randomUUID(),
-      peer,
-      children: new Map(),
-      popups: new Map(),
-      creating: false,
-      closed: false,
-    };
-    this.assignments.set(assignment.id, assignment);
-    this.sendMetadata();
+    const assignment = [...this.assignments.values()].find((a) => a.agentId === agentId);
+    if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected)
+      throw new Error("Offer a tab with Allow agent control in the Chrome extension popup");
+    assignment.peer = peer;
+    assignment.connected = true;
     return {
       receive: (message) => this.dispatch(assignment, message),
       close: () => this.release(assignment),
     };
+  }
+
+  offered(agentId: string): string | undefined {
+    const a = [...this.assignments.values()].find((a) => a.agentId === agentId);
+    return this.active && this.authorize(agentId) && a?.target ? a.id : undefined;
+  }
+
+  revoke(agentId: string): void {
+    const a = [...this.assignments.values()].find((a) => a.agentId === agentId);
+    if (a) this.release(a);
+  }
+
+  private async offer(id: string, agentId: string): Promise<void> {
+    if (!this.authorize(agentId) || this.assignments.has(id) ||
+        [...this.assignments.values()].some((a) => a.agentId === agentId)) {
+      this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
+      return;
+    }
+    const a: Assignment = {
+      id, agentId, session: crypto.randomUUID(), browserSession: crypto.randomUUID(),
+      peer: { send() {}, close() {} }, children: new Map(), popups: new Map(),
+      creating: true, connected: false, announced: false, closed: false,
+    };
+    this.assignments.set(id, a);
+    try {
+      const result = await this.request(a, "attach", {});
+      this.check(a);
+      const target = fields(result.targetInfo);
+      if (target.type !== "page" || typeof target.targetId !== "string" ||
+          typeof target.url !== "string" || !/^https?:\/\//.test(target.url) || this.knownTarget(target.targetId))
+        throw new Error("Invalid offered target");
+      a.target = target;
+      a.creating = false;
+      this.peer.send({ kind: "offered", generation: this.generation, assignment: id });
+      this.sendMetadata();
+    } catch {
+      this.release(a);
+      if (this.active) this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
+    }
   }
 
   revalidate(): void {
@@ -143,6 +172,7 @@ export class ExtensionConnection {
       kind: "metadata",
       generation: this.generation,
       member: this.memberDisplay(),
+      agents: this.agents().filter((agent) => this.authorize(agent)).map((agent) => this.agentDisplay!(agent)),
       assignments: [...this.assignments.values()]
         .filter((a) => this.authorize(a.agentId))
         .map((a) => ({ id: a.id, agent: this.agentDisplay!(a.agentId) })),
@@ -200,6 +230,13 @@ export class ExtensionConnection {
     try {
       const msg = fields(message);
       if (msg.generation !== this.generation) return;
+      if (msg.kind === "offer") {
+        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || typeof msg.agent !== "string")
+          throw new Error("Invalid offer");
+        void this.offer(msg.assignment, msg.agent);
+        return;
+      }
+      if (msg.kind === "agents") { this.revalidate(); return; }
       if (msg.kind === "result" && typeof msg.id === "number") {
         const pending = this.pending.get(msg.id);
         if (!pending) return;
@@ -369,6 +406,15 @@ export class ExtensionConnection {
             revision: "",
           };
         case "Target.setAutoAttach":
+          if (a.target && !a.announced) {
+            a.announced = true;
+            a.peer.send({ method: "Target.attachedToTarget", params: {
+              sessionId: a.session, targetInfo: { ...a.target, attached: true }, waitingForDebugger: false,
+            } });
+            for (const [sessionId, target] of a.popups) a.peer.send({ method: "Target.attachedToTarget", params: {
+              sessionId, targetInfo: { ...target, attached: true }, waitingForDebugger: false,
+            } });
+          }
           return {};
         case "Target.getTargets":
           return {
@@ -381,35 +427,6 @@ export class ExtensionConnection {
           )
             throw new Error("Unknown target");
           return a.target ? { targetInfo: a.target } : {};
-        case "Target.createTarget": {
-          if (
-            a.target ||
-            a.creating ||
-            params.browserContextId !== undefined ||
-            params.url !== "about:blank"
-          )
-            throw new Error("One task tab per agent");
-          a.creating = true;
-          const result = await this.request(a, "create", {});
-          this.check(a);
-          const target = fields(result.targetInfo);
-          if (
-            target.type !== "page" ||
-            typeof target.targetId !== "string" ||
-            this.knownTarget(target.targetId)
-          )
-            throw new Error("Invalid task target");
-          a.target = target;
-          a.peer.send({
-            method: "Target.attachedToTarget",
-            params: {
-              sessionId: a.session,
-              targetInfo: { ...target, attached: true },
-              waitingForDebugger: false,
-            },
-          });
-          return { targetId: target.targetId };
-        }
         default:
           throw new Error("Unsupported browser command");
       }

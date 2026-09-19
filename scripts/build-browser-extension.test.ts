@@ -40,6 +40,7 @@ test("packaged extension has exact root entries, valid CRCs and no stale build f
     expect(manifest.action.default_popup).toBe("connection.html");
     expect(manifest.permissions).toEqual([
       "debugger",
+      "activeTab",
       "storage",
       "alarms",
       "webNavigation",

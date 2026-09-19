@@ -1,3 +1,4 @@
+import { openExtensionActionPopup } from "./test-support/extension-action-popup";
 import { test, expect } from "bun:test";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -71,10 +72,24 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           ),
           { noDefaults: true, timeout: 5000 },
         );
+      const offeredPage = await setup.newPage();
+      await offeredPage.goto(fixture.origin + "/form");
+      const offer = async () => {
+        await offeredPage.bringToFront();
+        const session = await setup!.newCDPSession(offeredPage);
+        const target = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
+        await session.detach();
+        const popup = await openExtensionActionPopup(setupCDP, id, target);
+        await popup.waitFor('!document.querySelector("#allow").disabled');
+        await popup.click("#allow");
+        await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
+        await popup.close();
+      };
+      await offer();
       agent = await connect();
       const context = agent.contexts()[0];
-      expect(context.pages()).toHaveLength(0);
-      const page = await context.newPage();
+      expect(context.pages()).toHaveLength(1);
+      const page = context.pages()[0];
       page.setDefaultTimeout(5000);
       await page.goto(fixture.origin + "/form");
       expect(context.pages()).toHaveLength(1);
@@ -134,10 +149,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(fixture.bridge.forMember("fixture-member")!.generation).not.toBe(
         old.generation,
       );
+      expect(() => browserExtensionTransport(fixture.bridge.forMember("fixture-member")!, "fixture-agent")).toThrow();
+      await offer();
       agent = await connect();
-      expect(agent.contexts()[0].pages()).toHaveLength(0);
-      const fresh = await agent.contexts()[0].newPage();
-      await fresh.goto(fixture.origin + "/form");
+      expect(agent.contexts()[0].pages()).toHaveLength(1);
+      const fresh = agent.contexts()[0].pages()[0];
       expect(await fresh.locator("body").ariaSnapshot()).toContain("textbox");
       expect(fixture.starts()).toBe(1);
       // Closing the CDP client ends control, and preserves the real page.
@@ -147,7 +163,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         setupTargets.targetInfos.filter(
           (target) => target.url === fixture.origin + "/form",
         ),
-      ).toHaveLength(2);
+      ).toHaveLength(1);
       expect(
         setupTargets.targetInfos.some(
           (target) => target.url === fixture.origin + "/unrelated",

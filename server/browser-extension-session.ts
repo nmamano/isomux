@@ -13,6 +13,7 @@ import {
 
 type Session = {
   member: string;
+  signal: AbortSignal;
   browser: Browser;
   page: Page;
   pages: Page[];
@@ -66,6 +67,9 @@ export class ExtensionBrowserSessions {
   run(agent: string, body: unknown): Promise<BrowserResult> {
     const member = this.owner(agent);
     const epoch = member ? (this.epochs.get(member) ?? 0) : 0;
+    const extensionSelected = !!member && this.service.store.record(member).backend === "extension";
+    const queuedConnection = extensionSelected ? this.service.bridge.forMember(member) : undefined;
+    const queuedGrant = queuedConnection?.offered(agent);
     const previous = this.queues.get(agent) ?? Promise.resolve();
     const work = previous
       .catch(() => {})
@@ -95,6 +99,8 @@ export class ExtensionBrowserSessions {
           return result;
         }
         if (!this.mayUse(member, agent)) return ended();
+        if (extensionSelected && (this.service.bridge.forMember(member) !== queuedConnection ||
+            queuedConnection?.offered(agent) !== queuedGrant)) return ended();
         return this.extensionAction(member, agent, body, epoch);
       });
     this.queues.set(agent, work);
@@ -116,6 +122,7 @@ export class ExtensionBrowserSessions {
     if (!params.ok) return params;
     if (params.action === "close") {
       this.end(agent);
+      this.service.bridge.forMember(member)?.revoke(agent);
       return { ok: true, url: "", title: "", closed: true };
     }
     if (!this.service.store.record(member).hash)
@@ -131,25 +138,36 @@ export class ExtensionBrowserSessions {
       this.end(agent);
       session = undefined;
     }
-    if (!session && params.action !== "goto")
-      return {
-        ok: false,
-        status: 400,
-        code: "no_page",
-        error: "no page is open; call the goto action first",
-      };
+    const grant = connection.offered(agent);
+    if (!grant) return failure("browser_control_ended", "Open the Chrome extension popup on an HTTP(S) tab, choose this agent, and turn on Allow agent control");
     let timer: ReturnType<typeof setTimeout> | undefined;
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
+    let interrupt!: (result: BrowserResult) => void;
+    const interrupted = new Promise<BrowserResult>(resolve => { interrupt = resolve; });
+    let watched: AbortSignal | undefined;
+    const onEnd = () => {
+      timedOut = true;
+      this.end(agent);
+      interrupt(ended());
+    };
+    const watchEnd = (signal: AbortSignal) => {
+      watched = signal;
+      signal.addEventListener("abort", onEnd, { once: true });
+      if (signal.aborted) onEnd();
+    };
+    if (session) watchEnd(session.signal);
     const valid = () =>
       this.owner(agent) === member &&
       this.mayUse(member, agent) &&
       this.service.store.record(member).backend === "extension" &&
       (this.epochs.get(member) ?? 0) === epoch &&
-      this.service.bridge.forMember(member) === connection;
+      this.service.bridge.forMember(member) === connection &&
+      connection.offered(agent) === grant;
     const task = async (): Promise<BrowserResult> => {
       if (!session) {
         transport = browserExtensionTransport(connection, agent);
+        watchEnd(transport.signal);
         const browser = await chromium.connectOverCDP(transport, {
           noDefaults: true,
           timeout: actionMs,
@@ -159,9 +177,11 @@ export class ExtensionBrowserSessions {
           return ended();
         }
         const context = browser.contexts()[0];
-        const page = await context.newPage();
+        const page = context.pages()[0];
+        if (!page) { await browser.close(); return ended(); }
         session = {
           member,
+          signal: transport.signal,
           browser,
           page,
           pages: [page],
@@ -170,7 +190,7 @@ export class ExtensionBrowserSessions {
         };
         const owned = session;
         this.sessions.set(agent, session);
-        context.on("page", (popup) => {
+        const adoptPopup = (popup: Page) => {
           // The bridge has already bound the popup to this assignment.
           owned.pages.push(popup);
           owned.page = popup;
@@ -187,7 +207,9 @@ export class ExtensionBrowserSessions {
             while (parent?.isClosed()) parent = owned.parents.get(parent);
             owned.page = parent ?? page;
           });
-        });
+        };
+        for (const popup of context.pages().slice(1)) adoptPopup(popup);
+        context.on("page", adoptPopup);
         browser.on("disconnected", () => {
           if (this.sessions.get(agent) === owned) {
             clearTimeout(owned.timer);
@@ -256,6 +278,7 @@ export class ExtensionBrowserSessions {
     try {
       return await Promise.race([
         task(),
+        interrupted,
         new Promise<BrowserResult>((resolve) => {
           timer = setTimeout(() => {
             timedOut = true;
@@ -276,6 +299,7 @@ export class ExtensionBrowserSessions {
         return ended();
       return failure("action_failed", "The Chrome browser action failed");
     } finally {
+      watched?.removeEventListener("abort", onEnd);
       clearTimeout(timer);
     }
   }

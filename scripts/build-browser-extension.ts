@@ -15,6 +15,7 @@ export const EXTENSION_ENTRIES = [
   "connection.html",
   "connection.js",
   "manifest.json",
+  "icon.png",
 ] as const;
 export async function buildBrowserExtension(
   outdir = resolve("browser-extension/dist"),
@@ -32,6 +33,7 @@ export async function buildBrowserExtension(
   if (!result.success) throw new Error("Browser extension build failed");
   for (const file of ["manifest.json", "connection.html", "connection.css"])
     copyFileSync(resolve("browser-extension", file), resolve(outdir, file));
+  copyFileSync(resolve("ui/icons/icon-192.png"), resolve(outdir, "icon.png"));
   const archive = `${outdir}.zip`;
   const temporary = `${archive}.${crypto.randomUUID()}.tmp`;
   try {
