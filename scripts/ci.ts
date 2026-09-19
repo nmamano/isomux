@@ -217,7 +217,10 @@ async function main(): Promise<void> {
       console.log("↷ bun test skipped (build:ui failed)");
       return {
         name: "bun test" as const,
-        log: join(logDir, `${stages.findIndex(entry => entry.name === "bun test")}.log`),
+        log: join(
+          logDir,
+          `${stages.findIndex((entry) => entry.name === "bun test")}.log`,
+        ),
         seconds: 0,
         status: "skipped" as const,
         reason: "build:ui failed",

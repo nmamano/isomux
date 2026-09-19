@@ -51,6 +51,13 @@ The old browser is removed only after the replacement passes Nil's tests.
 13. No production restart or push without Nil's explicit current approval.
     Nil's GO authorizes local implementation, plan/code commits and slice gates.
 14. Keep Codex context defaults. Record decisions here and hand off when needed.
+15. Use Playwright's public `ConnectOverCDPTransport` directly with the
+    authorized in-process bridge assignment. No internal agent CDP HTTP/WS
+    endpoint, runtime upgrade, private Playwright patch or Node child.
+    The actual extension still connects over authenticated WebSocket. PM and
+    reviewer verified the public seam in pinned Playwright 1.62.1; the real
+    extension gate passed on 2026-09-19. One successful real-extension sanity
+    pass is sufficient; repeat only to resolve a concrete failure.
 
 ## Accepted defaults
 
@@ -103,7 +110,13 @@ memory scope. Capture commands and results; never infer success from a wrapper.
 
 ## Slice checklist
 
-- [ ] 1. Prove Playwright through a real Chrome extension and isolated office.
+- [x] 1. Prove Playwright through a real Chrome extension and isolated office.
+  Reviewer approved `48e84ae90acd9d19f4a489260fe67b7378686937` on 2026-09-19:
+  88 scoped passes, one opt-in skip; real Chrome gate 1 pass / 21 assertions.
+  Evidence: `/tmp/reviewer1-extension-slice1-final-tests.log`,
+  `/tmp/reviewer1-extension-slice1-live.log`,
+  `/tmp/isomux-extension-proof-KwYXV1/evidence.json`.
+  Production browser routes remain unchanged. PM full CI pending.
 - [ ] 2. Complete member pairing, routing, tab ownership and recovery.
 - [ ] 3. Complete member UI, extension UI, packaging, agent guidance and docs.
 - [ ] 4. Run end-to-end sanity checks, prepare Nil's Windows installation and
@@ -150,9 +163,75 @@ any removed/replaced assertion; next slice's traps. Transfer token to PM.
 
 ## SLICE-2 PICKUP
 
-Pending slice 1 evidence. Complete production pairing, revocation, member and
-agent routing, tab ownership, popups and recovery. Prove cross-member and
-cross-agent refusal at the real authorization boundary.
+Goal: make the proven bridge usable through the real office browser action
+route, with real pairing, durable credentials and recovery. Read the whole
+loop file and `internal-docs/browser-extension.md` first. Slice 1's approved
+implementation is `48e84ae9`; public in-process Playwright transport is proven.
+PM format/CI commit follows it. No separate CDP HTTP endpoint is necessary.
+
+First plan-gate the member flow, exact routes, persistent state and websocket
+dispatch with Reviewer 1. Choose the smallest flow consistent with existing
+authorization. Use a short-lived single-use pairing code created by the
+authenticated member (or an existing authorized operator acting in that
+member's scope). The extension sends the code over its office-bound WSS
+connection; the server issues a browser-only credential on that connection.
+The code must resist guessing and cannot be used twice. Store only credential
+hashes on the server. A paired browser's credential cannot reach office routes.
+No plaintext credential in URLs, logs, page content or ordinary browser storage.
+Trusted extension-local storage is appropriate. Pairing is an explicit member
+action, not a per-operation approval gate. UI for this flow is slice 3.
+
+Register routes in the normal route table and websocket upgrade/dispatch path;
+reuse existing host classification and authorization. App hostnames must never
+reach pairing or browser sockets. Check current manager identity from the
+agent record for each action; do not use the latest chat speaker. Add explicit
+backend selection per member with the old headless mode as the migration
+default. Selecting extension mode never silently falls back when offline.
+Preserve existing action shapes and screenshot cards. Existing preview-url
+stays on the server. Define extension-mode errors clearly. End control means
+detach; pages remain open. Report unavoidable action-contract differences.
+
+Implement heartbeat, bounded reconnect backoff, revocation, browser restart and
+server restart recovery without command replay. A reconnect gets a fresh
+generation and fresh assignments. If a browser is revoked or a manager/agent
+loses reach, actively detach and reject pending work. Closing or detaching one
+agent should not stop another agent's tab. Do not reset website account state.
+Keep one selected connection per member; do not silently replace a live device
+from another connection. Explicit re-pair/replacement revokes the old one.
+
+Temporary popup ownership derives only from an already assigned opener, never
+the active tab. Maintain one main task tab and its related popup flow; retain
+the original tab for OAuth return instead of closing it. Cover same-origin and
+cross-origin frames. If popup handling forces a product decision, ask PM with
+the exact user-visible consequence rather than inventing a collaboration mode.
+
+Acceptance: isolated production-shaped office routes pair an extension and
+serve an agent browser action end to end. Two agents of one member can act in
+separate tabs; another member and unauthorized target cannot use those tabs.
+Revocation cuts the socket and control. Reconnect rejects old responses and
+never replays a side effect. Popup/frame sanity proves ownership and completion
+on local fixtures. Existing headless mode and preview tests pass. Use one real
+extension sanity run, not a measurement or repeated-run campaign.
+
+Decide with reviewer: module seams, route names and existing policy mappings,
+pairing-code lifetime and sensible payload/deadline limits, focused tests and
+mutants. Locked: all RULINGS above, flat-file state, one Bun server process,
+no browser credential accepted as ordinary office auth, no new human approval
+for each action, no node subprocess or runtime upgrade, no production restart.
+Any authorization-policy change not expressible with the existing model comes
+to PM. Extend maintained internal docs; collect eventual public copy for the
+slice-3 report. New agent-facing routes also need ROUTE_LABELS entries.
+
+Required route gates:
+`bun test server/test-support/routes-table.test.ts server/test-support/routes-agents-manifest.test.ts`.
+Also run touched-area auth, websocket/host-dispatch, persistence, bridge and
+browser action tests, build:ui, build:extension, eslint and tsc. Use
+`NODE_OPTIONS=--max-old-space-size=1600` for tsc inside the 2G scope as needed;
+slice 1 proved the inherited 1GB Node heap insufficient. Commit before gates.
+
+Report once approved: exact approved hash, path, what changed, exact gates and
+evidence, member-facing consequences/limits, all visible strings verbatim,
+removed/replaced assertions and slice-3 requirements. Transfer token to PM.
 
 ## SLICE-3 PICKUP
 
