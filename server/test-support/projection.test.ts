@@ -769,12 +769,12 @@ describe("live browser profile authorization", () => {
       for (const socket of [ownerSocket, viewerSocket])
         expect(updates(socket).at(-1)?.changes).toMatchObject({ browserPanelAvailable: false });
       expect(updates(hiddenSocket)).toEqual([]);
-      const before = bag(ownerSocket).filter(m => m.type === "browser_frame").length;
+      const before = bag(ownerSocket).filter(m => m.type === "browser_frame" || m.type === "browser_status").length;
       listener({ data: "stale", width: 800, height: 600 });
       commands();
       await pingPong(ownerSocket);
       expect(calls).toEqual([]);
-      expect(bag(ownerSocket).filter(m => m.type === "browser_frame")).toHaveLength(before);
+      expect(bag(ownerSocket).filter(m => m.type === "browser_frame" || m.type === "browser_status")).toHaveLength(before);
       expect(browserPool.status(agent.id).available).toBe(false);
       await select("headless");
       expect(updates(viewerSocket).at(-1)?.changes).toMatchObject({ browserPanelAvailable: true });
