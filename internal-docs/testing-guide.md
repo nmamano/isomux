@@ -202,6 +202,8 @@ page flags; page precedence decides which page is visible. The unchanged
 `ui/App.apps-shortcut.dom.test.tsx` covers the real return trip through history
 and the previous page's unmount.
 
+`ui/components/AppsView.actions.dom.test.tsx` checks that lifecycle requests keep the action buttons mounted, disable them while pending, and restore state-based availability after success or failure.
+
 
 The saved-room landing case commits `session_context` before `full_state`. Keep these
 as separate React updates: the saved-room case must catch a save effect that

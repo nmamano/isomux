@@ -713,7 +713,8 @@ export function AppsView({
         "POST",
         `/api/apps/${encodeURIComponent(name)}/${verb}`,
       );
-      dispatch({ type: "app_upserted", app });
+      // Lifecycle success is manager-only; its AppWire omits the list flag.
+      dispatch({ type: "app_upserted", app: { ...app, canManage: true } });
     } catch (err) {
       setError(pageError(err, ACTION_FAILED[verb]));
     } finally {
