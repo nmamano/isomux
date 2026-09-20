@@ -183,8 +183,8 @@ API failures use JSON with an `error` object:
 
 Use the stable `code` for program logic. Show `message` to a person, and follow `resolution` when an agent can recover.
 
-## Browser selection
+## Desktop Chrome browser control
 
-`GET /api/me/browser` returns the member's selected backend, pairing and online state, owner label and extension version. `PATCH /api/me/browser` selects `headless` or `extension`; a null backend requires an explicit selection. `POST /api/me/browser/pair` creates a five-minute code; `replace: true` permits replacement. `DELETE /api/me/browser` revokes the pairing. `GET /api/me/browser/extension.zip` downloads the extension. These routes use the authenticated member's `user:self` capability; agent tokens cannot use them.
+`GET /api/me/browser` reports the browser owner, extension version, paired state and online state. There is no backend selector. `PATCH /api/me/browser` is retired: authenticated requests receive JSON 404. `POST /api/me/browser/pair` creates a five-minute code; `replace: true` permits replacement. `DELETE /api/me/browser` revokes pairing. `GET /api/me/browser/extension.zip` downloads the extension. The retained routes use the authenticated member's `user:self` capability; agent tokens cannot use them.
 
-Agents retain `POST /api/agents/:id/browser`. Chrome mode uses the agent manager's browser and ignores viewport settings. `close` detaches, leaving tabs and music open. Offline mode never falls back. A lost action can have an unknown outcome and is never replayed. `preview-url` still runs on the server. See [installation](self-hosted.md#desktop-chrome-extension).
+Interactive agent actions use `POST /api/agents/:id/browser` and require the manager's paired Desktop Chrome with a tab explicitly offered to the agent in the extension popup. Actions use that tab and ignore viewport settings. `close` detaches, leaving tabs and music open. A lost action can have an unknown outcome and is never replayed. `preview-url` remains a separate server-side screenshot path for public HTTP(S) sites and office-hosted pages. See [installation](self-hosted.md#desktop-chrome-extension).
