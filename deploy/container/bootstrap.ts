@@ -8,14 +8,19 @@ const headers = {
   "Referrer-Policy": "same-origin",
   "X-Content-Type-Options": "nosniff",
 };
+const isRender = process.env.RENDER === "true";
+const setupHelp = isRender
+  ? "Render generates it automatically. Find it in your service’s Environment settings."
+  : "Use the secret created when you configured the container. With the AWS Compose setup, find it in <code>office.env</code>.";
+const setupGuide = isRender ? "deploy-on-render" : "deploy-a-container";
 const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Set up Isomux</title><style>
 body{font:17px system-ui;background:#111827;color:#f3f4f6;margin:0;display:grid;min-height:100vh;place-items:center}
-main{max-width:420px;padding:40px}h1{font-size:30px}p{line-height:1.5;color:#cbd5e1}
+main{max-width:420px;padding:40px}h1{font-size:30px}p{line-height:1.5;color:#cbd5e1}a{color:#a5b4fc}
 label{display:block;margin-top:24px}input,button{box-sizing:border-box;width:100%;padding:12px;font:inherit;border-radius:8px;border:1px solid #64748b}
 input{margin-top:8px;background:#1f2937;color:white}button{margin-top:28px;background:#a5b4fc;color:#111827;cursor:pointer}
-</style><main><h1>Set up your office</h1><p>Enter the setup key from your deployment settings to become this office's first owner.</p>
-<form method="post" action="/setup"><label>Your name<input name="name" required maxlength="64" autocomplete="name"></label>
+</style><main><h1>Set up your office</h1><p>Become this office's first owner. Use the value of <code>ISOMUX_SETUP_KEY</code> from your deployment's environment settings. It is a secret of at least 32 characters, created during deployment. ${setupHelp} See the <a href="https://isomux.com/docs/self-hosted#${setupGuide}" target="_blank" rel="noopener noreferrer">setup guide</a>.</p>
+<form method="post" action="/setup"><label>Your name (can be changed later)<input name="name" required maxlength="64" autocomplete="name"></label>
 <label>Setup key<input name="key" type="password" required autocomplete="off"></label><button>Create office</button></form></main></html>`;
 
 export function createSetupHandler(options: {

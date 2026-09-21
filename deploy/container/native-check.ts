@@ -10,26 +10,42 @@ import { readFileSync } from "node:fs";
 
 // Chromium reports its own inner sandbox state. A screenshot alone cannot
 // distinguish a sandboxed renderer from a browser launched with --no-sandbox.
-if (process.getuid?.() !== 1000) throw new Error("Native checks must run as node (UID 1000)");
+if (process.getuid?.() !== 1000)
+  throw new Error("Native checks must run as node (UID 1000)");
 if (!/^CapEff:\s+0+$/m.test(readFileSync("/proc/self/status", "utf8"))) {
   throw new Error("Native checks must run without effective capabilities");
 }
-const sandbox = spawnSync("/usr/bin/chromium", [
-  "--headless=new", "--allow-chrome-scheme-url", "--disable-gpu",
-  "--dump-dom", "chrome://sandbox",
-], { encoding: "utf8", timeout: 20_000 });
-if (sandbox.status !== 0) throw new Error(`Sandbox probe failed: ${sandbox.stderr}`);
-const sandboxRows = [...sandbox.stdout.matchAll(/<tr>(.*?)<\/tr>/gs)].map(row =>
-  [...row[1].matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map(cell => cell[1]),
+const sandbox = spawnSync(
+  "/usr/bin/chromium",
+  [
+    "--headless=new",
+    "--allow-chrome-scheme-url",
+    "--disable-gpu",
+    "--dump-dom",
+    "chrome://sandbox",
+  ],
+  { encoding: "utf8", timeout: 20_000 },
+);
+if (sandbox.status !== 0)
+  throw new Error(`Sandbox probe failed: ${sandbox.stderr}`);
+const sandboxRows = [...sandbox.stdout.matchAll(/<tr>(.*?)<\/tr>/gs)].map(
+  (row) =>
+    [...row[1].matchAll(/<td[^>]*>(.*?)<\/td>/gs)].map((cell) => cell[1]),
 );
 const sandboxStatus = Object.fromEntries(sandboxRows);
-if (sandboxStatus["Layer 1 Sandbox"] !== "Namespace" ||
-    sandboxStatus["PID namespaces"] !== "Yes" ||
-    sandboxStatus["Network namespaces"] !== "Yes" ||
-    sandboxStatus["Seccomp-BPF sandbox"] !== "Yes") {
-  throw new Error(`Chromium sandbox is not active: ${JSON.stringify(sandboxStatus)}`);
+if (
+  sandboxStatus["Layer 1 Sandbox"] !== "Namespace" ||
+  sandboxStatus["PID namespaces"] !== "Yes" ||
+  sandboxStatus["Network namespaces"] !== "Yes" ||
+  sandboxStatus["Seccomp-BPF sandbox"] !== "Yes"
+) {
+  throw new Error(
+    `Chromium sandbox is not active: ${JSON.stringify(sandboxStatus)}`,
+  );
 }
-console.log(`PASS Chromium sandbox as UID ${process.getuid()}: ${JSON.stringify(sandboxStatus)}`);
+console.log(
+  `PASS Chromium sandbox as UID ${process.getuid()}: ${JSON.stringify(sandboxStatus)}`,
+);
 
 for (const args of [
   ["node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude", "--version"],

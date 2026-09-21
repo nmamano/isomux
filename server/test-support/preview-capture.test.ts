@@ -56,7 +56,9 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"`;
 beforeAll(() => {
   scriptDir = mkdtempSync(join(tmpdir(), "preview-test-scripts-"));
   tmpBase = mkdtempSync(join(tmpdir(), "preview-test-tmpbase-"));
-  fakeBrowser = script("fake-browser.sh", `
+  fakeBrowser = script(
+    "fake-browser.sh",
+    `
 for a in "$@"; do
   case "$a" in
     --no-sandbox|--disable-namespace-sandbox|--disable-seccomp-filter-sandbox)
@@ -65,7 +67,8 @@ for a in "$@"; do
       ;;
   esac
 done
-${FIND_OUT}\n${WRITE_PNG}`);
+${FIND_OUT}\n${WRITE_PNG}`,
+  );
   slowBrowser = script("slow-browser.sh", "sleep 600");
   hangingBrowser = script(
     "hanging-browser.sh",

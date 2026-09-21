@@ -47,15 +47,15 @@ instead of a moving tag. Registry credentials belong on the host.
 
 ## Runtime contract
 
-| Setting | Value |
-| --- | --- |
-| Architecture | Linux amd64 |
-| Data mount | `/var/data`, one writer |
-| Public origin | `ISOMUX_PUBLIC_URL=https://office.example.com` |
-| First owner | `ISOMUX_SETUP_KEY`, at least 32 characters |
-| Internal HTTP port | `PORT`, default `10000` |
-| Home and state | `/var/data/home`, `/var/data/home/.isomux` |
-| Projects | `/var/data/workspaces` or another directory under the data mount |
+| Setting            | Value                                                            |
+| ------------------ | ---------------------------------------------------------------- |
+| Architecture       | Linux amd64                                                      |
+| Data mount         | `/var/data`, one writer                                          |
+| Public origin      | `ISOMUX_PUBLIC_URL=https://office.example.com`                   |
+| First owner        | `ISOMUX_SETUP_KEY`, at least 32 characters                       |
+| Internal HTTP port | `PORT`, default `10000`                                          |
+| Home and state     | `/var/data/home`, `/var/data/home/.isomux`                       |
+| Projects           | `/var/data/workspaces` or another directory under the data mount |
 
 Root creates the home and workspace directories, then starts the runtime as
 `node` (UID/GID 1000). A mount whose directories already belong to that user can
@@ -114,6 +114,7 @@ with the [Caddy setup](#host-caddy-alternative). The ALB path uses the EC2 priva
    Run `sudo mount /srv/isomux-data` and `findmnt /srv/isomux-data`. Confirm that
    the mounted device is the retained EBS volume. A missing disk must stop the
    office from starting; an empty root-disk directory is not a replacement.
+
 3. Copy `compose.yaml`, `isomux-container.service`, and the `seccomp/` directory to
    `/opt/isomux-container/`. In that directory, create a mode-0600 `office.env`:
 
@@ -127,6 +128,7 @@ with the [Caddy setup](#host-caddy-alternative). The ALB path uses the EC2 priva
    Pull the image with `sudo docker compose --env-file office.env pull`.
    Keep deployment and registry credentials outside the container. Give the
    runtime no AWS role with deployment permissions.
+
 4. Install the host unit and start it:
 
    ```sh
@@ -140,6 +142,7 @@ with the [Caddy setup](#host-caddy-alternative). The ALB path uses the EC2 priva
    is disabled so Docker cannot start the office before EBS is mounted. The
    unit stops Compose when the mount stops. Keep one container and one host
    writer; do not configure rolling replicas or EBS multi-attach.
+
 5. Create an ACM DNS-validated certificate for `office.example.com` and
    `*.office.example.com`. Keep its DNS validation records and attach it to the
    ALB HTTPS listener. ACM manages renewal while the certificate remains
