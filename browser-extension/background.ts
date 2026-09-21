@@ -56,51 +56,43 @@ let savedCredential: string | undefined;
 let badgeTabs = new Set<number>();
 let badgeWork = Promise.resolve();
 let cleanup = Promise.resolve();
-function refreshBadges(): void {
-  badgeWork = badgeWork
-    .catch(() => {})
-    .then(async () => {
-      const c = current;
-      const online = !!c?.generation && !c.closed;
-      const owned = new Set<number>();
-      if (online)
-        for (const tab of c.tabs.values()) {
-          if (tab.phase !== "on") continue;
-          owned.add(tab.tabId);
-          for (const popup of tab.popups.values()) if (popup.targetId) owned.add(popup.tabId);
-        }
-      await chrome.action.setBadgeText({ text: "" });
-      await chrome.action.setBadgeBackgroundColor({
-        color: online ? "#207451" : "#6b7280",
-      });
-      await chrome.action.setTitle({
-        title: t(online ? "browser.connected" : "browser.offline"),
-      });
-      for (const tabId of new Set([...badgeTabs, ...owned])) {
-        try {
-          await chrome.action.setBadgeText({
-            tabId,
-            text: owned.has(tabId) ? "ON" : null,
-          });
-          await chrome.action.setBadgeBackgroundColor({
-            tabId,
-            color: owned.has(tabId)
-              ? "#a34c12"
-              : online
-                ? "#207451"
-                : "#6b7280",
-          });
-          await chrome.action.setTitle({
-            tabId,
-            title: owned.has(tabId) ? t("browser.control") : "Isomux Browser",
-          });
-        } catch {
-          /* A user may have closed this tab. */
-        }
-      }
-      badgeTabs = owned;
-    });
+function controlledTabs(): Set<number> {
+  const result = new Set<number>();
+  const c = current;
+  if (!c?.generation || c.closed) return result;
+  for (const tab of c.tabs.values()) {
+    if (tab.phase !== "on") continue;
+    result.add(tab.tabId);
+    for (const popup of tab.popups.values()) if (popup.targetId) result.add(popup.tabId);
+  }
+  return result;
 }
+function refreshBadges(): void {
+  badgeWork = badgeWork.catch(() => {}).then(async () => {
+    await chrome.action.setBadgeText({ text: "" });
+    await chrome.action.setBadgeBackgroundColor({ color: current?.generation && !current.closed ? "#207451" : "#6b7280" });
+    await chrome.action.setTitle({ title: t(current?.generation && !current.closed ? "browser.connected" : "browser.offline") });
+    for (const tabId of new Set([...badgeTabs, ...controlledTabs()])) {
+      try {
+        // Read ownership immediately before each write; an earlier await may
+        // have allowed Off, detach or a different connection to retire it.
+        const on = controlledTabs().has(tabId);
+        await chrome.action.setBadgeText({ tabId, text: on ? "ON" : null });
+        if (on) badgeTabs.add(tabId); else badgeTabs.delete(tabId);
+        await chrome.action.setBadgeBackgroundColor({ tabId, color: controlledTabs().has(tabId) ? "#a34c12" : "#6b7280" });
+        await chrome.action.setTitle({ tabId, title: controlledTabs().has(tabId) ? t("browser.control") : "Isomux Browser" });
+      } catch { /* A user may have closed this tab. */ }
+    }
+  });
+}
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  if (change.status === undefined) return;
+  const c = current;
+  if (!c || c.closed) return;
+  const tracked = [...c.tabs.values()].some(tab => tab.tabId === tabId ||
+    [...tab.popups.values()].some(popup => popup.tabId === tabId));
+  if (tracked) refreshBadges();
+});
 async function currentTab(tabId: unknown) {
   if (!Number.isSafeInteger(tabId)) return undefined;
   try {

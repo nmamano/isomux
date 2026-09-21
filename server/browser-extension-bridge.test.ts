@@ -675,7 +675,14 @@ test("All client epochs bind each command to its actor and ignore retired peer t
     await current.receive({ id: 3, method: "Target.setAutoAttach", params: {} });
     const count = wire.messages.length, responses = b.messages.length;
     checks.length = 0;
-    await old.receive({ id: 4, method: "Input.insertText", sessionId, params: { text: "stale" } });
+    allowed.add("a"); // Authorization alone cannot reject a retired peer.
+    const late = old.receive({ id: 4, method: "Input.insertText", sessionId, params: { text: "stale" } });
+    await Promise.resolve();
+    const afterLate = wire.messages.length;
+    // Settle even a wrong implementation before asserting, avoiding a timeout.
+    if (afterLate > count) c.receive({ kind: "result", generation: c.generation, id: wire.messages.at(-1)!.id, result: {} });
+    await late;
+    expect(afterLate).toBe(count);
     old.close();
     c.receive({ kind: "result", generation: c.generation, id: command.id, result: {} });
     expect(wire.messages).toHaveLength(count); expect(b.messages).toHaveLength(responses); expect(checks).toEqual([]);

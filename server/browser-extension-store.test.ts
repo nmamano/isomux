@@ -490,3 +490,22 @@ test("target discovery resolves ambiguity without creating a session and recheck
     expect(h.connect).toHaveBeenCalledTimes(1);
   } finally { h.stop(); }
 });
+
+test("access loss after dispatch ends only that caller with unknown outcome and no replay", async () => {
+  const h = await timeoutSessionFixture(true, true);
+  try {
+    const action = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" });
+    await Bun.sleep(0);
+    const command = h.messages.find(m => m.method === "cdp")!;
+    expect(command).toBeDefined(); expect(h.connection.pendingCount(h.grant)).toBe(1);
+    h.allowed.delete("agent"); h.connection.revalidate();
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+    const result = await action;
+    expect(result).toMatchObject({ code: "browser_control_ended" });
+    if (!result.ok) expect(result.error).toMatch(/unknown/i);
+    expect(h.connection.offered("second")).toBe(h.grant);
+    expect(await h.sessions.run("second", { action: "click", selector: "button" })).toMatchObject({ ok: true });
+    expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+  } finally { h.stop(); }
+});

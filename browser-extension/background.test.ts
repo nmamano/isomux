@@ -16,6 +16,8 @@ const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 async function harness(autoAck = true) {
   const sockets: FakeSocket[] = [];
   const calls: string[] = [];
+  let updated!: (id: number, change: { status?: string }) => void;
+  let badgeDelay: () => Promise<void> = async () => {};
   let navigation!: (event: { sourceTabId: number; tabId: number }) => void;
   let attach: () => Promise<void> = async () => {};
   let detach: (tabId: number) => Promise<void> = async () => {};
@@ -72,6 +74,7 @@ async function harness(autoAck = true) {
     action: {
       setBadgeText: async (value: { text: string | null; tabId?: number }) => {
         badges.push(value);
+        await badgeDelay();
       },
       setBadgeBackgroundColor: async () => {},
       setTitle: async () => {},
@@ -116,6 +119,7 @@ async function harness(autoAck = true) {
       },
     },
     tabs: {
+      onUpdated: { addListener(fn: typeof updated) { updated = fn; } },
       update: async () => ({ windowId: 1 }),
       query: async () => [selected],
       get: () => getTab(),
@@ -187,6 +191,8 @@ async function harness(autoAck = true) {
     },
     sockets,
     badges,
+    updated: (id: number, status = "complete") => updated(id, { status }),
+    delayBadge: (fn: () => Promise<void>) => { badgeDelay = fn; },
     config: () => config,
     ui: (message: unknown) =>
       new Promise<Record<string, unknown>>((resolve) =>
@@ -780,6 +786,34 @@ test("All reserves exact tabs, permits multiple roots and reconciles explicit sc
     h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "b", name: "Other" }],
       assignments: [{ id: second, scope: { kind: "agent", agentId: "b" }, agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] });
     await settle();
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  } finally { h.socket.close(); }
+});
+
+test("navigation restores only owned root/popup badges and Off wins delayed refresh", async () => {
+  const h = await harness();
+  try {
+    await h.offer({ kind: "all" });
+    const before = h.badges.length;
+    h.updated(99); await settle();
+    expect(h.badges).toHaveLength(before);
+    h.updated(7); await settle();
+    expect(h.badges.slice(before)).toContainEqual({ tabId: 7, text: "ON" });
+    h.navigation(7, 8); await settle();
+    expect(h.socket.sent.some(m => m.method === "popup")).toBe(true);
+    const popupBoundary = h.badges.length;
+    h.updated(8); await settle();
+    expect(h.badges.slice(popupBoundary)).toContainEqual({ tabId: 8, text: "ON" });
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    h.delayBadge(() => held);
+    h.updated(7); await settle();
+    const off = h.ui({ action: "stop", generation: "generation-1", assignment: h.assignment() });
+    await settle();
+    const boundary = h.badges.length;
+    h.delayBadge(async () => {}); release();
+    await off; await settle();
+    expect(h.badges.slice(boundary).some(b => b.text === "ON")).toBe(false);
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
   } finally { h.socket.close(); }
 });
