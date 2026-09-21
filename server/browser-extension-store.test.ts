@@ -271,7 +271,7 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
   }
 });
 
-async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false, all = false) {
+async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false, all = false, durationMinutes = 0) {
   const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const allowed = new Set(["agent", "second"]);
@@ -291,7 +291,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
       });
   }, close() {} });
   const grant = crypto.randomUUID();
-  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, scope: all ? { kind: "all" } : { kind: "agent", agentId: "agent" } });
+  connection.receive({ kind: "offer", durationMinutes, generation: connection.generation, assignment: grant, scope: all ? { kind: "all" } : { kind: "agent", agentId: "agent" } });
   connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
     result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
   await Promise.resolve();
@@ -539,4 +539,26 @@ for (const held of [false, true]) test(`actor switch drains successful prior act
     expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
     expect(h.connection.offered("second")).toBe(h.grant);
   } finally { h.stop(); }
+});
+
+for (const expiry of [false, true]) test(`All release interrupts both active and queued callers (expiry=${expiry})`, async () => {
+  let now = 1_800_000_000_000;
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  const h = await timeoutSessionFixture(true, true, expiry ? 15 : 0);
+  try {
+    const first = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" });
+    const second = h.sessions.run("second", { action: "text" });
+    await Bun.sleep(0);
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    if (expiry) { now += 15 * 60_000; expect(h.connection.offered("second")).toBeUndefined(); }
+    else h.connection.revoke("second");
+    const result = await first;
+    expect(result).toMatchObject({ code: "browser_control_ended" });
+    if (!result.ok) expect(result.error).toMatch(/unknown/i);
+    expect(await second).toMatchObject({ code: "browser_control_ended" });
+    expect(h.connection.targets("agent")).toEqual([]); expect(h.connection.targets("second")).toEqual([]);
+    expect(h.messages.filter(m => m.method === "detach")).toHaveLength(1);
+    await Bun.sleep(30);
+    expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+  } finally { h.stop(); clock.mockRestore(); }
 });

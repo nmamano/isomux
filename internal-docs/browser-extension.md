@@ -101,7 +101,7 @@ popups. Each popup has a separate debugger attachment and synthetic CDP session;
 the server checks its opener again before exposing it to Playwright. Actions use
 the leaf popup, then return to its retained opener when it closes. Main pages stay
 open for OAuth return. Ending one assignment detaches its whole chain without
-closing any page or stopping another agent's task tab.
+closing any page or releasing an unrelated grant.
 
 ## Action contract and errors
 
@@ -145,7 +145,7 @@ Only that exact extension URL and runtime id can call the background UI API.
 The UI API never returns raw credentials/codes. It accepts an HTTPS office
 origin (loopback HTTP for isolated fixtures), derives the socket path and rejects
 credentials, paths, query and fragment. State polls only while the popup or
-settings pane is open. The Allow toggle names the current tab and selected agent;
+settings pane is open. The Agent control switch applies to the current tab and selected scope;
 Off names its current assignment and generation. Off cancels local ownership, detaches and sends the existing
 `detached` event; the server revalidates ownership before release. No audio or
 media command is sent. The badge shows ON only on owned tabs. Other tabs have no badge; connection state appears in the popup.
@@ -217,16 +217,16 @@ blocks headless watch/input for Desktop Chrome, including stale deliveries.
 
 ## Explicit tab offers (2026-09-19)
 
-Protocol 3 and extension 0.3.0 require an explicit per-offer expiry choice. Older protocol
+Protocol 4 and extension 0.4.0 require an explicit scope and per-offer expiry choice. Older protocol
 versions fail before pairing or control. Update and reload the unpacked extension;
 all tab offers must then be made again.
 
 The popup captures the active tab in its current window using `activeTab`.
 On Allow, the popup checks that anchor again. The worker fetches the exact tab id
 and requires an active HTTP(S) tab in that window. It reserves
-both tab and agent locally, then sends a generation-bound `offer` with a random
-assignment id and agent id. The server checks the current manager and room access,
-reserves the agent, and sends `attach` for that id. The worker attaches only the
+the tab and, for an individual offer, the agent locally, then sends a generation-bound `offer` with a random
+assignment id and explicit scope. The server checks the current paired owner and individual agent access,
+reserves the assignment, and sends `attach` for that id. The worker attaches only the
 locally reserved tab and returns its target. The server validates the target and
 access again before returning `offered`. No unrelated URL or title is sent.
 
@@ -252,22 +252,22 @@ Success adds `uploaded: {name, mimeType, size}` to url/title. Invalid paths, non
 
 The popup offers Never, 15 minutes, 1 hour and 4 hours. Each new offer defaults to Never. The picker stays disabled while an offer is pending, ON or revoking; it resets only after ownership is gone. Established grants show Never or the authoritative deadline formatted in Chrome’s local time.
 
-Protocol 3 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server starts the deadline after attachment succeeds, installs one identity-bound assignment timer, then sends `offered` with `durationMinutes` and `expiresAt`. Never uses null and no timer; timed grants use an absolute epoch-millisecond deadline. Metadata and popup state carry that same pair. Missing or inconsistent pairs fail closed. Metadata lists established targets only, so a pending offer is never cancelled by an earlier empty list.
+Protocol 4 requires `durationMinutes` to be exactly 0, 15, 60 or 240. The server starts the deadline after attachment succeeds, installs one identity-bound assignment timer, then sends `offered` with `durationMinutes` and `expiresAt`. Never uses null and no timer; timed grants use an absolute epoch-millisecond deadline. Metadata and popup state carry that same pair. Missing or inconsistent pairs fail closed. Metadata lists established targets only, so a pending offer is never cancelled by an earlier empty list.
 
 The bridge releases expired ownership through the normal detach path, including before the first browser action and while work is pending. Ownership checks also enforce the deadline if timer delivery is delayed. Release cancels the timer; a late callback cannot revoke a replacement grant. Actions never reset the deadline. There is no hidden idle timer. Off, close, access loss, disconnect and reload still release grants and never replay work.
 
-Protocol 2 extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.
+Protocol 3 and older extensions are refused before offer handling. Update/reload the extension and offer tabs again after deployment; an old extension that stored terminal refusal may require pairing again. Never does not restore grants after connection loss.
 
 
 ## Action timeout and command settlement
 
 Desktop Chrome action timeouts preserve the offered assignment, its deadline and ON badge. Playwright receives the operation deadline; a separate watchdog runs one second later so normal TimeoutError cancellation can settle first. Both return action_timeout with unknown-outcome guidance. A timeout never proves that an already-dispatched Chrome command stopped.
 
-The per-agent caller queue checks a separate recovery barrier before dispatch. A timed-out operation and its pending CDP commands must settle before a different action runs. A one-second cleanup wait bounds the response; if work remains, subsequent calls return action_timeout with a still-settling message and dispatch nothing. There is no retry or replay. Off, expiry, access loss and actual connection loss still release the grant.
+The per-grant caller queue checks a separate recovery barrier before dispatch. A timed-out operation and its pending CDP commands must settle before a different action runs. A one-second cleanup wait bounds the response; if work remains, subsequent calls return action_timeout with a still-settling message and dispatch nothing. There is no retry or replay. Off, expiry and actual connection loss still release the grant. Individual access loss releases an individual grant; on All it rejects that caller while preserving other eligible callers.
 
 For goto only, the bridge sends Page.stopLoading to the assignment’s owned root or active popup, then drains the original navigation command. Fill uses Runtime checks and Input.insertText; click uses Runtime/DOM checks and Input.dispatchMouseEvent; press uses Input.dispatchKeyEvent; payload upload uses Runtime.callFunctionOn. These commands have no generic cancellation claim: they remain fenced until their actual result or ownership loss. A command whose response deadline expires remains a tombstone; its late response resolves the barrier and is not delivered twice to Playwright. A retained client disconnect does not revoke the user offer, and replacement clients cannot attach over pending commands.
 
-Extension 0.3.1 adds Page.stopLoading to the owned-page allowlist; wire protocol remains 3. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count and settlement/release state, never selectors, text, URLs, file contents or CDP payloads.
+Page.stopLoading, introduced in extension 0.3.1, remains on the owned-page allowlist in protocol 4. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count and settlement/release state, never selectors, text, URLs, file contents or CDP payloads.
 
 The extension popup masks pairing codes by default. Show/Hide explicitly reveals or masks the field; opening the pairing form, submitting it or closing the popup masks it again. The same behavior applies to initial and replacement pairing.
 
@@ -278,3 +278,5 @@ Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup defau
 `tabs` returns accessible established grants with an opaque random target handle, scope and cached title/URL hints from owned target admission. It sends no page commands, so a busy grant does not block discovery or another grant. Handles never reuse Chrome IDs and die with the assignment or connection. Explicit target selection rechecks current access at queue entry and dispatch. Unqualified routing prefers an individual offer, then a sole All offer; multiple All grants return `browser_target_required` with no page metadata or dispatch.
 
 Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle before its retained client closes and a new client attaches to the same grant. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists.
+
+Navigation status events refresh badges only for locally tracked roots and admitted popups. Every badge write rechecks current ON ownership after earlier awaits; Off and cleanup cannot leave a stale ON badge. Untracked tab updates are ignored without reading URL/title.
