@@ -295,7 +295,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
   connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
     result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
   await Promise.resolve();
-  let calls = 0;
+  let calls = 0, retired = 0, background = false;
   let settled = false;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
@@ -316,12 +316,18 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
       url: () => "https://example.com/", title: async () => "Fixture",
       innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; },
       fill: timeout, goto: timeout,
-      click: async () => { calls++; expect(settled).toBe(true); },
+      click: async () => {
+        calls++; expect(settled).toBe(true);
+        if (background) {
+          background = false;
+          transport.send({ id: 42, method: "Runtime.releaseObject", sessionId: sessionId as string, params: { objectId: "fixture" } });
+        }
+      },
     };
     return { contexts: () => [{ pages: () => [page], on() {} }], isConnected: () => true, on() {},
-      close: async () => { transport.close(); } } as unknown as Browser;
+      close: async () => { retired++; transport.close(); } } as unknown as Browser;
   });
-  return { sessions, connection, messages, grant, allowed, calls: () => calls, connect,
+  return { sessions, connection, messages, grant, allowed, backgroundOnNextClick: () => { background = true; }, retired: () => retired, calls: () => calls, connect,
     stop: () => { sessions.stop(); service.stop(); connect.mockRestore(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -507,5 +513,30 @@ test("access loss after dispatch ends only that caller with unknown outcome and 
     expect(await h.sessions.run("second", { action: "click", selector: "button" })).toMatchObject({ ok: true });
     expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
     expect(h.messages.some(m => m.method === "detach")).toBe(false);
+  } finally { h.stop(); }
+});
+
+for (const held of [false, true]) test(`actor switch drains successful prior action cleanup before retiring its client (held=${held})`, async () => {
+  const h = await timeoutSessionFixture(false, true);
+  try {
+    expect(await h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" })).toMatchObject({ code: "action_timeout" });
+    h.backgroundOnNextClick();
+    const first = h.sessions.run("agent", { action: "click", selector: "button" });
+    const second = h.sessions.run("second", { action: "text" });
+    expect(await first).toMatchObject({ ok: true });
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    expect(h.retired()).toBe(0); expect(h.connect).toHaveBeenCalledTimes(1);
+    const cleanup = h.messages.findLast(m => m.method === "cdp")!;
+    expect((cleanup.params as { method: string }).method).toBe("Runtime.releaseObject");
+    if (held) {
+      expect(await second).toMatchObject({ code: "action_timeout" });
+      expect(h.retired()).toBe(0); expect(h.connection.targets("second")).toHaveLength(1);
+    }
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: cleanup.id, result: {} });
+    expect(h.connection.pendingCount(h.grant)).toBe(0);
+    expect(await (held ? h.sessions.run("second", { action: "text" }) : second)).toMatchObject({ ok: true });
+    expect(h.retired()).toBe(1); expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+    expect(h.connection.offered("second")).toBe(h.grant);
   } finally { h.stop(); }
 });

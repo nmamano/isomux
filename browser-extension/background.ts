@@ -53,7 +53,7 @@ let configuration = 0;
 let retry = 0;
 let reconnect: ReturnType<typeof setTimeout> | undefined;
 let savedCredential: string | undefined;
-let badgeTabs = new Set<number>();
+const badgeTabs = new Set<number>();
 let badgeWork = Promise.resolve();
 let cleanup = Promise.resolve();
 function controlledTabs(): Set<number> {

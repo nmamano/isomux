@@ -131,7 +131,15 @@ export class ExtensionBrowserSessions {
       return { ok: true, url: "", title: "", closed: true };
     }
     const prior = this.recovering.get(key);
-    if ((prior?.connection === connection && prior.grant === grant) || connection.pendingCount(grant)) return timeoutResult(true);
+    if (prior?.connection === connection && prior.grant === grant) return timeoutResult(true);
+    if (connection.pendingCount(grant)) {
+      let drainTimer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([connection.drain(grant), new Promise<void>(resolve => {
+        drainTimer = setTimeout(resolve, SETTLEMENT_GRACE_MS);
+      })]);
+      clearTimeout(drainTimer);
+      if (connection.pendingCount(grant)) return timeoutResult(true);
+    }
     if (session && session.actor !== agent) {
       // One client at a time per grant. Its immutable actor retires with it;
       // delayed old-client commands cannot borrow the next caller's access.

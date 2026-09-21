@@ -59,6 +59,7 @@ declare const chrome: {
     };
   };
   tabs: {
+    onUpdated: { addListener(callback: (tabId: number, change: { status?: string }) => void): void };
     query(options: { active: boolean; currentWindow: boolean }): Promise<{ id?: number; url?: string; active?: boolean; windowId?: number }[]>;
     get(id: number): Promise<{ id?: number; url?: string; active?: boolean; windowId?: number }>;
     update(
