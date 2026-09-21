@@ -295,7 +295,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
   connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
     result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
   await Promise.resolve();
-  let calls = 0, retired = 0, background = false, pageClosed = false;
+  let calls = 0, retired = 0, frameCalls = 0, background = false, pageClosed = false;
   let settled = false;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
@@ -314,7 +314,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
     };
     const childFrame = {
       childFrames: () => [], isDetached: () => false,
-      locator: () => ({ fill: timeout, innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; } }),
+      locator: () => ({ fill: async () => { frameCalls++; await timeout(); }, innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; } }),
     };
     const page = {
       close: async () => { pageClosed = true; },
@@ -332,7 +332,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
     return { contexts: () => [{ pages: () => [page], on() {} }], isConnected: () => true, on() {},
       close: async () => { retired++; transport.close(); } } as unknown as Browser;
   });
-  return { sessions, connection, messages, grant, allowed, pageClosed: () => pageClosed, backgroundOnNextClick: () => { background = true; }, retired: () => retired, calls: () => calls, connect,
+  return { sessions, connection, messages, grant, allowed, pageClosed: () => pageClosed, frameCalls: () => frameCalls, backgroundOnNextClick: () => { background = true; }, retired: () => retired, calls: () => calls, connect,
     stop: () => { sessions.stop(); service.stop(); connect.mockRestore(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -364,6 +364,7 @@ test("held frame work fences every All actor and Off ends it without replay", as
       for (let i = 0; i < 100 && !h.messages.some(m => m.method === "cdp"); i++) await Bun.sleep(2);
       const command = h.messages.find(m => m.method === "cdp")!;
       expect(command).toBeDefined();
+      expect(h.frameCalls()).toBe(1);
       expect(h.connection.pendingCount(h.grant)).toBe(1);
       const next = h.sessions.run("second", { action: "text" });
       if (off) h.connection.revoke("agent");
