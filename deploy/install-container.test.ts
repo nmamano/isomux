@@ -7,6 +7,7 @@ import {
   mkdirSync,
   chmodSync,
   existsSync,
+  statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -430,7 +431,7 @@ restore_caddy_state() { [[ -z $CADDY_SNAPSHOT_ARMED ]] || echo restore >> "$FIXT
 apt_get() { echo "apt $*" >> "$FIXTURE/events"; }
 apt_install() { echo "packages $*" >> "$FIXTURE/events"; [[ ! -e "$FIXTURE/fail-apt" ]]; }
 curl() { echo repository; }
-gpg() { cat >/dev/null; }
+gpg() { cat >"\${@: -1}"; }
 container_install_packages
 `;
     expect(run(dir, script).code).toBe(0);
@@ -459,6 +460,41 @@ container_install_packages
     writeFileSync(join(dir, "events"), "");
     expect(run(dir, script).code).not.toBe(0);
     expect(events(dir)).toContain("restore");
+  });
+
+  it("makes public apt metadata readable under the private umask, including repair", () => {
+    const dir = fixture();
+    const packages = source.slice(
+      source.indexOf("container_install_packages() {"),
+      source.indexOf("container_select_image() {"),
+    );
+    const script =
+      packages +
+      `
+CONTAINER_KEYRING="$FIXTURE/keyring"
+CONTAINER_APT_SOURCE="$FIXTURE/source.list"
+snapshot_caddy_state() { :; }
+restore_caddy_state() { :; }
+apt_install() { :; }
+curl() { echo repository; }
+gpg() { cat >"\${@: -1}"; }
+apt_get() {
+  for metadata in "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"; do
+    if [[ -e $metadata ]]; then
+      mode=$(command stat -c %a "$metadata")
+      (( (8#$mode & 4) != 0 )) || return 91
+    fi
+  done
+}
+umask 077
+container_install_packages
+`;
+    expect(run(dir, script).code).toBe(0);
+    for (const name of ["keyring", "source.list"]) {
+      expect(statSync(join(dir, name)).mode & 0o004).toBe(0o004);
+      chmodSync(join(dir, name), 0o600);
+    }
+    expect(run(dir, script).code).toBe(0);
   });
 
   it("renders a Compose contract the installed CLI accepts", () => {

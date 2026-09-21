@@ -4274,6 +4274,12 @@ container_install_packages() {
   # Snapshot both directions. Package scripts must not leave an existing front
   # door stopped, or start a proxy which the operator had stopped.
   snapshot_caddy_state
+  # apt reads public repository metadata as _apt. Repair files left at 0600
+  # by an interrupted older container install before the first apt update.
+  local public_file
+  for public_file in "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"; do
+    if [[ -f $public_file ]]; then chmod 644 "$public_file"; fi
+  done
   apt_get update -y
   apt_install ca-certificates curl gnupg jq openssl ufw unattended-upgrades
   if ! command -v docker >/dev/null; then
@@ -4283,6 +4289,7 @@ container_install_packages() {
     gpg --batch --yes --dearmor -o "$CONTAINER_KEYRING"
   curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
     >"$CONTAINER_APT_SOURCE"
+  chmod 644 "$CONTAINER_KEYRING" "$CONTAINER_APT_SOURCE"
   apt_get update -y
   apt_install caddy
   restore_caddy_state || die "Could not restore Caddy's prior service state"
