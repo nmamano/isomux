@@ -1,8 +1,11 @@
 # General-purpose Isomux container
 
 Design approved, 2026-09-20. Task 91403f8f. Original code inspection: `abe2f213`.
-The implementation and local image checks are complete. Real AWS acceptance
-remains pending; see [the container reference](../deploy/container/README.md).
+The runtime is implemented. EC2/Caddy persistence and restore checks passed on
+2026-09-21 at `dc1a8cea`. The approved sandbox profile and image replacement
+passed on EC2 at `b4b7a5f1` the same day; see
+[the container reference](../deploy/container/README.md) for the tested scope
+and remaining checks. Each publication still requires its own image checks.
 
 ## Recommendation
 
@@ -145,14 +148,18 @@ settings must prevent overlap, including during updates and recovery.
 
 ## Build, distribution, and acceptance
 
-After design approval, deliver a generic Dockerfile, a small Compose reference,
-and AWS instructions. Build a local image from the approved source first.
-Recommend a public GHCR image with release and commit tags plus a recorded digest;
-registry ownership/name and publication need separate approval. Customers can
-build it themselves or mirror it into their registry. AWS supports
+The common Dockerfile, Compose reference, and AWS instructions support source
+builds and automatic release publication to `ghcr.io/nmamano/isomux`.
+Each published CalVer release, stable or prerelease, triggers a committed-source
+build and the image smoke and Compose checks before publication. The workflow
+writes only the exact release-version tag and records the registry digest; it
+writes no commit alias or moving tag. Pin deployments to the digest. Customers
+can also build from source or mirror the image into their registry. AWS supports
 [OCI images in ECR](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push.html).
-Publish only after local image checks and Nil's AWS acceptance. Pin deployments
-to a digest, not `latest`. No registry operation is authorized in this slice.
+Nil approved automatic public GHCR distribution. Actual publication and the
+one-time public package visibility setting have not been performed in this
+local implementation and validation lane. Activation follows review; see
+[the release workflow contract](release-design.md#container-publication).
 
 Manual AWS acceptance, for Nil after implementation and spend approval:
 

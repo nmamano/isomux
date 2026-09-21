@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Isolated local image acceptance. No host credentials, network, or model turns."""
 import json
+from pathlib import Path
 import subprocess
 import sys
 import time
@@ -11,6 +12,7 @@ name = "isomux-check-" + uuid.uuid4().hex[:10]
 volume = name + "-data"
 origin = "https://office.example.com"
 key = "synthetic-container-setup-key-for-local-test"
+seccomp = str(Path(__file__).resolve().parent / "seccomp/chromium.json")
 
 
 def run(*args, input=None, timeout=60):
@@ -27,6 +29,7 @@ def execute(*args, input=None):
 
 def start(first=False, nonroot=False):
     args = ["docker", "run", "-d", "--name", name, "--network", "none",
+            "--security-opt", "seccomp=" + seccomp,
             "--memory", "2g", "--cpus", "2", "-v", volume + ":/var/data",
             "-e", "ISOMUX_PUBLIC_URL=" + origin]
     if first:
@@ -82,6 +85,15 @@ def app_cookie(cookie):
 try:
     run("docker", "volume", "create", volume)
     start(first=True)
+    inspected = json.loads(run("docker", "inspect", name))[0]
+    assert inspected["HostConfig"]["Privileged"] is False
+    assert not inspected["HostConfig"]["CapAdd"]
+    assert len(inspected["HostConfig"]["SecurityOpt"]) == 1
+    assert inspected["HostConfig"]["SecurityOpt"][0].startswith("seccomp=")
+    print("Container security: " + json.dumps({
+        "apparmor": inspected["AppArmorProfile"], "cap_add": inspected["HostConfig"]["CapAdd"],
+        "privileged": inspected["HostConfig"]["Privileged"], "seccomp": seccomp,
+    }), flush=True)
     ready(200)
     execute("bun", "deploy/container/probe.ts")
     check(request("/setup", "POST", "name=Fixture&key=wrong", form=True), 403)
@@ -93,6 +105,7 @@ try:
     assert request("/setup", "POST", "name=Replacement&key=" + key, form=True)["status"] != 200
     print("PASS setup key, single claim, authenticated office, pre/post-claim probe", flush=True)
     run("docker", "run", "-d", "--name", name + "-second", "--network", "none",
+        "--security-opt", "seccomp=" + seccomp,
         "--memory", "256m", "--user", "node", "-v", volume + ":/var/data",
         "-e", "ISOMUX_PUBLIC_URL=" + origin, image)
     assert run("docker", "wait", name + "-second", timeout=10) == "1"

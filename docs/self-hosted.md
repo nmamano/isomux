@@ -342,9 +342,13 @@ values.
 
 The [container reference](https://github.com/nmamano/isomux/tree/main/deploy/container)
 runs one office and its generated apps with one persistent `/var/data` mount.
-It includes a source-image build and an EC2, retained-EBS, and Compose setup.
+It includes release images from `ghcr.io/nmamano/isomux`, a source-image build,
+and an EC2, retained-EBS, and Compose setup. Use the digest from the release's
+**Publish container** workflow run; the package needs a one-time public visibility
+setting after its first publication.
 Use HTTPS for the office and its app subdomains. Keep one data writer, and
-replace the image for updates. AWS acceptance is pending.
+replace the image for updates. EC2 with host Caddy passed persistence and restore
+checks on 2026-09-21; the reference records the tested revision and remaining checks.
 
 ## Deploy on Render
 

@@ -3,6 +3,8 @@ services:
   office:
     image: ${ISOMUX_IMAGE:?Set an immutable image reference}
     platform: linux/amd64
+    security_opt:
+      - seccomp=./seccomp/chromium.json
     # systemd owns restart and mount ordering in the EC2 reference.
     restart: "no"
     stop_grace_period: 30s

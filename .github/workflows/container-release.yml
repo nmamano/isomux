@@ -1,0 +1,46 @@
+name: Publish container
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# A retry must finish checking the existing tag before another run can write it.
+concurrency:
+  group: container-release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'nmamano/isomux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      REVISION: ${{ github.sha }}
+      LOCAL_IMAGE: isomux:release-check
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check release identity
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
+          test "$(git rev-parse HEAD)" = "$REVISION"
+      - name: Build committed production export
+        run: bash deploy/container/build.sh "$REVISION" "$LOCAL_IMAGE"
+      - name: Check image and Compose
+        run: |
+          python3 deploy/container/smoke.py "$LOCAL_IMAGE"
+          python3 deploy/container/compose-check.py "$LOCAL_IMAGE"
+      - name: Publish release image and record digest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/container/publish.py

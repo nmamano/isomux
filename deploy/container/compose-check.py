@@ -22,7 +22,7 @@ with tempfile.TemporaryDirectory(prefix=project) as temporary:
 
     def run(*args, check=True):
         return subprocess.run(command + list(args), env=environment, text=True,
-                              capture_output=True, timeout=45, check=check)
+                              capture_output=True, timeout=45, check=check, cwd=root)
 
     override.write_text("""services:
   office:
@@ -37,14 +37,14 @@ volumes:
     try:
         # Parse the shipped file too, without printing its environment.
         parsed = subprocess.run(command[:-2] + ["config", "--format", "json"],
-                                env=environment, capture_output=True, text=True, check=True)
+                                env=environment, capture_output=True, text=True, check=True, cwd=root)
         service = json.loads(parsed.stdout)["services"]["office"]
         assert service["restart"] == "no"
         assert service["volumes"][0]["bind"].get("create_host_path", False) is False
         for replacement in (False, True):
             foreground = subprocess.Popen(command + ["up", "--no-build", "--pull", "never",
                                           "--abort-on-container-exit", "--exit-code-from", "office"],
-                                          env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+                                          env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, cwd=root)
             deadline = time.monotonic() + 45
             while True:
                 result = run("exec", "-T", "office", "bun", "deploy/container/probe.ts", check=False)
@@ -58,6 +58,8 @@ volumes:
             config = json.loads(inspected.stdout)
             assert config["Memory"] == 2 * 1024**3 and config["NanoCpus"] == 10**9
             assert config["Privileged"] is False and config["NetworkMode"] == "none"
+            assert not config["CapAdd"]
+            assert len(config["SecurityOpt"]) == 1 and config["SecurityOpt"][0].startswith("seccomp=")
             if replacement:
                 result = run("exec", "-T", "office", "cat", "/var/data/workspaces/compose-check")
                 assert result.stdout == "persisted"

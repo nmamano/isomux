@@ -12,11 +12,50 @@ API-compat contract to encode - and CalVer makes a customer box's staleness
 readable at a glance. Tags are annotated, and each gets a GitHub Release
 with auto-generated notes.
 
-No build artifacts. A customer box builds the UI itself (`bun run
-build:ui`) and pins deps via the committed lockfile
+Source installs build the UI on the customer box (`bun run
+build:ui`) and pin deps via the committed lockfile
 (`bun install --frozen-lockfile`), so a tag plus a pinned Bun version fully
 determines the deployment. Bun must be pinned in CI too, or the release
 gate tests a different runtime than customer boxes run.
+
+### Container publication
+
+`.github/workflows/container-release.yml` runs on `release: published` in
+`nmamano/isomux`. It builds the common Linux amd64 image from the event's commit
+through `deploy/container/build.sh`, then runs `smoke.py` and `compose-check.py`
+with isolated state before it publishes `ghcr.io/nmamano/isomux:RELEASE_TAG`.
+The run summary records the source commit and registry digest. Deploy by digest.
+Source installation and local image builds remain available.
+
+Both stable releases and prereleases publish an exact CalVer tag. The release
+script still creates a stable release; marking it as a prerelease immediately
+afterward does not change the image rule. No `latest`, stable, or commit alias
+is written, so a delayed job or release-status edit cannot move a channel tag.
+Draft releases do not publish an image until published. GitHub documents
+[`published` for both release types](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release).
+
+The workflow serializes runs per release tag and never cancels an active run.
+A rerun preserves an existing image after it checks its source revision and
+platform; it reports the original digest even if a rebuild has different bytes.
+A different revision or a registry error fails the run without an overwrite.
+The workflow must be the only writer of release tags. GHCR tags are mutable;
+the digest is the immutable deployment identity. A failure after upload is safe
+to rerun from Actions. A failed build or image check publishes nothing.
+
+The job grants only `contents: read` and `packages: write` to `GITHUB_TOKEN`.
+It needs no personal registry secret and does not edit releases. Cut releases
+with the existing authenticated CLI flow: a release created by another Actions
+workflow's `GITHUB_TOKEN` does not trigger this workflow. See GitHub's
+[container publication guide](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images).
+
+Activation: merge the workflow before cutting the first carrying release.
+After its first successful publication, the package owner must set the
+`isomux` package visibility to **Public** once. If that package already exists,
+grant this repository Actions access before publication. GitHub defaults a new
+package to private; repository visibility does not make the package public.
+See [GHCR access and visibility](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry).
+Later cut releases publish automatically. No publication or visibility change
+is part of local implementation checks.
 
 **Gates.** CI already runs format, lint, tsc, the full test suite, the
 UI build, and the control-plane web app's build/typecheck/lint on every
