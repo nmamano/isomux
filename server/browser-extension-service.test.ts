@@ -41,10 +41,15 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
   try {
     const pair = store.pair("member", false);
     const obsolete = socket();
-    service.message(obsolete.ws, JSON.stringify({ kind: "hello", version: 3, code: pair.code }));
+    service.message(
+      obsolete.ws,
+      JSON.stringify({ kind: "hello", version: 3, code: pair.code }),
+    );
     expect(obsolete.closed()).toBe(true);
     expect(store.record("member").hash).toBeUndefined();
-    expect(obsolete.messages.some(m => m.kind === "ready" || m.kind === "command")).toBe(false);
+    expect(
+      obsolete.messages.some((m) => m.kind === "ready" || m.kind === "command"),
+    ).toBe(false);
     const oversized = socket();
     service.message(
       oversized.ws,
@@ -68,8 +73,16 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     const connection = first.ws.data.connection!;
     expect(connection).toBeDefined();
     const assignment = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
-    expect(first.messages.some((message) => message.method === "attach")).toBe(true);
+    connection.receive({
+      kind: "offer",
+      durationMinutes: 0,
+      generation: connection.generation,
+      assignment,
+      scope: { kind: "agent", agentId: "agent" },
+    });
+    expect(first.messages.some((message) => message.method === "attach")).toBe(
+      true,
+    );
     service.heartbeat(first.ws);
     expect(first.messages.at(-1)!.kind).toBe("ping");
     first.ws.data.lastPong = 0;
@@ -133,10 +146,26 @@ test("metadata uses current records; unpair is bound to authenticated generation
     );
     const connection = ws.data.connection!;
     const assignment = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "a" } });
+    connection.receive({
+      kind: "offer",
+      durationMinutes: 0,
+      generation: connection.generation,
+      assignment,
+      scope: { kind: "agent", agentId: "a" },
+    });
     const attach = messages.at(-1)!;
-    connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
-      result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
+    connection.receive({
+      kind: "result",
+      generation: connection.generation,
+      id: attach.id,
+      result: {
+        targetInfo: {
+          targetId: "owned",
+          type: "page",
+          url: "https://example.com/",
+        },
+      },
+    });
     await Promise.resolve();
     let ended = false;
     connection.assign("a", {
@@ -153,7 +182,13 @@ test("metadata uses current records; unpair is bound to authenticated generation
       member: { id: "m", name: "Member" },
       agents: [{ id: "a", name: "Aname" }],
       assignments: [
-        { id: expect.any(String), scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Aname" }, durationMinutes: 0, expiresAt: null },
+        {
+          id: expect.any(String),
+          scope: { kind: "agent", agentId: "a" },
+          agent: { id: "a", name: "Aname" },
+          durationMinutes: 0,
+          expiresAt: null,
+        },
       ],
     });
     name = "Renamed";

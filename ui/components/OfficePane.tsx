@@ -171,9 +171,7 @@ export function OfficePane({
   // all dirty-capable. A read-only member never loads, so dirty is false for
   // them and they are never asked about discarding anything.
   const dirty =
-    (settingsLoaded &&
-      (name !== baselineName ||
-        text !== baselinePrompt)) ||
+    (settingsLoaded && (name !== baselineName || text !== baselinePrompt)) ||
     mem.dirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);

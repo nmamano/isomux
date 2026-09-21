@@ -35,7 +35,9 @@ test("Chrome pairing is direct; replacement and revoke use self routes", async (
   expect((view.getByTestId("browser-code") as HTMLInputElement).value).toBe(
     "fixture-code",
   );
-  expect((view.getByTestId("browser-code") as HTMLInputElement).type).toBe("password");
+  expect((view.getByTestId("browser-code") as HTMLInputElement).type).toBe(
+    "password",
+  );
   view.unmount();
   status = { ...status, paired: true, online: true };
   const paired = render(<BrowserPane />);

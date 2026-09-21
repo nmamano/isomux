@@ -132,10 +132,7 @@ const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
 // rather than letting the chat dip below this floor.
 const CHAT_COLUMN_FLOOR = 300;
 
-function readPanelWidth(
-  kind: "terminal" | "editor",
-  fallback: number,
-): number {
+function readPanelWidth(kind: "terminal" | "editor", fallback: number): number {
   if (typeof localStorage === "undefined") return fallback;
   try {
     const raw = localStorage.getItem(`isomux:panel-width:${kind}`);
@@ -148,10 +145,7 @@ function readPanelWidth(
   }
 }
 
-function writePanelWidth(
-  kind: "terminal" | "editor",
-  width: number,
-): void {
+function writePanelWidth(kind: "terminal" | "editor", width: number): void {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(
@@ -833,7 +827,6 @@ export function LogView({
         window.innerWidth - CHAT_COLUMN_FLOOR,
       );
       setEditorWidth((w) => (w > maxAllowedEditor ? maxAllowedEditor : w));
-
     }
     window.addEventListener("resize", clamp);
     clamp();
@@ -3319,7 +3312,6 @@ export function LogView({
             />
           </div>
         )}
-
       </div>
       {/* Mobile side panel: full-screen overlay above the chat column. The
         outer LogView is position:fixed and sized to vpHeight on mobile, so

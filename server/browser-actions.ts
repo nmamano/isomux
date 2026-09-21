@@ -46,7 +46,12 @@ export interface BrowserFailure {
 export interface BrowserSuccess {
   ok: true;
   target?: string;
-  tabs?: { target: string; scope: BrowserGrantScope; title: string; url: string }[];
+  tabs?: {
+    target: string;
+    scope: BrowserGrantScope;
+    title: string;
+    url: string;
+  }[];
   /** The page's URL after the action. */
   url: string;
   /** The page's title after the action. */
@@ -143,17 +148,30 @@ export function parseBrowserParams(
   };
 
   if (body.target !== undefined) {
-    if (typeof body.target !== "string" || !/^[a-f0-9-]{36}$/.test(body.target) || action === "tabs")
-      return invalid("target must be an offered target identifier on a page action");
+    if (
+      typeof body.target !== "string" ||
+      !/^[a-f0-9-]{36}$/.test(body.target) ||
+      action === "tabs"
+    )
+      return invalid(
+        "target must be an offered target identifier on a page action",
+      );
     params.target = body.target;
   }
 
   if (body.framePath !== undefined) {
-    if (!["click", "fill", "press", "upload"].includes(action) ||
-      !Array.isArray(body.framePath) || body.framePath.length > MAX_FRAME_DEPTH ||
-      body.framePath.some(index => !Number.isSafeInteger(index) || index < 0) ||
-      (action === "press" && typeof body.selector !== "string"))
-      return invalid("framePath must be an array of up to 8 non-negative safe integers on an element action with a selector");
+    if (
+      !["click", "fill", "press", "upload"].includes(action) ||
+      !Array.isArray(body.framePath) ||
+      body.framePath.length > MAX_FRAME_DEPTH ||
+      body.framePath.some(
+        (index) => !Number.isSafeInteger(index) || index < 0,
+      ) ||
+      (action === "press" && typeof body.selector !== "string")
+    )
+      return invalid(
+        "framePath must be an array of up to 8 non-negative safe integers on an element action with a selector",
+      );
     params.framePath = body.framePath;
   }
 
@@ -198,7 +216,10 @@ export function parseBrowserParams(
   }
 
   if (action === "upload") {
-    if (!validUploadPath(body.path)) return invalid("path must be an absolute office-server file path (max 4096 characters)");
+    if (!validUploadPath(body.path))
+      return invalid(
+        "path must be an absolute office-server file path (max 4096 characters)",
+      );
     params.path = body.path;
   }
 

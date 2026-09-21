@@ -82,20 +82,82 @@ button:focus-visible {
   display: none !important;
 }
 
-h2 { font-size: 15px; margin: 0 0 10px; }
-#office-control { padding-bottom: 10px; }
-.control-switch { display: flex; align-items: center; justify-content: space-between; position: relative; min-height: 32px; gap: 12px; }
-#allow { position: absolute; right: 0; width: 44px; height: 26px; margin: 0; opacity: 0; cursor: pointer; }
-.switch-track { width: 44px; height: 26px; border-radius: 13px; background: #687286; pointer-events: none; flex-shrink: 0; }
-.switch-track::after { content: ""; display: block; width: 20px; height: 20px; margin: 3px; border-radius: 50%; background: #fff; transition: transform 120ms; }
-#allow:checked + .switch-track { background: #258353; }
-#allow:checked + .switch-track::after { transform: translateX(18px); }
-#allow:focus-visible + .switch-track { outline: 2px solid #99b8ff; outline-offset: 3px; }
-#allow:disabled { cursor: default; }
-#allow:disabled + .switch-track { opacity: 0.5; }
-#tab-state:empty, #expiry-state:empty { display: none; }
-select:disabled, input:disabled { opacity: 0.6; }
+h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+#office-control {
+  padding-bottom: 10px;
+}
+.control-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  min-height: 32px;
+  gap: 12px;
+}
+#allow {
+  position: absolute;
+  right: 0;
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.switch-track {
+  width: 44px;
+  height: 26px;
+  border-radius: 13px;
+  background: #687286;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+.switch-track::after {
+  content: "";
+  display: block;
+  width: 20px;
+  height: 20px;
+  margin: 3px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 120ms;
+}
+#allow:checked + .switch-track {
+  background: #258353;
+}
+#allow:checked + .switch-track::after {
+  transform: translateX(18px);
+}
+#allow:focus-visible + .switch-track {
+  outline: 2px solid #99b8ff;
+  outline-offset: 3px;
+}
+#allow:disabled {
+  cursor: default;
+}
+#allow:disabled + .switch-track {
+  opacity: 0.5;
+}
+#tab-state:empty,
+#expiry-state:empty {
+  display: none;
+}
+select:disabled,
+input:disabled {
+  opacity: 0.6;
+}
 
-.code-entry { display: flex; gap: 6px; align-items: center; }
-.code-entry input { flex: 1; min-width: 0; }
-.code-entry button { margin: 0; }
+.code-entry {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.code-entry input {
+  flex: 1;
+  min-width: 0;
+}
+.code-entry button {
+  margin: 0;
+}

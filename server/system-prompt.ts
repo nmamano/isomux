@@ -74,9 +74,10 @@ export function buildSystemPrompt(
     publicOrigin.source === "localhost"
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin} - use that origin for links you give members to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
-  const containerNote = process.env.ISOMUX_APP_SUPERVISOR === "container"
-    ? "\nThis office runs in a container. Keep projects and dependency installs under /var/data/home or /var/data/workspaces; only /var/data persists across container replacement. The operator updates the office by replacing its image.\n"
-    : "";
+  const containerNote =
+    process.env.ISOMUX_APP_SUPERVISOR === "container"
+      ? "\nThis office runs in a container. Keep projects and dependency installs under /var/data/home or /var/data/workspaces; only /var/data persists across container replacement. The operator updates the office by replacing its image.\n"
+      : "";
   const remoteBossNote = `\nAn office member can also access the office remotely. When they do, their messages will look like \`[Member (API token "Phone 'alerts" (pat-123))]\`, where the id after the closing quote is their reply handle. Respond to them at the remote location with POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages, your bearer token, and JSON {"text":"..."}; a send to an unavailable token fails.\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.

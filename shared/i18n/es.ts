@@ -5,7 +5,8 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
-  "browser.offerHelp": "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
+  "browser.offerHelp":
+    "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
   "browser.allAgents": "Todos",
   "browser.agent": "Agente",
   "browser.expiry": "El control caduca",
@@ -21,22 +22,29 @@ export const es: Catalog = {
   "browser.offering": "Ofreciendo pestaña a {name}…",
   "browser.revoking": "Desactivando el control de {name}…",
   "browser.tabIneligible": "Abre una pestaña HTTP(S) para permitir el control.",
-  "browser.tabConflict": "Este agente ya tiene una pestaña. Desactívala primero.",
+  "browser.tabConflict":
+    "Este agente ya tiene una pestaña. Desactívala primero.",
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
-  "browser.intro": "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
-  "browser.chromeHelp": "Los agentes usan Chrome en este ordenador. Instala y vincula la extensión abajo.",
+  "browser.intro":
+    "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
+  "browser.chromeHelp":
+    "Los agentes usan Chrome en este ordenador. Instala y vincula la extensión abajo.",
   "browser.setup": "Configurar Chrome",
   "browser.extract": "Extrae el ZIP.",
-  "browser.extensions": "Abre chrome://extensions en Chrome y activa el modo de desarrollador.",
-  "browser.load": "Selecciona Cargar descomprimida y elige la carpeta extraída.",
+  "browser.extensions":
+    "Abre chrome://extensions en Chrome y activa el modo de desarrollador.",
+  "browser.load":
+    "Selecciona Cargar descomprimida y elige la carpeta extraída.",
   "browser.pin": "Fija Isomux Browser en la barra de herramientas.",
-  "browser.finish": "Crea un código abajo, abre Isomux Browser e introduce la dirección de la oficina y el código.",
+  "browser.finish":
+    "Crea un código abajo, abre Isomux Browser e introduce la dirección de la oficina y el código.",
   "browser.connection": "Conexión",
   "browser.show": "Mostrar",
   "browser.hide": "Ocultar",
   "browser.owner": "Propietario del navegador: {name}",
-  "browser.ownership": "Los agentes usan el navegador de su responsable y solo las pestañas que se les ofrecen.",
+  "browser.ownership":
+    "Los agentes usan el navegador de su responsable y solo las pestañas que se les ofrecen.",
   "browser.paired": "Vinculado",
   "browser.unpaired": "Sin vincular",
   "browser.offline": "Sin conexión",

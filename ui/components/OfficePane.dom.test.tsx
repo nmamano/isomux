@@ -35,7 +35,9 @@ it("ignores retired panel settings and saves only current office fields", async 
   const view = render(onLanguage(null, createElement(OfficePane)));
   await act(async () => {});
   expect(view.queryByRole("switch")).toBeNull();
-  await act(async () => fireEvent.click(view.getByRole("button", { name: "Save" })));
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: "Save" })),
+  );
   expect(savedBody).toEqual({ prompt: null, name: null, version: "1" });
   view.unmount();
 });

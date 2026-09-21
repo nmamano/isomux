@@ -77,12 +77,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       const offer = async () => {
         await offeredPage.bringToFront();
         const session = await setup!.newCDPSession(offeredPage);
-        const target = (await session.send("Target.getTargetInfo")).targetInfo.targetId;
+        const target = (await session.send("Target.getTargetInfo")).targetInfo
+          .targetId;
         await session.detach();
         const popup = await openExtensionActionPopup(setupCDP, id, target);
         await popup.waitFor('!document.querySelector("#allow").disabled');
         await popup.click("#allow");
-        await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
+        await popup.waitFor(
+          'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
+        );
         await popup.close();
       };
       await offer();
@@ -149,7 +152,12 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(fixture.bridge.forMember("fixture-member")!.generation).not.toBe(
         old.generation,
       );
-      expect(() => browserExtensionTransport(fixture.bridge.forMember("fixture-member")!, "fixture-agent")).toThrow();
+      expect(() =>
+        browserExtensionTransport(
+          fixture.bridge.forMember("fixture-member")!,
+          "fixture-agent",
+        ),
+      ).toThrow();
       await offer();
       agent = await connect();
       expect(agent.contexts()[0].pages()).toHaveLength(1);

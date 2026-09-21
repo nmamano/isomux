@@ -429,7 +429,12 @@ export function createAgentManager(deps: ManagerDeps) {
   const initialLoadedAgents = deps.initialRooms;
   const runBrowserAction =
     deps.runBrowserAction ??
-    (async (): Promise<BrowserResult> => ({ ok: false, status: 500, code: "browser_not_paired", error: "No Chrome browser is paired" }));
+    (async (): Promise<BrowserResult> => ({
+      ok: false,
+      status: 500,
+      code: "browser_not_paired",
+      error: "No Chrome browser is paired",
+    }));
   let lobbySeedPending = initialLoadedAgents.some(
     (room) => room.id === LOBBY_ROOM_ID && room.defaultAgentPending === true,
   );
@@ -1066,11 +1071,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     envFile: string | null,
     name: string | null,
   ) {
-    const events = officeState.setOfficeSettings(
-      prompt,
-      envFile,
-      name,
-    );
+    const events = officeState.setOfficeSettings(prompt, envFile, name);
     // System prompt is rebuilt at every createSession from current office/room/agent
     // config, so the new office prompt automatically lands on the next conversation.
     for (const event of events) eventHandler(event);

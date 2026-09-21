@@ -95,7 +95,13 @@ test("production routes pair, bind Origin, reject office credential use, persist
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
-  const retired = await memberRequest(server, owner, "PATCH", "/api/me/browser", { backend: "headless" });
+  const retired = await memberRequest(
+    server,
+    owner,
+    "PATCH",
+    "/api/me/browser",
+    { backend: "headless" },
+  );
   expect(retired.status).toBe(404);
   expect(retired.headers.get("content-type")).toBe("application/json");
   expect(await retired.json()).toEqual({ error: "not found" });
@@ -203,11 +209,32 @@ test("current manager room access loss actively detaches a pending agent action"
   });
   await socket.wait("ready");
   const generation = (await socket.wait("ready")).generation;
-  socket.ws.send(JSON.stringify({ kind: "offer", generation, durationMinutes: 0, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: agent.id } }));
+  socket.ws.send(
+    JSON.stringify({
+      kind: "offer",
+      generation,
+      durationMinutes: 0,
+      assignment: crypto.randomUUID(),
+      scope: { kind: "agent", agentId: agent.id },
+    }),
+  );
   const attach = await socket.wait("command");
   expect(attach.method).toBe("attach");
-  socket.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,
-    result: { targetInfo: { targetId: "owned", browserContextId: "context", type: "page", url: "https://example.com/" } } }));
+  socket.ws.send(
+    JSON.stringify({
+      kind: "result",
+      generation,
+      id: attach.id,
+      result: {
+        targetInfo: {
+          targetId: "owned",
+          browserContextId: "context",
+          type: "page",
+          url: "https://example.com/",
+        },
+      },
+    }),
+  );
   await socket.wait("offered");
   socket.messages.length = 0;
   const pending = server.http(`/api/agents/${agent.id}/browser`, {
@@ -224,8 +251,13 @@ test("current manager room access loss actively detaches a pending agent action"
   const response = await pending;
   expect(response.status).toBe(500);
   expect((await response.json()).error.code).toBe("browser_control_ended");
-  for (let i = 0; i < 100 && !socket.messages.some(m => m.method === "detach"); i++) await Bun.sleep(5);
-  expect(socket.messages.some(m => m.method === "detach")).toBe(true);
+  for (
+    let i = 0;
+    i < 100 && !socket.messages.some((m) => m.method === "detach");
+    i++
+  )
+    await Bun.sleep(5);
+  expect(socket.messages.some((m) => m.method === "detach")).toBe(true);
   expect(socket.closed()).toBe(false);
   socket.ws.close();
 });
@@ -256,17 +288,33 @@ test("corrupt browser state permits office startup and requires fresh Chrome pai
   const agent = await ownedAgent(server, owner, "corrupt state browser");
   writeFileSync(join(server.stateRoot, "browser-connections.json"), "{");
   server = await server.restart();
-  const status = await (await memberRequest(server, owner, "GET", "/api/me/browser")).json();
+  const status = await (
+    await memberRequest(server, owner, "GET", "/api/me/browser")
+  ).json();
   expect(status).toMatchObject({ paired: false, online: false });
   expect(status).not.toHaveProperty("backend");
   const action = await server.http(`/api/agents/${agent.id}/browser`, {
-    method: "POST", headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`, "Content-Type": "application/json" },
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getAgentTokenRaw(agent.id)}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({ action: "snapshot" }),
   });
   expect((await action.json()).error.code).toBe("browser_not_paired");
-  const pair = await memberRequest(server, owner, "POST", "/api/me/browser/pair", {});
+  const pair = await memberRequest(
+    server,
+    owner,
+    "POST",
+    "/api/me/browser/pair",
+    {},
+  );
   expect(pair.status).toBe(200);
-  const extension = await extensionSocket(server, { kind: "hello", version: 4, code: (await pair.json()).code });
+  const extension = await extensionSocket(server, {
+    kind: "hello",
+    version: 4,
+    code: (await pair.json()).code,
+  });
   await extension.wait("ready");
 });
 

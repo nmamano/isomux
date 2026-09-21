@@ -65,8 +65,7 @@ export class BrowserExtensionService {
         return member && access.memberExists(member) ? member : undefined;
       },
       agents: (member) => access.agents?.(member) ?? [],
-      mayUse: (member, agent) =>
-        access.mayUse(member, agent),
+      mayUse: (member, agent) => access.mayUse(member, agent),
       ...(access.memberName && access.agentName
         ? {
             memberDisplay: (member: string) =>

@@ -60,7 +60,10 @@ import {
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
-import { memberRequest, extensionSocket } from "./browser-extension-route-fixture";
+import {
+  memberRequest,
+  extensionSocket,
+} from "./browser-extension-route-fixture";
 import type {
   AgentInfo,
   LogEntry,
@@ -722,33 +725,84 @@ describe("desktop browser projection", () => {
   it("ignores retired panel commands without browser events or capabilities", async () => {
     server = await boot();
     const manager = await server.seedOwner("Boss");
-    const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
+    const agent = await spawnIn(
+      server,
+      "Managed",
+      server.agentManager.getRooms()[0].id,
+      manager,
+    );
     const socket = await connectSettled(server, manager.rawSessionId);
-    const state = bag(socket).find(m => m.type === "full_state")!;
-    expect((state.agents as AgentInfo[]).find(a => a.id === agent.id)).not.toHaveProperty("browserPanelAvailable");
+    const state = bag(socket).find((m) => m.type === "full_state")!;
+    expect(
+      (state.agents as AgentInfo[]).find((a) => a.id === agent.id),
+    ).not.toHaveProperty("browserPanelAvailable");
     socket.send({ type: "browser_watch", agentId: agent.id, watching: true });
-    socket.send({ type: "browser_input", agentId: agent.id, input: { kind: "navigate", action: "goto", url: "https://example.test" } });
+    socket.send({
+      type: "browser_input",
+      agentId: agent.id,
+      input: { kind: "navigate", action: "goto", url: "https://example.test" },
+    });
     await pingPong(socket);
-    expect(bag(socket).filter(m => String(m.type).startsWith("browser_"))).toEqual([]);
-    expect(await server.agentManager.runAgentBrowserAction(agent.id, { action: "snapshot" })).toMatchObject({ ok: false, code: "browser_not_paired" });
+    expect(
+      bag(socket).filter((m) => String(m.type).startsWith("browser_")),
+    ).toEqual([]);
+    expect(
+      await server.agentManager.runAgentBrowserAction(agent.id, {
+        action: "snapshot",
+      }),
+    ).toMatchObject({ ok: false, code: "browser_not_paired" });
   });
   it("does not emit a panel notification when the extension controls an offered page", async () => {
     server = await boot();
     const manager = await server.seedOwner("Boss");
-    const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
+    const agent = await spawnIn(
+      server,
+      "Managed",
+      server.agentManager.getRooms()[0].id,
+      manager,
+    );
     const socket = await connectSettled(server, manager.rawSessionId);
-    const { code } = await (await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})).json();
-    const extension = await extensionSocket(server, { kind: "hello", version: 4, code });
+    const { code } = await (
+      await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})
+    ).json();
+    const extension = await extensionSocket(server, {
+      kind: "hello",
+      version: 4,
+      code,
+    });
     const { generation } = await extension.wait("ready");
-    extension.ws.send(JSON.stringify({ kind: "offer", generation, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: agent.id }, durationMinutes: 0 }));
+    extension.ws.send(
+      JSON.stringify({
+        kind: "offer",
+        generation,
+        assignment: crypto.randomUUID(),
+        scope: { kind: "agent", agentId: agent.id },
+        durationMinutes: 0,
+      }),
+    );
     const attach = await extension.wait("command");
     expect(attach.method).toBe("attach");
-    extension.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,
-      result: { targetInfo: { type: "page", targetId: "owned", browserContextId: "context", url: "https://example.test" } } }));
+    extension.ws.send(
+      JSON.stringify({
+        kind: "result",
+        generation,
+        id: attach.id,
+        result: {
+          targetInfo: {
+            type: "page",
+            targetId: "owned",
+            browserContextId: "context",
+            url: "https://example.test",
+          },
+        },
+      }),
+    );
     await extension.wait("offered");
     let navigated = false;
     const page = {
-      goto: async () => { navigated = true; },
+      goto: async () => {
+        navigated = true;
+      },
       url: () => "https://example.test",
       title: async () => "Example",
     };
@@ -759,16 +813,20 @@ describe("desktop browser projection", () => {
       close: async () => {},
     } as unknown as Browser);
     try {
-      const result = await server.agentManager.runAgentBrowserAction(agent.id, { action: "goto", url: "https://example.test" });
+      const result = await server.agentManager.runAgentBrowserAction(agent.id, {
+        action: "goto",
+        url: "https://example.test",
+      });
       expect(result.ok).toBe(true);
       expect(navigated).toBe(true);
       await pingPong(socket);
-      expect(bag(socket).filter(m => m.type === "browser_action")).toEqual([]);
+      expect(bag(socket).filter((m) => m.type === "browser_action")).toEqual(
+        [],
+      );
     } finally {
       connect.mockRestore();
     }
   });
-
 });
 
 describe("agent moves across visibility boundaries (Phase 1.2)", () => {

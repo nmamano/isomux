@@ -442,7 +442,11 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
   });
 
   it("does not restore the retired Browser panel setting", () => {
-    seed("office-config.json", { prompt: "P", name: "N", experimental: { browserPanel: true } });
+    seed("office-config.json", {
+      prompt: "P",
+      name: "N",
+      experimental: { browserPanel: true },
+    });
     expect(loadOfficeConfig()).not.toHaveProperty("experimental");
   });
 
@@ -521,13 +525,13 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
         publicOrigin: "https://office.example.com",
         externalAccess: true,
         networkBind,
-    });
+      });
       expect(loadServerConfig().networkBind).toBe(networkBind);
 
       saveServerConfig({
         publicOrigin: "https://changed.example.com",
         externalAccess: false,
-    });
+      });
       expect(
         JSON.parse(readFileSync(stateFile("office-config.json"), "utf-8"))
           .networkBind,

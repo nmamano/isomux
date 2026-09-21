@@ -22,7 +22,11 @@ describe("parseBrowserParams", () => {
       { action: "text" },
       { action: "click", selector: "#go" },
       { action: "fill", selector: "#name", text: "nil" },
-      { action: "upload", selector: "input[type=file]", path: "/fixture/file.png" },
+      {
+        action: "upload",
+        selector: "input[type=file]",
+        path: "/fixture/file.png",
+      },
       { action: "press", key: "Enter" },
       { action: "press", key: "Enter", selector: "#name" },
       { action: "screenshot" },
@@ -100,29 +104,78 @@ describe("parseBrowserParams", () => {
 
 // --- the pool ---------------------------------------------------------------
 
-
 describe("screenshot provenance", () => {
   it("omits query and fragment from the caption and filename", () => {
-    expect(describeShot("https://example.test/path?q=private#fragment")).toEqual({ filename: "example.test-path.png", caption: "https://example.test/path" });
-    expect(describeShot("file:///private/file")).toEqual({ filename: "page.png", caption: "" });
+    expect(
+      describeShot("https://example.test/path?q=private#fragment"),
+    ).toEqual({
+      filename: "example.test-path.png",
+      caption: "https://example.test/path",
+    });
+    expect(describeShot("file:///private/file")).toEqual({
+      filename: "page.png",
+      caption: "",
+    });
   });
 });
 
 it("tabs and opaque targets have a bounded explicit schema", () => {
-  expect(parseBrowserParams({ action: "tabs" })).toMatchObject({ ok: true, action: "tabs" });
+  expect(parseBrowserParams({ action: "tabs" })).toMatchObject({
+    ok: true,
+    action: "tabs",
+  });
   const target = crypto.randomUUID();
-  expect(parseBrowserParams({ action: "snapshot", target })).toMatchObject({ ok: true, target });
+  expect(parseBrowserParams({ action: "snapshot", target })).toMatchObject({
+    ok: true,
+    target,
+  });
   for (const invalid of [7, "7", "", "x".repeat(1000), null, {}])
-    expect(parseBrowserParams({ action: "snapshot", target: invalid })).toMatchObject({ ok: false, code: "invalid_request" });
-  expect(parseBrowserParams({ action: "tabs", target })).toMatchObject({ ok: false, code: "invalid_request" });
+    expect(
+      parseBrowserParams({ action: "snapshot", target: invalid }),
+    ).toMatchObject({ ok: false, code: "invalid_request" });
+  expect(parseBrowserParams({ action: "tabs", target })).toMatchObject({
+    ok: false,
+    code: "invalid_request",
+  });
 });
 
 it("frame paths are bounded structural hints for element actions only", () => {
   for (const action of ["click", "fill", "press", "upload"]) {
-    expect(parseBrowserParams({ action, selector: "input", framePath: [0, 1], text: "fixture", key: "Enter", path: "/tmp/fixture.txt" })).toMatchObject({ ok: true, framePath: [0, 1] });
+    expect(
+      parseBrowserParams({
+        action,
+        selector: "input",
+        framePath: [0, 1],
+        text: "fixture",
+        key: "Enter",
+        path: "/tmp/fixture.txt",
+      }),
+    ).toMatchObject({ ok: true, framePath: [0, 1] });
   }
-  for (const framePath of [null, "iframe", [-1], [0.5], [Infinity], [Number.MAX_SAFE_INTEGER + 1], Array(9).fill(0), ["0"]])
-    expect(parseBrowserParams({ action: "click", selector: "button", framePath })).toMatchObject({ ok: false, code: "invalid_request" });
-  for (const action of ["snapshot", "text", "goto", "tabs", "close", "screenshot", "press"])
-    expect(parseBrowserParams({ action, framePath: [] })).toMatchObject({ ok: false, code: "invalid_request" });
+  for (const framePath of [
+    null,
+    "iframe",
+    [-1],
+    [0.5],
+    [Infinity],
+    [Number.MAX_SAFE_INTEGER + 1],
+    Array(9).fill(0),
+    ["0"],
+  ])
+    expect(
+      parseBrowserParams({ action: "click", selector: "button", framePath }),
+    ).toMatchObject({ ok: false, code: "invalid_request" });
+  for (const action of [
+    "snapshot",
+    "text",
+    "goto",
+    "tabs",
+    "close",
+    "screenshot",
+    "press",
+  ])
+    expect(parseBrowserParams({ action, framePath: [] })).toMatchObject({
+      ok: false,
+      code: "invalid_request",
+    });
 });

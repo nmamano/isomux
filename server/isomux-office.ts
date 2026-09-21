@@ -1253,9 +1253,7 @@ async function applyAccessSettings(
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
-  return versionOf(
-    JSON.stringify([s.prompt, s.envFile, s.name]),
-  );
+  return versionOf(JSON.stringify([s.prompt, s.envFile, s.name]));
 }
 
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
@@ -5212,7 +5210,6 @@ async function handleInboundMessage(
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.restartTerminal(cmd.agentId);
         break;
-
     }
   } catch (err) {
     console.error(`[inbound] ${cmd.type} failed:`, err);
@@ -6490,11 +6487,7 @@ export async function startServer(
       writeManaged: writeManagedOfficeEnv,
       clearLegacyPath: () => {
         const settings = agentManager.getOfficeSettings();
-        agentManager.setOfficeSettings(
-          settings.prompt,
-          null,
-          settings.name,
-        );
+        agentManager.setOfficeSettings(settings.prompt, null, settings.name);
       },
     },
     log: (message) => console.error(message),

@@ -31,7 +31,12 @@ async function harness(autoAck = true) {
     },
   });
   let changed!: (_changes: unknown, area: string) => void;
-  let selected = { id: 7, url: "https://example.com/", active: true, windowId: 1 };
+  let selected = {
+    id: 7,
+    url: "https://example.com/",
+    active: true,
+    windowId: 1,
+  };
   let getTab = async () => selected;
   let assignment = "assignment";
   class FakeSocket {
@@ -48,9 +53,20 @@ async function harness(autoAck = true) {
     send(data: string) {
       const msg = fields(JSON.parse(data));
       this.sent.push(msg);
-      if (autoAck && msg.kind === "result" && msg.id === 1) queueMicrotask(() => this.receive({
-        kind: "offered", scope: this.sent.findLast(m => m.kind === "offer" && m.assignment === assignment)?.scope, generation: "generation-1", assignment, durationMinutes: 0, expiresAt: null, error: msg.error,
-      }));
+      if (autoAck && msg.kind === "result" && msg.id === 1)
+        queueMicrotask(() =>
+          this.receive({
+            kind: "offered",
+            scope: this.sent.findLast(
+              (m) => m.kind === "offer" && m.assignment === assignment,
+            )?.scope,
+            generation: "generation-1",
+            assignment,
+            durationMinutes: 0,
+            expiresAt: null,
+            error: msg.error,
+          }),
+        );
     }
     close() {
       this.readyState = 3;
@@ -119,7 +135,11 @@ async function harness(autoAck = true) {
       },
     },
     tabs: {
-      onUpdated: { addListener(fn: typeof updated) { updated = fn; } },
+      onUpdated: {
+        addListener(fn: typeof updated) {
+          updated = fn;
+        },
+      },
       update: async () => ({ windowId: 1 }),
       query: async () => [selected],
       get: () => getTab(),
@@ -133,7 +153,11 @@ async function harness(autoAck = true) {
         calls.push("detach");
         return detach(target.tabId);
       },
-      sendCommand: (target: { tabId: number }, method: string, params?: unknown) => {
+      sendCommand: (
+        target: { tabId: number },
+        method: string,
+        params?: unknown,
+      ) => {
         calls.push(method);
         if (method === "Emulation.setFocusEmulationEnabled") {
           focused.push({ tabId: target.tabId, params });
@@ -166,38 +190,95 @@ async function harness(autoAck = true) {
   const socket = sockets[0];
   socket.onopen?.();
   socket.receive({ kind: "ready", version: 4, generation: "generation-1" });
-  socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }], assignments: [] });
-  const ui = (message: unknown) => new Promise<Record<string, unknown>>((resolve) => runtimeMessage({ durationMinutes: 0, tabId: selected.id, windowId: 1, ...(message as object) },
-    { id: "fixture-id", url: "chrome-extension://fixture-id/connection.html" },
-    (value) => resolve(value as Record<string, unknown>)));
+  socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [
+      { id: "a", name: "Agent" },
+      { id: "b", name: "Other" },
+    ],
+    assignments: [],
+  });
+  const ui = (message: unknown) =>
+    new Promise<Record<string, unknown>>((resolve) =>
+      runtimeMessage(
+        {
+          durationMinutes: 0,
+          tabId: selected.id,
+          windowId: 1,
+          ...(message as object),
+        },
+        {
+          id: "fixture-id",
+          url: "chrome-extension://fixture-id/connection.html",
+        },
+        (value) => resolve(value as Record<string, unknown>),
+      ),
+    );
   return {
     socket,
-    selected: (id: number, url = "https://example.com/") => { selected = { id, url, active: true, windowId: 1 }; },
+    selected: (id: number, url = "https://example.com/") => {
+      selected = { id, url, active: true, windowId: 1 };
+    },
     assignment: () => assignment,
     startOffer: async (durationMinutes = 0) => {
-      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, scope: { kind: "agent", agentId: "a" }, durationMinutes });
+      const result = ui({
+        action: "offer",
+        generation: "generation-1",
+        tabId: selected.id,
+        scope: { kind: "agent", agentId: "a" },
+        durationMinutes,
+      });
       await settle();
-      assignment = String(socket.sent.findLast((m) => m.kind === "offer")!.assignment);
+      assignment = String(
+        socket.sent.findLast((m) => m.kind === "offer")!.assignment,
+      );
       return { result, assignment };
     },
-    offer: async (scope: { kind: "all" } | { kind: "agent"; agentId: string } = { kind: "agent", agentId: "a" }) => {
-      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, scope });
+    offer: async (
+      scope: { kind: "all" } | { kind: "agent"; agentId: string } = {
+        kind: "agent",
+        agentId: "a",
+      },
+    ) => {
+      const result = ui({
+        action: "offer",
+        generation: "generation-1",
+        tabId: selected.id,
+        scope,
+      });
       await settle();
-      assignment = String(socket.sent.findLast((m) => m.kind === "offer")!.assignment);
-      socket.receive({ kind: "command", assignment, id: 1, generation: "generation-1", method: "attach", params: {} });
+      assignment = String(
+        socket.sent.findLast((m) => m.kind === "offer")!.assignment,
+      );
+      socket.receive({
+        kind: "command",
+        assignment,
+        id: 1,
+        generation: "generation-1",
+        method: "attach",
+        params: {},
+      });
       await settle();
       return result;
     },
     sockets,
     badges,
     updated: (id: number, status = "complete") => updated(id, { status }),
-    delayBadge: (fn: () => Promise<void>) => { badgeDelay = fn; },
+    delayBadge: (fn: () => Promise<void>) => {
+      badgeDelay = fn;
+    },
     config: () => config,
     ui: (message: unknown) =>
       new Promise<Record<string, unknown>>((resolve) =>
         runtimeMessage(
-          { durationMinutes: 0, tabId: selected.id, windowId: 1, ...(message as object) },
+          {
+            durationMinutes: 0,
+            tabId: selected.id,
+            windowId: 1,
+            ...(message as object),
+          },
           {
             id: "fixture-id",
             url: "chrome-extension://fixture-id/connection.html",
@@ -211,14 +292,20 @@ async function harness(autoAck = true) {
       }),
     calls,
     focused,
-    failFocus: () => { focus = async () => { throw new Error("focus failed"); }; },
+    failFocus: () => {
+      focus = async () => {
+        throw new Error("focus failed");
+      };
+    },
     timers,
     navigation: (sourceTabId: number, tabId: number) =>
       navigation({ sourceTabId, tabId }),
     delayDetach: (tabId: number) => {
       let reached = false;
       let finish!: () => void;
-      const pending = new Promise<void>(resolve => { finish = resolve; });
+      const pending = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
       detach = async (id) => {
         if (id !== tabId) return;
         reached = true;
@@ -234,7 +321,12 @@ async function harness(autoAck = true) {
             resolve = done;
           });
       else if (stage === "focus")
-        focus = () => { focus = async () => ({}); return new Promise<void>(done => { resolve = done; }); };
+        focus = () => {
+          focus = async () => ({});
+          return new Promise<void>((done) => {
+            resolve = done;
+          });
+        };
       else
         targetInfo = (tabId) =>
           new Promise((done) => {
@@ -251,12 +343,23 @@ async function harness(autoAck = true) {
       return sockets.at(-1)!;
     },
     delayCreate: () => {
-      let resolve!: (value: { id: number; url: string; active: boolean; windowId: number }) => void;
+      let resolve!: (value: {
+        id: number;
+        url: string;
+        active: boolean;
+        windowId: number;
+      }) => void;
       getTab = () =>
         new Promise((done) => {
           resolve = done;
         });
-      return () => resolve({ id: 7, url: "https://example.com/", active: true, windowId: 1 });
+      return () =>
+        resolve({
+          id: 7,
+          url: "https://example.com/",
+          active: true,
+          windowId: 1,
+        });
     },
     command: (
       id: number,
@@ -338,14 +441,32 @@ test("built worker refuses unknown child sessions and profile commands", async (
 test("built worker permits owned frame hit testing but rejects a foreign session", async () => {
   const h = await harness();
   await h.offer();
-  h.command(2, "cdp", { method: "DOM.getFrameOwner", params: { frameId: "child" } });
+  h.command(2, "cdp", {
+    method: "DOM.getFrameOwner",
+    params: { frameId: "child" },
+  });
   await settle();
-  expect(h.calls.filter(call => call === "DOM.getFrameOwner")).toHaveLength(1);
-  h.command(3, "cdp", { method: "DOM.getFrameOwner", sessionId: "foreign", params: { frameId: "child" } });
-  h.command(4, "cdp", { method: "DOM.getFrameOwner", params: { frameId: "child", targetId: "foreign" } });
+  expect(h.calls.filter((call) => call === "DOM.getFrameOwner")).toHaveLength(
+    1,
+  );
+  h.command(3, "cdp", {
+    method: "DOM.getFrameOwner",
+    sessionId: "foreign",
+    params: { frameId: "child" },
+  });
+  h.command(4, "cdp", {
+    method: "DOM.getFrameOwner",
+    params: { frameId: "child", targetId: "foreign" },
+  });
   await settle();
-  expect(h.calls.filter(call => call === "DOM.getFrameOwner")).toHaveLength(1);
-  expect(h.socket.sent.filter(message => message.kind === "result" && message.error)).toHaveLength(2);
+  expect(h.calls.filter((call) => call === "DOM.getFrameOwner")).toHaveLength(
+    1,
+  );
+  expect(
+    h.socket.sent.filter(
+      (message) => message.kind === "result" && message.error,
+    ),
+  ).toHaveLength(2);
   h.socket.close();
 });
 
@@ -370,7 +491,11 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   await h.offer();
   const attached = h.calls.filter((call) => call === "attach").length;
   expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }]);
-  expect(h.calls).toEqual(["attach", "Emulation.setFocusEmulationEnabled", "Target.getTargetInfo"]);
+  expect(h.calls).toEqual([
+    "attach",
+    "Emulation.setFocusEmulationEnabled",
+    "Target.getTargetInfo",
+  ]);
   h.navigation(900, 901);
   await settle();
   expect(h.calls.filter((call) => call === "attach")).toHaveLength(attached);
@@ -379,8 +504,15 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   expect(
     h.socket.sent.filter((message) => message.method === "popup"),
   ).toHaveLength(1);
-  expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }, { tabId: 8, params: { enabled: true } }]);
-  expect(h.calls.slice(-3)).toEqual(["attach", "Emulation.setFocusEmulationEnabled", "Target.getTargetInfo"]);
+  expect(h.focused).toEqual([
+    { tabId: 7, params: { enabled: true } },
+    { tabId: 8, params: { enabled: true } },
+  ]);
+  expect(h.calls.slice(-3)).toEqual([
+    "attach",
+    "Emulation.setFocusEmulationEnabled",
+    "Target.getTargetInfo",
+  ]);
   const event = h.socket.sent.find((message) => message.method === "popup")!;
   expect(fields(fields(event.params).targetInfo).openerId).toBe("owned");
   h.navigation(7, 9);
@@ -443,9 +575,17 @@ test("popup is exact-extension-only, does not disclose credentials, and stops on
   expect(state).not.toHaveProperty("code");
   expect(state.assignments).toHaveLength(1);
   expect(h.badges).toContainEqual({ tabId: 7, text: "ON" });
-  expect(h.badges.filter((badge) => badge.tabId === undefined).every((badge) => badge.text === "")).toBe(true);
   expect(
-    await h.ui({ action: "stop", generation: "old", assignment: h.assignment() }),
+    h.badges
+      .filter((badge) => badge.tabId === undefined)
+      .every((badge) => badge.text === ""),
+  ).toBe(true);
+  expect(
+    await h.ui({
+      action: "stop",
+      generation: "old",
+      assignment: h.assignment(),
+    }),
   ).toHaveProperty("error");
   expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
   await h.ui({
@@ -507,19 +647,23 @@ test("unpair claims success only after generation-bound acknowledgement", async 
   expect(await lost.ui({ action: "reconnect" })).toHaveProperty("error");
 });
 
-
 for (const popup of [false, true]) {
   test(`failed ${popup ? "popup" : "root"} focus setup detaches without publishing a target`, async () => {
     const h = await harness();
-    if (popup) { await h.offer(); }
+    if (popup) {
+      await h.offer();
+    }
     h.failFocus();
     if (popup) h.navigation(7, 8);
     else void h.offer();
     await settle();
     expect(h.focused.at(-1)?.tabId).toBe(popup ? 8 : 7);
     expect(h.calls).toContain("detach");
-    expect(h.socket.sent.some(m => m.method === "popup")).toBe(false);
-    if (!popup) expect(h.socket.sent.find(m => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+    expect(h.socket.sent.some((m) => m.method === "popup")).toBe(false);
+    if (!popup)
+      expect(
+        h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
+      ).toBeTruthy();
     h.socket.close();
   });
 }
@@ -534,13 +678,14 @@ test("root ownership lost during focus setup cannot publish its target", async (
   h.command(2, "detach");
   finish();
   await settle();
-  expect(h.socket.sent.find(m => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+  expect(
+    h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
+  ).toBeTruthy();
   await offering;
   expect(h.calls).not.toContain("Target.getTargetInfo");
   expect(h.calls).toContain("detach");
   h.socket.close();
 });
-
 
 test("detach restores focus on only the root and its owned popup", async () => {
   const h = await harness();
@@ -556,8 +701,13 @@ test("detach restores focus on only the root and its owned popup", async () => {
     { tabId: 8, params: { enabled: false } },
     { tabId: 7, params: { enabled: false } },
   ]);
-  expect(h.calls.filter(c => c === "detach")).toHaveLength(2);
-  expect(h.calls.slice(-4)).toEqual(["Emulation.setFocusEmulationEnabled", "detach", "Emulation.setFocusEmulationEnabled", "detach"]);
+  expect(h.calls.filter((c) => c === "detach")).toHaveLength(2);
+  expect(h.calls.slice(-4)).toEqual([
+    "Emulation.setFocusEmulationEnabled",
+    "detach",
+    "Emulation.setFocusEmulationEnabled",
+    "detach",
+  ]);
   h.socket.close();
 });
 
@@ -566,11 +716,22 @@ for (const conflict of ["agent", "tab", "popup"] as const) {
     const h = await harness();
     await h.offer();
     if (conflict === "agent") h.selected(9);
-    if (conflict === "popup") { h.navigation(7, 8); await settle(); h.selected(8); }
-    const before = h.socket.sent.filter(m => m.kind === "offer").length;
-    const result = await h.ui({ action: "offer", generation: "generation-1", tabId: conflict === "agent" ? 9 : conflict === "popup" ? 8 : 7, agent: conflict === "agent" ? "a" : "b" });
+    if (conflict === "popup") {
+      h.navigation(7, 8);
+      await settle();
+      h.selected(8);
+    }
+    const before = h.socket.sent.filter((m) => m.kind === "offer").length;
+    const result = await h.ui({
+      action: "offer",
+      generation: "generation-1",
+      tabId: conflict === "agent" ? 9 : conflict === "popup" ? 8 : 7,
+      agent: conflict === "agent" ? "a" : "b",
+    });
     expect(result).toHaveProperty("error");
-    expect(h.socket.sent.filter(m => m.kind === "offer")).toHaveLength(before);
+    expect(h.socket.sent.filter((m) => m.kind === "offer")).toHaveLength(
+      before,
+    );
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
     h.socket.close();
   });
@@ -579,11 +740,34 @@ for (const conflict of ["agent", "tab", "popup"] as const) {
 test("pending offer reserves both identities; Off prevents late acceptance and CDP", async () => {
   const h = await harness();
   const pending = await h.startOffer();
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "b" } })).toHaveProperty("error");
+  expect(
+    await h.ui({
+      action: "offer",
+      generation: "generation-1",
+      tabId: 7,
+      scope: { kind: "agent", agentId: "b" },
+    }),
+  ).toHaveProperty("error");
   h.selected(9);
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 9, scope: { kind: "agent", agentId: "a" } })).toHaveProperty("error");
-  await h.ui({ action: "stop", generation: "generation-1", assignment: pending.assignment });
-  h.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment });
+  expect(
+    await h.ui({
+      action: "offer",
+      generation: "generation-1",
+      tabId: 9,
+      scope: { kind: "agent", agentId: "a" },
+    }),
+  ).toHaveProperty("error");
+  await h.ui({
+    action: "stop",
+    generation: "generation-1",
+    assignment: pending.assignment,
+  });
+  h.socket.receive({
+    kind: "offered",
+    scope: { kind: "agent", agentId: "a" },
+    generation: "generation-1",
+    assignment: pending.assignment,
+  });
   h.command(1, "attach");
   h.command(2, "cdp", { method: "Runtime.evaluate", params: {} });
   await pending.result;
@@ -594,13 +778,22 @@ test("pending offer reserves both identities; Off prevents late acceptance and C
   h.socket.close();
 });
 
-for (const url of ["chrome://settings", "chrome-extension://fixture-id/connection.html", "file:///tmp/test"]) {
+for (const url of [
+  "chrome://settings",
+  "chrome-extension://fixture-id/connection.html",
+  "file:///tmp/test",
+]) {
   test(`offer rejects ineligible current tab ${new URL(url).protocol}`, async () => {
     const h = await harness();
     h.selected(7, url);
-    const pending = h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "a" } });
+    const pending = h.ui({
+      action: "offer",
+      generation: "generation-1",
+      tabId: 7,
+      scope: { kind: "agent", agentId: "a" },
+    });
     await settle();
-    const sentOffer = h.socket.sent.some(m => m.kind === "offer");
+    const sentOffer = h.socket.sent.some((m) => m.kind === "offer");
     const messages = JSON.stringify(h.socket.sent);
     h.socket.close();
     const result = await pending;
@@ -613,14 +806,20 @@ for (const url of ["chrome://settings", "chrome-extension://fixture-id/connectio
 test("changed current tab and unoffered attach cannot expose a page", async () => {
   const h = await harness();
   h.selected(8);
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "a" } })).toHaveProperty("error");
+  expect(
+    await h.ui({
+      action: "offer",
+      generation: "generation-1",
+      tabId: 7,
+      scope: { kind: "agent", agentId: "a" },
+    }),
+  ).toHaveProperty("error");
   h.command(1, "attach");
   await settle();
   expect(h.calls).toHaveLength(0);
-  expect(h.socket.sent.some(m => m.kind === "offer")).toBe(false);
+  expect(h.socket.sent.some((m) => m.kind === "offer")).toBe(false);
   h.socket.close();
 });
-
 
 test("obsolete ready protocol fails closed without a tab grant", async () => {
   const h = await harness();
@@ -634,7 +833,6 @@ test("obsolete ready protocol fails closed without a tab grant", async () => {
   expect(h.calls).toHaveLength(0);
 });
 
-
 test("a failed popup cleanup retains its tab reservation until detach finishes", async () => {
   const h = await harness();
   await h.offer();
@@ -642,27 +840,40 @@ test("a failed popup cleanup retains its tab reservation until detach finishes",
   h.navigation(7, 8);
   await settle();
   const oldDetach = h.delayDetach(8);
-  const stopping = h.ui({ action: "stop", generation: "generation-1", assignment: h.assignment() });
+  const stopping = h.ui({
+    action: "stop",
+    generation: "generation-1",
+    assignment: h.assignment(),
+  });
   finishTarget();
   await settle();
   expect(oldDetach.reached()).toBe(true);
   h.selected(8);
-  const conflicting = h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } });
+  const conflicting = h.ui({
+    action: "offer",
+    generation: "generation-1",
+    scope: { kind: "agent", agentId: "b" },
+  });
   await settle();
-  expect(h.socket.sent.filter(message => message.kind === "offer")).toHaveLength(1);
+  expect(
+    h.socket.sent.filter((message) => message.kind === "offer"),
+  ).toHaveLength(1);
   expect(await conflicting).toHaveProperty("error");
   oldDetach.finish();
   await stopping;
-  expect(h.calls.filter(call => call === "detach")).toHaveLength(2);
-  const next = h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } });
+  expect(h.calls.filter((call) => call === "detach")).toHaveLength(2);
+  const next = h.ui({
+    action: "offer",
+    generation: "generation-1",
+    scope: { kind: "agent", agentId: "b" },
+  });
   await settle();
-  const offers = h.socket.sent.filter(message => message.kind === "offer");
+  const offers = h.socket.sent.filter((message) => message.kind === "offer");
   expect(offers).toHaveLength(2);
   expect(offers[1].scope).toEqual({ kind: "agent", agentId: "b" });
   h.socket.close();
   await next;
 });
-
 
 for (const mismatch of [false, true]) {
   test(`authoritative metadata revokes an ON grant with ${mismatch ? "a different agent" : "no assignment"}`, async () => {
@@ -671,13 +882,30 @@ for (const mismatch of [false, true]) {
     h.navigation(7, 8);
     await settle();
     const metadata = {
-      kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-      agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }],
-      assignments: mismatch ? [{ id: h.assignment(), scope: { kind: "agent", agentId: "b" }, agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] : [],
+      kind: "metadata",
+      generation: "generation-1",
+      member: { id: "m", name: "Member" },
+      agents: [
+        { id: "a", name: "Agent" },
+        { id: "b", name: "Other" },
+      ],
+      assignments: mismatch
+        ? [
+            {
+              id: h.assignment(),
+              scope: { kind: "agent", agentId: "b" },
+              agent: { id: "b", name: "Other" },
+              durationMinutes: 0,
+              expiresAt: null,
+            },
+          ]
+        : [],
     };
     h.socket.receive({ ...metadata, generation: "old" });
-    expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
-    expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
+    expect((await h.ui({ action: "state" })).assignments).toMatchObject([
+      { phase: "on" },
+    ]);
+    expect(h.calls.filter((call) => call === "detach")).toHaveLength(0);
     const cleanup = h.delayDetach(7);
     h.socket.receive(metadata);
     const state = await h.ui({ action: "state" });
@@ -685,11 +913,17 @@ for (const mismatch of [false, true]) {
     h.command(9, "cdp", { method: "Runtime.evaluate", params: {} });
     await settle();
     const revoking = state.assignments;
-    const blocked = h.socket.sent.find(message => message.kind === "result" && message.id === 9);
-    const badge = (tabId: number) => h.badges.findLast(value => value.tabId === tabId)?.text;
-    const rootBadge = badge(7), popupBadge = badge(8);
+    const blocked = h.socket.sent.find(
+      (message) => message.kind === "result" && message.id === 9,
+    );
+    const badge = (tabId: number) =>
+      h.badges.findLast((value) => value.tabId === tabId)?.text;
+    const rootBadge = badge(7),
+      popupBadge = badge(8);
     const reached = cleanup.reached();
-    const detached = h.socket.sent.filter(message => message.method === "detached");
+    const detached = h.socket.sent.filter(
+      (message) => message.method === "detached",
+    );
     h.socket.receive(metadata);
     h.command(10, "detach");
     cleanup.finish();
@@ -700,11 +934,17 @@ for (const mismatch of [false, true]) {
     expect(rootBadge).not.toBe("ON");
     expect(popupBadge).not.toBe("ON");
     expect(reached).toBe(true);
-    expect(detached).toMatchObject([{ generation: "generation-1", assignment: h.assignment() }]);
+    expect(detached).toMatchObject([
+      { generation: "generation-1", assignment: h.assignment() },
+    ]);
     expect(detached).toHaveLength(1);
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
-    expect(h.calls.filter(call => call === "detach")).toHaveLength(2);
-    expect(h.focused.filter(value => fields(value.params).enabled === false).map(value => value.tabId)).toEqual([8, 7]);
+    expect(h.calls.filter((call) => call === "detach")).toHaveLength(2);
+    expect(
+      h.focused
+        .filter((value) => fields(value.params).enabled === false)
+        .map((value) => value.tabId),
+    ).toEqual([8, 7]);
     h.socket.close();
   });
 }
@@ -715,37 +955,88 @@ test("metadata before offer acknowledgement preserves the pending attachment", a
   const finish = h.delayPopup("focus");
   h.command(1, "attach");
   await settle();
-  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }], assignments: [] });
+  h.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [],
+  });
   const state = await h.ui({ action: "state" });
-  const detached = h.socket.sent.some(message => message.method === "detached");
+  const detached = h.socket.sent.some(
+    (message) => message.method === "detached",
+  );
   finish();
   const result = await pending.result;
   expect(state.assignments).toMatchObject([{ phase: "offering" }]);
   expect(detached).toBe(false);
   expect(result.assignments).toMatchObject([{ phase: "on" }]);
-  h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Agent" }, durationMinutes: 0, expiresAt: null }] });
+  h.socket.receive({
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [
+      {
+        id: h.assignment(),
+        scope: { kind: "agent", agentId: "a" },
+        agent: { id: "a", name: "Agent" },
+        durationMinutes: 0,
+        expiresAt: null,
+      },
+    ],
+  });
   await settle();
-  expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
-  expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
+  expect((await h.ui({ action: "state" })).assignments).toMatchObject([
+    { phase: "on" },
+  ]);
+  expect(h.calls.filter((call) => call === "detach")).toHaveLength(0);
   h.socket.close();
 });
 
 test("timed offer uses the acknowledged deadline and metadata cannot silently extend it", async () => {
   const h = await harness(false);
   const pending = await h.startOffer(15);
-  expect(h.socket.sent.find(m => m.kind === "offer")?.durationMinutes).toBe(15);
+  expect(h.socket.sent.find((m) => m.kind === "offer")?.durationMinutes).toBe(
+    15,
+  );
   h.command(1, "attach");
   await settle();
   const expiresAt = Date.now() + 15 * 60_000;
-  h.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment, durationMinutes: 15, expiresAt });
-  expect((await pending.result).assignments).toMatchObject([{ phase: "on", durationMinutes: 15, expiresAt }]);
-  const metadata = { kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "a", name: "Agent" }],
-    assignments: [{ id: pending.assignment, scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Agent" }, durationMinutes: 15, expiresAt }] };
+  h.socket.receive({
+    kind: "offered",
+    scope: { kind: "agent", agentId: "a" },
+    generation: "generation-1",
+    assignment: pending.assignment,
+    durationMinutes: 15,
+    expiresAt,
+  });
+  expect((await pending.result).assignments).toMatchObject([
+    { phase: "on", durationMinutes: 15, expiresAt },
+  ]);
+  const metadata = {
+    kind: "metadata",
+    generation: "generation-1",
+    member: { id: "m", name: "Member" },
+    agents: [{ id: "a", name: "Agent" }],
+    assignments: [
+      {
+        id: pending.assignment,
+        scope: { kind: "agent", agentId: "a" },
+        agent: { id: "a", name: "Agent" },
+        durationMinutes: 15,
+        expiresAt,
+      },
+    ],
+  };
   h.socket.receive(metadata);
-  expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on", expiresAt }]);
-  h.socket.receive({ ...metadata, assignments: [{ ...metadata.assignments[0], expiresAt: expiresAt + 1 }] });
+  expect((await h.ui({ action: "state" })).assignments).toMatchObject([
+    { phase: "on", expiresAt },
+  ]);
+  h.socket.receive({
+    ...metadata,
+    assignments: [{ ...metadata.assignments[0], expiresAt: expiresAt + 1 }],
+  });
   await settle();
   expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
   expect(h.calls).toContain("detach");
@@ -753,23 +1044,39 @@ test("timed offer uses the acknowledged deadline and metadata cannot silently ex
 });
 
 for (const pair of [
-  {}, { durationMinutes: 0, expiresAt: 1800000000000 },
-  { durationMinutes: 15, expiresAt: null }, { durationMinutes: 1, expiresAt: 1800000000000 },
-  { durationMinutes: 15, expiresAt: 1.5 }, { durationMinutes: 15, expiresAt: Number.MAX_SAFE_INTEGER },
+  {},
+  { durationMinutes: 0, expiresAt: 1800000000000 },
+  { durationMinutes: 15, expiresAt: null },
+  { durationMinutes: 1, expiresAt: 1800000000000 },
+  { durationMinutes: 15, expiresAt: 1.5 },
+  { durationMinutes: 15, expiresAt: Number.MAX_SAFE_INTEGER },
 ]) {
   test(`invalid expiry pair fails closed in ack and metadata ${JSON.stringify(pair)}`, async () => {
     const pendingHarness = await harness(false);
     const pending = await pendingHarness.startOffer(15);
     pendingHarness.command(1, "attach");
     await settle();
-    pendingHarness.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment, ...pair });
+    pendingHarness.socket.receive({
+      kind: "offered",
+      scope: { kind: "agent", agentId: "a" },
+      generation: "generation-1",
+      assignment: pending.assignment,
+      ...pair,
+    });
     const result = await pending.result;
     expect(result.error).toBeDefined();
     expect(pendingHarness.socket.readyState).toBe(3);
     const active = await harness();
     await active.offer();
-    active.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "a", name: "Agent" }],
-      assignments: [{ id: active.assignment(), agent: { id: "a", name: "Agent" }, ...pair }] });
+    active.socket.receive({
+      kind: "metadata",
+      generation: "generation-1",
+      member: { id: "m", name: "Member" },
+      agents: [{ id: "a", name: "Agent" }],
+      assignments: [
+        { id: active.assignment(), agent: { id: "a", name: "Agent" }, ...pair },
+      ],
+    });
     await settle();
     expect((await active.ui({ action: "state" })).assignments).toHaveLength(0);
     expect(active.socket.readyState).toBe(3);
@@ -781,27 +1088,66 @@ test("All reserves exact tabs, permits multiple roots and reconciles explicit sc
   try {
     expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
     const first = h.assignment();
-    expect(h.badges.some(b => b.tabId === 7 && b.text === "ON")).toBe(true);
-    expect(await h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } })).toHaveProperty("error");
+    expect(h.badges.some((b) => b.tabId === 7 && b.text === "ON")).toBe(true);
+    expect(
+      await h.ui({
+        action: "offer",
+        generation: "generation-1",
+        scope: { kind: "agent", agentId: "b" },
+      }),
+    ).toHaveProperty("error");
     h.selected(8);
     expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
     const second = h.assignment();
     expect(second).not.toBe(first);
-    expect(h.socket.sent.filter(m => m.kind === "offer")).toHaveLength(2);
+    expect(h.socket.sent.filter((m) => m.kind === "offer")).toHaveLength(2);
     const state = await h.ui({ action: "state" });
     expect(state.assignments).toHaveLength(2);
-    expect((state.assignments as Fields[]).every(a => fields(a.scope).kind === "all")).toBe(true);
-    h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [],
-      assignments: [first, second].map(id => ({ id, scope: { kind: "all" }, durationMinutes: 0, expiresAt: null })) });
+    expect(
+      (state.assignments as Fields[]).every(
+        (a) => fields(a.scope).kind === "all",
+      ),
+    ).toBe(true);
+    h.socket.receive({
+      kind: "metadata",
+      generation: "generation-1",
+      member: { id: "m", name: "Member" },
+      agents: [],
+      assignments: [first, second].map((id) => ({
+        id,
+        scope: { kind: "all" },
+        durationMinutes: 0,
+        expiresAt: null,
+      })),
+    });
     await settle();
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(2);
-    await h.ui({ action: "stop", generation: "generation-1", assignment: first });
+    await h.ui({
+      action: "stop",
+      generation: "generation-1",
+      assignment: first,
+    });
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
-    h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "b", name: "Other" }],
-      assignments: [{ id: second, scope: { kind: "agent", agentId: "b" }, agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] });
+    h.socket.receive({
+      kind: "metadata",
+      generation: "generation-1",
+      member: { id: "m", name: "Member" },
+      agents: [{ id: "b", name: "Other" }],
+      assignments: [
+        {
+          id: second,
+          scope: { kind: "agent", agentId: "b" },
+          agent: { id: "b", name: "Other" },
+          durationMinutes: 0,
+          expiresAt: null,
+        },
+      ],
+    });
     await settle();
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
-  } finally { h.socket.close(); }
+  } finally {
+    h.socket.close();
+  }
 });
 
 test("navigation restores only owned root/popup badges and Off wins delayed refresh", async () => {
@@ -809,25 +1155,43 @@ test("navigation restores only owned root/popup badges and Off wins delayed refr
   try {
     await h.offer({ kind: "all" });
     const before = h.badges.length;
-    h.updated(99); await settle();
+    h.updated(99);
+    await settle();
     expect(h.badges).toHaveLength(before);
-    h.updated(7); await settle();
+    h.updated(7);
+    await settle();
     expect(h.badges.slice(before)).toContainEqual({ tabId: 7, text: "ON" });
-    h.navigation(7, 8); await settle();
-    expect(h.socket.sent.some(m => m.method === "popup")).toBe(true);
+    h.navigation(7, 8);
+    await settle();
+    expect(h.socket.sent.some((m) => m.method === "popup")).toBe(true);
     const popupBoundary = h.badges.length;
-    h.updated(8); await settle();
-    expect(h.badges.slice(popupBoundary)).toContainEqual({ tabId: 8, text: "ON" });
+    h.updated(8);
+    await settle();
+    expect(h.badges.slice(popupBoundary)).toContainEqual({
+      tabId: 8,
+      text: "ON",
+    });
     let release!: () => void;
-    const held = new Promise<void>(resolve => { release = resolve; });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     h.delayBadge(() => held);
-    h.updated(7); await settle();
-    const off = h.ui({ action: "stop", generation: "generation-1", assignment: h.assignment() });
+    h.updated(7);
+    await settle();
+    const off = h.ui({
+      action: "stop",
+      generation: "generation-1",
+      assignment: h.assignment(),
+    });
     await settle();
     const boundary = h.badges.length;
-    h.delayBadge(async () => {}); release();
-    await off; await settle();
-    expect(h.badges.slice(boundary).some(b => b.text === "ON")).toBe(false);
+    h.delayBadge(async () => {});
+    release();
+    await off;
+    await settle();
+    expect(h.badges.slice(boundary).some((b) => b.text === "ON")).toBe(false);
     expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
-  } finally { h.socket.close(); }
+  } finally {
+    h.socket.close();
+  }
 });

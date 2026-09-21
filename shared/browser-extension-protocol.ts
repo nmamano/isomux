@@ -2,22 +2,47 @@
 export const BROWSER_EXTENSION_PROTOCOL = 4;
 export const BROWSER_GRANT_DURATIONS = [0, 15, 60, 240] as const;
 export type BrowserGrantDuration = (typeof BROWSER_GRANT_DURATIONS)[number];
-export function validGrantDuration(value: unknown): value is BrowserGrantDuration {
-  return BROWSER_GRANT_DURATIONS.some(duration => duration === value);
+export function validGrantDuration(
+  value: unknown,
+): value is BrowserGrantDuration {
+  return BROWSER_GRANT_DURATIONS.some((duration) => duration === value);
 }
-export function validGrantExpiry(duration: unknown, expiresAt: unknown): expiresAt is number | null {
-  return validGrantDuration(duration) && (duration === 0 ? expiresAt === null :
-    typeof expiresAt === "number" && Number.isSafeInteger(expiresAt) && expiresAt > 0 && expiresAt <= 8_640_000_000_000_000);
+export function validGrantExpiry(
+  duration: unknown,
+  expiresAt: unknown,
+): expiresAt is number | null {
+  return (
+    validGrantDuration(duration) &&
+    (duration === 0
+      ? expiresAt === null
+      : typeof expiresAt === "number" &&
+        Number.isSafeInteger(expiresAt) &&
+        expiresAt > 0 &&
+        expiresAt <= 8_640_000_000_000_000)
+  );
 }
-export type BrowserGrantScope = { kind: "all" } | { kind: "agent"; agentId: string };
+export type BrowserGrantScope =
+  | { kind: "all" }
+  | { kind: "agent"; agentId: string };
 export function validGrantScope(value: unknown): value is BrowserGrantScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as Record<string, unknown>;
-  return scope.kind === "all" ? Object.keys(scope).length === 1 :
-    scope.kind === "agent" && typeof scope.agentId === "string" && scope.agentId.length > 0 && scope.agentId.length <= 200 && Object.keys(scope).length === 2;
+  return scope.kind === "all"
+    ? Object.keys(scope).length === 1
+    : scope.kind === "agent" &&
+        typeof scope.agentId === "string" &&
+        scope.agentId.length > 0 &&
+        scope.agentId.length <= 200 &&
+        Object.keys(scope).length === 2;
 }
-export function sameGrantScope(a: BrowserGrantScope, b: BrowserGrantScope): boolean {
-  return a.kind === b.kind && (a.kind === "all" || (b.kind === "agent" && a.agentId === b.agentId));
+export function sameGrantScope(
+  a: BrowserGrantScope,
+  b: BrowserGrantScope,
+): boolean {
+  return (
+    a.kind === b.kind &&
+    (a.kind === "all" || (b.kind === "agent" && a.agentId === b.agentId))
+  );
 }
 export type Fields = Record<string, unknown>;
 export interface ExtensionCommand {
@@ -112,7 +137,9 @@ export function pageCommandAllowed(method: string, params: Fields): boolean {
   return (
     PAGE_COMMANDS.has(method) &&
     (method !== "DOM.getFrameOwner" ||
-      (typeof params.frameId === "string" && params.frameId.length > 0 && params.frameId.length <= 200)) &&
+      (typeof params.frameId === "string" &&
+        params.frameId.length > 0 &&
+        params.frameId.length <= 200)) &&
     !("targetId" in params) &&
     !("browserContextId" in params)
   );
@@ -125,7 +152,13 @@ export interface BrowserDisplay {
 export interface BrowserMetadata {
   agents: BrowserDisplay[];
   member: BrowserDisplay;
-  assignments: { id: string; scope: BrowserGrantScope; agent?: BrowserDisplay; durationMinutes: BrowserGrantDuration; expiresAt: number | null }[];
+  assignments: {
+    id: string;
+    scope: BrowserGrantScope;
+    agent?: BrowserDisplay;
+    durationMinutes: BrowserGrantDuration;
+    expiresAt: number | null;
+  }[];
 }
 export interface MemberBrowserStatus {
   paired: boolean;
@@ -146,7 +179,16 @@ export interface ExtensionUIState {
   member?: BrowserDisplay;
   agents: BrowserDisplay[];
   currentTab?: { id: number; eligible: boolean };
-  assignments: { id: string; scope: BrowserGrantScope; agent?: BrowserDisplay; tabId: number; current: boolean; phase: "offering" | "on" | "revoking"; durationMinutes: BrowserGrantDuration; expiresAt: number | null }[];
+  assignments: {
+    id: string;
+    scope: BrowserGrantScope;
+    agent?: BrowserDisplay;
+    tabId: number;
+    current: boolean;
+    phase: "offering" | "on" | "revoking";
+    durationMinutes: BrowserGrantDuration;
+    expiresAt: number | null;
+  }[];
 }
 export function officeSocketURL(value: string): string {
   const url = new URL(value);

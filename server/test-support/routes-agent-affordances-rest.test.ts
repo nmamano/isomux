@@ -386,11 +386,21 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
-    const agent = await spawnAgent(srv, "Worker", srv.agentManager.getRooms()[0].id);
+    const agent = await spawnAgent(
+      srv,
+      "Worker",
+      srv.agentManager.getRooms()[0].id,
+    );
     const previous = process.env.ISOMUX_PREVIEW_BROWSER;
     process.env.ISOMUX_PREVIEW_BROWSER = fakeBrowserScript(srv);
     try {
-      const result = await affordance(srv, agent.id, "preview-url", { url: srv.baseUrl + "/" }, { bearer: getAgentTokenRaw(agent.id)! });
+      const result = await affordance(
+        srv,
+        agent.id,
+        "preview-url",
+        { url: srv.baseUrl + "/" },
+        { bearer: getAgentTokenRaw(agent.id)! },
+      );
       expect(result.status).toBe(200);
       expect(result.body.ok).toBe(true);
     } finally {

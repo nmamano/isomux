@@ -5,7 +5,8 @@
 import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
-  "browser.offerHelp": "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
+  "browser.offerHelp":
+    "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
   "browser.allAgents": "Tots",
   "browser.agent": "Agent",
   "browser.expiry": "El control caduca",
@@ -21,22 +22,29 @@ export const ca: Catalog = {
   "browser.offering": "S’està oferint la pestanya a {name}…",
   "browser.revoking": "S’està desactivant el control de {name}…",
   "browser.tabIneligible": "Obre una pestanya HTTP(S) per permetre el control.",
-  "browser.tabConflict": "Aquest agent ja té una pestanya. Desactiva-la primer.",
+  "browser.tabConflict":
+    "Aquest agent ja té una pestanya. Desactiva-la primer.",
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
-  "browser.intro": "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
-  "browser.chromeHelp": "Els agents utilitzen Chrome en aquest ordinador. Instal·la i vincula l’extensió a continuació.",
+  "browser.intro":
+    "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
+  "browser.chromeHelp":
+    "Els agents utilitzen Chrome en aquest ordinador. Instal·la i vincula l’extensió a continuació.",
   "browser.setup": "Configura Chrome",
   "browser.extract": "Extreu el ZIP.",
-  "browser.extensions": "Obre chrome://extensions a Chrome i activa el mode de desenvolupador.",
-  "browser.load": "Selecciona Carrega sense comprimir i tria la carpeta extreta.",
+  "browser.extensions":
+    "Obre chrome://extensions a Chrome i activa el mode de desenvolupador.",
+  "browser.load":
+    "Selecciona Carrega sense comprimir i tria la carpeta extreta.",
   "browser.pin": "Fixa Isomux Browser a la barra d’eines.",
-  "browser.finish": "Crea un codi a continuació, obre Isomux Browser i introdueix l’adreça de l’oficina i el codi.",
+  "browser.finish":
+    "Crea un codi a continuació, obre Isomux Browser i introdueix l’adreça de l’oficina i el codi.",
   "browser.connection": "Connexió",
   "browser.show": "Mostra",
   "browser.hide": "Amaga",
   "browser.owner": "Propietari del navegador: {name}",
-  "browser.ownership": "Els agents fan servir el navegador del seu responsable i només les pestanyes que se’ls ofereixen.",
+  "browser.ownership":
+    "Els agents fan servir el navegador del seu responsable i només les pestanyes que se’ls ofereixen.",
   "browser.paired": "Vinculat",
   "browser.unpaired": "Sense vincular",
   "browser.offline": "Sense connexió",

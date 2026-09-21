@@ -31,11 +31,16 @@ export function browserExtensionTransport(
       );
     },
   };
-  const assignment = connection.assign(agentId, {
-    send: (message) => {
-      if (!closed) transport.onmessage?.(message);
+  const assignment = connection.assign(
+    agentId,
+    {
+      send: (message) => {
+        if (!closed) transport.onmessage?.(message);
+      },
+      close: () => transport.close(),
     },
-    close: () => transport.close(),
-  }, retainGrant, target);
+    retainGrant,
+    target,
+  );
   return transport;
 }

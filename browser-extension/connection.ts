@@ -16,8 +16,13 @@ function revealCode(reveal: boolean) {
   codeVisibility.setAttribute("aria-pressed", String(reveal));
 }
 revealCode(false);
-codeVisibility.addEventListener("click", () => revealCode(code.type === "password"));
-const [invocationTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+codeVisibility.addEventListener("click", () =>
+  revealCode(code.type === "password"),
+);
+const [invocationTab] = await chrome.tabs.query({
+  active: true,
+  currentWindow: true,
+});
 const labels: Record<string, PlainMessageKey> = {
   "office-heading": "browser.officeSection",
   "agent-heading": "browser.agent",
@@ -41,7 +46,8 @@ const labels: Record<string, PlainMessageKey> = {
 for (const [id, key] of Object.entries(labels))
   element(id).textContent = t(key);
 let state: ExtensionUIState & { generation?: string };
-let busy = false, showPair = false;
+let busy = false,
+  showPair = false;
 const picker = element("agent") as HTMLSelectElement;
 const toggle = element("allow") as HTMLInputElement;
 const expiry = element("expiry") as HTMLSelectElement;
@@ -51,7 +57,10 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   if (action !== "state") element("error").textContent = "";
   try {
     if (action === "offer") {
-      const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const [active] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
       if (active?.id !== invocationTab?.id) throw new Error();
     }
     const result = (await chrome.runtime.sendMessage({
@@ -74,7 +83,7 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
   }
 }
 function render(next: typeof state) {
-  const previous = state?.assignments.find(a => a.current);
+  const previous = state?.assignments.find((a) => a.current);
   state = next;
   element("status").dataset.state = state.state;
   element("status").textContent = t(`browser.${state.state}`);
@@ -84,7 +93,8 @@ function render(next: typeof state) {
   element("office-display").textContent = state.office;
   if (!office.value) office.value = state.office;
   const pairForm = element("pair-form");
-  const pairHidden = !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
+  const pairHidden =
+    !showPair && !["unpaired", "blocked", "unknown"].includes(state.state);
   if (pairForm.hidden !== pairHidden) revealCode(false);
   pairForm.hidden = pairHidden;
   element("replace").hidden = !element("pair-form").hidden;
@@ -101,10 +111,21 @@ function render(next: typeof state) {
   if (current) expiry.value = String(current.durationMinutes);
   else if (previous) expiry.value = "0";
   expiry.disabled = !!current || busy || state.state !== "connected";
-  element("expiry-state").textContent = current && current.phase !== "offering"
-    ? current.expiresAt === null ? t("browser.expiryNeverActive") :
-      t("browser.expiresAt", { time: new Date(current.expiresAt).toLocaleString() }) : "";
-  const selected = current ? current.scope.kind === "all" ? "all" : current.scope.agentId : previous ? "all" : picker.value || "all";
+  element("expiry-state").textContent =
+    current && current.phase !== "offering"
+      ? current.expiresAt === null
+        ? t("browser.expiryNeverActive")
+        : t("browser.expiresAt", {
+            time: new Date(current.expiresAt).toLocaleString(),
+          })
+      : "";
+  const selected = current
+    ? current.scope.kind === "all"
+      ? "all"
+      : current.scope.agentId
+    : previous
+      ? "all"
+      : picker.value || "all";
   picker.replaceChildren();
   const all = document.createElement("option");
   all.value = "all";
@@ -122,16 +143,42 @@ function render(next: typeof state) {
     option.textContent = current.agent.name;
     picker.append(option);
   }
-  if ([...picker.options].some((option) => option.value === selected)) picker.value = selected;
+  if ([...picker.options].some((option) => option.value === selected))
+    picker.value = selected;
   picker.disabled = !!current || busy || state.state !== "connected";
-  const conflict = state.assignments.some((a) => a.scope.kind === "agent" && a.scope.agentId === picker.value && !a.current);
+  const conflict = state.assignments.some(
+    (a) =>
+      a.scope.kind === "agent" &&
+      a.scope.agentId === picker.value &&
+      !a.current,
+  );
   toggle.checked = !!current && current.phase !== "revoking";
-  toggle.disabled = current ? current.phase === "revoking" :
-    busy || state.state !== "connected" || !state.currentTab?.eligible || !picker.value || conflict;
+  toggle.disabled = current
+    ? current.phase === "revoking"
+    : busy ||
+      state.state !== "connected" ||
+      !state.currentTab?.eligible ||
+      !picker.value ||
+      conflict;
   element("tab-state").textContent = current
-    ? t(current.phase === "on" ? "browser.assigned" : current.phase === "offering" ? "browser.offering" : "browser.revoking", { name: current.scope.kind === "all" ? t("browser.allAgents") : current.agent!.name })
-    : !state.currentTab?.eligible ? t("browser.tabIneligible")
-      : conflict ? t("browser.tabConflict") : "";
+    ? t(
+        current.phase === "on"
+          ? "browser.assigned"
+          : current.phase === "offering"
+            ? "browser.offering"
+            : "browser.revoking",
+        {
+          name:
+            current.scope.kind === "all"
+              ? t("browser.allAgents")
+              : current.agent!.name,
+        },
+      )
+    : !state.currentTab?.eligible
+      ? t("browser.tabIneligible")
+      : conflict
+        ? t("browser.tabConflict")
+        : "";
 }
 element("replace").addEventListener("click", () => {
   revealCode(false);
@@ -149,11 +196,22 @@ picker.addEventListener("change", () => render(state));
 toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
-  else void command("offer", { scope: picker.value === "all" ? { kind: "all" } : { kind: "agent", agentId: picker.value }, tabId: state.currentTab?.id, durationMinutes: Number(expiry.value) });
+  else
+    void command("offer", {
+      scope:
+        picker.value === "all"
+          ? { kind: "all" }
+          : { kind: "agent", agentId: picker.value },
+      tabId: state.currentTab?.id,
+      durationMinutes: Number(expiry.value),
+    });
   picker.disabled = true;
   toggle.disabled = true;
   expiry.disabled = true;
 });
 void command("state");
 const poll = setInterval(() => void command("state"), 1000);
-window.addEventListener("pagehide", () => { revealCode(false); clearInterval(poll); });
+window.addEventListener("pagehide", () => {
+  revealCode(false);
+  clearInterval(poll);
+});

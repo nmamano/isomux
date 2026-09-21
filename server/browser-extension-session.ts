@@ -1,4 +1,8 @@
-import { BrowserUploadError, readBrowserUpload, type UploadedFile } from "./browser-upload";
+import {
+  BrowserUploadError,
+  readBrowserUpload,
+  type UploadedFile,
+} from "./browser-upload";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
 import { browserExtensionTransport } from "./browser-extension-transport";
@@ -38,15 +42,22 @@ const ended = () =>
     "browser_control_ended",
     "Browser control ended; pending outcomes may be unknown",
   );
-const timeoutResult = (recovering = false) => failure("action_timeout", recovering
-  ? "The previous browser action is still settling; its outcome may be unknown. Control remains on. Inspect the page after it settles before retrying."
-  : "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.");
+const timeoutResult = (recovering = false) =>
+  failure(
+    "action_timeout",
+    recovering
+      ? "The previous browser action is still settling; its outcome may be unknown. Control remains on. Inspect the page after it settles before retrying."
+      : "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.",
+  );
 const SETTLEMENT_GRACE_MS = 1000;
 
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
   private queues = new Map<string, Promise<unknown>>();
-  private recovering = new Map<string, { connection: ExtensionConnection; grant: string; done: Promise<void> }>();
+  private recovering = new Map<
+    string,
+    { connection: ExtensionConnection; grant: string; done: Promise<void> }
+  >();
   constructor(
     private service: BrowserExtensionService,
     private owner: (agent: string) => string | undefined,
@@ -66,30 +77,53 @@ export class ExtensionBrowserSessions {
     const params = parseBrowserParams(body);
     if (!params.ok) return Promise.resolve(params);
     const member = this.owner(agent);
-    const queuedConnection = member ? this.service.bridge.forMember(member) : undefined;
+    const queuedConnection = member
+      ? this.service.bridge.forMember(member)
+      : undefined;
     if (params.action === "tabs") {
-      if (!member || !this.service.store.record(member).hash) return Promise.resolve(failure("browser_not_paired", "No Chrome browser is paired"));
+      if (!member || !this.service.store.record(member).hash)
+        return Promise.resolve(
+          failure("browser_not_paired", "No Chrome browser is paired"),
+        );
       if (!this.mayUse(member, agent)) return Promise.resolve(ended());
-      if (!queuedConnection) return Promise.resolve(failure("browser_offline", "The Chrome browser is offline"));
-      return Promise.resolve({ ok: true, url: "", title: "", tabs: queuedConnection.targets(agent) });
+      if (!queuedConnection)
+        return Promise.resolve(
+          failure("browser_offline", "The Chrome browser is offline"),
+        );
+      return Promise.resolve({
+        ok: true,
+        url: "",
+        title: "",
+        tabs: queuedConnection.targets(agent),
+      });
     }
-    if (!params.target && queuedConnection?.ambiguous(agent)) return Promise.resolve(failure("browser_target_required", 'Several tabs are offered. Use action "tabs", then pass the chosen target with the browser action.'));
+    if (!params.target && queuedConnection?.ambiguous(agent))
+      return Promise.resolve(
+        failure(
+          "browser_target_required",
+          'Several tabs are offered. Use action "tabs", then pass the chosen target with the browser action.',
+        ),
+      );
     const queuedGrant = queuedConnection?.offered(agent, params.target);
-    const key = queuedConnection && queuedGrant ? `${queuedConnection.generation}:${queuedGrant}` : agent;
+    const key =
+      queuedConnection && queuedGrant
+        ? `${queuedConnection.generation}:${queuedGrant}`
+        : agent;
     const previous = this.queues.get(key) ?? Promise.resolve();
     const work = previous
       .catch(() => {})
       .then(async (): Promise<BrowserResult> => {
+        if (this.owner(agent) !== member) return ended();
+        if (!member)
+          return params.action === "close"
+            ? { ok: true, url: "", title: "", closed: true }
+            : failure("browser_not_paired", "No Chrome browser is paired");
+        if (!this.mayUse(member, agent)) return ended();
         if (
-          this.owner(agent) !== member
+          this.service.bridge.forMember(member) !== queuedConnection ||
+          queuedConnection?.offered(agent, params.target) !== queuedGrant
         )
           return ended();
-        if (!member) return params.action === "close"
-          ? { ok: true, url: "", title: "", closed: true }
-          : failure("browser_not_paired", "No Chrome browser is paired");
-        if (!this.mayUse(member, agent)) return ended();
-        if ((this.service.bridge.forMember(member) !== queuedConnection ||
-            queuedConnection?.offered(agent, params.target) !== queuedGrant)) return ended();
         return this.extensionAction(member, agent, body, key);
       });
     this.queues.set(key, work);
@@ -123,19 +157,27 @@ export class ExtensionBrowserSessions {
       session = undefined;
     }
     const grant = connection.offered(agent, params.target);
-    if (!grant) return failure("browser_control_ended", "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control");
+    if (!grant)
+      return failure(
+        "browser_control_ended",
+        "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
+      );
     if (params.action === "close") {
       this.end(key);
       connection.revoke(agent, params.target);
       return { ok: true, url: "", title: "", closed: true };
     }
     const prior = this.recovering.get(key);
-    if (prior?.connection === connection && prior.grant === grant) return timeoutResult(true);
+    if (prior?.connection === connection && prior.grant === grant)
+      return timeoutResult(true);
     if (connection.pendingCount(grant)) {
       let drainTimer: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([connection.drain(grant), new Promise<void>(resolve => {
-        drainTimer = setTimeout(resolve, SETTLEMENT_GRACE_MS);
-      })]);
+      await Promise.race([
+        connection.drain(grant),
+        new Promise<void>((resolve) => {
+          drainTimer = setTimeout(resolve, SETTLEMENT_GRACE_MS);
+        }),
+      ]);
       clearTimeout(drainTimer);
       if (connection.pendingCount(grant)) return timeoutResult(true);
     }
@@ -149,22 +191,35 @@ export class ExtensionBrowserSessions {
     }
     const started = performance.now();
     let operationSettled = false;
-    const diagnostic = (reason: string) => console.info("[browser-extension] " + JSON.stringify({
-      reason, action: params.action, elapsedMs: Math.round(performance.now() - started),
-      generation: connection.generation, assignment: grant,
-      pending: connection.pendingCount(grant), operationSettled,
-    }));
+    const diagnostic = (reason: string) =>
+      console.info(
+        "[browser-extension] " +
+          JSON.stringify({
+            reason,
+            action: params.action,
+            elapsedMs: Math.round(performance.now() - started),
+            generation: connection.generation,
+            assignment: grant,
+            pending: connection.pendingCount(grant),
+            operationSettled,
+          }),
+      );
     let timer: ReturnType<typeof setTimeout> | undefined;
     let transport: ReturnType<typeof browserExtensionTransport> | undefined;
     let timedOut = false;
     let timeoutWinner = "client_closed";
     let interrupt!: (result: BrowserResult) => void;
-    const interrupted = new Promise<BrowserResult>(resolve => { interrupt = resolve; });
+    const interrupted = new Promise<BrowserResult>((resolve) => {
+      interrupt = resolve;
+    });
     let watched: AbortSignal | undefined;
     const onEnd = () => {
       timedOut = true;
       if (valid()) interrupt(timeoutResult(true));
-      else { this.end(key); interrupt(ended()); }
+      else {
+        this.end(key);
+        interrupt(ended());
+      }
     };
     const watchEnd = (signal: AbortSignal) => {
       watched = signal;
@@ -179,7 +234,12 @@ export class ExtensionBrowserSessions {
     if (session) watchEnd(session.signal);
     const task = async (): Promise<BrowserResult> => {
       if (!session) {
-        transport = browserExtensionTransport(connection, agent, true, params.target);
+        transport = browserExtensionTransport(
+          connection,
+          agent,
+          true,
+          params.target,
+        );
         watchEnd(transport.signal);
         const browser = await chromium.connectOverCDP(transport, {
           noDefaults: true,
@@ -191,7 +251,10 @@ export class ExtensionBrowserSessions {
         }
         const context = browser.contexts()[0];
         const page = context.pages()[0];
-        if (!page) { await browser.close(); return ended(); }
+        if (!page) {
+          await browser.close();
+          return ended();
+        }
         session = {
           actor: agent,
           member,
@@ -230,12 +293,17 @@ export class ExtensionBrowserSessions {
           }
         });
       }
-      if (!valid()) { this.end(key); return ended(); }
+      if (!valid()) {
+        this.end(key);
+        return ended();
+      }
       if (timedOut) return timeoutResult(true);
       const timeout = actionMs;
       const page = session.page;
       const element = params.framePath
-        ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(params.selector!)
+        ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(
+            params.selector!,
+          )
         : undefined;
       let uploaded: UploadedFile | undefined;
       switch (params.action) {
@@ -258,8 +326,15 @@ export class ExtensionBrowserSessions {
           const file = await readBrowserUpload(params.path!);
           if (!valid()) return ended();
           if (timedOut) return timeoutResult(true);
-          await (element ?? page.locator(params.selector!)).setInputFiles(file, { timeout });
-          uploaded = { name: file.name, mimeType: file.mimeType, size: file.buffer.length };
+          await (element ?? page.locator(params.selector!)).setInputFiles(
+            file,
+            { timeout },
+          );
+          uploaded = {
+            name: file.name,
+            mimeType: file.mimeType,
+            size: file.buffer.length,
+          };
           break;
         }
         case "press":
@@ -273,15 +348,27 @@ export class ExtensionBrowserSessions {
       const current = session.page;
       const result: BrowserResult = {
         ok: true,
-        target: connection.targets(agent).find(t => connection.offered(agent, t.target) === grant)?.target,
+        target: connection
+          .targets(agent)
+          .find((t) => connection.offered(agent, t.target) === grant)?.target,
         url: current.url(),
         title: await current.title(),
         ...(uploaded ? { uploaded } : {}),
       };
       if (params.action === "text")
-        result.text = await readBrowserFrames(current.mainFrame(), "text", MAX_TEXT_CHARS, timeout);
+        result.text = await readBrowserFrames(
+          current.mainFrame(),
+          "text",
+          MAX_TEXT_CHARS,
+          timeout,
+        );
       if (params.action === "snapshot")
-        result.snapshot = await readBrowserFrames(current.mainFrame(), "snapshot", MAX_SNAPSHOT_CHARS, timeout);
+        result.snapshot = await readBrowserFrames(
+          current.mainFrame(),
+          "snapshot",
+          MAX_SNAPSHOT_CHARS,
+          timeout,
+        );
       if (params.action === "screenshot") {
         result.png = await current.screenshot({
           fullPage: params.fullPage === true,
@@ -289,26 +376,42 @@ export class ExtensionBrowserSessions {
         });
         Object.assign(result, describeShot(current.url()));
       }
-      if (!valid()) { this.end(key); return ended(); }
+      if (!valid()) {
+        this.end(key);
+        return ended();
+      }
       if (timedOut) return timeoutResult(true);
       return result;
     };
     // The action promise can reject before Chrome finishes the underlying CDP
     // command. Keep that work fenced independently of the caller's response.
-    const operation = task().finally(() => { operationSettled = true; });
+    const operation = task().finally(() => {
+      operationSettled = true;
+    });
     const settleTimeout = async (winner: string): Promise<BrowserResult> => {
       if (!valid()) return ended();
       timedOut = true;
       diagnostic(winner);
-      const stop = params.action === "goto" ? connection.stopLoading(grant).catch(() => {}) : Promise.resolve();
+      const stop =
+        params.action === "goto"
+          ? connection.stopLoading(grant).catch(() => {})
+          : Promise.resolve();
       const recovery = { connection, grant, done: Promise.resolve() };
       this.recovering.set(key, recovery);
-      recovery.done = Promise.all([operation.catch(() => {}), stop]).then(() => connection.drain(grant)).then(() => {
-        diagnostic("drain_completed");
-        if (this.recovering.get(key) === recovery) this.recovering.delete(key);
-      });
+      recovery.done = Promise.all([operation.catch(() => {}), stop])
+        .then(() => connection.drain(grant))
+        .then(() => {
+          diagnostic("drain_completed");
+          if (this.recovering.get(key) === recovery)
+            this.recovering.delete(key);
+        });
       let grace: ReturnType<typeof setTimeout> | undefined;
-      await Promise.race([recovery.done, new Promise<void>(resolve => { grace = setTimeout(resolve, SETTLEMENT_GRACE_MS); })]);
+      await Promise.race([
+        recovery.done,
+        new Promise<void>((resolve) => {
+          grace = setTimeout(resolve, SETTLEMENT_GRACE_MS);
+        }),
+      ]);
       clearTimeout(grace);
       if (!valid()) return ended();
       const busy = this.recovering.get(key) === recovery;
@@ -327,16 +430,25 @@ export class ExtensionBrowserSessions {
           }, actionMs + SETTLEMENT_GRACE_MS);
         }),
       ]);
-      if (!result.ok && result.code === "action_timeout") return await settleTimeout(timeoutWinner);
+      if (!result.ok && result.code === "action_timeout")
+        return await settleTimeout(timeoutWinner);
       return result;
     } catch (error) {
       if (!valid()) return ended();
-      if ((error instanceof Error && error.name === "TimeoutError") || connection.pendingTimedOut(grant))
+      if (
+        (error instanceof Error && error.name === "TimeoutError") ||
+        connection.pendingTimedOut(grant)
+      )
         return await settleTimeout("operation_timeout");
       if (!session) transport?.close();
       if (session && !session.browser.isConnected()) return ended();
       if (error instanceof BrowserUploadError)
-        return { ok: false, status: 400, code: "invalid_request", error: error.message };
+        return {
+          ok: false,
+          status: 400,
+          code: "invalid_request",
+          error: error.message,
+        };
       return failure("action_failed", "The Chrome browser action failed");
     } finally {
       watched?.removeEventListener("abort", onEnd);

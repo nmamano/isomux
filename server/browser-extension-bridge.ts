@@ -142,17 +142,30 @@ export class ExtensionConnection {
   ): { receive(message: unknown): Promise<void>; close(): void } {
     const id = this.offered(agentId, target);
     const assignment = id ? this.assignments.get(id) : undefined;
-    if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected || this.pendingCount(assignment.id))
-      throw new Error("Offer a tab with Allow agent control in the Chrome extension popup");
+    if (
+      !this.active ||
+      !this.authorize(agentId) ||
+      !assignment?.target ||
+      assignment.connected ||
+      this.pendingCount(assignment.id)
+    )
+      throw new Error(
+        "Offer a tab with Allow agent control in the Chrome extension popup",
+      );
     this.check(assignment);
     assignment.peer = peer;
     assignment.connected = true;
     assignment.announced = false;
     return {
-      receive: (message) => assignment.peer === peer && assignment.connected
-        ? this.dispatch(assignment, message, agentId, peer) : Promise.resolve(),
+      receive: (message) =>
+        assignment.peer === peer && assignment.connected
+          ? this.dispatch(assignment, message, agentId, peer)
+          : Promise.resolve(),
       close: () => {
-        if (!retainGrant) { this.release(assignment); return; }
+        if (!retainGrant) {
+          this.release(assignment);
+          return;
+        }
         if (assignment.peer !== peer) return;
         assignment.connected = false;
         assignment.peer = { send() {}, close() {} };
@@ -161,32 +174,60 @@ export class ExtensionConnection {
   }
 
   private accessible(a: Assignment, agent: string): boolean {
-    return this.active && this.ownerValid() && this.authorize(agent) &&
-      (a.scope.kind === "all" || a.scope.agentId === agent);
+    return (
+      this.active &&
+      this.ownerValid() &&
+      this.authorize(agent) &&
+      (a.scope.kind === "all" || a.scope.agentId === agent)
+    );
   }
 
-  targets(agent: string): { target: string; scope: BrowserGrantScope; title: string; url: string }[] {
+  targets(
+    agent: string,
+  ): {
+    target: string;
+    scope: BrowserGrantScope;
+    title: string;
+    url: string;
+  }[] {
     const result = [];
     for (const a of this.assignments.values()) {
-      if (this.expired(a)) { this.release(a); continue; }
+      if (this.expired(a)) {
+        this.release(a);
+        continue;
+      }
       if (!a.target || !this.accessible(a, agent)) continue;
-      const page = [...a.popups.values()].find(t => t.targetId === a.leafTargetId) ?? a.target;
-      result.push({ target: a.handle, scope: a.scope, title: typeof page.title === "string" ? page.title : "",
-        url: typeof page.url === "string" ? page.url : "" });
+      const page =
+        [...a.popups.values()].find((t) => t.targetId === a.leafTargetId) ??
+        a.target;
+      result.push({
+        target: a.handle,
+        scope: a.scope,
+        title: typeof page.title === "string" ? page.title : "",
+        url: typeof page.url === "string" ? page.url : "",
+      });
     }
     return result;
   }
 
   offered(agentId: string, target?: string): string | undefined {
     const available = this.targets(agentId);
-    const chosen = target !== undefined ? available.find(a => a.target === target) :
-      available.find(a => a.scope.kind === "agent") ?? (available.length === 1 ? available[0] : undefined);
-    return chosen ? [...this.assignments.values()].find(a => a.handle === chosen.target)?.id : undefined;
+    const chosen =
+      target !== undefined
+        ? available.find((a) => a.target === target)
+        : (available.find((a) => a.scope.kind === "agent") ??
+          (available.length === 1 ? available[0] : undefined));
+    return chosen
+      ? [...this.assignments.values()].find((a) => a.handle === chosen.target)
+          ?.id
+      : undefined;
   }
 
   ambiguous(agent: string): boolean {
     const available = this.targets(agent);
-    return !available.some(a => a.scope.kind === "agent") && available.length > 1;
+    return (
+      !available.some((a) => a.scope.kind === "agent") && available.length > 1
+    );
   }
 
   revoke(agentId: string, target?: string): void {
@@ -196,41 +237,91 @@ export class ExtensionConnection {
   }
 
   private authorized(a: Assignment): boolean {
-    return this.ownerValid() && (a.scope.kind === "all" || this.authorize(a.scope.agentId));
+    return (
+      this.ownerValid() &&
+      (a.scope.kind === "all" || this.authorize(a.scope.agentId))
+    );
   }
 
-  private async offer(id: string, scope: BrowserGrantScope, durationMinutes: BrowserGrantDuration): Promise<void> {
-    if (!this.ownerValid() || (scope.kind === "agent" && !this.authorize(scope.agentId)) || this.assignments.has(id) ||
-        (scope.kind === "agent" && [...this.assignments.values()].some((a) => a.scope.kind === "agent" && a.scope.agentId === scope.agentId))) {
-      this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
+  private async offer(
+    id: string,
+    scope: BrowserGrantScope,
+    durationMinutes: BrowserGrantDuration,
+  ): Promise<void> {
+    if (
+      !this.ownerValid() ||
+      (scope.kind === "agent" && !this.authorize(scope.agentId)) ||
+      this.assignments.has(id) ||
+      (scope.kind === "agent" &&
+        [...this.assignments.values()].some(
+          (a) => a.scope.kind === "agent" && a.scope.agentId === scope.agentId,
+        ))
+    ) {
+      this.peer.send({
+        kind: "offered",
+        generation: this.generation,
+        assignment: id,
+        error: true,
+      });
       return;
     }
     const a: Assignment = {
-      durationMinutes, expiresAt: null,
-      id, scope, handle: crypto.randomUUID(), session: crypto.randomUUID(), browserSession: crypto.randomUUID(),
-      peer: { send() {}, close() {} }, children: new Map(), popups: new Map(),
-      creating: true, connected: false, announced: false, closed: false,
+      durationMinutes,
+      expiresAt: null,
+      id,
+      scope,
+      handle: crypto.randomUUID(),
+      session: crypto.randomUUID(),
+      browserSession: crypto.randomUUID(),
+      peer: { send() {}, close() {} },
+      children: new Map(),
+      popups: new Map(),
+      creating: true,
+      connected: false,
+      announced: false,
+      closed: false,
     };
     this.assignments.set(id, a);
     try {
       const result = await this.request(a, "attach", {});
       this.check(a);
       const target = fields(result.targetInfo);
-      if (target.type !== "page" || typeof target.targetId !== "string" ||
-          typeof target.url !== "string" || !/^https?:\/\//.test(target.url) || this.knownTarget(target.targetId))
+      if (
+        target.type !== "page" ||
+        typeof target.targetId !== "string" ||
+        typeof target.url !== "string" ||
+        !/^https?:\/\//.test(target.url) ||
+        this.knownTarget(target.targetId)
+      )
         throw new Error("Invalid offered target");
       a.target = target;
       a.creating = false;
-      a.expiresAt = durationMinutes === 0 ? null : this.clock.now() + durationMinutes * 60_000;
-      if (a.expiresAt !== null) a.cancelExpiry = this.clock.schedule(() => {
-        if (this.assignments.get(id) === a) this.release(a);
-      }, durationMinutes * 60_000);
-      this.peer.send({ kind: "offered", generation: this.generation, assignment: id,
-        scope, durationMinutes, expiresAt: a.expiresAt });
+      a.expiresAt =
+        durationMinutes === 0
+          ? null
+          : this.clock.now() + durationMinutes * 60_000;
+      if (a.expiresAt !== null)
+        a.cancelExpiry = this.clock.schedule(() => {
+          if (this.assignments.get(id) === a) this.release(a);
+        }, durationMinutes * 60_000);
+      this.peer.send({
+        kind: "offered",
+        generation: this.generation,
+        assignment: id,
+        scope,
+        durationMinutes,
+        expiresAt: a.expiresAt,
+      });
       this.sendMetadata();
     } catch {
       this.release(a);
-      if (this.active) this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
+      if (this.active)
+        this.peer.send({
+          kind: "offered",
+          generation: this.generation,
+          assignment: id,
+          error: true,
+        });
     }
   }
 
@@ -246,10 +337,20 @@ export class ExtensionConnection {
       kind: "metadata",
       generation: this.generation,
       member: this.memberDisplay(),
-      agents: this.agents().filter((agent) => this.authorize(agent)).map((agent) => this.agentDisplay!(agent)),
+      agents: this.agents()
+        .filter((agent) => this.authorize(agent))
+        .map((agent) => this.agentDisplay!(agent)),
       assignments: [...this.assignments.values()]
         .filter((a) => a.target && this.authorized(a))
-        .map((a) => ({ id: a.id, scope: a.scope, ...(a.scope.kind === "agent" ? { agent: this.agentDisplay!(a.scope.agentId) } : {}), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt })),
+        .map((a) => ({
+          id: a.id,
+          scope: a.scope,
+          ...(a.scope.kind === "agent"
+            ? { agent: this.agentDisplay!(a.scope.agentId) }
+            : {}),
+          durationMinutes: a.durationMinutes,
+          expiresAt: a.expiresAt,
+        })),
     });
   }
 
@@ -274,22 +375,34 @@ export class ExtensionConnection {
     const a = this.assignments.get(grant);
     if (!a) throw new Error("Browser control ended");
     this.check(a);
-    const popup = [...a.popups].find(([, target]) => target.targetId === a.leafTargetId);
-    await this.request(a, "cdp", { method: "Page.stopLoading", params: {},
-      sessionId: popup?.[0] });
+    const popup = [...a.popups].find(
+      ([, target]) => target.targetId === a.leafTargetId,
+    );
+    await this.request(a, "cdp", {
+      method: "Page.stopLoading",
+      params: {},
+      sessionId: popup?.[0],
+    });
   }
 
   pendingCount(grant: string): number {
-    return [...this.pending.values()].filter(p => p.assignment === grant).length;
+    return [...this.pending.values()].filter((p) => p.assignment === grant)
+      .length;
   }
 
   pendingTimedOut(grant: string): boolean {
-    return [...this.pending.values()].some(p => p.assignment === grant && p.timedOut);
+    return [...this.pending.values()].some(
+      (p) => p.assignment === grant && p.timedOut,
+    );
   }
 
   async drain(grant: string): Promise<void> {
     while (this.pendingCount(grant))
-      await Promise.all([...this.pending.values()].filter(p => p.assignment === grant).map(p => p.done));
+      await Promise.all(
+        [...this.pending.values()]
+          .filter((p) => p.assignment === grant)
+          .map((p) => p.done),
+      );
   }
 
   private request(
@@ -301,17 +414,30 @@ export class ExtensionConnection {
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       let settled!: () => void;
-      const done = new Promise<void>(r => { settled = r; });
+      const done = new Promise<void>((r) => {
+        settled = r;
+      });
       const timer = setTimeout(() => {
         const pending = this.pending.get(id);
         if (!pending) return;
-        if (method === "attach") { this.release(a); return; }
+        if (method === "attach") {
+          this.release(a);
+          return;
+        }
         // A timeout is not evidence of socket loss. Retain this entry until the
         // real response or ownership loss, so the next action cannot overtake it.
         pending.timedOut = true;
         reject(new Error("Browser command timed out"));
       }, 30_000);
-      this.pending.set(id, { assignment: a.id, resolve, reject, timer, done, settled, timedOut: false });
+      this.pending.set(id, {
+        assignment: a.id,
+        resolve,
+        reject,
+        timer,
+        done,
+        settled,
+        timedOut: false,
+      });
       try {
         this.peer.send({
           kind: "command",
@@ -342,12 +468,20 @@ export class ExtensionConnection {
       const msg = fields(message);
       if (msg.generation !== this.generation) return;
       if (msg.kind === "offer") {
-        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || !validGrantScope(msg.scope) || !validGrantDuration(msg.durationMinutes))
+        if (
+          typeof msg.assignment !== "string" ||
+          !/^[a-f0-9-]{36}$/.test(msg.assignment) ||
+          !validGrantScope(msg.scope) ||
+          !validGrantDuration(msg.durationMinutes)
+        )
           throw new Error("Invalid offer");
         void this.offer(msg.assignment, msg.scope, msg.durationMinutes);
         return;
       }
-      if (msg.kind === "agents") { this.revalidate(); return; }
+      if (msg.kind === "agents") {
+        this.revalidate();
+        return;
+      }
       if (msg.kind === "result" && typeof msg.id === "number") {
         const pending = this.pending.get(msg.id);
         if (!pending) return;
@@ -466,7 +600,12 @@ export class ExtensionConnection {
     }
   }
 
-  private async dispatch(a: Assignment, message: unknown, actor: string, peer: BridgePeer): Promise<void> {
+  private async dispatch(
+    a: Assignment,
+    message: unknown,
+    actor: string,
+    peer: BridgePeer,
+  ): Promise<void> {
     let msg: Fields;
     try {
       msg = fields(message);
@@ -481,7 +620,8 @@ export class ExtensionConnection {
     }
     try {
       this.check(a);
-      if (a.peer !== peer || !this.accessible(a, actor)) throw new Error("Browser control ended");
+      if (a.peer !== peer || !this.accessible(a, actor))
+        throw new Error("Browser control ended");
       const result = await this.command(
         a,
         method,
@@ -523,12 +663,23 @@ export class ExtensionConnection {
         case "Target.setAutoAttach":
           if (a.target && !a.announced) {
             a.announced = true;
-            a.peer.send({ method: "Target.attachedToTarget", params: {
-              sessionId: a.session, targetInfo: { ...a.target, attached: true }, waitingForDebugger: false,
-            } });
-            for (const [sessionId, target] of a.popups) a.peer.send({ method: "Target.attachedToTarget", params: {
-              sessionId, targetInfo: { ...target, attached: true }, waitingForDebugger: false,
-            } });
+            a.peer.send({
+              method: "Target.attachedToTarget",
+              params: {
+                sessionId: a.session,
+                targetInfo: { ...a.target, attached: true },
+                waitingForDebugger: false,
+              },
+            });
+            for (const [sessionId, target] of a.popups)
+              a.peer.send({
+                method: "Target.attachedToTarget",
+                params: {
+                  sessionId,
+                  targetInfo: { ...target, attached: true },
+                  waitingForDebugger: false,
+                },
+              });
           }
           return {};
         case "Target.getTargets":
@@ -574,8 +725,16 @@ export class ExtensionConnection {
 
   private release(a: Assignment): void {
     if (a.closed) return;
-    console.info("[browser-extension] " + JSON.stringify({ reason: "grant_released", generation: this.generation,
-      assignment: a.id, controlSession: a.session, pending: this.pendingCount(a.id) }));
+    console.info(
+      "[browser-extension] " +
+        JSON.stringify({
+          reason: "grant_released",
+          generation: this.generation,
+          assignment: a.id,
+          controlSession: a.session,
+          pending: this.pendingCount(a.id),
+        }),
+    );
     a.closed = true;
     a.cancelExpiry?.();
     this.assignments.delete(a.id);

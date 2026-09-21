@@ -63,42 +63,76 @@ function controlledTabs(): Set<number> {
   for (const tab of c.tabs.values()) {
     if (tab.phase !== "on") continue;
     result.add(tab.tabId);
-    for (const popup of tab.popups.values()) if (popup.targetId) result.add(popup.tabId);
+    for (const popup of tab.popups.values())
+      if (popup.targetId) result.add(popup.tabId);
   }
   return result;
 }
 function refreshBadges(): void {
-  badgeWork = badgeWork.catch(() => {}).then(async () => {
-    await chrome.action.setBadgeText({ text: "" });
-    await chrome.action.setBadgeBackgroundColor({ color: current?.generation && !current.closed ? "#207451" : "#6b7280" });
-    await chrome.action.setTitle({ title: t(current?.generation && !current.closed ? "browser.connected" : "browser.offline") });
-    for (const tabId of new Set([...badgeTabs, ...controlledTabs()])) {
-      try {
-        // Read ownership immediately before each write; an earlier await may
-        // have allowed Off, detach or a different connection to retire it.
-        const on = controlledTabs().has(tabId);
-        await chrome.action.setBadgeText({ tabId, text: on ? "ON" : null });
-        if (on) badgeTabs.add(tabId); else badgeTabs.delete(tabId);
-        await chrome.action.setBadgeBackgroundColor({ tabId, color: controlledTabs().has(tabId) ? "#a34c12" : "#6b7280" });
-        await chrome.action.setTitle({ tabId, title: controlledTabs().has(tabId) ? t("browser.control") : "Isomux Browser" });
-      } catch { /* A user may have closed this tab. */ }
-    }
-  });
+  badgeWork = badgeWork
+    .catch(() => {})
+    .then(async () => {
+      await chrome.action.setBadgeText({ text: "" });
+      await chrome.action.setBadgeBackgroundColor({
+        color: current?.generation && !current.closed ? "#207451" : "#6b7280",
+      });
+      await chrome.action.setTitle({
+        title: t(
+          current?.generation && !current.closed
+            ? "browser.connected"
+            : "browser.offline",
+        ),
+      });
+      for (const tabId of new Set([...badgeTabs, ...controlledTabs()])) {
+        try {
+          // Read ownership immediately before each write; an earlier await may
+          // have allowed Off, detach or a different connection to retire it.
+          const on = controlledTabs().has(tabId);
+          await chrome.action.setBadgeText({ tabId, text: on ? "ON" : null });
+          if (on) badgeTabs.add(tabId);
+          else badgeTabs.delete(tabId);
+          await chrome.action.setBadgeBackgroundColor({
+            tabId,
+            color: controlledTabs().has(tabId) ? "#a34c12" : "#6b7280",
+          });
+          await chrome.action.setTitle({
+            tabId,
+            title: controlledTabs().has(tabId)
+              ? t("browser.control")
+              : "Isomux Browser",
+          });
+        } catch {
+          /* A user may have closed this tab. */
+        }
+      }
+    });
 }
 chrome.tabs.onUpdated.addListener((tabId, change) => {
   if (change.status === undefined) return;
   const c = current;
   if (!c || c.closed) return;
-  const tracked = [...c.tabs.values()].some(tab => tab.tabId === tabId ||
-    [...tab.popups.values()].some(popup => popup.tabId === tabId));
+  const tracked = [...c.tabs.values()].some(
+    (tab) =>
+      tab.tabId === tabId ||
+      [...tab.popups.values()].some((popup) => popup.tabId === tabId),
+  );
   if (tracked) refreshBadges();
 });
 async function currentTab(tabId: unknown) {
   if (!Number.isSafeInteger(tabId)) return undefined;
   try {
     const tab = await chrome.tabs.get(tabId as number);
-    return tab.id === tabId ? { id: tab.id!, eligible: /^https?:\/\//.test(tab.url ?? ""), active: tab.active, windowId: tab.windowId } : undefined;
-  } catch { return undefined; }
+    return tab.id === tabId
+      ? {
+          id: tab.id!,
+          eligible: /^https?:\/\//.test(tab.url ?? ""),
+          active: tab.active,
+          windowId: tab.windowId,
+        }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
   const { connection } = await chrome.storage.local.get("connection");
@@ -116,7 +150,7 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
   }
   return {
     currentTab: selected,
-    agents: online ? c.metadata?.agents ?? [] : [],
+    agents: online ? (c.metadata?.agents ?? []) : [],
     office,
     state: online
       ? "connected"
@@ -133,17 +167,34 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
     assignments: online
-      ? [...c.tabs].flatMap(([id, tab]) => tab.scope ? [{
-          id, scope: tab.scope, agent: tab.agent, tabId: tab.tabId, phase: tab.phase ?? "offering",
-          durationMinutes: tab.durationMinutes!, expiresAt: tab.expiresAt ?? null,
-          current: selected?.id === tab.tabId || [...tab.popups.values()].some((p) => p.tabId === selected?.id),
-        }] : []) : [],
+      ? [...c.tabs].flatMap(([id, tab]) =>
+          tab.scope
+            ? [
+                {
+                  id,
+                  scope: tab.scope,
+                  agent: tab.agent,
+                  tabId: tab.tabId,
+                  phase: tab.phase ?? "offering",
+                  durationMinutes: tab.durationMinutes!,
+                  expiresAt: tab.expiresAt ?? null,
+                  current:
+                    selected?.id === tab.tabId ||
+                    [...tab.popups.values()].some(
+                      (p) => p.tabId === selected?.id,
+                    ),
+                },
+              ]
+            : [],
+        )
+      : [],
   };
 }
 async function uiCommand(value: unknown): Promise<ExtensionUIState> {
   const msg = fields(value);
   if (msg.action === "state") {
-    if (current?.generation) send(current, { kind: "agents", generation: current.generation });
+    if (current?.generation)
+      send(current, { kind: "agents", generation: current.generation });
     return uiState(msg.tabId);
   }
   if (msg.action === "pair") {
@@ -183,17 +234,55 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
       check(c);
       const scope = msg.scope;
       if (!validGrantScope(scope)) throw new Error();
-      const agent = scope.kind === "agent" ? c.metadata?.agents.find((a) => a.id === scope.agentId) : undefined;
-      if (!validGrantDuration(msg.durationMinutes) || !selected?.eligible || !selected.active || selected.windowId !== msg.windowId || (scope.kind === "agent" && !agent) ||
-          [...c.tabs.values()].some((tab) => (scope.kind === "agent" && tab.scope?.kind === "agent" && tab.scope.agentId === scope.agentId) || tab.tabId === selected.id ||
-            [...tab.popups.values()].some((popup) => popup.tabId === selected.id))) throw new Error();
+      const agent =
+        scope.kind === "agent"
+          ? c.metadata?.agents.find((a) => a.id === scope.agentId)
+          : undefined;
+      if (
+        !validGrantDuration(msg.durationMinutes) ||
+        !selected?.eligible ||
+        !selected.active ||
+        selected.windowId !== msg.windowId ||
+        (scope.kind === "agent" && !agent) ||
+        [...c.tabs.values()].some(
+          (tab) =>
+            (scope.kind === "agent" &&
+              tab.scope?.kind === "agent" &&
+              tab.scope.agentId === scope.agentId) ||
+            tab.tabId === selected.id ||
+            [...tab.popups.values()].some(
+              (popup) => popup.tabId === selected.id,
+            ),
+        )
+      )
+        throw new Error();
       const id = crypto.randomUUID();
-      const tab: OwnedTab = { tabId: selected.id, scope, agent, durationMinutes: msg.durationMinutes, expiresAt: null, phase: "offering", children: new Set(), popups: new Map() };
+      const tab: OwnedTab = {
+        tabId: selected.id,
+        scope,
+        agent,
+        durationMinutes: msg.durationMinutes,
+        expiresAt: null,
+        phase: "offering",
+        children: new Set(),
+        popups: new Map(),
+      };
       c.tabs.set(id, tab);
       const accepted = await new Promise<boolean>((resolve) => {
-        const timer = setTimeout(() => { close(c); }, 30_000);
-        c.offers.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
-        send(c, { kind: "offer", generation: c.generation, assignment: id, scope, durationMinutes: msg.durationMinutes });
+        const timer = setTimeout(() => {
+          close(c);
+        }, 30_000);
+        c.offers.set(id, (ok) => {
+          clearTimeout(timer);
+          resolve(ok);
+        });
+        send(c, {
+          kind: "offer",
+          generation: c.generation,
+          assignment: id,
+          scope,
+          durationMinutes: msg.durationMinutes,
+        });
       });
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
         await revoke(c, id);
@@ -261,7 +350,13 @@ async function revoke(c: Connection, id: string): Promise<void> {
   c.creating.delete(id);
   c.offers.get(id)?.(false);
   c.offers.delete(id);
-  send(c, { kind: "event", generation: c.generation, assignment: id, method: "detached", params: {} });
+  send(c, {
+    kind: "event",
+    generation: c.generation,
+    assignment: id,
+    method: "detached",
+    params: {},
+  });
   refreshBadges();
   tab.releasing = (async () => {
     await tab.work?.catch(() => {});
@@ -293,7 +388,9 @@ async function detach(tab: OwnedTab): Promise<void> {
   tab.popups.clear();
   try {
     await chrome.debugger.sendCommand(
-      { tabId: tab.tabId }, "Emulation.setFocusEmulationEnabled", { enabled: false },
+      { tabId: tab.tabId },
+      "Emulation.setFocusEmulationEnabled",
+      { enabled: false },
     );
   } catch {}
   try {
@@ -313,7 +410,16 @@ function close(c: Connection): void {
   c.ws.close();
   const retiring = [...c.tabs.values()];
   for (const tab of retiring) tab.phase = "revoking";
-  cleanup = Promise.all([cleanup, ...retiring.map(async (tab) => { if (tab.releasing) await tab.releasing; else { await tab.work?.catch(() => {}); await detach(tab); } })]).then(() => {});
+  cleanup = Promise.all([
+    cleanup,
+    ...retiring.map(async (tab) => {
+      if (tab.releasing) await tab.releasing;
+      else {
+        await tab.work?.catch(() => {});
+        await detach(tab);
+      }
+    }),
+  ]).then(() => {});
   c.tabs.clear();
   c.creating.clear();
   refreshBadges();
@@ -343,25 +449,43 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
       try {
         const tab = await chrome.tabs.get(owned.tabId);
         check(c);
-        if (!/^https?:\/\//.test(tab.url ?? "") || !c.creating.has(id)) throw new Error("Tab is unavailable");
+        if (!/^https?:\/\//.test(tab.url ?? "") || !c.creating.has(id))
+          throw new Error("Tab is unavailable");
         await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        await chrome.debugger.sendCommand({ tabId: owned.tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true });
+        await chrome.debugger.sendCommand(
+          { tabId: owned.tabId },
+          "Emulation.setFocusEmulationEnabled",
+          { enabled: true },
+        );
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        const result = fields(await chrome.debugger.sendCommand({ tabId: owned.tabId }, "Target.getTargetInfo"));
+        const result = fields(
+          await chrome.debugger.sendCommand(
+            { tabId: owned.tabId },
+            "Target.getTargetInfo",
+          ),
+        );
         check(c);
-        if (!c.creating.has(id) || owned.phase !== "offering") throw new Error("Browser control ended");
+        if (!c.creating.has(id) || owned.phase !== "offering")
+          throw new Error("Browser control ended");
         const target = fields(result.targetInfo);
-        if (target.type !== "page" || typeof target.targetId !== "string" || typeof target.url !== "string" || !/^https?:\/\//.test(target.url))
+        if (
+          target.type !== "page" ||
+          typeof target.targetId !== "string" ||
+          typeof target.url !== "string" ||
+          !/^https?:\/\//.test(target.url)
+        )
           throw new Error("Tab is unavailable");
         owned.targetId = target.targetId;
         return result;
       } catch (error) {
         await detach(owned);
         throw error;
-      } finally { c.creating.delete(id); }
+      } finally {
+        c.creating.delete(id);
+      }
     })();
     return owned.work;
   }
@@ -370,7 +494,8 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     await revoke(c, id);
     return {};
   }
-  if (!tab || tab.phase !== "on" || msg.method !== "cdp") throw new Error("Unknown assignment");
+  if (!tab || tab.phase !== "on" || msg.method !== "cdp")
+    throw new Error("Unknown assignment");
   const args = fields(msg.params);
   const params = fields(args.params);
   if (
@@ -412,7 +537,8 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
     commandParams,
   );
   check(c);
-  if (c.tabs.get(id) !== tab || tab.phase !== "on") throw new Error("Browser control ended");
+  if (c.tabs.get(id) !== tab || tab.phase !== "on")
+    throw new Error("Browser control ended");
   return fields(result ?? {});
 }
 
@@ -480,7 +606,13 @@ async function configure(reset = true): Promise<void> {
         if (event.data.length > 8 * 1024 * 1024)
           throw new Error("Invalid message");
         const msg = fields(JSON.parse(event.data));
-        if ((msg.kind === "ready" || msg.kind === "paired") && msg.version !== BROWSER_EXTENSION_PROTOCOL) { refuse(); return; }
+        if (
+          (msg.kind === "ready" || msg.kind === "paired") &&
+          msg.version !== BROWSER_EXTENSION_PROTOCOL
+        ) {
+          refuse();
+          return;
+        }
         if (msg.kind === "refused") {
           refuse();
           return;
@@ -535,35 +667,75 @@ async function configure(reset = true): Promise<void> {
             member: { id: member.id, name: member.name },
             agents: (msg.agents as unknown[]).map((value) => {
               const agent = fields(value);
-              if (typeof agent.id !== "string" || typeof agent.name !== "string") throw new Error();
+              if (
+                typeof agent.id !== "string" ||
+                typeof agent.name !== "string"
+              )
+                throw new Error();
               return { id: agent.id, name: agent.name };
             }),
             assignments: msg.assignments.map((value) => {
               const a = fields(value);
               if (!validGrantScope(a.scope)) throw new Error();
-              const agent = a.scope.kind === "agent" ? fields(a.agent) : undefined;
+              const agent =
+                a.scope.kind === "agent" ? fields(a.agent) : undefined;
               if (
                 typeof a.id !== "string" ||
-                (a.scope.kind === "agent" && (!agent || agent.id !== a.scope.agentId || typeof agent.name !== "string")) ||
-                !validGrantDuration(a.durationMinutes) || !validGrantExpiry(a.durationMinutes, a.expiresAt)
+                (a.scope.kind === "agent" &&
+                  (!agent ||
+                    agent.id !== a.scope.agentId ||
+                    typeof agent.name !== "string")) ||
+                !validGrantDuration(a.durationMinutes) ||
+                !validGrantExpiry(a.durationMinutes, a.expiresAt)
               )
                 throw new Error();
-              return { id: a.id, scope: a.scope, ...(agent ? { agent: { id: agent.id as string, name: agent.name as string } } : {}), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt };
+              return {
+                id: a.id,
+                scope: a.scope,
+                ...(agent
+                  ? {
+                      agent: {
+                        id: agent.id as string,
+                        name: agent.name as string,
+                      },
+                    }
+                  : {}),
+                durationMinutes: a.durationMinutes,
+                expiresAt: a.expiresAt,
+              };
             }),
           };
           for (const [id, tab] of c.tabs) {
-            const agent = c.metadata.agents.find(a => a.id === tab.agent?.id);
+            const agent = c.metadata.agents.find((a) => a.id === tab.agent?.id);
             if (agent) tab.agent = agent;
-            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && !!tab.scope && sameGrantScope(a.scope, tab.scope) && a.durationMinutes === tab.durationMinutes && a.expiresAt === tab.expiresAt))
+            if (
+              tab.phase === "on" &&
+              !c.metadata.assignments.some(
+                (a) =>
+                  a.id === id &&
+                  !!tab.scope &&
+                  sameGrantScope(a.scope, tab.scope) &&
+                  a.durationMinutes === tab.durationMinutes &&
+                  a.expiresAt === tab.expiresAt,
+              )
+            )
               void revoke(c, id);
           }
           return;
         }
         if (msg.kind === "offered" && typeof msg.assignment === "string") {
           const tab = c.tabs.get(msg.assignment);
-          if (!c.offers.has(msg.assignment) || !tab || tab.phase !== "offering") return;
+          if (!c.offers.has(msg.assignment) || !tab || tab.phase !== "offering")
+            return;
           if (!msg.error) {
-            if (!validGrantScope(msg.scope) || !tab.scope || !sameGrantScope(msg.scope, tab.scope) || msg.durationMinutes !== tab.durationMinutes || !validGrantExpiry(msg.durationMinutes, msg.expiresAt)) throw new Error("Invalid grant expiry");
+            if (
+              !validGrantScope(msg.scope) ||
+              !tab.scope ||
+              !sameGrantScope(msg.scope, tab.scope) ||
+              msg.durationMinutes !== tab.durationMinutes ||
+              !validGrantExpiry(msg.durationMinutes, msg.expiresAt)
+            )
+              throw new Error("Invalid grant expiry");
             tab.expiresAt = msg.expiresAt;
           }
           c.offers.get(msg.assignment)?.(!msg.error);
@@ -701,7 +873,9 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
         owned();
         await chrome.debugger.sendCommand(
-          { tabId: popup.tabId }, "Emulation.setFocusEmulationEnabled", { enabled: true },
+          { tabId: popup.tabId },
+          "Emulation.setFocusEmulationEnabled",
+          { enabled: true },
         );
         owned();
         const result = fields(

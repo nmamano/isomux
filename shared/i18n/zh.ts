@@ -2,7 +2,8 @@
 import type { Catalog } from "./en.ts";
 
 export const zh: Catalog = {
-  "browser.offerHelp": "打开要提供的标签页，在扩展弹窗中选择全部或一个代理，然后开启代理控制。",
+  "browser.offerHelp":
+    "打开要提供的标签页，在扩展弹窗中选择全部或一个代理，然后开启代理控制。",
   "browser.allAgents": "全部",
   "browser.agent": "代理",
   "browser.expiry": "控制到期时间",
@@ -21,14 +22,17 @@ export const zh: Catalog = {
   "browser.tabConflict": "此代理已有标签页。请先关闭该标签页的控制。",
   "browser.control": "代理控制",
   "browser.title": "浏览器使用",
-  "browser.intro": "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。可将标签页提供给全部代理或一个代理。",
+  "browser.intro":
+    "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。可将标签页提供给全部代理或一个代理。",
   "browser.chromeHelp": "智能体使用此电脑上的 Chrome。请在下方安装并配对扩展。",
   "browser.setup": "设置 Chrome",
   "browser.extract": "解压 ZIP 文件。",
-  "browser.extensions": "在 Chrome 中打开 chrome://extensions 并启用开发者模式。",
+  "browser.extensions":
+    "在 Chrome 中打开 chrome://extensions 并启用开发者模式。",
   "browser.load": "选择“加载已解压的扩展程序”，然后选择解压后的文件夹。",
   "browser.pin": "将 Isomux Browser 固定到工具栏。",
-  "browser.finish": "在下方创建配对码，然后打开 Isomux Browser 并输入办公室地址和配对码。",
+  "browser.finish":
+    "在下方创建配对码，然后打开 Isomux Browser 并输入办公室地址和配对码。",
   "browser.connection": "连接",
   "browser.show": "显示",
   "browser.hide": "隐藏",

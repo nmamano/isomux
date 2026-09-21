@@ -20,7 +20,8 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
-  "browser.offerHelp": "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
+  "browser.offerHelp":
+    "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
   "browser.allAgents": "All",
   "browser.agent": "Agent",
   "browser.expiry": "Control expires",
@@ -36,22 +37,28 @@ export const en = {
   "browser.offering": "Offering tab to {name}…",
   "browser.revoking": "Turning off control for {name}…",
   "browser.tabIneligible": "Open an HTTP(S) tab to allow agent control.",
-  "browser.tabConflict": "This agent already has a tab. Turn that tab off first.",
+  "browser.tabConflict":
+    "This agent already has a tab. Turn that tab off first.",
   "browser.control": "Agent control",
   "browser.title": "Browser Use",
-  "browser.intro": "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
-  "browser.chromeHelp": "Agents use Chrome on this computer. Install and pair the extension below.",
+  "browser.intro":
+    "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
+  "browser.chromeHelp":
+    "Agents use Chrome on this computer. Install and pair the extension below.",
   "browser.setup": "Set up Chrome",
   "browser.extract": "Extract the ZIP.",
-  "browser.extensions": "Open chrome://extensions in Chrome and enable Developer mode.",
+  "browser.extensions":
+    "Open chrome://extensions in Chrome and enable Developer mode.",
   "browser.load": "Select Load unpacked and choose the extracted folder.",
   "browser.pin": "Pin Isomux Browser in the toolbar.",
-  "browser.finish": "Create a pairing code below, then open Isomux Browser and enter the office address and code.",
+  "browser.finish":
+    "Create a pairing code below, then open Isomux Browser and enter the office address and code.",
   "browser.connection": "Connection",
   "browser.show": "Show",
   "browser.hide": "Hide",
   "browser.owner": "Browser owner: {name}",
-  "browser.ownership": "Agents use their manager’s browser and only the tabs offered to them.",
+  "browser.ownership":
+    "Agents use their manager’s browser and only the tabs offered to them.",
   "browser.paired": "Paired",
   "browser.unpaired": "Not paired",
   "browser.offline": "Offline",

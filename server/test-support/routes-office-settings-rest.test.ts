@@ -217,7 +217,9 @@ describe("routes/office.setSettings REST", () => {
       },
     });
     expect(r.status).toBe(204);
-    expect(srv.agentManager.getOfficeSettings()).not.toHaveProperty("experimental");
+    expect(srv.agentManager.getOfficeSettings()).not.toHaveProperty(
+      "experimental",
+    );
   });
 
   it("name over 60 chars -> 400, state untouched", async () => {
