@@ -1,5 +1,6 @@
 import { BrowserUploadError, readBrowserUpload, type UploadedFile } from "./browser-upload";
 import { chromium, type Browser, type Page } from "playwright-core";
+import { readBrowserFrames, resolveBrowserFrame } from "./browser-frames";
 import { browserExtensionTransport } from "./browser-extension-transport";
 import type { ExtensionConnection } from "./browser-extension-bridge";
 import type { BrowserExtensionService } from "./browser-extension-service";
@@ -41,8 +42,6 @@ const timeoutResult = (recovering = false) => failure("action_timeout", recoveri
   ? "The previous browser action is still settling; its outcome may be unknown. Control remains on. Inspect the page after it settles before retrying."
   : "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.");
 const SETTLEMENT_GRACE_MS = 1000;
-const cap = (s: string, n: number) =>
-  s.length > n ? `${s.slice(0, n)}\n[truncated at ${n} characters]` : s;
 
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
@@ -235,6 +234,9 @@ export class ExtensionBrowserSessions {
       if (timedOut) return timeoutResult(true);
       const timeout = actionMs;
       const page = session.page;
+      const element = params.framePath
+        ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(params.selector!)
+        : undefined;
       let uploaded: UploadedFile | undefined;
       switch (params.action) {
         case "goto":
@@ -245,21 +247,24 @@ export class ExtensionBrowserSessions {
           session.opened = true;
           break;
         case "click":
-          await page.click(params.selector!, { timeout });
+          if (element) await element.click({ timeout });
+          else await page.click(params.selector!, { timeout });
           break;
         case "fill":
-          await page.fill(params.selector!, params.text!, { timeout });
+          if (element) await element.fill(params.text!, { timeout });
+          else await page.fill(params.selector!, params.text!, { timeout });
           break;
         case "upload": {
           const file = await readBrowserUpload(params.path!);
           if (!valid()) return ended();
           if (timedOut) return timeoutResult(true);
-          await page.locator(params.selector!).setInputFiles(file, { timeout });
+          await (element ?? page.locator(params.selector!)).setInputFiles(file, { timeout });
           uploaded = { name: file.name, mimeType: file.mimeType, size: file.buffer.length };
           break;
         }
         case "press":
-          if (params.selector)
+          if (element) await element.press(params.key!, { timeout });
+          else if (params.selector)
             await page.press(params.selector, params.key!, { timeout });
           else await page.keyboard.press(params.key!);
           break;
@@ -274,15 +279,9 @@ export class ExtensionBrowserSessions {
         ...(uploaded ? { uploaded } : {}),
       };
       if (params.action === "text")
-        result.text = cap(
-          await current.innerText("body", { timeout }),
-          MAX_TEXT_CHARS,
-        );
+        result.text = await readBrowserFrames(current.mainFrame(), "text", MAX_TEXT_CHARS, timeout);
       if (params.action === "snapshot")
-        result.snapshot = cap(
-          await current.locator("body").ariaSnapshot({ timeout }),
-          MAX_SNAPSHOT_CHARS,
-        );
+        result.snapshot = await readBrowserFrames(current.mainFrame(), "snapshot", MAX_SNAPSHOT_CHARS, timeout);
       if (params.action === "screenshot") {
         result.png = await current.screenshot({
           fullPage: params.fullPage === true,

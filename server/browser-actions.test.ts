@@ -116,3 +116,13 @@ it("tabs and opaque targets have a bounded explicit schema", () => {
     expect(parseBrowserParams({ action: "snapshot", target: invalid })).toMatchObject({ ok: false, code: "invalid_request" });
   expect(parseBrowserParams({ action: "tabs", target })).toMatchObject({ ok: false, code: "invalid_request" });
 });
+
+it("frame paths are bounded structural hints for element actions only", () => {
+  for (const action of ["click", "fill", "press", "upload"]) {
+    expect(parseBrowserParams({ action, selector: "input", framePath: [0, 1], text: "fixture", key: "Enter", path: "/tmp/fixture.txt" })).toMatchObject({ ok: true, framePath: [0, 1] });
+  }
+  for (const framePath of [null, "iframe", [-1], [0.5], [Infinity], [Number.MAX_SAFE_INTEGER + 1], Array(9).fill(0), ["0"]])
+    expect(parseBrowserParams({ action: "click", selector: "button", framePath })).toMatchObject({ ok: false, code: "invalid_request" });
+  for (const action of ["snapshot", "text", "goto", "tabs", "close", "screenshot", "press"])
+    expect(parseBrowserParams({ action, framePath: [] })).toMatchObject({ ok: false, code: "invalid_request" });
+});

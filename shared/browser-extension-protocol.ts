@@ -83,6 +83,7 @@ const PAGE_COMMANDS = new Set([
   "Runtime.removeBinding",
   "DOM.enable",
   "DOM.getDocument",
+  "DOM.getFrameOwner",
   "DOM.describeNode",
   "DOM.resolveNode",
   "DOM.getContentQuads",
@@ -110,6 +111,8 @@ const PAGE_COMMANDS = new Set([
 export function pageCommandAllowed(method: string, params: Fields): boolean {
   return (
     PAGE_COMMANDS.has(method) &&
+    (method !== "DOM.getFrameOwner" ||
+      (typeof params.frameId === "string" && params.frameId.length > 0 && params.frameId.length <= 200)) &&
     !("targetId" in params) &&
     !("browserContextId" in params)
   );

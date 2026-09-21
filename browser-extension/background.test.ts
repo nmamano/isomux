@@ -335,6 +335,20 @@ test("built worker refuses unknown child sessions and profile commands", async (
   h.socket.close();
 });
 
+test("built worker permits owned frame hit testing but rejects a foreign session", async () => {
+  const h = await harness();
+  await h.offer();
+  h.command(2, "cdp", { method: "DOM.getFrameOwner", params: { frameId: "child" } });
+  await settle();
+  expect(h.calls.filter(call => call === "DOM.getFrameOwner")).toHaveLength(1);
+  h.command(3, "cdp", { method: "DOM.getFrameOwner", sessionId: "foreign", params: { frameId: "child" } });
+  h.command(4, "cdp", { method: "DOM.getFrameOwner", params: { frameId: "child", targetId: "foreign" } });
+  await settle();
+  expect(h.calls.filter(call => call === "DOM.getFrameOwner")).toHaveLength(1);
+  expect(h.socket.sent.filter(message => message.kind === "result" && message.error)).toHaveLength(2);
+  h.socket.close();
+});
+
 test("transient loss schedules reconnect but refusal stays terminal", async () => {
   const h = await harness();
   h.socket.close();

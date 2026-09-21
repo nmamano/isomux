@@ -197,7 +197,7 @@ test("Never has no desktop idle timer and stays offered across four hours and ac
   const connect = spyOn(chromium, "connectOverCDP").mockImplementation(async transport => {
     let connected = true;
     return {
-      contexts: () => [{ pages: () => [{ url: () => "https://example.com/", title: async () => "Fixture", innerText: async () => "fixture" }], on() {} }],
+      contexts: () => [{ pages: () => [{ url: () => "https://example.com/", title: async () => "Fixture", mainFrame: () => ({ childFrames: () => [], isDetached: () => false, locator: () => ({ innerText: async () => "fixture" }) }) }], on() {} }],
       isConnected: () => connected, on() {},
       close: async () => { connected = false; (transport as unknown as { close(): void }).close(); },
     } as unknown as Browser;
@@ -271,7 +271,7 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
   }
 });
 
-async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false, all = false, durationMinutes = 0) {
+async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false, all = false, durationMinutes = 0, withFrame = false) {
   const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
   const allowed = new Set(["agent", "second"]);
@@ -312,10 +312,14 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
       settled = true;
       throw Object.assign(new Error("fixture timeout"), { name: "TimeoutError" });
     };
+    const childFrame = {
+      childFrames: () => [], isDetached: () => false,
+      locator: () => ({ fill: timeout, innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; } }),
+    };
     const page = {
       close: async () => { pageClosed = true; },
       url: () => "https://example.com/", title: async () => "Fixture",
-      innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; },
+      mainFrame: () => ({ ...childFrame, childFrames: () => withFrame ? [childFrame] : [] }),
       fill: timeout, goto: timeout,
       click: async () => {
         calls++; expect(settled).toBe(true);
@@ -350,6 +354,32 @@ test("settled selector timeout retains the same grant/session and queued differe
     expect(log).not.toContain("private fixture");
     expect(log).not.toContain("#fixture");
   } finally { diagnostics.mockRestore(); h.stop(); }
+});
+
+test("held frame work fences every All actor and Off ends it without replay", async () => {
+  for (const off of [false, true]) {
+    const h = await timeoutSessionFixture(true, true, 0, true);
+    try {
+      const work = h.sessions.run("agent", { action: "fill", framePath: [0], selector: "input", text: "fixture" });
+      for (let i = 0; i < 100 && !h.messages.some(m => m.method === "cdp"); i++) await Bun.sleep(2);
+      const command = h.messages.find(m => m.method === "cdp")!;
+      expect(command).toBeDefined();
+      expect(h.connection.pendingCount(h.grant)).toBe(1);
+      const next = h.sessions.run("second", { action: "text" });
+      if (off) h.connection.revoke("agent");
+      expect(await work).toMatchObject({ code: off ? "browser_control_ended" : "action_timeout" });
+      expect(await next).toMatchObject({ code: off ? "browser_control_ended" : "action_timeout" });
+      expect(h.calls()).toBe(0);
+      if (!off) {
+        expect(h.connection.offered("second")).toBe(h.grant);
+        h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+        await Bun.sleep(0);
+        expect(await h.sessions.run("second", { action: "text" })).toMatchObject({ ok: true });
+      } else expect(h.connection.offered("second")).toBeUndefined();
+      expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+      expect(h.pageClosed()).toBe(false);
+    } finally { h.stop(); }
+  }
 });
 
 test("unsettled command keeps ON and fences later work until the real late response", async () => {

@@ -158,7 +158,7 @@ The **ON** badge marks offered tabs and their site-opened popups. Other tabs hav
 
 Chrome mode uses the desktop viewport. Desktop `localhost` refers to the member's computer; preview cards still run on the server. A lost connection releases tab offers. Offer the tab again after reconnecting or reloading the extension. Chrome mode never creates a replacement tab or repeats a command. Check the page before repeating an action with an unknown outcome. An action timeout keeps control ON. If Chrome is still completing a command, the agent must wait for it to settle before another action can run.
 
-Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. Extension 0.4.0 and the matching server use protocol 4; older extensions are refused. Reloading releases offers, so offer tabs again. Saved pairing remains, but a terminal version refusal can require pairing again. No Web Store installation is available.
+Office installs and updates build the ZIP automatically. To update an unpacked extension, download the new ZIP, extract it over its existing folder, and select **Reload** in `chrome://extensions`. Keep that folder in place. Extension 0.4.1 and the matching server use protocol 4; older protocols are refused. Version 0.4.1 adds frame-click support, so update both the server and extension. Reloading releases offers, so offer tabs again. Saved pairing remains, but a terminal version refusal can require pairing again. No Web Store installation is available.
 
 ## Your own hardware
 

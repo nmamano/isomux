@@ -1,7 +1,9 @@
 import { MAX_BROWSER_UPLOAD_BYTES } from "./browser-upload";
 import { launchRawExtensionChrome } from "./test-support/raw-extension-chrome";
 import { BROWSER_ACTION_DEADLINE_MS } from "./browser-actions";
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
+import { ExtensionConnection } from "./browser-extension-bridge";
+import { fields } from "../shared/browser-extension-protocol";
 import { type BrowserContext } from "playwright-core";
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
@@ -32,6 +34,14 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     let office: TestServer | undefined;
     let site: ReturnType<typeof Bun.serve> | undefined;
     let popup: Awaited<ReturnType<typeof openExtensionActionPopup>> | undefined;
+    const frameEvents = { attached: 0, navigated: 0 };
+    const originalReceive = ExtensionConnection.prototype.receive;
+    const traceFrames = spyOn(ExtensionConnection.prototype, "receive").mockImplementation(function(this: ExtensionConnection, message) {
+      const m = fields(message);
+      if (m.kind === "event" && m.method === "Target.attachedToTarget" && fields(fields(m.params).targetInfo).type === "iframe") frameEvents.attached++;
+      if (m.kind === "event" && m.method === "Page.frameNavigated") frameEvents.navigated++;
+      return originalReceive.call(this, message);
+    });
     try {
       expect(BROWSER_ACTION_DEADLINE_MS).toBe(30_000);
       let actionDeadline = BROWSER_ACTION_DEADLINE_MS;
@@ -148,10 +158,12 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
             return new Response("<title>Late document</title><p id=late>Late navigation</p>", { headers: { "Content-Type": "text/html" } });
           }
           const html =
-            url.pathname === "/popup"
+            url.pathname === "/nested"
+              ? '<p>Nested frame content</p><button id="nested" onclick="this.textContent=\'Nested clicked\'">Nested action</button>'
+              : url.pathname === "/popup"
               ? '<title>Popup</title><button onclick="window.close()">Return</button>'
               : url.pathname === "/frame"
-                ? "<label>Frame field<input></label>"
+                ? `<h2>Frame contents</h2><label>Frame field<input></label><button id="frame-apply" onclick="document.querySelector('output').textContent=document.querySelector('input').value">Apply frame</button><button id="other-frame-action">Other action</button><output>Frame ready</output>${url.hostname === "localhost" ? '<iframe src="/nested"></iframe>' : ''}`
                 : `<title>Main</title><input type="file" id="attachment" oninput="this.dataset.input=String(Number(this.dataset.input||0)+1)" onchange="this.dataset.change=String(Number(this.dataset.change||0)+1)"><input type="file" id="other-attachment"><input id="hidden-timeout" hidden><input id="readonly-timeout" readonly><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
@@ -304,8 +316,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (
           await action(first.id, {
             action: "fill",
-            selector:
-              "iframe >> nth=0 >> internal:control=enter-frame >> input",
+            framePath: [0],
+            selector: "input",
             text: "same",
           })
         ).status,
@@ -314,15 +326,45 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (
           await action(first.id, {
             action: "fill",
-            selector:
-              "iframe >> nth=1 >> internal:control=enter-frame >> input",
+            framePath: [1],
+            selector: "input",
             text: "cross",
           })
         ).status,
       ).toBe(200);
+      for (const [index, value] of [[0, "same"], [1, "cross"]] as const) {
+        expect((await action(first.id, { action: "click", framePath: [index], selector: "#frame-apply" })).status).toBe(200);
+        expect(await firstPage.mainFrame().childFrames()[index].locator("output").innerText()).toBe(value);
+      }
+      expect((await action(first.id, { action: "click", framePath: [0, 0], selector: "#nested" })).status).toBe(200);
+      expect(await firstPage.mainFrame().childFrames()[0].childFrames()[0].locator("button").innerText()).toBe("Nested clicked");
+      expect((await action(first.id, { action: "click", framePath: [99], selector: "button" })).body.error.code).toBe("action_failed");
+      expect((await action(first.id, { action: "click", framePath: [0], selector: "button" })).body.error.code).toBe("action_failed");
+      expect(await activeState()).toEqual(activeBefore);
       const snapshot = await action(first.id, { action: "snapshot" });
       expect(snapshot.status).toBe(200);
       expect(snapshot.body.snapshot).toContain("textbox");
+      expect(snapshot.body.snapshot).toContain("framePath=[0]");
+      expect(snapshot.body.snapshot).toContain("framePath=[1]");
+      expect(snapshot.body.snapshot).toContain("Nested clicked");
+      const frameText = await action(first.id, { action: "text" });
+      expect(frameText.body.text).toContain("Frame contents");
+      expect(frameText.body.text).toContain("framePath=[0,0]");
+      expect(frameText.body.text).toContain("cross");
+      expect(await firstPage.locator("body").innerText()).not.toContain("Frame contents");
+      expect(firstPage.mainFrame().childFrames()).toHaveLength(2);
+      expect(firstPage.mainFrame().childFrames()[0].childFrames()).toHaveLength(1);
+      expect(frameEvents.attached).toBeGreaterThan(0);
+      expect(frameEvents.navigated).toBeGreaterThan(0);
+      const ownCDP = await setup.newCDPSession(firstPage);
+      const otherCDP = await setup.newCDPSession(secondPage);
+      const ownTree = await ownCDP.send("Page.getFrameTree");
+      const otherTree = await otherCDP.send("Page.getFrameTree");
+      await expect(ownCDP.send("DOM.getFrameOwner", { frameId: otherTree.frameTree.childFrames![0].frame.id })).rejects.toThrow();
+      await expect(ownCDP.send("DOM.getFrameOwner", { frameId: ownTree.frameTree.frame.id })).rejects.toThrow();
+      await ownCDP.detach(); await otherCDP.detach();
+      writeFileSync(join(dir, "frame-evidence.json"), JSON.stringify({ frameEvents, paths: [[0], [0, 0], [1]], sameAndCrossClicks: true, foreignFrameRefused: true, activeUnchanged: true }));
+      await firstPage.screenshot({ path: join(dir, "frame-controls.png") });
       expect((await action(first.id, { action: "screenshot" })).status).toBe(
         200,
       );
@@ -466,6 +508,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (await action(second.id, { action: "text" })).body.error.code,
       ).toBe("browser_not_paired");
     } finally {
+      traceFrames.mockRestore();
       await popup?.close();
       await raw?.close();
       await office?.stop();

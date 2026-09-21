@@ -280,3 +280,11 @@ Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup defau
 Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle before its retained client closes and a new client attaches to the same grant. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists.
 
 Navigation status events refresh badges only for locally tracked roots and admitted popups. Every badge write rechecks current ON ownership after earlier awaits; Off and cleanup cannot leave a stale ON badge. Untracked tab updates are ignored without reading URL/title.
+
+## Frame reads and clicks (extension 0.4.1)
+
+The isolated 2026-09-21 probe showed two independent defects: main-body text/ARIA omits child documents, and denying `DOM.getFrameOwner` makes Playwright frame clicks time out during hit testing. Allowing that one command fixed same-origin and cross-origin clicks. The matching AWS production cause remains an inference until member acceptance. Existing frame fills did not exercise click hit testing.
+
+`DOM.getFrameOwner` uses the existing exact grant/session authorization and Chrome page-session frame scope. It cannot select another target. No protocol, permission or arbitrary target-discovery expansion. Package 0.4.1 must accompany the server fix.
+
+`browser-frames.ts` reads public `Frame` objects, root first and depth-first children, with labeled numeric `framePath` sections, one existing character budget, 64 documents and eight child levels. Child failures produce a content-free unavailable marker. Optional `framePath` on element actions resolves current `childFrames()` indices, then a strict public `Frame.locator`; missing paths fail before mutation. Paths are transient hints. No frame registry, internal selector contract or selector-scoped snapshot API. All calls retain the grant-level queue, actor access and recovery fence.

@@ -1,4 +1,5 @@
 import type { BrowserGrantScope } from "../shared/browser-extension-protocol";
+import { MAX_FRAME_DEPTH } from "./browser-frames";
 // Desktop Chrome action contract. Screenshot previews use preview-capture.ts.
 import { validUploadPath, type UploadedFile } from "./browser-upload";
 export const BROWSER_ACTION_DEADLINE_MS = 30_000;
@@ -108,6 +109,7 @@ interface ParsedParams {
   action: BrowserAction;
   target?: string;
   url?: URL;
+  framePath?: number[];
   selector?: string;
   text?: string;
   path?: string;
@@ -144,6 +146,15 @@ export function parseBrowserParams(
     if (typeof body.target !== "string" || !/^[a-f0-9-]{36}$/.test(body.target) || action === "tabs")
       return invalid("target must be an offered target identifier on a page action");
     params.target = body.target;
+  }
+
+  if (body.framePath !== undefined) {
+    if (!["click", "fill", "press", "upload"].includes(action) ||
+      !Array.isArray(body.framePath) || body.framePath.length > MAX_FRAME_DEPTH ||
+      body.framePath.some(index => !Number.isSafeInteger(index) || index < 0) ||
+      (action === "press" && typeof body.selector !== "string"))
+      return invalid("framePath must be an array of up to 8 non-negative safe integers on an element action with a selector");
+    params.framePath = body.framePath;
   }
 
   if (body.viewport !== undefined) {
@@ -229,4 +240,3 @@ export function parseBrowserParams(
 function isAction(value: string): value is BrowserAction {
   return (BROWSER_ACTIONS as readonly string[]).includes(value);
 }
-

@@ -170,6 +170,47 @@ describe("browser extension isolation", () => {
     expect(h.client.messages.length).toBe(count);
     h.connection.close();
   });
+  test("frame owner lookup uses only the authorized page session", async () => {
+    const h = await harness();
+    try {
+      const { sessionId } = await create(h);
+      const before = h.extension.messages.length;
+      for (const command of [
+        { sessionId: "foreign", params: { frameId: "child" } },
+        { sessionId, params: { frameId: "child", targetId: "foreign" } },
+        { sessionId, params: { frameId: "" } },
+        { sessionId, params: {} },
+      ]) {
+        await h.agent.receive({ id: 41, method: "DOM.getFrameOwner", ...command });
+        expect(h.client.messages.at(-1)!.error).toBeDefined();
+      }
+      expect(h.extension.messages).toHaveLength(before);
+      h.connection.receive({ kind: "event", generation: h.connection.generation, assignment: h.connection.offered("agent"),
+        method: "Target.attachedToTarget", params: { sessionId: "child-session", targetInfo: { targetId: "child-target", type: "iframe" } } });
+      for (const ownedSession of [sessionId, "child-session"]) {
+        const work = h.agent.receive({ id: 42, method: "DOM.getFrameOwner", sessionId: ownedSession, params: { frameId: "child" } });
+        const command = h.extension.messages.at(-1)!;
+        expect(command.method).toBe("cdp");
+        h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: { backendNodeId: 7 } });
+        await work;
+        expect(h.client.messages.at(-1)!.result).toEqual({ backendNodeId: 7 });
+      }
+      h.revoke();
+      await h.agent.receive({ id: 43, method: "DOM.getFrameOwner", sessionId, params: { frameId: "child" } });
+      expect(h.client.closed).toBe(true);
+      expect(h.extension.messages.filter(m => m.method === "cdp")).toHaveLength(2);
+    } finally { h.connection.close(); }
+  });
+  test("frame lookup cannot admit a non-iframe target as a child", async () => {
+    const h = await harness();
+    try {
+      const { assignment } = await create(h);
+      h.connection.receive({ kind: "event", generation: h.connection.generation, assignment,
+        method: "Target.attachedToTarget", params: { sessionId: "fake-child", targetInfo: { targetId: "foreign-page", type: "page" } } });
+      expect(h.client.closed).toBe(true);
+      expect(h.connection.offered("agent")).toBeUndefined();
+    } finally { h.connection.close(); }
+  });
   test("disconnect rejects pending work and old generations cannot replay", async () => {
     const h = await harness();
     const { sessionId } = await create(h);
