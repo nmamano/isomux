@@ -4507,50 +4507,31 @@ ISOMUX_CONTAINER_MOUNT_CHECK
   "archMap": [
     {
       "architecture": "SCMP_ARCH_X86_64",
-      "subArchitectures": [
-        "SCMP_ARCH_X86",
-        "SCMP_ARCH_X32"
-      ]
+      "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
     },
     {
       "architecture": "SCMP_ARCH_AARCH64",
-      "subArchitectures": [
-        "SCMP_ARCH_ARM"
-      ]
+      "subArchitectures": ["SCMP_ARCH_ARM"]
     },
     {
       "architecture": "SCMP_ARCH_MIPS64",
-      "subArchitectures": [
-        "SCMP_ARCH_MIPS",
-        "SCMP_ARCH_MIPS64N32"
-      ]
+      "subArchitectures": ["SCMP_ARCH_MIPS", "SCMP_ARCH_MIPS64N32"]
     },
     {
       "architecture": "SCMP_ARCH_MIPS64N32",
-      "subArchitectures": [
-        "SCMP_ARCH_MIPS",
-        "SCMP_ARCH_MIPS64"
-      ]
+      "subArchitectures": ["SCMP_ARCH_MIPS", "SCMP_ARCH_MIPS64"]
     },
     {
       "architecture": "SCMP_ARCH_MIPSEL64",
-      "subArchitectures": [
-        "SCMP_ARCH_MIPSEL",
-        "SCMP_ARCH_MIPSEL64N32"
-      ]
+      "subArchitectures": ["SCMP_ARCH_MIPSEL", "SCMP_ARCH_MIPSEL64N32"]
     },
     {
       "architecture": "SCMP_ARCH_MIPSEL64N32",
-      "subArchitectures": [
-        "SCMP_ARCH_MIPSEL",
-        "SCMP_ARCH_MIPSEL64"
-      ]
+      "subArchitectures": ["SCMP_ARCH_MIPSEL", "SCMP_ARCH_MIPSEL64"]
     },
     {
       "architecture": "SCMP_ARCH_S390X",
-      "subArchitectures": [
-        "SCMP_ARCH_S390"
-      ]
+      "subArchitectures": ["SCMP_ARCH_S390"]
     },
     {
       "architecture": "SCMP_ARCH_RISCV64",
@@ -4929,20 +4910,14 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       "action": "SCMP_ACT_ALLOW"
     },
     {
-      "names": [
-        "process_vm_readv",
-        "process_vm_writev",
-        "ptrace"
-      ],
+      "names": ["process_vm_readv", "process_vm_writev", "ptrace"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
         "minKernel": "4.8"
       }
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -4953,9 +4928,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -4966,9 +4939,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -4979,9 +4950,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -4992,9 +4961,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5005,9 +4972,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5018,9 +4983,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "socket"
-      ],
+      "names": ["socket"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5031,9 +4994,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "personality"
-      ],
+      "names": ["personality"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5044,9 +5005,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "personality"
-      ],
+      "names": ["personality"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5057,9 +5016,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "personality"
-      ],
+      "names": ["personality"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5070,9 +5027,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "personality"
-      ],
+      "names": ["personality"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5083,9 +5038,7 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "personality"
-      ],
+      "names": ["personality"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5096,15 +5049,10 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ]
     },
     {
-      "names": [
-        "sync_file_range2",
-        "swapcontext"
-      ],
+      "names": ["sync_file_range2", "swapcontext"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "ppc64le"
-        ]
+        "arches": ["ppc64le"]
       }
     },
     {
@@ -5118,35 +5066,21 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "arm",
-          "arm64"
-        ]
+        "arches": ["arm", "arm64"]
       }
     },
     {
-      "names": [
-        "arch_prctl"
-      ],
+      "names": ["arch_prctl"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "amd64",
-          "x32"
-        ]
+        "arches": ["amd64", "x32"]
       }
     },
     {
-      "names": [
-        "modify_ldt"
-      ],
+      "names": ["modify_ldt"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "amd64",
-          "x32",
-          "x86"
-        ]
+        "arches": ["amd64", "x32", "x86"]
       }
     },
     {
@@ -5157,32 +5091,21 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "s390",
-          "s390x"
-        ]
+        "arches": ["s390", "s390x"]
       }
     },
     {
-      "names": [
-        "riscv_flush_icache"
-      ],
+      "names": ["riscv_flush_icache"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "arches": [
-          "riscv64"
-        ]
+        "arches": ["riscv64"]
       }
     },
     {
-      "names": [
-        "open_by_handle_at"
-      ],
+      "names": ["open_by_handle_at"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_DAC_READ_SEARCH"
-        ]
+        "caps": ["CAP_DAC_READ_SEARCH"]
       }
     },
     {
@@ -5216,15 +5139,11 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_ADMIN"
-        ]
+        "caps": ["CAP_SYS_ADMIN"]
       }
     },
     {
-      "names": [
-        "clone"
-      ],
+      "names": ["clone"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5234,19 +5153,12 @@ ISOMUX_CONTAINER_MOUNT_CHECK
         }
       ],
       "excludes": {
-        "caps": [
-          "CAP_SYS_ADMIN"
-        ],
-        "arches": [
-          "s390",
-          "s390x"
-        ]
+        "caps": ["CAP_SYS_ADMIN"],
+        "arches": ["s390", "s390x"]
       }
     },
     {
-      "names": [
-        "clone"
-      ],
+      "names": ["clone"],
       "action": "SCMP_ACT_ALLOW",
       "args": [
         {
@@ -5257,73 +5169,46 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "comment": "s390 parameter ordering for clone is different",
       "includes": {
-        "arches": [
-          "s390",
-          "s390x"
-        ]
+        "arches": ["s390", "s390x"]
       },
       "excludes": {
-        "caps": [
-          "CAP_SYS_ADMIN"
-        ]
+        "caps": ["CAP_SYS_ADMIN"]
       }
     },
     {
-      "names": [
-        "clone3"
-      ],
+      "names": ["clone3"],
       "action": "SCMP_ACT_ERRNO",
       "errnoRet": 38,
       "excludes": {
-        "caps": [
-          "CAP_SYS_ADMIN"
-        ]
+        "caps": ["CAP_SYS_ADMIN"]
       }
     },
     {
-      "names": [
-        "reboot"
-      ],
+      "names": ["reboot"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_BOOT"
-        ]
+        "caps": ["CAP_SYS_BOOT"]
       }
     },
     {
-      "names": [
-        "chroot"
-      ],
+      "names": ["chroot"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_CHROOT"
-        ]
+        "caps": ["CAP_SYS_CHROOT"]
       }
     },
     {
-      "names": [
-        "delete_module",
-        "init_module",
-        "finit_module"
-      ],
+      "names": ["delete_module", "init_module", "finit_module"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_MODULE"
-        ]
+        "caps": ["CAP_SYS_MODULE"]
       }
     },
     {
-      "names": [
-        "acct"
-      ],
+      "names": ["acct"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_PACCT"
-        ]
+        "caps": ["CAP_SYS_PACCT"]
       }
     },
     {
@@ -5337,46 +5222,28 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_PTRACE"
-        ]
+        "caps": ["CAP_SYS_PTRACE"]
       }
     },
     {
-      "names": [
-        "iopl",
-        "ioperm"
-      ],
+      "names": ["iopl", "ioperm"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_RAWIO"
-        ]
+        "caps": ["CAP_SYS_RAWIO"]
       }
     },
     {
-      "names": [
-        "settimeofday",
-        "stime",
-        "clock_settime",
-        "clock_settime64"
-      ],
+      "names": ["settimeofday", "stime", "clock_settime", "clock_settime64"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_TIME"
-        ]
+        "caps": ["CAP_SYS_TIME"]
       }
     },
     {
-      "names": [
-        "vhangup"
-      ],
+      "names": ["vhangup"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_TTY_CONFIG"
-        ]
+        "caps": ["CAP_SYS_TTY_CONFIG"]
       }
     },
     {
@@ -5388,51 +5255,33 @@ ISOMUX_CONTAINER_MOUNT_CHECK
       ],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYS_NICE"
-        ]
+        "caps": ["CAP_SYS_NICE"]
       }
     },
     {
-      "names": [
-        "syslog"
-      ],
+      "names": ["syslog"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_SYSLOG"
-        ]
+        "caps": ["CAP_SYSLOG"]
       }
     },
     {
-      "names": [
-        "bpf"
-      ],
+      "names": ["bpf"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_BPF"
-        ]
+        "caps": ["CAP_BPF"]
       }
     },
     {
-      "names": [
-        "perf_event_open"
-      ],
+      "names": ["perf_event_open"],
       "action": "SCMP_ACT_ALLOW",
       "includes": {
-        "caps": [
-          "CAP_PERFMON"
-        ]
+        "caps": ["CAP_PERFMON"]
       }
     },
     {
       "comment": "Allow Chromium sandbox user namespaces",
-      "names": [
-        "clone",
-        "setns",
-        "unshare"
-      ],
+      "names": ["clone", "setns", "unshare"],
       "action": "SCMP_ACT_ALLOW",
       "args": []
     }
