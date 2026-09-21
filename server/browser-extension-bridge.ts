@@ -182,9 +182,7 @@ export class ExtensionConnection {
     );
   }
 
-  targets(
-    agent: string,
-  ): {
+  targets(agent: string): {
     target: string;
     scope: BrowserGrantScope;
     title: string;

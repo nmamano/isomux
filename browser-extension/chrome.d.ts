@@ -70,9 +70,7 @@ declare const chrome: {
     }): Promise<
       { id?: number; url?: string; active?: boolean; windowId?: number }[]
     >;
-    get(
-      id: number,
-    ): Promise<{
+    get(id: number): Promise<{
       id?: number;
       url?: string;
       active?: boolean;
