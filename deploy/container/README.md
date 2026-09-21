@@ -1,257 +1,247 @@
-# Isomux container
+# Set up Isomux on AWS
 
-One Linux amd64 container runs an office and its generated apps. Mount one
-persistent filesystem at `/var/data`. The EC2/Caddy checks and their limits are
-recorded [below](#acceptance-checks); this reference does not require a particular
-AWS service.
+This guide creates an Isomux office on an AWS virtual server (EC2). You will open
+it at a web address such as `https://office.example.com`.
 
-## Pull and run a release image
+We recommend asking an agent to handle this setup. Point the agent to this guide.
 
-Each published release builds and checks a Linux amd64 image at
-`ghcr.io/nmamano/isomux:RELEASE_TAG`. Stable releases and prereleases use their
-exact CalVer tag; there is no `latest` tag. Check the release status on the
-[releases page](https://github.com/nmamano/isomux/releases).
+You need an AWS account, a domain you control, and permission to edit that domain's
+DNS records. AWS charges for the server, disks, and public IP address.
 
-After the release's **Publish container** workflow succeeds, copy its
-`ghcr.io/nmamano/isomux@sha256:…` reference from the run summary:
+Commands marked **Server terminal** run on the AWS server after you connect to it.
+Do not run them on your laptop or in AWS CloudShell.
+
+## 1. Create the server
+
+**AWS console → EC2 → Instances → Launch instances**
+
+- Name the server `isomux`.
+- Choose **Ubuntu Server 24.04 LTS**, with **64-bit (x86)** architecture.
+- Choose a server with at least **2 CPUs and 8 GiB of memory** for this starting setup.
+- Create a key pair and download the key file. You will use it to connect to the server.
+- In **Network settings**, allow:
+  - **SSH (port 22)** from **My IP**. If another person or agent will administer
+    the server, add their public IP as a separate SSH rule.
+  - **HTTP (port 80)** from **Anywhere-IPv4**.
+  - **HTTPS (port 443)** from **Anywhere-IPv4**.
+- In **Storage**, use two encrypted **gp3** disks:
+  - **30 GiB root disk** for Ubuntu, Docker, and the Isomux image.
+  - **Additional disk** for your office data and projects; **30 GiB is a
+    recommended starting size**, not a minimum. Turn off
+    **Delete on termination** for this disk so deleting the server does not
+    delete your office data. Increase its size if your projects need more space.
+- Launch the server and wait for its status checks to pass.
+
+## 2. Give the office a web address
+
+**AWS console → EC2 → Elastic IP addresses**
+
+- Allocate an Elastic IP address and associate it with the new server. This gives
+  the server a public IP address that stays the same when you stop and start it.
+- Choose an office address under your domain. This guide uses
+  `office.example.com`; replace it with your own address throughout.
+
+**Your domain provider → DNS settings**
+
+- Add an **A** record for `office`, pointing to the server's Elastic IP address.
+- Add an **A** record for `*.office`, pointing to the same IP address. Isomux uses
+  these addresses for apps created in the office, such as `notes.office.example.com`.
+- If your office address uses a different prefix, use that prefix in both records.
+  Some DNS providers ask for the full name instead, such as `office.example.com`.
+
+[About Elastic IP addresses](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/elastic-ip-addresses-eip.html).
+
+## 3. Connect to the server
+
+**AWS console → EC2 → Instances → select your server → Connect → SSH client**
+
+- Follow the SSH instructions shown there, using the key file you downloaded.
+- Use the server's Elastic IP address and the Ubuntu username `ubuntu`.
+- Once connected, run the remaining terminal commands in that server session.
+
+**Server terminal**
 
 ```sh
-docker pull ghcr.io/nmamano/isomux@sha256:REPLACE_WITH_DIGEST
+sudo apt-get update
+sudo apt-get install -y curl jq
 ```
 
-Set `ISOMUX_IMAGE` to that reference in `office.env`, then follow the
-[Compose setup](#ec2-retained-ebs-and-compose-reference) below to mount persistent
-storage and run the office. The package must be public for pulls without login;
-the first publication needs a one-time visibility change by the package owner.
+The Isomux installer will install Docker, Compose, and Caddy.
 
-## Build from source
+## 4. Prepare the data disk
 
-From a reviewed source checkout with Git, Python 3, and Docker BuildKit:
+This step makes the additional disk available at `/srv/isomux-data` on the server.
+Isomux will store your office data there.
+
+**Server terminal**
+
+- List the disks:
+
+  ```sh
+  lsblk -o NAME,SERIAL,SIZE,FSTYPE,MOUNTPOINTS
+  ```
+
+- Find the additional disk by comparing its serial number with its **Volume ID**
+  in **AWS console → EC2 → Volumes**. The serial omits the dash in `vol-…`.
+- Do not select the disk containing `/` in the mount-point column; that is the
+  Ubuntu disk. The new data disk should have no filesystem or mount point.
+- Set `DATA_DEVICE` to the data disk's path. Replace the placeholder below with
+  the name you found, including `/dev/`:
+
+  ```sh
+  DATA_DEVICE=/dev/REPLACE_WITH_DATA_DISK
+  sudo wipefs --no-act "$DATA_DEVICE"
+  ```
+
+- The last command should produce no output for a blank disk. If it lists an
+  existing filesystem, stop: formatting that disk would erase its data.
+- Format only the new, blank data disk and create the folder where it will appear:
+
+  ```sh
+  sudo mkfs.ext4 "$DATA_DEVICE"
+  sudo mkdir -p /srv/isomux-data
+  sudo blkid -s UUID -o value "$DATA_DEVICE"
+  ```
+
+- Copy the UUID printed by the last command. Open the file that tells Ubuntu
+  which disks to mount when it starts:
+
+  ```sh
+  sudo cp /etc/fstab /etc/fstab.before-isomux
+  sudo nano /etc/fstab
+  ```
+
+- Add this line at the bottom, replacing `REPLACE_WITH_UUID` with the copied UUID:
+
+  ```fstab
+  UUID=REPLACE_WITH_UUID /srv/isomux-data ext4 defaults,nofail,x-systemd.device-timeout=30s 0 2
+  ```
+
+- In nano, press **Ctrl+O**, **Enter**, then **Ctrl+X** to save and exit.
+- Mount the disk and check the result:
+
+  ```sh
+  sudo systemctl daemon-reload
+  sudo mount /srv/isomux-data
+  findmnt /srv/isomux-data
+  ```
+
+- The output should show your data disk mounted at `/srv/isomux-data`.
+
+[AWS disk preparation instructions](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-using-volumes.html).
+
+## 5. Install Isomux
+
+The container image has not been published yet. Continue once a release appears
+on the [Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux).
+Choose its full version tag, which starts with `v`.
+
+**Server terminal**
+
+- Set the release version, replacing `REPLACE_WITH_RELEASE_TAG` with that tag:
+
+  ```sh
+  ISOMUX_RELEASE=REPLACE_WITH_RELEASE_TAG
+  ```
+
+- Download the installer for the same release:
+
+  ```sh
+  curl --fail --show-error --location \
+    "https://raw.githubusercontent.com/nmamano/isomux/$ISOMUX_RELEASE/deploy/install.sh" \
+    --output install-isomux.sh
+  ```
+
+- If the download reports an error, stop and check the release tag.
+- Run the installer. Replace `office.example.com` with your office address:
+
+  ```sh
+  sudo env ISOMUX_INSTALL_MODE=container \
+    ISOMUX_REF="$ISOMUX_RELEASE" DOMAIN=office.example.com \
+    bash install-isomux.sh
+  ```
+
+The installer downloads the image, saves a random setup key, and configures
+Docker, Caddy, the firewall, and automatic Ubuntu security updates. It keeps SSH
+port 22 open and leaves SSH authentication unchanged. It uses the data disk
+prepared in step 4; it does not format disks.
+
+If installation fails, fix the reported problem and run the same command again.
+The installer keeps the saved setup key and image version. A rerun restarts the
+office and its apps. It refuses to replace an existing direct-host office or a
+custom Caddy configuration.
+
+## 6. Check that Isomux started
+
+**Server terminal**
 
 ```sh
-bash deploy/container/build.sh COMMIT isomux:COMMIT
+sudo systemctl is-active isomux-container.service
 ```
 
-The script exports allowed regular files from that Git commit. It excludes
-untracked files, local edits, private directories, and local dependencies. It
-prints the context checksum and local image ID. Both base images use pinned
-digests; dependency installation uses the lockfile. Debian package repositories
-can change, so rebuilding a commit is not a promise of identical image bytes.
-Keep the built image for repeat deployments.
+- The command should print `active`.
+- The service starts Isomux automatically after a server reboot, once the data
+  disk is mounted. It refuses to start if the disk is missing, read-only, or has
+  a different UUID.
 
-The Render Dockerfile path remains usable. Both Dockerfiles and their context
-rules are identical. Use the export script for production builds; do not send a
-live working directory to Docker. Source builds remain supported without GHCR.
-Record the source commit and registry digest, and deploy `registry/image@sha256:…`
-instead of a moving tag. Registry credentials belong on the host.
+## 7. Open the office
 
-## Runtime contract
+Caddy provides HTTPS automatically. Open your office address in your browser,
+for example `https://office.example.com`. You should see **Set up your office**.
 
-| Setting            | Value                                                            |
-| ------------------ | ---------------------------------------------------------------- |
-| Architecture       | Linux amd64                                                      |
-| Data mount         | `/var/data`, one writer                                          |
-| Public origin      | `ISOMUX_PUBLIC_URL=https://office.example.com`                   |
-| First owner        | `ISOMUX_SETUP_KEY`, at least 32 characters                       |
-| Internal HTTP port | `PORT`, default `10000`                                          |
-| Home and state     | `/var/data/home`, `/var/data/home/.isomux`                       |
-| Projects           | `/var/data/workspaces` or another directory under the data mount |
+If it does not load, check that both DNS records point to the Elastic IP and
+that the server allows inbound ports 80 and 443. DNS changes can take time to appear.
 
-Root creates the home and workspace directories, then starts the runtime as
-`node` (UID/GID 1000). A mount whose directories already belong to that user can
-run with `--user 1000:1000`. The container needs neither privileged mode nor the
-Docker socket. Keep provider-home overrides and project dependency installs on
-the data mount. Installs elsewhere disappear with the container.
+## 8. Create your owner account
 
-The Compose reference uses the included `seccomp/chromium.json` profile so
-non-root Chromium can create its sandbox namespaces. The profile adds `clone`,
-`setns`, and `unshare` to a pinned Docker default basis for all container
-processes. It adds no capabilities. See the [profile notes](seccomp/README.md)
-for the exact basis and host requirements. The profile passed on EC2 Ubuntu
-24.04 with Docker 29.1.3 on 2026-09-21. Render and Fargate compatibility remains
-unverified.
+**Server terminal**
 
-Open the HTTPS office and enter the setup key and owner name. Remove the key
-from the deployment configuration after claim. The office launcher removes it
-from its environment, but the supervisor retains its original environment until
-container replacement. Replace the container immediately after removing the key.
-Connect providers through Settings → You → Individual connections.
-Real provider login and turns need acceptance checks on the target deployment.
+- Display the setup key generated in step 5:
 
-The image probe sends `GET /`: setup returns 200; the office returns 401 without
-a session. The probe accepts those two codes. A passing probe checks the HTTP
-listener, not provider or app readiness. Do not use `/health` after setup.
+  ```sh
+  sudo sed -n 's/^ISOMUX_SETUP_KEY=//p' /opt/isomux-container/office.env
+  ```
 
-The supervisor preserves running and stopped app intent. Office restart keeps
-apps running; container replacement interrupts all processes. Office and app
-logs and worker diagnostics are private files under
-`/var/data/home/.isomux/container-runtime`. `docker logs` carries container
-supervisor diagnostics.
-All members and their code share one OS trust boundary. App memory/process
-guards are sampled, with no per-app CPU quota or hard memory isolation.
+**Your browser → your office address**
 
-## EC2, retained EBS, and Compose reference
+- Paste that key into **Setup key**.
+- Enter your name. You can change it later.
+- Select **Create office**. The office should open and the receptionist should greet you.
 
-This reference uses a Linux x86-64 EC2 host with Docker Engine, the Compose
-plugin, and systemd. Host Caddy or an ALB terminates HTTPS. Choose host capacity for the
-workload. The Compose defaults cap the whole container at 4 GiB and two CPUs;
-these are starting limits, not a capacity guarantee.
+**Optional: remove the unused setup key**
 
-For host Caddy, set `ISOMUX_BIND_IP=127.0.0.1` in step 3 and replace steps 5–7
-with the [Caddy setup](#host-caddy-alternative). The ALB path uses the EC2 private IP.
+- The setup key cannot claim the office again after an owner exists. Removing it
+  is extra protection against leaving an unused secret in the server's configuration.
+- To remove it, run the following in the **server terminal**. This briefly restarts
+  the office and its apps:
 
-1. Attach an encrypted EBS data volume. Set and verify
-   `DeleteOnTermination=false` in the instance block-device mapping. Identify
-   the volume and its filesystem UUID before mounting it; format only a new,
-   empty volume. [AWS retention instructions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/preserving-volumes-on-termination.html).
-2. Create `/srv/isomux-data` and add this `/etc/fstab` entry, replacing `UUID`
-   and the filesystem type with the actual values:
+  ```sh
+  sudo sed -i '/^ISOMUX_SETUP_KEY=/d' /opt/isomux-container/office.env
+  sudo systemctl restart isomux-container.service
+  ```
 
-   ```fstab
-   UUID=UUID /srv/isomux-data ext4 defaults,nofail,x-systemd.device-timeout=30s 0 2
-   ```
+## 9. Connect an AI provider
 
-   Run `sudo mount /srv/isomux-data` and `findmnt /srv/isomux-data`. Confirm that
-   the mounted device is the retained EBS volume. A missing disk must stop the
-   office from starting; an empty root-disk directory is not a replacement.
+**Your browser → Settings → You → Individual connections**
 
-3. Copy `compose.yaml`, `isomux-container.service`, and the `seccomp/` directory to
-   `/opt/isomux-container/`. In that directory, create a mode-0600 `office.env`:
+- Connect the provider you want your agents to use. Follow the
+  [provider connection instructions](https://isomux.com/docs/access-and-invites).
+- For Claude through Amazon Bedrock, use the
+  [Bedrock setup instructions](https://isomux.com/docs/access-and-invites#claude-on-amazon-bedrock).
+- Open an agent that uses that provider and send a short message. A reply confirms
+  that the office can use your provider account.
+- To invite someone else, open **Settings → Invites**.
 
-   ```dotenv
-   ISOMUX_IMAGE=ghcr.io/nmamano/isomux@sha256:REPLACE_WITH_DIGEST
-   ISOMUX_PUBLIC_URL=https://office.example.com
-   ISOMUX_SETUP_KEY=REPLACE_WITH_A_RANDOM_SECRET_OF_AT_LEAST_32_CHARACTERS
-   ISOMUX_BIND_IP=REPLACE_WITH_EC2_PRIVATE_IP
-   ```
+Your office is ready. Keep using the same office URL to return to it.
 
-   Pull the image with `sudo docker compose --env-file office.env pull`.
-   Keep deployment and registry credentials outside the container. Give the
-   runtime no AWS role with deployment permissions.
+## Office logs
 
-4. Install the host unit and start it:
+If the office does not start, run these commands in the **server terminal**:
 
-   ```sh
-   sudo cp /opt/isomux-container/isomux-container.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now isomux-container.service
-   ```
-
-   The unit requires the mount and checks it before starting Compose. It owns
-   restart policy, including after reboot; Docker's independent restart policy
-   is disabled so Docker cannot start the office before EBS is mounted. The
-   unit stops Compose when the mount stops. Keep one container and one host
-   writer; do not configure rolling replicas or EBS multi-attach.
-
-5. Create an ACM DNS-validated certificate for `office.example.com` and
-   `*.office.example.com`. Keep its DNS validation records and attach it to the
-   ALB HTTPS listener. ACM manages renewal while the certificate remains
-   eligible. [ACM renewal](https://docs.aws.amazon.com/acm/latest/userguide/managed-renewal.html).
-6. Send both DNS names to the ALB. Forward both hostnames to the same EC2
-   private address on port 10000. Enable ALB Host header preservation. Set the
-   target health check to HTTP `GET /` and success codes `200,401`. Give
-   `/__isomux/tls-ask` a higher-priority fixed 403 response rule. Reject other
-   hosts at the listener. The EC2 security group must accept port 10000 only
-   from the ALB security group; do not publish app ports. Permit public HTTPS
-   and, if needed, HTTP redirects at the ALB.
-7. Preserve WebSocket upgrades and set an idle timeout suitable for long turns.
-   Check a long turn and an app WebSocket through the actual ingress.
-   [ALB attributes](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html),
-   [ALB listeners](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-listeners.html).
-
-8. Claim the office at its HTTPS address. Immediately remove `ISOMUX_SETUP_KEY`
-   from `/opt/isomux-container/office.env`, and run
-   `sudo systemctl restart isomux-container.service`. The unit removes the old
-   container and starts its replacement with the same data mount. Reopen the
-   office and confirm the owner can sign in. Keep the key absent on later starts.
-
-An existing proxy can supply the same HTTPS, Host, WebSocket, and access rules.
-The default Compose bind address is loopback for a host-local proxy. Other AWS
-container workflows must meet the same persistent-storage and single-writer
-contract. Fargate task storage is ephemeral; EFS and Fargate process behavior
-need separate validation.
-
-### Host Caddy alternative
-
-Point the `office.example.com` and `*.office.example.com` DNS A records at the
-host. Allow inbound TCP 80 and 443; keep port 10000 bound to loopback. Install
-[Caddy as a host service](https://caddyserver.com/docs/running#linux-service).
-Use this `/etc/caddy/Caddyfile`, replacing the example domain:
-
-```caddyfile
-{
-    on_demand_tls {
-        ask http://127.0.0.1:10000/__isomux/tls-ask
-    }
-}
-
-office.example.com {
-    respond /__isomux/tls-ask 404
-    reverse_proxy 127.0.0.1:10000
-}
-
-*.office.example.com {
-    tls {
-        on_demand
-    }
-    respond /__isomux/tls-ask 404
-    reverse_proxy 127.0.0.1:10000
-}
+```sh
+sudo journalctl -u isomux-container.service -n 50 --no-pager
+sudo tail -n 50 /srv/isomux-data/home/.isomux/container-runtime/office.log
 ```
 
-Caddy asks the office before issuing an app certificate. Public HTTPS requests
-to the ask path return 404. Caddy forwards the Host header and WebSockets to the
-office. Validate the file with `sudo caddy validate --config /etc/caddy/Caddyfile`,
-then run `sudo systemctl enable --now caddy` and `sudo systemctl reload caddy`.
-Continue at step 8 to claim the office and remove the setup key.
-
-## Update and restore
-
-Pull the next immutable image before the outage. Stop the host unit with
-`sudo systemctl stop isomux-container`. Confirm the office container is stopped,
-run `sudo sync`, and then snapshot the complete EBS volume. Record the old image digest with that
-snapshot. Change `ISOMUX_IMAGE` in `office.env`, keep the setup key absent,
-and start the unit. Check the owner, provider connections,
-project files, and running/stopped apps. Never start a second writer to reduce
-the outage.
-
-To roll back stored-state changes, stop the unit and restore the matching data
-snapshot and previous image together. Test restoration on an isolated mount.
-The office's own backup does not cover the complete home/workspace mount and
-does not protect against volume loss. Keep independent snapshots.
-
-## Acceptance checks
-
-On 2026-09-21, source revision `dc1a8cea` passed EC2/Caddy checks on Linux amd64:
-app HTTPS and WebSockets, container replacement, host reboot, retained state,
-and isolated EBS snapshot restore.
-
-On the same date, image revision `b4b7a5f1` passed sandbox, PTY, and production
-preview checks on EC2 Ubuntu 24.04 with Docker 29.1.3. Chromium ran as UID 1000
-with zero effective capabilities and reported namespace and Seccomp-BPF
-isolation. Docker kept its default AppArmor profile, with no added capabilities
-or privileged mode. Replacing the test office with that image and the reviewed
-Compose/profile files preserved app state and stopped intent; public app HTTPS
-and WebSockets passed. The reboot and snapshot-restore results above apply to
-`dc1a8cea`.
-
-Actual provider completion was blocked by Bedrock billing. ALB, Fargate, and
-missing-volume startup refusal on real AWS were not verified.
-
-Run the local image check with `python3 deploy/container/smoke.py IMAGE`. It
-creates isolated containers and a temporary volume, disables networking, and
-checks setup, native executables, PTY, browser rendering, app HTTP/WebSockets,
-office restart, and container replacement. It deletes its containers and volume
-when complete. It uses synthetic state and makes no provider login or model turn.
-
-With Docker Compose installed, `python3 deploy/container/compose-check.py IMAGE`
-checks the reference command with isolated storage, stop/start persistence,
-resource limits, and missing-directory refusal. Repeat host mount ordering and
-reboot checks on the target deployment.
-
-Before production use, verify the real AWS deployment: owner claim and invites; required
-provider logins and turns; terminal and browser preview; app HTTPS, access, and
-WebSockets; office restart; container replacement; host reboot; missing-volume
-startup refusal; and snapshot restore. Record the date, image digest, runtime,
-storage, ingress, resource limits, and results. Local image tests do not certify
-AWS or a customer's workflow.
+For source builds, custom deployments, and technical details, see the
+[container reference](reference.md).

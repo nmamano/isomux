@@ -62,5 +62,5 @@ bun test server/container-app-supervisor.test.ts \
 ```
 
 They start real app processes and the real office API with fake model backends.
-Use the [committed-source build](../container/README.md#build-and-record-an-image)
+Use the [committed-source build](../container/reference.md#build-from-source)
 for local image validation. Render deployment acceptance remains separate.

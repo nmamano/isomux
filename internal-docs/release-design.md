@@ -27,6 +27,15 @@ with isolated state before it publishes `ghcr.io/nmamano/isomux:RELEASE_TAG`.
 The run summary records the source commit and registry digest. Deploy by digest.
 Source installation and local image builds remain available.
 
+The container installer is downloaded from that same release tag, and checks
+its bytes against the tag before changing the host. Its Compose/unit/seccomp
+assets are embedded with `scripts/embed-deploy-scripts.ts`; do not publish a tag
+with stale embeddings. It pulls the tag once, records the registry digest, and
+uses that digest for startup and same-release repair. The guide's unpublished
+image notice must be removed only after anonymous pull and real installer
+acceptance pass. Container acceptance is in
+`internal-docs/post-release-verification.md`.
+
 Both stable releases and prereleases publish an exact CalVer tag. The release
 script still creates a stable release; marking it as a prerelease immediately
 afterward does not change the image rule. No `latest`, stable, or commit alias

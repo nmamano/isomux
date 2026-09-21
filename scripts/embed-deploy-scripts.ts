@@ -16,6 +16,12 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const INSTALL_SH = `${ROOT}deploy/install.sh`;
 
 export const EMBEDDED = [
+  { path: "deploy/container/compose.yaml", delimiter: "ISOMUX_CONTAINER_COMPOSE" },
+  { path: "deploy/container/isomux-container.service", delimiter: "ISOMUX_CONTAINER_UNIT" },
+  { path: "deploy/container/mount-check.sh", delimiter: "ISOMUX_CONTAINER_MOUNT_CHECK" },
+  { path: "deploy/container/seccomp/chromium.json", delimiter: "ISOMUX_CONTAINER_SECCOMP" },
+  { path: "deploy/container/seccomp/LICENSE", delimiter: "ISOMUX_CONTAINER_SECCOMP_LICENSE" },
+
   { path: "deploy/harden-ssh.sh", delimiter: "ISOMUX_HARDEN_SSH_SH" },
   {
     path: "deploy/verify-hardening.sh",

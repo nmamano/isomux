@@ -86,10 +86,11 @@ Each Isomux update re-runs a read-only check of the firewall and the SSH boundar
 
 ### Parameters
 
-Environment variables, set before running:
+Environment variables for the default direct-host installation, set before running:
 
 | Variable      | Default        | Meaning                                                          |
 | ------------- | -------------- | ---------------------------------------------------------------- |
+| `ISOMUX_INSTALL_MODE` | `host` | Set to `container` for the [container installation](#deploy-a-container). |
 | `DOMAIN`      | (required)     | Public domain for the office.                                    |
 | `ISOMUX_REF`  | latest release | Git branch, tag, or commit to install.                           |
 | `ISOMUX_REPO` | GitHub         | Git repo to install from (for forks).                            |
@@ -340,15 +341,22 @@ values.
 
 ## Deploy a container
 
-The [container reference](https://github.com/nmamano/isomux/tree/main/deploy/container)
-runs one office and its generated apps with one persistent `/var/data` mount.
-It includes release images from `ghcr.io/nmamano/isomux`, a source-image build,
-and an EC2, retained-EBS, and Compose setup. Use the digest from the release's
-**Publish container** workflow run; the package needs a one-time public visibility
-setting after its first publication.
-Use HTTPS for the office and its app subdomains. Keep one data writer, and
-replace the image for updates. EC2 with host Caddy passed persistence and restore
-checks on 2026-09-21; the reference records the tested revision and remaining checks.
+The [AWS setup guide](https://github.com/nmamano/isomux/tree/main/deploy/container)
+walks through creating an Ubuntu server, connecting a domain, and starting
+Isomux from a container image. The same installer supports this path with
+`ISOMUX_INSTALL_MODE=container`, `DOMAIN`, and an explicit `ISOMUX_REF` release
+tag. Download the installer from that same tag. Container mode requires an
+existing writable disk mount at `/srv/isomux-data`.
+
+The installer configures Docker/Compose, Caddy, the firewall, and automatic
+Ubuntu security updates. It preserves SSH authentication and uses a setup key
+for the first owner. It does not install a second office or the host updater.
+Reruns preserve the key and image digest, and restart the office and its apps.
+Container release changes use snapshots and image replacement as described in
+the reference below. The direct-host installation remains the default.
+
+For an existing container deployment, see the
+[container reference](https://github.com/nmamano/isomux/blob/main/deploy/container/reference.md).
 
 ## Deploy on Render
 

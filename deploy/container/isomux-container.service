@@ -11,6 +11,7 @@ After=srv-isomux\x2ddata.mount
 Type=simple
 WorkingDirectory=/opt/isomux-container
 ExecStartPre=/usr/bin/mountpoint -q /srv/isomux-data
+ExecStartPre=/opt/isomux-container/mount-check.sh
 ExecStart=/usr/bin/docker compose --env-file office.env up --no-build --pull never --abort-on-container-exit --exit-code-from office
 ExecStop=/usr/bin/docker compose --env-file office.env down --timeout 30
 Restart=always

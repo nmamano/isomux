@@ -32,6 +32,19 @@
 #   DOMAIN=office.example.com bash "$installer"
 #
 # Parameters (environment variables):
+#   ISOMUX_INSTALL_MODE  host (default) or container. Container mode requires an
+#                 existing writable filesystem mounted at /srv/isomux-data,
+#                 DOMAIN, and an explicit ISOMUX_REF release tag. Download this
+#                 installer from that same tag. It installs Docker/Compose,
+#                 Caddy, firewall rules and security updates, then starts the
+#                 release image. It does not install the host office/updater,
+#                 provider CLIs, or change SSH authentication. Create the first
+#                 owner in the browser with the key in the root-only file
+#                 /opt/isomux-container/office.env. Re-runs preserve that key
+#                 and the image digest, and restart the office and its apps.
+#                 Release/domain/disk changes require manual maintenance.
+#                 OWNER_NAME, ISOMUX_DEPS_ONLY and INSTALL_CALLBACK_URL do not
+#                 apply to container mode.
 #   DOMAIN        (required) public domain for the office; its A record must
 #                 point at this server for the HTTPS certificate to issue.
 #   OWNER_NAME    display name of the office owner (default "Owner";
@@ -72,6 +85,7 @@ SSH_PORT="${SSH_PORT:-22}"
 INSTALL_CALLBACK_URL="${INSTALL_CALLBACK_URL:-}"
 DRY_RUN="${DRY_RUN:-}"
 ISOMUX_DEPS_ONLY="${ISOMUX_DEPS_ONLY:-}"
+ISOMUX_INSTALL_MODE="${ISOMUX_INSTALL_MODE:-host}"
 
 # Protocol marker for scripts/update.sh: the exact assignment below is what the
 # updater greps for before it runs this file as root with ISOMUX_DEPS_ONLY=1.
@@ -4113,6 +4127,1525 @@ report() {
   fi
 }
 
+# --- Container host installation --------------------------------------------
+# These paths are fixed to the reviewed Compose/unit contract. No disk creation,
+# formatting, host-office migration, or host updater is part of this mode.
+CONTAINER_DIR=/opt/isomux-container
+CONTAINER_DATA=/srv/isomux-data
+CONTAINER_UNIT=/etc/systemd/system/isomux-container.service
+CONTAINER_LOCK=/run/isomux-install.lock
+CONTAINER_STAGE_PARENT=/opt
+CONTAINER_KEYRING=/usr/share/keyrings/caddy-stable-archive-keyring.gpg
+CONTAINER_APT_SOURCE=/etc/apt/sources.list.d/caddy-stable.list
+CONTAINER_IMAGE=ghcr.io/nmamano/isomux
+CONTAINER_REPAIR=""
+CONTAINER_UUID=""
+CONTAINER_REVISION=""
+CONTAINER_DIGEST=""
+CONTAINER_STAGE=""
+CONTAINER_INSTALLER=${BASH_SOURCE[0]}
+
+container_mount_identity() {
+  [[ ! -L $CONTAINER_DATA && -d $CONTAINER_DATA && -w $CONTAINER_DATA ]] ||
+    die "The data path must be a writable directory, not a symbolic link: $CONTAINER_DATA"
+  mountpoint -q "$CONTAINER_DATA" || die "Mount the data disk at $CONTAINER_DATA before installation"
+  CONTAINER_UUID=$(findmnt --mountpoint "$CONTAINER_DATA" --noheadings --output UUID)
+  [[ $CONTAINER_UUID =~ ^[A-Za-z0-9-]+$ ]] || die "The data mount must have a filesystem UUID"
+  local options
+  options=$(findmnt --mountpoint "$CONTAINER_DATA" --noheadings --output OPTIONS)
+  [[ ,$options, == *,rw,* ]] || die "The data mount is read-only"
+}
+
+container_render_caddy() {
+  render_caddyfile self-hosted "$1" "$DOMAIN"
+  sed -i 's/127\.0\.0\.1:4000/127.0.0.1:10000/g' "$1"
+}
+
+container_check_caddy() {
+  local expected=$1 hash current
+  [[ ! -L $CADDYFILE ]] || die "Refusing a Caddyfile symbolic link"
+  [[ -e $CADDYFILE ]] || return 0
+  [[ -f $CADDYFILE ]] || die "Caddyfile must be a regular file"
+  if [[ -n $CONTAINER_REPAIR ]] && cmp -s "$expected" "$CADDYFILE"; then return 0; fi
+  # dpkg records the shipped conffile checksum, including for older packages.
+  hash=$(dpkg-query -W -f='${Conffiles}\n' caddy 2>/dev/null | awk '$1 == "/etc/caddy/Caddyfile" {print $2}') || true
+  current=$(md5sum "$CADDYFILE")
+  [[ $hash =~ ^[a-f0-9]{32}$ && ${current%% *} == "$hash" ]] ||
+    die "Caddy has an existing custom configuration; refusing to replace it"
+}
+
+container_has_owner() {
+  jq -e 'type == "object" and any(.[]; .role == "owner")' \
+    "$CONTAINER_DATA/home/.isomux/users.json" >/dev/null 2>&1
+}
+
+container_check_env() {
+  # Read literal lines, never shell-source credentials. Refuse unknown settings
+  # instead of letting Compose interpolation or a repair change their meaning.
+  local line image="" origin="" bind="" key="" seen="|" name
+  [[ -f $CONTAINER_DIR/office.env && ! -L $CONTAINER_DIR/office.env ]] || die "Missing regular office.env"
+  [[ $(stat -c '%u:%a' "$CONTAINER_DIR/office.env") == 0:600 ]] || die "office.env must be root-owned with mode 600"
+  while IFS= read -r line || [[ -n $line ]]; do
+    name=${line%%=*}
+    [[ $line == *=* && $seen != *"|$name|"* ]] || die "Invalid or duplicate office.env setting"
+    seen+="$name|"
+    case $name in
+      ISOMUX_IMAGE) image=${line#*=} ;;
+      ISOMUX_PUBLIC_URL) origin=${line#*=} ;;
+      ISOMUX_BIND_IP) bind=${line#*=} ;;
+      ISOMUX_SETUP_KEY) key=${line#*=}; [[ $key =~ ^[a-f0-9]{64}$ ]] || die "Invalid saved setup key" ;;
+      *) die "Custom office.env settings require manual maintenance" ;;
+    esac
+  done < "$CONTAINER_DIR/office.env"
+  [[ $image == "$CONTAINER_DIGEST" && $origin == "https://$DOMAIN" && $bind == 127.0.0.1 ]] ||
+    die "Saved container settings differ; use the container update instructions"
+  if [[ -z $key ]]; then
+    container_has_owner || die "Setup key is absent and the data disk has no confirmed owner; restore the original settings or data"
+  fi
+}
+
+container_check_saved() {
+  [[ ! -L $CONTAINER_DIR && -d $CONTAINER_DIR && $(stat -c '%u:%a' "$CONTAINER_DIR") == 0:700 ]] ||
+    die "Existing container directory is not an installer-owned private directory"
+  local name
+  for name in release revision domain mount.uuid installer.sha256 image; do
+    [[ -f $CONTAINER_DIR/$name && ! -L $CONTAINER_DIR/$name ]] || die "Missing container installation record: $name"
+  done
+  [[ $(cat "$CONTAINER_DIR/release") == "$ISOMUX_REF" && $(cat "$CONTAINER_DIR/revision") == "$CONTAINER_REVISION" && $(cat "$CONTAINER_DIR/domain") == "$DOMAIN" &&
+     $(cat "$CONTAINER_DIR/mount.uuid") == "$CONTAINER_UUID" &&
+     $(cat "$CONTAINER_DIR/installer.sha256") == "$(sha256sum "$CONTAINER_INSTALLER" | cut -d ' ' -f 1)" ]] ||
+    die "Release, domain, installer, or data disk differs from the recorded installation"
+  CONTAINER_DIGEST=$(cat "$CONTAINER_DIR/image")
+  [[ $CONTAINER_DIGEST =~ ^ghcr.io/nmamano/isomux@sha256:[a-f0-9]{64}$ ]] || die "Invalid saved image digest"
+  for name in compose.yaml isomux-container.service seccomp/chromium.json mount-check.sh; do
+    [[ ! -L $CONTAINER_DIR/$name ]] && cmp -s "$CONTAINER_STAGE/$name" "$CONTAINER_DIR/$name" ||
+      die "Container configuration changed: $name; use manual maintenance"
+  done
+  container_check_env
+  CONTAINER_REPAIR=1
+}
+
+container_check_other_office() {
+  [[ ! -e $INSTALL_DIR && ! -e $SERVICE_HOME/.isomux && ! -e $UPDATE_CONF ]] ||
+    die "Existing direct-host office detected; automatic conversion is not supported"
+  if systemctl cat isomux.service >/dev/null 2>&1; then
+    die "Existing direct-host service detected; automatic conversion is not supported"
+  fi
+  if [[ -e $CONTAINER_UNIT || -L $CONTAINER_UNIT ]]; then
+    [[ -n $CONTAINER_REPAIR && ! -L $CONTAINER_UNIT ]] && cmp -s "$CONTAINER_UNIT" "$CONTAINER_STAGE/isomux-container.service" ||
+      die "Existing container service is not this installer's unit"
+  elif systemctl cat isomux-container.service >/dev/null 2>&1; then
+    die "A container service exists outside the installer path"
+  fi
+}
+
+container_check_docker() {
+  local ids id metadata result
+  ids=$(docker ps -aq) || die "Cannot inspect existing Docker containers"
+  for id in $ids; do
+    metadata=$(docker inspect "$id") || die "Cannot inspect an existing container"
+    if jq -e --arg data "$CONTAINER_DATA" 'any(.[0].Mounts[]?; .Source == $data) or .[0].Config.Labels["com.docker.compose.project"] == "isomux"' <<<"$metadata" >/dev/null; then
+      [[ -n $CONTAINER_REPAIR ]] && jq -e --arg dir "$CONTAINER_DIR" --arg image "$CONTAINER_DIGEST" '
+        .[0].Config.Labels["com.docker.compose.project"] == "isomux" and
+        .[0].Config.Labels["com.docker.compose.service"] == "office" and
+        .[0].Config.Labels["com.docker.compose.project.working_dir"] == $dir and
+        .[0].Config.Image == $image' <<<"$metadata" >/dev/null ||
+        die "Another container uses this data disk or the isomux Compose project"
+    else
+      result=$?
+      [[ $result == 1 ]] || die "Cannot parse an existing Docker container"
+    fi
+  done
+}
+
+container_check_docker_version() {
+  local engine_version
+  engine_version=$(docker version --format '{{.Server.Version}}')
+  # Before Docker 28, hosts on the same L2 network can reach loopback-published
+  # ports: https://docs.docker.com/engine/network/port-publishing/
+  [[ $engine_version =~ ^([0-9]+)\. ]] && ((10#${BASH_REMATCH[1]} >= 28)) ||
+    die "Docker Engine 28 or later is required for loopback-only port publishing"
+  docker compose version >/dev/null
+}
+
+container_install_packages() {
+  step container-packages
+  export DEBIAN_FRONTEND=noninteractive
+  # Snapshot both directions. Package scripts must not leave an existing front
+  # door stopped, or start a proxy which the operator had stopped.
+  snapshot_caddy_state
+  apt_get update -y
+  apt_install ca-certificates curl gnupg jq openssl ufw unattended-upgrades
+  if ! command -v docker >/dev/null; then
+    apt_install docker.io docker-compose-v2
+  fi
+  curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' |
+    gpg --batch --yes --dearmor -o "$CONTAINER_KEYRING"
+  curl -fsSL 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    >"$CONTAINER_APT_SOURCE"
+  apt_get update -y
+  apt_install caddy
+  restore_caddy_state || die "Could not restore Caddy's prior service state"
+  systemctl enable --now docker
+  container_check_docker_version
+}
+
+container_select_image() {
+  step container-image
+  local digest revision
+  docker pull "$CONTAINER_IMAGE:$ISOMUX_REF"
+  digest=$(docker image inspect "$CONTAINER_IMAGE:$ISOMUX_REF" --format '{{json .RepoDigests}}' |
+    jq -er '[.[] | select(startswith("ghcr.io/nmamano/isomux@sha256:"))] | if length == 1 then .[0] else error("ambiguous digest") end')
+  [[ $digest =~ ^ghcr.io/nmamano/isomux@sha256:[a-f0-9]{64}$ ]] || die "Release image has no immutable digest"
+  if [[ -n $CONTAINER_REPAIR ]]; then
+    [[ $digest == "$CONTAINER_DIGEST" ]] || die "Release tag changed; refusing to replace the recorded image"
+  else
+    CONTAINER_DIGEST=$digest
+  fi
+  docker pull "$CONTAINER_DIGEST"
+  revision=$(docker image inspect "$CONTAINER_DIGEST" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+  [[ $revision == "$CONTAINER_REVISION" ]] || die "Image source revision does not match the selected release"
+}
+
+container_compose() {
+  env -u ISOMUX_IMAGE -u ISOMUX_PUBLIC_URL -u ISOMUX_SETUP_KEY -u ISOMUX_BIND_IP \
+    -u ISOMUX_MEMORY_LIMIT -u ISOMUX_CPUS -u COMPOSE_FILE -u COMPOSE_PROJECT_NAME \
+    docker compose --env-file office.env -f compose.yaml "$@"
+}
+
+container_write_settings() {
+  local key
+  printf '%s\n' "$ISOMUX_REF" > "$CONTAINER_STAGE/release"
+  printf '%s\n' "$CONTAINER_REVISION" > "$CONTAINER_STAGE/revision"
+  printf '%s\n' "$DOMAIN" > "$CONTAINER_STAGE/domain"
+  printf '%s\n' "$CONTAINER_UUID" > "$CONTAINER_STAGE/mount.uuid"
+  sha256sum "$CONTAINER_INSTALLER" | cut -d ' ' -f 1 > "$CONTAINER_STAGE/installer.sha256"
+  printf '%s\n' "$CONTAINER_DIGEST" > "$CONTAINER_STAGE/image"
+  if [[ -n $CONTAINER_REPAIR ]]; then
+    cp "$CONTAINER_DIR/office.env" "$CONTAINER_STAGE/office.env"
+  else
+    key=$(openssl rand -hex 32)
+    [[ $key =~ ^[a-f0-9]{64}$ ]] || die "Could not generate a setup key"
+    printf 'ISOMUX_IMAGE=%s\nISOMUX_PUBLIC_URL=https://%s\nISOMUX_BIND_IP=127.0.0.1\nISOMUX_SETUP_KEY=%s\n' \
+      "$CONTAINER_DIGEST" "$DOMAIN" "$key" > "$CONTAINER_STAGE/office.env"
+  fi
+  chmod 600 "$CONTAINER_STAGE/office.env"
+  (cd "$CONTAINER_STAGE" && container_compose config --quiet)
+}
+
+container_start() {
+  step container-start
+  # Publish the complete install record before service mutation. A failure from
+  # this point is repaired with the same installer/tag/domain and saved secret.
+  if [[ -z $CONTAINER_REPAIR ]]; then
+    mv "$CONTAINER_STAGE" "$CONTAINER_DIR"
+    CONTAINER_STAGE=""
+    sync -f "$CONTAINER_DIR"
+  fi
+  "$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid" || die "Data mount check failed"
+  local staged_unit
+  staged_unit=$(mktemp "${CONTAINER_UNIT}.XXXXXXXX")
+  install -m 644 "$CONTAINER_DIR/isomux-container.service" "$staged_unit"
+  sync -f "$staged_unit"
+  mv -f "$staged_unit" "$CONTAINER_UNIT"
+  systemctl daemon-reload
+  systemctl enable isomux-container.service
+  systemctl restart isomux-container.service
+  local attempt
+  for ((attempt=0; attempt<HEALTH_TIMEOUT_S; attempt++)); do
+    if (cd "$CONTAINER_DIR" && container_compose exec -T office bun deploy/container/probe.ts >/dev/null 2>&1); then
+      return 0
+    fi
+    sleep 1
+  done
+  die "Container did not become ready; check journalctl -u isomux-container.service"
+}
+
+container_require_root() {
+  [[ $EUID -eq 0 ]] || die "this installer must run as root"
+}
+
+container_main() (
+  container_require_root
+  [[ -z $ISOMUX_DEPS_ONLY && -z $INSTALL_CALLBACK_URL ]] || die "Container mode does not support dependency-only or callback installation"
+  [[ $ISOMUX_REF =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]] || die "Container mode requires ISOMUX_REF=vYYYY.M.D (or vYYYY.M.D.N)"
+  [[ $ISOMUX_REPO == https://github.com/nmamano/isomux.git ]] || die "Container mode uses official release images"
+  [[ $(uname -m) == x86_64 ]] || die "Container mode requires Linux amd64"
+  command -v curl >/dev/null && command -v jq >/dev/null || die "Install curl and jq before running container mode"
+  umask 077
+  exec 9>"$CONTAINER_LOCK"
+  flock -n 9 || die "Another installer is running"
+  # Private staging and cleanup also cover early failure. Never print its env.
+  umask 077
+  CONTAINER_STAGE=$(mktemp -d "$CONTAINER_STAGE_PARENT/.isomux-container.XXXXXXXX")
+  trap '[[ -z $CONTAINER_STAGE ]] || rm -rf -- "$CONTAINER_STAGE"' EXIT
+  DOMAIN=${DOMAIN,,}
+  valid_domain "$DOMAIN" || die "DOMAIN must be a DNS hostname"
+  container_mount_identity
+  container_assets "$CONTAINER_STAGE"
+  container_render_caddy "$CONTAINER_STAGE/Caddyfile"
+  # Resolve the release once. Compare the standalone installer to that source
+  # commit, then require the image's OCI revision label to agree after pull.
+  CONTAINER_REVISION=$(curl -fsSL "https://api.github.com/repos/nmamano/isomux/commits/$ISOMUX_REF" |
+    jq -er '.sha')
+  [[ $CONTAINER_REVISION =~ ^[a-f0-9]{40}$ ]] || die "Cannot resolve the release source revision"
+  curl -fsSL "https://raw.githubusercontent.com/nmamano/isomux/$CONTAINER_REVISION/deploy/install.sh" -o "$CONTAINER_STAGE/release-installer.sh"
+  cmp -s "$CONTAINER_INSTALLER" "$CONTAINER_STAGE/release-installer.sh" || die "Download install.sh from the selected release tag"
+  rm "$CONTAINER_STAGE/release-installer.sh"
+  if [[ -e $CONTAINER_DIR || -L $CONTAINER_DIR ]]; then container_check_saved; fi
+  container_check_other_office
+  container_check_caddy "$CONTAINER_STAGE/Caddyfile"
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: container checks passed; would install Docker, Compose, Caddy, firewall rules and security updates, then start $CONTAINER_IMAGE:$ISOMUX_REF"
+    return
+  fi
+  preflight
+  if command -v docker >/dev/null; then
+    command -v jq >/dev/null || die "Install jq before checking an existing Docker installation"
+    container_check_docker_version
+    container_check_docker
+  fi
+  container_install_packages
+  container_check_docker
+  container_select_image
+  container_write_settings
+  # Validate and recheck before stopping a working container or proxy.
+  caddy validate --config "$CONTAINER_STAGE/Caddyfile" --adapter caddyfile
+  container_check_caddy "$CONTAINER_STAGE/Caddyfile"
+  configure_firewall
+  enable_auto_updates
+  container_start
+  local rendered
+  rendered=$(mktemp "$CADDY_DIR/.Caddyfile.container.XXXXXXXX")
+  container_render_caddy "$rendered"
+  chmod 644 "$rendered"
+  systemctl enable caddy
+  install_caddyfile_transaction "$rendered"
+  log "Office ready at https://$DOMAIN. Create the first owner with the setup key in $CONTAINER_DIR/office.env."
+  log "Container updates use the snapshot and image replacement instructions; the host updater is not installed."
+)
+
+container_assets() {
+  local directory=$1
+  mkdir -p "$directory/seccomp"
+  cat > "$directory/compose.yaml" <<'ISOMUX_CONTAINER_COMPOSE'
+name: isomux
+services:
+  office:
+    image: ${ISOMUX_IMAGE:?Set an immutable image reference}
+    platform: linux/amd64
+    security_opt:
+      - seccomp=./seccomp/chromium.json
+    # systemd owns restart and mount ordering in the EC2 reference.
+    restart: "no"
+    stop_grace_period: 30s
+    mem_limit: ${ISOMUX_MEMORY_LIMIT:-4g}
+    cpus: ${ISOMUX_CPUS:-2}
+    environment:
+      ISOMUX_PUBLIC_URL: ${ISOMUX_PUBLIC_URL:?Set the office HTTPS origin}
+      ISOMUX_SETUP_KEY: ${ISOMUX_SETUP_KEY:-}
+      PORT: "10000"
+    ports:
+      - "${ISOMUX_BIND_IP:-127.0.0.1}:10000:10000"
+    volumes:
+      - type: bind
+        source: /srv/isomux-data
+        target: /var/data
+        bind:
+          create_host_path: false
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+ISOMUX_CONTAINER_COMPOSE
+  cat > "$directory/isomux-container.service" <<'ISOMUX_CONTAINER_UNIT'
+[Unit]
+Description=Isomux container
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/isomux-data
+BindsTo=srv-isomux\x2ddata.mount
+After=srv-isomux\x2ddata.mount
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/isomux-container
+ExecStartPre=/usr/bin/mountpoint -q /srv/isomux-data
+ExecStartPre=/opt/isomux-container/mount-check.sh
+ExecStart=/usr/bin/docker compose --env-file office.env up --no-build --pull never --abort-on-container-exit --exit-code-from office
+ExecStop=/usr/bin/docker compose --env-file office.env down --timeout 30
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target
+ISOMUX_CONTAINER_UNIT
+  cat > "$directory/mount-check.sh" <<'ISOMUX_CONTAINER_MOUNT_CHECK'
+#!/usr/bin/env bash
+# The host unit calls this before every container start, including after reboot.
+set -euo pipefail
+mount_path=${1:-/srv/isomux-data}
+identity_file=${2:-/opt/isomux-container/mount.uuid}
+[[ ! -L $mount_path && -d $mount_path && -w $mount_path ]] || exit 1
+mountpoint -q "$mount_path" || exit 1
+[[ -f $identity_file && ! -L $identity_file ]] || exit 1
+IFS= read -r expected < "$identity_file"
+[[ $expected =~ ^[A-Za-z0-9-]+$ ]] || exit 1
+actual=$(findmnt --mountpoint "$mount_path" --noheadings --output UUID)
+[[ -n $actual && $actual == "$expected" ]] || exit 1
+options=$(findmnt --mountpoint "$mount_path" --noheadings --output OPTIONS)
+[[ ,$options, == *,rw,* ]] || exit 1
+ISOMUX_CONTAINER_MOUNT_CHECK
+  chmod 755 "$directory/mount-check.sh"
+  cat > "$directory/seccomp/chromium.json" <<'ISOMUX_CONTAINER_SECCOMP'
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": [
+        "SCMP_ARCH_X86",
+        "SCMP_ARCH_X32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": [
+        "SCMP_ARCH_ARM"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPS64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPS",
+        "SCMP_ARCH_MIPS64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64N32"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_MIPSEL64N32",
+      "subArchitectures": [
+        "SCMP_ARCH_MIPSEL",
+        "SCMP_ARCH_MIPSEL64"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_S390X",
+      "subArchitectures": [
+        "SCMP_ARCH_S390"
+      ]
+    },
+    {
+      "architecture": "SCMP_ARCH_RISCV64",
+      "subArchitectures": null
+    },
+    {
+      "architecture": "SCMP_ARCH_LOONGARCH64",
+      "subArchitectures": null
+    }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "accept",
+        "accept4",
+        "access",
+        "adjtimex",
+        "alarm",
+        "bind",
+        "brk",
+        "cachestat",
+        "capget",
+        "capset",
+        "chdir",
+        "chmod",
+        "chown",
+        "chown32",
+        "clock_adjtime",
+        "clock_adjtime64",
+        "clock_getres",
+        "clock_getres_time64",
+        "clock_gettime",
+        "clock_gettime64",
+        "clock_nanosleep",
+        "clock_nanosleep_time64",
+        "close",
+        "close_range",
+        "connect",
+        "copy_file_range",
+        "creat",
+        "dup",
+        "dup2",
+        "dup3",
+        "epoll_create",
+        "epoll_create1",
+        "epoll_ctl",
+        "epoll_ctl_old",
+        "epoll_pwait",
+        "epoll_pwait2",
+        "epoll_wait",
+        "epoll_wait_old",
+        "eventfd",
+        "eventfd2",
+        "execve",
+        "execveat",
+        "exit",
+        "exit_group",
+        "faccessat",
+        "faccessat2",
+        "fadvise64",
+        "fadvise64_64",
+        "fallocate",
+        "fanotify_mark",
+        "fchdir",
+        "fchmod",
+        "fchmodat",
+        "fchmodat2",
+        "fchown",
+        "fchown32",
+        "fchownat",
+        "fcntl",
+        "fcntl64",
+        "fdatasync",
+        "fgetxattr",
+        "flistxattr",
+        "flock",
+        "fork",
+        "fremovexattr",
+        "fsetxattr",
+        "fstat",
+        "fstat64",
+        "fstatat64",
+        "fstatfs",
+        "fstatfs64",
+        "fsync",
+        "ftruncate",
+        "ftruncate64",
+        "futex",
+        "futex_requeue",
+        "futex_time64",
+        "futex_wait",
+        "futex_waitv",
+        "futex_wake",
+        "futimesat",
+        "getcpu",
+        "getcwd",
+        "getdents",
+        "getdents64",
+        "getegid",
+        "getegid32",
+        "geteuid",
+        "geteuid32",
+        "getgid",
+        "getgid32",
+        "getgroups",
+        "getgroups32",
+        "getitimer",
+        "getpeername",
+        "getpgid",
+        "getpgrp",
+        "getpid",
+        "getppid",
+        "getpriority",
+        "getrandom",
+        "getresgid",
+        "getresgid32",
+        "getresuid",
+        "getresuid32",
+        "getrlimit",
+        "get_robust_list",
+        "getrusage",
+        "getsid",
+        "getsockname",
+        "getsockopt",
+        "get_thread_area",
+        "gettid",
+        "gettimeofday",
+        "getuid",
+        "getuid32",
+        "getxattr",
+        "getxattrat",
+        "inotify_add_watch",
+        "inotify_init",
+        "inotify_init1",
+        "inotify_rm_watch",
+        "io_cancel",
+        "ioctl",
+        "io_destroy",
+        "io_getevents",
+        "io_pgetevents",
+        "io_pgetevents_time64",
+        "ioprio_get",
+        "ioprio_set",
+        "io_setup",
+        "io_submit",
+        "ipc",
+        "kill",
+        "landlock_add_rule",
+        "landlock_create_ruleset",
+        "landlock_restrict_self",
+        "lchown",
+        "lchown32",
+        "lgetxattr",
+        "link",
+        "linkat",
+        "listen",
+        "listmount",
+        "listxattr",
+        "listxattrat",
+        "llistxattr",
+        "_llseek",
+        "lremovexattr",
+        "lseek",
+        "lsetxattr",
+        "lstat",
+        "lstat64",
+        "madvise",
+        "map_shadow_stack",
+        "membarrier",
+        "memfd_create",
+        "memfd_secret",
+        "mincore",
+        "mkdir",
+        "mkdirat",
+        "mknod",
+        "mknodat",
+        "mlock",
+        "mlock2",
+        "mlockall",
+        "mmap",
+        "mmap2",
+        "mprotect",
+        "mq_getsetattr",
+        "mq_notify",
+        "mq_open",
+        "mq_timedreceive",
+        "mq_timedreceive_time64",
+        "mq_timedsend",
+        "mq_timedsend_time64",
+        "mq_unlink",
+        "mremap",
+        "mseal",
+        "msgctl",
+        "msgget",
+        "msgrcv",
+        "msgsnd",
+        "msync",
+        "munlock",
+        "munlockall",
+        "munmap",
+        "name_to_handle_at",
+        "nanosleep",
+        "newfstatat",
+        "_newselect",
+        "open",
+        "openat",
+        "openat2",
+        "pause",
+        "pidfd_open",
+        "pidfd_send_signal",
+        "pipe",
+        "pipe2",
+        "pkey_alloc",
+        "pkey_free",
+        "pkey_mprotect",
+        "poll",
+        "ppoll",
+        "ppoll_time64",
+        "prctl",
+        "pread64",
+        "preadv",
+        "preadv2",
+        "prlimit64",
+        "process_mrelease",
+        "pselect6",
+        "pselect6_time64",
+        "pwrite64",
+        "pwritev",
+        "pwritev2",
+        "read",
+        "readahead",
+        "readlink",
+        "readlinkat",
+        "readv",
+        "recv",
+        "recvfrom",
+        "recvmmsg",
+        "recvmmsg_time64",
+        "recvmsg",
+        "remap_file_pages",
+        "removexattr",
+        "removexattrat",
+        "rename",
+        "renameat",
+        "renameat2",
+        "restart_syscall",
+        "riscv_hwprobe",
+        "rmdir",
+        "rseq",
+        "rt_sigaction",
+        "rt_sigpending",
+        "rt_sigprocmask",
+        "rt_sigqueueinfo",
+        "rt_sigreturn",
+        "rt_sigsuspend",
+        "rt_sigtimedwait",
+        "rt_sigtimedwait_time64",
+        "rt_tgsigqueueinfo",
+        "sched_getaffinity",
+        "sched_getattr",
+        "sched_getparam",
+        "sched_get_priority_max",
+        "sched_get_priority_min",
+        "sched_getscheduler",
+        "sched_rr_get_interval",
+        "sched_rr_get_interval_time64",
+        "sched_setaffinity",
+        "sched_setattr",
+        "sched_setparam",
+        "sched_setscheduler",
+        "sched_yield",
+        "seccomp",
+        "select",
+        "semctl",
+        "semget",
+        "semop",
+        "semtimedop",
+        "semtimedop_time64",
+        "send",
+        "sendfile",
+        "sendfile64",
+        "sendmmsg",
+        "sendmsg",
+        "sendto",
+        "setfsgid",
+        "setfsgid32",
+        "setfsuid",
+        "setfsuid32",
+        "setgid",
+        "setgid32",
+        "setgroups",
+        "setgroups32",
+        "setitimer",
+        "setpgid",
+        "setpriority",
+        "setregid",
+        "setregid32",
+        "setresgid",
+        "setresgid32",
+        "setresuid",
+        "setresuid32",
+        "setreuid",
+        "setreuid32",
+        "setrlimit",
+        "set_robust_list",
+        "setsid",
+        "setsockopt",
+        "set_thread_area",
+        "set_tid_address",
+        "setuid",
+        "setuid32",
+        "setxattr",
+        "setxattrat",
+        "shmat",
+        "shmctl",
+        "shmdt",
+        "shmget",
+        "shutdown",
+        "sigaltstack",
+        "signalfd",
+        "signalfd4",
+        "sigprocmask",
+        "sigreturn",
+        "socketcall",
+        "socketpair",
+        "splice",
+        "stat",
+        "stat64",
+        "statfs",
+        "statfs64",
+        "statmount",
+        "statx",
+        "symlink",
+        "symlinkat",
+        "sync",
+        "sync_file_range",
+        "syncfs",
+        "sysinfo",
+        "tee",
+        "tgkill",
+        "time",
+        "timer_create",
+        "timer_delete",
+        "timer_getoverrun",
+        "timer_gettime",
+        "timer_gettime64",
+        "timer_settime",
+        "timer_settime64",
+        "timerfd_create",
+        "timerfd_gettime",
+        "timerfd_gettime64",
+        "timerfd_settime",
+        "timerfd_settime64",
+        "times",
+        "tkill",
+        "truncate",
+        "truncate64",
+        "ugetrlimit",
+        "umask",
+        "uname",
+        "unlink",
+        "unlinkat",
+        "uretprobe",
+        "utime",
+        "utimensat",
+        "utimensat_time64",
+        "utimes",
+        "vfork",
+        "vmsplice",
+        "wait4",
+        "waitid",
+        "waitpid",
+        "write",
+        "writev"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "names": [
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "minKernel": "4.8"
+      }
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 38,
+          "op": "SCMP_CMP_LT"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 39,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 41,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 42,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 43,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 44,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "socket"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 45,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 0,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 8,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 131072,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 131080,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "personality"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 4294967295,
+          "op": "SCMP_CMP_EQ"
+        }
+      ]
+    },
+    {
+      "names": [
+        "sync_file_range2",
+        "swapcontext"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "ppc64le"
+        ]
+      }
+    },
+    {
+      "names": [
+        "arm_fadvise64_64",
+        "arm_sync_file_range",
+        "sync_file_range2",
+        "breakpoint",
+        "cacheflush",
+        "set_tls"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "arm",
+          "arm64"
+        ]
+      }
+    },
+    {
+      "names": [
+        "arch_prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "amd64",
+          "x32"
+        ]
+      }
+    },
+    {
+      "names": [
+        "modify_ldt"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "amd64",
+          "x32",
+          "x86"
+        ]
+      }
+    },
+    {
+      "names": [
+        "s390_pci_mmio_read",
+        "s390_pci_mmio_write",
+        "s390_runtime_instr"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      }
+    },
+    {
+      "names": [
+        "riscv_flush_icache"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "arches": [
+          "riscv64"
+        ]
+      }
+    },
+    {
+      "names": [
+        "open_by_handle_at"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_DAC_READ_SEARCH"
+        ]
+      }
+    },
+    {
+      "names": [
+        "bpf",
+        "clone",
+        "clone3",
+        "fanotify_init",
+        "fsconfig",
+        "fsmount",
+        "fsopen",
+        "fspick",
+        "lookup_dcookie",
+        "lsm_get_self_attr",
+        "lsm_list_modules",
+        "lsm_set_self_attr",
+        "mount",
+        "mount_setattr",
+        "move_mount",
+        "open_tree",
+        "perf_event_open",
+        "quotactl",
+        "quotactl_fd",
+        "setdomainname",
+        "sethostname",
+        "setns",
+        "syslog",
+        "umount",
+        "umount2",
+        "unshare"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      }
+    },
+    {
+      "names": [
+        "clone"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 0,
+          "value": 2114060288,
+          "op": "SCMP_CMP_MASKED_EQ"
+        }
+      ],
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ],
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      }
+    },
+    {
+      "names": [
+        "clone"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": [
+        {
+          "index": 1,
+          "value": 2114060288,
+          "op": "SCMP_CMP_MASKED_EQ"
+        }
+      ],
+      "comment": "s390 parameter ordering for clone is different",
+      "includes": {
+        "arches": [
+          "s390",
+          "s390x"
+        ]
+      },
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      }
+    },
+    {
+      "names": [
+        "clone3"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 38,
+      "excludes": {
+        "caps": [
+          "CAP_SYS_ADMIN"
+        ]
+      }
+    },
+    {
+      "names": [
+        "reboot"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_BOOT"
+        ]
+      }
+    },
+    {
+      "names": [
+        "chroot"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_CHROOT"
+        ]
+      }
+    },
+    {
+      "names": [
+        "delete_module",
+        "init_module",
+        "finit_module"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_MODULE"
+        ]
+      }
+    },
+    {
+      "names": [
+        "acct"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_PACCT"
+        ]
+      }
+    },
+    {
+      "names": [
+        "kcmp",
+        "pidfd_getfd",
+        "process_madvise",
+        "process_vm_readv",
+        "process_vm_writev",
+        "ptrace"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_PTRACE"
+        ]
+      }
+    },
+    {
+      "names": [
+        "iopl",
+        "ioperm"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_RAWIO"
+        ]
+      }
+    },
+    {
+      "names": [
+        "settimeofday",
+        "stime",
+        "clock_settime",
+        "clock_settime64"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_TIME"
+        ]
+      }
+    },
+    {
+      "names": [
+        "vhangup"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_TTY_CONFIG"
+        ]
+      }
+    },
+    {
+      "names": [
+        "get_mempolicy",
+        "mbind",
+        "set_mempolicy",
+        "set_mempolicy_home_node"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYS_NICE"
+        ]
+      }
+    },
+    {
+      "names": [
+        "syslog"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_SYSLOG"
+        ]
+      }
+    },
+    {
+      "names": [
+        "bpf"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_BPF"
+        ]
+      }
+    },
+    {
+      "names": [
+        "perf_event_open"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "includes": {
+        "caps": [
+          "CAP_PERFMON"
+        ]
+      }
+    },
+    {
+      "comment": "Allow Chromium sandbox user namespaces",
+      "names": [
+        "clone",
+        "setns",
+        "unshare"
+      ],
+      "action": "SCMP_ACT_ALLOW",
+      "args": []
+    }
+  ]
+}
+ISOMUX_CONTAINER_SECCOMP
+  cat > "$directory/seccomp/LICENSE" <<'ISOMUX_CONTAINER_SECCOMP_LICENSE'
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright [yyyy] [name of copyright owner]
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+ISOMUX_CONTAINER_SECCOMP_LICENSE
+}
+
+
 # System dependencies only (ISOMUX_DEPS_ONLY=1). This is what scripts/update.sh
 # runs from the TARGET release, so an update delivers the system dependencies
 # that release needs - the checkout-only updater cannot (a box installed before
@@ -4209,7 +5742,25 @@ deps_only() {
   log "system dependencies are up to date"
 }
 
+
 main() {
+  case $ISOMUX_INSTALL_MODE in
+    container) container_main; return ;;
+    host)
+      if [[ $EUID -eq 0 ]]; then
+        local previous_umask
+        previous_umask=$(umask)
+        umask 077
+        exec 9>"$CONTAINER_LOCK"
+        umask "$previous_umask"
+        flock -n 9 || die "Another installer is running"
+      fi
+      ;;
+    *) die "ISOMUX_INSTALL_MODE must be host or container" ;;
+  esac
+  [[ ! -e $CONTAINER_DIR && ! -e $CONTAINER_UNIT ]] ||
+    die "Container installation detected; use container mode or the container update instructions"
+
   # Taken before preflight: a dependency sync has no DOMAIN and no business
   # validating full-install parameters.
   if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then

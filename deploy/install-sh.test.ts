@@ -355,7 +355,7 @@ describe("install.sh escalation: template unit + placement", () => {
     // never required for a dependency sync.
     const branch = SRC.indexOf("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
     expect(branch).toBeGreaterThan(SRC.lastIndexOf("\nmain() {"));
-    expect(branch).toBeLessThan(SRC.indexOf("  preflight\n"));
+    expect(branch).toBeLessThan(SRC.indexOf("  preflight\n", SRC.lastIndexOf("\nmain() {")));
   });
 
   it("ships the helper scripts byte-for-byte, not a drifted copy", () => {

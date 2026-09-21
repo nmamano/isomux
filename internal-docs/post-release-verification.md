@@ -258,3 +258,17 @@ instance ids in the destructive command before running it.
 destroys the only copy of anything left on the box, and a reading nobody took
 cannot be recovered. Confirm every artefact is on the operator's machine, and
 say so on the record, before the next reinstall.
+
+## Container installer acceptance
+
+When a release changes container installation, wait for the container publication
+workflow to finish. On an approved disposable Ubuntu 24.04 amd64 host, follow
+`deploy/container/README.md` using the installer and image from that release tag.
+Check owner setup, office/app HTTPS and WebSockets, provider connections, and
+host reboot. Rerun the same installer and confirm the key, image digest, owner,
+and app state remain. Test missing, read-only, and wrong-UUID data mounts: the
+unit must refuse startup without creating an office on the root disk. Test a
+failure after the install record is saved but before the service starts, then
+rerun. Restore a data snapshot with its matching image on an isolated mount.
+Record the tag, digest, date, host, and limits. Shell fixtures do not replace
+this acceptance, and the existing direct-host install/update checks still apply.
