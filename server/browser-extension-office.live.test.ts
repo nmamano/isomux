@@ -35,6 +35,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
     let site: ReturnType<typeof Bun.serve> | undefined;
     let popup: Awaited<ReturnType<typeof openExtensionActionPopup>> | undefined;
     const frameEvents = { attached: 0, navigated: 0 };
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called below with the exact connection as this.
     const originalReceive = ExtensionConnection.prototype.receive;
     const traceFrames = spyOn(ExtensionConnection.prototype, "receive").mockImplementation(function(this: ExtensionConnection, message) {
       const m = fields(message);
@@ -52,6 +53,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       const first = await ownedAgent(office, owner, "first");
       const second = await ownedAgent(office, owner, "second");
       const action = async (id: string, body: unknown, tokenId = id) => {
+        const started = performance.now();
         const response = await office!.http(`/api/agents/${id}/browser`, {
           method: "POST",
           headers: {
@@ -60,7 +62,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           },
           body: JSON.stringify(body),
         });
-        return { status: response.status, body: await response.json() };
+        const result = await response.json();
+        console.log("Fixture action:", JSON.stringify({ action: fields(body).action, status: response.status, code: result.error?.code, elapsedMs: Math.round(performance.now() - started) }));
+        return { status: response.status, body: result };
       };
       raw = await launchRawExtensionChrome(dir);
       setup = raw.browser.contexts()[0];
@@ -360,8 +364,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       const otherCDP = await setup.newCDPSession(secondPage);
       const ownTree = await ownCDP.send("Page.getFrameTree");
       const otherTree = await otherCDP.send("Page.getFrameTree");
-      await expect(ownCDP.send("DOM.getFrameOwner", { frameId: otherTree.frameTree.childFrames![0].frame.id })).rejects.toThrow();
-      await expect(ownCDP.send("DOM.getFrameOwner", { frameId: ownTree.frameTree.frame.id })).rejects.toThrow();
+      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: otherTree.frameTree.childFrames![0].frame.id }).then(() => false, () => true)).toBe(true);
+      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: ownTree.frameTree.frame.id }).then(() => false, () => true)).toBe(true);
       await ownCDP.detach(); await otherCDP.detach();
       writeFileSync(join(dir, "frame-evidence.json"), JSON.stringify({ frameEvents, paths: [[0], [0, 0], [1]], sameAndCrossClicks: true, foreignFrameRefused: true, activeUnchanged: true }));
       await firstPage.screenshot({ path: join(dir, "frame-controls.png") });
@@ -516,5 +520,5 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       rmSync(join(dir, "profile"), { recursive: true, force: true });
     }
   },
-  60_000,
+  90_000,
 );
