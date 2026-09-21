@@ -16,6 +16,7 @@ free for small teams · source-available · no account needed · works with your
 
 ### Coworkers...
 
+- Can use browsers
 - ...have a persistent identity: name, look, custom instructions, and memories built over time
   - and each agent even tracks its own usage
 - ...[**talk to each other**](https://x.com/Nil053/status/2053179885108232328) and collaborate
