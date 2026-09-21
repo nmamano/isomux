@@ -123,11 +123,11 @@ function render(next: typeof state) {
     picker.append(option);
   }
   if ([...picker.options].some((option) => option.value === selected)) picker.value = selected;
-  picker.disabled = !!current || state.state !== "connected";
+  picker.disabled = !!current || busy || state.state !== "connected";
   const conflict = state.assignments.some((a) => a.scope.kind === "agent" && a.scope.agentId === picker.value && !a.current);
   toggle.checked = !!current && current.phase !== "revoking";
   toggle.disabled = current ? current.phase === "revoking" :
-    state.state !== "connected" || !state.currentTab?.eligible || !picker.value || conflict;
+    busy || state.state !== "connected" || !state.currentTab?.eligible || !picker.value || conflict;
   element("tab-state").textContent = current
     ? t(current.phase === "on" ? "browser.assigned" : current.phase === "offering" ? "browser.offering" : "browser.revoking", { name: current.scope.kind === "all" ? t("browser.allAgents") : current.agent!.name })
     : !state.currentTab?.eligible ? t("browser.tabIneligible")
@@ -150,6 +150,7 @@ toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
   else void command("offer", { scope: picker.value === "all" ? { kind: "all" } : { kind: "agent", agentId: picker.value }, tabId: state.currentTab?.id, durationMinutes: Number(expiry.value) });
+  picker.disabled = true;
   toggle.disabled = true;
   expiry.disabled = true;
 });

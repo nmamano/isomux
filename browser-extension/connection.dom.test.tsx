@@ -14,7 +14,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
     agents: [{ id: "a", name: "Agent" }], assignments: [] as Assignment[] };
   const messages: Record<string, unknown>[] = [];
   let poll!: () => void;
-  let accept!: (value: typeof state) => void;
+  let accept!: (value: typeof state & { error?: string }) => void;
   const pending = () => new Promise<typeof state>(resolve => { accept = resolve; });
   await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
     document, window, navigator: { language: "en" }, Date,
@@ -29,6 +29,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   const settle = async () => { await new Promise(resolve => setTimeout(resolve, 0)); };
   const expiry = document.getElementById("expiry") as HTMLSelectElement;
   const toggle = document.getElementById("allow") as HTMLInputElement;
+  const picker = document.getElementById("agent") as HTMLSelectElement;
   const display = document.getElementById("expiry-state")!;
   await settle();
   expect([...expiry.options].map(option => option.value)).toEqual(["0", "15", "60", "240"]);
@@ -41,9 +42,26 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   expect(toggle.checked).toBe(false);
   expect(document.getElementById("tab-state")!.textContent).toBe("");
   expiry.value = "15";
-  toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  toggle.dispatchEvent(new Event("change", { bubbles: true }));
+  expect(picker.disabled).toBe(true);
+  await settle();
   expect(messages.findLast(message => message.action === "offer")?.durationMinutes).toBe(15);
   expect(messages.findLast(message => message.action === "offer")?.scope).toEqual({ kind: "all" });
+  expect(picker.disabled).toBe(true);
+  poll(); await settle(); // Empty pre-ack metadata must not unlock the request.
+  expect(picker.disabled).toBe(true);
+  expect(toggle.disabled).toBe(true);
+  expect(expiry.disabled).toBe(true);
+  accept({ ...structuredClone(state), error: "fixture rejected offer" }); await settle();
+  expect(document.getElementById("error")!.textContent).not.toBe("");
+  poll(); await settle();
+  expect(picker.disabled).toBe(false);
+  expect(toggle.disabled).toBe(false);
+  expect(toggle.checked).toBe(false);
+  expect(expiry.disabled).toBe(false);
+  toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  expect(picker.disabled).toBe(true);
+
   const assignment: Assignment = { scope: { kind: "agent", agentId: "a" }, id: "grant", agent: state.agents[0], tabId: 7, current: true, phase: "offering", durationMinutes: 15, expiresAt: null };
   state = { ...state, assignments: [assignment] };
   poll(); await settle();
@@ -56,6 +74,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   expect(display.textContent).toContain(new Date(expiresAt).toLocaleString());
   expect(expiry.disabled).toBe(true);
   expect(toggle.checked).toBe(true);
+  expect(picker.disabled).toBe(true);
   state = { ...state, assignments: [{ ...state.assignments[0], phase: "revoking" }] };
   poll(); await settle();
   expect(expiry.disabled).toBe(true);
