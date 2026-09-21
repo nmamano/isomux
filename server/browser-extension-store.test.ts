@@ -295,7 +295,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
   connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
     result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
   await Promise.resolve();
-  let calls = 0, retired = 0, background = false;
+  let calls = 0, retired = 0, background = false, pageClosed = false;
   let settled = false;
   let transport!: import("playwright-core").ConnectOverCDPTransport;
   let sessionId: unknown;
@@ -313,6 +313,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
       throw Object.assign(new Error("fixture timeout"), { name: "TimeoutError" });
     };
     const page = {
+      close: async () => { pageClosed = true; },
       url: () => "https://example.com/", title: async () => "Fixture",
       innerText: async () => { calls++; expect(settled).toBe(true); return "fixture"; },
       fill: timeout, goto: timeout,
@@ -327,7 +328,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
     return { contexts: () => [{ pages: () => [page], on() {} }], isConnected: () => true, on() {},
       close: async () => { retired++; transport.close(); } } as unknown as Browser;
   });
-  return { sessions, connection, messages, grant, allowed, backgroundOnNextClick: () => { background = true; }, retired: () => retired, calls: () => calls, connect,
+  return { sessions, connection, messages, grant, allowed, pageClosed: () => pageClosed, backgroundOnNextClick: () => { background = true; }, retired: () => retired, calls: () => calls, connect,
     stop: () => { sessions.stop(); service.stop(); connect.mockRestore(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -557,6 +558,9 @@ for (const expiry of [false, true]) test(`All release interrupts both active and
     if (!result.ok) expect(result.error).toMatch(/unknown/i);
     expect(await second).toMatchObject({ code: "browser_control_ended" });
     expect(h.connection.targets("agent")).toEqual([]); expect(h.connection.targets("second")).toEqual([]);
+    expect(await h.sessions.run("agent", { action: "snapshot" })).toMatchObject({ code: "browser_control_ended" });
+    expect(await h.sessions.run("second", { action: "snapshot" })).toMatchObject({ code: "browser_control_ended" });
+    expect(h.pageClosed()).toBe(false);
     expect(h.messages.filter(m => m.method === "detach")).toHaveLength(1);
     await Bun.sleep(30);
     expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
