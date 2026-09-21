@@ -25,9 +25,7 @@ const wait = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Extension did not connect");
 };
-test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
-  "real office routes use paired Chrome, separate agents, frames and retained popup opener",
-  async () => {
+async function runOfficeScenario(framesOnly: boolean) {
     const dir = mkdtempSync(join(tmpdir(), "isomux-extension-office-"));
     let setup: BrowserContext | undefined;
     let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
@@ -167,7 +165,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
               : url.pathname === "/popup"
               ? '<title>Popup</title><button onclick="window.close()">Return</button>'
               : url.pathname === "/frame"
-                ? `<h2>Frame contents</h2><label>Frame field<input></label><button id="frame-apply" onclick="document.querySelector('output').textContent=document.querySelector('input').value">Apply frame</button><button id="other-frame-action">Other action</button><output>Frame ready</output>${url.hostname === "localhost" ? '<iframe src="/nested"></iframe>' : ''}`
+                ? framesOnly ? `<h2>Frame contents</h2><label>Frame field<input></label><button id="frame-apply" onclick="document.querySelector('output').textContent=document.querySelector('input').value">Apply frame</button><button id="other-frame-action">Other action</button><output>Frame ready</output>${url.hostname === "localhost" ? '<iframe src="/nested"></iframe>' : ''}` : "<label>Frame field<input></label>"
                 : `<title>Main</title><input type="file" id="attachment" oninput="this.dataset.input=String(Number(this.dataset.input||0)+1)" onchange="this.dataset.change=String(Number(this.dataset.change||0)+1)"><input type="file" id="other-attachment"><input id="hidden-timeout" hidden><input id="readonly-timeout" readonly><label>Message<input id="message"></label><button id="open" onclick="window.open('/popup')">Open</button><output id="out"></output><button id="apply" onclick="document.querySelector('#out').textContent=document.querySelector('#message').value; document.querySelector('#out').dataset.trusted=String(event.isTrusted)">Apply</button><iframe src="/frame"></iframe><iframe src="http://127.0.0.1:${url.port}/frame"></iframe>`;
           return new Response(html, {
             headers: { "Content-Type": "text/html" },
@@ -233,6 +231,63 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         return { tabs: (await c.tabs.query({ active: true })).map(t => ({ id: t.id, windowId: t.windowId })), window: (await c.windows.getLastFocused()).id };
       });
       const activeBefore = await activeState();
+      if (framesOnly) {
+      expect(
+        (
+          await action(first.id, {
+            action: "fill",
+            framePath: [0],
+            selector: "input",
+            text: "same",
+          })
+        ).status,
+      ).toBe(200);
+      expect(
+        (
+          await action(first.id, {
+            action: "fill",
+            framePath: [1],
+            selector: "input",
+            text: "cross",
+          })
+        ).status,
+      ).toBe(200);
+      for (const [index, value] of [[0, "same"], [1, "cross"]] as const) {
+        expect((await action(first.id, { action: "click", framePath: [index], selector: "#frame-apply" })).status).toBe(200);
+        expect(await firstPage.mainFrame().childFrames()[index].locator("output").innerText()).toBe(value);
+      }
+      expect((await action(first.id, { action: "click", framePath: [0, 0], selector: "#nested" })).status).toBe(200);
+      expect(await firstPage.mainFrame().childFrames()[0].childFrames()[0].locator("button").innerText()).toBe("Nested clicked");
+      expect((await action(first.id, { action: "click", framePath: [99], selector: "button" })).body.error.code).toBe("action_failed");
+      expect((await action(first.id, { action: "click", framePath: [0], selector: "button" })).body.error.code).toBe("action_failed");
+      expect(await activeState()).toEqual(activeBefore);
+      const snapshot = await action(first.id, { action: "snapshot" });
+      expect(snapshot.status).toBe(200);
+      expect(snapshot.body.snapshot).toContain("textbox");
+      expect(snapshot.body.snapshot).toContain("framePath=[0]");
+      expect(snapshot.body.snapshot).toContain("framePath=[1]");
+      expect(snapshot.body.snapshot).toContain("Nested clicked");
+      const frameText = await action(first.id, { action: "text" });
+      expect(frameText.body.text).toContain("Frame contents");
+      expect(frameText.body.text).toContain("framePath=[0,0]");
+      expect(frameText.body.text).toContain("cross");
+      expect(await firstPage.locator("body").innerText()).not.toContain("Frame contents");
+      expect(firstPage.mainFrame().childFrames()).toHaveLength(2);
+      expect(firstPage.mainFrame().childFrames()[0].childFrames()).toHaveLength(1);
+      expect(frameEvents.attached).toBeGreaterThan(0);
+      expect(frameEvents.navigated).toBeGreaterThan(0);
+      const ownCDP = await setup.newCDPSession(firstPage);
+      const otherCDP = await setup.newCDPSession(secondPage);
+      const ownTree = await ownCDP.send("Page.getFrameTree");
+      const otherTree = await otherCDP.send("Page.getFrameTree");
+      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: otherTree.frameTree.childFrames![0].frame.id }).then(() => false, () => true)).toBe(true);
+      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: ownTree.frameTree.frame.id }).then(() => false, () => true)).toBe(true);
+      await ownCDP.detach(); await otherCDP.detach();
+      writeFileSync(join(dir, "frame-evidence.json"), JSON.stringify({ frameEvents, paths: [[0], [0, 0], [1]], sameAndCrossClicks: true, foreignFrameRefused: true, activeUnchanged: true }));
+      await firstPage.screenshot({ path: join(dir, "frame-controls.png") });
+        console.log("Frame extension evidence:", dir);
+        return;
+      }
       const uploadPath = join(dir, "fixture-upload.png");
       const uploadBytes = Buffer.alloc(MAX_BROWSER_UPLOAD_BYTES);
       for (let i = 0; i < uploadBytes.length; i++) uploadBytes[i] = i % 256;
@@ -320,8 +375,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (
           await action(first.id, {
             action: "fill",
-            framePath: [0],
-            selector: "input",
+            selector:
+              "iframe >> nth=0 >> internal:control=enter-frame >> input",
             text: "same",
           })
         ).status,
@@ -330,45 +385,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         (
           await action(first.id, {
             action: "fill",
-            framePath: [1],
-            selector: "input",
+            selector:
+              "iframe >> nth=1 >> internal:control=enter-frame >> input",
             text: "cross",
           })
         ).status,
       ).toBe(200);
-      for (const [index, value] of [[0, "same"], [1, "cross"]] as const) {
-        expect((await action(first.id, { action: "click", framePath: [index], selector: "#frame-apply" })).status).toBe(200);
-        expect(await firstPage.mainFrame().childFrames()[index].locator("output").innerText()).toBe(value);
-      }
-      expect((await action(first.id, { action: "click", framePath: [0, 0], selector: "#nested" })).status).toBe(200);
-      expect(await firstPage.mainFrame().childFrames()[0].childFrames()[0].locator("button").innerText()).toBe("Nested clicked");
-      expect((await action(first.id, { action: "click", framePath: [99], selector: "button" })).body.error.code).toBe("action_failed");
-      expect((await action(first.id, { action: "click", framePath: [0], selector: "button" })).body.error.code).toBe("action_failed");
-      expect(await activeState()).toEqual(activeBefore);
       const snapshot = await action(first.id, { action: "snapshot" });
       expect(snapshot.status).toBe(200);
       expect(snapshot.body.snapshot).toContain("textbox");
-      expect(snapshot.body.snapshot).toContain("framePath=[0]");
-      expect(snapshot.body.snapshot).toContain("framePath=[1]");
-      expect(snapshot.body.snapshot).toContain("Nested clicked");
-      const frameText = await action(first.id, { action: "text" });
-      expect(frameText.body.text).toContain("Frame contents");
-      expect(frameText.body.text).toContain("framePath=[0,0]");
-      expect(frameText.body.text).toContain("cross");
-      expect(await firstPage.locator("body").innerText()).not.toContain("Frame contents");
-      expect(firstPage.mainFrame().childFrames()).toHaveLength(2);
-      expect(firstPage.mainFrame().childFrames()[0].childFrames()).toHaveLength(1);
-      expect(frameEvents.attached).toBeGreaterThan(0);
-      expect(frameEvents.navigated).toBeGreaterThan(0);
-      const ownCDP = await setup.newCDPSession(firstPage);
-      const otherCDP = await setup.newCDPSession(secondPage);
-      const ownTree = await ownCDP.send("Page.getFrameTree");
-      const otherTree = await otherCDP.send("Page.getFrameTree");
-      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: otherTree.frameTree.childFrames![0].frame.id }).then(() => false, () => true)).toBe(true);
-      expect(await ownCDP.send("DOM.getFrameOwner", { frameId: ownTree.frameTree.frame.id }).then(() => false, () => true)).toBe(true);
-      await ownCDP.detach(); await otherCDP.detach();
-      writeFileSync(join(dir, "frame-evidence.json"), JSON.stringify({ frameEvents, paths: [[0], [0, 0], [1]], sameAndCrossClicks: true, foreignFrameRefused: true, activeUnchanged: true }));
-      await firstPage.screenshot({ path: join(dir, "frame-controls.png") });
       expect((await action(first.id, { action: "screenshot" })).status).toBe(
         200,
       );
@@ -519,6 +544,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await site?.stop(true);
       rmSync(join(dir, "profile"), { recursive: true, force: true });
     }
-  },
+}
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "real office routes use paired Chrome, separate agents, frames and retained popup opener",
+  () => runOfficeScenario(false),
+  130_000,
+);
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "packaged Chrome reads and controls owned same-origin, cross-origin and nested frames",
+  () => runOfficeScenario(true),
   90_000,
 );
