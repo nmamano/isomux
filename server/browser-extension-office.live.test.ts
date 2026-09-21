@@ -375,13 +375,8 @@ async function runOfficeScenario(framesOnly: boolean) {
             })
           ).status,
         ).toBe(200);
-        expect(
-          await firstPage
-            .mainFrame()
-            .childFrames()
-            [index].locator("output")
-            .innerText(),
-        ).toBe(value);
+        const frame = firstPage.mainFrame().childFrames()[index];
+        expect(await frame.locator("output").innerText()).toBe(value);
       }
       expect(
         (
