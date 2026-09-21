@@ -172,6 +172,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       };
       const firstTarget = await targetOf(firstPage);
       const secondTarget = await targetOf(secondPage);
+      const offeredTabIds = new Map<string, number>();
       const offer = async (page: import("playwright-core").Page, agentId: string, durationMinutes = 0) => {
         await page.bringToFront();
         popup = await openPopup(await targetOf(page));
@@ -189,7 +190,8 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         await popup.click("#allow");
         await popup.waitFor('document.querySelector("#allow").checked && !document.querySelector("#allow").disabled');
         expect(await popup.read<boolean>('document.querySelector("#expiry").disabled')).toBe(true);
-        const expiresAt = await popup.read<number | null>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(agentId)}).expiresAt)`);
+        const expiresAt = await popup.read<number | null>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => (a.scope.kind === "all" ? "all" : a.scope.agentId) === ${JSON.stringify(agentId)}).expiresAt)`);
+        offeredTabIds.set(agentId, await popup.read<number>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => (a.scope.kind === "all" ? "all" : a.scope.agentId) === ${JSON.stringify(agentId)}).tabId)`));
         if (expiresAt !== null) expect(await popup.read<string>('document.querySelector("#expiry-state").textContent')).toContain(await popup.read<string>(`new Date(${expiresAt}).toLocaleString()`));
         await popup.close();
         return expiresAt;
@@ -222,6 +224,13 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       writeFileSync(uploadRealPath, uploadBytes);
       symlinkSync(uploadRealPath, uploadPath);
       const worker = setup.serviceWorkers().find(w => w.url() === `chrome-extension://${id}/background.js`)!;
+      const badgeAfterNavigation = await worker.evaluate(async (tabIds) => {
+        const c = (globalThis as unknown as { chrome: { action: { getBadgeText(details: { tabId: number }): Promise<string> } } }).chrome;
+        return Promise.all(tabIds.map(async tabId => ({ tabId, badge: await c.action.getBadgeText({ tabId }) })));
+      }, [...offeredTabIds.values()]);
+      console.log("Owned badges after navigation:", JSON.stringify(badgeAfterNavigation));
+      expect(badgeAfterNavigation).toHaveLength(2);
+      expect(badgeAfterNavigation.every(b => b.badge === "ON")).toBe(true);
       await worker.evaluate(({ paths, name }) => {
         const scope = globalThis as unknown as {
           chrome: { debugger: { sendCommand(...args: unknown[]): Promise<unknown> } };
@@ -377,10 +386,15 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       );
       expect((await action(second.id, { action: "goto", url })).body.error.code).toBe("browser_control_ended");
       await popup.close();
-      await offer(secondPage, second.id);
+      await offer(secondPage, "all");
+      const listed = (await action(first.id, { action: "tabs" })).body.tabs;
+      expect(listed).toHaveLength(1);
+      expect(listed[0].scope).toEqual({ kind: "all" });
+      expect((await action(first.id, { action: "snapshot", target: listed[0].target })).status).toBe(200);
+      expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
       expect((await action(second.id, { action: "text" })).status).toBe(200);
       popup = await openPopup(secondTarget);
-      const timeoutGrant = await popup.read<{ id: string; expiresAt: number | null }>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(second.id)}))`);
+      const timeoutGrant = await popup.read<{ id: string; expiresAt: number | null }>(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.scope.kind === "all"))`);
       await popup.close();
       for (const selector of ["#missing-timeout-fixture", "#hidden-timeout", "#readonly-timeout"]) {
         actionDeadline = 150;
@@ -403,13 +417,24 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       expect(await secondPage.locator("#message").inputValue()).toBe("after stopped navigation");
       expect((await action(second.id, { action: "snapshot" })).status).toBe(200);
       popup = await openPopup(secondTarget);
-      expect(await popup.read(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.agent.id === ${JSON.stringify(second.id)}))`)).toMatchObject({ id: timeoutGrant.id, expiresAt: timeoutGrant.expiresAt, phase: "on" });
+      expect(await popup.read(`chrome.runtime.sendMessage({ action: 'state' }).then(s => s.assignments.find(a => a.scope.kind === "all"))`)).toMatchObject({ id: timeoutGrant.id, expiresAt: timeoutGrant.expiresAt, phase: "on" });
       expect(await popup.read<boolean>('document.querySelector("#allow").checked')).toBe(true);
       await popup.screenshot(join(dir, "extension-timeout-retained.png"));
       await popup.close();
+      await offer(firstPage, "all");
+      const choices = (await action(first.id, { action: "tabs" })).body.tabs;
+      expect(choices).toHaveLength(2);
+      expect((await action(first.id, { action: "snapshot" })).body.error.code).toBe("browser_target_required");
+      const extra = choices.find((t: { target: string }) => t.target !== listed[0].target);
+      expect(extra).toBeDefined();
+      expect((await action(second.id, { action: "fill", selector: "#message", text: "explicit first tab", target: extra.target })).status).toBe(200);
+      expect(await firstPage.locator("#message").inputValue()).toBe("explicit first tab");
+      expect(await secondPage.locator("#message").inputValue()).toBe("after stopped navigation");
+      expect((await action(first.id, { action: "snapshot", target: listed[0].target })).status).toBe(200);
       await secondPage.bringToFront();
       popup = await openPopup(secondTarget);
       await popup.waitFor('document.querySelector("#status").dataset.state === "connected"');
+      await popup.screenshot(join(dir, "extension-all-control.png"));
       await popup.click("#unpair");
       await popup.waitFor(
         'document.querySelector("#status").dataset.state === "unpaired"',

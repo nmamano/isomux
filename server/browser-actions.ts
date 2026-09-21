@@ -1,3 +1,4 @@
+import type { BrowserGrantScope } from "../shared/browser-extension-protocol";
 // Desktop Chrome action contract. Screenshot previews use preview-capture.ts.
 import { validUploadPath, type UploadedFile } from "./browser-upload";
 export const BROWSER_ACTION_DEADLINE_MS = 30_000;
@@ -12,6 +13,7 @@ const DEFAULT_WIDTH = 1280;
 const DEFAULT_HEIGHT = 800;
 
 export const BROWSER_ACTIONS = [
+  "tabs",
   "goto",
   "snapshot",
   "text",
@@ -25,6 +27,7 @@ export const BROWSER_ACTIONS = [
 export type BrowserAction = (typeof BROWSER_ACTIONS)[number];
 
 export type BrowserErrorCode =
+  | "browser_target_required"
   | "browser_not_paired"
   | "browser_offline"
   | "browser_control_ended"
@@ -41,6 +44,8 @@ export interface BrowserFailure {
 
 export interface BrowserSuccess {
   ok: true;
+  target?: string;
+  tabs?: { target: string; scope: BrowserGrantScope; title: string; url: string }[];
   /** The page's URL after the action. */
   url: string;
   /** The page's title after the action. */
@@ -101,6 +106,7 @@ export function describeShot(raw: string): {
 interface ParsedParams {
   ok: true;
   action: BrowserAction;
+  target?: string;
   url?: URL;
   selector?: string;
   text?: string;
@@ -133,6 +139,12 @@ export function parseBrowserParams(
     action,
     viewport: { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT },
   };
+
+  if (body.target !== undefined) {
+    if (typeof body.target !== "string" || !/^[a-f0-9-]{36}$/.test(body.target) || action === "tabs")
+      return invalid("target must be an offered target identifier on a page action");
+    params.target = body.target;
+  }
 
   if (body.viewport !== undefined) {
     if (!isPlainObject(body.viewport))

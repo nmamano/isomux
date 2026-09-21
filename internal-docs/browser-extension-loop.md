@@ -1,3 +1,5 @@
+> Current contract: All grants, explicit target discovery and per-grant serialization are specified in [browser-extension.md](browser-extension.md#all-grants-and-explicit-targets-protocol-4--extension-040). The original per-agent-only milestones below are historical.
+
 # Historical browser extension rollout
 
 Server browser retirement (2026-09-20) supersedes the headless preservation, backend selection and panel steps below. Current runtime and migration behavior: [browser-extension.md](browser-extension.md). Screenshot previews remain supported.

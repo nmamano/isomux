@@ -9,7 +9,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   document.body.innerHTML = (await readFile("browser-extension/connection.html", "utf8")).split("<body>")[1].split("</body>")[0];
   const build = Bun.spawnSync(["bun", "build", "browser-extension/connection.ts", "--target=browser"]);
   expect(build.exitCode).toBe(0);
-  type Assignment = { id: string; agent: { id: string; name: string }; tabId: number; current: boolean; phase: string; durationMinutes: number; expiresAt: number | null };
+  type Assignment = { scope: { kind: "agent"; agentId: string }; id: string; agent: { id: string; name: string }; tabId: number; current: boolean; phase: string; durationMinutes: number; expiresAt: number | null };
   let state = { state: "connected", generation: "g", office: "https://example.com", currentTab: { id: 7, eligible: true },
     agents: [{ id: "a", name: "Agent" }], assignments: [] as Assignment[] };
   const messages: Record<string, unknown>[] = [];
@@ -34,10 +34,17 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
   expect([...expiry.options].map(option => option.value)).toEqual(["0", "15", "60", "240"]);
   expect(expiry.value).toBe("0");
   expect(expiry.disabled).toBe(false);
+  expect(document.querySelector("#office-control #status")).not.toBeNull();
+  expect(document.querySelector("#tab-control #agent")).not.toBeNull();
+  expect((document.getElementById("agent") as HTMLSelectElement).value).toBe("all");
+  expect(toggle.getAttribute("role")).toBe("switch");
+  expect(toggle.checked).toBe(false);
+  expect(document.getElementById("tab-state")!.textContent).toBe("");
   expiry.value = "15";
   toggle.dispatchEvent(new Event("change", { bubbles: true })); await settle();
   expect(messages.findLast(message => message.action === "offer")?.durationMinutes).toBe(15);
-  const assignment: Assignment = { id: "grant", agent: state.agents[0], tabId: 7, current: true, phase: "offering", durationMinutes: 15, expiresAt: null };
+  expect(messages.findLast(message => message.action === "offer")?.scope).toEqual({ kind: "all" });
+  const assignment: Assignment = { scope: { kind: "agent", agentId: "a" }, id: "grant", agent: state.agents[0], tabId: 7, current: true, phase: "offering", durationMinutes: 15, expiresAt: null };
   state = { ...state, assignments: [assignment] };
   poll(); await settle();
   expect(expiry.value).toBe("15");

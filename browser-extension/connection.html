@@ -10,6 +10,8 @@
   <body>
     <main>
       <h1>Isomux Browser</h1>
+      <section id="office-control" aria-labelledby="office-heading">
+      <h2 id="office-heading"></h2>
       <p id="status" role="status"></p>
       <p id="member"></p>
       <p id="office-display"></p>
@@ -36,7 +38,9 @@
         <button id="unpair"></button>
       </div>
       <p id="offline-help"></p>
-      <section id="tab-control">
+      </section>
+      <section id="tab-control" aria-labelledby="agent-heading">
+        <h2 id="agent-heading"></h2>
         <label id="agent-label" for="agent"></label>
         <select id="agent" disabled></select>
         <label id="expiry-label" for="expiry"></label>
@@ -46,7 +50,7 @@
           <option id="expiry-60" value="60"></option>
           <option id="expiry-240" value="240"></option>
         </select>
-        <label><input type="checkbox" id="allow" role="switch" disabled /><span id="allow-label"></span></label>
+        <label class="control-switch"><span id="allow-label"></span><input type="checkbox" id="allow" role="switch" disabled /><span class="switch-track" aria-hidden="true"></span></label>
         <p id="tab-state" role="status"></p>
         <p id="expiry-state"></p>
       </section>

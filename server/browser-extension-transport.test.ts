@@ -25,7 +25,7 @@ async function offered() {
     },
     close() {},
   });
-  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: crypto.randomUUID(), agent: "agent" });
+  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: "agent" } });
   await Promise.resolve(); await Promise.resolve();
   return { connection, messages, started, hold: () => { hold = true; } };
 }

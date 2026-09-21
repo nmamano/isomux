@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   validGrantDuration,
+  validGrantScope,
+  type BrowserGrantScope,
   type BrowserGrantDuration,
   fields,
   pageCommandAllowed,
@@ -39,7 +41,8 @@ type Assignment = {
   expiresAt: number | null;
   cancelExpiry?: () => void;
   id: string;
-  agentId: string;
+  scope: BrowserGrantScope;
+  handle: string;
   session: string;
   browserSession: string;
   peer: BridgePeer;
@@ -91,6 +94,7 @@ export class BrowserExtensionBridge {
         : undefined,
       () => this.access.agents?.(member) ?? [],
       this.clock,
+      () => this.access.memberForCredentialHash(hash) === member,
     );
     this.connections.set(member, connection);
     try {
@@ -127,14 +131,17 @@ export class ExtensionConnection {
     private agentDisplay?: (agent: string) => BrowserDisplay,
     private agents: () => string[] = () => [],
     private clock: GrantClock = grantClock,
+    private ownerValid: () => boolean = () => true,
   ) {}
 
   assign(
     agentId: string,
     peer: BridgePeer,
     retainGrant = false,
+    target?: string,
   ): { receive(message: unknown): Promise<void>; close(): void } {
-    const assignment = [...this.assignments.values()].find((a) => a.agentId === agentId);
+    const id = this.offered(agentId, target);
+    const assignment = id ? this.assignments.get(id) : undefined;
     if (!this.active || !this.authorize(agentId) || !assignment?.target || assignment.connected || this.pendingCount(assignment.id))
       throw new Error("Offer a tab with Allow agent control in the Chrome extension popup");
     this.check(assignment);
@@ -142,7 +149,8 @@ export class ExtensionConnection {
     assignment.connected = true;
     assignment.announced = false;
     return {
-      receive: (message) => this.dispatch(assignment, message),
+      receive: (message) => assignment.peer === peer && assignment.connected
+        ? this.dispatch(assignment, message, agentId, peer) : Promise.resolve(),
       close: () => {
         if (!retainGrant) { this.release(assignment); return; }
         if (assignment.peer !== peer) return;
@@ -152,26 +160,54 @@ export class ExtensionConnection {
     };
   }
 
-  offered(agentId: string): string | undefined {
-    const a = [...this.assignments.values()].find((a) => a.agentId === agentId);
-    if (a && this.expired(a)) { this.release(a); return undefined; }
-    return this.active && this.authorize(agentId) && a?.target ? a.id : undefined;
+  private accessible(a: Assignment, agent: string): boolean {
+    return this.active && this.ownerValid() && this.authorize(agent) &&
+      (a.scope.kind === "all" || a.scope.agentId === agent);
   }
 
-  revoke(agentId: string): void {
-    const a = [...this.assignments.values()].find((a) => a.agentId === agentId);
+  targets(agent: string): { target: string; scope: BrowserGrantScope; title: string; url: string }[] {
+    const result = [];
+    for (const a of this.assignments.values()) {
+      if (this.expired(a)) { this.release(a); continue; }
+      if (!a.target || !this.accessible(a, agent)) continue;
+      const page = [...a.popups.values()].find(t => t.targetId === a.leafTargetId) ?? a.target;
+      result.push({ target: a.handle, scope: a.scope, title: typeof page.title === "string" ? page.title : "",
+        url: typeof page.url === "string" ? page.url : "" });
+    }
+    return result;
+  }
+
+  offered(agentId: string, target?: string): string | undefined {
+    const available = this.targets(agentId);
+    const chosen = target !== undefined ? available.find(a => a.target === target) :
+      available.find(a => a.scope.kind === "agent") ?? (available.length === 1 ? available[0] : undefined);
+    return chosen ? [...this.assignments.values()].find(a => a.handle === chosen.target)?.id : undefined;
+  }
+
+  ambiguous(agent: string): boolean {
+    const available = this.targets(agent);
+    return !available.some(a => a.scope.kind === "agent") && available.length > 1;
+  }
+
+  revoke(agentId: string, target?: string): void {
+    const id = this.offered(agentId, target);
+    const a = id ? this.assignments.get(id) : undefined;
     if (a) this.release(a);
   }
 
-  private async offer(id: string, agentId: string, durationMinutes: BrowserGrantDuration): Promise<void> {
-    if (!this.authorize(agentId) || this.assignments.has(id) ||
-        [...this.assignments.values()].some((a) => a.agentId === agentId)) {
+  private authorized(a: Assignment): boolean {
+    return this.ownerValid() && (a.scope.kind === "all" || this.authorize(a.scope.agentId));
+  }
+
+  private async offer(id: string, scope: BrowserGrantScope, durationMinutes: BrowserGrantDuration): Promise<void> {
+    if (!this.ownerValid() || (scope.kind === "agent" && !this.authorize(scope.agentId)) || this.assignments.has(id) ||
+        (scope.kind === "agent" && [...this.assignments.values()].some((a) => a.scope.kind === "agent" && a.scope.agentId === scope.agentId))) {
       this.peer.send({ kind: "offered", generation: this.generation, assignment: id, error: true });
       return;
     }
     const a: Assignment = {
       durationMinutes, expiresAt: null,
-      id, agentId, session: crypto.randomUUID(), browserSession: crypto.randomUUID(),
+      id, scope, handle: crypto.randomUUID(), session: crypto.randomUUID(), browserSession: crypto.randomUUID(),
       peer: { send() {}, close() {} }, children: new Map(), popups: new Map(),
       creating: true, connected: false, announced: false, closed: false,
     };
@@ -190,7 +226,7 @@ export class ExtensionConnection {
         if (this.assignments.get(id) === a) this.release(a);
       }, durationMinutes * 60_000);
       this.peer.send({ kind: "offered", generation: this.generation, assignment: id,
-        durationMinutes, expiresAt: a.expiresAt });
+        scope, durationMinutes, expiresAt: a.expiresAt });
       this.sendMetadata();
     } catch {
       this.release(a);
@@ -200,7 +236,7 @@ export class ExtensionConnection {
 
   revalidate(): void {
     for (const a of this.assignments.values())
-      if (!this.authorize(a.agentId) || this.expired(a)) this.release(a);
+      if (!this.authorized(a) || this.expired(a)) this.release(a);
     this.sendMetadata();
   }
 
@@ -212,8 +248,8 @@ export class ExtensionConnection {
       member: this.memberDisplay(),
       agents: this.agents().filter((agent) => this.authorize(agent)).map((agent) => this.agentDisplay!(agent)),
       assignments: [...this.assignments.values()]
-        .filter((a) => a.target && this.authorize(a.agentId))
-        .map((a) => ({ id: a.id, agent: this.agentDisplay!(a.agentId), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt })),
+        .filter((a) => a.target && this.authorized(a))
+        .map((a) => ({ id: a.id, scope: a.scope, ...(a.scope.kind === "agent" ? { agent: this.agentDisplay!(a.scope.agentId) } : {}), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt })),
     });
   }
 
@@ -227,7 +263,7 @@ export class ExtensionConnection {
       a.closed ||
       this.expired(a) ||
       this.assignments.get(a.id) !== a ||
-      !this.authorize(a.agentId)
+      !this.authorized(a)
     ) {
       this.release(a);
       throw new Error("Browser control ended; pending outcomes may be unknown");
@@ -306,9 +342,9 @@ export class ExtensionConnection {
       const msg = fields(message);
       if (msg.generation !== this.generation) return;
       if (msg.kind === "offer") {
-        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || typeof msg.agent !== "string" || !validGrantDuration(msg.durationMinutes))
+        if (typeof msg.assignment !== "string" || !/^[a-f0-9-]{36}$/.test(msg.assignment) || !validGrantScope(msg.scope) || !validGrantDuration(msg.durationMinutes))
           throw new Error("Invalid offer");
-        void this.offer(msg.assignment, msg.agent, msg.durationMinutes);
+        void this.offer(msg.assignment, msg.scope, msg.durationMinutes);
         return;
       }
       if (msg.kind === "agents") { this.revalidate(); return; }
@@ -317,7 +353,7 @@ export class ExtensionConnection {
         if (!pending) return;
         const owner = this.assignments.get(pending.assignment);
         if (!owner) return;
-        if (!this.authorize(owner.agentId) || this.expired(owner)) {
+        if (!this.authorized(owner) || this.expired(owner)) {
           this.release(owner);
           return;
         }
@@ -335,7 +371,7 @@ export class ExtensionConnection {
         throw new Error("Invalid event");
       const a = this.assignments.get(msg.assignment);
       if (!a) return;
-      if (!this.authorize(a.agentId) || this.expired(a)) {
+      if (!this.authorized(a) || this.expired(a)) {
         this.release(a);
         return;
       }
@@ -430,7 +466,7 @@ export class ExtensionConnection {
     }
   }
 
-  private async dispatch(a: Assignment, message: unknown): Promise<void> {
+  private async dispatch(a: Assignment, message: unknown, actor: string, peer: BridgePeer): Promise<void> {
     let msg: Fields;
     try {
       msg = fields(message);
@@ -439,13 +475,13 @@ export class ExtensionConnection {
       return;
     }
     const { id, method, sessionId } = msg;
-    const peer = a.peer;
     if (!Number.isSafeInteger(id) || typeof method !== "string") {
       this.release(a);
       return;
     }
     try {
       this.check(a);
+      if (a.peer !== peer || !this.accessible(a, actor)) throw new Error("Browser control ended");
       const result = await this.command(
         a,
         method,
@@ -453,6 +489,7 @@ export class ExtensionConnection {
         sessionId,
       );
       this.check(a);
+      if (!this.accessible(a, actor)) throw new Error("Browser control ended");
       if (a.peer === peer) peer.send({ id, sessionId, result });
     } catch {
       if (this.active && !a.closed && a.peer === peer)

@@ -2,6 +2,9 @@ import { translatorFor } from "../shared/i18n/translate";
 import {
   BROWSER_EXTENSION_PROTOCOL,
   validGrantDuration,
+  validGrantScope,
+  sameGrantScope,
+  type BrowserGrantScope,
   validGrantExpiry,
   type BrowserGrantDuration,
   browserSocketURL,
@@ -22,6 +25,7 @@ type OwnedTab = {
   popups: Map<string, OwnedTab>;
   attaching?: boolean;
   agent?: { id: string; name: string };
+  scope?: BrowserGrantScope;
   durationMinutes?: BrowserGrantDuration;
   expiresAt?: number | null;
   phase?: "offering" | "on" | "revoking";
@@ -137,8 +141,8 @@ async function uiState(tabId?: unknown): Promise<ExtensionUIState> {
                 : "unpaired",
     member: online ? c.metadata?.member : undefined,
     assignments: online
-      ? [...c.tabs].flatMap(([id, tab]) => tab.agent ? [{
-          id, agent: tab.agent, tabId: tab.tabId, phase: tab.phase ?? "offering",
+      ? [...c.tabs].flatMap(([id, tab]) => tab.scope ? [{
+          id, scope: tab.scope, agent: tab.agent, tabId: tab.tabId, phase: tab.phase ?? "offering",
           durationMinutes: tab.durationMinutes!, expiresAt: tab.expiresAt ?? null,
           current: selected?.id === tab.tabId || [...tab.popups.values()].some((p) => p.tabId === selected?.id),
         }] : []) : [],
@@ -185,17 +189,19 @@ async function uiCommand(value: unknown): Promise<ExtensionUIState> {
     if (msg.action === "offer") {
       const selected = await currentTab(msg.tabId);
       check(c);
-      const agent = c.metadata?.agents.find((a) => a.id === msg.agent);
-      if (!validGrantDuration(msg.durationMinutes) || !selected?.eligible || !selected.active || selected.windowId !== msg.windowId || !agent ||
-          [...c.tabs.values()].some((tab) => tab.agent?.id === agent.id || tab.tabId === selected.id ||
+      const scope = msg.scope;
+      if (!validGrantScope(scope)) throw new Error();
+      const agent = scope.kind === "agent" ? c.metadata?.agents.find((a) => a.id === scope.agentId) : undefined;
+      if (!validGrantDuration(msg.durationMinutes) || !selected?.eligible || !selected.active || selected.windowId !== msg.windowId || (scope.kind === "agent" && !agent) ||
+          [...c.tabs.values()].some((tab) => (scope.kind === "agent" && tab.scope?.kind === "agent" && tab.scope.agentId === scope.agentId) || tab.tabId === selected.id ||
             [...tab.popups.values()].some((popup) => popup.tabId === selected.id))) throw new Error();
       const id = crypto.randomUUID();
-      const tab: OwnedTab = { tabId: selected.id, agent, durationMinutes: msg.durationMinutes, expiresAt: null, phase: "offering", children: new Set(), popups: new Map() };
+      const tab: OwnedTab = { tabId: selected.id, scope, agent, durationMinutes: msg.durationMinutes, expiresAt: null, phase: "offering", children: new Set(), popups: new Map() };
       c.tabs.set(id, tab);
       const accepted = await new Promise<boolean>((resolve) => {
         const timer = setTimeout(() => { close(c); }, 30_000);
         c.offers.set(id, (ok) => { clearTimeout(timer); resolve(ok); });
-        send(c, { kind: "offer", generation: c.generation, assignment: id, agent: agent.id, durationMinutes: msg.durationMinutes });
+        send(c, { kind: "offer", generation: c.generation, assignment: id, scope, durationMinutes: msg.durationMinutes });
       });
       if (!accepted || c.tabs.get(id) !== tab || tab.phase !== "offering") {
         await revoke(c, id);
@@ -541,22 +547,22 @@ async function configure(reset = true): Promise<void> {
               return { id: agent.id, name: agent.name };
             }),
             assignments: msg.assignments.map((value) => {
-              const a = fields(value),
-                agent = fields(a.agent);
+              const a = fields(value);
+              if (!validGrantScope(a.scope)) throw new Error();
+              const agent = a.scope.kind === "agent" ? fields(a.agent) : undefined;
               if (
                 typeof a.id !== "string" ||
-                typeof agent.id !== "string" ||
-                typeof agent.name !== "string" ||
+                (a.scope.kind === "agent" && (!agent || agent.id !== a.scope.agentId || typeof agent.name !== "string")) ||
                 !validGrantDuration(a.durationMinutes) || !validGrantExpiry(a.durationMinutes, a.expiresAt)
               )
                 throw new Error();
-              return { id: a.id, agent: { id: agent.id, name: agent.name }, durationMinutes: a.durationMinutes, expiresAt: a.expiresAt };
+              return { id: a.id, scope: a.scope, ...(agent ? { agent: { id: agent.id as string, name: agent.name as string } } : {}), durationMinutes: a.durationMinutes, expiresAt: a.expiresAt };
             }),
           };
           for (const [id, tab] of c.tabs) {
             const agent = c.metadata.agents.find(a => a.id === tab.agent?.id);
             if (agent) tab.agent = agent;
-            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && a.agent.id === tab.agent?.id && a.durationMinutes === tab.durationMinutes && a.expiresAt === tab.expiresAt))
+            if (tab.phase === "on" && !c.metadata.assignments.some(a => a.id === id && !!tab.scope && sameGrantScope(a.scope, tab.scope) && a.durationMinutes === tab.durationMinutes && a.expiresAt === tab.expiresAt))
               void revoke(c, id);
           }
           return;
@@ -565,7 +571,7 @@ async function configure(reset = true): Promise<void> {
           const tab = c.tabs.get(msg.assignment);
           if (!c.offers.has(msg.assignment) || !tab || tab.phase !== "offering") return;
           if (!msg.error) {
-            if (msg.durationMinutes !== tab.durationMinutes || !validGrantExpiry(msg.durationMinutes, msg.expiresAt)) throw new Error("Invalid grant expiry");
+            if (!validGrantScope(msg.scope) || !tab.scope || !sameGrantScope(msg.scope, tab.scope) || msg.durationMinutes !== tab.durationMinutes || !validGrantExpiry(msg.durationMinutes, msg.expiresAt)) throw new Error("Invalid grant expiry");
             tab.expiresAt = msg.expiresAt;
           }
           c.offers.get(msg.assignment)?.(!msg.error);

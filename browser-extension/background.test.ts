@@ -47,7 +47,7 @@ async function harness(autoAck = true) {
       const msg = fields(JSON.parse(data));
       this.sent.push(msg);
       if (autoAck && msg.kind === "result" && msg.id === 1) queueMicrotask(() => this.receive({
-        kind: "offered", generation: "generation-1", assignment, durationMinutes: 0, expiresAt: null, error: msg.error,
+        kind: "offered", scope: this.sent.findLast(m => m.kind === "offer" && m.assignment === assignment)?.scope, generation: "generation-1", assignment, durationMinutes: 0, expiresAt: null, error: msg.error,
       }));
     }
     close() {
@@ -161,7 +161,7 @@ async function harness(autoAck = true) {
   await settle();
   const socket = sockets[0];
   socket.onopen?.();
-  socket.receive({ kind: "ready", version: 3, generation: "generation-1" });
+  socket.receive({ kind: "ready", version: 4, generation: "generation-1" });
   socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
     agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }], assignments: [] });
   const ui = (message: unknown) => new Promise<Record<string, unknown>>((resolve) => runtimeMessage({ durationMinutes: 0, tabId: selected.id, windowId: 1, ...(message as object) },
@@ -172,13 +172,13 @@ async function harness(autoAck = true) {
     selected: (id: number, url = "https://example.com/") => { selected = { id, url, active: true, windowId: 1 }; },
     assignment: () => assignment,
     startOffer: async (durationMinutes = 0) => {
-      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, agent: "a", durationMinutes });
+      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, scope: { kind: "agent", agentId: "a" }, durationMinutes });
       await settle();
       assignment = String(socket.sent.findLast((m) => m.kind === "offer")!.assignment);
       return { result, assignment };
     },
-    offer: async () => {
-      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, agent: "a" });
+    offer: async (scope: { kind: "all" } | { kind: "agent"; agentId: string } = { kind: "agent", agentId: "a" }) => {
+      const result = ui({ action: "offer", generation: "generation-1", tabId: selected.id, scope });
       await settle();
       assignment = String(socket.sent.findLast((m) => m.kind === "offer")!.assignment);
       socket.receive({ kind: "command", assignment, id: 1, generation: "generation-1", method: "attach", params: {} });
@@ -283,7 +283,7 @@ test("built worker does not dispatch stale-generation or disconnected commands",
   expect(h.calls).toContain("detach");
   const fresh = await h.reconnect();
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 3, generation: "generation-2" });
+  fresh.receive({ kind: "ready", version: 4, generation: "generation-2" });
   fresh.receive({
     kind: "command",
     assignment: "assignment",
@@ -339,7 +339,7 @@ test("transient loss schedules reconnect but refusal stays terminal", async () =
   expect(h.sockets).toHaveLength(2);
   const fresh = h.sockets[1];
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 3, generation: "fresh" });
+  fresh.receive({ kind: "ready", version: 4, generation: "fresh" });
   fresh.receive({ kind: "refused" });
   expect(fresh.readyState).toBe(3);
   expect(h.timers.size).toBe(0);
@@ -559,11 +559,11 @@ for (const conflict of ["agent", "tab", "popup"] as const) {
 test("pending offer reserves both identities; Off prevents late acceptance and CDP", async () => {
   const h = await harness();
   const pending = await h.startOffer();
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, agent: "b" })).toHaveProperty("error");
+  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "b" } })).toHaveProperty("error");
   h.selected(9);
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 9, agent: "a" })).toHaveProperty("error");
+  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 9, scope: { kind: "agent", agentId: "a" } })).toHaveProperty("error");
   await h.ui({ action: "stop", generation: "generation-1", assignment: pending.assignment });
-  h.socket.receive({ kind: "offered", generation: "generation-1", assignment: pending.assignment });
+  h.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment });
   h.command(1, "attach");
   h.command(2, "cdp", { method: "Runtime.evaluate", params: {} });
   await pending.result;
@@ -578,7 +578,7 @@ for (const url of ["chrome://settings", "chrome-extension://fixture-id/connectio
   test(`offer rejects ineligible current tab ${new URL(url).protocol}`, async () => {
     const h = await harness();
     h.selected(7, url);
-    const pending = h.ui({ action: "offer", generation: "generation-1", tabId: 7, agent: "a" });
+    const pending = h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "a" } });
     await settle();
     const sentOffer = h.socket.sent.some(m => m.kind === "offer");
     const messages = JSON.stringify(h.socket.sent);
@@ -593,7 +593,7 @@ for (const url of ["chrome://settings", "chrome-extension://fixture-id/connectio
 test("changed current tab and unoffered attach cannot expose a page", async () => {
   const h = await harness();
   h.selected(8);
-  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, agent: "a" })).toHaveProperty("error");
+  expect(await h.ui({ action: "offer", generation: "generation-1", tabId: 7, scope: { kind: "agent", agentId: "a" } })).toHaveProperty("error");
   h.command(1, "attach");
   await settle();
   expect(h.calls).toHaveLength(0);
@@ -607,7 +607,7 @@ test("obsolete ready protocol fails closed without a tab grant", async () => {
   h.socket.close();
   const fresh = await h.reconnect();
   fresh.onopen?.();
-  fresh.receive({ kind: "ready", version: 2, generation: "obsolete" });
+  fresh.receive({ kind: "ready", version: 3, generation: "obsolete" });
   await settle();
   expect(fresh.readyState).toBe(3);
   expect(h.config()?.blocked).toBe(true);
@@ -627,18 +627,18 @@ test("a failed popup cleanup retains its tab reservation until detach finishes",
   await settle();
   expect(oldDetach.reached()).toBe(true);
   h.selected(8);
-  const conflicting = h.ui({ action: "offer", generation: "generation-1", agent: "b" });
+  const conflicting = h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } });
   await settle();
   expect(h.socket.sent.filter(message => message.kind === "offer")).toHaveLength(1);
   expect(await conflicting).toHaveProperty("error");
   oldDetach.finish();
   await stopping;
   expect(h.calls.filter(call => call === "detach")).toHaveLength(2);
-  const next = h.ui({ action: "offer", generation: "generation-1", agent: "b" });
+  const next = h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } });
   await settle();
   const offers = h.socket.sent.filter(message => message.kind === "offer");
   expect(offers).toHaveLength(2);
-  expect(offers[1].agent).toBe("b");
+  expect(offers[1].scope).toEqual({ kind: "agent", agentId: "b" });
   h.socket.close();
   await next;
 });
@@ -653,7 +653,7 @@ for (const mismatch of [false, true]) {
     const metadata = {
       kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
       agents: [{ id: "a", name: "Agent" }, { id: "b", name: "Other" }],
-      assignments: mismatch ? [{ id: h.assignment(), agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] : [],
+      assignments: mismatch ? [{ id: h.assignment(), scope: { kind: "agent", agentId: "b" }, agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] : [],
     };
     h.socket.receive({ ...metadata, generation: "old" });
     expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
@@ -705,7 +705,7 @@ test("metadata before offer acknowledgement preserves the pending attachment", a
   expect(detached).toBe(false);
   expect(result.assignments).toMatchObject([{ phase: "on" }]);
   h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" },
-    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), agent: { id: "a", name: "Agent" }, durationMinutes: 0, expiresAt: null }] });
+    agents: [{ id: "a", name: "Agent" }], assignments: [{ id: h.assignment(), scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Agent" }, durationMinutes: 0, expiresAt: null }] });
   await settle();
   expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on" }]);
   expect(h.calls.filter(call => call === "detach")).toHaveLength(0);
@@ -719,10 +719,10 @@ test("timed offer uses the acknowledged deadline and metadata cannot silently ex
   h.command(1, "attach");
   await settle();
   const expiresAt = Date.now() + 15 * 60_000;
-  h.socket.receive({ kind: "offered", generation: "generation-1", assignment: pending.assignment, durationMinutes: 15, expiresAt });
+  h.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment, durationMinutes: 15, expiresAt });
   expect((await pending.result).assignments).toMatchObject([{ phase: "on", durationMinutes: 15, expiresAt }]);
   const metadata = { kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "a", name: "Agent" }],
-    assignments: [{ id: pending.assignment, agent: { id: "a", name: "Agent" }, durationMinutes: 15, expiresAt }] };
+    assignments: [{ id: pending.assignment, scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Agent" }, durationMinutes: 15, expiresAt }] };
   h.socket.receive(metadata);
   expect((await h.ui({ action: "state" })).assignments).toMatchObject([{ phase: "on", expiresAt }]);
   h.socket.receive({ ...metadata, assignments: [{ ...metadata.assignments[0], expiresAt: expiresAt + 1 }] });
@@ -742,7 +742,7 @@ for (const pair of [
     const pending = await pendingHarness.startOffer(15);
     pendingHarness.command(1, "attach");
     await settle();
-    pendingHarness.socket.receive({ kind: "offered", generation: "generation-1", assignment: pending.assignment, ...pair });
+    pendingHarness.socket.receive({ kind: "offered", scope: { kind: "agent", agentId: "a" }, generation: "generation-1", assignment: pending.assignment, ...pair });
     const result = await pending.result;
     expect(result.error).toBeDefined();
     expect(pendingHarness.socket.readyState).toBe(3);
@@ -755,3 +755,31 @@ for (const pair of [
     expect(active.socket.readyState).toBe(3);
   });
 }
+
+test("All reserves exact tabs, permits multiple roots and reconciles explicit scope", async () => {
+  const h = await harness();
+  try {
+    expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
+    const first = h.assignment();
+    expect(h.badges.some(b => b.tabId === 7 && b.text === "ON")).toBe(true);
+    expect(await h.ui({ action: "offer", generation: "generation-1", scope: { kind: "agent", agentId: "b" } })).toHaveProperty("error");
+    h.selected(8);
+    expect(await h.offer({ kind: "all" })).not.toHaveProperty("error");
+    const second = h.assignment();
+    expect(second).not.toBe(first);
+    expect(h.socket.sent.filter(m => m.kind === "offer")).toHaveLength(2);
+    const state = await h.ui({ action: "state" });
+    expect(state.assignments).toHaveLength(2);
+    expect((state.assignments as Fields[]).every(a => fields(a.scope).kind === "all")).toBe(true);
+    h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [],
+      assignments: [first, second].map(id => ({ id, scope: { kind: "all" }, durationMinutes: 0, expiresAt: null })) });
+    await settle();
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(2);
+    await h.ui({ action: "stop", generation: "generation-1", assignment: first });
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(1);
+    h.socket.receive({ kind: "metadata", generation: "generation-1", member: { id: "m", name: "Member" }, agents: [{ id: "b", name: "Other" }],
+      assignments: [{ id: second, scope: { kind: "agent", agentId: "b" }, agent: { id: "b", name: "Other" }, durationMinutes: 0, expiresAt: null }] });
+    await settle();
+    expect((await h.ui({ action: "state" })).assignments).toHaveLength(0);
+  } finally { h.socket.close(); }
+});

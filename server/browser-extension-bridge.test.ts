@@ -54,7 +54,7 @@ async function harness(retainGrant = false) {
 }
 async function offer(connection: import("./browser-extension-bridge").ExtensionConnection, messages: Fields[], agent: string, targetId: string) {
   const assignment = crypto.randomUUID();
-  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent });
+  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: agent } });
   const command = messages.at(-1)!;
   connection.receive({ kind: "result", generation: connection.generation, id: command.id,
     result: { targetInfo: { targetId, type: "page", url: "https://example.com/" } } });
@@ -76,7 +76,7 @@ describe("browser extension isolation", () => {
       await new Promise<void>((resolve, reject) => {
         ws.onopen = () =>
           ws.send(
-            JSON.stringify({ kind: "hello", version: 3, credential: "wrong" }),
+            JSON.stringify({ kind: "hello", version: 4, credential: "wrong" }),
           );
         ws.onmessage = (event) => received.push(String(event.data));
         ws.onclose = () => resolve();
@@ -195,7 +195,7 @@ describe("browser extension isolation", () => {
     const nextPeer = peer();
     const fresh = h.bridge.connect(h.credential, nextPeer);
     const assignment = crypto.randomUUID();
-    fresh.receive({ kind: "offer", durationMinutes: 0, generation: fresh.generation, assignment, agent: "agent" });
+    fresh.receive({ kind: "offer", durationMinutes: 0, generation: fresh.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
     const freshSent = nextPeer.messages.at(-1)!;
     fresh.receive({ kind: "result", generation: h.connection.generation, id: freshSent.id,
       result: { targetInfo: { targetId: "old", type: "page", url: "https://example.com/" } } });
@@ -348,7 +348,7 @@ for (const outcome of ["off", "access", "error", "invalid-target", "disconnect"]
     const h = await harness();
     h.connection.revoke("agent");
     const assignment = crypto.randomUUID();
-    h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment, agent: "agent" });
+    h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
     const pending = h.extension.messages.at(-1)!;
     expect(pending.method).toBe("attach");
     expect(() => h.connection.assign("agent", peer())).toThrow();
@@ -367,7 +367,7 @@ for (const outcome of ["off", "access", "error", "invalid-target", "disconnect"]
 test("offer rechecks access and reserves one agent before attachment completes", async () => {
   const h = await harness();
   h.connection.revoke("agent");
-  const send = (agent: string) => h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment: crypto.randomUUID(), agent });
+  const send = (agent: string) => h.connection.receive({ kind: "offer", durationMinutes: 0, generation: h.connection.generation, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: agent } });
   send("foreign-agent");
   expect(h.extension.messages.at(-1)!.error).toBe(true);
   send("agent");
@@ -396,7 +396,7 @@ function expiryHarness() {
   });
   const connection = bridge.connect("credential", extension);
   const start = (durationMinutes: unknown, assignment = crypto.randomUUID()) => {
-    connection.receive({ kind: "offer", generation: connection.generation, assignment, agent: "agent", durationMinutes });
+    connection.receive({ kind: "offer", generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" }, durationMinutes });
     return assignment;
   };
   const accept = async () => {
@@ -515,7 +515,7 @@ test("a result arriving after expiry releases only its grant when the timer is d
     const command = h.extension.messages.findLast(m => m.method === "cdp")!;
     expect(command).toBeDefined();
     const other = crypto.randomUUID();
-    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment: other, agent: "other", durationMinutes: 0 });
+    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment: other, scope: { kind: "agent", agentId: "other" }, durationMinutes: 0 });
     await h.accept();
     expect(h.connection.offered("other")).toBe(other);
     h.advance(15 * 60_000, false);
@@ -597,4 +597,121 @@ test("retired client cannot release a replacement client or deliver its old repl
     expect(h.connection.offered("agent")).toBe(assignment);
     expect(h.extension.messages.some(m => m.method === "detach")).toBe(false);
   } finally { h.connection.close(); }
+});
+
+test("All discovery and explicit targets preserve precedence, access and grant identity", async () => {
+  const allowed = new Set(["a", "b"]);
+  const wire = peer();
+  const bridge = new BrowserExtensionBridge({ memberForCredentialHash: () => "m", mayUse: (_m, agent) => allowed.has(agent) });
+  const c = bridge.connect("fixture", wire);
+  const add = async (scope: { kind: "all" } | { kind: "agent"; agentId: string }) => {
+    const id = crypto.randomUUID();
+    c.receive({ kind: "offer", generation: c.generation, assignment: id, scope, durationMinutes: 0 });
+    const attach = wire.messages.at(-1)!;
+    expect(attach.method).toBe("attach");
+    c.receive({ kind: "result", generation: c.generation, id: attach.id,
+      result: { targetInfo: { type: "page", targetId: crypto.randomUUID(), url: "https://example.com/", title: "Fixture" } } });
+    await Promise.resolve(); return id;
+  };
+  try {
+    const one = await add({ kind: "all" });
+    expect(c.offered("a")).toBe(one); expect(c.offered("b")).toBe(one);
+    const first = c.targets("a")[0].target;
+    expect(first).not.toBe(one);
+    await add({ kind: "all" });
+    expect(c.ambiguous("a")).toBe(true); expect(c.offered("a")).toBeUndefined();
+    expect(c.offered("a", first)).toBe(one);
+    const individual = await add({ kind: "agent", agentId: "a" });
+    expect(c.offered("a")).toBe(individual); expect(c.ambiguous("a")).toBe(false);
+    expect(c.targets("a")).toHaveLength(3); expect(c.targets("b")).toHaveLength(2);
+    const own = c.targets("a").find(t => t.scope.kind === "agent")!.target;
+    expect(c.offered("b", own)).toBeUndefined();
+    c.revoke("a");
+    expect(c.ambiguous("a")).toBe(true);
+    expect(c.offered("a", own)).toBeUndefined();
+    const replacement = await add({ kind: "agent", agentId: "a" });
+    expect(c.offered("a")).toBe(replacement);
+    expect(c.offered("a", own)).toBeUndefined();
+    allowed.delete("a"); c.revalidate();
+    expect(c.targets("a")).toEqual([]); expect(c.targets("foreign")).toEqual([]);
+    expect(c.offered("b", first)).toBe(one);
+    c.revoke("b", first); expect(c.offered("b", first)).toBeUndefined();
+  } finally { c.close(); }
+});
+
+test("All client epochs bind each command to its actor and ignore retired peer traffic", async () => {
+  const allowed = new Set(["a", "b"]), checks: string[] = [];
+  const wire = peer();
+  const bridge = new BrowserExtensionBridge({ memberForCredentialHash: () => "m", mayUse: (_m, actor) => { checks.push(actor); return allowed.has(actor); } });
+  const c = bridge.connect("fixture", wire);
+  const id = crypto.randomUUID();
+  c.receive({ kind: "offer", generation: c.generation, assignment: id, scope: { kind: "all" }, durationMinutes: 0 });
+  c.receive({ kind: "result", generation: c.generation, id: wire.messages.at(-1)!.id, result: { targetInfo: { type: "page", targetId: "root", url: "https://example.com/" } } });
+  await Promise.resolve();
+  try {
+    const handle = c.targets("a")[0].target;
+    c.receive({ kind: "event", generation: c.generation, assignment: id, method: "popup", params: {
+      sessionId: "popup-session", targetInfo: { type: "page", targetId: "popup", openerId: "root", title: "Popup", url: "https://example.com/popup" } } });
+    expect(c.targets("b")).toEqual([{ target: handle, scope: { kind: "all" }, title: "Popup", url: "https://example.com/popup" }]);
+    c.receive({ kind: "event", generation: c.generation, assignment: id, method: "popupDetached", params: { sessionId: "popup-session" } });
+    expect(c.targets("b")[0].target).toBe(handle);
+    expect(c.targets("b")).toHaveLength(1);
+    const a = peer(), b = peer();
+    const old = c.assign("a", a, true);
+    await old.receive({ id: 1, method: "Target.setAutoAttach", params: {} });
+    const sessionId = fields(a.messages.find(m => m.method === "Target.attachedToTarget")!.params).sessionId;
+    checks.length = 0;
+    const pending = old.receive({ id: 2, method: "Input.insertText", sessionId, params: { text: "fixture" } });
+    const command = wire.messages.at(-1)!;
+    expect(command.method).toBe("cdp"); expect(checks).toEqual(["a"]);
+    allowed.delete("a");
+    c.receive({ kind: "result", generation: c.generation, id: command.id, result: {} });
+    await pending;
+    expect(checks).toEqual(["a", "a"]);
+    expect(a.messages.at(-1)).toHaveProperty("error");
+    expect(c.offered("b")).toBe(id);
+    old.close();
+    const current = c.assign("b", b, true);
+    await current.receive({ id: 3, method: "Target.setAutoAttach", params: {} });
+    const count = wire.messages.length, responses = b.messages.length;
+    checks.length = 0;
+    await old.receive({ id: 4, method: "Input.insertText", sessionId, params: { text: "stale" } });
+    old.close();
+    c.receive({ kind: "result", generation: c.generation, id: command.id, result: {} });
+    expect(wire.messages).toHaveLength(count); expect(b.messages).toHaveLength(responses); expect(checks).toEqual([]);
+    const next = current.receive({ id: 5, method: "Runtime.evaluate", sessionId, params: { expression: "1" } });
+    expect(checks).toEqual(["b"]);
+    c.receive({ kind: "result", generation: c.generation, id: wire.messages.at(-1)!.id, result: {} });
+    await next;
+    expect(checks).toEqual(["b", "b"]);
+    expect(b.messages.at(-1)).toMatchObject({ id: 5, result: {} });
+    expect(wire.messages.filter(m => m.method === "cdp")).toHaveLength(2);
+  } finally { c.close(); }
+});
+
+test("All timed expiry releases every caller before first action and Never has no timer", async () => {
+  let now = 1_800_000_000_000;
+  const timers: (() => void)[] = [];
+  const wire = peer();
+  const bridge = new BrowserExtensionBridge({ memberForCredentialHash: () => "m", mayUse: () => true },
+    { now: () => now, schedule: callback => { timers.push(callback); return () => {}; } });
+  const c = bridge.connect("fixture", wire);
+  const add = async (durationMinutes: number) => {
+    const assignment = crypto.randomUUID();
+    c.receive({ kind: "offer", generation: c.generation, assignment, durationMinutes, scope: { kind: "all" } });
+    c.receive({ kind: "result", generation: c.generation, id: wire.messages.at(-1)!.id,
+      result: { targetInfo: { targetId: crypto.randomUUID(), type: "page", url: "https://example.com/" } } });
+    await Promise.resolve(); return assignment;
+  };
+  try {
+    const timed = await add(15);
+    expect(c.offered("a")).toBe(timed); expect(c.offered("b")).toBe(timed);
+    expect(timers).toHaveLength(1);
+    now += 15 * 60_000; timers[0]();
+    expect(c.offered("a")).toBeUndefined(); expect(c.offered("b")).toBeUndefined();
+    expect(wire.messages.filter(m => m.method === "detach")).toHaveLength(1);
+    const never = await add(0); now += 24 * 60 * 60_000;
+    expect(timers).toHaveLength(1); timers[0]();
+    expect(c.offered("a")).toBe(never); expect(c.offered("b")).toBe(never);
+  } finally { c.close(); }
 });

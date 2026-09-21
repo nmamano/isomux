@@ -738,9 +738,9 @@ describe("desktop browser projection", () => {
     const agent = await spawnIn(server, "Managed", server.agentManager.getRooms()[0].id, manager);
     const socket = await connectSettled(server, manager.rawSessionId);
     const { code } = await (await memberRequest(server, manager, "POST", "/api/me/browser/pair", {})).json();
-    const extension = await extensionSocket(server, { kind: "hello", version: 3, code });
+    const extension = await extensionSocket(server, { kind: "hello", version: 4, code });
     const { generation } = await extension.wait("ready");
-    extension.ws.send(JSON.stringify({ kind: "offer", generation, assignment: crypto.randomUUID(), agent: agent.id, durationMinutes: 0 }));
+    extension.ws.send(JSON.stringify({ kind: "offer", generation, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: agent.id }, durationMinutes: 0 }));
     const attach = await extension.wait("command");
     expect(attach.method).toBe("attach");
     extension.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,

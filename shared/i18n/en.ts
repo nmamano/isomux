@@ -20,7 +20,8 @@
 // value, the same placeholders and tags as English).
 
 export const en = {
-  "browser.offerHelp": "Open the tab to offer, choose an agent in the extension popup, and turn on Allow agent control.",
+  "browser.offerHelp": "Open the tab to offer, choose All or an agent in the extension popup, and turn on Agent control.",
+  "browser.allAgents": "All",
   "browser.agent": "Agent",
   "browser.expiry": "Control expires",
   "browser.expiryNever": "Never",
@@ -29,16 +30,16 @@ export const en = {
   "browser.expiry240": "4 hours",
   "browser.expiryNeverActive": "Expires: Never",
   "browser.expiresAt": "Expires: {time}",
-  "browser.allow": "Allow agent control",
+  "browser.officeSection": "Office",
+  "browser.allow": "Agent control:",
   "browser.assigned": "ON · {name}",
   "browser.offering": "Offering tab to {name}…",
   "browser.revoking": "Turning off control for {name}…",
   "browser.tabIneligible": "Open an HTTP(S) tab to allow agent control.",
   "browser.tabConflict": "This agent already has a tab. Turn that tab off first.",
-  "browser.tabOff": "OFF · Choose an agent and turn on Allow agent control.",
   "browser.control": "Agent control",
   "browser.title": "Browser Use",
-  "browser.intro": "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Each agent controls a tab you offer.",
+  "browser.intro": "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
   "browser.chromeHelp": "Agents use Chrome on this computer. Install and pair the extension below.",
   "browser.setup": "Set up Chrome",
   "browser.extract": "Extract the ZIP.",
@@ -50,8 +51,7 @@ export const en = {
   "browser.show": "Show",
   "browser.hide": "Hide",
   "browser.owner": "Browser owner: {name}",
-  "browser.ownership":
-    "Agents use their manager’s browser. Each agent controls its own tab.",
+  "browser.ownership": "Agents use their manager’s browser and only the tabs offered to them.",
   "browser.paired": "Paired",
   "browser.unpaired": "Not paired",
   "browser.offline": "Offline",
@@ -83,7 +83,7 @@ export const en = {
   "browser.unpair": "Unpair",
   "browser.focus": "Show tab",
   "browser.stop": "Stop control",
-  "browser.retained": "Stopping control leaves pages open and music playing.",
+  "browser.retained": "Stopping control leaves pages open.",
   "browser.offlineHelp":
     "To revoke access while offline, use Browser in office settings.",
   "browser.failed":

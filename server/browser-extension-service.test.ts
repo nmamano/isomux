@@ -41,7 +41,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
   try {
     const pair = store.pair("member", false);
     const obsolete = socket();
-    service.message(obsolete.ws, JSON.stringify({ kind: "hello", version: 2, code: pair.code }));
+    service.message(obsolete.ws, JSON.stringify({ kind: "hello", version: 3, code: pair.code }));
     expect(obsolete.closed()).toBe(true);
     expect(store.record("member").hash).toBeUndefined();
     expect(obsolete.messages.some(m => m.kind === "ready" || m.kind === "command")).toBe(false);
@@ -50,7 +50,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
       oversized.ws,
       JSON.stringify({
         kind: "hello",
-        version: 3,
+        version: 4,
         code: pair.code,
         padding: "x".repeat(4096),
       }),
@@ -60,7 +60,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     const first = socket();
     service.message(
       first.ws,
-      JSON.stringify({ kind: "hello", version: 3, code: pair.code }),
+      JSON.stringify({ kind: "hello", version: 4, code: pair.code }),
     );
     const credential = first.messages.find(
       (message) => message.kind === "paired",
@@ -68,7 +68,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     const connection = first.ws.data.connection!;
     expect(connection).toBeDefined();
     const assignment = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "agent" });
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
     expect(first.messages.some((message) => message.method === "attach")).toBe(true);
     service.heartbeat(first.ws);
     expect(first.messages.at(-1)!.kind).toBe("ping");
@@ -84,7 +84,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     const fresh = socket();
     service.message(
       fresh.ws,
-      JSON.stringify({ kind: "hello", version: 3, credential }),
+      JSON.stringify({ kind: "hello", version: 4, credential }),
     );
     expect(fresh.ws.data.connection!.generation).not.toBe(
       connection.generation,
@@ -129,11 +129,11 @@ test("metadata uses current records; unpair is bound to authenticated generation
     service.open(socket);
     service.message(
       socket,
-      JSON.stringify({ kind: "hello", version: 3, code }),
+      JSON.stringify({ kind: "hello", version: 4, code }),
     );
     const connection = ws.data.connection!;
     const assignment = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "a" });
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "a" } });
     const attach = messages.at(-1)!;
     connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
       result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
@@ -153,7 +153,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
       member: { id: "m", name: "Member" },
       agents: [{ id: "a", name: "Aname" }],
       assignments: [
-        { id: expect.any(String), agent: { id: "a", name: "Aname" }, durationMinutes: 0, expiresAt: null },
+        { id: expect.any(String), scope: { kind: "agent", agentId: "a" }, agent: { id: "a", name: "Aname" }, durationMinutes: 0, expiresAt: null },
       ],
     });
     name = "Renamed";
@@ -183,7 +183,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
       service.open(socket);
       service.message(
         socket,
-        JSON.stringify({ kind: "hello", version: 3, credential }),
+        JSON.stringify({ kind: "hello", version: 4, credential }),
       );
     };
     reconnect();
@@ -216,7 +216,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
     service.open(socket);
     service.message(
       socket,
-      JSON.stringify({ kind: "hello", version: 3, code: fresh.code }),
+      JSON.stringify({ kind: "hello", version: 4, code: fresh.code }),
     );
     expect(messages.filter((m) => m.kind === "metadata")).toHaveLength(count);
   } finally {

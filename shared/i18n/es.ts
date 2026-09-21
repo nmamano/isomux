@@ -5,7 +5,8 @@
 import type { Catalog } from "./en.ts";
 
 export const es: Catalog = {
-  "browser.offerHelp": "Abre la pestaña que quieras ofrecer, elige un agente en la extensión y activa Permitir control del agente.",
+  "browser.offerHelp": "Abre la pestaña que quieras ofrecer, elige Todos o un agente en la extensión y activa Control del agente.",
+  "browser.allAgents": "Todos",
   "browser.agent": "Agente",
   "browser.expiry": "El control caduca",
   "browser.expiryNever": "Nunca",
@@ -14,16 +15,16 @@ export const es: Catalog = {
   "browser.expiry240": "4 horas",
   "browser.expiryNeverActive": "Caduca: Nunca",
   "browser.expiresAt": "Caduca: {time}",
-  "browser.allow": "Permitir control del agente",
+  "browser.officeSection": "Oficina",
+  "browser.allow": "Control del agente:",
   "browser.assigned": "ON · {name}",
   "browser.offering": "Ofreciendo pestaña a {name}…",
   "browser.revoking": "Desactivando el control de {name}…",
   "browser.tabIneligible": "Abre una pestaña HTTP(S) para permitir el control.",
   "browser.tabConflict": "Este agente ya tiene una pestaña. Desactívala primero.",
-  "browser.tabOff": "OFF · Elige un agente y activa Permitir control del agente.",
   "browser.control": "Control del agente",
   "browser.title": "Uso del navegador",
-  "browser.intro": "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Cada agente controla una pestaña que le ofreces.",
+  "browser.intro": "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
   "browser.chromeHelp": "Los agentes usan Chrome en este ordenador. Instala y vincula la extensión abajo.",
   "browser.setup": "Configurar Chrome",
   "browser.extract": "Extrae el ZIP.",
@@ -35,8 +36,7 @@ export const es: Catalog = {
   "browser.show": "Mostrar",
   "browser.hide": "Ocultar",
   "browser.owner": "Propietario del navegador: {name}",
-  "browser.ownership":
-    "Los agentes usan el navegador de su responsable. Cada agente controla su propia pestaña.",
+  "browser.ownership": "Los agentes usan el navegador de su responsable y solo las pestañas que se les ofrecen.",
   "browser.paired": "Vinculado",
   "browser.unpaired": "Sin vincular",
   "browser.offline": "Sin conexión",
@@ -69,8 +69,7 @@ export const es: Catalog = {
   "browser.unpair": "Desvincular",
   "browser.focus": "Mostrar pestaña",
   "browser.stop": "Detener control",
-  "browser.retained":
-    "Detener el control deja las páginas abiertas y la música sonando.",
+  "browser.retained": "Detener el control deja las páginas abiertas.",
   "browser.offlineHelp":
     "Para revocar el acceso sin conexión, usa Navegador en los ajustes de la oficina.",
   "browser.failed":

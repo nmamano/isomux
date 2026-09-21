@@ -19,6 +19,8 @@ revealCode(false);
 codeVisibility.addEventListener("click", () => revealCode(code.type === "password"));
 const [invocationTab] = await chrome.tabs.query({ active: true, currentWindow: true });
 const labels: Record<string, PlainMessageKey> = {
+  "office-heading": "browser.officeSection",
+  "agent-heading": "browser.agent",
   "office-label": "browser.office",
   "code-label": "browser.code",
   pair: "browser.pair",
@@ -102,15 +104,19 @@ function render(next: typeof state) {
   element("expiry-state").textContent = current && current.phase !== "offering"
     ? current.expiresAt === null ? t("browser.expiryNeverActive") :
       t("browser.expiresAt", { time: new Date(current.expiresAt).toLocaleString() }) : "";
-  const selected = current?.agent.id ?? picker.value;
+  const selected = current ? current.scope.kind === "all" ? "all" : current.scope.agentId : previous ? "all" : picker.value || "all";
   picker.replaceChildren();
+  const all = document.createElement("option");
+  all.value = "all";
+  all.textContent = t("browser.allAgents");
+  picker.append(all);
   for (const agent of state.agents) {
     const option = document.createElement("option");
     option.value = agent.id;
     option.textContent = agent.name;
     picker.append(option);
   }
-  if (current && !state.agents.some((a) => a.id === current.agent.id)) {
+  if (current?.agent && !state.agents.some((a) => a.id === current.agent!.id)) {
     const option = document.createElement("option");
     option.value = current.agent.id;
     option.textContent = current.agent.name;
@@ -118,14 +124,14 @@ function render(next: typeof state) {
   }
   if ([...picker.options].some((option) => option.value === selected)) picker.value = selected;
   picker.disabled = !!current || state.state !== "connected";
-  const conflict = state.assignments.some((a) => a.agent.id === picker.value && !a.current);
+  const conflict = state.assignments.some((a) => a.scope.kind === "agent" && a.scope.agentId === picker.value && !a.current);
   toggle.checked = !!current && current.phase !== "revoking";
   toggle.disabled = current ? current.phase === "revoking" :
     state.state !== "connected" || !state.currentTab?.eligible || !picker.value || conflict;
   element("tab-state").textContent = current
-    ? t(current.phase === "on" ? "browser.assigned" : current.phase === "offering" ? "browser.offering" : "browser.revoking", { name: current.agent.name })
+    ? t(current.phase === "on" ? "browser.assigned" : current.phase === "offering" ? "browser.offering" : "browser.revoking", { name: current.scope.kind === "all" ? t("browser.allAgents") : current.agent!.name })
     : !state.currentTab?.eligible ? t("browser.tabIneligible")
-      : conflict ? t("browser.tabConflict") : t("browser.tabOff");
+      : conflict ? t("browser.tabConflict") : "";
 }
 element("replace").addEventListener("click", () => {
   revealCode(false);
@@ -143,7 +149,7 @@ picker.addEventListener("change", () => render(state));
 toggle.addEventListener("change", () => {
   const current = state.assignments.find((a) => a.current);
   if (current) void command("stop", { assignment: current.id });
-  else void command("offer", { agent: picker.value, tabId: state.currentTab?.id, durationMinutes: Number(expiry.value) });
+  else void command("offer", { scope: picker.value === "all" ? { kind: "all" } : { kind: "agent", agentId: picker.value }, tabId: state.currentTab?.id, durationMinutes: Number(expiry.value) });
   toggle.disabled = true;
   expiry.disabled = true;
 });

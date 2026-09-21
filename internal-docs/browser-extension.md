@@ -41,9 +41,9 @@ HTTPS office origin. Loopback HTTP/WS is accepted for isolated local fixtures.
 URL credentials, query strings and fragments are refused.
 
 The first frame, within five seconds and at most 4 KiB, is
-`{kind: "hello", version: 3, code}` or the same shape with `credential`.
-Pairing returns `{kind: "paired", version: 3, credential}` before
-`{kind: "ready", version: 3, generation}`. Authentication binds the credential
+`{kind: "hello", version: 4, code}` or the same shape with `credential`.
+Pairing returns `{kind: "paired", version: 4, credential}` before
+`{kind: "ready", version: 4, generation}`. Authentication binds the credential
 hash to the saved extension Origin. Duplicate live connections are refused;
 only explicit replacement displaces the current connection.
 
@@ -74,7 +74,7 @@ commands, results and events require that exact member, current member existence
 and access to the agent's current room. Mutation hooks actively revalidate;
 heartbeat is a backstop. The latest chat speaker never supplies browser identity.
 
-Each agent has one explicitly offered main tab. Root discovery exposes only that assignment's
+Each individual agent has at most one exclusive offer; All offers share access among currently eligible agents of the paired owner. Root discovery exposes only that assignment's
 main tab and related popups. Profile-level cookie, storage, context and arbitrary
 root CDP commands fail. Synthetic browser sessions retain the same restricted
 view. `noDefaults` preserves the desktop profile's settings. Page commands use
@@ -270,3 +270,11 @@ For goto only, the bridge sends Page.stopLoading to the assignment’s owned roo
 Extension 0.3.1 adds Page.stopLoading to the owned-page allowlist; wire protocol remains 3. Update the extension with the server for navigation cleanup. Logs contain action kind, deadline winner, elapsed time, assignment/generation, pending count and settlement/release state, never selectors, text, URLs, file contents or CDP payloads.
 
 The extension popup masks pairing codes by default. Show/Hide explicitly reveals or masks the field; opening the pairing form, submitting it or closing the popup masks it again. The same behavior applies to initial and replacement pairing.
+
+## All grants and explicit targets (protocol 4 / extension 0.4.0)
+
+Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup default is All, with Office connection and Agent control sections. Metadata and acknowledgement validate the exact scope and expiry. Older peers fail closed. Reload requires re-offer; pairing data is preserved.
+
+`tabs` returns accessible established grants with an opaque random target handle, scope and cached title/URL hints from owned target admission. It sends no page commands, so a busy grant does not block discovery or another grant. Handles never reuse Chrome IDs and die with the assignment or connection. Explicit target selection rechecks current access at queue entry and dispatch. Unqualified routing prefers an individual offer, then a sole All offer; multiple All grants return `browser_target_required` with no page metadata or dispatch.
+
+Queues and timeout recovery belong to the generation/assignment, not an agent. A Playwright peer has one immutable actor. At an actor change, the prior operation and pending commands must settle before its retained client closes and a new client attaches to the same grant. Delayed retired peer commands/results/close cannot affect the replacement. Access loss rejects that caller without revoking an All grant for other eligible callers. Off, expiry, close and connection loss release the grant and its popup chain once for everyone. No automatic replay or transfer API exists.

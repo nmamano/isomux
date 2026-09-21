@@ -63,7 +63,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).json();
   const socket = await extensionSocket(server, {
     kind: "hello",
-    version: 3,
+    version: 4,
     code,
   });
   const paired = await socket.wait("paired");
@@ -78,20 +78,20 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).toBe(401);
   const duplicate = await extensionSocket(server, {
     kind: "hello",
-    version: 3,
+    version: 4,
     credential: paired.credential,
   });
   await duplicate.wait("refused");
   expect(socket.closed()).toBe(false);
   const reused = await extensionSocket(server, {
     kind: "hello",
-    version: 3,
+    version: 4,
     code,
   });
   await reused.wait("refused");
   const wrongOrigin = await extensionSocket(
     server,
-    { kind: "hello", version: 3, credential: paired.credential },
+    { kind: "hello", version: 4, credential: paired.credential },
     "chrome-extension://" + "b".repeat(32),
   );
   await wrongOrigin.wait("refused");
@@ -110,7 +110,7 @@ test("production routes pair, bind Origin, reject office credential use, persist
   server = await server.restart();
   const restored = await extensionSocket(server, {
     kind: "hello",
-    version: 3,
+    version: 4,
     credential: paired.credential,
   });
   const next = await restored.wait("ready");
@@ -198,12 +198,12 @@ test("current manager room access loss actively detaches a pending agent action"
   ).json();
   const socket = await extensionSocket(server, {
     kind: "hello",
-    version: 3,
+    version: 4,
     code,
   });
   await socket.wait("ready");
   const generation = (await socket.wait("ready")).generation;
-  socket.ws.send(JSON.stringify({ kind: "offer", generation, durationMinutes: 0, assignment: crypto.randomUUID(), agent: agent.id }));
+  socket.ws.send(JSON.stringify({ kind: "offer", generation, durationMinutes: 0, assignment: crypto.randomUUID(), scope: { kind: "agent", agentId: agent.id } }));
   const attach = await socket.wait("command");
   expect(attach.method).toBe("attach");
   socket.ws.send(JSON.stringify({ kind: "result", generation, id: attach.id,
@@ -266,7 +266,7 @@ test("corrupt browser state permits office startup and requires fresh Chrome pai
   expect((await action.json()).error.code).toBe("browser_not_paired");
   const pair = await memberRequest(server, owner, "POST", "/api/me/browser/pair", {});
   expect(pair.status).toBe(200);
-  const extension = await extensionSocket(server, { kind: "hello", version: 3, code: (await pair.json()).code });
+  const extension = await extensionSocket(server, { kind: "hello", version: 4, code: (await pair.json()).code });
   await extension.wait("ready");
 });
 

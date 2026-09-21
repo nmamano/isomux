@@ -136,7 +136,7 @@ test("queued browser work cannot cross Off into a replacement tab offer", async 
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     const offer = async (targetId: string) => {
       const assignment = crypto.randomUUID();
-      connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "agent" });
+      connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
       const attach = messages.at(-1)!;
       connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
         result: { targetInfo: { targetId, browserContextId: "context", type: "page", url: "https://example.com/" } } });
@@ -208,7 +208,7 @@ test("Never has no desktop idle timer and stays offered across four hours and ac
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     const assignment = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, agent: "agent" });
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
     const attach = messages.at(-1)!;
     connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
       result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
@@ -241,7 +241,7 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     const offer = async (durationMinutes: number, targetId: string) => {
       const assignment = crypto.randomUUID();
-      connection.receive({ kind: "offer", durationMinutes, generation: connection.generation, assignment, agent: "agent" });
+      connection.receive({ kind: "offer", durationMinutes, generation: connection.generation, assignment, scope: { kind: "agent", agentId: "agent" } });
       const attach = messages.at(-1)!;
       connection.receive({ kind: "result", generation: connection.generation, id: attach.id,
         result: { targetInfo: { targetId, browserContextId: "context", type: "page", url: "https://example.com/" } } });
@@ -271,11 +271,14 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
   }
 });
 
-async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false) {
+async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" = false, all = false) {
   const dir = mkdtempSync(join(tmpdir(), "browser-timeout-"));
   const store = new BrowserExtensionStore(join(dir, "connections.json"));
-  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: () => true });
-  const sessions = new ExtensionBrowserSessions(service, () => "member", () => true, () => 20);
+  const allowed = new Set(["agent", "second"]);
+  const mayUse = () => true;
+  const access = (_member: string, agent: string) => all ? allowed.has(agent) : mayUse();
+  const service = new BrowserExtensionService(store, { memberExists: () => true, mayUse: access });
+  const sessions = new ExtensionBrowserSessions(service, () => "member", access, () => 20);
   const { code } = store.pair("member", false);
   const { credential } = store.redeem(code, origin, () => true);
   const messages: Record<string, unknown>[] = [];
@@ -288,7 +291,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
       });
   }, close() {} });
   const grant = crypto.randomUUID();
-  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, agent: "agent" });
+  connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, scope: all ? { kind: "all" } : { kind: "agent", agentId: "agent" } });
   connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
     result: { targetInfo: { targetId: "owned", type: "page", url: "https://example.com/" } } });
   await Promise.resolve();
@@ -318,7 +321,7 @@ async function timeoutSessionFixture(held: boolean | "watchdog" | "navigation" =
     return { contexts: () => [{ pages: () => [page], on() {} }], isConnected: () => true, on() {},
       close: async () => { transport.close(); } } as unknown as Browser;
   });
-  return { sessions, connection, messages, grant, calls: () => calls, connect,
+  return { sessions, connection, messages, grant, allowed, calls: () => calls, connect,
     stop: () => { sessions.stop(); service.stop(); connect.mockRestore(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -389,7 +392,7 @@ test("Playwright initialization timeout retains the offer while outstanding init
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, { send: m => { messages.push(m); }, close() {} });
     const grant = crypto.randomUUID();
-    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, agent: "agent" });
+    connection.receive({ kind: "offer", durationMinutes: 0, generation: connection.generation, assignment: grant, scope: { kind: "agent", agentId: "agent" } });
     connection.receive({ kind: "result", generation: connection.generation, id: messages.at(-1)!.id,
       result: { targetInfo: { targetId: "owned", browserContextId: "context", type: "page", url: "https://example.com/" } } });
     await Promise.resolve();
@@ -422,4 +425,68 @@ test("navigation timeout sends owned stop and drains before the queued inspectio
     expect(h.messages.some(m => m.method === "detach")).toBe(false);
     expect(h.connect).toHaveBeenCalledTimes(1);
   } finally { diagnostics.mockRestore(); h.stop(); }
+});
+
+for (const held of [false, true]) test(`All shares one queue and timeout fence across callers (held=${held})`, async () => {
+  const h = await timeoutSessionFixture(held, true);
+  try {
+    expect(h.connection.offered("second")).toBe(h.grant);
+    const first = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture" });
+    const next = h.sessions.run("second", { action: "text" });
+    expect(await first).toMatchObject({ code: "action_timeout" });
+    if (held) {
+      expect(h.connection.pendingCount(h.grant)).toBe(1);
+      expect(await next).toMatchObject({ code: "action_timeout" });
+      expect(h.calls()).toBe(0);
+      const command = h.messages.find(m => m.method === "cdp")!;
+      h.connection.receive({ kind: "result", generation: h.connection.generation, id: command.id, result: {} });
+      await Bun.sleep(0);
+      expect(await h.sessions.run("second", { action: "text" })).toMatchObject({ ok: true });
+      expect(h.messages.filter(m => m.method === "cdp")).toHaveLength(1);
+    } else expect(await next).toMatchObject({ ok: true });
+    expect(h.connect).toHaveBeenCalledTimes(2);
+    expect(h.messages.some(m => m.method === "detach")).toBe(false);
+    expect(await h.sessions.run("agent", { action: "click", selector: "button" })).toMatchObject({ ok: true });
+    expect(h.connect).toHaveBeenCalledTimes(3);
+    h.allowed.delete("agent"); h.connection.revalidate();
+    expect(await h.sessions.run("agent", { action: "text" })).toMatchObject({ code: "browser_control_ended" });
+    expect(h.connection.offered("second")).toBe(h.grant);
+    expect(await h.sessions.run("second", { action: "click", selector: "button" })).toMatchObject({ ok: true });
+    expect(await h.sessions.run("foreign", { action: "tabs" })).toMatchObject({ code: "browser_control_ended" });
+    expect(await h.sessions.run("second", { action: "close" })).toMatchObject({ ok: true });
+    expect(h.connection.offered("second")).toBeUndefined();
+  } finally { h.stop(); }
+});
+
+test("target discovery resolves ambiguity without creating a session and rechecks queued callers", async () => {
+  const h = await timeoutSessionFixture(true, true);
+  const add = async (scope: { kind: "all" } | { kind: "agent"; agentId: string }) => {
+    const assignment = crypto.randomUUID();
+    h.connection.receive({ kind: "offer", generation: h.connection.generation, assignment, scope, durationMinutes: 0 });
+    h.connection.receive({ kind: "result", generation: h.connection.generation, id: h.messages.at(-1)!.id,
+      result: { targetInfo: { targetId: crypto.randomUUID(), type: "page", title: "Second fixture", url: "https://example.com/second" } } });
+    await Promise.resolve(); return assignment;
+  };
+  try {
+    const target = h.connection.targets("agent")[0].target;
+    await add({ kind: "all" });
+    const count = h.messages.length;
+    const ambiguous = await h.sessions.run("agent", { action: "text" });
+    expect(ambiguous).toMatchObject({ code: "browser_target_required" });
+    expect(JSON.stringify(ambiguous)).not.toContain("https://");
+    expect(h.connect).toHaveBeenCalledTimes(0); expect(h.messages).toHaveLength(count);
+    expect(await h.sessions.run("agent", { action: "tabs" })).toMatchObject({ ok: true, tabs: expect.arrayContaining([{ target, scope: { kind: "all" }, title: "", url: "https://example.com/" }]) });
+    expect(h.messages).toHaveLength(count);
+    const first = h.sessions.run("agent", { action: "fill", selector: "#fixture", text: "fixture", target });
+    const next = h.sessions.run("second", { action: "text", target });
+    await Bun.sleep(0);
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    h.allowed.delete("second");
+    expect(await first).toMatchObject({ code: "action_timeout" });
+    expect(await next).toMatchObject({ code: "browser_control_ended" });
+    expect(h.calls()).toBe(0);
+    expect((await h.sessions.run("agent", { action: "tabs" })).ok).toBe(true);
+    expect(await h.sessions.run("agent", { action: "text", target: crypto.randomUUID() })).toMatchObject({ code: "browser_control_ended" });
+    expect(h.connect).toHaveBeenCalledTimes(1);
+  } finally { h.stop(); }
 });

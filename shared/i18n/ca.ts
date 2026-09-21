@@ -5,7 +5,8 @@
 import type { Catalog } from "./en.ts";
 
 export const ca: Catalog = {
-  "browser.offerHelp": "Obre la pestanya que vulguis oferir, tria un agent a l’extensió i activa Permet el control de l’agent.",
+  "browser.offerHelp": "Obre la pestanya que vols oferir, tria Tots o un agent a l’extensió i activa Control de l’agent.",
+  "browser.allAgents": "Tots",
   "browser.agent": "Agent",
   "browser.expiry": "El control caduca",
   "browser.expiryNever": "Mai",
@@ -14,16 +15,16 @@ export const ca: Catalog = {
   "browser.expiry240": "4 hores",
   "browser.expiryNeverActive": "Caduca: Mai",
   "browser.expiresAt": "Caduca: {time}",
-  "browser.allow": "Permet el control de l’agent",
+  "browser.officeSection": "Oficina",
+  "browser.allow": "Control de l’agent:",
   "browser.assigned": "ON · {name}",
   "browser.offering": "S’està oferint la pestanya a {name}…",
   "browser.revoking": "S’està desactivant el control de {name}…",
   "browser.tabIneligible": "Obre una pestanya HTTP(S) per permetre el control.",
   "browser.tabConflict": "Aquest agent ja té una pestanya. Desactiva-la primer.",
-  "browser.tabOff": "OFF · Tria un agent i activa Permet el control de l’agent.",
   "browser.control": "Control de l’agent",
   "browser.title": "Ús del navegador",
-  "browser.intro": "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les teves sessions iniciades. Cada agent controla una pestanya que li ofereixes.",
+  "browser.intro": "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
   "browser.chromeHelp": "Els agents utilitzen Chrome en aquest ordinador. Instal·la i vincula l’extensió a continuació.",
   "browser.setup": "Configura Chrome",
   "browser.extract": "Extreu el ZIP.",
@@ -35,8 +36,7 @@ export const ca: Catalog = {
   "browser.show": "Mostra",
   "browser.hide": "Amaga",
   "browser.owner": "Propietari del navegador: {name}",
-  "browser.ownership":
-    "Els agents fan servir el navegador del seu responsable. Cada agent controla la seva pestanya.",
+  "browser.ownership": "Els agents fan servir el navegador del seu responsable i només les pestanyes que se’ls ofereixen.",
   "browser.paired": "Vinculat",
   "browser.unpaired": "Sense vincular",
   "browser.offline": "Sense connexió",
@@ -69,8 +69,7 @@ export const ca: Catalog = {
   "browser.unpair": "Desvincula",
   "browser.focus": "Mostra la pestanya",
   "browser.stop": "Atura el control",
-  "browser.retained":
-    "Aturar el control deixa les pàgines obertes i la música sonant.",
+  "browser.retained": "Aturar el control deixa les pàgines obertes.",
   "browser.offlineHelp":
     "Per revocar l’accés sense connexió, fes servir Navegador a la configuració de l’oficina.",
   "browser.failed":

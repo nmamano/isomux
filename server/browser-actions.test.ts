@@ -107,3 +107,12 @@ describe("screenshot provenance", () => {
     expect(describeShot("file:///private/file")).toEqual({ filename: "page.png", caption: "" });
   });
 });
+
+it("tabs and opaque targets have a bounded explicit schema", () => {
+  expect(parseBrowserParams({ action: "tabs" })).toMatchObject({ ok: true, action: "tabs" });
+  const target = crypto.randomUUID();
+  expect(parseBrowserParams({ action: "snapshot", target })).toMatchObject({ ok: true, target });
+  for (const invalid of [7, "7", "", "x".repeat(1000), null, {}])
+    expect(parseBrowserParams({ action: "snapshot", target: invalid })).toMatchObject({ ok: false, code: "invalid_request" });
+  expect(parseBrowserParams({ action: "tabs", target })).toMatchObject({ ok: false, code: "invalid_request" });
+});
