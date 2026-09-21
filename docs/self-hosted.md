@@ -88,14 +88,14 @@ Each Isomux update re-runs a read-only check of the firewall and the SSH boundar
 
 Environment variables for the default direct-host installation, set before running:
 
-| Variable      | Default        | Meaning                                                          |
-| ------------- | -------------- | ---------------------------------------------------------------- |
-| `ISOMUX_INSTALL_MODE` | `host` | Set to `container` for the [container installation](#deploy-a-container). |
-| `DOMAIN`      | (required)     | Public domain for the office.                                    |
-| `ISOMUX_REF`  | latest release | Git branch, tag, or commit to install.                           |
-| `ISOMUX_REPO` | GitHub         | Git repo to install from (for forks).                            |
-| `SSH_PORT`    | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed. |
-| `DRY_RUN`     | (unset)        | Set to `1` to print what would run instead of running it.        |
+| Variable              | Default        | Meaning                                                                   |
+| --------------------- | -------------- | ------------------------------------------------------------------------- |
+| `ISOMUX_INSTALL_MODE` | `host`         | Set to `container` for the [container installation](#deploy-a-container). |
+| `DOMAIN`              | (required)     | Public domain for the office.                                             |
+| `ISOMUX_REF`          | latest release | Git branch, tag, or commit to install.                                    |
+| `ISOMUX_REPO`         | GitHub         | Git repo to install from (for forks).                                     |
+| `SSH_PORT`            | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.          |
+| `DRY_RUN`             | (unset)        | Set to `1` to print what would run instead of running it.                 |
 
 ### Re-running
 

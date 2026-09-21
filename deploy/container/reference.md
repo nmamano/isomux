@@ -4,7 +4,6 @@ For AWS setup, use the [step-by-step guide](README.md).
 
 ## Build from source
 
-
 From a reviewed source checkout with Git, Python 3, and Docker BuildKit:
 
 ```sh
@@ -25,7 +24,6 @@ Record the source commit and registry digest, and deploy `registry/image@sha256:
 instead of a moving tag. Registry credentials belong on the host.
 
 ## Runtime details
-
 
 | Setting            | Value                                                            |
 | ------------------ | ---------------------------------------------------------------- |
@@ -110,7 +108,6 @@ with modes 700 and 600 respectively. The unit refuses to start without them.
 
 ## Update and restore
 
-
 Pull the next immutable image before the outage. Stop the host unit with
 `sudo systemctl stop isomux-container`. Confirm the office container is stopped,
 run `sudo sync`, and then snapshot the complete EBS volume. Record the old image digest with that
@@ -127,7 +124,6 @@ The office's own backup does not cover the complete home/workspace mount and
 does not protect against volume loss. Keep independent snapshots.
 
 ## Verification record
-
 
 On 2026-09-21, source revision `dc1a8cea` passed EC2/Caddy checks on Linux amd64:
 app HTTPS and WebSockets, container replacement, host reboot, retained state,

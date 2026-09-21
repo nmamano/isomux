@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, chmodSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  chmodSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { UserRecord } from "../shared/types.ts";
@@ -17,7 +25,9 @@ function fixture() {
   mkdirSync(join(dir, "bin"));
   mkdirSync(join(dir, "data"));
   writeFileSync(join(dir, "installer"), source);
-  writeFileSync(join(dir, "bin", "docker"), `#!/bin/bash
+  writeFileSync(
+    join(dir, "bin", "docker"),
+    `#!/bin/bash
 printf 'docker %s\\n' "$*" >> "$FIXTURE/events"
 case "$1 $2" in
   'ps -aq') cat "$FIXTURE/containers" 2>/dev/null || true ;;
@@ -27,13 +37,20 @@ case "$1 $2" in
   'pull '*) [[ ! -e "$FIXTURE/fail-pull" ]] ;;
   *) exit 0 ;;
 esac
-`);
+`,
+  );
   chmodSync(join(dir, "bin", "docker"), 0o755);
   writeFileSync(join(dir, "digest"), digest);
   writeFileSync(join(dir, "revision"), "0".repeat(39) + "1\n");
   // The guard is a separate Bash process and finds these stubs through PATH.
-  writeFileSync(join(dir, "bin", "mountpoint"), '#!/bin/bash\n[[ ! -e "$FIXTURE/missing-mount" ]]\n');
-  writeFileSync(join(dir, "bin", "findmnt"), '#!/bin/bash\ncase "${*: -1}" in UUID) cat "$FIXTURE/uuid";; OPTIONS) cat "$FIXTURE/options";; esac\n');
+  writeFileSync(
+    join(dir, "bin", "mountpoint"),
+    '#!/bin/bash\n[[ ! -e "$FIXTURE/missing-mount" ]]\n',
+  );
+  writeFileSync(
+    join(dir, "bin", "findmnt"),
+    '#!/bin/bash\ncase "${*: -1}" in UUID) cat "$FIXTURE/uuid";; OPTIONS) cat "$FIXTURE/options";; esac\n',
+  );
   chmodSync(join(dir, "bin", "mountpoint"), 0o755);
   chmodSync(join(dir, "bin", "findmnt"), 0o755);
   writeFileSync(join(dir, "uuid"), "fixture-uuid\n");
@@ -87,7 +104,11 @@ install_caddyfile_transaction() { cp "$1" "$CADDYFILE"; }
     env: { PATH: `${dir}/bin:${process.env.PATH}`, FIXTURE: dir, HOME: dir },
     timeout: 10000,
   });
-  return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString() };
+  return {
+    code: result.exitCode,
+    out: result.stdout.toString(),
+    err: result.stderr.toString(),
+  };
 }
 
 function events(dir: string) {
@@ -95,19 +116,57 @@ function events(dir: string) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
-afterEach(() => { for (const dir of fixtures.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+afterEach(() => {
+  for (const dir of fixtures.splice(0))
+    rmSync(dir, { recursive: true, force: true });
+});
 
 describe("container installer", () => {
   it("keeps the direct-host default and dependency-only dispatch", () => {
     const dir = fixture();
-    const calls = ["preflight", "sync_install_kind", "install_packages", "configure_firewall", "harden_ssh", "enable_auto_updates", "configure_oom_protection", "create_service_user", "install_claude_cli", "configure_user_manager", "check_root_reachability", "install_browser", "configure_codex_sandbox", "fetch_isomux", "install_bun", "build_isomux", "install_updater", "install_service", "wait_for_server", "assert_hardening", "claim_owner", "configure_public_access", "mint_invite", "configure_caddy", "write_loopback_bind_if_proxied", "report"];
-    const stubs = [...calls, "deps_only", "container_main"].map(name => `${name}() { echo ${name}; }`).join("\n");
-    const normal = run(dir, stubs + '\nmain');
+    const calls = [
+      "preflight",
+      "sync_install_kind",
+      "install_packages",
+      "configure_firewall",
+      "harden_ssh",
+      "enable_auto_updates",
+      "configure_oom_protection",
+      "create_service_user",
+      "install_claude_cli",
+      "configure_user_manager",
+      "check_root_reachability",
+      "install_browser",
+      "configure_codex_sandbox",
+      "fetch_isomux",
+      "install_bun",
+      "build_isomux",
+      "install_updater",
+      "install_service",
+      "wait_for_server",
+      "assert_hardening",
+      "claim_owner",
+      "configure_public_access",
+      "mint_invite",
+      "configure_caddy",
+      "write_loopback_bind_if_proxied",
+      "report",
+    ];
+    const stubs = [...calls, "deps_only", "container_main"]
+      .map((name) => `${name}() { echo ${name}; }`)
+      .join("\n");
+    const normal = run(dir, stubs + "\nmain");
     expect(normal.code).toBe(0);
     expect(normal.out.trim().split("\n")).toEqual(calls);
-    expect(run(dir, stubs + '\nISOMUX_DEPS_ONLY=1; main').out.trim()).toBe("deps_only");
-    expect(run(dir, stubs + '\nISOMUX_INSTALL_MODE=container; main').out.trim()).toBe("container_main");
-    expect(run(dir, stubs + '\nISOMUX_INSTALL_MODE=invalid; main').code).not.toBe(0);
+    expect(run(dir, stubs + "\nISOMUX_DEPS_ONLY=1; main").out.trim()).toBe(
+      "deps_only",
+    );
+    expect(
+      run(dir, stubs + "\nISOMUX_INSTALL_MODE=container; main").out.trim(),
+    ).toBe("container_main");
+    expect(
+      run(dir, stubs + "\nISOMUX_INSTALL_MODE=invalid; main").code,
+    ).not.toBe(0);
   });
 
   it("installs once, records identity and repairs with the same secret and digest", () => {
@@ -119,7 +178,9 @@ describe("container installer", () => {
     expect(key).toMatch(/^[a-f0-9]{64}$/);
     expect(first.out + first.err + events(dir)).not.toContain(key);
     expect(env).toContain(`ISOMUX_IMAGE=${digest}`);
-    expect(readFileSync(join(dir, "config/mount.uuid"), "utf8")).toBe("fixture-uuid\n");
+    expect(readFileSync(join(dir, "config/mount.uuid"), "utf8")).toBe(
+      "fixture-uuid\n",
+    );
     const second = run(dir, "container_main");
     expect(second.code).toBe(0);
     expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
@@ -131,29 +192,48 @@ describe("container installer", () => {
     expect(config).toContain("respond /__isomux/tls-ask 404");
     expect(config).toContain("on_demand_tls");
     expect(config).toContain("isomux-office-access.log");
-    expect(readFileSync(join(dir, "unit"), "utf8")).toContain("ExecStartPre=/opt/isomux-container/mount-check.sh");
+    expect(readFileSync(join(dir, "unit"), "utf8")).toContain(
+      "ExecStartPre=/opt/isomux-container/mount-check.sh",
+    );
     const compose = readFileSync(join(dir, "config/compose.yaml"), "utf8");
     expect(compose).toContain('restart: "no"');
     expect(compose).toContain("create_host_path: false");
     expect(compose).toContain("seccomp=./seccomp/chromium.json");
-    expect(events(dir)).not.toMatch(/host-office|(?:restart|enable) isomux\.service|nodejs|bun install/);
+    expect(events(dir)).not.toMatch(
+      /host-office|(?:restart|enable) isomux\.service|nodejs|bun install/,
+    );
   });
 
   it("preserves an absent setup key only with a confirmed owner", () => {
     const dir = fixture();
     expect(run(dir, "container_main").code).toBe(0);
     const path = join(dir, "config/office.env");
-    const env = readFileSync(path, "utf8").replace(/^ISOMUX_SETUP_KEY=.*\n/m, "");
+    const env = readFileSync(path, "utf8").replace(
+      /^ISOMUX_SETUP_KEY=.*\n/m,
+      "",
+    );
     writeFileSync(path, env);
     expect(run(dir, "container_main").code).not.toBe(0);
     mkdirSync(join(dir, "data/home/.isomux"), { recursive: true });
-    writeFileSync(join(dir, "data/home/.isomux/users.json"), JSON.stringify({
-      a1b2c3d4: {
-        id: "a1b2c3d4", name: "Owner", role: "owner", createdAt: 1,
-        notifRooms: [], allowedRooms: [], hidden: [], order: [],
-        avatarColor: "#112233", avatarVariant: "classic", memberPrompt: null, language: null,
-      },
-    } satisfies Record<string, UserRecord>));
+    writeFileSync(
+      join(dir, "data/home/.isomux/users.json"),
+      JSON.stringify({
+        a1b2c3d4: {
+          id: "a1b2c3d4",
+          name: "Owner",
+          role: "owner",
+          createdAt: 1,
+          notifRooms: [],
+          allowedRooms: [],
+          hidden: [],
+          order: [],
+          avatarColor: "#112233",
+          avatarVariant: "classic",
+          memberPrompt: null,
+          language: null,
+        },
+      } satisfies Record<string, UserRecord>),
+    );
     expect(run(dir, "container_main").code).toBe(0);
     expect(readFileSync(path, "utf8")).toBe(env);
   });
@@ -162,7 +242,10 @@ describe("container installer", () => {
     const dir = fixture();
     expect(run(dir, "container_main").code).toBe(0);
     writeFileSync(join(dir, "events"), "");
-    writeFileSync(join(dir, "digest"), `ghcr.io/nmamano/isomux@sha256:${"b".repeat(64)}`);
+    writeFileSync(
+      join(dir, "digest"),
+      `ghcr.io/nmamano/isomux@sha256:${"b".repeat(64)}`,
+    );
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("restart isomux-container");
     expect(readFileSync(join(dir, "config/image"), "utf8").trim()).toBe(digest);
@@ -178,18 +261,36 @@ describe("container installer", () => {
     expect(readFileSync(join(dir, "config/office.env"), "utf8")).toBe(env);
   });
 
-  for (const condition of ["missing-mount", "read-only", "host-office", "custom-caddy", "wrong-installer", "pull-failure"]) {
+  for (const condition of [
+    "missing-mount",
+    "read-only",
+    "host-office",
+    "custom-caddy",
+    "wrong-installer",
+    "pull-failure",
+  ]) {
     it(`refuses ${condition} without replacing a proxy or starting an office`, () => {
       const dir = fixture();
-      if (condition === "missing-mount") writeFileSync(join(dir, condition), "");
-      if (condition === "read-only") writeFileSync(join(dir, "options"), "ro,relatime\n");
+      if (condition === "missing-mount")
+        writeFileSync(join(dir, condition), "");
+      if (condition === "read-only")
+        writeFileSync(join(dir, "options"), "ro,relatime\n");
       if (condition === "host-office") mkdirSync(join(dir, condition));
-      if (condition === "custom-caddy") writeFileSync(join(dir, "Caddyfile"), "unrelated.example.com { respond hello }\n");
-      if (condition === "pull-failure") writeFileSync(join(dir, "fail-pull"), "");
-      const extra = condition === "wrong-installer" ? 'cp "$CONTAINER_INSTALLER" "$FIXTURE/different-installer"; echo changed >> "$FIXTURE/different-installer"; CONTAINER_INSTALLER="$FIXTURE/different-installer"; ' : "";
+      if (condition === "custom-caddy")
+        writeFileSync(
+          join(dir, "Caddyfile"),
+          "unrelated.example.com { respond hello }\n",
+        );
+      if (condition === "pull-failure")
+        writeFileSync(join(dir, "fail-pull"), "");
+      const extra =
+        condition === "wrong-installer"
+          ? 'cp "$CONTAINER_INSTALLER" "$FIXTURE/different-installer"; echo changed >> "$FIXTURE/different-installer"; CONTAINER_INSTALLER="$FIXTURE/different-installer"; '
+          : "";
       expect(run(dir, extra + "container_main").code).not.toBe(0);
       expect(events(dir)).not.toContain("restart isomux-container");
-      if (condition !== "pull-failure") expect(events(dir)).not.toContain("packages");
+      if (condition !== "pull-failure")
+        expect(events(dir)).not.toContain("packages");
       expect(existsSync(join(dir, "config"))).toBe(false);
     });
   }
@@ -197,9 +298,15 @@ describe("container installer", () => {
   it("accepts the package default but refuses a modified managed Caddyfile", () => {
     const dir = fixture();
     writeFileSync(join(dir, "Caddyfile"), ":80 { respond default }\n");
-    writeFileSync(join(dir, "default-caddy"), readFileSync(join(dir, "Caddyfile")));
+    writeFileSync(
+      join(dir, "default-caddy"),
+      readFileSync(join(dir, "Caddyfile")),
+    );
     expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(join(dir, "Caddyfile"), "# Managed by the isomux installer\nother.example.com { respond private }\n");
+    writeFileSync(
+      join(dir, "Caddyfile"),
+      "# Managed by the isomux installer\nother.example.com { respond private }\n",
+    );
     writeFileSync(join(dir, "events"), "");
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("packages");
@@ -212,13 +319,21 @@ describe("container installer", () => {
     writeFileSync(join(dir, "events"), "");
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("packages");
-    expect(run(dir, '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"').code).not.toBe(0);
+    expect(
+      run(
+        dir,
+        '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"',
+      ).code,
+    ).not.toBe(0);
   });
 
   it("does not evaluate shell syntax or expose secrets from saved settings", () => {
     const dir = fixture();
     expect(run(dir, "container_main").code).toBe(0);
-    writeFileSync(join(dir, "config/office.env"), `ISOMUX_SETUP_KEY=$(touch ${dir}/executed)\n`);
+    writeFileSync(
+      join(dir, "config/office.env"),
+      `ISOMUX_SETUP_KEY=$(touch ${dir}/executed)\n`,
+    );
     const result = run(dir, "container_main");
     expect(result.code).not.toBe(0);
     expect(existsSync(join(dir, "executed"))).toBe(false);
@@ -228,21 +343,31 @@ describe("container installer", () => {
   it("refuses a conflicting data writer or Compose project", () => {
     const dir = fixture();
     writeFileSync(join(dir, "containers"), "other\n");
-    writeFileSync(join(dir, "container.json"), JSON.stringify([{ Mounts: [{ Source: join(dir, "data") }], Config: { Labels: {} } }]));
+    writeFileSync(
+      join(dir, "container.json"),
+      JSON.stringify([
+        { Mounts: [{ Source: join(dir, "data") }], Config: { Labels: {} } },
+      ]),
+    );
     expect(run(dir, "container_main").code).not.toBe(0);
     expect(events(dir)).not.toContain("restart isomux-container");
   });
   it("requires Docker 28 or later", () => {
     const dir = fixture();
     for (const version of ["27.5.1", "28.0.0", "29.1.3", "invalid"]) {
-      const result = run(dir, `docker() { [[ $1 != version ]] || echo ${version}; }; container_check_docker_version`);
-      expect(result.code === 0).toBe(version === "28.0.0" || version === "29.1.3");
+      const result = run(
+        dir,
+        `docker() { [[ $1 != version ]] || echo ${version}; }; container_check_docker_version`,
+      );
+      expect(result.code === 0).toBe(
+        version === "28.0.0" || version === "29.1.3",
+      );
     }
   });
 
   it("repairs a recorded installation interrupted before the unit was written", () => {
     const dir = fixture();
-    const result = run(dir, 'install() { return 1; }; container_main');
+    const result = run(dir, "install() { return 1; }; container_main");
     expect(result.code).not.toBe(0);
     expect(existsSync(join(dir, "config/release"))).toBe(true);
     expect(existsSync(join(dir, "unit"))).toBe(false);
@@ -254,7 +379,8 @@ describe("container installer", () => {
   it("checks the mount before every service start", () => {
     const dir = fixture();
     expect(run(dir, "container_main").code).toBe(0);
-    const check = '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"';
+    const check =
+      '"$CONTAINER_DIR/mount-check.sh" "$CONTAINER_DATA" "$CONTAINER_DIR/mount.uuid"';
     expect(run(dir, check).code).toBe(0);
     writeFileSync(join(dir, "options"), "ro,relatime\n");
     expect(run(dir, check).code).not.toBe(0);
@@ -265,16 +391,21 @@ describe("container installer", () => {
 
   it("serializes installers before package or service mutation", () => {
     const dir = fixture();
-    expect(run(dir, 'exec 8>"$CONTAINER_LOCK"; flock -n 8; container_main').code).not.toBe(0);
+    expect(
+      run(dir, 'exec 8>"$CONTAINER_LOCK"; flock -n 8; container_main').code,
+    ).not.toBe(0);
     expect(events(dir)).toBe("");
   });
 
   it("refuses damaged or changed private records before package changes", () => {
     const dir = fixture();
     expect(run(dir, "container_main").code).toBe(0);
-    for (const change of ['DOMAIN=other.example.com', 'ISOMUX_REF=v2026.9.22']) {
+    for (const change of [
+      "DOMAIN=other.example.com",
+      "ISOMUX_REF=v2026.9.22",
+    ]) {
       writeFileSync(join(dir, "events"), "");
-      expect(run(dir, change + '; container_main').code).not.toBe(0);
+      expect(run(dir, change + "; container_main").code).not.toBe(0);
       expect(events(dir)).not.toContain("packages");
     }
     writeFileSync(join(dir, "config/compose.yaml"), "custom configuration");
@@ -285,8 +416,13 @@ describe("container installer", () => {
 
   it("installs only host infrastructure packages and restores Caddy on failure", () => {
     const dir = fixture();
-    const packages = source.slice(source.indexOf('container_install_packages() {'), source.indexOf('container_select_image() {'));
-    const script = packages + `
+    const packages = source.slice(
+      source.indexOf("container_install_packages() {"),
+      source.indexOf("container_select_image() {"),
+    );
+    const script =
+      packages +
+      `
 CONTAINER_KEYRING="$FIXTURE/keyring"
 CONTAINER_APT_SOURCE="$FIXTURE/source.list"
 snapshot_caddy_state() { echo snapshot >> "$FIXTURE/events"; CADDY_SNAPSHOT_ARMED=1; }
@@ -298,18 +434,25 @@ gpg() { cat >/dev/null; }
 container_install_packages
 `;
     expect(run(dir, script).code).toBe(0);
-    expect(events(dir)).toContain("packages ca-certificates curl gnupg jq openssl ufw unattended-upgrades");
+    expect(events(dir)).toContain(
+      "packages ca-certificates curl gnupg jq openssl ufw unattended-upgrades",
+    );
     expect(events(dir)).toContain("packages caddy");
-    expect(events(dir)).not.toMatch(/nodejs|polkitd|build-essential|docker.io|docker-compose-v2/);
+    expect(events(dir)).not.toMatch(
+      /nodejs|polkitd|build-essential|docker.io|docker-compose-v2/,
+    );
     expect(events(dir).match(/restore/g)?.length).toBe(1);
     writeFileSync(join(dir, "events"), "");
-    const fresh = script.replace(/container_install_packages\n$/, `
+    const fresh = script.replace(
+      /container_install_packages\n$/,
+      `
 command() {
   if [[ $1 == -v && $2 == docker ]]; then return 1; fi
   builtin command "$@"
 }
 container_install_packages
-`);
+`,
+    );
     expect(run(dir, fresh).code).toBe(0);
     expect(events(dir)).toContain("packages docker.io docker-compose-v2");
     writeFileSync(join(dir, "fail-apt"), "");
@@ -323,10 +466,23 @@ container_install_packages
     expect(run(dir, "container_main").code).toBe(0);
     const docker = Bun.which("docker");
     if (!docker) return;
-    const result = Bun.spawnSync([docker, "compose", "--env-file", "office.env", "-f", "compose.yaml", "config", "--format", "json"], {
-      cwd: join(dir, "config"),
-      env: { PATH: process.env.PATH, HOME: dir },
-    });
+    const result = Bun.spawnSync(
+      [
+        docker,
+        "compose",
+        "--env-file",
+        "office.env",
+        "-f",
+        "compose.yaml",
+        "config",
+        "--format",
+        "json",
+      ],
+      {
+        cwd: join(dir, "config"),
+        env: { PATH: process.env.PATH, HOME: dir },
+      },
+    );
     expect(result.exitCode).toBe(0);
     const service = JSON.parse(result.stdout.toString()).services.office;
     expect(service.image).toBe(digest);
@@ -350,13 +506,18 @@ container_install_packages
 
   it("refuses an old existing engine or missing Compose before package mutation", () => {
     const dir = fixture();
-    for (const [version, composeCode] of [["27.5.1", 0], ["29.1.3", 1]]) {
+    for (const [version, composeCode] of [
+      ["27.5.1", 0],
+      ["29.1.3", 1],
+    ]) {
       writeFileSync(join(dir, "events"), "");
-      const result = run(dir, `docker() { if [[ $1 == version ]]; then echo ${version}; elif [[ $1 == compose ]]; then return ${composeCode}; fi; }; container_main`);
+      const result = run(
+        dir,
+        `docker() { if [[ $1 == version ]]; then echo ${version}; elif [[ $1 == compose ]]; then return ${composeCode}; fi; }; container_main`,
+      );
       expect(result.code).not.toBe(0);
       expect(events(dir)).not.toContain("packages");
       expect(existsSync(join(dir, "config"))).toBe(false);
     }
   });
-
 });
