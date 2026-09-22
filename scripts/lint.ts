@@ -1,22 +1,11 @@
-const ESLINT_HEAP_MB = 1_600;
+const ESLINT_HEAP_MB = 4_096;
 
-export const lintBatches = [
-  [".", "--ignore-pattern", "server/**", "--ignore-pattern", "ui/**"],
-  ["ui"],
-  ["server"],
-] as const;
-
-type RunBatch = (args: readonly string[]) => Promise<number>;
-
-export function eslintCommand(
-  batch: readonly string[],
-  fix: boolean,
-): string[] {
+export function eslintCommand(fix: boolean): string[] {
   return [
     "bun",
     "x",
     "eslint",
-    ...batch,
+    ".",
     "--concurrency=off",
     ...(fix ? ["--fix"] : []),
   ];
@@ -28,28 +17,18 @@ export function eslintNodeOptions(existing?: string): string {
     .join(" ");
 }
 
-export async function runLintBatches(runBatch: RunBatch): Promise<number> {
-  let exitCode = 0;
-  for (const args of lintBatches) {
-    const batchExit = await runBatch(args);
-    if (exitCode === 0 && batchExit !== 0) exitCode = batchExit;
-  }
-  return exitCode;
-}
-
-async function main(): Promise<void> {
-  const fix = process.argv.includes("--fix");
-  const nodeOptions = eslintNodeOptions(process.env.NODE_OPTIONS);
-  const exitCode = await runLintBatches(async (batch) => {
-    const child = Bun.spawn(eslintCommand(batch, fix), {
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-      env: { ...process.env, NODE_OPTIONS: nodeOptions },
-    });
-    return child.exited;
+export async function runLint(fix: boolean): Promise<number> {
+  const child = Bun.spawn(eslintCommand(fix), {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: {
+      ...process.env,
+      NODE_OPTIONS: eslintNodeOptions(process.env.NODE_OPTIONS),
+    },
   });
-  process.exitCode = exitCode;
+  return child.exited;
 }
 
-if (import.meta.main) await main();
+if (import.meta.main)
+  process.exitCode = await runLint(process.argv.includes("--fix"));
