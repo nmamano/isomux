@@ -25,6 +25,30 @@ function parse(html: string) {
 }
 
 describe("complete hosting guides", () => {
+  it("shows the hosting hierarchy and identifies the exact current page", async () => {
+    const paths = [
+      "/docs/hosting",
+      ...HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)),
+    ];
+    for (const path of paths) {
+      const window = parse(htmlAt(path));
+      const sidebar = window.document.querySelector(
+        '.sidebar nav[aria-label="Documentation"]',
+      )!;
+      expect(
+        Array.from(
+          sidebar.querySelectorAll(".sidebar-subpages a"),
+          (link) => link.getAttribute("href"),
+        ),
+      ).toEqual(HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)));
+      const current = sidebar.querySelectorAll('a[aria-current="page"]');
+      expect(current.length, path).toBe(1);
+      expect(current[0].getAttribute("href"), path).toBe(path);
+      expect(current[0].classList.contains("active"), path).toBe(true);
+      await window.happyDOM.close();
+    }
+  });
+
   it("gives each flow leaf its unique guide destination", async () => {
     const expectedIds = [
       "hosted",

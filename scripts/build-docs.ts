@@ -18,6 +18,7 @@ import {
   hostingBody,
   hostingNavigation,
   hostingNavigationMarkdown,
+  hostingUrl,
   legacyHostingHtml,
   legacyHostingMarkdown,
   type HostingId,
@@ -464,6 +465,19 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
   background: var(--bg-card);
   border-left-color: var(--accent);
 }
+.sidebar .sidebar-subpages {
+  margin: 2px 0 5px 12px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+.sidebar .sidebar-subpages a {
+  padding: 5px 8px 5px 10px;
+  font-size: 0.86rem;
+}
+.sidebar a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 
 /* ---- TOC ---- */
 .toc {
@@ -719,12 +733,21 @@ function renderSidebar(pages: DocPage[], currentSlug: string): string {
     .map((p) => {
       const url = pageUrl(p);
       const cls = p.slug === currentSlug ? "active" : "";
-      return `<li><a class="${cls}" href="${url}">${escapeHtml(p.navTitle)}</a></li>`;
+      const current = p.slug === currentSlug ? ' aria-current="page"' : "";
+      const subpages =
+        p.slug === "hosting"
+          ? `<ul class="sidebar-subpages">${HOSTING_GUIDES.map((guide) => {
+              const slug = `hosting-${guide.id}`;
+              const guideCurrent = slug === currentSlug;
+              return `<li><a class="${guideCurrent ? "active" : ""}" href="${hostingUrl(guide.id)}"${guideCurrent ? ' aria-current="page"' : ""}>${escapeHtml(guide.label)}</a></li>`;
+            }).join("")}</ul>`
+          : "";
+      return `<li><a class="${cls}" href="${url}"${current}>${escapeHtml(p.navTitle)}</a>${subpages}</li>`;
     })
     .join("");
   return `<aside class="sidebar">
   <div class="sidebar-label">Docs</div>
-  <ul>${items}</ul>
+  <nav aria-label="Documentation"><ul>${items}</ul></nav>
 </aside>`;
 }
 
@@ -868,7 +891,7 @@ function renderDocPage(
   const nextCard = next
     ? `<a class="doc-nav-card next" href="${pageUrl(next)}"><div class="doc-nav-dir">Next &rarr;</div><div class="doc-nav-title">${escapeHtml(next.title)}</div></a>`
     : `<div></div>`;
-  const sidebar = renderSidebar(pages, page.hostingId ? "hosting" : page.slug);
+  const sidebar = renderSidebar(pages, page.slug);
   const body = `<div class="docs-layout">
 ${sidebar}
 <main>
