@@ -33,10 +33,8 @@ describe("fable model family", () => {
   it("renders the Fable version label", () => {
     expect(modelVersionLabel("fable")).toBe("5.1");
     expect(familyDisplayLabel("fable")).toBe("Fable 5.1");
-    // opus joined the single-component family when it moved to claude-opus-5,
-    // sonnet when it moved to claude-sonnet-5.
-    expect(modelVersionLabel("opus")).toBe("5");
-    expect(familyDisplayLabel("opus")).toBe("Opus 5");
+    expect(modelVersionLabel("opus")).toBe("5.5");
+    expect(familyDisplayLabel("opus")).toBe("Opus 5.5");
     expect(modelVersionLabel("sonnet")).toBe("5");
     expect(familyDisplayLabel("sonnet")).toBe("Sonnet 5");
   });

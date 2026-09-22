@@ -50,7 +50,7 @@ describe("modelLabelImpliesEngine", () => {
   });
 
   it("renders concise header labels for each engine", () => {
-    expect(familyDisplayLabel("opus")).toBe("Opus 5");
+    expect(familyDisplayLabel("opus")).toBe("Opus 5.5");
     expect(familyDisplayLabel("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
     expect(familyDisplayLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
       "Muse Spark 1.2 Free",

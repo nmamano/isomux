@@ -146,7 +146,7 @@ export type ClaudeModel = string;
 // model's context window, and an unrecognized id makes it fall back to a 200k
 // default.
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
-  opus: "claude-opus-5",
+  opus: "claude-opus-5-5",
   fable: "claude-fable-5-1",
   sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5-20251001",

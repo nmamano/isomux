@@ -173,7 +173,7 @@ The bearer token is a Bedrock API key from the AWS console (Bedrock → API keys
 
 Then `/clear` Claude agents to pick up the variables.
 
-Model pins are optional: with none, the picker's `opus` is Opus 5 and `sonnet` is Sonnet 4.5 on Bedrock. To change a default, set the family's pin to a Bedrock model or inference-profile ID, for example `ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.claude-sonnet-4-6`; the others are `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_DEFAULT_FABLE_MODEL`. Conversation titles use the Sonnet default. `ANTHROPIC_MODEL` does not override the picker. Agents pick the variables up on their next new or resumed conversation.
+Model pins are optional: with none, the picker's `opus` is Opus 5.5 and `sonnet` is Sonnet 4.5 on Bedrock. To change a default, set the family's pin to a Bedrock model or inference-profile ID, for example `ANTHROPIC_DEFAULT_SONNET_MODEL=us.anthropic.claude-sonnet-4-6`; the others are `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and `ANTHROPIC_DEFAULT_FABLE_MODEL`. Conversation titles use the Sonnet default. `ANTHROPIC_MODEL` does not override the picker. Agents pick the variables up on their next new or resumed conversation.
 
 Connections shows Bedrock as connected when the variables are set; it does not check AWS model access. A member who wants their own Claude login in a Bedrock office sets `CLAUDE_CODE_USE_BEDROCK=0` in Individual connections. Vertex works the same way with `CLAUDE_CODE_USE_VERTEX`.
 
