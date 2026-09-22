@@ -1,3 +1,4 @@
+import { selectorSyntaxFailure } from "./browser-selector-errors";
 import {
   BrowserUploadError,
   readBrowserUpload,
@@ -300,7 +301,7 @@ export class ExtensionBrowserSessions {
       if (timedOut) return timeoutResult(true);
       const timeout = actionMs;
       const page = session.page;
-      const element = params.framePath
+      const element = params.framePath && params.action !== "snapshot" && params.action !== "text"
         ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(
             params.selector!,
           )
@@ -361,6 +362,7 @@ export class ExtensionBrowserSessions {
           "text",
           MAX_TEXT_CHARS,
           timeout,
+          params,
         );
       if (params.action === "snapshot")
         result.snapshot = await readBrowserFrames(
@@ -368,6 +370,7 @@ export class ExtensionBrowserSessions {
           "snapshot",
           MAX_SNAPSHOT_CHARS,
           timeout,
+          params,
         );
       if (params.action === "screenshot") {
         result.png = await current.screenshot({
@@ -449,6 +452,8 @@ export class ExtensionBrowserSessions {
           code: "invalid_request",
           error: error.message,
         };
+      const syntax = params.selector ? selectorSyntaxFailure(error) : undefined;
+      if (syntax) return syntax;
       return failure("action_failed", "The Chrome browser action failed");
     } finally {
       watched?.removeEventListener("abort", onEnd);

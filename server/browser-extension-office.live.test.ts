@@ -25,7 +25,7 @@ const wait = async (test: () => Promise<boolean>) => {
   }
   throw new Error("Extension did not connect");
 };
-async function runOfficeScenario(framesOnly: boolean) {
+async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-extension-office-"));
   let setup: BrowserContext | undefined;
   let raw: Awaited<ReturnType<typeof launchRawExtensionChrome>> | undefined;
@@ -296,6 +296,11 @@ async function runOfficeScenario(framesOnly: boolean) {
     expect(
       (await action(first.id, { action: "snapshot" })).body.snapshot,
     ).toContain("textbox");
+    if (readingOnly) {
+      const { checkBrowserReading } = await import("./test-support/browser-reading-checks");
+      await checkBrowserReading(firstPage, (body) => action(first.id, body));
+      return;
+    }
     await secondPage.bringToFront();
     popup = await openPopup(secondTarget);
     await popup.waitFor(
@@ -995,4 +1000,10 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
   "packaged Chrome reads and controls owned same-origin, cross-origin and nested frames",
   () => runOfficeScenario(true),
   90_000,
+);
+
+test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
+  "real office browser reads composers, scopes long feeds and sanitizes selector errors",
+  () => runOfficeScenario(true, true),
+  130_000,
 );

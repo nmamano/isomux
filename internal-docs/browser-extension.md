@@ -287,4 +287,27 @@ The isolated 2026-09-21 probe showed two independent defects: main-body text/ARI
 
 `DOM.getFrameOwner` uses the existing exact grant/session authorization and Chrome page-session frame scope. It cannot select another target. No protocol, permission or arbitrary target-discovery expansion. Package 0.4.1 must accompany the server fix.
 
-`browser-frames.ts` reads public `Frame` objects, root first and depth-first children, with labeled numeric `framePath` sections, one existing character budget, 64 documents and eight child levels. Child failures produce a content-free unavailable marker. Optional `framePath` on element actions resolves current `childFrames()` indices, then a strict public `Frame.locator`; missing paths fail before mutation. Paths are transient hints. No frame registry, internal selector contract or selector-scoped snapshot API. All calls retain the grant-level queue, actor access and recovery fence.
+`browser-frames.ts` reads public `Frame` objects, root first and depth-first children, with labeled numeric `framePath` sections, one existing character budget, 64 documents and eight child levels. Child failures produce a content-free unavailable marker. Optional `framePath` on element actions resolves current `childFrames()` indices, then a strict public `Frame.locator`; missing paths fail before mutation. Paths are transient hints. No frame registry or internal selector contract. All calls retain the grant-level queue, actor access and recovery fence.
+
+### Scoped reads and composer text (2026-09-22)
+
+`text` and `snapshot` accept `selector` and/or `framePath`. Either field selects
+one strict locator in one frame (defaults: `body`, main frame); neither field
+keeps aggregate reads. Scoped reads do not traverse children. The existing
+20,000-character budget also covers the snapshot's editable-text supplement.
+`browser-frames.ts` selects visible, accessibility-present textboxes and reads
+rendered text only from contenteditables. It omits empty values and values
+already in the ARIA snapshot. It never changes the page to expose the text.
+
+`browser-selector-errors.ts` maps known Playwright parser diagnostics to fixed
+`invalid_request` guidance. It returns no exception fragment. Timeouts,
+strictness failures, missing frames and unknown failures keep their existing
+codes. Semantic selector example: `role=dialog >> role=button[name=/^Post$/]`;
+`[exact=true]` is not a supported role attribute. CSS `[role="button"]` checks
+an explicit HTML attribute rather than the computed accessibility role.
+
+The real office/extension Chrome reading scenario in
+`server/browser-extension-office.live.test.ts` reproduces a labeled
+contenteditable textbox with nested spans, hidden controls, a long feed,
+nested frame scopes and selector syntax errors. All page content is fake.
+The pre-fix HTTP snapshot omitted the nested draft while `text` returned it.

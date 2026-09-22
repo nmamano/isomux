@@ -194,3 +194,22 @@ Interactive agent actions use `POST /api/agents/:id/browser` and require the man
 Text and snapshot read the root document, then child frames in depth-first order. Child sections start with `--- Frame framePath=[0] ---` (nested example: `[0,1]`). Pass that optional `framePath` array on `click`, `fill`, `press` or `upload`, with the usual element `selector`: `{"action":"click","framePath":[0],"selector":"button"}`. Each index selects a current `Frame.childFrames()` entry; indices must be non-negative safe integers, with at most eight levels. Paths are point-in-time hints, not persistent identities: read again after navigation or frame changes. A missing/detached path returns `action_failed` before mutation. Element locators within a frame are strict; frame `press` requires a selector.
 
 A read has one 20,000-character budget across the root, boundaries and children, at most 64 documents and eight child levels. Detached/unavailable children are marked without exposing exception text or discarding readable siblings. Truncated content or omitted frames are marked. Frame actions use the same ownership, queue, timeout recovery and no-replay rules as root actions.
+
+For a long feed, pass `selector` and/or `framePath` on `snapshot` or `text`:
+`{"action":"text","selector":"article >> nth=20"}` or
+`{"action":"snapshot","framePath":[0],"selector":"role=dialog"}`.
+A scoped read returns one strict element in one frame, with no child-frame
+sections. The default element is `body`; the default frame is the main frame.
+A missing frame fails as above. A selector with several matches returns
+`action_failed`; a missing element follows the normal action timeout rules.
+Without either field, reads retain the root-plus-child-frame traversal.
+Snapshots add rendered text from visible, accessibility-present editable
+textboxes when ARIA omits that text. This supplement shares the read's
+20,000-character budget.
+
+Semantic selectors use Playwright syntax, for example
+`role=dialog >> role=button[name=/^Post$/]`. Use `[name="Post"]` for a name
+or `[name=/^Post$/]` for an exact name; `[exact=true]` is unsupported.
+CSS `[role="button"]` matches only explicit role attributes, not every
+semantic button. Known selector syntax errors return `400 invalid_request`
+with fixed guidance. Errors never echo selector text or browser exceptions.

@@ -161,7 +161,7 @@ export function parseBrowserParams(
 
   if (body.framePath !== undefined) {
     if (
-      !["click", "fill", "press", "upload"].includes(action) ||
+      !["click", "fill", "press", "upload", "snapshot", "text"].includes(action) ||
       !Array.isArray(body.framePath) ||
       body.framePath.length > MAX_FRAME_DEPTH ||
       body.framePath.some(
@@ -170,7 +170,7 @@ export function parseBrowserParams(
       (action === "press" && typeof body.selector !== "string")
     )
       return invalid(
-        "framePath must be an array of up to 8 non-negative safe integers on an element action with a selector",
+        "framePath must be an array of up to 8 non-negative safe integers on a read or an element action (frame press requires a selector)",
       );
     params.framePath = body.framePath;
   }
@@ -230,6 +230,14 @@ export function parseBrowserParams(
     if (text.length > MAX_FILL_LEN)
       return invalid(`text too long (max ${MAX_FILL_LEN} chars)`);
     params.text = text;
+  }
+
+  if ((action === "snapshot" || action === "text") && body.selector !== undefined) {
+    if (typeof body.selector !== "string" || body.selector.length === 0)
+      return invalid("selector must be a non-empty string");
+    if (body.selector.length > MAX_SELECTOR_LEN)
+      return invalid(`selector too long (max ${MAX_SELECTOR_LEN} chars)`);
+    params.selector = body.selector;
   }
 
   if (action === "press") {
