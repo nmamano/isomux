@@ -177,16 +177,19 @@ it("selects the real ceiling only for bun test and applies it by default", async
   );
 }, 15_000);
 
-it("runs CI stages serially and keeps later checks after a failure", async () => {
+it("overlaps independent CI stages and keeps later checks after a failure", async () => {
   const calls: string[] = [];
   let active = 0;
   let concurrent = false;
+  let buildComplete = false;
   const results = await runPipeline(async (name) => {
+    if (name === "bun test") expect(buildComplete).toBe(true);
     active += 1;
     if (active > 1) concurrent = true;
     calls.push(name);
     await Bun.sleep(1);
     active -= 1;
+    if (name === "build:ui") buildComplete = true;
     return {
       name,
       log: `${name}.log`,
@@ -201,16 +204,16 @@ it("runs CI stages serially and keeps later checks after a failure", async () =>
     "lint",
     "tsc",
     "build:ui",
-    "bun test",
     "ci:web",
+    "bun test",
   ]);
-  expect(concurrent).toBe(false);
+  expect(concurrent).toBe(true);
   expect(results.find((result) => result.name === "lint")?.status).toBe(
     "failed",
   );
 });
 
-it("skips tests only when the serial UI build fails", async () => {
+it("skips tests only when the UI build fails", async () => {
   const calls: string[] = [];
   const results = await runPipeline(async (name) => {
     calls.push(name);

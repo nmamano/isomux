@@ -203,26 +203,24 @@ export async function runPipeline(
   stage: (name: StageName) => Promise<StageResult>,
   skippedTestLog: string,
 ): Promise<StageResult[]> {
-  const results: StageResult[] = [];
-  results.push(await stage("format:check"));
-  results.push(await stage("lint"));
-  results.push(await stage("tsc"));
-  const build = await stage("build:ui");
-  results.push(build);
-  if (build.status === "passed") {
-    results.push(await stage("bun test"));
-  } else {
+  const format = stage("format:check");
+  const lint = stage("lint");
+  const types = stage("tsc");
+  // Only this stage builds the UI/extension archive; tests wait for its result.
+  const build = stage("build:ui");
+  const web = stage("ci:web");
+  const tests = build.then((result): Promise<StageResult> | StageResult => {
+    if (result.status === "passed") return stage("bun test");
     console.log("↷ bun test skipped (build:ui failed)");
-    results.push({
+    return {
       name: "bun test",
       log: skippedTestLog,
       seconds: 0,
       status: "skipped",
       reason: "build:ui failed",
-    });
-  }
-  results.push(await stage("ci:web"));
-  return results;
+    };
+  });
+  return Promise.all([format, lint, types, build, tests, web]);
 }
 
 async function main(): Promise<void> {
