@@ -545,8 +545,26 @@ function HeaderTimer({
   return (
     <>
       <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-      <span style={{ color, fontSize: 12 }}>
-        {labelKey && t(labelKey)} {formatElapsed(elapsedMs)}
+      <span
+        style={{
+          color,
+          fontSize: 12,
+          display: "inline-flex",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {labelKey && t(labelKey)}
+        <span
+          style={{
+            width: "5ch",
+            marginLeft: "0.35em",
+            textAlign: "right",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {formatElapsed(elapsedMs)}
+        </span>
       </span>
     </>
   );
@@ -1919,6 +1937,7 @@ export function LogView({
 
   return (
     <div
+      className="log-view-shell"
       style={{
         ...(isMobile
           ? {
@@ -1937,6 +1956,7 @@ export function LogView({
             }),
         display: "flex",
         flexDirection: isMobile ? "row" : "column",
+        containerType: "inline-size",
         background: "var(--bg-base)",
         animation: "termEnter 0.3s ease-out",
       }}
@@ -2216,7 +2236,7 @@ export function LogView({
               alignItems: "center",
               flexShrink: 0,
               marginLeft: 12,
-              gap: 10,
+              gap: "var(--log-header-controls-gap)",
             }}
           >
             {showAgentSubscriptionUsageIndicator(agent.agentType) && (

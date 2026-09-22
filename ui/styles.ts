@@ -194,6 +194,12 @@ ${emitThemesCss()}
   /* Narrow log view: drop labels from header action buttons (icons + tooltips remain).
      Container query keys off the chat column's actual width so opening the side
      editor/terminal collapses labels even when the window itself is wide. */
+  .log-view-shell {
+    --log-header-controls-gap: clamp(4px, 0.8cqi, 10px);
+    --nav-actions-gap: clamp(2px, 0.5cqi, 6px);
+    --nav-action-inner-gap: clamp(3px, 0.5cqi, 6px);
+    --nav-action-inline-padding: clamp(5px, 0.8cqi, 10px);
+  }
   @container (max-width: 1199px) {
     .log-view-column .nav-action-label { display: none; }
   }

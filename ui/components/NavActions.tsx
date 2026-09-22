@@ -27,7 +27,13 @@ export function NavActions({
 
 function DesktopActions({ actions }: { actions: NavAction[] }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--nav-actions-gap, 6px)",
+      }}
+    >
       {actions.map((a) => (
         <button
           key={a.id}
@@ -37,8 +43,8 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 6,
-            padding: "5px 10px",
+            gap: "var(--nav-action-inner-gap, 6px)",
+            padding: "5px var(--nav-action-inline-padding, 10px)",
             borderRadius: 6,
             border: `1px solid ${a.active ? "var(--green-border)" : "var(--border-medium)"}`,
             background: a.active ? "var(--green-bg)" : "var(--btn-surface)",
