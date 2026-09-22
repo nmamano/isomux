@@ -36,7 +36,7 @@ describe("complete hosting guides", () => {
       "funnel",
       "domain",
     ];
-    const window = parse(htmlAt("/docs/self-hosted"));
+    const window = parse(htmlAt("/docs/hosting"));
     const doc = window.document;
     for (const selector of [".hosting-flow"]) {
       const links = Array.from(
@@ -69,7 +69,7 @@ describe("complete hosting guides", () => {
       expect(
         doc.querySelector(".hosting-guide-notice a")?.getAttribute("href"),
         path,
-      ).toBe("/docs/self-hosted");
+      ).toBe("/docs/hosting");
       expect(doc.querySelectorAll("article h1").length, path).toBe(1);
       expect(
         doc.querySelectorAll("article pre").length +
@@ -180,7 +180,7 @@ describe("complete hosting guides", () => {
 
   it("resolves all generated hosting links and fragments without duplicate IDs", async () => {
     const paths = [
-      "/docs/self-hosted",
+      "/docs/hosting",
       "/docs/hosting-reference",
       ...HOSTING_GUIDES.map((g) => hostingUrl(g.id)),
     ];
@@ -215,7 +215,7 @@ describe("complete hosting guides", () => {
           ).not.toBeNull();
         }
       }
-      const index = cache.get("/docs/self-hosted")!.document;
+      const index = cache.get("/docs/hosting")!.document;
       for (const [id, target] of Object.entries(HOSTING_LEGACY_LINKS)) {
         expect(
           index.getElementById(id)?.querySelector("a")?.getAttribute("href"),

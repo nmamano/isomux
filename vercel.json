@@ -5,6 +5,16 @@
   "cleanUrls": true,
   "redirects": [
     {
+      "source": "/docs/self-hosted",
+      "destination": "/docs/hosting",
+      "permanent": true
+    },
+    {
+      "source": "/_agent/docs/self-hosted/index.md",
+      "destination": "/_agent/docs/hosting/index.md",
+      "permanent": true
+    },
+    {
       "source": "/:path*",
       "has": [
         {
@@ -17,22 +27,22 @@
     },
     {
       "source": "/docs/vps-install",
-      "destination": "/docs/self-hosted",
+      "destination": "/docs/hosting",
       "permanent": true
     },
     {
       "source": "/docs/deployments",
-      "destination": "/docs/self-hosted",
+      "destination": "/docs/hosting",
       "permanent": true
     },
     {
       "source": "/_agent/docs/vps-install/index.md",
-      "destination": "/_agent/docs/self-hosted/index.md",
+      "destination": "/_agent/docs/hosting/index.md",
       "permanent": true
     },
     {
       "source": "/_agent/docs/deployments/index.md",
-      "destination": "/_agent/docs/self-hosted/index.md",
+      "destination": "/_agent/docs/hosting/index.md",
       "permanent": true
     }
   ],

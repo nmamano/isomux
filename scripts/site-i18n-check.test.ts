@@ -478,7 +478,7 @@ describe("how the checker resolves a reference", () => {
     expect(servesAFile("/hosted")).toBe(true);
     expect(servesAFile("/es")).toBe(true);
     expect(servesAFile("/ca/hosted")).toBe(true);
-    expect(servesAFile("/docs/self-hosted")).toBe(true);
+    expect(servesAFile("/docs/hosting")).toBe(true);
     expect(requestedPath("/demo?embed", "https://isomux.com/es")).toBe("/demo");
     expect(servesAFile("/demo")).toBe(true);
   });

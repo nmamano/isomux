@@ -132,7 +132,7 @@ describe("the page kind the widget reports to /api/chat", () => {
   });
 
   it("reports the landing from a docs page, as it always has", async () => {
-    expect((await outbound("/docs/self-hosted", "en")).page).toBe("main");
+    expect((await outbound("/docs/hosting", "en")).page).toBe("main");
   });
 });
 

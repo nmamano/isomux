@@ -19,18 +19,18 @@ describe("isomux.com agent readiness", () => {
 
   it("rewrites Markdown requests and marks both variants as negotiated", () => {
     const markdown = middleware(
-      new Request("https://isomux.com/docs/self-hosted", {
+      new Request("https://isomux.com/docs/hosting", {
         headers: { Accept: "text/markdown" },
       }),
     );
     expect(markdown.headers.get("x-middleware-rewrite")).toBe(
-      "https://isomux.com/_agent/docs/self-hosted/index.md",
+      "https://isomux.com/_agent/docs/hosting/index.md",
     );
     expect(markdown.headers.get("content-type")).toContain("text/markdown");
     expect(markdown.headers.get("vary")).toBe("Accept, Accept-Encoding");
 
     const html = middleware(
-      new Request("https://isomux.com/docs/self-hosted", {
+      new Request("https://isomux.com/docs/hosting", {
         headers: { Accept: "text/html" },
       }),
     );

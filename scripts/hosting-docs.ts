@@ -119,7 +119,7 @@ function guideLink(
 export function hostingNavigation(current?: HostingId): string {
   const selected = HOSTING_GUIDES.find((g) => g.id === current);
   if (selected)
-    return `<p class="hosting-guide-notice">This is the ${escape(selected.label)} guide. To check if this is the right hosting setup for you, check the <a href="/docs/self-hosted">decision diagram</a>.</p>`;
+    return `<p class="hosting-guide-notice">This is the ${escape(selected.label)} guide. To check if this is the right hosting setup for you, check the <a href="/docs/hosting">decision diagram</a>.</p>`;
   return `<section class="hosting-picker" id="choose-a-setup" aria-label="Hosting decision diagram">
 <div class="hosting-flow">
 <p class="flow-question flow-start">Do you want multi-device or multi-user features, or agents that don't stop working when this device is off?</p>
@@ -172,7 +172,7 @@ export function hostingNavigationMarkdown(): string {
 // Preserve incoming links from README, feature docs, old pages, and bookmarks.
 // These destinations are also real links in the no-JS page and agent Markdown.
 export const HOSTING_LEGACY_LINKS: Record<string, string> = {
-  "self-hosted-setup": "/docs/self-hosted#choose-a-setup",
+  "self-hosted-setup": "/docs/hosting#choose-a-setup",
   "vps-install": hostingUrl("vps"),
   "run-the-installer": `${hostingUrl("vps")}#run-the-installer`,
   "what-the-installer-does": "/docs/hosting-reference#what-the-installer-does",
@@ -188,7 +188,7 @@ export const HOSTING_LEGACY_LINKS: Record<string, string> = {
   "your-own-hardware": hostingUrl("private"),
   "native-build-recovery": "/docs/hosting-reference#native-build-recovery",
   "keep-the-server-running": `${hostingUrl("private")}#keep-the-office-running`,
-  "make-the-office-reachable": "/docs/self-hosted#choose-a-setup",
+  "make-the-office-reachable": "/docs/hosting#choose-a-setup",
   "your-devices-and-anyone-willing-to-install-tailscale": hostingUrl("private"),
   "other-members-public-url": hostingUrl("funnel"),
   "install-on-mobile-pwa": `${hostingUrl("private")}#add-people-and-devices`,

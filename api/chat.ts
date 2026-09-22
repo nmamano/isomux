@@ -79,7 +79,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit to enter the office. New offices start with three welcome agents, one each for Claude, Codex, and OpenCode. Click an empty desk to spawn another agent.
 
 ## Hosting and Setup
-The decision diagram at isomux.com/docs/self-hosted links to one complete static guide per setup. Each guide links back to the diagram.
+The decision diagram at isomux.com/docs/hosting links to one complete static guide per setup. Each guide links back to the diagram.
 The routes are /docs/hosting-hosted (paid Hosted Isomux), /docs/hosting-render (Render), /docs/hosting-aws (AWS EC2 container), /docs/hosting-vps (fresh Ubuntu VPS), /docs/hosting-local (this computer only), /docs/hosting-private (private Tailscale on Linux), /docs/hosting-funnel (public Tailscale Funnel on Linux), and /docs/hosting-domain (Linux computer and a public domain).
 Render charges for compute and persistent storage; do not claim full Render deployment validation. The AWS container release image is public and the installer guide is available. Do not infer Fargate support.
 Each selected guide includes prerequisites, owner creation, provider connection, and later operations. Advanced settings and deployment boundaries are at /docs/hosting-reference. The page context identifies the guide the visitor is reading. Follow that guide's steps and availability notice.
@@ -183,7 +183,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Kill removes agent and frees desk
 - Context check: every agent can ask how full its own context window is, or check another agent in a room its manager can access. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context, plus a battery-style meter in the conversation header that drains and shifts from dim to orange to red as the window fills. The server also nudges the agent as its window fills - a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% - so wrap-up suggestions fire even when the agent never thinks to check
 - Plan usage at a glance: for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned. Hovering or tapping it lists every limit that can gate the agent, with when each resets and how old the reading is. Agents can ask for the same data for any agent in a room their manager can access; with a live session, the check asks the provider each time.
-- Survives a memory spike: the office biases the out-of-memory kill toward the runaway agent or build, not itself. One root command (see isomux.com/docs/self-hosted) adds box-wide protection and keeps SSH reachable. Linux only.
+- Survives a memory spike: the office biases the out-of-memory kill toward the runaway agent or build, not itself. One root command (see isomux.com/docs/hosting) adds box-wide protection and keeps SSH reachable. Linux only.
 - Searchable conversation history: agents can search and re-read past conversations (their own or other agents') through an API documented in their system prompt
 - Update notice: the office header shows when a new release is out. On a VPS install the owner can apply it from there, and a failed update rolls back on its own. On a source checkout the notice shows what you're running, the latest release, and how far main is ahead; it stays quiet if you're ahead of main
 
@@ -202,7 +202,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Two roles: office owner (can invite members, revoke sessions, and set per-user room access) and member (can act in the rooms the office owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office - office owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their member settings. Each member also picks which of their accessible rooms are displayed in their own view; notifications are limited to displayed rooms.
 - The owner can revoke active sessions from Settings → Office → Sessions and unconsumed invites from Settings → Office → Invites; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
-- To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/self-hosted walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
+- To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/hosting walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
 - Claude, Codex, and OpenCode apply the same built-in pre-tool safety policy. The guards block recognized dangerous actions before they run.
@@ -235,7 +235,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
 - The Apps tab lists every app available to you with its state, restart count, and screenshot preview. App owners and office owners can also read recent output and start, stop, restart, or delete an app.
-- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/self-hosted).
+- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/hosting).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 

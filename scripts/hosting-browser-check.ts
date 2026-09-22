@@ -52,7 +52,7 @@ try {
       return route.continue();
     });
     const page = await context.newPage();
-    await page.goto(`${origin}/docs/self-hosted`);
+    await page.goto(`${origin}/docs/hosting`);
     await page.screenshot({
       path: `${output}/selector-${viewport.width}.png`,
       fullPage: true,
@@ -73,7 +73,7 @@ try {
       check((await page.locator("article h1").count()) === 1, "one guide");
       check(
         (await page.locator(".hosting-guide-notice a").getAttribute("href")) ===
-          "/docs/self-hosted",
+          "/docs/hosting",
         "guide return link",
       );
       check(
@@ -112,21 +112,21 @@ try {
         "chat context identity",
       );
       await page.goBack();
-      await page.waitForURL(`${origin}/docs/self-hosted`);
+      await page.waitForURL(`${origin}/docs/hosting`);
     }
     // Flow activation and native back/forward preserve the selected guide.
     await page.locator('.hosting-flow a[data-guide="domain"]').focus();
     await page.keyboard.press("Enter");
     await page.waitForURL(`${origin}/docs/hosting-domain`);
     await page.goBack();
-    await page.waitForURL(`${origin}/docs/self-hosted`);
+    await page.waitForURL(`${origin}/docs/hosting`);
     await page.goForward();
     await page.waitForURL(`${origin}/docs/hosting-domain`);
     for (const [hash, destination] of Object.entries(HOSTING_LEGACY_LINKS)) {
-      await page.goto(`${origin}/docs/self-hosted#${hash}`);
+      await page.goto(`${origin}/docs/hosting#${hash}`);
       await page.waitForURL(`${origin}${destination}`);
     }
-    await page.goto(`${origin}/docs/self-hosted#unknown-bookmark`);
+    await page.goto(`${origin}/docs/hosting#unknown-bookmark`);
     check(page.url().endsWith("#unknown-bookmark"), "unknown fragment stays");
     await context.close();
   }
@@ -138,18 +138,18 @@ try {
     route.request().url().startsWith(origin) ? route.continue() : route.abort(),
   );
   const page = await noJs.newPage();
-  await page.goto(`${origin}/docs/self-hosted`);
+  await page.goto(`${origin}/docs/hosting`);
   await page.locator('.hosting-flow a[data-guide="render"]').click();
   await page.waitForURL(`${origin}/docs/hosting-render`);
   check(await page.locator("article h1").isVisible(), "no-JS guide");
   await page.locator(".hosting-guide-notice a").click();
-  await page.waitForURL(`${origin}/docs/self-hosted`);
+  await page.waitForURL(`${origin}/docs/hosting`);
   check(
     (await page.locator(".hosting-flow a").count()) === 8,
     "no-JS return to diagram",
   );
   await page.screenshot({ path: `${output}/no-js-390.png`, fullPage: true });
-  await page.goto(`${origin}/docs/self-hosted#deploy-on-render`);
+  await page.goto(`${origin}/docs/hosting#deploy-on-render`);
   await page.locator(".hosting-legacy").evaluate((element) => {
     (element as HTMLDetailsElement).open = true;
   });
@@ -160,7 +160,7 @@ try {
   let copy =
     "# Hosting review copy\n\nGenerated from rendered pages. Do not edit this artifact.\n";
   for (const path of [
-    "/docs/self-hosted",
+    "/docs/hosting",
     ...HOSTING_GUIDES.map((g) => hostingUrl(g.id)),
     "/docs/hosting-reference",
   ]) {

@@ -81,14 +81,15 @@ type DocPage = {
 // The landing page (`features`) is always first.
 const NAV_ORDER = [
   "features",
-  "self-hosted",
+  "hosting",
   "how-it-works",
   "access-and-invites",
   "security-audit",
 ];
 
 function slugify(filename: string): string {
-  return basename(filename, ".md");
+  const slug = basename(filename, ".md");
+  return slug === "self-hosted" ? "hosting" : slug;
 }
 
 function pageUrl(page: DocPage | { slug: string }): string {
@@ -142,13 +143,13 @@ function rewriteMdLink(href: string): string {
     /^https?:\/\/github\.com\/nmamano\/isomux\/blob\/[^/]+\/docs\/([\w-]+)\.md(#.*)?$/,
   );
   if (gh) {
-    const slug = gh[1];
+    const slug = slugify(gh[1]);
     const anchor = gh[2] || "";
     return slug === LANDING_SLUG ? `/docs${anchor}` : `/docs/${slug}${anchor}`;
   }
   const local = href.match(/^(?:\.\/)?(?:docs\/)?([\w-]+)\.md(#.*)?$/);
   if (local) {
-    const slug = local[1];
+    const slug = slugify(local[1]);
     const anchor = local[2] || "";
     return slug === LANDING_SLUG ? `/docs${anchor}` : `/docs/${slug}${anchor}`;
   }
@@ -226,7 +227,7 @@ function loadPage(filename: string): DocPage {
   // Render the body as-is; the markdown H1 becomes the visible page title.
   // The derived `title` is still used for the <title> tag and meta tags.
   const { html, toc } = renderMarkdown(body);
-  if (slug === "self-hosted") {
+  if (slug === "hosting") {
     return {
       slug,
       title,
@@ -869,7 +870,7 @@ function renderDocPage(
     : `<div></div>`;
   const sidebar = renderSidebar(
     pages,
-    page.hostingId ? "self-hosted" : page.slug,
+    page.hostingId ? "hosting" : page.slug,
   );
   const body = `<div class="docs-layout">
 ${sidebar}
