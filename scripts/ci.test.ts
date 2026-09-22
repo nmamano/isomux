@@ -182,13 +182,16 @@ it("overlaps independent CI stages and keeps later checks after a failure", asyn
   let active = 0;
   let concurrent = false;
   let buildComplete = false;
+  let completed = 0;
   const results = await runPipeline(async (name) => {
     if (name === "bun test") expect(buildComplete).toBe(true);
+    else expect(completed).toBe(0);
     active += 1;
     if (active > 1) concurrent = true;
     calls.push(name);
     await Bun.sleep(1);
     active -= 1;
+    completed += 1;
     if (name === "build:ui") buildComplete = true;
     return {
       name,
