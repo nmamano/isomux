@@ -123,13 +123,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
       await unrelated.bringToFront();
       await unrelated.locator("#file").click();
       await pickerEventually(true);
-      await unrelated
-        .locator("#file")
-        .setInputFiles({
-          name: "fake.txt",
-          mimeType: "text/plain",
-          buffer: Buffer.from("fixture"),
-        });
+      await unrelated.locator("#file").setInputFiles({
+        name: "fake.txt",
+        mimeType: "text/plain",
+        buffer: Buffer.from("fixture"),
+      });
       expect(await unrelated.locator("output").textContent()).toBe("fake.txt");
       expect(await nativePicker()).toBe(true);
       await unrelated.close();
@@ -138,13 +136,11 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
         await scope.locator("#file").click();
         await Bun.sleep(300);
         expect(await nativePicker(), label + " native picker").toBe(false);
-        await scope
-          .locator("#file")
-          .setInputFiles({
-            name: "fake.txt",
-            mimeType: "text/plain",
-            buffer: Buffer.from("fixture"),
-          });
+        await scope.locator("#file").setInputFiles({
+          name: "fake.txt",
+          mimeType: "text/plain",
+          buffer: Buffer.from("fixture"),
+        });
         expect(await scope.locator("output").textContent()).toBe("fake.txt");
         expect(await nativePicker(), label + " after attachment").toBe(false);
       };
