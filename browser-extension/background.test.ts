@@ -22,6 +22,8 @@ async function harness(autoAck = true) {
   let attach: () => Promise<void> = async () => {};
   let detach: (tabId: number) => Promise<void> = async () => {};
   let focus: () => Promise<unknown> = async () => ({});
+  let chooser: () => Promise<unknown> = async () => ({});
+  const intercepted: Array<{ tabId: number; params: unknown }> = [];
   const focused: Array<{ tabId: number; params: unknown }> = [];
   let targetInfo: (tabId: number) => Promise<unknown> = async (tabId) => ({
     targetInfo: {
@@ -159,6 +161,10 @@ async function harness(autoAck = true) {
         params?: unknown,
       ) => {
         calls.push(method);
+        if (method === "Page.setInterceptFileChooserDialog") {
+          intercepted.push({ tabId: target.tabId, params });
+          return chooser();
+        }
         if (method === "Emulation.setFocusEmulationEnabled") {
           focused.push({ tabId: target.tabId, params });
           return focus();
@@ -292,6 +298,13 @@ async function harness(autoAck = true) {
       }),
     calls,
     focused,
+    intercepted,
+    failChooser: () => { chooser = async () => { throw new Error("chooser failed"); }; },
+    delayChooser: () => {
+      let finish!: () => void;
+      chooser = () => new Promise<void>((resolve) => { finish = resolve; });
+      return () => finish();
+    },
     failFocus: () => {
       focus = async () => {
         throw new Error("focus failed");
@@ -493,6 +506,8 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
   expect(h.focused).toEqual([{ tabId: 7, params: { enabled: true } }]);
   expect(h.calls).toEqual([
     "attach",
+    "Page.enable",
+    "Page.setInterceptFileChooserDialog",
     "Emulation.setFocusEmulationEnabled",
     "Target.getTargetInfo",
   ]);
@@ -508,8 +523,10 @@ test("navigation ownership uses only an assigned source and admits one leaf chai
     { tabId: 7, params: { enabled: true } },
     { tabId: 8, params: { enabled: true } },
   ]);
-  expect(h.calls.slice(-3)).toEqual([
+  expect(h.calls.slice(-5)).toEqual([
     "attach",
+    "Page.enable",
+    "Page.setInterceptFileChooserDialog",
     "Emulation.setFocusEmulationEnabled",
     "Target.getTargetInfo",
   ]);
@@ -1194,4 +1211,35 @@ test("navigation restores only owned root/popup badges and Off wins delayed refr
   } finally {
     h.socket.close();
   }
+});
+
+for (const popup of [false, true]) {
+  test(`failed ${popup ? "popup" : "root"} chooser setup cannot publish control`, async () => {
+    const h = await harness();
+    if (popup) await h.offer();
+    h.failChooser();
+    if (popup) h.navigation(7, 8);
+    else void h.offer();
+    await settle();
+    expect(h.intercepted.at(-1)).toEqual({tabId: popup ? 8 : 7, params:{enabled:true}});
+    expect(h.calls).toContain("detach");
+    expect(h.socket.sent.some((m) => m.method === "popup")).toBe(false);
+    if (!popup) expect(h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+    h.socket.close();
+  });
+}
+
+test("Off during chooser setup does not publish root control", async () => {
+  const h = await harness();
+  const finish = h.delayChooser();
+  const offering = h.offer();
+  await settle();
+  expect(h.intercepted).toHaveLength(1);
+  h.command(2, "detach");
+  finish();
+  await settle();
+  await offering;
+  expect(h.calls).not.toContain("Target.getTargetInfo");
+  expect(h.calls).toContain("detach");
+  h.socket.close();
 });

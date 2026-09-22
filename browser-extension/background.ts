@@ -454,6 +454,16 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
+        await chrome.debugger.sendCommand({ tabId: owned.tabId }, "Page.enable");
+        check(c);
+        if (!c.creating.has(id)) throw new Error("Browser control ended");
+        await chrome.debugger.sendCommand(
+          { tabId: owned.tabId },
+          "Page.setInterceptFileChooserDialog",
+          { enabled: true },
+        );
+        check(c);
+        if (!c.creating.has(id)) throw new Error("Browser control ended");
         await chrome.debugger.sendCommand(
           { tabId: owned.tabId },
           "Emulation.setFocusEmulationEnabled",
@@ -539,6 +549,18 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
   check(c);
   if (c.tabs.get(id) !== tab || tab.phase !== "on")
     throw new Error("Browser control ended");
+  // Playwright enables Page on child frame sessions before resuming them.
+  // Each session needs its own interception to suppress the native chooser.
+  if (args.method === "Page.enable" && child !== undefined) {
+    await chrome.debugger.sendCommand(
+      { tabId: selected.tabId, sessionId: child },
+      "Page.setInterceptFileChooserDialog",
+      { enabled: true },
+    );
+    check(c);
+    if (c.tabs.get(id) !== tab || tab.phase !== "on")
+      throw new Error("Browser control ended");
+  }
   return fields(result ?? {});
 }
 
@@ -871,6 +893,14 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
     popup.work = (async () => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
+        owned();
+        await chrome.debugger.sendCommand({ tabId: popup.tabId }, "Page.enable");
+        owned();
+        await chrome.debugger.sendCommand(
+          { tabId: popup.tabId },
+          "Page.setInterceptFileChooserDialog",
+          { enabled: true },
+        );
         owned();
         await chrome.debugger.sendCommand(
           { tabId: popup.tabId },
