@@ -299,10 +299,17 @@ async function harness(autoAck = true) {
     calls,
     focused,
     intercepted,
-    failChooser: () => { chooser = async () => { throw new Error("chooser failed"); }; },
+    failChooser: () => {
+      chooser = async () => {
+        throw new Error("chooser failed");
+      };
+    },
     delayChooser: () => {
       let finish!: () => void;
-      chooser = () => new Promise<void>((resolve) => { finish = resolve; });
+      chooser = () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        });
       return () => finish();
     },
     failFocus: () => {
@@ -1221,10 +1228,16 @@ for (const popup of [false, true]) {
     if (popup) h.navigation(7, 8);
     else void h.offer();
     await settle();
-    expect(h.intercepted.at(-1)).toEqual({tabId: popup ? 8 : 7, params:{enabled:true}});
+    expect(h.intercepted.at(-1)).toEqual({
+      tabId: popup ? 8 : 7,
+      params: { enabled: true },
+    });
     expect(h.calls).toContain("detach");
     expect(h.socket.sent.some((m) => m.method === "popup")).toBe(false);
-    if (!popup) expect(h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error).toBeTruthy();
+    if (!popup)
+      expect(
+        h.socket.sent.find((m) => m.kind === "result" && m.id === 1)?.error,
+      ).toBeTruthy();
     h.socket.close();
   });
 }

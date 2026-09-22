@@ -301,11 +301,14 @@ export class ExtensionBrowserSessions {
       if (timedOut) return timeoutResult(true);
       const timeout = actionMs;
       const page = session.page;
-      const element = params.framePath && params.action !== "snapshot" && params.action !== "text"
-        ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(
-            params.selector!,
-          )
-        : undefined;
+      const element =
+        params.framePath &&
+        params.action !== "snapshot" &&
+        params.action !== "text"
+          ? resolveBrowserFrame(page.mainFrame(), params.framePath).locator(
+              params.selector!,
+            )
+          : undefined;
       let uploaded: UploadedFile | undefined;
       switch (params.action) {
         case "goto":

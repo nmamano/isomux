@@ -161,7 +161,9 @@ export function parseBrowserParams(
 
   if (body.framePath !== undefined) {
     if (
-      !["click", "fill", "press", "upload", "snapshot", "text"].includes(action) ||
+      !["click", "fill", "press", "upload", "snapshot", "text"].includes(
+        action,
+      ) ||
       !Array.isArray(body.framePath) ||
       body.framePath.length > MAX_FRAME_DEPTH ||
       body.framePath.some(
@@ -232,7 +234,10 @@ export function parseBrowserParams(
     params.text = text;
   }
 
-  if ((action === "snapshot" || action === "text") && body.selector !== undefined) {
+  if (
+    (action === "snapshot" || action === "text") &&
+    body.selector !== undefined
+  ) {
     if (typeof body.selector !== "string" || body.selector.length === 0)
       return invalid("selector must be a non-empty string");
     if (body.selector.length > MAX_SELECTOR_LEN)

@@ -3,7 +3,11 @@ import type { Page } from "playwright-core";
 
 type Action = (body: Record<string, unknown>) => Promise<{
   status: number;
-  body: { snapshot?: string; text?: string; error?: { code: string; message: string } };
+  body: {
+    snapshot?: string;
+    text?: string;
+    error?: { code: string; message: string };
+  };
 }>;
 
 // Only fake content in an isolated Chrome profile. Requests use the production
@@ -25,7 +29,11 @@ export async function checkBrowserReading(page: Page, action: Action) {
     <textarea aria-label="Textarea">${textarea}</textarea>
     <button onclick="this.dataset.clicks=String(Number(this.dataset.clicks||0)+1)">Post</button>
   </div><iframe src="/frame"></iframe>`);
-  await page.frameLocator("iframe").frameLocator("iframe").locator("#nested").waitFor();
+  await page
+    .frameLocator("iframe")
+    .frameLocator("iframe")
+    .locator("#nested")
+    .waitFor();
   const snapshot = await action({ action: "snapshot" });
   const text = await action({ action: "text" });
   console.log("Reading fixture:", JSON.stringify({ snapshot, text }));
@@ -45,7 +53,11 @@ export async function checkBrowserReading(page: Page, action: Action) {
     expect(scope.status).toBe(200);
     expect(scope.body[kind]).toContain(draft);
     expect(scope.body[kind]).not.toContain("Nested frame content");
-    const nested = await action({ action: kind, framePath: [0, 0], selector: "p" });
+    const nested = await action({
+      action: kind,
+      framePath: [0, 0],
+      selector: "p",
+    });
     expect(nested.status).toBe(200);
     expect(nested.body[kind]).toContain("Nested frame content");
     expect(nested.body[kind]).not.toContain(draft);
@@ -53,12 +65,24 @@ export async function checkBrowserReading(page: Page, action: Action) {
     expect(frameBody.status).toBe(200);
     expect(frameBody.body[kind]).toContain("Frame contents");
     expect(frameBody.body[kind]).not.toContain("Nested frame content");
-    expect((await action({ action: kind, framePath: [9] })).body.error?.code).toBe("action_failed");
-    expect((await action({ action: kind, selector: "div" })).body.error?.code).toBe("action_failed");
+    expect(
+      (await action({ action: kind, framePath: [9] })).body.error?.code,
+    ).toBe("action_failed");
+    expect(
+      (await action({ action: kind, selector: "div" })).body.error?.code,
+    ).toBe("action_failed");
   }
-  const own = await action({ action: "snapshot", selector: 'role=textbox[name="Quote"]' });
+  const own = await action({
+    action: "snapshot",
+    selector: 'role=textbox[name="Quote"]',
+  });
   expect(own.body.snapshot).toContain(draft);
-  for (const selector of ['role=button[name="Post"][exact=true]', 'css=[', 'bogus=private-selector-sentinel', 'role=button[name=/[/]']) {
+  for (const selector of [
+    'role=button[name="Post"][exact=true]',
+    "css=[",
+    "bogus=private-selector-sentinel",
+    "role=button[name=/[/]",
+  ]) {
     const bad = await action({ action: "click", selector });
     console.log("Selector fixture:", JSON.stringify(bad));
     expect(bad.status).toBe(400);
@@ -71,15 +95,28 @@ export async function checkBrowserReading(page: Page, action: Action) {
     expect(badRead.status).toBe(400);
     expect(badRead.body.error).toEqual(bad.body.error);
   }
-  expect((await action({ action: "click", selector: 'role=dialog >> role=button[name=/^Post$/]' })).status).toBe(200);
+  expect(
+    (
+      await action({
+        action: "click",
+        selector: "role=dialog >> role=button[name=/^Post$/]",
+      })
+    ).status,
+  ).toBe(200);
   expect(await page.locator("button").getAttribute("data-clicks")).toBe("1");
-  expect((await action({ action: "snapshot", selector: "#compose" })).body.snapshot).toContain(draft);
-  await page.setContent(`<div role="textbox" contenteditable="true" aria-label="Large">${"z".repeat(25_000)}</div>`);
+  expect(
+    (await action({ action: "snapshot", selector: "#compose" })).body.snapshot,
+  ).toContain(draft);
+  await page.setContent(
+    `<div role="textbox" contenteditable="true" aria-label="Large">${"z".repeat(25_000)}</div>`,
+  );
   const large = await action({ action: "snapshot" });
   expect(large.body.snapshot?.length).toBe(20_000);
   expect(large.body.snapshot).toContain("z".repeat(100));
   expect(large.body.snapshot).not.toContain("z".repeat(25_000));
-  await page.setContent(`<main>${Array.from({ length: 700 }, (_, i) => `<article>Earlier feed entry ${i} ${"x".repeat(40)}</article>`).join("")}<article id="late">Late fixture entry omega</article></main>`);
+  await page.setContent(
+    `<main>${Array.from({ length: 700 }, (_, i) => `<article>Earlier feed entry ${i} ${"x".repeat(40)}</article>`).join("")}<article id="late">Late fixture entry omega</article></main>`,
+  );
   for (const kind of ["snapshot", "text"] as const) {
     const whole = await action({ action: kind });
     expect(whole.body[kind]?.length).toBeLessThanOrEqual(20_000);

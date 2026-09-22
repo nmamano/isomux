@@ -140,7 +140,14 @@ it("tabs and opaque targets have a bounded explicit schema", () => {
 });
 
 it("frame paths are bounded structural hints for reads and element actions", () => {
-  for (const action of ["click", "fill", "press", "upload", "snapshot", "text"]) {
+  for (const action of [
+    "click",
+    "fill",
+    "press",
+    "upload",
+    "snapshot",
+    "text",
+  ]) {
     expect(
       parseBrowserParams({
         action,
@@ -165,13 +172,7 @@ it("frame paths are bounded structural hints for reads and element actions", () 
     expect(
       parseBrowserParams({ action: "click", selector: "button", framePath }),
     ).toMatchObject({ ok: false, code: "invalid_request" });
-  for (const action of [
-    "goto",
-    "tabs",
-    "close",
-    "screenshot",
-    "press",
-  ])
+  for (const action of ["goto", "tabs", "close", "screenshot", "press"])
     expect(parseBrowserParams({ action, framePath: [] })).toMatchObject({
       ok: false,
       code: "invalid_request",
@@ -180,9 +181,18 @@ it("frame paths are bounded structural hints for reads and element actions", () 
 
 it("read scopes accept an optional strict selector and frame independently", () => {
   for (const action of ["snapshot", "text"]) {
-    expect(parseBrowserParams({ action, framePath: [0] })).toMatchObject({ ok: true, framePath: [0] });
-    expect(parseBrowserParams({ action, selector: "#late" })).toMatchObject({ ok: true, selector: "#late" });
+    expect(parseBrowserParams({ action, framePath: [0] })).toMatchObject({
+      ok: true,
+      framePath: [0],
+    });
+    expect(parseBrowserParams({ action, selector: "#late" })).toMatchObject({
+      ok: true,
+      selector: "#late",
+    });
     for (const selector of [null, 1, "", "x".repeat(501)])
-      expect(parseBrowserParams({ action, selector })).toMatchObject({ ok: false, code: "invalid_request" });
+      expect(parseBrowserParams({ action, selector })).toMatchObject({
+        ok: false,
+        code: "invalid_request",
+      });
   }
 });

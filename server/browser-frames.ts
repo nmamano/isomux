@@ -36,9 +36,13 @@ export async function readBrowserFrames(
       .childFrames()
       .forEach((child, index) => collect(child, [...path, index]));
   };
-  const scoped = scope?.selector !== undefined || scope?.framePath !== undefined;
+  const scoped =
+    scope?.selector !== undefined || scope?.framePath !== undefined;
   if (scoped)
-    entries.push({ frame: resolveBrowserFrame(root, scope.framePath ?? []), path: [] });
+    entries.push({
+      frame: resolveBrowserFrame(root, scope.framePath ?? []),
+      path: [],
+    });
   else collect(root, []);
   const deadline = Date.now() + timeout;
   let output = "";
@@ -66,7 +70,12 @@ export async function readBrowserFrames(
       append(
         action === "text"
           ? await body.innerText(options)
-          : await snapshotWithEditableText(frame, body, options.timeout, limit - output.length),
+          : await snapshotWithEditableText(
+              frame,
+              body,
+              options.timeout,
+              limit - output.length,
+            ),
       );
     } catch (error) {
       if (!path.length) throw error;
@@ -80,15 +89,21 @@ export async function readBrowserFrames(
 // Playwright omits contenteditable textbox children from the ARIA tree. Add
 // only rendered values from visible, accessibility-present textboxes in scope.
 async function snapshotWithEditableText(
-  frame: Frame, scope: Locator, timeout: number, limit: number,
+  frame: Frame,
+  scope: Locator,
+  timeout: number,
+  limit: number,
 ): Promise<string> {
   const deadline = Date.now() + timeout;
-  const snapshot = await scope.ariaSnapshot({ timeout: Math.max(1, deadline - Date.now()) });
+  const snapshot = await scope.ariaSnapshot({
+    timeout: Math.max(1, deadline - Date.now()),
+  });
   if (snapshot.length >= limit || Date.now() >= deadline) return snapshot;
   // Public locator reads use Playwright's utility world. Page evaluation needs
   // a main-world context that may not be announced again when an All grant
   // changes clients without detaching Chrome's debugger.
-  const boxes = scope.locator(":scope, :scope *")
+  const boxes = scope
+    .locator(":scope, :scope *")
     .and(frame.getByRole("textbox"))
     .and(frame.locator(":read-write:not(input):not(textarea)"))
     .filter({ visible: true });
@@ -98,16 +113,22 @@ async function snapshotWithEditableText(
   for (let index = 0; index < count && length < limit; index++) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    const value = (await boxes.nth(index).innerText({ timeout: remaining })).trim();
+    const value = (
+      await boxes.nth(index).innerText({ timeout: remaining })
+    ).trim();
     if (!value) continue;
     values.push(value.slice(0, limit));
     length += value.length;
   }
   const normalized = snapshot.replace(/\s+/g, " ");
-  const missing = values.filter((value) =>
-    !normalized.includes(value.replace(/\s+/g, " ")) &&
-    !snapshot.includes(JSON.stringify(value)));
+  const missing = values.filter(
+    (value) =>
+      !normalized.includes(value.replace(/\s+/g, " ")) &&
+      !snapshot.includes(JSON.stringify(value)),
+  );
   return missing.length
-    ? snapshot + "\n\n--- Editable textbox text ---\n" + missing.map((value) => "- " + JSON.stringify(value)).join("\n")
+    ? snapshot +
+        "\n\n--- Editable textbox text ---\n" +
+        missing.map((value) => "- " + JSON.stringify(value)).join("\n")
     : snapshot;
 }

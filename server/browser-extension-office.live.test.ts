@@ -297,7 +297,8 @@ async function runOfficeScenario(framesOnly: boolean, readingOnly = false) {
       (await action(first.id, { action: "snapshot" })).body.snapshot,
     ).toContain("textbox");
     if (readingOnly) {
-      const { checkBrowserReading } = await import("./test-support/browser-reading-checks");
+      const { checkBrowserReading } =
+        await import("./test-support/browser-reading-checks");
       await checkBrowserReading(firstPage, (body) => action(first.id, body));
       return;
     }

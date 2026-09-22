@@ -868,10 +868,7 @@ function renderDocPage(
   const nextCard = next
     ? `<a class="doc-nav-card next" href="${pageUrl(next)}"><div class="doc-nav-dir">Next &rarr;</div><div class="doc-nav-title">${escapeHtml(next.title)}</div></a>`
     : `<div></div>`;
-  const sidebar = renderSidebar(
-    pages,
-    page.hostingId ? "hosting" : page.slug,
-  );
+  const sidebar = renderSidebar(pages, page.hostingId ? "hosting" : page.slug);
   const body = `<div class="docs-layout">
 ${sidebar}
 <main>

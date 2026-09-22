@@ -454,7 +454,10 @@ async function command(c: Connection, msg: Fields): Promise<Fields> {
         await chrome.debugger.attach({ tabId: owned.tabId }, "1.3");
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
-        await chrome.debugger.sendCommand({ tabId: owned.tabId }, "Page.enable");
+        await chrome.debugger.sendCommand(
+          { tabId: owned.tabId },
+          "Page.enable",
+        );
         check(c);
         if (!c.creating.has(id)) throw new Error("Browser control ended");
         await chrome.debugger.sendCommand(
@@ -894,7 +897,10 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((event) => {
       try {
         await chrome.debugger.attach({ tabId: popup.tabId }, "1.3");
         owned();
-        await chrome.debugger.sendCommand({ tabId: popup.tabId }, "Page.enable");
+        await chrome.debugger.sendCommand(
+          { tabId: popup.tabId },
+          "Page.enable",
+        );
         owned();
         await chrome.debugger.sendCommand(
           { tabId: popup.tabId },
