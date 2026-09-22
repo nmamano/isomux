@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
-import { useTheme } from "../../../store.tsx";
+import { useAppState, useTheme } from "../../../store.tsx";
 import { hospitalColors, type HospitalColors } from "./palette.ts";
+import { BedsideCabinet, FramedLandscape, MedicalChart, WindowCurtains } from "./decorations.tsx";
 
 // The hospital's own drawings. Two layers, because they sit at two depths in
 // the scene: HospitalWalls is mounted inside the Walls svg, which is drawn
@@ -39,7 +40,7 @@ function Wainscot({ side, c }: { side: "left" | "right"; c: HospitalColors }) {
 // The cross sign on the right wall, clear of the clock (240,-85), the neon sign
 // (370,-5) and the vent (500,60). Skewed into the wall plane like every other
 // prop hung there.
-function CrossSign({ c }: { c: HospitalColors }) {
+export function CrossSign({ c }: { c: HospitalColors }) {
   const arm = 7.5;
   const reach = 19;
   return (
@@ -62,10 +63,7 @@ function CrossSign({ c }: { c: HospitalColors }) {
   );
 }
 
-/** The first-aid cabinet on the left wall, in the gap under the notice board
- *  and right of the window. One cross on one wall reads as a sign somebody
- *  hung in an office; a second piece of kit on the opposite wall reads as the
- *  room. */
+/** The first-aid cabinet below the notice board, right of the window. */
 function FirstAidCabinet({ c }: { c: HospitalColors }) {
   const w = 20;
   const h = 14;
@@ -85,7 +83,7 @@ function FirstAidCabinet({ c }: { c: HospitalColors }) {
       <path d={`M2 ${-h} V${h}`} stroke={c.crossPlateEdge} strokeWidth="0.9" />
       <rect x={4} y={-2} width="4.4" height="4" rx="1" fill={c.rail} />
       <path
-        d="M-13 -4 H-8 V-9 H-3 V-4 H2 V1 H-3 V6 H-8 V1 H-13 Z"
+        d="M-15 -2 H-11 V-6 H-7 V-2 H-3 V2 H-7 V6 H-11 V2 H-15 Z"
         fill={c.cross}
       />
     </g>
@@ -93,14 +91,19 @@ function FirstAidCabinet({ c }: { c: HospitalColors }) {
 }
 
 export function HospitalWalls() {
+  const { rooms, currentRoomId } = useAppState();
+  const hospitalIndex = rooms
+    .filter((room) => room.type !== "lobby" && room.skin === "hospital")
+    .findIndex((room) => room.id === currentRoomId);
   const { mode } = useTheme();
   const c = hospitalColors(mode);
   return (
     <g aria-hidden="true" data-skin-layer="hospital-walls">
       <Wainscot side="left" c={c} />
       <Wainscot side="right" c={c} />
-      <CrossSign c={c} />
       <FirstAidCabinet c={c} />
+      <WindowCurtains />
+      {hospitalIndex % 2 === 1 ? <MedicalChart /> : <FramedLandscape />}
     </g>
   );
 }
@@ -130,7 +133,7 @@ const FOOT_RAIL = 16;
 // grid, along the room's front-right floor edge, where the ward is visible end
 // to end. layout.test.ts holds the numbers.
 export const PLACEMENT = {
-  curtain: { x: 384, y: 362 },
+  cabinet: { x: 384, y: 362 },
   bedFar: { x: 300, y: 400 },
   ivStand: { x: 246, y: 432 },
   bedNear: { x: 180, y: 460 },
@@ -190,6 +193,22 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
         d={poly(corners, -3)}
         fill={c.shadow}
         filter="url(#hospital-soft)"
+      />
+      {/* The rear head castor and post are behind the mattress and pillow. */}
+      <ellipse
+        cx={farHead.x}
+        cy={farHead.y - 2}
+        rx="3"
+        ry="1.8"
+        fill={c.metalShade}
+      />
+      <rect
+        x={farHead.x - 1.8}
+        y={farHead.y - BED_H - HEAD_RAIL}
+        width="3.6"
+        height={HEAD_RAIL + BED_H}
+        rx="1.4"
+        fill={c.metalShade}
       />
       {/* The two faces of the frame that face the viewer */}
       <path
@@ -286,6 +305,7 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
               rx="1.4"
               fill={c.metal}
             />
+            {u === 1 && (
             <rect
               x={b.x - 1.8}
               y={b.y - BED_H - h}
@@ -294,6 +314,7 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
               rx="1.4"
               fill={c.metalShade}
             />
+            )}
             {[0, 0.45, 0.9].map((t) => (
               <path
                 key={t}
@@ -310,7 +331,7 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
         );
       })}
       {/* Castors */}
-      {[nearFoot, farFoot, nearHead, farHead].map((p, i) => (
+      {[nearFoot, farFoot, nearHead].map((p, i) => (
         <ellipse
           key={i}
           cx={p.x}
@@ -470,11 +491,12 @@ function Curtain({
 /** What stands at each place in PLACEMENT. Splitting it out is what lets the
  *  layer be drawn straight from PLACEMENT, so the list's back-to-front order
  *  IS the drawing order and neither can drift from the other. */
-const FURNITURE: Record<
-  keyof typeof PLACEMENT,
+export const FURNITURE: Record<
+  keyof typeof PLACEMENT | "curtain",
   (props: { at: { x: number; y: number }; c: HospitalColors }) => ReactElement
 > = {
   curtain: Curtain,
+  cabinet: BedsideCabinet,
   bedFar: Bed,
   ivStand: IvStand,
   bedNear: Bed,

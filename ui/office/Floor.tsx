@@ -19,7 +19,7 @@ import {
   BLOSSOM_TONES,
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
-import { SkinWalls } from "./skins/index.tsx";
+import { SkinWalls, ROOM_SKIN_MODULES, useCurrentRoomSkin } from "./skins/index.tsx";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -967,6 +967,7 @@ export function Walls({
       ordinaryRooms(rooms).findIndex((r) => r.id === currentRoomId),
       2,
     ) === 0;
+  const { hideNeon } = ROOM_SKIN_MODULES[useCurrentRoomSkin()];
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -1568,6 +1569,7 @@ export function Walls({
       </g>
       {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
+      {!hideNeon && <>
       {/* On (dark mode) */}
       <g
         className="neon-sign-on"
@@ -1702,6 +1704,8 @@ export function Walls({
           opacity="0.35"
         />
       </g>
+
+      </>}
 
       {/* Vent - upper-east area of right wall */}
       <g

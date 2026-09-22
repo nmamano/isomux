@@ -1,4 +1,5 @@
 import { useTheme } from "../store.tsx";
+import { ROOM_SKIN_MODULES, useCurrentRoomSkin } from "./skins/index.tsx";
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 
 // Contact shadows for the props that stand on the floor: the pet bed, the
@@ -64,6 +65,7 @@ function Blob({
 
 export function GroundShadows() {
   const { mode } = useTheme();
+  const { hidePet } = ROOM_SKIN_MODULES[useCurrentRoomSkin()];
 
   // A near-black floor swallows a shadow, so the dark theme carries the
   // stronger one; the light theme seats the props at less.
@@ -101,7 +103,7 @@ export function GroundShadows() {
         </clipPath>
       </defs>
       <g clipPath="url(#gs-floor)">
-        <Blob {...CAT_BED} />
+        {!hidePet && <Blob {...CAT_BED} />}
         <Blob {...PLANT} />
       </g>
     </svg>

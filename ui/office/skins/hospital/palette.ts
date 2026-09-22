@@ -1,4 +1,4 @@
-import type { ThemeMode } from "../../../themes.ts";
+import { getThemeById, type ThemeMode } from "../../../themes.ts";
 
 // The hospital keeps one identity - clinical green-white by day, the same room
 // with the lights down at night - under every theme, the way the lobby does
@@ -41,26 +41,26 @@ const DAY: Record<string, string> = {
   "--clock-hand": "rgba(14,48,40,0.5)",
 };
 
+const dracula = getThemeById("dracula").vars;
+
 const NIGHT: Record<string, string> = {
-  "--floor-light": "#1c2b29",
-  "--floor-dark": "#182523",
-  "--floor-edge-light-left":
-    "color-mix(in srgb, var(--floor-light) 86%, white)",
-  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 90%, white)",
-  "--floor-edge-light-right":
-    "color-mix(in srgb, var(--floor-light) 90%, white)",
-  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
-  "--floor-stroke": "rgba(255,255,255,0.02)",
-  "--wall-left": "#16231f",
-  "--wall-right": "#131e1b",
+  "--floor-light": dracula["--floor-light"],
+  "--floor-dark": dracula["--floor-dark"],
+  "--floor-edge-light-left": dracula["--floor-edge-light-left"],
+  "--floor-edge-dark-left": dracula["--floor-edge-dark-left"],
+  "--floor-edge-light-right": dracula["--floor-edge-light-right"],
+  "--floor-edge-dark-right": dracula["--floor-edge-dark-right"],
+  "--floor-stroke": dracula["--floor-stroke"],
+  "--wall-left": dracula["--wall-left"],
+  "--wall-right": dracula["--wall-right"],
   "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
   "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
   "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
   "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
   "--wall-stroke": "rgba(255,255,255,0.025)",
-  "--wall-decor": "#1e2e2a",
-  "--wall-decor-inner": "#17241f",
-  "--wall-decor-stroke": "rgba(255,255,255,0.07)",
+  "--wall-decor": dracula["--wall-decor"],
+  "--wall-decor-inner": dracula["--wall-decor-inner"],
+  "--wall-decor-stroke": dracula["--wall-decor-stroke"],
   "--clock-hand": "rgba(255,255,255,0.4)",
 };
 
@@ -122,12 +122,12 @@ const DAY_COLORS: HospitalColors = {
 };
 
 const NIGHT_COLORS: HospitalColors = {
-  wainscot: "#27403a",
-  wainscotShade: "#1f332e",
-  rail: "#3d5c54",
+  wainscot: "#303446",
+  wainscotShade: "#292d3d",
+  rail: "#51566e",
   cross: "#9e3833",
-  crossPlate: "#25342f",
-  crossPlateEdge: "#16211e",
+  crossPlate: "#303739",
+  crossPlateEdge: "#202628",
   frame: "#4a5a5e",
   frameShade: "#33403f",
   mattress: "#5b6a6c",

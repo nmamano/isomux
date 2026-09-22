@@ -12,12 +12,14 @@ import { HospitalProps, HospitalWalls } from "./hospital/props.tsx";
 // A room skin is a LOOK: a set of theme variables the office scene already
 // paints itself from, plus whatever the skin hangs on the walls and stands on
 // the floor. The scene draws itself the same way under every skin - eight desks
-// in the same eight places, the same characters, pet and status lights - so a
-// skin is a module here, never a branch in Floor.tsx.
+// in the same eight places, with the same characters and status lights.
+// Each skin can hide decor that does not fit its room.
 //
 // Adding one is: a new module beside hospital/, one entry in ROOM_SKIN_MODULES,
 // one id in shared/room-skins.ts, and its name in the three languages.
 export interface RoomSkinModule {
+  hideNeon?: boolean;
+  hidePet?: boolean;
   /** Theme variables to override on the scene container. Every key must be one
    *  ui/themes.ts declares, because the scene reads them from the theme. */
   vars(mode: ThemeMode): Record<string, string>;
@@ -34,6 +36,8 @@ export const ROOM_SKIN_MODULES: Record<RoomSkin, RoomSkinModule> = {
   office: { vars: () => ({}) },
   hospital: {
     vars: hospitalSceneVars,
+    hideNeon: true,
+    hidePet: true,
     Walls: HospitalWalls,
     Props: HospitalProps,
   },
