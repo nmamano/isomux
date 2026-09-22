@@ -2,7 +2,7 @@ import { afterEach, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BUN_TEST_CEILING_MS, ceilingFor, killStage } from "./ci";
+import { BUN_TEST_CEILING_MS, ceilingFor, killStage, runPipeline } from "./ci";
 
 const roots: string[] = [];
 const descendants: string[] = [];
@@ -176,3 +176,59 @@ it("selects the real ceiling only for bun test and applies it by default", async
     `wall-clock limit ${BUN_TEST_CEILING_MS}ms exceeded; last test line: (no output)`,
   );
 }, 15_000);
+
+it("runs CI stages serially and keeps later checks after a failure", async () => {
+  const calls: string[] = [];
+  let active = 0;
+  let concurrent = false;
+  const results = await runPipeline(async (name) => {
+    active += 1;
+    if (active > 1) concurrent = true;
+    calls.push(name);
+    await Bun.sleep(1);
+    active -= 1;
+    return {
+      name,
+      log: `${name}.log`,
+      seconds: 0,
+      status: name === "lint" ? "failed" : "passed",
+      exitCode: name === "lint" ? 1 : 0,
+    };
+  }, "unused.log");
+
+  expect(calls).toEqual([
+    "format:check",
+    "lint",
+    "tsc",
+    "build:ui",
+    "bun test",
+    "ci:web",
+  ]);
+  expect(concurrent).toBe(false);
+  expect(results.find((result) => result.name === "lint")?.status).toBe(
+    "failed",
+  );
+});
+
+it("skips tests only when the serial UI build fails", async () => {
+  const calls: string[] = [];
+  const results = await runPipeline(async (name) => {
+    calls.push(name);
+    return {
+      name,
+      log: `${name}.log`,
+      seconds: 0,
+      status: name === "build:ui" ? "failed" : "passed",
+      exitCode: name === "build:ui" ? 1 : 0,
+    };
+  }, "skipped.log");
+
+  expect(calls).toEqual(["format:check", "lint", "tsc", "build:ui", "ci:web"]);
+  expect(results.find((result) => result.name === "bun test")).toEqual({
+    name: "bun test",
+    log: "skipped.log",
+    seconds: 0,
+    status: "skipped",
+    reason: "build:ui failed",
+  });
+});

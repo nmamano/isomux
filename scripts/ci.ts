@@ -30,7 +30,17 @@ type StageResult = {
 const stages: Array<{ name: StageName; command: string[] }> = [
   { name: "format:check", command: ["bun", "run", "format:check"] },
   { name: "lint", command: ["bun", "run", "lint"] },
-  { name: "tsc", command: ["bun", "x", "tsc", "--noEmit"] },
+  {
+    name: "tsc",
+    command: [
+      "env",
+      "NODE_OPTIONS=--max-old-space-size=1600",
+      "bun",
+      "x",
+      "tsc",
+      "--noEmit",
+    ],
+  },
   { name: "build:ui", command: ["bun", "run", "build:ui"] },
   { name: "bun test", command: ["bun", "test"] },
   { name: "ci:web", command: ["bun", "run", "ci:web"] },
@@ -189,6 +199,32 @@ function printSummary(results: StageResult[], seconds: number): void {
   console.log(`${"total".padEnd(14)} ${seconds.toFixed(2)}s`);
 }
 
+export async function runPipeline(
+  stage: (name: StageName) => Promise<StageResult>,
+  skippedTestLog: string,
+): Promise<StageResult[]> {
+  const results: StageResult[] = [];
+  results.push(await stage("format:check"));
+  results.push(await stage("lint"));
+  results.push(await stage("tsc"));
+  const build = await stage("build:ui");
+  results.push(build);
+  if (build.status === "passed") {
+    results.push(await stage("bun test"));
+  } else {
+    console.log("↷ bun test skipped (build:ui failed)");
+    results.push({
+      name: "bun test",
+      log: skippedTestLog,
+      seconds: 0,
+      status: "skipped",
+      reason: "build:ui failed",
+    });
+  }
+  results.push(await stage("ci:web"));
+  return results;
+}
+
 async function main(): Promise<void> {
   const logDir = mkdtempSync(join(tmpdir(), "isomux-ci-"));
   process.once("SIGINT", () => stopChildren("SIGINT"));
@@ -202,37 +238,13 @@ async function main(): Promise<void> {
   const started = performance.now();
 
   try {
-    const formatPromise = stage("format:check");
-    const lintPromise = stage("lint");
-    const tscPromise = stage("tsc");
-    // build:ui also produces the extension ZIP; a second parallel build would race its staging directory.
-    const buildPromise = stage("build:ui");
-    const webPromise = stage("ci:web");
-    const testPromise = buildPromise.then((build) => {
-      if (build.status === "passed") {
-        return stage("bun test");
-      }
-      console.log("↷ bun test skipped (build:ui failed)");
-      return {
-        name: "bun test" as const,
-        log: join(
-          logDir,
-          `${stages.findIndex((entry) => entry.name === "bun test")}.log`,
-        ),
-        seconds: 0,
-        status: "skipped" as const,
-        reason: "build:ui failed",
-      };
-    });
-
-    const results = await Promise.all([
-      formatPromise,
-      lintPromise,
-      tscPromise,
-      buildPromise,
-      testPromise,
-      webPromise,
-    ]);
+    const results = await runPipeline(
+      stage,
+      join(
+        logDir,
+        `${stages.findIndex((entry) => entry.name === "bun test")}.log`,
+      ),
+    );
     const seconds = (performance.now() - started) / 1_000;
     const failed = results.filter((result) => result.status === "failed");
 
