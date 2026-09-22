@@ -14,8 +14,13 @@ import {
 import { join, basename } from "node:path";
 import { marked } from "marked";
 import {
-  HOSTING_GUIDES, hostingBody, hostingNavigation, hostingNavigationMarkdown,
-  legacyHostingHtml, legacyHostingMarkdown, type HostingId,
+  HOSTING_GUIDES,
+  hostingBody,
+  hostingNavigation,
+  hostingNavigationMarkdown,
+  legacyHostingHtml,
+  legacyHostingMarkdown,
+  type HostingId,
 } from "./hosting-docs.ts";
 
 const SRC_DIR = "docs";
@@ -223,9 +228,20 @@ function loadPage(filename: string): DocPage {
   const { html, toc } = renderMarkdown(body);
   if (slug === "self-hosted") {
     return {
-      slug, title, navTitle, description, order: NAV_ORDER.indexOf(slug), toc: [],
-      html: html.replace("<!-- hosting-navigation -->", hostingNavigation()) + legacyHostingHtml(),
-      raw: body.replace("<!-- hosting-navigation -->", hostingNavigationMarkdown()) + legacyHostingMarkdown(),
+      slug,
+      title,
+      navTitle,
+      description,
+      order: NAV_ORDER.indexOf(slug),
+      toc: [],
+      html:
+        html.replace("<!-- hosting-navigation -->", hostingNavigation()) +
+        legacyHostingHtml(),
+      raw:
+        body.replace(
+          "<!-- hosting-navigation -->",
+          hostingNavigationMarkdown(),
+        ) + legacyHostingMarkdown(),
     };
   }
   const navIdx = NAV_ORDER.indexOf(slug);
@@ -839,7 +855,9 @@ function renderDocPage(
     let rest = page.html.slice(insertAt);
     // Availability must precede the TOC: a reader should see it before a link
     // jumps straight to creating a paid resource.
-    const notice = page.hostingId ? rest.match(/^\s*(<blockquote>[\s\S]*?<\/blockquote>)/)?.[0] ?? "" : "";
+    const notice = page.hostingId
+      ? (rest.match(/^\s*(<blockquote>[\s\S]*?<\/blockquote>)/)?.[0] ?? "")
+      : "";
     if (notice) rest = rest.slice(notice.length);
     return `${page.html.slice(0, insertAt)}\n${notice}\n${page.hostingId ? hostingNavigation(page.hostingId) : ""}\n${tocHtml}\n${rest}`;
   })();
@@ -849,7 +867,10 @@ function renderDocPage(
   const nextCard = next
     ? `<a class="doc-nav-card next" href="${pageUrl(next)}"><div class="doc-nav-dir">Next &rarr;</div><div class="doc-nav-title">${escapeHtml(next.title)}</div></a>`
     : `<div></div>`;
-  const sidebar = renderSidebar(pages, page.hostingId ? "self-hosted" : page.slug);
+  const sidebar = renderSidebar(
+    pages,
+    page.hostingId ? "self-hosted" : page.slug,
+  );
   const body = `<div class="docs-layout">
 ${sidebar}
 <main>
@@ -914,9 +935,15 @@ export function main() {
     const raw = hostingBody(guide);
     const { html, toc } = renderMarkdown(raw);
     return {
-      slug: `hosting-${guide.id}`, hostingId: guide.id,
-      title: deriveTitle(raw, guide.id), navTitle: guide.label,
-      description: guide.detail, order: 1000, html, toc, raw,
+      slug: `hosting-${guide.id}`,
+      hostingId: guide.id,
+      title: deriveTitle(raw, guide.id),
+      navTitle: guide.label,
+      description: guide.detail,
+      order: 1000,
+      html,
+      toc,
+      raw,
     };
   });
   const pages = [...navigationPages, ...guidePages];
@@ -931,7 +958,10 @@ export function main() {
   for (let i = 0; i < pages.length; i++) {
     const navIndex = navigationPages.indexOf(pages[i]);
     const prev = navIndex > 0 ? navigationPages[navIndex - 1] : null;
-    const next = navIndex >= 0 && navIndex < navigationPages.length - 1 ? navigationPages[navIndex + 1] : null;
+    const next =
+      navIndex >= 0 && navIndex < navigationPages.length - 1
+        ? navigationPages[navIndex + 1]
+        : null;
     const html = renderDocPage(pages[i], navigationPages, prev, next);
     if (pages[i].slug === LANDING_SLUG) {
       // The landing page lives at `/docs/` (not `/docs/<slug>/`).

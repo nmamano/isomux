@@ -35,4 +35,3 @@ Keep an independent copy or snapshot of the complete persistent disk for
 recovery from disk loss. The office backup alone does not include all projects
 and provider files. See the [container reference](https://github.com/nmamano/isomux/blob/main/deploy/container/reference.md)
 for advanced runtime details.
-

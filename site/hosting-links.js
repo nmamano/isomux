@@ -8,7 +8,8 @@
     const id = window.location.hash.slice(1);
     if (!Object.hasOwn(destinations, id)) return;
     const destination = new URL(destinations[id], window.location.href);
-    if (destination.href !== window.location.href) window.location.replace(destination.href);
+    if (destination.href !== window.location.href)
+      window.location.replace(destination.href);
   }
   window.addEventListener("hashchange", followLegacyLink);
   followLegacyLink();

@@ -14,6 +14,7 @@ its normal user account.
    ```
 
    On macOS, run `xcode-select --install` and complete the installer.
+
 3. Install [Bun](https://bun.sh):
 
    ```sh
@@ -29,6 +30,7 @@ its normal user account.
 
    Node must report `v24.15.0` or later in the Node 24 series; Bun must be at least
    version 1.2.
+
 4. Download Isomux into a new directory and start it:
 
    ```sh

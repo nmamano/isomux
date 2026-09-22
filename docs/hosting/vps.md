@@ -45,7 +45,6 @@ After a few minutes the installer prints a single-use owner invite link, also sa
 
 When the output isn't going to a terminal - cloud-init, a piped log, an agent running the command for you - the installer names that file instead of printing the link, so a live credential doesn't end up sitting in a log.
 
-
 Open the owner invite link to enter the office. If the installer reports that it
 saved the link instead of printing it, read the file as root on the server:
 
@@ -71,7 +70,6 @@ by root inside the office account.
 
 Safe after a failure: completed steps are skipped or redone harmlessly, and a fresh invite link is minted each run. A re-run recovers its owner session automatically; when the office has several owners, the `OWNER_NAME` environment variable names which one to recover. Re-running restarts the isomux service, which interrupts running agents.
 
-
 <!-- include: host-update -->
 
 ## Opening an agent's dev server
@@ -92,7 +90,6 @@ Then open `http://localhost:5173`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
 - Chrome on the server backs page-preview cards and app screenshot previews. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
 - Authenticated members effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
-
 
 ## Logs
 

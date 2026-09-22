@@ -41,14 +41,14 @@ Each Isomux update re-runs a read-only check of the firewall and the SSH boundar
 
 Environment variables for the default direct-host installation, set before running:
 
-| Variable              | Default        | Meaning                                                                   |
-| --------------------- | -------------- | ------------------------------------------------------------------------- |
+| Variable              | Default        | Meaning                                                                  |
+| --------------------- | -------------- | ------------------------------------------------------------------------ |
 | `ISOMUX_INSTALL_MODE` | `host`         | Set to `container` for the [AWS container installation](hosting-aws.md). |
-| `DOMAIN`              | (required)     | Public domain for the office.                                             |
-| `ISOMUX_REF`          | latest release | Git branch, tag, or commit to install.                                    |
-| `ISOMUX_REPO`         | GitHub         | Git repo to install from (for forks).                                     |
-| `SSH_PORT`            | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.          |
-| `DRY_RUN`             | (unset)        | Set to `1` to print what would run instead of running it.                 |
+| `DOMAIN`              | (required)     | Public domain for the office.                                            |
+| `ISOMUX_REF`          | latest release | Git branch, tag, or commit to install.                                   |
+| `ISOMUX_REPO`         | GitHub         | Git repo to install from (for forks).                                    |
+| `SSH_PORT`            | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.         |
+| `DRY_RUN`             | (unset)        | Set to `1` to print what would run instead of running it.                |
 
 ## App hostnames
 
@@ -154,4 +154,3 @@ The Isomux installer and updater do not manage this shape, so updates do not cha
 | One local machine     | `http://localhost:4000` | No separate hostnames; use each app's port | The machine owner controls it.                                       | No front-door access log. | Other local processes and any exposure the operator adds.     |
 
 These shapes do not run the system installer or its service-account updater. They get neither its firewall verification nor its Caddy access log, and updates do not change their network bind.
-
