@@ -1,7 +1,12 @@
 import type { ReactElement } from "react";
 import { useAppState, useTheme } from "../../../store.tsx";
 import { hospitalColors, type HospitalColors } from "./palette.ts";
-import { BedsideCabinet, FramedLandscape, MedicalChart, WindowCurtains } from "./decorations.tsx";
+import {
+  BedsideCabinet,
+  FramedLandscape,
+  MedicalChart,
+  WindowCurtains,
+} from "./decorations.tsx";
 
 // The hospital's own drawings. Two layers, because they sit at two depths in
 // the scene: HospitalWalls is mounted inside the Walls svg, which is drawn
@@ -306,14 +311,14 @@ function Bed({ at, c }: { at: { x: number; y: number }; c: HospitalColors }) {
               fill={c.metal}
             />
             {u === 1 && (
-            <rect
-              x={b.x - 1.8}
-              y={b.y - BED_H - h}
-              width="3.6"
-              height={h + BED_H}
-              rx="1.4"
-              fill={c.metalShade}
-            />
+              <rect
+                x={b.x - 1.8}
+                y={b.y - BED_H - h}
+                width="3.6"
+                height={h + BED_H}
+                rx="1.4"
+                fill={c.metalShade}
+              />
             )}
             {[0, 0.45, 0.9].map((t) => (
               <path

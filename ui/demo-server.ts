@@ -179,10 +179,7 @@ const demoManagedEnv: Record<string, Record<string, string>> = {};
 let demoManagedOfficeEnv: Record<string, string> = {};
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
-// The look each demo room is drawn in, by the same index. Both demo rooms draw
-// as ordinary offices: the demo is embedded in the landing page hero, and the
-// hospital skin is not finished enough to be the first thing a visitor sees
-// (Nil, 2026-09-12). Put a skin back here once its drawing is signed off.
+// The landing demo keeps both rooms in the default office look.
 export const DEMO_ROOM_SKINS: ReadonlyArray<RoomSkin | undefined> = [
   undefined,
   undefined,

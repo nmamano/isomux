@@ -39,9 +39,7 @@ const patches = () =>
 // never moved - the pane used to send nothing at all unless the name changed.
 it("saves a changed look on its own, and carries the name when both move", async () => {
   calls.length = 0;
-  // The room starts on a skin the pickers no longer offer, which is the only
-  // way a look can still CHANGE while one id is selectable: its own skin stays
-  // in its list, so hospital -> office is a real edit through the real control.
+  // Start with a hospital so selecting office changes the stored look.
   const view = mount({
     id: "ward",
     name: "Ward",
@@ -76,9 +74,7 @@ it("saves a changed look on its own, and carries the name when both move", async
 
   view.unmount();
 
-  // Both moving at once is its own mount: this room has one change available
-  // to it (its held-back skin -> the offered one), so the two cases cannot
-  // share a pane.
+  // Use a fresh mount to test changing both the name and the look.
   calls.length = 0;
   const both = mount({
     id: "ward",
@@ -136,8 +132,7 @@ it("shows the room's stored look, and sends no PATCH when it is untouched", asyn
 it("keeps a rejected look dirty, says so, and retries the same body", async () => {
   calls.length = 0;
   patchFails = true;
-  // Same reason as the first case: the room's own held-back skin is what makes
-  // a change reachable while one id is offered.
+  // Start with a hospital so selecting office produces a pending change.
   const view = mount({
     id: "ward",
     name: "Ward",

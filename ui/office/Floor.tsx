@@ -19,7 +19,11 @@ import {
   BLOSSOM_TONES,
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
-import { SkinWalls, ROOM_SKIN_MODULES, useCurrentRoomSkin } from "./skins/index.tsx";
+import {
+  SkinWalls,
+  ROOM_SKIN_MODULES,
+  useCurrentRoomSkin,
+} from "./skins/index.tsx";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -1569,143 +1573,144 @@ export function Walls({
       </g>
       {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
-      {!hideNeon && <>
-      {/* On (dark mode) */}
-      <g
-        className="neon-sign-on"
-        transform="translate(370, -5) skewY(27)"
-        style={{
-          animation: "neonFlicker 5s ease-in-out infinite",
-          filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})`,
-        }}
-      >
-        <title>{t("office.openWebsite")}</title>
-        {/* Hit area */}
-        <rect
-          data-no-pan
-          x="-38"
-          y="-18"
-          width="92"
-          height="32"
-          fill="transparent"
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-          onClick={() => window.open(landingUrl(language), "_blank")}
-        />
-        {/* Letters as thick strokes */}
-        <g
-          fill="none"
-          stroke={neon}
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          {/* i - dot + stem */}
-          <circle cx="-32" cy="-12" r="1.2" fill={neon} stroke="none" />
-          <line x1="-32" y1="-8" x2="-32" y2="2" />
-          {/* s */}
-          <g transform="rotate(20, -22, -3.5)">
-            <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+      {!hideNeon && (
+        <>
+          {/* On (dark mode) */}
+          <g
+            className="neon-sign-on"
+            transform="translate(370, -5) skewY(27)"
+            style={{
+              animation: "neonFlicker 5s ease-in-out infinite",
+              filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})`,
+            }}
+          >
+            <title>{t("office.openWebsite")}</title>
+            {/* Hit area */}
+            <rect
+              data-no-pan
+              x="-38"
+              y="-18"
+              width="92"
+              height="32"
+              fill="transparent"
+              style={{ cursor: "pointer", pointerEvents: "auto" }}
+              onClick={() => window.open(landingUrl(language), "_blank")}
+            />
+            {/* Letters as thick strokes */}
+            <g
+              fill="none"
+              stroke={neon}
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              {/* i - dot + stem */}
+              <circle cx="-32" cy="-12" r="1.2" fill={neon} stroke="none" />
+              <line x1="-32" y1="-8" x2="-32" y2="2" />
+              {/* s */}
+              <g transform="rotate(20, -22, -3.5)">
+                <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+              </g>
+              {/* o */}
+              <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
+              {/* m */}
+              <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
+              {/* u */}
+              <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
+              {/* x */}
+              <line x1="38" y1="-11" x2="48" y2="4" />
+              <line x1="48" y1="-11" x2="38" y2="4" />
+            </g>
+            {/* Ligaments - thin connecting tubes between letters */}
+            <g
+              fill="none"
+              stroke={neon}
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              opacity="0.7"
+            >
+              {/* i→s: bottom of i stem to start of s */}
+              <path d="M-32 2 Q-28 8 -24 4" />
+              {/* s→o: end of s to top of o */}
+              <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
+              {/* o→m: right of o to start of m */}
+              <path d="M-2.5 -3.5 Q0 -1 3 4" />
+              {/* m→u: end of m to start of u */}
+              <path d="M19 4 Q21 6 24 -1" />
+              {/* u→x: end of u to start of x */}
+              <path d="M33 -11 Q35 -14 38 -11" />
+            </g>
+            {/* Underline */}
+            <line
+              x1="-34"
+              y1="9"
+              x2="52"
+              y2="9"
+              stroke={neon}
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              opacity="0.6"
+            />
           </g>
-          {/* o */}
-          <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
-          {/* m */}
-          <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
-          {/* u */}
-          <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
-          {/* x */}
-          <line x1="38" y1="-11" x2="48" y2="4" />
-          <line x1="48" y1="-11" x2="38" y2="4" />
-        </g>
-        {/* Ligaments - thin connecting tubes between letters */}
-        <g
-          fill="none"
-          stroke={neon}
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          opacity="0.7"
-        >
-          {/* i→s: bottom of i stem to start of s */}
-          <path d="M-32 2 Q-28 8 -24 4" />
-          {/* s→o: end of s to top of o */}
-          <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
-          {/* o→m: right of o to start of m */}
-          <path d="M-2.5 -3.5 Q0 -1 3 4" />
-          {/* m→u: end of m to start of u */}
-          <path d="M19 4 Q21 6 24 -1" />
-          {/* u→x: end of u to start of x */}
-          <path d="M33 -11 Q35 -14 38 -11" />
-        </g>
-        {/* Underline */}
-        <line
-          x1="-34"
-          y1="9"
-          x2="52"
-          y2="9"
-          stroke={neon}
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          opacity="0.6"
-        />
-      </g>
-      {/* Off (light mode) */}
-      <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
-        <title>{t("office.openWebsite")}</title>
-        {/* Hit area */}
-        <rect
-          data-no-pan
-          x="-38"
-          y="-18"
-          width="92"
-          height="32"
-          fill="transparent"
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-          onClick={() => window.open(landingUrl(language), "_blank")}
-        />
-        <g
-          fill="none"
-          stroke="#444"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity="0.7"
-        >
-          <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
-          <line x1="-32" y1="-8" x2="-32" y2="2" />
-          <g transform="rotate(20, -22, -3.5)">
-            <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+          {/* Off (light mode) */}
+          <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
+            <title>{t("office.openWebsite")}</title>
+            {/* Hit area */}
+            <rect
+              data-no-pan
+              x="-38"
+              y="-18"
+              width="92"
+              height="32"
+              fill="transparent"
+              style={{ cursor: "pointer", pointerEvents: "auto" }}
+              onClick={() => window.open(landingUrl(language), "_blank")}
+            />
+            <g
+              fill="none"
+              stroke="#444"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity="0.7"
+            >
+              <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
+              <line x1="-32" y1="-8" x2="-32" y2="2" />
+              <g transform="rotate(20, -22, -3.5)">
+                <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+              </g>
+              <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
+              <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
+              <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
+              <line x1="38" y1="-11" x2="48" y2="4" />
+              <line x1="48" y1="-11" x2="38" y2="4" />
+            </g>
+            <g
+              fill="none"
+              stroke="#444"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              opacity="0.45"
+            >
+              <path d="M-32 2 Q-28 8 -24 4" />
+              <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
+              <path d="M-2.5 -3.5 Q0 -1 3 4" />
+              <path d="M19 4 Q21 6 24 -1" />
+              <path d="M33 -11 Q35 -14 38 -11" />
+            </g>
+            <line
+              x1="-34"
+              y1="9"
+              x2="52"
+              y2="9"
+              stroke="#444"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              opacity="0.35"
+            />
           </g>
-          <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
-          <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
-          <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
-          <line x1="38" y1="-11" x2="48" y2="4" />
-          <line x1="48" y1="-11" x2="38" y2="4" />
-        </g>
-        <g
-          fill="none"
-          stroke="#444"
-          strokeWidth="1.2"
-          strokeLinecap="round"
-          opacity="0.45"
-        >
-          <path d="M-32 2 Q-28 8 -24 4" />
-          <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
-          <path d="M-2.5 -3.5 Q0 -1 3 4" />
-          <path d="M19 4 Q21 6 24 -1" />
-          <path d="M33 -11 Q35 -14 38 -11" />
-        </g>
-        <line
-          x1="-34"
-          y1="9"
-          x2="52"
-          y2="9"
-          stroke="#444"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          opacity="0.35"
-        />
-      </g>
-
-      </>}
+        </>
+      )}
 
       {/* Vent - upper-east area of right wall */}
       <g

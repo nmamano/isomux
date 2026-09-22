@@ -12,7 +12,11 @@ import { useAppState } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { RoomRenameReq } from "../../shared/contract-shapes.ts";
 import { PetPicker } from "./PetPicker.tsx";
-import { SkinProps, useCurrentRoomSkin, ROOM_SKIN_MODULES } from "./skins/index.tsx";
+import {
+  SkinProps,
+  useCurrentRoomSkin,
+  ROOM_SKIN_MODULES,
+} from "./skins/index.tsx";
 import type { RoomSkin } from "../../shared/room-skins.ts";
 
 // Every sleeper is drawn curled on the cushion, centred on (0,0), facing left,
@@ -723,7 +727,9 @@ const PropsScene = memo(function PropsScene({
       </g>
 
       {/* Sleepy office pet - south corner of office */}
-      {!ROOM_SKIN_MODULES[skin].hidePet && <PetCorner pet={pet} onClick={onPetClick} />}
+      {!ROOM_SKIN_MODULES[skin].hidePet && (
+        <PetCorner pet={pet} onClick={onPetClick} />
+      )}
     </svg>
   );
 });

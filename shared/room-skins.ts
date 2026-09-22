@@ -1,6 +1,7 @@
 // The look a room is drawn in. A skin is a LOOK, not a type: it changes the
 // floor, the walls and the props, and nothing else. The eight desks, the
-// characters, the pet and the status lights behave the same under every skin.
+// characters and status lights behave the same under every skin. A skin can
+// hide room decorations, including the pet.
 //
 // The ids live here, not in the UI, because the server validates a requested
 // skin against them; the colours and the drawings live in ui/office/skins/,
@@ -9,12 +10,12 @@
 
 export const ROOM_SKIN_IDS = ["office", "hospital"] as const;
 
-/** The skins the pickers offer. A subset of ROOM_SKIN_IDS, because a skin can
- *  exist, validate and draw before its drawing is good enough to offer: the
- *  hospital is held back until Nil signs it off (2026-09-12). The stored value
- *  is the id, never the displayed name, so a label can change without touching
- *  a room record. */
-export const SELECTABLE_ROOM_SKIN_IDS: readonly RoomSkin[] = ["office"];
+/** The skins the pickers offer. The stored value is the id, never the
+ *  displayed name, so a label can change without touching a room record. */
+export const SELECTABLE_ROOM_SKIN_IDS: readonly RoomSkin[] = [
+  "office",
+  "hospital",
+];
 
 export type RoomSkin = (typeof ROOM_SKIN_IDS)[number];
 
