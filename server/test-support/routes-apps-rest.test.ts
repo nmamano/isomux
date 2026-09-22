@@ -907,6 +907,12 @@ describe("routes/apps REST: who can see and delete an app", () => {
       bearer: ownerApiRaw,
     });
     expect(ownerApiRead.status).toBe(200);
+    const ownerApiList = await api(srv, "/api/apps", {
+      bearer: ownerApiRaw,
+    });
+    expect(
+      (ownerApiList.body as AppWire[]).map((app) => app.name).sort(),
+    ).toEqual(["alice-app", "boss-app"]);
     const ownerApiForeignRow = ownerApiRead.body as AppWire;
     expect(ownerApiForeignRow.command).toBe("bun run serve.ts");
     expect(ownerApiForeignRow.cwd).toBe(srv.stateRoot);
@@ -924,12 +930,35 @@ describe("routes/apps REST: who can see and delete an app", () => {
     });
     expect(memberApiToken.status).toBe(201);
     const memberApiRaw = (memberApiToken.body as { token: string }).token;
+    const memberApiList = await api(srv, "/api/apps", {
+      bearer: memberApiRaw,
+    });
+    expect((memberApiList.body as AppWire[]).map((app) => app.name)).toEqual([
+      "alice-app",
+    ]);
     const memberApiControl = await api(srv, "/api/apps/boss-app", {
       method: "PATCH",
       bearer: memberApiRaw,
       body: { description: "must stay blocked" },
     });
     expect(memberApiControl.status).toBe(403);
+
+    const bobApiToken = await api(srv, "/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: bob.rawSessionId,
+      body: { name: "Room viewer remote", expiresInDays: 30 },
+    });
+    expect(bobApiToken.status).toBe(201);
+    const bobApiRaw = (bobApiToken.body as { token: string }).token;
+    const bobApiList = await api(srv, "/api/apps", {
+      bearer: bobApiRaw,
+    });
+    expect((bobApiList.body as AppWire[]).map((app) => app.name)).toEqual([
+      "alice-app",
+    ]);
+    expect((bobApiList.body as AppWire[])[0]).toEqual(
+      expect.objectContaining({ canManage: false }),
+    );
   });
 
   it("an unknown name denies exactly like somebody else's app (no existence oracle)", async () => {

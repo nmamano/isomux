@@ -14,7 +14,9 @@ export interface AppViewerFacts {
 }
 
 export function viewerUserId(identity: Identity): string | null {
-  return identity.scope === "user" || identity.scope === "agent"
+  return identity.scope === "user" ||
+    identity.scope === "agent" ||
+    identity.scope === "api"
     ? identity.userId
     : null;
 }

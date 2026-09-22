@@ -65,9 +65,10 @@ describe("viewerUserId", () => {
     capabilities: [],
   });
 
-  it("resolves only human and agent viewers", () => {
+  it("resolves human viewers and their agent or API proxies", () => {
     expect(viewerUserId(identity("user"))).toBe("truthful-owner");
     expect(viewerUserId(identity("agent"))).toBe("truthful-owner");
+    expect(viewerUserId(identity("api"))).toBe("truthful-owner");
     expect(viewerUserId(identity("app"))).toBeNull();
     expect(viewerUserId(identity("cron-run"))).toBeNull();
   });
