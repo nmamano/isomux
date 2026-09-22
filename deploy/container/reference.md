@@ -45,9 +45,8 @@ The Compose reference uses the included `seccomp/chromium.json` profile so
 non-root Chromium can create its sandbox namespaces. The profile adds `clone`,
 `setns`, and `unshare` to a pinned Docker default basis for all container
 processes. It adds no capabilities. See the [profile notes](seccomp/README.md)
-for the exact basis and host requirements. The profile passed on EC2 Ubuntu
-24.04 with Docker 29.1.3 on 2026-09-21. Render and Fargate compatibility remains
-unverified.
+for the exact basis and host requirements. Host-specific verification results are in the
+[internal verification record](../../internal-docs/container-verification.md).
 
 After owner creation, the setup endpoint no longer accepts the setup key.
 Operators can optionally remove `ISOMUX_SETUP_KEY` from the deployment
@@ -108,53 +107,10 @@ with modes 700 and 600 respectively. The unit refuses to start without them.
 
 ## Update and restore
 
-Pull the next immutable image before the outage. Stop the host unit with
-`sudo systemctl stop isomux-container`. Confirm the office container is stopped,
-run `sudo sync`, and then snapshot the complete EBS volume. Record the old image digest with that
-snapshot. Change `ISOMUX_IMAGE` in `office.env` to the new digest, preserve the existing setup-key state,
-and start the unit. Use the new release's reviewed Compose, seccomp, unit, and mount-check files together. After a manual
-release change, use manual maintenance; the original installer record is no
-longer a matching repair target. Check the owner, provider connections,
-project files, and running/stopped apps. Never start a second writer to reduce
-the outage.
+The [AWS guide](README.md#update-and-restore) contains the update and recovery
+procedure for the installer-managed EC2 deployment. Apply the same single-writer
+and complete-storage rules to custom deployments, using their storage provider's
+snapshot and restore controls.
 
-To roll back stored-state changes, stop the unit and restore the matching data
-snapshot and previous image together. Test restoration on an isolated mount.
-The office's own backup does not cover the complete home/workspace mount and
-does not protect against volume loss. Keep independent snapshots.
-
-## Verification record
-
-On 2026-09-21, source revision `dc1a8cea` passed EC2/Caddy checks on Linux amd64:
-app HTTPS and WebSockets, container replacement, host reboot, retained state,
-and isolated EBS snapshot restore.
-
-On the same date, image revision `b4b7a5f1` passed sandbox, PTY, and production
-preview checks on EC2 Ubuntu 24.04 with Docker 29.1.3. Chromium ran as UID 1000
-with zero effective capabilities and reported namespace and Seccomp-BPF
-isolation. Docker kept its default AppArmor profile, with no added capabilities
-or privileged mode. Replacing the test office with that image and the reviewed
-Compose/profile files preserved app state and stopped intent; public app HTTPS
-and WebSockets passed. The reboot and snapshot-restore results above apply to
-`dc1a8cea`.
-
-Actual provider completion was blocked by Bedrock billing. ALB, Fargate, and
-missing-volume startup refusal on real AWS were not verified.
-
-Run the local image check with `python3 deploy/container/smoke.py IMAGE`. It
-creates isolated containers and a temporary volume, disables networking, and
-checks setup, native executables, PTY, browser rendering, app HTTP/WebSockets,
-office restart, and container replacement. It deletes its containers and volume
-when complete. It uses synthetic state and makes no provider login or model turn.
-
-With Docker Compose installed, `python3 deploy/container/compose-check.py IMAGE`
-checks the reference command with isolated storage, stop/start persistence,
-resource limits, and missing-directory refusal. Repeat host mount ordering and
-reboot checks on the target deployment.
-
-Before production use, verify the real AWS deployment: owner claim and invites; required
-provider logins and turns; terminal and browser preview; app HTTPS, access, and
-WebSockets; office restart; container replacement; host reboot; missing-volume
-startup refusal; and snapshot restore. Record the date, image digest, runtime,
-storage, ingress, resource limits, and results. Local image tests do not certify
-AWS or a customer's workflow.
+Development test commands, tested source revisions, and acceptance limits are
+in the [internal verification record](../../internal-docs/container-verification.md).

@@ -13,6 +13,10 @@ import {
 } from "node:fs";
 import { join, basename } from "node:path";
 import { marked } from "marked";
+import {
+  HOSTING_GUIDES, hostingBody, hostingNavigation, hostingNavigationMarkdown,
+  legacyHostingHtml, legacyHostingMarkdown, type HostingId,
+} from "./hosting-docs.ts";
 
 const SRC_DIR = "docs";
 const SITE_DIR = "site";
@@ -65,6 +69,7 @@ type DocPage = {
   // Raw markdown body, embedded into the page as `window.__docContext` so the
   // shared chatbot widget can pass it to /api/chat as page-specific context.
   raw: string;
+  hostingId?: HostingId;
 };
 
 // Sub-pages are ordered explicitly; anything not listed sorts after by title.
@@ -216,6 +221,13 @@ function loadPage(filename: string): DocPage {
   // Render the body as-is; the markdown H1 becomes the visible page title.
   // The derived `title` is still used for the <title> tag and meta tags.
   const { html, toc } = renderMarkdown(body);
+  if (slug === "self-hosted") {
+    return {
+      slug, title, navTitle, description, order: NAV_ORDER.indexOf(slug), toc: [],
+      html: html.replace("<!-- hosting-navigation -->", hostingNavigation()) + legacyHostingHtml(),
+      raw: body.replace("<!-- hosting-navigation -->", hostingNavigationMarkdown()) + legacyHostingMarkdown(),
+    };
+  }
   const navIdx = NAV_ORDER.indexOf(slug);
   const order = fm.order ?? (navIdx >= 0 ? navIdx : NAV_ORDER.length + 100);
   return { slug, title, navTitle, description, order, html, toc, raw: body };
@@ -632,6 +644,54 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
   .doc-nav-card.next { text-align: left; }
   .footer-bottom { flex-direction: column; gap: 10px; text-align: center; }
 }
+/* Native links keep the decision diagram usable without JavaScript. */
+.hosting-picker { margin: 24px 0 32px; }
+.hosting-picker a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.content .hosting-flow { --flow-line: var(--accent); margin: 0; padding: 0 2px; font-size: 1rem; line-height: 1.5; }
+.hosting-flow a[data-guide] { position: relative; display: block; padding: 12px 32px 12px 14px; border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 3px; background: var(--bg-surface); color: var(--text); text-decoration: none; }
+.hosting-flow a[data-guide]:hover { background: var(--bg-card); border-color: var(--accent); }
+.hosting-link-arrow { position: absolute; right: 12px; top: 16px; color: var(--accent); }
+.hosting-detail { display: block; color: var(--text-dim); margin-top: 4px; }
+.hosting-badge { display: inline-block; border: 1px solid var(--border); background: var(--bg-card); border-radius: 3px; padding: 0 4px; margin-top: 4px; }
+.content .flow-question { position: relative; margin: 0; padding: 16px 20px; border: 2px solid var(--accent); border-radius: 28px; background: var(--bg-card); color: var(--text); font-size: inherit; font-weight: 600; text-align: center; }
+.flow-note { display: block; margin-top: 8px; color: var(--text-dim); font-weight: 400; }
+.content .flow-start { max-width: 560px; margin: 0 auto; }
+.flow-row { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; padding-top: 20px; }
+.flow-row::before { content: ""; position: absolute; top: 20px; left: calc(25% - 7px); right: calc(25% - 7px); border-top: 1px solid var(--flow-line); }
+.flow-row::after { content: ""; position: absolute; right: calc(25% - 7px); top: 0; height: 20px; border-left: 1px solid var(--flow-line); }
+.flow-first::after { right: 50%; }
+.flow-branch { position: relative; min-width: 0; }
+.flow-row:not(:last-child) > .flow-branch:last-child { display: flex; flex-direction: column; }
+.flow-row:not(:last-child) > .flow-branch:last-child > .flow-question { flex: 1; }
+.flow-edge { flex-shrink: 0; }
+.flow-edge { position: relative; display: grid; place-items: center; height: 56px; }
+.flow-edge::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; border-left: 1px solid var(--flow-line); }
+.flow-edge::after { content: ""; position: absolute; bottom: 2px; left: calc(50% - 5px); width: 9px; height: 9px; border-right: 1px solid var(--flow-line); border-bottom: 1px solid var(--flow-line); transform: rotate(45deg); }
+.flow-edge > span { position: relative; background: var(--bg); padding: 2px 8px; }
+.flow-leaves { position: relative; margin: 20px 0 0 16px; padding: 12px 0 0 22px; border-left: 1px solid var(--flow-line); }
+.flow-question + .flow-leaves::before { content: ""; position: absolute; top: -20px; left: -1px; width: calc(50% - 8px); height: 20px; border-bottom: 1px solid var(--flow-line); border-right: 1px solid var(--flow-line); }
+.flow-leaf { position: relative; margin-bottom: 16px; }
+.flow-leaf:last-child { margin-bottom: 0; }
+.flow-leaf::before { content: ""; position: absolute; left: -23px; top: 23px; width: 23px; border-top: 1px solid var(--flow-line); }
+.flow-leaf::after { content: ""; position: absolute; left: -8px; top: 19px; width: 8px; height: 8px; border-top: 1px solid var(--flow-line); border-right: 1px solid var(--flow-line); transform: rotate(45deg); }
+.flow-answer { display: block; padding: 0 0 8px 6px; }
+.flow-leaf:has(> .flow-answer)::before { top: 12px; }
+.flow-leaf:has(> .flow-answer)::after { top: 8px; }
+.hosting-legacy { margin: 28px 0; }
+.hosting-legacy summary { cursor: pointer; padding: 14px 16px; font-weight: 600; }
+@media (max-width: 650px) {
+  .content .hosting-flow { padding-left: 12px; }
+  .content .flow-question { padding: 14px 12px; border-radius: 24px; }
+  .flow-row { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 16px; }
+  .flow-row::before { top: 16px; bottom: 0; left: -12px; right: auto; border-top: 0; border-left: 1px solid var(--flow-line); }
+  .flow-row::after { top: 0; height: 16px; left: -12px; right: 50%; border-left: 0; border-right: 1px solid var(--flow-line); border-bottom: 1px solid var(--flow-line); }
+  .flow-branch::before { content: ""; position: absolute; top: 0; left: -12px; width: calc(50% + 12px); border-top: 1px solid var(--flow-line); }
+  .flow-edge { height: 44px; }
+  .flow-leaves { margin-left: 6px; padding-left: 14px; }
+  .flow-leaf::before { left: -15px; width: 15px; }
+  .flow-question + .flow-leaves::before { width: calc(50% - 3px); }
+}
+
 `;
 
 const FAVICON_HREF =
@@ -776,7 +836,12 @@ function renderDocPage(
     const h1Close = page.html.indexOf("</h1>");
     if (h1Close === -1) return `${tocHtml}\n${page.html}`;
     const insertAt = h1Close + "</h1>".length;
-    return `${page.html.slice(0, insertAt)}\n${tocHtml}\n${page.html.slice(insertAt)}`;
+    let rest = page.html.slice(insertAt);
+    // Availability must precede the TOC: a reader should see it before a link
+    // jumps straight to creating a paid resource.
+    const notice = page.hostingId ? rest.match(/^\s*(<blockquote>[\s\S]*?<\/blockquote>)/)?.[0] ?? "" : "";
+    if (notice) rest = rest.slice(notice.length);
+    return `${page.html.slice(0, insertAt)}\n${notice}\n${page.hostingId ? hostingNavigation(page.hostingId) : ""}\n${tocHtml}\n${rest}`;
   })();
   const prevCard = prev
     ? `<a class="doc-nav-card prev" href="${pageUrl(prev)}"><div class="doc-nav-dir">&larr; Previous</div><div class="doc-nav-title">${escapeHtml(prev.title)}</div></a>`
@@ -784,7 +849,7 @@ function renderDocPage(
   const nextCard = next
     ? `<a class="doc-nav-card next" href="${pageUrl(next)}"><div class="doc-nav-dir">Next &rarr;</div><div class="doc-nav-title">${escapeHtml(next.title)}</div></a>`
     : `<div></div>`;
-  const sidebar = renderSidebar(pages, page.slug);
+  const sidebar = renderSidebar(pages, page.hostingId ? "self-hosted" : page.slug);
   const body = `<div class="docs-layout">
 ${sidebar}
 <main>
@@ -830,7 +895,7 @@ function renderSitemapXml(pages: DocPage[]): string {
 
 // ---- Main ----
 
-function main() {
+export function main() {
   if (!existsSync(SRC_DIR)) {
     throw new Error(`Source directory "${SRC_DIR}" not found.`);
   }
@@ -841,10 +906,20 @@ function main() {
   mkdirSync(MARKDOWN_OUT_DIR, { recursive: true });
 
   const files = readdirSync(SRC_DIR).filter((f) => f.endsWith(".md"));
-  const pages = files.map(loadPage).sort((a, b) => {
+  const navigationPages = files.map(loadPage).sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
     return a.title.localeCompare(b.title);
   });
+  const guidePages: DocPage[] = HOSTING_GUIDES.map((guide) => {
+    const raw = hostingBody(guide);
+    const { html, toc } = renderMarkdown(raw);
+    return {
+      slug: `hosting-${guide.id}`, hostingId: guide.id,
+      title: deriveTitle(raw, guide.id), navTitle: guide.label,
+      description: guide.detail, order: 1000, html, toc, raw,
+    };
+  });
+  const pages = [...navigationPages, ...guidePages];
   if (!pages.some((p) => p.slug === LANDING_SLUG)) {
     throw new Error(
       `Landing slug "${LANDING_SLUG}" not found in docs/ - every build needs ${LANDING_SLUG}.md.`,
@@ -854,9 +929,10 @@ function main() {
   writeFileSync(join(OUT_DIR, "_styles.css"), STYLES.trim() + "\n");
 
   for (let i = 0; i < pages.length; i++) {
-    const prev = i > 0 ? pages[i - 1] : null;
-    const next = i < pages.length - 1 ? pages[i + 1] : null;
-    const html = renderDocPage(pages[i], pages, prev, next);
+    const navIndex = navigationPages.indexOf(pages[i]);
+    const prev = navIndex > 0 ? navigationPages[navIndex - 1] : null;
+    const next = navIndex >= 0 && navIndex < navigationPages.length - 1 ? navigationPages[navIndex + 1] : null;
+    const html = renderDocPage(pages[i], navigationPages, prev, next);
     if (pages[i].slug === LANDING_SLUG) {
       // The landing page lives at `/docs/` (not `/docs/<slug>/`).
       writeFileSync(join(OUT_DIR, "index.html"), html);

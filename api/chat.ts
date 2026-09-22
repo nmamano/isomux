@@ -78,20 +78,11 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 2. \`git clone https://github.com/nmamano/isomux.git && cd isomux && bun install && bun run dev\`
 3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit to enter the office. New offices start with three welcome agents, one each for Claude, Codex, and OpenCode. Click an empty desk to spawn another agent.
 
-## Self-hosted Persistent Server
-Isomux shines when you run it on your own always-on machine (like a Mac Mini), and then access it from all your devices.
-Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.
-Bonus: anyone you invite can chime in to the same conversation in real time, so multiple humans can collaborate with the same agent.
-
-Setup:
-1. Install Tailscale (free) on the server, your laptop, and your phone.
-2. Claim ownership of the office first, from the host machine: open \`http://localhost:4000\` and submit a display name. Before this happens the server binds 127.0.0.1 only, so the tailnet URL won't respond yet.
-3. In the running office, open Settings → Office → Access → External access, enable the toggle, paste the URL where other devices will reach the office (e.g. \`http://my-mac-mini:4000\`), click Save, then restart isomux.
-4. Access Isomux from any tailnet device at that URL. Tip: rename your machine in the Tailscale admin console to something friendly like \`my-mac-mini\`.
-5. For persistence on Linux, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout. Use launchd on macOS or Task Scheduler on Windows. See isomux.com/docs/self-hosted.
-6. Install Isomux as an app for a full-screen experience: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome will prompt you to install on first visit.
-7. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
-8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/self-hosted have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
+## Hosting and Setup
+The decision diagram at isomux.com/docs/self-hosted links to one complete static guide per setup. Each guide links back to the diagram.
+The routes are /docs/hosting-hosted (paid Hosted Isomux), /docs/hosting-render (Render), /docs/hosting-aws (AWS EC2 container), /docs/hosting-vps (fresh Ubuntu VPS), /docs/hosting-local (this computer only), /docs/hosting-private (private Tailscale on Linux), /docs/hosting-funnel (public Tailscale Funnel on Linux), and /docs/hosting-domain (Linux computer and a public domain).
+Render charges for compute and persistent storage; do not claim full Render deployment validation. The AWS container release image is public and the installer guide is available. Do not infer Fargate support.
+Each selected guide includes prerequisites, owner creation, provider connection, and later operations. Advanced settings and deployment boundaries are at /docs/hosting-reference. The page context identifies the guide the visitor is reading. Follow that guide's steps and availability notice.
 
 ## Hosted Isomux
 Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.

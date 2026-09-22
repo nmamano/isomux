@@ -132,9 +132,8 @@ Isomux will store your office data there.
 
 ## 5. Install Isomux
 
-The container image has not been published yet. Continue once a release appears
-on the [Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux).
-Choose its full version tag, which starts with `v`.
+On the [Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux),
+choose the release's full version tag, which starts with `v`.
 
 **Server terminal**
 
@@ -224,13 +223,18 @@ that the server allows inbound ports 80 and 443. DNS changes can take time to ap
 
 **Your browser → Settings → You → Individual connections**
 
-- Connect the provider you want your agents to use. Follow the
-  [provider connection instructions](https://isomux.com/docs/access-and-invites).
+- For Claude or Codex, select its sign-in control and complete the instructions.
+  If Isomux asks to install the Claude CLI, complete that step first. Codex is
+  bundled. For OpenCode, open or create an OpenCode agent and choose a Free
+  model in its model picker, or configure a paid provider connection.
+- If you use a provider API key, add its environment variable in Individual
+  connections: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or `OPENCODE_API_KEY`.
+  Provider charges and subscription limits are separate from AWS hosting.
 - For Claude through Amazon Bedrock, use the
   [Bedrock setup instructions](https://isomux.com/docs/access-and-invites#claude-on-amazon-bedrock).
 - Open an agent that uses that provider and send a short message. A reply confirms
   that the office can use your provider account.
-- To invite someone else, open **Settings → Invites**.
+- To invite someone else, open **Settings → Office → Invites**.
 
 Your office is ready. Keep using the same office URL to return to it.
 
@@ -242,6 +246,34 @@ If the office does not start, run these commands in the **server terminal**:
 sudo journalctl -u isomux-container.service -n 50 --no-pager
 sudo tail -n 50 /srv/isomux-data/home/.isomux/container-runtime/office.log
 ```
+
+## Update and restore
+
+Pull the next immutable image before the outage. Stop the host unit with
+`sudo systemctl stop isomux-container`. Confirm the office container is stopped,
+run `sudo sync`, and then snapshot the complete EBS volume. Record the old image digest with that
+snapshot. Change `ISOMUX_IMAGE` in `office.env` to the new digest, preserve the existing setup-key state,
+and start the unit. Use the new release's reviewed Compose, seccomp, unit, and mount-check files together. After a manual
+release change, use manual maintenance; the original installer record is no
+longer a matching repair target. Check the owner, provider connections,
+project files, and running/stopped apps. Never start a second writer to reduce
+the outage.
+
+To roll back stored-state changes, stop the unit and restore the matching data
+snapshot and previous image together. Test restoration on an isolated mount.
+The office's own backup does not cover the complete home/workspace mount and
+does not protect against volume loss. Keep independent snapshots.
+
+## Add devices and keep backups
+
+In **Settings → You → Sign-in links**, create a device link and open it on your
+other device. For another person, use **Settings → Office → Invites**. Only
+invite people you trust: members and their agents can run commands within the
+office's operating-system account.
+
+Isomux keeps seven daily backups of its state on the same data disk. These do
+not cover the complete home and workspace directories. Keep separate snapshots
+of the complete EBS volume for recovery from disk loss.
 
 For source builds, custom deployments, and technical details, see the
 [container reference](reference.md).
