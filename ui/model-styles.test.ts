@@ -76,7 +76,7 @@ describe("deskModelLabel", () => {
   });
 
   test("Claude families keep their name and version", () => {
-    expect(deskModelLabel("opus")).toBe("OPUS 5");
+    expect(deskModelLabel("opus")).toBe("OPUS 5.5");
     expect(deskModelLabel("haiku")).toBe("HAIKU 4.5");
   });
 
