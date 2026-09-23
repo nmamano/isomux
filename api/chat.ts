@@ -185,7 +185,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Plan usage at a glance: for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned. Hovering or tapping it lists every limit that can gate the agent, with when each resets and how old the reading is. Agents can ask for the same data for any agent in a room their manager can access; with a live session, the check asks the provider each time.
 - Survives a memory spike: the office biases the out-of-memory kill toward the runaway agent or build, not itself. One root command (see isomux.com/docs/hosting) adds box-wide protection and keeps SSH reachable. Linux only.
 - Searchable conversation history: agents can search and re-read past conversations (their own or other agents') through an API documented in their system prompt
-- Update notice: the office header shows when a new release is out. On a VPS install the owner can apply it from there, and a failed update rolls back on its own. On a source checkout the notice shows what you're running, the latest release, and how far main is ahead; it stays quiet if you're ahead of main
+- Update notice: the office header shows when a new release is out. On installer-managed direct hosts and containers the owner can apply it from there. Direct-host updates roll back on failure; container updates replace the image and reuse the data disk. On a source checkout the notice shows what you're running, the latest release, and how far main is ahead; it stays quiet if you're ahead of main
 
 ### Mobile Support
 - Open from your phone - same server URL (whether VPN-only or public via Funnel / reverse proxy), touch-optimized UI

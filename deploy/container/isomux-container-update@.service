@@ -1,0 +1,15 @@
+[Unit]
+Description=Isomux container update request
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/lib/isomux/container-update-helper.py
+User=root
+Group=root
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

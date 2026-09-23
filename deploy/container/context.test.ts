@@ -38,7 +38,11 @@ test("production context uses committed regular files and excludes private and u
     writeFileSync(join(root, "server/main.ts"), "dirty");
     writeFileSync(join(root, "server/untracked.ts"), "synthetic-untracked");
     expect(run("python3", exporter, "HEAD", "first.tar").status).toBe(0);
-    expect(run("tar", "tf", "first.tar").stdout.trim()).toBe("server/main.ts");
+    expect(run("tar", "tf", "first.tar").stdout.trim().split("\n").sort()).toEqual(["server/main.ts", "version-info.json"]);
+    const identity = JSON.parse(run("tar", "xOf", "first.tar", "version-info.json").stdout);
+    expect(identity.commit).toBe(run("git", "rev-parse", "HEAD").stdout.trim());
+    expect(identity.release).toBeNull();
+    expect(identity.version).toBe(identity.commit);
     expect(run("tar", "xOf", "first.tar", "server/main.ts").stdout).toBe(
       "committed",
     );
@@ -46,6 +50,13 @@ test("production context uses committed regular files and excludes private and u
     expect(readFileSync(join(root, "first.tar"))).toEqual(
       readFileSync(join(root, "second.tar")),
     );
+    const selected = run("git", "rev-parse", "HEAD").stdout.trim();
+    expect(run("git", "tag", "v2099.1.2", selected).status).toBe(0);
+    expect(run("git", "tag", "v2099.1.10", selected).status).toBe(0);
+    expect(run("python3", exporter, selected, "release.tar").status).toBe(0);
+    expect(JSON.parse(run("tar", "xOf", "release.tar", "version-info.json").stdout)).toEqual({
+      commit: selected, release: "v2099.1.10", version: "v2099.1.10",
+    });
     symlinkSync("/outside", join(root, "server/link"));
     expect(run("git", "add", "server/link").status).toBe(0);
     expect(

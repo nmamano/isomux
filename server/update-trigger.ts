@@ -39,7 +39,7 @@ import {
 } from "./update-conf.ts";
 
 export type TriggerPlan =
-  | { ok: true; argv: string[]; via: "system" | "user" }
+  | { ok: true; argv: string[]; via: "system" | "user"; socket?: true }
   | { ok: false; status: 400 | 409; code: string; message: string };
 
 export function buildTriggerPlan(
@@ -54,7 +54,7 @@ export function buildTriggerPlan(
       message: `this box is not updater-managed (no ${updateConfPath()}); update it manually`,
     };
   }
-  if (!CALVER_RELEASE_RE.test(tag)) {
+  if (!CALVER_RELEASE_RE.test(tag) || tag.includes("\n")) {
     return {
       ok: false,
       status: 400,
@@ -72,6 +72,9 @@ export function buildTriggerPlan(
     };
   }
   const kind = conf.values.SERVICE_KIND;
+  if (kind === "system" && conf.values.DEPLOYMENT_KIND === "container") {
+    return { ok: true, via: "system", argv: [], socket: true };
+  }
   if (kind === "system") {
     return {
       ok: true,
@@ -147,6 +150,17 @@ export async function runTrigger(
   }
 }
 
+// Only the tag crosses the host socket. The path is fixed, not config input.
+export async function runContainerTrigger(tag: string): Promise<{ ok: true } | { ok: false; message: string }> {
+  // Python owns the half-close/response exchange. It is already in the image
+  // for the container supervisor; its CLI accepts only the tag.
+  return runTrigger([
+    "python3", "-I",
+    new URL("../deploy/container/update-client.py", import.meta.url).pathname,
+    tag,
+  ]);
+}
+
 // The production trigger: read the conf fresh (it can appear or change without
 // a server restart), plan, launch.
 export async function triggerUpdate(
@@ -158,7 +172,7 @@ export async function triggerUpdate(
 > {
   const plan = buildTriggerPlan(readUpdateConf(), tag);
   if (!plan.ok) return plan;
-  const r = await run(plan.argv);
+  const r = plan.socket ? await runContainerTrigger(tag) : await run(plan.argv);
   if (!r.ok) {
     return {
       ok: false,

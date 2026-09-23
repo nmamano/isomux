@@ -97,7 +97,7 @@ tag still resolves to the recorded digest and starts that digest. It preserves
 the setup key; an absent key is accepted only when the disk has an owner.
 Custom configuration, unrelated Caddy configuration, and existing direct-host
 offices are refused. A package-default Caddyfile can be replaced. Container mode
-does not install the host updater or change SSH authentication; `OWNER_NAME`,
+installs the host update support and leaves SSH authentication unchanged; `OWNER_NAME`,
 `ISOMUX_DEPS_ONLY`, and `INSTALL_CALLBACK_URL` do not apply.
 
 For a manual deployment using the shipped systemd unit, install `mount-check.sh`
@@ -105,12 +105,27 @@ in `/opt/isomux-container` with mode 755, and write the data filesystem's UUID t
 `/opt/isomux-container/mount.uuid`. Keep the directory and settings root-owned
 with modes 700 and 600 respectively. The unit refuses to start without them.
 
-## Update and restore
+## Updates
 
-The [AWS guide](README.md#update-and-restore) contains the update and recovery
-procedure for the installer-managed EC2 deployment. Apply the same single-writer
-and complete-storage rules to custom deployments, using their storage provider's
-snapshot and restore controls.
+Installer-managed containers use the office Updates pane. The owner route sends
+one release tag through `/run/isomux-update/request.sock`. A root-owned helper
+starts the fixed updater unit. The container receives a read-only socket-directory
+mount and client config, with no Docker socket or general host command access.
+
+The host updater resolves the tag from its trusted Git origin, pulls the official
+image, verifies its source revision, and replaces the container through Compose.
+It refreshes the release assets and keeps the existing data mount. It checks
+readiness and the running image version. Container updates have no automatic
+snapshot or rollback. Direct-host updates retain their existing recovery flow.
+
+The root config is `/etc/isomux/update.conf`; the installed updater is
+`/usr/local/sbin/isomux-update`. Status is recorded in
+`/var/lib/isomux-update/status.json`. The socket starts automatically on host
+boot. Container builds include commit and release metadata from the selected
+committed source revision.
+
+The [AWS guide](README.md#updates) describes the owner flow. Custom container
+providers use their own deployment controls.
 
 Development test commands, tested source revisions, and acceptance limits are
 in the [internal verification record](../../internal-docs/container-verification.md).

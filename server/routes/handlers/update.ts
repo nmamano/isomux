@@ -40,7 +40,11 @@ export function updateHandlers(deps: UpdateDeps): Record<string, RouteHandler> {
     "office.updateInfo": () => ok(deps.getUpdateInfo()),
 
     "office.triggerUpdate": async (ctx) => {
-      const b = (ctx.body ?? {}) as { tag?: unknown };
+      if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body) ||
+          Object.keys(ctx.body).some((key) => key !== "tag")) {
+        return fail(400, "invalid_tag", "body must carry only a release tag");
+      }
+      const b = ctx.body as { tag?: unknown };
       if (typeof b.tag !== "string" || b.tag.length === 0) {
         return fail(400, "invalid_tag", "body must carry a release tag");
       }

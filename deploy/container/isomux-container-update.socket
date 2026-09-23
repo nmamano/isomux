@@ -1,0 +1,14 @@
+[Unit]
+Description=Isomux container update requests
+
+[Socket]
+ListenStream=/run/isomux-update/request.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0666
+DirectoryMode=0755
+Accept=yes
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

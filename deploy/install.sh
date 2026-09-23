@@ -37,7 +37,7 @@
 #                 DOMAIN, and an explicit ISOMUX_REF release tag. Download this
 #                 installer from that same tag. It installs Docker/Compose,
 #                 Caddy, firewall rules and security updates, then starts the
-#                 release image. It does not install the host office/updater,
+#                 release image. It installs the container updater, but not the host office,
 #                 provider CLIs, or change SSH authentication. Create the first
 #                 owner in the browser with the key in the root-only file
 #                 /opt/isomux-container/office.env. Re-runs preserve that key
@@ -4129,7 +4129,7 @@ report() {
 
 # --- Container host installation --------------------------------------------
 # These paths are fixed to the reviewed Compose/unit contract. No disk creation,
-# formatting, host-office migration, or host updater is part of this mode.
+# formatting or host-office migration is part of this mode.
 CONTAINER_DIR=/opt/isomux-container
 CONTAINER_DATA=/srv/isomux-data
 CONTAINER_UNIT=/etc/systemd/system/isomux-container.service
@@ -4226,8 +4226,15 @@ container_check_saved() {
 }
 
 container_check_other_office() {
-  [[ ! -e $INSTALL_DIR && ! -e $SERVICE_HOME/.isomux && ! -e $UPDATE_CONF ]] ||
+  [[ ! -e $INSTALL_DIR && ! -e $SERVICE_HOME/.isomux ]] ||
     die "Existing direct-host office detected; automatic conversion is not supported"
+  if [[ -e $UPDATE_CONF || -L $UPDATE_CONF ]]; then
+    # A fresh container install writes this before publishing its directory.
+    # Permit its own literal marker on retry; unmarked configs are Git installs.
+    [[ -f $UPDATE_CONF && ! -L $UPDATE_CONF && $(grep -c '^DEPLOYMENT_KIND=' "$UPDATE_CONF") == 1 ]] &&
+      grep -qx 'DEPLOYMENT_KIND=container' "$UPDATE_CONF" ||
+      die "Existing direct-host updater detected; automatic conversion is not supported"
+  fi
   if systemctl cat isomux.service >/dev/null 2>&1; then
     die "Existing direct-host service detected; automatic conversion is not supported"
   fi
@@ -4281,7 +4288,7 @@ container_install_packages() {
     if [[ -f $public_file ]]; then chmod 644 "$public_file"; fi
   done
   apt_get update -y
-  apt_install ca-certificates curl gnupg jq openssl ufw unattended-upgrades
+  apt_install ca-certificates curl gnupg git python3 jq openssl ufw unattended-upgrades
   if ! command -v docker >/dev/null; then
     apt_install docker.io docker-compose-v2
   fi
@@ -4338,6 +4345,32 @@ container_write_settings() {
   fi
   chmod 600 "$CONTAINER_STAGE/office.env"
   (cd "$CONTAINER_STAGE" && container_compose config --quiet)
+}
+
+container_install_updater() {
+  step container-updater
+  install -d -m 755 "$(dirname "$UPDATE_CONF")"
+  install -d -m 700 "$UPDATE_STATE_DIR"
+  local trust=$UPDATE_STATE_DIR/trust.git
+  [[ -d $trust ]] || git init -q --bare "$trust"
+  git -C "$trust" fetch -q --depth 1 "$ISOMUX_REPO" "refs/tags/$ISOMUX_REF:refs/tags/$ISOMUX_REF"
+  [[ $(git -C "$trust" rev-parse "refs/tags/$ISOMUX_REF^{commit}") == "$CONTAINER_REVISION" ]] || die "Updater source revision does not match the release"
+  git -C "$trust" cat-file -p "$CONTAINER_REVISION:scripts/update.sh" > "$CONTAINER_STAGE/update.sh"
+  write_file "$UPDATE_CONF" 644 <<EOF
+DEPLOYMENT_KIND=container
+SERVICE_KIND=system
+SERVICE_NAME=isomux-container
+REPO_URL=$ISOMUX_REPO
+STATUS_DIR=$UPDATE_STATE_DIR
+BASE_URL=http://127.0.0.1:10000
+UPDATER_PATH=$UPDATER_PATH
+EOF
+  printf 'DEPLOYMENT_KIND=container\nSERVICE_KIND=system\nREPO_URL=%s\n' "$ISOMUX_REPO" > "$CONTAINER_STAGE/client-update.conf"
+  chmod 644 "$CONTAINER_STAGE/client-update.conf"
+  if [[ -n $CONTAINER_REPAIR ]]; then
+    install -m 644 "$CONTAINER_STAGE/client-update.conf" "$CONTAINER_DIR/client-update.conf"
+  fi
+  bash "$CONTAINER_STAGE/install-update-support.sh" "$CONTAINER_STAGE"
 }
 
 container_start() {
@@ -4415,6 +4448,7 @@ container_main() (
   container_install_packages
   container_check_docker
   container_select_image
+  container_install_updater
   container_write_settings
   # Validate and recheck before stopping a working container or proxy.
   caddy validate --config "$CONTAINER_STAGE/Caddyfile" --adapter caddyfile
@@ -4429,12 +4463,117 @@ container_main() (
   systemctl enable caddy
   install_caddyfile_transaction "$rendered"
   log "Office ready at https://$DOMAIN. Create the first owner with the setup key in $CONTAINER_DIR/office.env."
-  log "Container updates use the snapshot and image replacement instructions; the host updater is not installed."
+  log "Owners can apply releases from the office Updates pane."
 )
 
 container_assets() {
   local directory=$1
   mkdir -p "$directory/seccomp"
+  cat > "$directory/update-helper.py" <<'ISOMUX_CONTAINER_UPDATE_HELPER'
+#!/usr/bin/python3
+"""One socket connection can enqueue one fixed release update operation."""
+import json
+import re
+import subprocess
+import sys
+
+TAG = re.compile(r"v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?", re.ASCII)
+ENV = {"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/root"}
+
+
+def unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate field")
+        result[key] = value
+    return result
+
+
+def request(raw, run=subprocess.run):
+    try:
+        if len(raw) > 256 or not raw.endswith(b"\n"):
+            raise ValueError("invalid framing")
+        body = json.loads(raw, object_pairs_hook=unique_object)
+        if not isinstance(body, dict) or set(body) != {"tag"}:
+            raise ValueError("invalid fields")
+        tag = body["tag"]
+        if not isinstance(tag, str) or TAG.fullmatch(tag) is None:
+            raise ValueError("invalid tag")
+        result = run(["/usr/bin/systemctl", "start", "--no-block",
+                      "isomux-update@" + tag + ".service"],
+                     env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, timeout=10, check=False)
+        return result.returncode == 0
+    except (ValueError, UnicodeError, OSError, subprocess.SubprocessError):
+        return False
+
+
+if __name__ == "__main__":
+    accepted = request(sys.stdin.buffer.read(257))
+    if not accepted:
+        print("Container update request refused", file=sys.stderr)
+    print(json.dumps({"ok": accepted}), flush=True)
+ISOMUX_CONTAINER_UPDATE_HELPER
+  cat > "$directory/isomux-container-update.socket" <<'ISOMUX_CONTAINER_UPDATE_SOCKET'
+[Unit]
+Description=Isomux container update requests
+
+[Socket]
+ListenStream=/run/isomux-update/request.sock
+SocketUser=root
+SocketGroup=root
+SocketMode=0666
+DirectoryMode=0755
+Accept=yes
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
+ISOMUX_CONTAINER_UPDATE_SOCKET
+  cat > "$directory/isomux-container-update@.service" <<'ISOMUX_CONTAINER_UPDATE_SERVICE'
+[Unit]
+Description=Isomux container update request
+
+[Service]
+ExecStart=/usr/bin/python3 -I /usr/local/lib/isomux/container-update-helper.py
+User=root
+Group=root
+StandardInput=socket
+StandardOutput=socket
+StandardError=journal
+RuntimeMaxSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ISOMUX_CONTAINER_UPDATE_SERVICE
+  cat > "$directory/install-update-support.sh" <<'ISOMUX_CONTAINER_UPDATE_INSTALL'
+#!/usr/bin/env bash
+# Run only with release assets in root-owned storage.
+set -euo pipefail
+[[ $EUID == 0 && $# == 1 ]] || exit 1
+assets=$1
+install -d -m 755 /usr/local/lib/isomux /etc/isomux
+install -d -m 700 /var/lib/isomux-update
+install -m 755 "$assets/update.sh" /usr/local/sbin/isomux-update.new
+mv -f /usr/local/sbin/isomux-update.new /usr/local/sbin/isomux-update
+install -m 644 "$assets/update-helper.py" /usr/local/lib/isomux/container-update-helper.py
+install -m 644 "$assets/isomux-container-update.socket" /etc/systemd/system/isomux-container-update.socket
+install -m 644 "$assets/isomux-container-update@.service" /etc/systemd/system/isomux-container-update@.service
+cat > /etc/systemd/system/isomux-update@.service <<'UNIT'
+[Unit]
+Description=Isomux update to release %i
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/isomux-update %i
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root
+UNIT
+chmod 644 /etc/systemd/system/isomux-update@.service
+systemctl daemon-reload
+systemctl enable --now isomux-container-update.socket
+ISOMUX_CONTAINER_UPDATE_INSTALL
   cat > "$directory/compose.yaml" <<'ISOMUX_CONTAINER_COMPOSE'
 name: isomux
 services:
@@ -4458,6 +4597,18 @@ services:
       - type: bind
         source: /srv/isomux-data
         target: /var/data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /run/isomux-update
+        target: /run/isomux-update
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/isomux-container/client-update.conf
+        target: /etc/isomux/update.conf
+        read_only: true
         bind:
           create_host_path: false
     logging:

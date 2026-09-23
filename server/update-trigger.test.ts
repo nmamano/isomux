@@ -173,3 +173,10 @@ describe("triggerUpdate (conf via ISOMUX_UPDATE_CONF, runner injected)", () => {
     expect(ran).toBe(false);
   });
 });
+
+describe("container trigger plan", () => {
+  it("uses the fixed socket bridge and preserves the system response contract", () => {
+    const plan = buildTriggerPlan({ state: "parsed", values: { SERVICE_KIND: "system", DEPLOYMENT_KIND: "container", UPDATER_PATH: "/untrusted", SOCKET_PATH: "/untrusted" } }, "v2099.1.2");
+    expect(plan).toEqual({ ok: true, via: "system", argv: [], socket: true });
+  });
+});

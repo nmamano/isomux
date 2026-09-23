@@ -22,6 +22,18 @@ services:
         target: /var/data
         bind:
           create_host_path: false
+      - type: bind
+        source: /run/isomux-update
+        target: /run/isomux-update
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /opt/isomux-container/client-update.conf
+        target: /etc/isomux/update.conf
+        read_only: true
+        bind:
+          create_host_path: false
     logging:
       driver: local
       options:

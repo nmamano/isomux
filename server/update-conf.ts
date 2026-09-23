@@ -4,7 +4,7 @@
 // The server is a secondary READER with two uses:
 //   - presence of the file is the "this box is updater-managed" signal that
 //     switches the update checker into release mode (server/update-checker.ts);
-//   - SERVICE_KIND / UPDATER_PATH / REPO_URL parameterize the in-UI update
+//   - DEPLOYMENT_KIND / SERVICE_KIND / UPDATER_PATH / REPO_URL select the in-UI update
 //     trigger (server/update-trigger.ts).
 //
 // PRESENCE and PARSE SUCCESS are separate signals: a managed VPS with a

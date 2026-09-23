@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Update an installed isomux to a pinned release tag, rolling back on failure.
+# Update an installed isomux to a pinned release tag.
+# Git installs retain rollback; containers replace the image on the existing mount.
 # (Release-channel slice C1, internal-docs/release-design.md.)
 #
 # Usage:  isomux-update vYYYY.M.D[.N] [--allow-downgrade]
@@ -49,7 +50,8 @@
 # which lives OUTSIDE the state root because rollback replaces the state
 # root wholesale.
 #
-# update.conf keys (all required unless noted):
+# update.conf keys (Git deployment keys below; container keys follow):
+#   DEPLOYMENT_KIND (optional, default git): git | container
 #   REPO_DIR       the isomux git checkout the service runs from
 #   REPO_URL       upstream repo the trust fetches pull from (the tag
 #                  authority; never the service checkout's own remote config)
@@ -63,6 +65,9 @@
 #   BASE_URL       loopback base for the readiness poll
 #   UPDATER_PATH   (optional) installed copy to refresh on success
 #   READY_TIMEOUT_S (optional, default 90)
+# Container mode requires REPO_URL, SERVICE_KIND=system,
+# SERVICE_NAME=isomux-container, STATUS_DIR and BASE_URL. It uses the fixed
+# /opt/isomux-container installation and official image repository.
 
 set -Eeuo pipefail
 
@@ -135,14 +140,21 @@ load_config() {
     key=${line%%=*}
     value=${line#*=}
     case $key in
-      REPO_DIR | REPO_URL | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | STATE_ROOT | SNAPSHOT_DIR | STATUS_DIR | BUN | BASE_URL | UPDATER_PATH | READY_TIMEOUT_S)
+      DEPLOYMENT_KIND | REPO_DIR | REPO_URL | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | STATE_ROOT | SNAPSHOT_DIR | STATUS_DIR | BUN | BASE_URL | UPDATER_PATH | READY_TIMEOUT_S)
         printf -v "$key" '%s' "$value"
         ;;
       *) die "unknown key in $CONF: $key" ;;
     esac
   done <"$CONF"
   local k
-  for k in REPO_DIR REPO_URL SERVICE_NAME SERVICE_KIND STATE_ROOT SNAPSHOT_DIR STATUS_DIR BUN BASE_URL; do
+  DEPLOYMENT_KIND=${DEPLOYMENT_KIND:-git}
+  local required="REPO_URL SERVICE_NAME SERVICE_KIND STATUS_DIR BASE_URL"
+  case $DEPLOYMENT_KIND in
+    git) required+=" REPO_DIR STATE_ROOT SNAPSHOT_DIR BUN" ;;
+    container) [[ $EUID -eq 0 && ${SERVICE_KIND:-} == system && ${SERVICE_NAME:-} == isomux-container ]] || die "container updates need the root container service" ;;
+    *) die "unknown DEPLOYMENT_KIND" ;;
+  esac
+  for k in $required; do
     [[ -n ${!k:-} ]] || die "config is missing $k: $CONF"
   done
   # Defense in depth on the one externally-influenced value: a git URL or
@@ -153,9 +165,11 @@ load_config() {
   case $SERVICE_KIND in
     system)
       [[ $EUID -eq 0 ]] || die "SERVICE_KIND=system needs root (systemctl + runuser)"
+      if [[ $DEPLOYMENT_KIND == git ]]; then
       [[ -n ${SERVICE_USER:-} ]] || die "config is missing SERVICE_USER"
       SERVICE_USER_HOME=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
       [[ -n $SERVICE_USER_HOME ]] || die "no such user: $SERVICE_USER"
+      fi
       ;;
     user) ;;
     *) die "SERVICE_KIND must be system or user: $SERVICE_KIND" ;;
@@ -379,6 +393,9 @@ prune_glob() {
 on_error() {
   local failed_phase=$PHASE
   trap - ERR
+  if [[ $DEPLOYMENT_KIND == container ]]; then
+    die "container update failed during $failed_phase; check the updater and container service logs"
+  fi
   case $failed_phase in
     deps) die "could not install $TARGET_TAG's system dependencies; the checkout, its dependencies, the built UI and the office state are unchanged and the service is still running $OLD_DESC, but system package changes may be partial" ;;
     checkout | install | build) fail_build ;;
@@ -388,61 +405,16 @@ on_error() {
   esac
 }
 
-# --- Main -------------------------------------------------------------------
-
-main() {
-  local arg
-  for arg in "$@"; do
-    case $arg in
-      --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
-      -*) die "unknown flag: $arg" ;;
-      *)
-        [[ -z $TARGET_TAG ]] || die "exactly one target tag expected"
-        TARGET_TAG=$arg
-        ;;
-    esac
-  done
-  [[ -n $TARGET_TAG ]] || die "usage: isomux-update vYYYY.M.D[.N] [--allow-downgrade]"
-  [[ $TARGET_TAG =~ $CALVER_RE ]] || die "not a CalVer release tag (vYYYY.M.D[.N]): $TARGET_TAG"
-
-  load_config
-
-  # Never run the copy inside the repo the update is about to rewrite.
-  local self
-  self=$(readlink -f "$0")
-  if [[ $self == "$REPO_DIR"/* && -z ${ISOMUX_UPDATE_REEXEC:-} ]]; then
-    local tmp
-    tmp=$(mktemp /tmp/isomux-update.XXXXXXXXXX)
-    cat "$self" >"$tmp"
-    chmod 700 "$tmp"
-    log "running from inside $REPO_DIR; re-executing a temp copy"
-    ISOMUX_UPDATE_REEXEC=1 exec bash "$tmp" "$@"
-  fi
-  # The re-exec temp copy deletes itself when done (bash holds it open).
-  [[ -n ${ISOMUX_UPDATE_REEXEC:-} && $self == /tmp/* ]] && trap 'rm -f "$self"' EXIT
-
-  install -d -m 700 "$STATUS_DIR" "$SNAPSHOT_DIR"
-  exec 9>"$STATUS_DIR/lock"
-  flock -n 9 || die "another update is already running (lock: $STATUS_DIR/lock)"
-
-  trap on_error ERR
-
-  phase validate
+git_validate() {
   [[ -d $REPO_DIR/.git ]] || die "not a git checkout: $REPO_DIR"
   [[ -z $(as_repo_user git -C "$REPO_DIR" status --porcelain) ]] ||
     die "checkout is dirty: $REPO_DIR - refusing to update over local changes"
   OLD_COMMIT=$(as_repo_user git -C "$REPO_DIR" rev-parse HEAD)
   OLD_DESC=$(as_repo_user git -C "$REPO_DIR" describe --tags --always --match 'v*')
 
-  phase fetch
-  # Resolve the tag in root-owned space, against the configured upstream
-  # only. The non-forced refspec makes a moved tag an error, not an update.
-  [[ -d $TRUST_REPO ]] || git init -q --bare "$TRUST_REPO"
-  git -C "$TRUST_REPO" fetch -q --depth 1 "$REPO_URL" "refs/tags/$TARGET_TAG:refs/tags/$TARGET_TAG" ||
-    die "release tag $TARGET_TAG not found at $REPO_URL (or the tag moved upstream - release tags are immutable)"
-  local target_commit
-  target_commit=$(git -C "$TRUST_REPO" rev-parse -q --verify "refs/tags/$TARGET_TAG^{commit}") ||
-    die "could not resolve $TARGET_TAG to a commit in the trust repo"
+ }
+
+git_prepare() {
   # Bun-pin heads-up BEFORE any mutation, read from the trusted objects.
   local pinned have
   pinned=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
@@ -568,10 +540,9 @@ main() {
   phase build
   as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' run build:ui"
 
-  phase stop
-  svc stop "$SERVICE_NAME"
-  wait_inactive
+ }
 
+git_state() {
   phase snapshot
   if [[ -d $STATE_ROOT ]]; then
     SNAPSHOT="$SNAPSHOT_DIR/pre-update-$(json_sanitize "$OLD_DESC")-to-$TARGET_TAG-$(date +%Y%m%d-%H%M%S).tar.gz"
@@ -587,15 +558,13 @@ main() {
     log "no state root at $STATE_ROOT yet; skipping the snapshot (a rollback removes whatever the new version creates)"
   fi
 
-  phase start
-  svc start "$SERVICE_NAME"
+ }
 
-  phase readiness
+git_ready() {
   ready_poll "$READY_TIMEOUT_S" || fail_ready
-  check_public_front_door
+}
 
-  phase finalize
-  trap - ERR
+git_finalize() {
   # Refresh the installed updater from the ROOT-OWNED trust objects. The
   # service checkout must never be the source: the service user (which
   # agents run as) could have replaced scripts/update.sh there while the
@@ -611,6 +580,156 @@ main() {
     fi
     rm -f "$newupd"
   fi
+ }
+
+# Container operations use only installer-owned paths and trusted release files.
+CONTAINER_DIR=/opt/isomux-container
+CONTAINER_IMAGE=ghcr.io/nmamano/isomux
+
+container_compose() {
+  (cd "$CONTAINER_DIR" && env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root \
+    docker compose --env-file office.env -f compose.yaml "$@")
+}
+
+container_validate() {
+  [[ -d $CONTAINER_DIR && ! -L $CONTAINER_DIR ]] || die "container installation is absent"
+  OLD_DESC=$(cat "$CONTAINER_DIR/release")
+  OLD_COMMIT=$(cat "$CONTAINER_DIR/revision")
+  [[ $OLD_DESC =~ $CALVER_RE && $OLD_COMMIT =~ ^[a-f0-9]{40}$ ]] || die "invalid container installation record"
+  "$CONTAINER_DIR/mount-check.sh"
+}
+
+container_prepare() {
+  if [[ $TARGET_TAG == "$OLD_DESC" && $target_commit == "$OLD_COMMIT" ]]; then
+    write_status ok "already on $TARGET_TAG"
+    exit 0
+  fi
+  if [[ $(printf '%s\n' "$TARGET_TAG" "$OLD_DESC" | sort -V | head -1) == "$TARGET_TAG" && -z $ALLOW_DOWNGRADE ]]; then
+    die "$TARGET_TAG is older than $OLD_DESC; pass --allow-downgrade to continue"
+  fi
+  phase image
+  docker pull "$CONTAINER_IMAGE:$TARGET_TAG"
+  local revision
+  CONTAINER_DIGEST=$(docker image inspect "$CONTAINER_IMAGE:$TARGET_TAG" --format '{{json .RepoDigests}}' |
+    jq -er --arg prefix "$CONTAINER_IMAGE@sha256:" '[.[] | select(startswith($prefix))] | if length == 1 then .[0] else error("ambiguous digest") end')
+  [[ $CONTAINER_DIGEST == "$CONTAINER_IMAGE@sha256:"* && ${CONTAINER_DIGEST##*@sha256:} =~ ^[a-f0-9]{64}$ ]] || die "invalid image digest"
+  docker pull "$CONTAINER_DIGEST"
+  revision=$(docker image inspect "$CONTAINER_DIGEST" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')
+  [[ $revision == "$target_commit" ]] || die "image source revision does not match the release"
+  phase assets
+  CONTAINER_STAGE=$(mktemp -d "$STATUS_DIR/release.XXXXXXXX")
+  trap 'rm -rf -- "$CONTAINER_STAGE"' EXIT
+  mkdir "$CONTAINER_STAGE/seccomp"
+  local name
+  for name in compose.yaml isomux-container.service mount-check.sh seccomp/chromium.json seccomp/LICENSE update-helper.py isomux-container-update.socket isomux-container-update@.service install-update-support.sh; do
+    git -C "$TRUST_REPO" cat-file -p "$target_commit:deploy/container/$name" > "$CONTAINER_STAGE/$name"
+  done
+  git -C "$TRUST_REPO" cat-file -p "$target_commit:scripts/update.sh" > "$CONTAINER_STAGE/update.sh"
+  git -C "$TRUST_REPO" cat-file -p "$target_commit:deploy/install.sh" | sha256sum | cut -d ' ' -f 1 > "$CONTAINER_STAGE/installer.sha256"
+  # Keep the existing root-owned settings; replace only the image assignment.
+  sed "s|^ISOMUX_IMAGE=.*$|ISOMUX_IMAGE=$CONTAINER_DIGEST|" "$CONTAINER_DIR/office.env" > "$CONTAINER_STAGE/office.env"
+  grep -qx "ISOMUX_IMAGE=$CONTAINER_DIGEST" "$CONTAINER_STAGE/office.env" || die "image setting is absent"
+  chmod 600 "$CONTAINER_STAGE/office.env"
+  cp "$CONTAINER_DIR/client-update.conf" "$CONTAINER_STAGE/client-update.conf"
+  (cd "$CONTAINER_STAGE" && env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root \
+    docker compose --env-file office.env -f compose.yaml config --quiet)
+}
+
+container_state() {
+  phase publish
+  local name
+  for name in compose.yaml isomux-container.service seccomp/chromium.json seccomp/LICENSE office.env update.sh update-helper.py isomux-container-update.socket isomux-container-update@.service install-update-support.sh; do
+    install -m 600 "$CONTAINER_STAGE/$name" "$CONTAINER_DIR/$name"
+  done
+  install -m 755 "$CONTAINER_STAGE/mount-check.sh" "$CONTAINER_DIR/mount-check.sh"
+  install -m 644 "$CONTAINER_STAGE/isomux-container.service" /etc/systemd/system/isomux-container.service
+  bash "$CONTAINER_STAGE/install-update-support.sh" "$CONTAINER_STAGE"
+}
+
+container_ready() {
+  ready_poll "$READY_TIMEOUT_S" || die "container did not become ready"
+  local identity
+  identity=$(container_compose exec -T office bun -e 'import {getVersionInfo} from "./server/version.ts"; console.log(JSON.stringify(getVersionInfo()))')
+  jq -e --arg commit "$target_commit" --arg release "$TARGET_TAG" '.commit == $commit and .release == $release' <<<"$identity" >/dev/null || die "running container version does not match the release"
+}
+
+container_finalize() {
+  printf '%s\n' "$TARGET_TAG" > "$CONTAINER_DIR/release"
+  printf '%s\n' "$target_commit" > "$CONTAINER_DIR/revision"
+  printf '%s\n' "$CONTAINER_DIGEST" > "$CONTAINER_DIR/image"
+  install -m 600 "$CONTAINER_STAGE/installer.sha256" "$CONTAINER_DIR/installer.sha256"
+}
+
+# --- Main -------------------------------------------------------------------
+
+main() {
+  local arg
+  for arg in "$@"; do
+    case $arg in
+      --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
+      -*) die "unknown flag: $arg" ;;
+      *)
+        [[ -z $TARGET_TAG ]] || die "exactly one target tag expected"
+        TARGET_TAG=$arg
+        ;;
+    esac
+  done
+  [[ -n $TARGET_TAG ]] || die "usage: isomux-update vYYYY.M.D[.N] [--allow-downgrade]"
+  [[ $TARGET_TAG =~ $CALVER_RE ]] || die "not a CalVer release tag (vYYYY.M.D[.N]): $TARGET_TAG"
+
+  load_config
+
+  # Never run the copy inside the repo the update is about to rewrite.
+  local self
+  self=$(readlink -f "$0")
+  if [[ $DEPLOYMENT_KIND == git && $self == "${REPO_DIR:-}"/* && -z ${ISOMUX_UPDATE_REEXEC:-} ]]; then
+    local tmp
+    tmp=$(mktemp /tmp/isomux-update.XXXXXXXXXX)
+    cat "$self" >"$tmp"
+    chmod 700 "$tmp"
+    log "running from inside $REPO_DIR; re-executing a temp copy"
+    ISOMUX_UPDATE_REEXEC=1 exec bash "$tmp" "$@"
+  fi
+  # The re-exec temp copy deletes itself when done (bash holds it open).
+  [[ -n ${ISOMUX_UPDATE_REEXEC:-} && $self == /tmp/* ]] && trap 'rm -f "$self"' EXIT
+
+  install -d -m 700 "$STATUS_DIR"
+  if [[ $DEPLOYMENT_KIND == git ]]; then install -d -m 700 "$SNAPSHOT_DIR"; fi
+  exec 9>"$STATUS_DIR/lock"
+  flock -n 9 || die "another update is already running (lock: $STATUS_DIR/lock)"
+
+  trap on_error ERR
+
+  phase validate
+  "${DEPLOYMENT_KIND}_validate"
+
+  phase fetch
+  # Resolve the tag in root-owned space, against the configured upstream
+  # only. The non-forced refspec makes a moved tag an error, not an update.
+  [[ -d $TRUST_REPO ]] || git init -q --bare "$TRUST_REPO"
+  git -C "$TRUST_REPO" fetch -q --depth 1 "$REPO_URL" "refs/tags/$TARGET_TAG:refs/tags/$TARGET_TAG" ||
+    die "release tag $TARGET_TAG not found at $REPO_URL (or the tag moved upstream - release tags are immutable)"
+  local target_commit
+  target_commit=$(git -C "$TRUST_REPO" rev-parse -q --verify "refs/tags/$TARGET_TAG^{commit}") ||
+    die "could not resolve $TARGET_TAG to a commit in the trust repo"
+  "${DEPLOYMENT_KIND}_prepare"
+
+  phase stop
+  svc stop "$SERVICE_NAME"
+  wait_inactive
+
+  "${DEPLOYMENT_KIND}_state"
+
+  phase start
+  svc start "$SERVICE_NAME"
+
+  phase readiness
+  "${DEPLOYMENT_KIND}_ready"
+  check_public_front_door
+
+  phase finalize
+  trap - ERR
+  "${DEPLOYMENT_KIND}_finalize"
   if [[ -n $DEPS_WARNING ]]; then
     write_status ok "updated $OLD_DESC -> $TARGET_TAG; warning: $DEPS_WARNING"
   else

@@ -16,6 +16,11 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const INSTALL_SH = `${ROOT}deploy/install.sh`;
 
 export const EMBEDDED = [
+  { path: "deploy/container/update-helper.py", delimiter: "ISOMUX_CONTAINER_UPDATE_HELPER" },
+  { path: "deploy/container/isomux-container-update.socket", delimiter: "ISOMUX_CONTAINER_UPDATE_SOCKET" },
+  { path: "deploy/container/isomux-container-update@.service", delimiter: "ISOMUX_CONTAINER_UPDATE_SERVICE" },
+  { path: "deploy/container/install-update-support.sh", delimiter: "ISOMUX_CONTAINER_UPDATE_INSTALL" },
+
   {
     path: "deploy/container/compose.yaml",
     delimiter: "ISOMUX_CONTAINER_COMPOSE",

@@ -247,22 +247,20 @@ sudo journalctl -u isomux-container.service -n 50 --no-pager
 sudo tail -n 50 /srv/isomux-data/home/.isomux/container-runtime/office.log
 ```
 
-## Update and restore
+## Updates
 
-Pull the next immutable image before the outage. Stop the host unit with
-`sudo systemctl stop isomux-container`. Confirm the office container is stopped,
-run `sudo sync`, and then snapshot the complete EBS volume. Record the old image digest with that
-snapshot. Change `ISOMUX_IMAGE` in `office.env` to the new digest, preserve the existing setup-key state,
-and start the unit. Use the new release's reviewed Compose, seccomp, unit, and mount-check files together. After a manual
-release change, use manual maintenance; the original installer record is no
-longer a matching repair target. Check the owner, provider connections,
-project files, and running/stopped apps. Never start a second writer to reduce
-the outage.
+Open **Updates** in the office header and apply the new release as an owner.
+Finish active agent work first. The host updater replaces the container and
+interrupts the office and its apps. Keep the pane open until the office returns;
+it checks the running version and offers a browser refresh.
 
-To roll back stored-state changes, stop the unit and restore the matching data
-snapshot and previous image together. Test restoration on an isolated mount.
-The office's own backup does not cover the complete home/workspace mount and
-does not protect against volume loss. Keep independent snapshots.
+The installer installs the host update support. Routine updates need no AWS
+console or SSH commands. The updater reuses the data disk. Container updates do
+not take a snapshot or roll back automatically. Keep independent backups of the
+complete EBS volume.
+
+If an update fails, check `sudo journalctl -u 'isomux-update@*'` and
+`sudo journalctl -u isomux-container.service` on the host.
 
 ## Add devices and keep backups
 

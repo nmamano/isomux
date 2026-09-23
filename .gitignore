@@ -33,3 +33,6 @@ internal-docs/codex-hook-foundation/evidence/live-matrix.json
 
 browser-extension/dist.zip
 browser-extension/dist.zip.*.tmp
+
+# Python test and tooling bytecode.
+__pycache__/

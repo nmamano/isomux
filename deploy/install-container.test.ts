@@ -93,6 +93,12 @@ curl() {
 dpkg-query() { [[ ! -e "$FIXTURE/default-caddy" ]] || printf '/etc/caddy/Caddyfile %s\\n' "$(md5sum "$FIXTURE/default-caddy" | cut -d ' ' -f 1)"; }
 container_require_root() { :; }
 preflight() { printf 'preflight\\n' >> "$FIXTURE/events"; }
+container_install_updater() {
+  printf 'container-updater\\n' >> "$FIXTURE/events"
+  printf 'DEPLOYMENT_KIND=container\\nSERVICE_KIND=system\\n' > "$UPDATE_CONF"
+  printf 'DEPLOYMENT_KIND=container\\nSERVICE_KIND=system\\n' > "$CONTAINER_STAGE/client-update.conf"
+  chmod 644 "$CONTAINER_STAGE/client-update.conf"
+}
 container_install_packages() { printf 'packages\\n' >> "$FIXTURE/events"; }
 configure_firewall() { printf 'firewall\\n' >> "$FIXTURE/events"; }
 enable_auto_updates() { printf 'security-updates\\n' >> "$FIXTURE/events"; }
@@ -174,6 +180,8 @@ describe("container installer", () => {
     const dir = fixture();
     const first = run(dir, "container_main");
     expect(first).toEqual({ code: 0, out: expect.any(String), err: "" });
+    expect(events(dir).indexOf("container-updater")).toBeGreaterThanOrEqual(0);
+    expect(events(dir).indexOf("container-updater")).toBeLessThan(events(dir).indexOf("systemctl restart isomux-container.service"));
     const env = readFileSync(join(dir, "config/office.env"), "utf8");
     const key = env.match(/ISOMUX_SETUP_KEY=(.+)/)![1];
     expect(key).toMatch(/^[a-f0-9]{64}$/);
@@ -436,7 +444,7 @@ container_install_packages
 `;
     expect(run(dir, script).code).toBe(0);
     expect(events(dir)).toContain(
-      "packages ca-certificates curl gnupg jq openssl ufw unattended-upgrades",
+      "packages ca-certificates curl gnupg git python3 jq openssl ufw unattended-upgrades",
     );
     expect(events(dir)).toContain("packages caddy");
     expect(events(dir)).not.toMatch(
@@ -528,6 +536,11 @@ container_install_packages
     expect(service.volumes[0].source).toBe("/srv/isomux-data");
     expect(service.volumes[0].target).toBe("/var/data");
     expect(service.volumes[0].bind.create_host_path ?? false).toBe(false);
+    expect(service.volumes.slice(1).map((volume: { source: string; target: string; read_only: boolean }) => [volume.source, volume.target, volume.read_only])).toEqual([
+      ["/run/isomux-update", "/run/isomux-update", true],
+      ["/opt/isomux-container/client-update.conf", "/etc/isomux/update.conf", true],
+    ]);
+    expect(service.volumes.some((volume: { source: string }) => volume.source.includes("docker.sock"))).toBe(false);
     expect(service.security_opt).toEqual(["seccomp=./seccomp/chromium.json"]);
     expect(service.privileged ?? false).toBe(false);
   });
@@ -556,4 +569,51 @@ container_install_packages
       expect(existsSync(join(dir, "config"))).toBe(false);
     }
   });
+});
+
+
+it("updater finalization preserves the installer rerun record contract", () => {
+  const dir = fixture();
+  expect(run(dir, "container_main").code).toBe(0);
+  const updater = readFileSync(new URL("../scripts/update.sh", import.meta.url), "utf8");
+  const finalize = updater.slice(updater.indexOf("container_finalize() {"), updater.indexOf("# --- Main", updater.indexOf("container_finalize() {")));
+  const result = run(dir, finalize + `
+CONTAINER_STAGE="$FIXTURE/next"
+container_assets "$CONTAINER_STAGE"
+cp "$CONTAINER_DIR/installer.sha256" "$CONTAINER_STAGE/installer.sha256"
+TARGET_TAG=v2099.1.2
+target_commit=${"b".repeat(40)}
+CONTAINER_DIGEST=${digest}
+container_finalize
+ISOMUX_REF=$TARGET_TAG
+CONTAINER_REVISION=$target_commit
+CONTAINER_UUID=fixture-uuid
+container_check_saved
+`);
+  expect(result.code).toBe(0);
+  expect(statSync(join(dir, "config/office.env")).mode & 0o777).toBe(0o600);
+  expect(readFileSync(join(dir, "config/release"), "utf8").trim()).toBe("v2099.1.2");
+  expect(readFileSync(join(dir, "config/revision"), "utf8").trim()).toBe("b".repeat(40));
+});
+
+
+it("other-office guard accepts its container config on retry and refuses host or ambiguous configs", () => {
+  const dir = fixture();
+  for (const conf of ["DEPLOYMENT_KIND=container\nSERVICE_KIND=system\n", "SERVICE_KIND=system\nDEPLOYMENT_KIND=container\n"]) {
+    writeFileSync(join(dir, "update.conf"), conf);
+    expect(run(dir, "container_check_other_office").code).toBe(0);
+  }
+  for (const conf of ["SERVICE_KIND=system\n", "DEPLOYMENT_KIND=git\n", "DEPLOYMENT_KIND=container\nDEPLOYMENT_KIND=git\n", "DEPLOYMENT_KIND=container\nDEPLOYMENT_KIND=container\n"]) {
+    writeFileSync(join(dir, "update.conf"), conf);
+    expect(run(dir, "container_check_other_office").code).not.toBe(0);
+  }
+});
+
+it("retries a first install interrupted after writing the container updater config", () => {
+  const dir = fixture();
+  const interrupted = run(dir, `container_start() { return 1; }; container_main`);
+  expect(interrupted.code).not.toBe(0);
+  expect(existsSync(join(dir, "update.conf"))).toBe(true);
+  expect(existsSync(join(dir, "config"))).toBe(false);
+  expect(run(dir, "container_main").code).toBe(0);
 });

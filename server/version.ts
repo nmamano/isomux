@@ -1,13 +1,14 @@
 // Version identity for this deployment (see internal-docs/release-design.md).
 //
-// Every deployment is a git checkout (dev box or installer-managed
-// /opt/isomux), so git is the single source of truth: releases are annotated
+// Direct-host deployments use a Git checkout; containers use a build-generated
+// identity record when Git is absent. Releases are annotated
 // CalVer tags, and deriving the version from the checkout means nothing (a
 // package.json field, a constant) can drift from what is actually running.
 // When git is unavailable the fields are null rather than a guess.
 
 import { execSync } from "child_process";
 import { join } from "path";
+import { readFileSync, statSync } from "fs";
 
 export interface VersionInfo {
   // Human-readable identity: the exact tag when HEAD is a release
@@ -49,8 +50,29 @@ function git(root: string, args: string): string | null {
 // release - release consumers treat non-null as "pinned to the channel".
 export const CALVER_RELEASE_RE = /^v\d{4}\.\d{1,2}\.\d{1,2}(\.\d+)?$/;
 
+// Container builds export this record from the selected committed revision.
+// Invalid or absent metadata never invents a version.
+function imageVersion(root: string): VersionInfo {
+  const unknown = { version: null, commit: null, release: null };
+  try {
+    const path = join(root, "version-info.json");
+    if (statSync(path).size > 4096) return unknown;
+    const v = JSON.parse(readFileSync(path, "utf8"));
+    if (!v || typeof v !== "object" || Array.isArray(v) ||
+        Object.keys(v).sort().join(",") !== "commit,release,version" ||
+        typeof v.commit !== "string" || !/^[a-f0-9]{40}$/.test(v.commit) ||
+        !(v.release === null || (typeof v.release === "string" && CALVER_RELEASE_RE.test(v.release) && !v.release.includes("\n"))) ||
+        v.version !== (v.release ?? v.commit)) return unknown;
+    return { version: v.version, commit: v.commit, release: v.release };
+  } catch {
+    return unknown;
+  }
+}
+
 // Uncached resolution against an explicit checkout - the testable seam.
 export function resolveVersionInfo(root: string): VersionInfo {
+  const commit = git(root, "rev-parse HEAD");
+  if (!commit) return imageVersion(root);
   // Enumerate ALL tags at HEAD rather than trusting `describe --exact-match`
   // to pick one: with a release tag and another v-tag on the same commit,
   // describe may return the non-CalVer tag and hide the release. Normally
@@ -65,7 +87,7 @@ export function resolveVersionInfo(root: string): VersionInfo {
       .at(-1) ?? null;
   return {
     version: git(root, "describe --tags --always --dirty --match 'v*'"),
-    commit: git(root, "rev-parse HEAD"),
+    commit,
     release,
   };
 }
