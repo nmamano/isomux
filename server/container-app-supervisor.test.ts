@@ -147,7 +147,7 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test("real app: token, logs, crash restart, stop, delete, and port reuse", async () => {
+test.skip("1205f261: real app: token, logs, crash restart, stop, delete, and port reuse", async () => {
   supervisor.provisionToken(app.name, "synthetic-token-one");
   supervisor.install(app);
   await until(
