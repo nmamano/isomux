@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,7 +16,10 @@ async function fixture(script: string) {
   const dir = mkdtempSync(join(tmpdir(), "isomux-container-ops-"));
   try {
     mkdirSync(join(dir, "status"));
-    writeFileSync(join(dir, "run.sh"), definitions + `
+    writeFileSync(
+      join(dir, "run.sh"),
+      definitions +
+        `
 DEPLOYMENT_KIND=container
 STATUS_DIR="$FIXTURE/status"
 CONTAINER_DIR="$FIXTURE"
@@ -19,11 +28,23 @@ OLD_DESC=v2099.1.1
 OLD_COMMIT=${"a".repeat(40)}
 target_commit=${"b".repeat(40)}
 READY_TIMEOUT_S=1
-` + script);
-    const proc = Bun.spawn(["bash", join(dir, "run.sh")], { env: { ...process.env, FIXTURE: dir }, stdout: "pipe", stderr: "pipe" });
-    const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+` +
+        script,
+    );
+    const proc = Bun.spawn(["bash", join(dir, "run.sh")], {
+      env: { ...process.env, FIXTURE: dir },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, out, err] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
     return { code, output: out + err };
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 test("container image revision mismatch fails before stopping the office", async () => {
@@ -51,5 +72,7 @@ container_ready
 `);
     expect(result.code).not.toBe(0);
     expect(result.output).toContain("running container version");
-  } finally { await ready.stop(true); }
+  } finally {
+    await ready.stop(true);
+  }
 });

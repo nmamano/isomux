@@ -151,11 +151,14 @@ export async function runTrigger(
 }
 
 // Only the tag crosses the host socket. The path is fixed, not config input.
-export async function runContainerTrigger(tag: string): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function runContainerTrigger(
+  tag: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   // Python owns the half-close/response exchange. It is already in the image
   // for the container supervisor; its CLI accepts only the tag.
   return runTrigger([
-    "python3", "-I",
+    "python3",
+    "-I",
     new URL("../deploy/container/update-client.py", import.meta.url).pathname,
     tag,
   ]);

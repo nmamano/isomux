@@ -40,8 +40,12 @@ export function updateHandlers(deps: UpdateDeps): Record<string, RouteHandler> {
     "office.updateInfo": () => ok(deps.getUpdateInfo()),
 
     "office.triggerUpdate": async (ctx) => {
-      if (!ctx.body || typeof ctx.body !== "object" || Array.isArray(ctx.body) ||
-          Object.keys(ctx.body).some((key) => key !== "tag")) {
+      if (
+        !ctx.body ||
+        typeof ctx.body !== "object" ||
+        Array.isArray(ctx.body) ||
+        Object.keys(ctx.body).some((key) => key !== "tag")
+      ) {
         return fail(400, "invalid_tag", "body must carry only a release tag");
       }
       const b = ctx.body as { tag?: unknown };

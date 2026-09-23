@@ -36,9 +36,8 @@ describe("complete hosting guides", () => {
         '.sidebar nav[aria-label="Documentation"]',
       )!;
       expect(
-        Array.from(
-          sidebar.querySelectorAll(".sidebar-subpages a"),
-          (link) => link.getAttribute("href"),
+        Array.from(sidebar.querySelectorAll(".sidebar-subpages a"), (link) =>
+          link.getAttribute("href"),
         ),
       ).toEqual(HOSTING_GUIDES.map((guide) => hostingUrl(guide.id)));
       const current = sidebar.querySelectorAll('a[aria-current="page"]');

@@ -296,16 +296,36 @@ describe("container update request boundary", () => {
   it("rejects operation fields and invalid tags before contacting the helper", async () => {
     dir = mkdtempSync(join(tmpdir(), "isomux-container-route-"));
     process.env.ISOMUX_UPDATE_CONF = join(dir, "update.conf");
-    writeFileSync(process.env.ISOMUX_UPDATE_CONF, "SERVICE_KIND=system\nDEPLOYMENT_KIND=container\n");
+    writeFileSync(
+      process.env.ISOMUX_UPDATE_CONF,
+      "SERVICE_KIND=system\nDEPLOYMENT_KIND=container\n",
+    );
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const member = await srv.seedMember("Member");
-    expect((await api(srv, "POST", { rawSessionId: member.rawSessionId, body: { tag: "v2099.1.2" } })).status).toBe(403);
-    for (const body of [null, [], { tag: "../other.service" }, { tag: "main" },
-      ...["command", "path", "unit", "docker", "operation"].map((key) => ({ tag: "v2099.1.2", [key]: "ignored" })),
+    expect(
+      (
+        await api(srv, "POST", {
+          rawSessionId: member.rawSessionId,
+          body: { tag: "v2099.1.2" },
+        })
+      ).status,
+    ).toBe(403);
+    for (const body of [
+      null,
+      [],
+      { tag: "../other.service" },
+      { tag: "main" },
+      ...["command", "path", "unit", "docker", "operation"].map((key) => ({
+        tag: "v2099.1.2",
+        [key]: "ignored",
+      })),
     ]) {
-      expect((await api(srv, "POST", { rawSessionId: owner.rawSessionId, body })).status).toBe(400);
+      expect(
+        (await api(srv, "POST", { rawSessionId: owner.rawSessionId, body }))
+          .status,
+      ).toBe(400);
     }
   });
 });

@@ -124,7 +124,7 @@ The root config is `/etc/isomux/update.conf`; the installed updater is
 boot. Container builds include commit and release metadata from the selected
 committed source revision.
 
-The [AWS guide](README.md#updates) describes the owner flow. Custom container
+The [AWS guide](README.md#update-the-office) describes the owner flow. Custom container
 providers use their own deployment controls.
 
 Development test commands, tested source revisions, and acceptance limits are

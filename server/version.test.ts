@@ -171,7 +171,11 @@ describe("resolveReachableRelease", () => {
 describe("container build identity", () => {
   it("uses valid metadata without Git, but Git takes precedence", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-image-version-"));
-    const identity = { commit: "a".repeat(40), release: "v2099.1.2", version: "v2099.1.2" };
+    const identity = {
+      commit: "a".repeat(40),
+      release: "v2099.1.2",
+      version: "v2099.1.2",
+    };
     try {
       writeFileSync(join(dir, "version-info.json"), JSON.stringify(identity));
       expect(resolveVersionInfo(dir)).toEqual(identity);
@@ -185,17 +189,31 @@ describe("container build identity", () => {
 
   it("rejects malformed, oversized and inconsistent image metadata", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-image-invalid-"));
-    const identity = { commit: "a".repeat(40), release: "v2099.1.2", version: "v2099.1.2" };
+    const identity = {
+      commit: "a".repeat(40),
+      release: "v2099.1.2",
+      version: "v2099.1.2",
+    };
     try {
-      for (const raw of ["null", "[]", "{", " ".repeat(4097),
+      for (const raw of [
+        "null",
+        "[]",
+        "{",
+        " ".repeat(4097),
         JSON.stringify({ ...identity, commit: "main" }),
         JSON.stringify({ ...identity, release: "main" }),
         JSON.stringify({ ...identity, version: "v2099.1.3" }),
         JSON.stringify({ ...identity, command: "anything" }),
       ]) {
         writeFileSync(join(dir, "version-info.json"), raw);
-        expect(resolveVersionInfo(dir)).toEqual({ commit: null, release: null, version: null });
+        expect(resolveVersionInfo(dir)).toEqual({
+          commit: null,
+          release: null,
+          version: null,
+        });
       }
-    } finally { rmSync(dir, { recursive: true, force: true }); }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

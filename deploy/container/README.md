@@ -247,20 +247,14 @@ sudo journalctl -u isomux-container.service -n 50 --no-pager
 sudo tail -n 50 /srv/isomux-data/home/.isomux/container-runtime/office.log
 ```
 
-## Updates
+## Update the office
 
-Open **Updates** in the office header and apply the new release as an owner.
-Finish active agent work first. The host updater replaces the container and
-interrupts the office and its apps. Keep the pane open until the office returns;
-it checks the running version and offers a browser refresh.
+When the office header reports a new release, the owner can open the Updates
+pane and apply it. Finish active agent work first: the update restarts the
+office. Keep the pane open through the restart, then refresh when it offers.
 
-The installer installs the host update support. Routine updates need no AWS
-console or SSH commands. The updater reuses the data disk. Container updates do
-not take a snapshot or roll back automatically. Keep independent backups of the
-complete EBS volume.
-
-If an update fails, check `sudo journalctl -u 'isomux-update@*'` and
-`sudo journalctl -u isomux-container.service` on the host.
+Container updates do not take a snapshot or roll back automatically. Keep
+independent backups of the complete EBS volume.
 
 ## Add devices and keep backups
 

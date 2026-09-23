@@ -58,11 +58,22 @@ function imageVersion(root: string): VersionInfo {
     const path = join(root, "version-info.json");
     if (statSync(path).size > 4096) return unknown;
     const v = JSON.parse(readFileSync(path, "utf8"));
-    if (!v || typeof v !== "object" || Array.isArray(v) ||
-        Object.keys(v).sort().join(",") !== "commit,release,version" ||
-        typeof v.commit !== "string" || !/^[a-f0-9]{40}$/.test(v.commit) ||
-        !(v.release === null || (typeof v.release === "string" && CALVER_RELEASE_RE.test(v.release) && !v.release.includes("\n"))) ||
-        v.version !== (v.release ?? v.commit)) return unknown;
+    if (
+      !v ||
+      typeof v !== "object" ||
+      Array.isArray(v) ||
+      Object.keys(v).sort().join(",") !== "commit,release,version" ||
+      typeof v.commit !== "string" ||
+      !/^[a-f0-9]{40}$/.test(v.commit) ||
+      !(
+        v.release === null ||
+        (typeof v.release === "string" &&
+          CALVER_RELEASE_RE.test(v.release) &&
+          !v.release.includes("\n"))
+      ) ||
+      v.version !== (v.release ?? v.commit)
+    )
+      return unknown;
     return { version: v.version, commit: v.commit, release: v.release };
   } catch {
     return unknown;
