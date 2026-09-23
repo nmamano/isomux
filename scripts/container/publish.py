@@ -87,11 +87,24 @@ def existing_digest(tag, revision, authorization):
     return digest
 
 
+def verify_image_identity(tag, revision, local_image):
+    result = subprocess.run(
+        ["docker", "run", "--rm", "--network=none", "--read-only",
+         "--entrypoint", "bun", local_image, "-e",
+         'import {getVersionInfo} from "./server/version.ts"; console.log(JSON.stringify(getVersionInfo()))'],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
+    identity = json.loads(result.stdout)
+    if not isinstance(identity, dict) or identity.get("release") != tag or identity.get("commit") != revision:
+        raise ValueError("Built image version does not match the release tag and source revision")
+
+
 def publish(tag, revision, local_image, actor, credential):
     if not re.fullmatch(r"v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?", tag):
         raise ValueError("Invalid release tag")
     if not re.fullmatch(r"[a-f0-9]{40}", revision):
         raise ValueError("Invalid source revision")
+    verify_image_identity(tag, revision, local_image)
     authorization = registry_token(actor, credential)
     digest = existing_digest(tag, revision, authorization)
     if digest is None:

@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import subprocess
 import unittest
 import urllib.error
 import urllib.request
@@ -26,6 +27,46 @@ def manifests(revision=REVISION, architecture="amd64"):
 
 
 class PublicationTests(unittest.TestCase):
+    def test_built_image_identity_is_required_before_registry_access(self):
+        for identity in ({}, {"release": None, "commit": REVISION},
+                         {"release": TAG, "commit": None},
+                         {"release": "v2026.9.20", "commit": REVISION},
+                         {"release": TAG, "commit": "b" * 40}, [], None):
+            with self.subTest(identity=identity), \
+                 patch.object(publish.subprocess, "run", return_value=subprocess.CompletedProcess(
+                     [], 0, stdout=json.dumps(identity))) as run, \
+                 patch.object(publish, "registry_token", side_effect=AssertionError("registry reached")) as token:
+                with self.assertRaises(ValueError):
+                    publish.publish(TAG, REVISION, "local", "actor", "secret")
+                token.assert_not_called()
+                self.assertEqual(run.call_count, 1)
+                self.assertEqual(run.call_args.args[0][:2], ["docker", "run"])
+
+    def test_image_probe_failure_prevents_publication(self):
+        for failure in (subprocess.CalledProcessError(1, "docker"),
+                        subprocess.TimeoutExpired("docker", 30)):
+            with self.subTest(failure=failure), \
+                 patch.object(publish.subprocess, "run", side_effect=failure), \
+                 patch.object(publish, "registry_token", side_effect=AssertionError("registry reached")) as token:
+                with self.assertRaises(type(failure)):
+                    publish.publish(TAG, REVISION, "local", "actor", "secret")
+                token.assert_not_called()
+        with patch.object(publish.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, stdout="not JSON")), patch.object(publish, "registry_token", side_effect=AssertionError("registry reached")) as token:
+            with self.assertRaises(ValueError):
+                publish.publish(TAG, REVISION, "local", "actor", "secret")
+            token.assert_not_called()
+
+    def test_image_probe_reads_the_runtime_identity_without_booting_an_office(self):
+        with patch.object(publish.subprocess, "run", return_value=subprocess.CompletedProcess(
+                [], 0, stdout=json.dumps({"release": TAG, "commit": REVISION}))) as run:
+            publish.verify_image_identity(TAG, REVISION, "local")
+        command = run.call_args.args[0]
+        self.assertEqual(command[:8], ["docker", "run", "--rm", "--network=none",
+                                      "--read-only", "--entrypoint", "bun", "local"])
+        self.assertIn("./server/version.ts", command[-1])
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+
     def test_only_404_means_absent(self):
         for status in (401, 403, 404, 429, 500):
             with self.subTest(status=status), patch.object(publish, "request", side_effect=
@@ -88,15 +129,18 @@ class PublicationTests(unittest.TestCase):
 
     @patch.object(publish.subprocess, "run")
     @patch.object(publish, "registry_token", return_value="fixture")
-    def test_retry_keeps_original_digest_without_push(self, token, run):
+    @patch.object(publish, "verify_image_identity")
+    def test_retry_keeps_original_digest_without_push(self, identity, token, run):
         with patch.object(publish, "existing_digest", return_value="sha256:original"):
             self.assertEqual(publish.publish(TAG, REVISION, "local", "actor", "secret"),
                              publish.IMAGE + "@sha256:original")
         run.assert_not_called()
+        identity.assert_called_once_with(TAG, REVISION, "local")
 
     @patch.object(publish.subprocess, "run")
     @patch.object(publish, "registry_token", return_value="fixture")
-    def test_new_tag_pushes_once_and_records_registry_digest(self, token, run):
+    @patch.object(publish, "verify_image_identity")
+    def test_new_tag_pushes_once_and_records_registry_digest(self, identity, token, run):
         with patch.object(publish, "existing_digest", side_effect=[None, "sha256:new"]):
             self.assertEqual(publish.publish(TAG, REVISION, "local", "actor", "secret"),
                              publish.IMAGE + "@sha256:new")
@@ -105,10 +149,12 @@ class PublicationTests(unittest.TestCase):
         self.assertEqual(commands[2], ["docker", "push", publish.IMAGE + ":" + TAG])
         self.assertEqual(commands[3], ["docker", "logout", "ghcr.io"])
         self.assertNotIn("secret", str(commands))
+        identity.assert_called_once_with(TAG, REVISION, "local")
 
     @patch.object(publish.subprocess, "run")
     @patch.object(publish, "registry_token", return_value="fixture")
-    def test_collision_never_pushes(self, token, run):
+    @patch.object(publish, "verify_image_identity")
+    def test_collision_never_pushes(self, identity, token, run):
         with patch.object(publish, "existing_digest", side_effect=ValueError):
             with self.assertRaises(ValueError):
                 publish.publish(TAG, REVISION, "local", "actor", "secret")

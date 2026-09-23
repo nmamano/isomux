@@ -27,6 +27,11 @@ with isolated state before it publishes `ghcr.io/nmamano/isomux:RELEASE_TAG`.
 The run summary records the source commit and registry digest. Deploy by digest.
 Source installation and local image builds remain available.
 
+Before registry authentication or publication, the publisher runs the built
+image's version reader with networking disabled and a read-only filesystem. Its
+reported release and commit must match the publication target; missing or wrong
+identity, an unreadable result, or a failed probe stops publication.
+
 The container installer is downloaded from that same release tag, and checks
 its bytes against the tag before changing the host. Its Compose/unit/seccomp
 assets are embedded with `scripts/embed-deploy-scripts.ts`; do not publish a tag
