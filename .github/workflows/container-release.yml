@@ -27,13 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: refs/tags/${{ github.event.release.tag_name }}
           persist-credentials: false
       - name: Check release identity
         shell: bash
         run: |
           [[ "$RELEASE_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
           test "$(git rev-parse HEAD)" = "$REVISION"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$REVISION"
       - name: Build committed production export
         run: bash deploy/container/build.sh "$REVISION" "$LOCAL_IMAGE"
       - name: Check image and Compose

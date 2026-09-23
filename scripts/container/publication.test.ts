@@ -55,7 +55,7 @@ test("release workflow gates its sole publisher on committed build and runtime c
   const job = workflow.jobs.publish;
   expect(job.permissions).toEqual({ contents: "read", packages: "write" });
   expect(job.steps[0].with).toEqual({
-    ref: "${{ github.sha }}",
+    ref: "refs/tags/${{ github.event.release.tag_name }}",
     "persist-credentials": false,
   });
   const commands = job.steps.flatMap((step) => (step.run ? [step.run] : []));
