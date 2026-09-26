@@ -59,6 +59,7 @@ import {
   LOBBY_ROOM_ID,
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
+  OPENCODE_DEFAULT_MODEL,
   cronjobRunStreamId,
   generateCronjobId,
   generateUserId,
@@ -333,7 +334,7 @@ const OFFICE_CHARACTERS: {
     customInstructions:
       "You are the office receptionist and an aspiring artist. Be warm, creative, and detail-oriented. You care about aesthetics and good design.",
     agentType: "opencode",
-    modelFamily: "opencode/muse-spark-1.2-contributor-free",
+    modelFamily: OPENCODE_DEFAULT_MODEL,
   },
   {
     name: "Stanley",
@@ -509,7 +510,7 @@ function seedOffice() {
   if (!embedMode) {
     state.ensureLobby();
     const backend = DEMO_BACKEND_DEFAULTS.opencode;
-    const modelFamily = "opencode/muse-spark-1.2-contributor-free";
+    const modelFamily = OPENCODE_DEFAULT_MODEL;
     state.addExistingAgent({
       id: "demo-receptionist",
       name: "Receptionist",
