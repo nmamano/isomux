@@ -37,6 +37,7 @@ import {
   normalizeCodexSubscriptionUsage,
   offerablePrefix,
   readThreadTurns,
+  forkThreadBeforeItem,
   type CodexSessionInitOpts,
   type CodexTransport,
 } from "./adapter.ts";
@@ -515,6 +516,50 @@ describe("Codex paged thread history", () => {
     );
   });
 
+  it("falls back to inline turn items when the thread has legacy history", async () => {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const client = {
+      async request<T>(method: string, params?: unknown): Promise<T> {
+        requests.push({ method, params });
+        if (method === "thread/items/list") {
+          throw Object.assign(new Error("thread/items/list is not supported"), {
+            code: -32601,
+          });
+        }
+        const view = (params as { itemsView?: string }).itemsView;
+        return {
+          data: [
+            {
+              id: "t1",
+              items: view === "full" ? [{ id: "i1" }, { id: "i2" }] : [],
+            },
+          ],
+          nextCursor: null,
+        } as T;
+      },
+    };
+    expect(await readThreadTurns(client, "legacy-thread")).toEqual([
+      { id: "t1", items: [{ id: "i1" }, { id: "i2" }] },
+    ]);
+    expect(
+      requests
+        .filter((r) => r.method === "thread/turns/list")
+        .map((r) => (r.params as { itemsView?: string }).itemsView),
+    ).toEqual(["notLoaded", "full"]);
+  });
+
+  it("does not fall back on other item-list errors", async () => {
+    const client = {
+      async request<T>(method: string): Promise<T> {
+        if (method === "thread/items/list") {
+          throw Object.assign(new Error("boom"), { code: -32000 });
+        }
+        return { data: [{ id: "t1" }], nextCursor: null } as T;
+      },
+    };
+    await expectRejection(readThreadTurns(client, "thread-1"), /boom/);
+  });
+
   it("never requests full hydration through the deprecated API shapes", () => {
     const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
     expect(src).not.toContain("includeTurns: true");
@@ -523,6 +568,63 @@ describe("Codex paged thread history", () => {
         "excludeTurns: true",
       );
     }
+  });
+});
+
+describe("Codex edit fork", () => {
+  function historyClient() {
+    const requests: Array<{ method: string; params?: unknown }> = [];
+    const client = {
+      async request<T>(method: string, params?: unknown): Promise<T> {
+        requests.push({ method, params });
+        if (method === "thread/turns/list")
+          return {
+            data: [{ id: "turn-1" }, { id: "turn-2" }],
+            nextCursor: null,
+          } as T;
+        if (method === "thread/items/list")
+          return {
+            data: [
+              { turnId: "turn-1", item: { id: "user-1" } },
+              { turnId: "turn-2", item: { id: "user-2" } },
+            ],
+            nextCursor: null,
+          } as T;
+        if (method === "thread/fork") return { thread: { id: "child" } } as T;
+        throw new Error(`unexpected ${method}`);
+      },
+    };
+    return { client, requests };
+  }
+
+  it("forks before the turn that holds the edited message, with no rollback", async () => {
+    const { client, requests } = historyClient();
+    expect(await forkThreadBeforeItem(client, "parent", "user-2")).toBe(
+      "child",
+    );
+    const fork = requests.find((r) => r.method === "thread/fork");
+    expect(fork?.params).toMatchObject({
+      threadId: "parent",
+      beforeTurnId: "turn-2",
+    });
+    // Paginated threads reject thread/rollback (codex 0.153.4).
+    expect(requests.map((r) => r.method)).not.toContain("thread/rollback");
+  });
+
+  it("forks the whole history when the message never reached the thread", async () => {
+    const { client, requests } = historyClient();
+    expect(await forkThreadBeforeItem(client, "parent", null)).toBe("child");
+    expect(requests.map((r) => r.method)).toEqual(["thread/fork"]);
+    expect(requests[0].params).not.toHaveProperty("beforeTurnId");
+  });
+
+  it("refuses to fork when the message is not in the thread", async () => {
+    const { client, requests } = historyClient();
+    await expectRejection(
+      forkThreadBeforeItem(client, "parent", "user-9"),
+      /not found/,
+    );
+    expect(requests.map((r) => r.method)).not.toContain("thread/fork");
   });
 });
 

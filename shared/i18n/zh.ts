@@ -1153,6 +1153,7 @@ App 的一些原则：
   "cards.userMessage.toRemoteBoss": "发送给远程成员",
   "cards.userMessage.toRemoteBossNamed": "发送给远程成员「{name}」",
   "cards.userMessage.editAndBranch": "编辑并创建分支",
+  "cards.failedEdit.restore": "放回输入框",
   "cards.thinking.label": "正在思考…",
   "cards.toolCall.input": "输入",
   "cards.toolCall.output": "输出",
@@ -1236,6 +1237,8 @@ App 的一些原则：
   "logView.emptyResume": "继续过去的对话",
   "logView.sendFailedBanner":
     "无法发送，正在重新连接。消息仍在输入框中；提示条消失后请重试。",
+  "logView.editFailedBanner":
+    "无法发送编辑：{error}。文本已放回输入框。",
   "logView.attachTooLarge": "文件过大（最大 200MB）",
   "logView.attachUploading": "正在上传…",
   "logView.attachFiles": "添加附件",

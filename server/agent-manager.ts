@@ -237,6 +237,13 @@ import {
 } from "./agent-turn.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
 import { stripAttachmentNotices } from "./attachment-prompt.ts";
+import {
+  editLogUserText,
+  locateEditTarget,
+  type EditBackendUser,
+  type EditLogUser,
+} from "./edit-target.ts";
+import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -3232,6 +3239,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     attachments?: Attachment[],
     extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
   ) {
+    const editTurnText = agents.get(agentId)?.editTurnText;
+    if (kind === "error" && editTurnText !== undefined)
+      metadata = { [FAILED_EDIT_TEXT_KEY]: editTurnText, ...metadata };
     const entry = prepareLogEntry({
       id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       agentId,
@@ -8474,12 +8484,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // Every exit that ends the edit without the edited message in the log
+    // goes through here. The error entry keeps the edited text, so the member
+    // can put it back in the composer from the chat (FAILED_EDIT_TEXT_KEY).
+    const failEdit = (content: string) =>
+      addLogEntry(agentId, "error", content, {
+        [FAILED_EDIT_TEXT_KEY]: newText,
+      });
     if (managed.info.state !== "waiting_for_response") {
-      addLogEntry(
-        agentId,
-        "error",
-        logWords(agentId, username)("systemEntries.editBusy"),
-      );
+      failEdit(logWords(agentId, username)("systemEntries.editBusy"));
       return;
     }
 
@@ -8502,11 +8515,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // error can return before the fork pipeline runs.
     const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
-      addLogEntry(
-        agentId,
-        "error",
-        logWords(agentId, username)("systemEntries.editNotFound"),
-      );
+      failEdit(logWords(agentId, username)("systemEntries.editNotFound"));
       return;
     }
 
@@ -8526,11 +8535,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // resuming a session / changing a model / answering a permission prompt.
       // Force the user to answer or cancel the pending flow first.
       if (inMultiStepFlow(managed)) {
-        addLogEntry(
-          agentId,
-          "error",
-          logWords(agentId, username)("systemEntries.editPendingInteraction"),
-        );
+        failEdit(logWords(agentId, username)("systemEntries.editPendingInteraction"));
         return;
       }
       const targetPos = oldLogCache.findIndex((e) => e.id === logEntryId);
@@ -8538,11 +8543,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const hasRealAfter = afterTarget.some((e) => !e.ephemeral);
       const hasUserAfter = afterTarget.some((e) => e.kind === "user_message");
       if (hasRealAfter || hasUserAfter) {
-        addLogEntry(
-          agentId,
-          "error",
-          logWords(agentId, username)("systemEntries.editNotSent"),
-        );
+        failEdit(logWords(agentId, username)("systemEntries.editNotSent"));
         return;
       }
       const trimmed = oldLogCache.slice(0, targetPos);
@@ -8560,11 +8561,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // can still fix a failed slash command in a session-less / first-message
     // state where sessionId is unset.
     if (!managed.sessionManager.sessionId) {
-      addLogEntry(
-        agentId,
-        "error",
-        logWords(agentId, username)("systemEntries.editNoSession"),
-      );
+      failEdit(logWords(agentId, username)("systemEntries.editNoSession"));
       return;
     }
 
@@ -8584,9 +8581,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     try {
       // 1. Get backend session messages and match by content + occurrence index.
-      //    For skill-expanded slash commands the log entry's `content` is the
-      //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
-      //    `metadata.sdkText` captures that expanded form for matching.
       const backend = getBackend(managed.info.agentType);
       const editEnv =
         managed.info.agentType === "opencode"
@@ -8609,36 +8603,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.info.cwd,
         sessionAccess,
       );
-      const targetUsername = targetEntry.metadata?.username as
-        | string
-        | undefined;
-      const targetDevice = targetEntry.metadata?.device as string | undefined;
-      const targetSdkText =
-        (targetEntry.metadata?.sdkText as string | undefined) ??
-        targetEntry.content;
-      const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
+      // Only the user messages of this backend session and its fork ancestry
+      // count: the chat can still show entries of an earlier conversation
+      // (ContextMenu "New conversation" does not clear logCache).
+      // `metadata.sdkText` is the text the backend got for a skill-expanded
+      // slash command, whose `content` is the raw command (e.g. "/grill").
+      const logUsers: EditLogUser[] = loadLogWithAncestors(
+        agentId,
+        oldSessionId,
+      )
+        .filter((e) => e.kind === "user_message" && !e.ephemeral)
+        .map((e) => ({ id: e.id, text: editLogUserText(e) }));
 
-      // Count which occurrence of this exact content this is among user_message log entries
-      const userLogEntries = oldLogCache.filter(
-        (e) => e.kind === "user_message",
-      );
-      let occurrenceIndex = 0;
-      for (const e of userLogEntries) {
-        const u = e.metadata?.username as string | undefined;
-        const d = e.metadata?.device as string | undefined;
-        const sdkText =
-          (e.metadata?.sdkText as string | undefined) ?? e.content;
-        const prefixed = `${formatPrefix({ username: u, device: d })}${sdkText}`;
-        if (prefixed === prefixedContent) {
-          if (e.id === logEntryId) break;
-          occurrenceIndex++;
-        }
-      }
-
-      // Find the matching user message in the backend transcript. We pass the
-      // target's uuid to forkSessionBeforeMessage; each backend handles
-      // predecessor-resolution and first-message semantics internally.
-      //
       // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
       // notice contributed a prefix block - the SDK records the wrapped
       // `${blocks}\n\nUser message:\n${sdkText}` form, but log entries only carry
@@ -8650,27 +8626,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // content block, which the backends flatten onto the user text with no
       // separator. Applied to EVERY candidate, not just when the
       // target entry has attachments, so that both sides of the occurrence count
-      // below key off the same plain user text - the log-side loop ignores
+      // key off the same plain user text - the log side ignores
       // attachments entirely, so a plain message and an attachment-bearing one
       // sharing the same text must normalize identically here.
-      let matchCount = 0;
-      let targetIdx = -1;
-      for (let i = 0; i < backendMessages.length; i++) {
-        const m = backendMessages[i];
-        if (m.role !== "user") continue;
-        if (
-          stripAttachmentNotices(stripOutboundEnvelope(m.text)) ===
-          prefixedContent
-        ) {
-          if (matchCount === occurrenceIndex) {
-            targetIdx = i;
-            break;
-          }
-          matchCount++;
-        }
-      }
+      const backendUsers: EditBackendUser[] = [];
+      backendMessages.forEach((m, index) => {
+        if (m.role === "user")
+          backendUsers.push({
+            index,
+            text: stripAttachmentNotices(stripOutboundEnvelope(m.text)),
+          });
+      });
+      const location = locateEditTarget(backendUsers, logUsers, logEntryId);
 
-      if (targetIdx === -1) {
+      if (location.kind === "missing") {
         // Walk the agent's on-disk sessions to find which one owns the entry,
         // so the error tells the user where the message actually lives. The
         // chat can show entries from a session that isn't the current backend
@@ -8689,24 +8658,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           }
         } catch {}
-        addLogEntry(
-          agentId,
-          "error",
+        failEdit(
           `${logWords(agentId, username)("systemEntries.editNotLocated")}${ownerHint}`,
         );
         return;
       }
+      // not_sent: the backend never recorded the target, so the branch keeps
+      // the whole backend history. Backend messages before the fork point:
+      const targetIdx =
+        location.kind === "found" ? location.index : backendMessages.length;
 
-      // 2. Ask the backend to fork before the edited message. The backend
+      // 2. Ask the backend to fork before the edited message (null: keep the
+      //    whole history). The backend
       //    decides whether this produces a real linked branch (kind: "fork",
       //    parent preserved on disk) or a fresh unrelated session (kind:
       //    "fresh", first-message edits on backends without empty-history fork
-      //    support - Claude). Codex always returns "fork" (fork-then-rollback
+      //    support - Claude). Codex always returns "fork" (thread/fork
       //    preserves the parent even for first-message edits).
-      const targetUuid = backendMessages[targetIdx].uuid;
       const forkResult = await backend.forkSessionBeforeMessage(
         oldSessionId,
-        targetUuid,
+        location.kind === "found" ? backendMessages[targetIdx].uuid : null,
         sessionAccess,
       );
       const isFreshSession = forkResult.kind === "fresh";
@@ -8875,12 +8846,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
       const editPrefix = formatPrefix({ username, device });
       const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
-      await runAgentTurn({
-        managed,
-        sdkText: prefixedNew,
-        attachments: targetEntry.attachments,
-        humanInput: true,
-      });
+      managed.editTurnText = newText;
+      try {
+        await runAgentTurn({
+          managed,
+          sdkText: prefixedNew,
+          attachments: targetEntry.attachments,
+          humanInput: true,
+        });
+      } finally {
+        delete managed.editTurnText;
+      }
       // Topic mutation above + system/init persistAll on first-message edits
       // already covered the persisted state; nothing further changes during
       // the turn that needs an end-of-edit snapshot.
@@ -8945,20 +8921,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
       }
 
+      const branchFailed = logWords(agentId, username)(
+        "systemEntries.branchFailed",
+        { error: errMessage(err) },
+      );
       if (err instanceof BackendNotConfiguredError) {
         // Rollback above already restored the pre-edit state; surface the
         // setup-required message calmly so the desk doesn't go red over a
         // misconfigured backend.
+        failEdit(branchFailed);
         surfaceBackendNotConfigured(agentId, managed, err);
         return;
       }
-      addLogEntry(
-        agentId,
-        "error",
-        logWords(agentId, username)("systemEntries.branchFailed", {
-          error: errMessage(err),
-        }),
-      );
+      failEdit(branchFailed);
       updateState(agentId, "error");
     }
   }

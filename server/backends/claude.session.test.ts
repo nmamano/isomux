@@ -826,6 +826,37 @@ describe("createClaudeBackend.forkSessionBeforeMessage", () => {
     });
   });
 
+  it("copies the whole transcript for a null target", async () => {
+    // null: the edited message never reached the transcript (Stop before
+    // send), so the branch keeps everything.
+    const fake = new FakeSdkClient();
+    withMessages(fake, [
+      { uuid: "u-0", type: "user" },
+      { uuid: "a-0", type: "assistant" },
+    ]);
+    fake.forkResult = { sessionId: "forked-all" };
+    const backend = createClaudeBackend(fake);
+    const result = await backend.forkSessionBeforeMessage("s-1", null);
+    expect(fake.forkCalls).toHaveLength(1);
+    expect(fake.forkCalls[0].sessionId).toBe("s-1");
+    expect(fake.forkCalls[0].opts).not.toHaveProperty("upToMessageId");
+    expect(result).toEqual({
+      kind: "fork",
+      sessionId: "forked-all",
+      forkedFromSessionId: "s-1",
+    });
+  });
+
+  it("returns fresh for a null target on an empty transcript", async () => {
+    const fake = new FakeSdkClient();
+    withMessages(fake, []);
+    const backend = createClaudeBackend(fake);
+    expect(await backend.forkSessionBeforeMessage("s-1", null)).toEqual({
+      kind: "fresh",
+    });
+    expect(fake.forkCalls).toHaveLength(0);
+  });
+
   it("throws when target message is not in the transcript", async () => {
     const fake = new FakeSdkClient();
     withMessages(fake, [{ uuid: "u-0", type: "user" }]);

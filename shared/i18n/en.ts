@@ -1283,6 +1283,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "cards.userMessage.toRemoteBoss": "To remote member",
   "cards.userMessage.toRemoteBossNamed": 'To remote member "{name}"',
   "cards.userMessage.editAndBranch": "Edit & branch",
+  "cards.failedEdit.restore": "Restore text",
   "cards.thinking.label": "Thinking...",
   "cards.toolCall.input": "Input",
   "cards.toolCall.output": "Output",
@@ -1372,6 +1373,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "logView.emptyResume": "resume a past one",
   "logView.sendFailedBanner":
     "Couldn't send - reconnecting. Your message is still in the box; try again once the banner clears.",
+  "logView.editFailedBanner":
+    "Couldn't send the edit: {error}. Your text is back in the message box.",
   "logView.attachTooLarge": "File too large (max 200MB)",
   "logView.attachUploading": "uploading…",
   "logView.attachFiles": "Attach files",

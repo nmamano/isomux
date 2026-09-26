@@ -561,7 +561,7 @@ export function createOpenCodeBackend(
     },
     async forkSessionBeforeMessage(
       sessionId: string,
-      targetMessageId: string,
+      targetMessageId: string | null,
       access?: SessionAccessOptions,
     ): Promise<ForkSessionBeforeMessageResult> {
       const parent = bindSession(sessionId, access?.cwd ?? "", access);

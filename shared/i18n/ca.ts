@@ -1297,6 +1297,7 @@ Coses que pots fer per ell:
   "cards.userMessage.toRemoteBoss": "Al membre remot",
   "cards.userMessage.toRemoteBossNamed": 'Al membre remot "{name}"',
   "cards.userMessage.editAndBranch": "Edita i ramifica",
+  "cards.failedEdit.restore": "Recupera el text",
   "cards.thinking.label": "Pensant...",
   "cards.toolCall.input": "Entrada",
   "cards.toolCall.output": "Sortida",
@@ -1388,6 +1389,8 @@ Coses que pots fer per ell:
   "logView.emptyResume": "reprèn-ne una d'anterior",
   "logView.sendFailedBanner":
     "No s'ha pogut enviar - reconnectant. El teu missatge continua a la caixa; torna-ho a provar quan desaparegui aquest avís.",
+  "logView.editFailedBanner":
+    "No s'ha pogut enviar l'edició: {error}. El teu text torna a ser al quadre de missatge.",
   "logView.attachTooLarge": "Fitxer massa gran (màxim 200MB)",
   "logView.attachUploading": "pujant…",
   "logView.attachFiles": "Adjunta fitxers",

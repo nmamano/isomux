@@ -1300,6 +1300,7 @@ Cosas que puedes hacer por él:
   "cards.userMessage.toRemoteBoss": "Al miembro remoto",
   "cards.userMessage.toRemoteBossNamed": 'Al miembro remoto "{name}"',
   "cards.userMessage.editAndBranch": "Editar y ramificar",
+  "cards.failedEdit.restore": "Recuperar el texto",
   "cards.thinking.label": "Pensando...",
   "cards.toolCall.input": "Entrada",
   "cards.toolCall.output": "Salida",
@@ -1391,6 +1392,8 @@ Cosas que puedes hacer por él:
   "logView.emptyResume": "reanuda una anterior",
   "logView.sendFailedBanner":
     "No se ha podido enviar - reconectando. Tu mensaje sigue en la caja; vuelve a intentarlo cuando desaparezca este aviso.",
+  "logView.editFailedBanner":
+    "No se ha podido enviar la edición: {error}. Tu texto ha vuelto al cuadro de mensaje.",
   "logView.attachTooLarge": "Archivo demasiado grande (máximo 200MB)",
   "logView.attachUploading": "subiendo…",
   "logView.attachFiles": "Adjuntar archivos",

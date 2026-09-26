@@ -36,6 +36,7 @@ import {
 } from "./tool-call-groups.ts";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import { noTranslate } from "../no-translate.ts";
+import { failedEditText } from "../../shared/failed-edit.ts";
 
 function EditIcon() {
   return (
@@ -483,6 +484,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
+  onRestoreFailedEdit,
   onOpenInEditor,
   onCopyToTerminal,
   tasks,
@@ -501,6 +503,9 @@ export const LogEntryCard = memo(function LogEntryCard({
   onStartEdit?: (entryId: string) => void;
   onCancelEdit?: () => void;
   onSubmitEdit?: (entryId: string, newText: string) => void;
+  // Puts the text of a failed edit back in the composer. Passed only to
+  // viewers who can edit messages here.
+  onRestoreFailedEdit?: (text: string) => void;
   onOpenInEditor?: (path: string) => void;
   onCopyToTerminal?: (command: string) => void;
   tasks?: TaskMap;
@@ -651,6 +656,8 @@ export const LogEntryCard = memo(function LogEntryCard({
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
+          failedEditText={failedEditText(entry.metadata)}
+          onRestoreFailedEdit={onRestoreFailedEdit}
         />
       );
     case "system": {
@@ -1032,6 +1039,7 @@ export function UserMessage({
     <>
       {canEdit && onEdit && (
         <button
+          data-edit-message=""
           onClick={onEdit}
           title={editTitle ?? t("cards.userMessage.editAndBranch")}
           style={{
@@ -1843,12 +1851,18 @@ function ErrorBlock({
   isLastInTurn,
   turnEntries,
   isMobile,
+  failedEditText,
+  onRestoreFailedEdit,
 }: {
   content: string;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
+  // The edited text of a failed edit (FAILED_EDIT_TEXT_KEY), kept in the log.
+  failedEditText?: string | null;
+  onRestoreFailedEdit?: (text: string) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
@@ -1868,6 +1882,40 @@ function ErrorBlock({
       }}
     >
       {content}
+      {failedEditText && (
+        <div
+          data-failed-edit-text=""
+          style={{
+            marginTop: 8,
+            padding: "6px 10px",
+            borderRadius: 6,
+            background: "var(--bg-code)",
+            border: "1px solid var(--border)",
+            color: "var(--text-primary)",
+          }}
+        >
+          {failedEditText}
+        </div>
+      )}
+      {failedEditText && onRestoreFailedEdit && (
+        <button
+          type="button"
+          data-restore-failed-edit=""
+          onClick={() => onRestoreFailedEdit(failedEditText)}
+          style={{
+            marginTop: 8,
+            padding: "4px 10px",
+            borderRadius: 6,
+            border: "1px solid var(--border)",
+            background: "var(--bg-surface)",
+            color: "var(--text-primary)",
+            fontSize: isMobile ? 13 : 11,
+            cursor: "pointer",
+          }}
+        >
+          {t("cards.failedEdit.restore")}
+        </button>
+      )}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
   );

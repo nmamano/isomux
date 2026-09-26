@@ -1524,7 +1524,7 @@ export function createClaudeBackend(
 
     async forkSessionBeforeMessage(
       sessionId: string,
-      targetMessageId: string,
+      targetMessageId: string | null,
       access?: import("./types.ts").SessionAccessOptions,
     ): Promise<ForkSessionBeforeMessageResult> {
       // Find target's position in the transcript so we can decide between
@@ -1546,6 +1546,16 @@ export function createClaudeBackend(
         ),
       };
       const messages = await sdkClient.getSessionMessages(sessionId, options);
+      if (targetMessageId === null) {
+        // Keep the whole transcript. An empty one has nothing to copy.
+        if (messages.length === 0) return { kind: "fresh" };
+        const result = await sdkClient.forkSession(sessionId, options);
+        return {
+          kind: "fork",
+          sessionId: result.sessionId,
+          forkedFromSessionId: sessionId,
+        };
+      }
       let targetIdx = -1;
       let firstUserIdx = -1;
       for (let i = 0; i < messages.length; i++) {

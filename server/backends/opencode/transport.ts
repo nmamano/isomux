@@ -501,13 +501,14 @@ export class OpenCodeTransport {
     return messages;
   }
 
-  async forkAtMessage(messageId: string): Promise<string> {
+  // OpenCode copies the messages before messageId; null copies them all.
+  async forkAtMessage(messageId: string | null): Promise<string> {
     const sessionId = await this.initialize(() => undefined);
     const response = await this.request(
       `/session/${encodeURIComponent(sessionId)}/fork`,
       {
         method: "POST",
-        body: JSON.stringify({ messageID: messageId }),
+        body: JSON.stringify(messageId === null ? {} : { messageID: messageId }),
       },
     );
     const child = allowSession(await response.json()).id;

@@ -13,7 +13,13 @@
 // a temp dir before config.ts is imported (see agent-manager.di.test.ts).
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { FakeBackend } from "./fake-backend.ts";
+import {
+  FakeBackend,
+  type FakeBackendConfig,
+  type FakeSession,
+} from "./fake-backend.ts";
+import { failedEditText } from "../../shared/failed-edit.ts";
+import * as cronPersistence from "../cronjob-persistence.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
@@ -697,11 +703,15 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
   // Run the primary turn to completion (so it finalizes + revokes and the run is
   // resumable), then seed the leaf session file. fake.session.onSend decides
   // which turns auto-complete.
-  async function primaryRunThenLeaf(fake: FakeBackend) {
+  async function primaryRunThenLeaf(
+    fake: FakeBackend,
+    over: Partial<CronDeps> = {},
+  ) {
     const mgr = createCronjobManager(
       baseDeps({
         resolveBackend: () => fake,
         resolveEnv: () => ({ CLAUDE_CONFIG_DIR: CLAUDE_CFG }),
+        ...over,
       }),
     );
     const job = mgr.addCronjob(intervalInput("ResumeJob"));
@@ -874,6 +884,164 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     // not leaked. (A subsequent resume could start again; the run isn't wedged.)
     expect(getRunTokenRaw(job.id, run.id)).toBeNull();
     fake.sessions.forEach((s) => s.close());
+  });
+
+  // Task eb9002b4: a follow-up stopped before the backend recorded it, and
+  // the edited text kept on every failed run edit.
+  describe("run edits after Stop", () => {
+    const FORK = "cron-fork-1";
+
+    async function stoppedFollowUp(
+      backendUsers: string[],
+      // What the session does with send #3 (the edited follow-up) and later.
+      onLaterSend?: (s: FakeSession, send: number) => void,
+    ) {
+      let sends = 0;
+      // FakeBackend keeps its config by reference: the transcript and fork
+      // result are filled in once the run's session ids exist.
+      const cfg: FakeBackendConfig = {
+        session: {
+          // Primary turn completes; the follow-up (send #2) is stopped;
+          // anything later stays live.
+          onSend: (_t, _a, s) => {
+            sends++;
+            if (sends === 1) s.completeTurn({ text: "done" });
+            if (sends === 2) s.completeTurn({ status: "interrupted" });
+            if (sends >= 3) onLaterSend?.(s, sends);
+          },
+        },
+      };
+      const fake = new FakeBackend(cfg);
+      // Real run persistence: the edit reads the run log from disk.
+      const { mgr, job, run } = await primaryRunThenLeaf(fake, {
+        persistence: cronPersistence,
+      });
+      const leaf = () => {
+        const r = mgr.findRun(job.id, run.id)!;
+        return r.currentSessionId ?? r.rootSessionId;
+      };
+      await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+      await waitFor(
+        () =>
+          sends === 2 && mgr.findRun(job.id, run.id)?.status !== "running",
+        "follow-up stopped",
+      );
+      // The backend transcript: the job prompt (absent from the run log),
+      // then whatever the test says the backend recorded.
+      cfg.sessionMessages = ["do the thing", ...backendUsers].flatMap(
+        (text, i) => [
+          { uuid: `u-${i}`, role: "user" as const, text },
+          { uuid: `a-${i}`, role: "assistant" as const, text: "done" },
+        ],
+      );
+      cfg.forkResult = {
+        kind: "fork",
+        sessionId: FORK,
+        forkedFromSessionId: leaf(),
+      };
+      const followId = mgr
+        .getRunTranscript(job.id, run.id)
+        .entries.find(
+          (e) => e.kind === "user_message" && e.content === "follow up",
+        )!.id;
+      return { fake, mgr, job, run, followId };
+    }
+
+    const failedEdits = (
+      mgr: ReturnType<typeof createCronjobManager>,
+      jobId: string,
+      runId: string,
+    ) =>
+      mgr
+        .getRunTranscript(jobId, runId)
+        .entries.filter((e) => e.kind === "error")
+        .map((e) => failedEditText(e.metadata))
+        // The stopped follow-up leaves its own error entry, with no edit.
+        .filter((text) => text !== null);
+
+    it("branches with the whole history when the follow-up never reached the backend", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp([]);
+      await mgr.editRunMessage(job.id, run.id, followId, "follow up, fixed");
+      expect(failedEdits(mgr, job.id, run.id)).toEqual([]);
+      expect(fake.forkCount).toBe(1);
+      expect(fake.lastForkTarget).toBeNull();
+      expect(fake.lastSession!.sent.at(-1)?.text).toContain("follow up, fixed");
+      fake.sessions.forEach((s) => s.close());
+    });
+
+    it("keeps refusing, with the text, when other user text follows the prompt", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp([
+        "follow up (wrapped)",
+      ]);
+      await mgr.editRunMessage(job.id, run.id, followId, "kept text");
+      expect(fake.forkCount).toBe(0);
+      expect(failedEdits(mgr, job.id, run.id)).toEqual(["kept text"]);
+      fake.sessions.forEach((s) => s.close());
+    });
+
+    it("keeps the text on the error of an edited turn whose send is rejected", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp(
+        [],
+        () => {
+          throw new Error("send refused");
+        },
+      );
+      await mgr.editRunMessage(job.id, run.id, followId, "kept after send");
+      await waitFor(
+        () => failedEdits(mgr, job.id, run.id).length > 0,
+        "send error written",
+      );
+      expect(failedEdits(mgr, job.id, run.id)).toEqual(["kept after send"]);
+      fake.sessions.forEach((s) => s.close());
+    });
+
+    it("keeps the text on the errors of an edited turn that fails in the event stream", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp(
+        [],
+        (s) => {
+          s.push({ kind: "error", message: "provider exploded" });
+          s.completeTurn({ status: "failed", error: "provider exploded" });
+        },
+      );
+      const ended = () => mgr.findRun(job.id, run.id)?.status !== "running";
+      await mgr.editRunMessage(job.id, run.id, followId, "kept after stream");
+      await waitFor(ended, "edited turn ended");
+      const errorsAfter = (content: string) => {
+        const entries = mgr.getRunTranscript(job.id, run.id).entries;
+        const from = entries.findIndex(
+          (e) => e.kind === "user_message" && e.content === content,
+        );
+        return entries
+          .slice(from)
+          .filter((e) => e.kind === "error")
+          .map((e) => failedEditText(e.metadata));
+      };
+      const edited = errorsAfter("kept after stream");
+      expect(edited.length).toBeGreaterThan(0);
+      for (const text of edited) expect(text).toBe("kept after stream");
+      // The mark ends with the edited turn: a later follow-up's failure is
+      // not an edit failure.
+      seedLeafSession(STATE_ROOT, FORK);
+      await mgr.sendRunMessage(job.id, run.id, "later", "Nil");
+      await waitFor(
+        () => ended() && errorsAfter("later").length > 0,
+        "later turn ended",
+      );
+      for (const text of errorsAfter("later")) expect(text).toBeNull();
+      fake.sessions.forEach((s) => s.close());
+    });
+
+    it("keeps the text when the run is busy", async () => {
+      const { fake, mgr, job, run, followId } = await stoppedFollowUp([]);
+      await mgr.sendRunMessage(job.id, run.id, "third", "Nil");
+      await waitFor(
+        () => mgr.findRun(job.id, run.id)?.status === "running",
+        "run busy",
+      );
+      await mgr.editRunMessage(job.id, run.id, followId, "kept while busy");
+      expect(failedEdits(mgr, job.id, run.id)).toEqual(["kept while busy"]);
+      fake.sessions.forEach((s) => s.close());
+    });
   });
 });
 

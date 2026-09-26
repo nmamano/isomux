@@ -52,6 +52,13 @@ import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import { stripOutboundEnvelope } from "./agent-turn.ts";
+import {
+  editLogUserText,
+  locateEditTarget,
+  type EditBackendUser,
+  type EditLogUser,
+} from "./edit-target.ts";
+import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
 import { memorySection } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import type {
@@ -116,6 +123,10 @@ interface ActiveRun {
   // system_init must NOT clobber rootSessionId - only currentSessionId
   // tracks the leaf.
   isResume: boolean;
+  // Set when this activation runs an edited message's turn (editRunMessage):
+  // every error entry of the turn keeps the edited text (FAILED_EDIT_TEXT_KEY),
+  // so a turn that fails late still offers the text back.
+  failedEditText?: string;
 }
 
 export type CronjobEvent =
@@ -913,6 +924,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // a correlation/ack id and the response's messageId === the persisted entry id.
     extra?: Partial<Pick<LogEntry, "id" | "diff" | "file" | "terminal">>,
   ) {
+    if (kind === "error" && active.failedEditText !== undefined)
+      metadata = { [FAILED_EDIT_TEXT_KEY]: active.failedEditText, ...metadata };
     const entry = prepareLogEntry({
       id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
       agentId: active.streamId,
@@ -1449,7 +1462,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // Append a one-off log entry without an active session. Used to surface
   // pre-flight errors (cwd invalid, leaf is a placeholder, etc.) so the user
   // sees them in the run transcript instead of the message vanishing.
-  function emitRunErrorEntry(jobId: string, runId: string, message: string) {
+  function emitRunErrorEntry(
+    jobId: string,
+    runId: string,
+    message: string,
+    metadata?: Record<string, unknown>,
+  ) {
     const run = findRun(jobId, runId);
     if (!run) return;
     const sessionId = run.currentSessionId ?? run.rootSessionId;
@@ -1459,6 +1477,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       timestamp: clock.now(),
       kind: "error",
       content: message,
+      ...(metadata ? { metadata } : {}),
     });
     appendRunLog(jobId, runId, sessionId, entry);
     eventHandler({ type: "log_entry", entry });
@@ -1757,7 +1776,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // The matching strategy (content + occurrence-index) operates on the
   // backend-agnostic NormalizedMessage list so all three transcript shapes
   // look identical to this layer. Per-backend fork mechanics (Claude: SDK
-  // forkSession at predecessor; Codex: thread/fork + thread/rollback;
+  // forkSession at predecessor; Codex: thread/fork with beforeTurnId;
   // OpenCode: HTTP session fork) hide behind backend.forkSessionBeforeMessage.
   async function editRunMessage(
     jobId: string,
@@ -1770,40 +1789,41 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ): Promise<void> {
     const run = findRun(jobId, runId);
     if (!run) return;
+    // Every exit that ends the edit without the edited message in the log
+    // goes through here: the error entry keeps the edited text
+    // (FAILED_EDIT_TEXT_KEY).
+    const failEdit = (message: string) =>
+      emitRunErrorEntry(jobId, runId, message, {
+        [FAILED_EDIT_TEXT_KEY]: newText,
+      });
     // Synchronous claim - see sendRunMessage. Without this,
     // getSessionMessages + forkSessionBeforeMessage below would race against
     // a second concurrent submission.
-    if (activeRuns.has(runId) || startingRuns.has(runId)) return;
+    if (activeRuns.has(runId) || startingRuns.has(runId)) {
+      failEdit("Cannot edit while the run is busy.");
+      return;
+    }
     if (run.status === "skipped") {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        "Cannot edit a skipped run - it never opened a session.",
+      failEdit("Cannot edit a skipped run - it never opened a session.",
       );
       return;
     }
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        "Cannot edit: the original run never reached backend init.",
+      failEdit("Cannot edit: the original run never reached backend init.",
       );
       return;
     }
     try {
       validateCwd(run.cwdSnapshot);
     } catch (err) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Cannot edit: cwd is invalid: ${errMessage(err)}`,
+      failEdit(`Cannot edit: cwd is invalid: ${errMessage(err)}`,
       );
       return;
     }
     const precheckError = checkResumableSession(run, leaf);
     if (precheckError) {
-      emitRunErrorEntry(jobId, runId, `Cannot edit: ${precheckError}`);
+      failEdit(`Cannot edit: ${precheckError}`);
       return;
     }
 
@@ -1818,6 +1838,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
         device,
         opts,
       );
+    } catch (err) {
+      failEdit(`Cannot edit: ${errMessage(err)}`);
     } finally {
       startingRuns.delete(runId);
     }
@@ -1834,12 +1856,16 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ): Promise<void> {
     const jobId = run.cronjobId;
     const runId = run.id;
+    const failEdit = (message: string) =>
+      emitRunErrorEntry(jobId, runId, message, {
+        [FAILED_EDIT_TEXT_KEY]: newText,
+      });
     const backend = getBackend(run.agentTypeSnapshot);
     let sessionAccess: SessionAccessOptions;
     try {
       sessionAccess = sessionAccessForRun(run);
     } catch (err) {
-      emitRunErrorEntry(jobId, runId, errMessage(err));
+      failEdit(errMessage(err));
       return;
     }
 
@@ -1847,7 +1873,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const oldEntries = loadRunLogWithAncestors(jobId, runId, leaf);
     const targetEntry = oldEntries.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
-      emitRunErrorEntry(jobId, runId, "Cannot edit: message not found.");
+      failEdit("Cannot edit: message not found.");
       return;
     }
 
@@ -1862,78 +1888,51 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
     } catch (err) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Failed to load session messages: ${errMessage(err)}`,
+      failEdit(`Failed to load session messages: ${errMessage(err)}`,
       );
       return;
     }
-    const targetUsername = targetEntry.metadata?.username as string | undefined;
-    const targetDevice = targetEntry.metadata?.device as string | undefined;
-    const targetSdkText =
-      (targetEntry.metadata?.sdkText as string | undefined) ??
-      targetEntry.content;
-    const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
-    const userLogEntries = oldEntries.filter((e) => e.kind === "user_message");
-    let occurrenceIndex = 0;
-    for (const e of userLogEntries) {
-      const u = e.metadata?.username as string | undefined;
-      const d = e.metadata?.device as string | undefined;
-      const sdkText = (e.metadata?.sdkText as string | undefined) ?? e.content;
-      const prefixed = `${formatPrefix({ username: u, device: d })}${sdkText}`;
-      if (prefixed === prefixedContent) {
-        if (e.id === logEntryId) break;
-        occurrenceIndex++;
-      }
-    }
-    // Skip the cronjob's original prompt: it's the backend's first user message
-    // but not a LogEntry, so its content will never match (it's stored only as
-    // run.promptSnapshot). occurrenceIndex therefore counts from the first
-    // post-prompt user message - i.e. the first follow-up turn.
-    const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
+    // The cronjob's original prompt is the backend's first user message but
+    // not a LogEntry (it's stored only as run.promptSnapshot), so it is left
+    // out of the match: the log side starts at the first follow-up turn.
+    //
     // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
     // block (such as a context-fullness notice)
     // contributed a prefix block - the SDK records the wrapped form built in
     // agent-turn.ts, but log entries only carry `sdkText`. Without the strip,
     // every edit on a turn that carried an envelope block would fall through to
     // the "could not locate" branch below.
-    let matchCount = 0;
-    let targetIdx = -1;
-    for (
-      let i = cronjobPromptIsFirstUser ? 1 : 0;
-      i < sessionMessages.length;
-      i++
-    ) {
-      const m = sessionMessages[i];
-      if (m.role !== "user") continue;
-      if (stripOutboundEnvelope(m.text) === prefixedContent) {
-        if (matchCount === occurrenceIndex) {
-          targetIdx = i;
-          break;
-        }
-        matchCount++;
+    const backendUsers: EditBackendUser[] = [];
+    let promptSkipped = false;
+    sessionMessages.forEach((m, index) => {
+      if (m.role !== "user") return;
+      if (!promptSkipped) {
+        promptSkipped = true;
+        return;
       }
-    }
-    if (targetIdx <= 0) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        "Cannot edit: could not locate message in backend session.",
-      );
+      backendUsers.push({ index, text: stripOutboundEnvelope(m.text) });
+    });
+    const logUsers: EditLogUser[] = oldEntries
+      .filter((e) => e.kind === "user_message")
+      .map((e) => ({ id: e.id, text: editLogUserText(e) }));
+    const location = locateEditTarget(backendUsers, logUsers, logEntryId);
+    if (location.kind === "missing") {
+      failEdit("Cannot edit: could not locate message in backend session.");
       return;
     }
 
-    // 3. Ask the backend to fork before the target message. Each backend
+    // 3. Ask the backend to fork before the target message (null: the
+    //    backend never recorded it, keep the whole history). Each backend
     //    handles its own fork mechanics:
     //      Claude: SDK forkSession at predecessor (excludes target)
-    //      Codex:  thread/fork parent + thread/rollback child by N turns
+    //      Codex:  thread/fork with beforeTurnId = the target's turn
     //    The result is either a linked fork (returns { sessionId,
     //    forkedFromSessionId }) or a fresh session (no id yet - fills on
     //    system_init). Cron only supports the linked-fork path because the
     //    "fresh" branch would lose the run's identity; if a backend returns
     //    "fresh" here, surface it as an error.
-    const targetMessageId = sessionMessages[targetIdx].uuid;
+    const targetMessageId =
+      location.kind === "found" ? sessionMessages[location.index].uuid : null;
     let newSessionId: string;
     try {
       const forkResult = await backend.forkSessionBeforeMessage(
@@ -1942,10 +1941,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
       if (forkResult.kind !== "fork") {
-        emitRunErrorEntry(
-          jobId,
-          runId,
-          "Cannot edit: backend returned a fresh session (no linked fork).",
+        failEdit("Cannot edit: backend returned a fresh session (no linked fork).",
         );
         return;
       }
@@ -1959,7 +1955,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         );
       }
     } catch (err) {
-      emitRunErrorEntry(jobId, runId, `Fork failed: ${errMessage(err)}`);
+      failEdit(`Fork failed: ${errMessage(err)}`);
       return;
     }
 
@@ -1976,10 +1972,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // before this fork resume; it failed before installResumedActive, so
       // finalizeRun never runs for it - revoke here.
       revokeRunToken(jobId, runId);
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Failed to start fork: ${errMessage(err)}`,
+      failEdit(`Failed to start fork: ${errMessage(err)}`,
       );
       return;
     }
@@ -2049,12 +2042,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
       // 8. Wire up the active run, persist the new edited message, send it.
       active = installResumedActive(updatedRun ?? run, session, newSessionId);
+      active.failedEditText = newText;
     } catch (err) {
       abortResumedRunToken(jobId, runId, session);
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Failed to start fork: ${errMessage(err)}`,
+      failEdit(`Failed to start fork: ${errMessage(err)}`,
       );
       return;
     }

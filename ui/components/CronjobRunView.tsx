@@ -14,6 +14,8 @@ import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
+import { appendBlockToDraft } from "../log-view/draft-append.ts";
+import { errMessage } from "../../shared/errors.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
 // built in (internal-docs/i18n-loop.md, the S5 id-to-key pattern).
@@ -79,6 +81,9 @@ export function CronjobRunView({
   const device = getDevice();
 
   const [input, setInput] = useState("");
+  // Why the last edit request was rejected before it reached the server's
+  // edit path. Its text is already back in the composer.
+  const [editError, setEditError] = useState<string | null>(null);
   const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(
     null,
   );
@@ -261,22 +266,41 @@ export function CronjobRunView({
       { text, device: device || undefined },
     ).catch(() => {});
     setInput("");
+    setEditError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setAutoScroll(true);
   }
 
+  // Put the text of a failed edit back at the end of the composer; never
+  // replaces what is already there.
+  function restoreFailedEdit(text: string) {
+    setInput((current) => appendBlockToDraft(current, text));
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      autoResize(ta);
+    });
+  }
+
   function handleSubmitEdit(id: string, newText: string) {
     setEditingLogEntryId(null);
+    setEditError(null);
     // Fire-and-forget (see handleSend): the edit re-forks the run server-side and
-    // the result streams back as live events; the { messageId } ack is ignored
-    // and .catch stays silent for parity with the old WS command.
+    // the result streams back as live events; the { messageId } ack is ignored.
+    // A failure the server reports lands in the log with the text; a rejected
+    // request never reaches the log, so the text comes back here.
     apiFetch(
       "PATCH",
       `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
         runId,
       )}/messages/${encodeURIComponent(id)}`,
       { newText, device: device || undefined },
-    ).catch(() => {});
+    ).catch((err: unknown) => {
+      restoreFailedEdit(newText);
+      setEditError(errMessage(err));
+    });
     setAutoScroll(true);
   }
 
@@ -537,6 +561,7 @@ export function CronjobRunView({
                 onStartEdit={setEditingLogEntryId}
                 onCancelEdit={() => setEditingLogEntryId(null)}
                 onSubmitEdit={handleSubmitEdit}
+                onRestoreFailedEdit={canResume ? restoreFailedEdit : undefined}
               />
             );
           })
@@ -603,6 +628,23 @@ export function CronjobRunView({
             background: "var(--bg-surface)",
           }}
         >
+          {editError !== null && (
+            <div
+              role="alert"
+              style={{
+                marginBottom: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: "var(--red-bg, rgba(192,57,43,0.12))",
+                border: "1px solid var(--red, #c0392b)",
+                color: "var(--red, #c0392b)",
+                fontSize: isMobile ? 12 : 11,
+                fontWeight: 600,
+              }}
+            >
+              ⚠ {t("logView.editFailedBanner", { error: editError })}
+            </div>
+          )}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span
               style={{

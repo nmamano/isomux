@@ -94,8 +94,7 @@ import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
 import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
-import type { ThreadRollbackParams } from "./_generated/v2/ThreadRollbackParams.ts";
-import type { ThreadRollbackResponse } from "./_generated/v2/ThreadRollbackResponse.ts";
+import type { ThreadForkParams } from "./_generated/v2/ThreadForkParams.ts";
 import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/ThreadTokenUsageUpdatedNotification.ts";
 import type { AccountRateLimitsUpdatedNotification } from "./_generated/v2/AccountRateLimitsUpdatedNotification.ts";
 import type { ErrorNotification } from "./_generated/v2/ErrorNotification.ts";
@@ -155,10 +154,9 @@ export const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> =
 // Capability flags for the Codex backend. Match the spec's parity table.
 // hooks: false - Codex emits hook/* notifications but provides no
 // programmatic register-from-client surface at 0.130 (v1).
-// edit: true - implemented via fork-then-rollback: thread/fork the parent
-// (preserves it), then thread/rollback the child by the number of turns to
-// drop. Matches Claude's preserved-parent UX without per-message fork
-// support upstream. See forkSessionBeforeMessage below.
+// edit: true - implemented via thread/fork with beforeTurnId: the child
+// excludes the edited message's turn and every later turn, and the parent is
+// preserved. See forkSessionBeforeMessage below.
 const CAPABILITIES: BackendCapabilities = {
   fork: false,
   hooks: false,
@@ -270,15 +268,20 @@ interface RawTurn {
 const THREAD_HISTORY_PAGE_LIMIT = 100;
 const THREAD_HISTORY_PAGE_CAP = 1_000;
 
-// Paged parent-thread history. Used by
-// both getSessionMessages (flattens to NormalizedMessage[]) and
-// forkSessionBeforeMessage (needs turn structure for rollback arithmetic).
-export async function readThreadTurns(
+// JSON-RPC "method not found". Codex answers thread/items/list with it for a
+// thread stored with legacy history (threads from before paginated history);
+// those threads still list their turns with the items inline.
+const JSON_RPC_METHOD_NOT_FOUND = -32601;
+
+// One pass over thread/turns/list. With itemsView "full" each turn carries its
+// items; with "notLoaded" the items come from thread/items/list.
+async function listThreadTurns(
   client: Pick<JsonRpcLiteClient, "request">,
   threadId: string,
+  itemsView: "notLoaded" | "full",
 ): Promise<RawTurn[]> {
   const turns: RawTurn[] = [];
-  const byId = new Map<string, RawTurn>();
+  const seenIds = new Set<string>();
   let cursor: string | null = null;
   const seenTurnCursors = new Set<string>();
   for (let page = 0; page < THREAD_HISTORY_PAGE_CAP; page += 1) {
@@ -291,14 +294,17 @@ export async function readThreadTurns(
         cursor,
         limit: THREAD_HISTORY_PAGE_LIMIT,
         sortDirection: "asc",
-        itemsView: "notLoaded",
+        itemsView,
       });
     for (const raw of resp.data ?? []) {
       const id = (raw as { id?: unknown })?.id;
-      if (typeof id !== "string" || byId.has(id)) continue;
-      const turn = { id, items: [] };
-      turns.push(turn);
-      byId.set(id, turn);
+      if (typeof id !== "string" || seenIds.has(id)) continue;
+      const items = (raw as { items?: unknown })?.items;
+      turns.push({
+        id,
+        items: itemsView === "full" && Array.isArray(items) ? [...items] : [],
+      });
+      seenIds.add(id);
     }
     const next: string | null = resp.nextCursor ?? null;
     if (!next) break;
@@ -309,22 +315,44 @@ export async function readThreadTurns(
     if (page === THREAD_HISTORY_PAGE_CAP - 1)
       throw new Error("thread/turns/list exceeded the page cap");
   }
+  return turns;
+}
 
-  cursor = null;
+// Paged parent-thread history. Used by
+// both getSessionMessages (flattens to NormalizedMessage[]) and
+// forkSessionBeforeMessage (needs the turn that holds the edited message).
+export async function readThreadTurns(
+  client: Pick<JsonRpcLiteClient, "request">,
+  threadId: string,
+): Promise<RawTurn[]> {
+  const turns = await listThreadTurns(client, threadId, "notLoaded");
+  const byId = new Map(turns.map((turn) => [turn.id, turn]));
+
+  let cursor: string | null = null;
   const seenItemCursors = new Set<string>();
   for (let page = 0; page < THREAD_HISTORY_PAGE_CAP; page += 1) {
-    const resp: {
+    let resp: {
       data?: Array<{ turnId?: unknown; item?: unknown }>;
       nextCursor?: string | null;
-    } = await client.request<{
-      data?: Array<{ turnId?: unknown; item?: unknown }>;
-      nextCursor?: string | null;
-    }>("thread/items/list", {
-      threadId,
-      cursor,
-      limit: THREAD_HISTORY_PAGE_LIMIT,
-      sortDirection: "asc",
-    });
+    };
+    try {
+      resp = await client.request<{
+        data?: Array<{ turnId?: unknown; item?: unknown }>;
+        nextCursor?: string | null;
+      }>("thread/items/list", {
+        threadId,
+        cursor,
+        limit: THREAD_HISTORY_PAGE_LIMIT,
+        sortDirection: "asc",
+      });
+    } catch (err) {
+      if (
+        page === 0 &&
+        (err as { code?: unknown })?.code === JSON_RPC_METHOD_NOT_FOUND
+      )
+        return listThreadTurns(client, threadId, "full");
+      throw err;
+    }
     for (const entry of resp.data ?? []) {
       if (typeof entry.turnId === "string" && entry.item !== undefined)
         byId.get(entry.turnId)?.items.push(entry.item);
@@ -342,8 +370,8 @@ export async function readThreadTurns(
 }
 
 // Locate the turn (by index) whose items array contains an item with the
-// given id. Returns -1 if not found. Used by forkSessionBeforeMessage to
-// translate from item-level message uuid → turn-level rollback count.
+// given id. Returns -1 if not found. Used by forkThreadBeforeItem to
+// translate from item-level message uuid → the turn to fork before.
 function findTurnIndexContainingItemId(
   turns: RawTurn[],
   itemId: string,
@@ -355,6 +383,34 @@ function findTurnIndexContainingItemId(
     }
   }
   return -1;
+}
+
+// Fork a thread so that the child ends before the turn that holds
+// targetItemId. A user message starts its own turn, so that turn and every
+// later one are excluded (thread/fork beforeTurnId). null forks the whole
+// history. Returns the child thread id. Paginated threads reject
+// thread/rollback, so the fork must not be rolled back after the fact.
+export async function forkThreadBeforeItem(
+  client: Pick<JsonRpcLiteClient, "request">,
+  threadId: string,
+  targetItemId: string | null,
+): Promise<string> {
+  const params: ThreadForkParams = { threadId, excludeTurns: true };
+  if (targetItemId !== null) {
+    const turns = await readThreadTurns(client, threadId);
+    const targetTurnIndex = findTurnIndexContainingItemId(turns, targetItemId);
+    if (targetTurnIndex === -1) {
+      throw new Error(
+        "forkSessionBeforeMessage: target message not found in thread turns",
+      );
+    }
+    params.beforeTurnId = turns[targetTurnIndex].id;
+  }
+  const resp = await client.request<{ thread: { id: string } }>(
+    "thread/fork",
+    params,
+  );
+  return resp.thread.id;
 }
 
 const MINUTES_PER_HOUR = 60;
@@ -2894,23 +2950,11 @@ export const codexBackend: Backend = {
 
   async forkSessionBeforeMessage(
     sessionId: string,
-    targetMessageId: string,
+    targetMessageId: string | null,
   ): Promise<ForkSessionBeforeMessageResult> {
-    // Strategy: fork-then-rollback. Codex 0.130's thread/fork copies whole
-    // threads (no per-message granularity), so to preserve the parent and
-    // produce a child rolled back to before the edited message we:
-    //   1. thread/read the parent → walk turns to find which one contains
-    //      targetMessageId
-    //   2. thread/fork(parent) → child threadId (parent unaltered)
-    //   3. thread/rollback(child, numTurns) → drops the target's turn and
-    //      everything after it, leaving the child at the predecessor's turn
-    //
-    // Turn arithmetic: a user message always starts a new turn in Codex's
-    // model. So if target is in turn K (0-indexed), the turns to preserve
-    // are [0..K-1] and the turns to drop are [K..totalTurns-1]. That gives
-    // numTurns = totalTurns - K, which equals totalTurns when K=0 (first-
-    // message edit drops everything and starts the child from scratch - but
-    // still as a fork, so /resume shows the parent as the original branch).
+    // thread/fork leaves the parent unaltered. Always a linked fork, also for
+    // a first-message edit (the child is empty), so /resume shows the parent
+    // as the original branch.
     const client = new JsonRpcLiteClient();
     try {
       await client.start();
@@ -2930,44 +2974,11 @@ export const codexBackend: Backend = {
         },
       });
 
-      const turns = await readThreadTurns(client, sessionId);
-      const targetTurnIndex = findTurnIndexContainingItemId(
-        turns,
+      const childThreadId = await forkThreadBeforeItem(
+        client,
+        sessionId,
         targetMessageId,
       );
-      if (targetTurnIndex === -1) {
-        throw new Error(
-          "forkSessionBeforeMessage: target message not found in thread turns",
-        );
-      }
-      const numTurns = turns.length - targetTurnIndex;
-      if (numTurns < 1) {
-        // Defensive: target was found in turns so this shouldn't happen, but
-        // bail before issuing a rollback rejected by the server (numTurns
-        // must be >= 1 per the protocol).
-        throw new Error(
-          "forkSessionBeforeMessage: computed numTurns < 1 (programming error)",
-        );
-      }
-
-      const forkResp = await client.request<{ thread: { id: string } }>(
-        "thread/fork",
-        {
-          threadId: sessionId,
-          excludeTurns: true,
-        },
-      );
-      const childThreadId = forkResp.thread.id;
-
-      const rollbackParams: ThreadRollbackParams = {
-        threadId: childThreadId,
-        numTurns,
-      };
-      await client.request<ThreadRollbackResponse>(
-        "thread/rollback",
-        rollbackParams,
-      );
-
       return {
         kind: "fork",
         sessionId: childThreadId,

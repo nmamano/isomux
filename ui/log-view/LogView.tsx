@@ -51,6 +51,8 @@ import {
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 import { citationBlock } from "./cite.ts";
+import { appendBlockToDraft } from "./draft-append.ts";
+import { errMessage } from "../../shared/errors.ts";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
 import { SubscriptionPill } from "./SubscriptionPill.tsx";
@@ -960,6 +962,9 @@ export function LogView({
     null,
   );
   const [sendError, setSendError] = useState(false);
+  // Why the last edit request was rejected before it reached the server's
+  // edit path. Its text is already back in the composer.
+  const [editError, setEditError] = useState<string | null>(null);
   // Don't surface the inline error after a reconnect - `connected` flipping
   // back to true is enough signal to the user that their previous send
   // attempt is stale.
@@ -1327,12 +1332,18 @@ export function LogView({
   const handleSubmitEdit = useCallback(
     (id: string, newText: string) => {
       setEditingLogEntryId(null);
+      setEditError(null);
       // Fire-and-forget: the corrected turn streams back over WS; the ack is
       // ignored. username is server-derived (attributionFor), not body-sent.
+      // A failure the server reports lands in the log with the text; a
+      // rejected request never reaches the log, so the text comes back here.
       apiFetch("PATCH", `/api/agents/${agent.id}/messages/${id}`, {
         newText,
         device: device || undefined,
-      }).catch(() => {});
+      }).catch((err: unknown) => {
+        restoreFailedEditRef.current(newText);
+        setEditError(errMessage(err));
+      });
     },
     [agent.id, device],
   );
@@ -1772,16 +1783,7 @@ export function LogView({
     } else {
       // Append. Separate from any existing draft with a blank line so a
       // half-written prompt and the citation don't smush together.
-      if (current === "") {
-        newDraft = block;
-      } else {
-        const sep = current.endsWith("\n\n")
-          ? ""
-          : current.endsWith("\n")
-            ? "\n"
-            : "\n\n";
-        newDraft = current + sep + block;
-      }
+      newDraft = appendBlockToDraft(current, block);
       caretPos = newDraft.length;
     }
 
@@ -1797,6 +1799,22 @@ export function LogView({
       autoResize(ta2);
     });
   }
+
+  // Put the text of a failed edit back at the end of the composer. Always an
+  // append, even when the composer has focus: it never replaces newer text.
+  function restoreFailedEdit(text: string) {
+    const newDraft = appendBlockToDraft(inputRef.current, text);
+    setInput(newDraft);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.focus({ preventScroll: true });
+      ta.setSelectionRange(newDraft.length, newDraft.length);
+      autoResize(ta);
+    });
+  }
+  const restoreFailedEditRef = useRef(restoreFailedEdit);
+  restoreFailedEditRef.current = restoreFailedEdit;
 
   function handleCite(text: string) {
     insertBlockIntoDraft(citationBlock(text));
@@ -1924,6 +1942,7 @@ export function LogView({
       ...(opts?.sendNow ? { sendNow: true } : {}),
     }).catch(() => {});
     setSendError(false);
+    setEditError(null);
     setInput("");
     setStagedAttachments([]);
     if (!opts?.keepListening) stopListening(true);
@@ -2601,6 +2620,11 @@ export function LogView({
                         onStartEdit={setEditingLogEntryId}
                         onCancelEdit={handleCancelEdit}
                         onSubmitEdit={handleSubmitEdit}
+                        onRestoreFailedEdit={
+                          agent.capabilities.edit
+                            ? restoreFailedEdit
+                            : undefined
+                        }
                         onOpenInEditor={
                           features.editor ? openInEditor : undefined
                         }
@@ -2704,6 +2728,29 @@ export function LogView({
               onChange={(e) => handleFileSelect(e.target.files)}
             />
             <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
+            {editError !== null && (
+              <div
+                role="alert"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 8,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "var(--red-bg, rgba(192,57,43,0.12))",
+                  border: "1px solid var(--red, #c0392b)",
+                  color: "var(--red, #c0392b)",
+                  fontSize: isMobile ? 12 : 11,
+                  fontWeight: 600,
+                }}
+              >
+                <span>⚠</span>
+                <span>
+                  {i18n.t("logView.editFailedBanner", { error: editError })}
+                </span>
+              </div>
+            )}
             {showSendError && (
               <div
                 style={{

@@ -1635,3 +1635,48 @@ describe("OpenCode permission event integration", () => {
     ]);
   });
 });
+
+describe("OpenCode edit fork", () => {
+  it("sends messageID only when there is a message to fork before", async () => {
+    const bodies: unknown[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/session/session-1/fork") {
+          bodies.push(await request.json());
+          return Response.json({ id: `child-${bodies.length}` });
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: "office",
+      agentId: "agent-1",
+      supervisor,
+      sessionId: "session-1",
+    });
+    try {
+      expect(await transport.forkAtMessage("msg-2")).toBe("child-1");
+      // null: the edited message never reached the session, keep it all.
+      expect(await transport.forkAtMessage(null)).toBe("child-2");
+      expect(bodies).toEqual([{ messageID: "msg-2" }, {}]);
+    } finally {
+      transport.close();
+      await server.stop(true);
+    }
+  });
+});

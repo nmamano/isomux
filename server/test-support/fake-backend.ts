@@ -302,6 +302,8 @@ export interface FakeBackendConfig {
     | string
     | ((prompt: string, opts: OneShotOptions) => string | Promise<string>);
   forkResult?: ForkSessionBeforeMessageResult;
+  // When set, forkSessionBeforeMessage rejects with it.
+  forkError?: Error;
   sessionMessages?: NormalizedMessage[];
   storedSessionState?:
     | StoredSessionState
@@ -323,6 +325,8 @@ export class FakeBackend implements Backend {
   listModelsCount = 0;
   forkCount = 0;
   lastForkAccess?: SessionAccessOptions;
+  // Target of the last forkSessionBeforeMessage call (null: whole history).
+  lastForkTarget?: string | null;
   lastMessagesAccess?: SessionAccessOptions;
 
   private readonly cfg: FakeBackendConfig;
@@ -422,11 +426,13 @@ export class FakeBackend implements Backend {
 
   async forkSessionBeforeMessage(
     _sessionId: string,
-    _targetMessageId: string,
+    targetMessageId: string | null,
     access?: SessionAccessOptions,
   ): Promise<ForkSessionBeforeMessageResult> {
     this.forkCount++;
     this.lastForkAccess = access;
+    this.lastForkTarget = targetMessageId;
+    if (this.cfg.forkError) throw this.cfg.forkError;
     return this.cfg.forkResult ?? { kind: "fresh" };
   }
 

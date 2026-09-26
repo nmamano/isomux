@@ -130,6 +130,10 @@ export interface ManagedAgent {
   // notice flag here - a server restart forgets it, and the next session start
   // may re-notice.
   memoryNoticeFired: boolean;
+  // The edited text while an edited message's turn runs (editMessage), else
+  // unset. Every error entry written meanwhile keeps it (FAILED_EDIT_TEXT_KEY),
+  // so a turn that fails late still offers the text back.
+  editTurnText?: string;
   // The wake-up line waiting to ride out on the next message, or null when the
   // wake had nothing to warn about (idle eviction, fresh session). Armed by the
   // two dormant-wake paths in agent-manager for a server restart or an

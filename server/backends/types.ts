@@ -536,13 +536,14 @@ export interface Backend {
 
   // Branch a conversation so that `targetMessageId` and everything after it
   // is replaced. The backend resolves predecessor / first-message semantics
-  // internally - agent-manager just passes the edited message's id.
+  // internally - agent-manager just passes the edited message's id. null
+  // keeps the whole history: the edited message never reached the backend.
   //   - Claude: middle → SDK forkSession at predecessor; first → fresh session
-  //   - Codex: thread/fork parent + thread/rollback child to before target's
-  //     turn (always linked, including first-message - gives /resume parity)
+  //   - Codex: thread/fork with beforeTurnId = the target's turn (always
+  //     linked, including first-message - gives /resume parity)
   forkSessionBeforeMessage(
     sessionId: string,
-    targetMessageId: string,
+    targetMessageId: string | null,
     access?: SessionAccessOptions,
   ): Promise<ForkSessionBeforeMessageResult>;
   getSessionMessages(
