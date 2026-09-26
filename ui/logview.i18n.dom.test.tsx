@@ -24,6 +24,7 @@ import {
   translationsFrom,
   translationsFor,
 } from "./test-support/i18n.ts";
+import { DEFAULT_AGENT_CAPABILITIES } from "../shared/types.ts";
 
 setUpDomTestFile();
 
@@ -96,6 +97,7 @@ const AGENT = {
     accessory: "none",
     hat: "none",
   },
+  capabilities: DEFAULT_AGENT_CAPABILITIES,
 } as unknown as AgentInfo;
 
 function entry(over: Partial<LogEntry>): LogEntry {

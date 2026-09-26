@@ -1,5 +1,6 @@
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
+import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
 
 setUpDomTestFile();
 const { act, fireEvent, render } = await import("@testing-library/react");
@@ -36,6 +37,7 @@ it("applies pushed full account snapshots to an already mounted chat card", asyn
     sessionId: null,
     customPrompt: null,
     outfit: {},
+    capabilities: DEFAULT_AGENT_CAPABILITIES,
   } as unknown as Parameters<typeof LogView>[0]["agent"];
   const logs = [
     {
