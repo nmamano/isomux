@@ -584,10 +584,7 @@ interface WelcomeModelChoice {
 // One discovery request per owner at a time: a caller that arrives while one
 // is in flight, such as the retry after the seed's request timed out, waits for
 // that request instead of starting another.
-const welcomeDiscoveryInFlight = new Map<
-  string,
-  Promise<BackendModelWire[]>
->();
+const welcomeDiscoveryInFlight = new Map<string, Promise<BackendModelWire[]>>();
 
 function discoverWelcomeModels(userId: string): Promise<BackendModelWire[]> {
   const inFlight = welcomeDiscoveryInFlight.get(userId);
