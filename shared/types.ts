@@ -218,8 +218,9 @@ export const EFFORT_KEYS: Record<
 // coercion target when validateEffort rejects a value.
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
-export const OPENCODE_DEFAULT_MODEL =
-  "opencode/muse-spark-1.2-contributor-free";
+// Must name a free model the provider offers now: new offices fall back to it
+// when OpenCode discovery fails at boot.
+export const OPENCODE_DEFAULT_MODEL = "opencode/nemotron-3-ultra-free";
 
 // The fixed lobby room has one agent slot and is visible to every member.
 export const LOBBY_ROOM_ID = "lobby";

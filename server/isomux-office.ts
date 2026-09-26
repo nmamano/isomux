@@ -98,7 +98,11 @@ import {
   type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
-import { resolveWelcomeOpenCodeModel } from "./welcome-opencode-model.ts";
+import {
+  resolveWelcomeOpenCodeModel,
+  retryWelcomeOpenCodeModel,
+  type WelcomeModelRetryTiming,
+} from "./welcome-opencode-model.ts";
 import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
 import {
   buildProductionGuardDeps,
@@ -461,6 +465,7 @@ function createManagers(startOpts: StartServerOpts): void {
       ? createContainerAppSupervisor()
       : productionAppSupervisor);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
+  welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
   hostPlatform = startOpts.hostPlatform ?? process.platform;
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
@@ -553,37 +558,81 @@ function createManagers(startOpts: StartServerOpts): void {
 // when Render claimed its first owner before the hooks existed.
 // Body left at prior indentation; prettier normalizes post-review.
 const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+// The seed's discovery timeout, then the background retry after a seed used
+// the fallback (see repickFallbackSeeds).
+export interface WelcomeModelTiming extends WelcomeModelRetryTiming {
+  discoveryTimeoutMs: number;
+}
+const WELCOME_MODEL_TIMING: WelcomeModelTiming = {
+  discoveryTimeoutMs: WELCOME_MODEL_DISCOVERY_TIMEOUT_MS,
+  delayMs: 10_000,
+  windowMs: 10 * 60_000,
+};
+let welcomeModelTiming = WELCOME_MODEL_TIMING;
 
 let seedWelcomeAgentsForFirstOwner:
   | ((username: string) => Promise<void>)
   | null = null;
 
-async function welcomeOpenCodeModel(username: string): Promise<string | null> {
+// Where the seed puts a welcome agent: the discovered model, or
+// OPENCODE_DEFAULT_MODEL when discovery failed (fromFallback).
+interface WelcomeModelChoice {
+  model: string;
+  fromFallback: boolean;
+}
+
+// One discovery request per owner at a time: a caller that arrives while one
+// is in flight, such as the retry after the seed's request timed out, waits for
+// that request instead of starting another.
+const welcomeDiscoveryInFlight = new Map<
+  string,
+  Promise<BackendModelWire[]>
+>();
+
+function discoverWelcomeModels(userId: string): Promise<BackendModelWire[]> {
+  const inFlight = welcomeDiscoveryInFlight.get(userId);
+  if (inFlight) return inFlight;
+  const request = startWelcomeDiscovery(userId).finally(() => {
+    if (welcomeDiscoveryInFlight.get(userId) === request)
+      welcomeDiscoveryInFlight.delete(userId);
+  });
+  welcomeDiscoveryInFlight.set(userId, request);
+  return request;
+}
+
+function startWelcomeDiscovery(userId: string): Promise<BackendModelWire[]> {
+  return (
+    discoverWelcomeOpenCodeModels
+      ? discoverWelcomeOpenCodeModels(userId).then((models) => ({
+          ok: true as const,
+          models,
+        }))
+      : listBackendModels({
+          agentType: "opencode",
+          cwd: "~",
+          includeHidden: false,
+          userId,
+        })
+  ).then((discovery) => {
+    if (!discovery.ok) throw new Error(discovery.error);
+    return discovery.models;
+  });
+}
+
+async function welcomeOpenCodeModel(
+  username: string,
+): Promise<WelcomeModelChoice | null> {
   const user = getUserByName(username);
   if (!user) {
     console.warn(
       `[bootstrap] cannot discover a free OpenCode model: owner ${username} was not found; using the preferred model`,
     );
-    return OPENCODE_DEFAULT_MODEL;
+    return { model: OPENCODE_DEFAULT_MODEL, fromFallback: false };
   }
   const result = await resolveWelcomeOpenCodeModel(
-    async () => {
-      const discovery = await (discoverWelcomeOpenCodeModels
-        ? discoverWelcomeOpenCodeModels(user.id).then((models) => ({
-            ok: true as const,
-            models,
-          }))
-        : listBackendModels({
-            agentType: "opencode",
-            cwd: "~",
-            includeHidden: false,
-            userId: user.id,
-          }));
-      if (!discovery.ok) throw new Error(discovery.error);
-      return discovery.models;
-    },
+    () => discoverWelcomeModels(user.id),
     OPENCODE_DEFAULT_MODEL,
-    WELCOME_MODEL_DISCOVERY_TIMEOUT_MS,
+    welcomeModelTiming.discoveryTimeoutMs,
   );
   if (result.kind === "no_free_model") {
     console.warn(
@@ -596,9 +645,90 @@ async function welcomeOpenCodeModel(username: string): Promise<string | null> {
       "[bootstrap] OpenCode model discovery failed; using the preferred free model:",
       result.error,
     );
-    return OPENCODE_DEFAULT_MODEL;
+    return { model: OPENCODE_DEFAULT_MODEL, fromFallback: true };
   }
-  return result.model;
+  return { model: result.model, fromFallback: false };
+}
+
+// The fallback constant can be withdrawn by the provider before a release
+// updates it. After a seed used it, discovery continues in the background, and
+// the first success moves the agents this process seeded on the fallback to a
+// discovered free model. In memory only: a restart ends the retry. Existing
+// agents and a model a member picked in the meantime are never touched. The
+// window bounds both new requests and model updates.
+const fallbackSeededAgentIds = new Set<string>();
+let fallbackRepickRunning = false;
+// Bumped at shutdown so a retry still in flight does not act on a later server.
+let fallbackRepickGeneration = 0;
+
+function repickFallbackSeeds(userId: string, agentId: string): void {
+  fallbackSeededAgentIds.add(agentId);
+  if (fallbackRepickRunning) return;
+  fallbackRepickRunning = true;
+  const generation = fallbackRepickGeneration;
+  const deadline = Date.now() + welcomeModelTiming.windowMs;
+  void (async () => {
+    const handled: string[] = [];
+    try {
+      const result = await retryWelcomeOpenCodeModel(
+        () => discoverWelcomeModels(userId),
+        OPENCODE_DEFAULT_MODEL,
+        welcomeModelTiming,
+      );
+      if (generation !== fallbackRepickGeneration) return;
+      if (result.kind !== "selected") {
+        console.warn(
+          "[bootstrap] OpenCode model discovery retry found no free model; the welcome agents keep the preferred free model.",
+        );
+        handled.push(...fallbackSeededAgentIds);
+        return;
+      }
+      for (const id of [...fallbackSeededAgentIds]) {
+        if (Date.now() > deadline) {
+          handled.push(...fallbackSeededAgentIds);
+          return;
+        }
+        handled.push(id);
+        const agent = agentManager.getAgent(id);
+        if (
+          !agent ||
+          agent.agentType !== "opencode" ||
+          agent.modelFamily !== OPENCODE_DEFAULT_MODEL ||
+          result.model === OPENCODE_DEFAULT_MODEL
+        )
+          continue;
+        try {
+          await agentManager.editAgent(id, { modelFamily: result.model });
+        } catch (err) {
+          console.warn(
+            `[bootstrap] could not move ${agent.name} to ${result.model}:`,
+            err,
+          );
+        }
+        if (generation !== fallbackRepickGeneration) return;
+      }
+    } catch (err) {
+      console.warn("[bootstrap] OpenCode model discovery retry failed:", err);
+    } finally {
+      if (generation === fallbackRepickGeneration) {
+        fallbackRepickRunning = false;
+        for (const id of handled) fallbackSeededAgentIds.delete(id);
+        // An agent seeded while the last attempt was being applied.
+        const [next] = fallbackSeededAgentIds;
+        if (next) {
+          fallbackSeededAgentIds.delete(next);
+          repickFallbackSeeds(userId, next);
+        }
+      }
+    }
+  })();
+}
+
+function stopFallbackRepick(): void {
+  fallbackRepickGeneration++;
+  welcomeDiscoveryInFlight.clear();
+  fallbackRepickRunning = false;
+  fallbackSeededAgentIds.clear();
 }
 
 // A default profile is seeded only when the office first gains a lobby.
@@ -621,8 +751,9 @@ async function ensureReceptionist(username: string): Promise<void> {
     // with the same permission mode, and a member without a Claude sign-in
     // gets the sign-in card on the first message.
     const openCode = openCodeRunsOnHost();
+    const choice = openCode ? await welcomeOpenCodeModel(username) : null;
     const model = openCode
-      ? ((await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL)
+      ? (choice?.model ?? OPENCODE_DEFAULT_MODEL)
       : MODEL_FAMILIES[0].family;
     const created = await agentManager.spawn(
       RECEPTIONIST_NAME,
@@ -648,6 +779,8 @@ async function ensureReceptionist(username: string): Promise<void> {
     );
     if (created) {
       agentManager.completeLobbySeed();
+      if (choice?.fromFallback && created.userId)
+        repickFallbackSeeds(created.userId, created.id);
     } else {
       console.warn(
         `[bootstrap] ${RECEPTIONIST_NAME} spawn returned null; the next boot will retry.`,
@@ -816,7 +949,7 @@ function registerBootHooks(): void {
     permissionMode: AgentInfo["permissionMode"] | undefined,
     outfit: AgentOutfit,
     username: string,
-  ): Promise<void> {
+  ): Promise<AgentInfo | null> {
     try {
       const created = await agentManager.spawn(
         name,
@@ -838,8 +971,10 @@ function registerBootHooks(): void {
           `[bootstrap] ${name} spawn returned null (duplicate name or full room?)`,
         );
       }
+      return created;
     } catch (err) {
       console.warn(`[bootstrap] ${name} spawn threw:`, err);
+      return null;
     }
   }
 
@@ -875,14 +1010,16 @@ function registerBootHooks(): void {
     if (!openCodeRunsOnHost()) return;
     const openCodeModel = await welcomeOpenCodeModel(username);
     if (openCodeModel) {
-      await spawnWelcomeAgent(
+      const created = await spawnWelcomeAgent(
         "Free Welcome Agent",
         "opencode",
-        openCodeModel,
+        openCodeModel.model,
         "bypassPermissions",
         OPENCODE_WELCOME_OUTFIT,
         username,
       );
+      if (openCodeModel.fromFallback && created?.userId)
+        repickFallbackSeeds(created.userId, created.id);
     }
   };
   setOnOwnerCreated(async ({ username }) => {
@@ -6415,6 +6552,9 @@ export interface StartServerOpts {
   discoverWelcomeOpenCodeModels?: (
     userId: string,
   ) => Promise<BackendModelWire[]>;
+  // Test seam for the seed's discovery timeout and the background retry after
+  // a seed used the fallback model.
+  welcomeModelTiming?: WelcomeModelTiming;
   // Inject the app supervisor. Tests MUST pass a fake: the production one
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.
@@ -6489,6 +6629,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setOnUserRoleChanged(() => {});
   setOnOwnerCreated(async () => {});
   seedWelcomeAgentsForFirstOwner = null;
+  stopFallbackRepick();
   setApiTokenStreamSinks({ logEntry: () => {}, revoked: () => {} });
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.

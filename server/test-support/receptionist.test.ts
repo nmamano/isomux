@@ -11,7 +11,12 @@ import { homedir } from "os";
 import { ISOMUX_KNOWLEDGE } from "../../api/chat.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { LOBBY_ROOM } from "../../shared/types.ts";
-import { LOBBY_ROOM_ID, type AgentInfo } from "../../shared/types.ts";
+import {
+  LOBBY_ROOM_ID,
+  OPENCODE_DEFAULT_MODEL,
+  type AgentInfo,
+  type BackendModelWire,
+} from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -227,6 +232,208 @@ describe("receptionist profile and lobby", () => {
         .getAllAgents()
         .find((a) => a.name === "Free Welcome Agent")?.modelFamily,
     ).toBe("opencode/available-free");
+  });
+
+  describe("after the seed falls back because discovery failed", () => {
+    const LIVE_FREE = "opencode/live-free";
+    // Discovery fails until a test sets `models`, as on a fresh office whose
+    // OpenCode server is still loading its catalog.
+    async function startWithFailingDiscovery() {
+      const discovery: { models: BackendModelWire[] | null; calls: number } = {
+        models: null,
+        calls: 0,
+      };
+      const srv = (server = await startTestServer({
+        startServer: {
+          discoverWelcomeOpenCodeModels: async () => {
+            discovery.calls++;
+            if (!discovery.models) throw new Error("catalog not loaded");
+            return discovery.models;
+          },
+          welcomeModelTiming: {
+            discoveryTimeoutMs: 1_000,
+            delayMs: 10,
+            windowMs: 60_000,
+          },
+        },
+      }));
+      await claimOwner(srv, "Boss");
+      return { srv, discovery };
+    }
+    const freeWelcomeOf = (srv: TestServer) =>
+      srv.agentManager
+        .getAllAgents()
+        .find((a) => a.name === "Free Welcome Agent") as AgentInfo;
+    const liveModels: BackendModelWire[] = [
+      { id: "paid/model", label: "Paid", supportedEfforts: [] },
+      {
+        id: "opencode-go/needs-subscription-free",
+        label: "Go",
+        isFree: true,
+        supportedEfforts: [],
+      },
+      { id: LIVE_FREE, label: "Live", isFree: true, supportedEfforts: [] },
+    ];
+
+    it("moves both seeded agents to a discovered free model", async () => {
+      const { srv, discovery } = await startWithFailingDiscovery();
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      discovery.models = liveModels;
+      await waitUntil(
+        () =>
+          receptionistOf(srv).modelFamily === LIVE_FREE &&
+          freeWelcomeOf(srv).modelFamily === LIVE_FREE,
+        3000,
+        "seeded agents moved",
+      );
+      const persisted = JSON.parse(
+        readFileSync(join(srv.stateRoot, "agents.json"), "utf8"),
+      ).flatMap((room: { agents: AgentInfo[] }) => room.agents);
+      expect(
+        persisted
+          .filter((a: AgentInfo) => a.agentType === "opencode")
+          .map((a: AgentInfo) => a.modelFamily),
+      ).toEqual([LIVE_FREE, LIVE_FREE]);
+    });
+
+    it("leaves a member's model choice and agents it did not seed alone", async () => {
+      const { srv, discovery } = await startWithFailingDiscovery();
+      await srv.agentManager.editAgent(freeWelcomeOf(srv).id, {
+        modelFamily: "opencode/member-pick",
+      });
+      const other = await srv.agentManager.spawn(
+        "Other OpenCode",
+        "~",
+        "bypassPermissions",
+        undefined,
+        undefined,
+        srv.agentManager.getOrdinaryRooms()[0].id,
+        undefined,
+        OPENCODE_DEFAULT_MODEL,
+        undefined,
+        "Boss",
+        "opencode",
+      );
+      expect(other).not.toBeNull();
+      discovery.models = liveModels;
+      await waitUntil(
+        () => receptionistOf(srv).modelFamily === LIVE_FREE,
+        3000,
+        "receptionist moved",
+      );
+      expect(freeWelcomeOf(srv).modelFamily).toBe("opencode/member-pick");
+      expect(srv.agentManager.getAgent(other!.id)?.modelFamily).toBe(
+        OPENCODE_DEFAULT_MODEL,
+      );
+    });
+
+    // Every request hangs until the test settles `release`.
+    async function startWithHungDiscovery(windowMs: number) {
+      const discovery = {
+        calls: 0,
+        release: (_models: BackendModelWire[]) => {},
+      };
+      const pending = new Promise<BackendModelWire[]>((resolve) => {
+        discovery.release = resolve;
+      });
+      const srv = (server = await startTestServer({
+        startServer: {
+          discoverWelcomeOpenCodeModels: () => {
+            discovery.calls++;
+            return pending;
+          },
+          welcomeModelTiming: { discoveryTimeoutMs: 20, delayMs: 10, windowMs },
+        },
+      }));
+      await claimOwner(srv, "Boss");
+      return { srv, discovery };
+    }
+
+    it("waits for the seed's timed-out request instead of starting another", async () => {
+      const { srv, discovery } = await startWithHungDiscovery(60_000);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      await sleep(100);
+      expect(discovery.calls).toBe(1);
+      discovery.release(liveModels);
+      await waitUntil(
+        () =>
+          receptionistOf(srv).modelFamily === LIVE_FREE &&
+          freeWelcomeOf(srv).modelFamily === LIVE_FREE,
+        3000,
+        "seeded agents moved by the late request",
+      );
+      expect(discovery.calls).toBe(1);
+    });
+
+    it("ignores a request that settles after the window", async () => {
+      const { srv, discovery } = await startWithHungDiscovery(50);
+      await sleep(100);
+      discovery.release(liveModels);
+      await sleep(100);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+    });
+
+    it("keeps the fallback when discovery finds no free model", async () => {
+      const { srv, discovery } = await startWithFailingDiscovery();
+      discovery.models = liveModels.filter((m) => m.id !== LIVE_FREE);
+      const callsBefore = discovery.calls;
+      await waitUntil(
+        () => discovery.calls > callsBefore,
+        3000,
+        "retry discovered",
+      );
+      await sleep(100);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+    });
+
+    // The retry is only for a seed that fell back. Here discovery succeeds and
+    // lists the fallback, and a later request lists another free model; one
+    // test per seed call site.
+    async function startWithListedFallback(fallbackCalls: number) {
+      const discovery = { calls: 0 };
+      const listed: BackendModelWire[] = [
+        {
+          id: OPENCODE_DEFAULT_MODEL,
+          label: "Fallback",
+          isFree: true,
+          supportedEfforts: [],
+        },
+      ];
+      const srv = (server = await startTestServer({
+        startServer: {
+          discoverWelcomeOpenCodeModels: async () => {
+            discovery.calls++;
+            return discovery.calls <= fallbackCalls ? listed : liveModels;
+          },
+          welcomeModelTiming: {
+            discoveryTimeoutMs: 1_000,
+            delayMs: 10,
+            windowMs: 60_000,
+          },
+        },
+      }));
+      await claimOwner(srv, "Boss");
+      await sleep(100);
+      return { srv, discovery };
+    }
+
+    it("leaves a Receptionist seeded by a successful discovery alone", async () => {
+      const { srv, discovery } = await startWithListedFallback(1);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(LIVE_FREE);
+      expect(discovery.calls).toBe(2);
+    });
+
+    it("leaves a Free Welcome Agent seeded by a successful discovery alone", async () => {
+      const { srv, discovery } = await startWithListedFallback(2);
+      expect(receptionistOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(freeWelcomeOf(srv).modelFamily).toBe(OPENCODE_DEFAULT_MODEL);
+      expect(discovery.calls).toBe(2);
+    });
   });
 
   it("keeps lobby access at the id boundary before the canonical room exists", async () => {

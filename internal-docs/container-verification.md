@@ -116,4 +116,7 @@ The first OpenCode welcome model, `opencode/muse-spark-1.2-contributor-free`,
 was refused by the provider on that date; OpenCode model discovery had timed
 out at first boot. The same image in plain Docker on this host gets the same
 refusal for that model and a reply from `opencode/nemotron-3-ultra-free`, so
-this is not specific to Kubernetes.
+this is not specific to Kubernetes. Fixed 2026-09-26: the fallback is now
+`opencode/nemotron-3-ultra-free`, and after a seed falls back, discovery
+retries in the background and moves the seeded agents to a discovered free
+model (`repickFallbackSeeds` in `server/isomux-office.ts`).
