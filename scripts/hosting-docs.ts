@@ -28,8 +28,6 @@ export const HOSTING_GUIDES = [
     label: "Kubernetes (EKS)",
     detail: "A cluster in your AWS account",
     source: "docs/hosting/kubernetes.md",
-    notice:
-      "Tested on a local Kubernetes cluster. Testing on EKS is incomplete.",
   },
   {
     id: "vps",

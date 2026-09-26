@@ -193,7 +193,7 @@ describe("complete hosting guides", () => {
   });
 
   it("keeps availability notices ahead of setup navigation", async () => {
-    for (const id of ["render", "kubernetes"]) {
+    for (const id of ["render"]) {
       const window = parse(htmlAt(`/docs/hosting-${id}`));
       const article = window.document.querySelector("article")!;
       expect(article.children[0].tagName).toBe("H1");

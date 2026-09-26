@@ -96,7 +96,7 @@ Visit **http://localhost:4000** in your browser.
 
 - If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
-- OpenCode is bundled with isomux and needs Linux. Choose a Free, Pay-as-you-go, or Subscription model.
+- OpenCode is bundled with isomux but needs Linux. Choose a Free, Pay-as-you-go, or Subscription model.
 
 Want to run it on an always-on box, access from every device, and invite other members to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, an unattended VPS install for a fresh server, or [Render](docs/self-hosted.md#deploy-on-render).
 
