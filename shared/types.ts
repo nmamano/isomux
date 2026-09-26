@@ -1530,6 +1530,12 @@ export type UpdateStatusWire =
     };
 
 // Server → Browser messages
+// OpenCode's supervisor and office proxy are Linux-only (see
+// server/backends/opencode/runtime.ts).
+export type UnavailableEngines = Partial<
+  Record<AgentBackendType, "needs_linux">
+>;
+
 export type ServerMessage =
   | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
   | {
@@ -1543,6 +1549,9 @@ export type ServerMessage =
       // for sessions with no killed agents in visible rooms.
       killedAgents: KilledAgentSummary[];
       interactions?: AgentChoiceInteraction[];
+      // Engines this office's host cannot run, with the reason. Absent on
+      // older servers, where every engine is available.
+      unavailableEngines?: UnavailableEngines;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions

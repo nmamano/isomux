@@ -962,6 +962,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "dialogs.agent.engineBlurb.codex": "Works with your ChatGPT login.",
   "dialogs.agent.engineBlurb.opencode":
     "Works with models configured through OpenCode.",
+  "dialogs.agent.engineNeedsLinux": "Needs a Linux host.",
   "dialogs.agent.engineSwitchHint":
     "Switching to {engine} starts a new conversation. The current one stays in this agent's resume history.",
   "dialogs.agent.templateHint":

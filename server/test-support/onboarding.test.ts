@@ -40,6 +40,7 @@ import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
 import { listAgentSessions } from "../persistence.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { MODEL_FAMILIES } from "../../shared/types.ts";
 import type { OneShotOptions } from "../backends/types.ts";
 
 let server: TestServer | null = null;
@@ -503,5 +504,45 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     // No crash: the office survived the broken backend (all welcome agents
     // still present, server still serving).
     expect(server.agentManager.getAllAgents().length).toBe(4);
+  });
+});
+
+// OpenCode runs only on Linux (server/backends/opencode/runtime.ts). Off Linux
+// a fresh office seeds no OpenCode agent, and full_state tells the pickers.
+describe("onboarding by host platform", () => {
+  async function claimOn(platform: NodeJS.Platform) {
+    server = await startTestServer({ startServer: { hostPlatform: platform } });
+    const session = await claimOwner(server, "Boss");
+    const sock = await server.connectWs(session);
+    const fullState = await sock.waitFor("full_state");
+    const agents = server.agentManager.getAllAgents();
+    const receptionist = agents.find((a) => a.roomId === "lobby");
+    expect(receptionist).toBeDefined();
+    return { agents, receptionist: receptionist!, fullState };
+  }
+
+  it("Linux seeds the OpenCode Receptionist and Free Welcome Agent, and every engine is available", async () => {
+    const { agents, receptionist, fullState } = await claimOn("linux");
+    expect(receptionist.agentType).toBe("opencode");
+    expect(receptionist.permissionMode).toBe("bypassPermissions");
+    expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
+    expect(fullState.unavailableEngines).toEqual({});
+  });
+
+  it("macOS seeds a Claude Receptionist with the same permission mode and no Free Welcome Agent", async () => {
+    const { agents, receptionist, fullState } = await claimOn("darwin");
+    expect(receptionist.agentType).toBe("claude");
+    expect(receptionist.modelFamily).toBe(MODEL_FAMILIES[0].family);
+    expect(receptionist.permissionMode).toBe("bypassPermissions");
+    expect(agents.every((a) => a.agentType !== "opencode")).toBe(true);
+    expect(agents.map((a) => a.name).sort()).toEqual(
+      [CLAUDE_WELCOME, CODEX_WELCOME, receptionist.name].sort(),
+    );
+    for (const agent of agents.filter((a) => a.roomId !== "lobby")) {
+      expect(agent.customInstructions).toContain(CLAUDE_WELCOME);
+      expect(agent.customInstructions).toContain(CODEX_WELCOME);
+      expect(agent.customInstructions).not.toContain(OPENCODE_WELCOME);
+    }
+    expect(fullState.unavailableEngines).toEqual({ opencode: "needs_linux" });
   });
 });

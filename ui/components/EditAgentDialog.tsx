@@ -272,7 +272,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     rooms,
     sessionContext,
     killedAgents,
+    unavailableEngines,
   } = useAppState();
+  // The office host cannot run this engine: no model discovery, and a new
+  // agent or an engine switch cannot pick it.
+  const engineUnavailable = unavailableEngines[targetEngine] !== undefined;
+  const engineChoiceBlocked =
+    engineUnavailable && (isSpawn || targetEngine !== agentType);
   // Privilege toggle visibility mirrors the (i-b) server gate (agents.setPrivileged):
   // an office owner may toggle any agent; otherwise only the agent's MANAGER (its
   // spawning user) may. At spawn the current user IS the manager. Hiding it for
@@ -618,12 +624,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     if (!usesBackendModels) return;
     let cancelled = false;
     // Seed loading flags synchronously so the dropdown shows the spinner.
+    // An engine the host cannot run shows its reason instead of a model list.
     /* eslint-disable react-hooks/set-state-in-effect */
-    setModelsLoading(true);
+    setModelsLoading(!engineUnavailable);
     setModelsStarting(false);
-    setModelsError(null);
+    setModelsError(
+      engineUnavailable ? { message: "", authError: false } : null,
+    );
     setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
+    if (engineUnavailable) return;
     fetchBackendModels(
       `/api/backends/${encodeURIComponent(targetEngine)}/models?cwd=${encodeURIComponent(cwd)}`,
       { onStarting: () => !cancelled && setModelsStarting(true) },
@@ -1176,7 +1186,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               margin: "3px 0 0",
             }}
           >
-            {modelListErrorMessage(i18n, isOpenCode, modelsError)}
+            {engineUnavailable
+              ? t("dialogs.agent.engineNeedsLinux")
+              : modelListErrorMessage(i18n, isOpenCode, modelsError)}
           </p>
         )}
         {isOpenCode &&
@@ -1642,13 +1654,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <div className="spawn-engine-options">
                     {ENGINE_OPTIONS.map((option) => {
                       const selected = targetEngine === option.agentType;
+                      const unavailable =
+                        unavailableEngines[option.agentType] !== undefined;
                       return (
                         <button
                           key={option.agentType}
                           type="button"
                           aria-pressed={selected}
+                          disabled={unavailable}
                           onClick={() => setTargetEngine(option.agentType)}
                           style={{
+                            opacity: unavailable ? 0.5 : 1,
                             background: selected
                               ? "var(--bg-hover)"
                               : "var(--bg-surface)",
@@ -1656,7 +1672,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             borderRadius: 8,
                             padding: "12px 14px",
                             textAlign: "left",
-                            cursor: "pointer",
+                            cursor: unavailable ? "not-allowed" : "pointer",
                             color: "var(--text-primary)",
                             boxShadow: selected
                               ? `0 0 0 1px ${option.accent}`
@@ -1681,7 +1697,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                               lineHeight: 1.4,
                             }}
                           >
-                            {t(option.blurbKey)}
+                            {unavailable
+                              ? t("dialogs.agent.engineNeedsLinux")
+                              : t(option.blurbKey)}
                           </span>
                         </button>
                       );
@@ -1705,11 +1723,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       cursor: "pointer",
                     }}
                   >
-                    {ENGINE_OPTIONS.map((option) => (
-                      <option key={option.agentType} value={option.agentType}>
-                        {option.label}
-                      </option>
-                    ))}
+                    {ENGINE_OPTIONS.map((option) => {
+                      const unavailable =
+                        unavailableEngines[option.agentType] !== undefined;
+                      return (
+                        <option
+                          key={option.agentType}
+                          value={option.agentType}
+                          disabled={unavailable && option.agentType !== agentType}
+                        >
+                          {unavailable
+                            ? `${option.label} (${t("dialogs.agent.engineNeedsLinux")})`
+                            : option.label}
+                        </option>
+                      );
+                    })}
                   </select>
                   {targetEngine !== agentType && (
                     <p
@@ -2114,7 +2142,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             <button
               onClick={handleSave}
               style={saveBtnStyle}
-              disabled={saving || !openCodeModelReady}
+              disabled={saving || !openCodeModelReady || engineChoiceBlocked}
             >
               {saving
                 ? t("common.saving")

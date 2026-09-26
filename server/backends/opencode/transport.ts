@@ -15,6 +15,7 @@ import {
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import { OpenCodeUnsupportedHostError } from "./runtime.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import {
   evaluateOpenCodePermission,
@@ -398,7 +399,10 @@ export class OpenCodeTransport {
         emit({
           kind: "turn_completed",
           status: "failed",
-          error: `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`,
+          error:
+            error instanceof OpenCodeUnsupportedHostError
+              ? error.message
+              : `${context} (${safeError.name}${safeError.code ? `/${safeError.code}` : ""}; HTTP status: ${safeError.statusCode ?? "unavailable"}).`,
         });
       }
     };

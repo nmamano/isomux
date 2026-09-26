@@ -1,0 +1,73 @@
+---
+name: macOS boot
+
+# The local install guide supports macOS, and nothing else in CI runs there.
+# This job boots the office on real Macs (Apple silicon and Intel) the way the
+# guide does, and fails if it does not answer HTTP.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  boot:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - macos-latest
+          - macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Agent turns need provider credentials, which CI does not have. Check
+      # that the darwin builds of both agent CLIs installed and run.
+      - name: Run the Claude and Codex CLIs
+        run: |
+          arch=arm64
+          if [ "$(uname -m)" = "x86_64" ]; then arch=x64; fi
+          "node_modules/@anthropic-ai/claude-agent-sdk-darwin-$arch/claude" --version
+          bun node_modules/@openai/codex/bin/codex.js --version
+
+      - name: Boot the office and check that it answers HTTP
+        env:
+          ISOMUX_HOME: ${{ runner.temp }}/isomux-home
+          PORT: "4000"
+        run: |
+          log="$RUNNER_TEMP/isomux-dev.log"
+          bun run dev > "$log" 2>&1 &
+          pid=$!
+          status=000
+          for _ in $(seq 1 90); do
+            if ! kill -0 "$pid" 2>/dev/null; then
+              echo "The office exited during boot."
+              break
+            fi
+            status=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:$PORT/" || true)
+            [ "$status" = "200" ] && break
+            sleep 2
+          done
+          cat "$log"
+          kill "$pid" 2>/dev/null || true
+          test "$status" = "200"

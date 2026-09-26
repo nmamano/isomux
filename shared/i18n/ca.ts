@@ -962,6 +962,7 @@ Coses que pots fer per ell:
   "dialogs.agent.engineBlurb.codex": "Funciona amb el teu compte de ChatGPT.",
   "dialogs.agent.engineBlurb.opencode":
     "Funciona amb els models configurats a través d'OpenCode.",
+  "dialogs.agent.engineNeedsLinux": "Necessita un servidor Linux.",
   "dialogs.agent.engineSwitchHint":
     "Canviar a {engine} comença una conversa nova. L'actual es queda a l'historial de sessions d'aquest agent.",
   "dialogs.agent.templateHint":

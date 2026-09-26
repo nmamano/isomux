@@ -854,6 +854,7 @@ App 的一些原则：
   "dialogs.agent.engineBlurb.claude": "使用 Claude Code 登录账户。",
   "dialogs.agent.engineBlurb.codex": "使用 ChatGPT 登录账户。",
   "dialogs.agent.engineBlurb.opencode": "使用通过 OpenCode 配置的模型。",
+  "dialogs.agent.engineNeedsLinux": "需要 Linux 主机。",
   "dialogs.agent.engineSwitchHint":
     "切换到 {engine} 会开始新对话。当前对话会保留在此智能体的可恢复历史中。",
   "dialogs.agent.templateHint": "模板会填充下方字段。每项建议都可以编辑。",

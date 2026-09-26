@@ -9,8 +9,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 ## Multi-provider
 
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
-- **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
-- **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
+- **OpenCode ships bundled and pinned**, and needs Linux. Choose a Free, Pay-as-you-go, or Subscription model.
+- **New offices start with welcome agents** for Claude and Codex. On Linux they also get the Free Welcome Agent, which runs on a free OpenCode model and answers immediately.
 
 ## Multi-agent
 

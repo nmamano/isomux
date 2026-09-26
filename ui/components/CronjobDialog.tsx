@@ -122,7 +122,7 @@ export function CronjobDialog({
   const isEdit = !!cronjob;
   const i18n = useI18n();
   const { t } = i18n;
-  const { recentCwds, isMobile } = useAppState();
+  const { recentCwds, isMobile, unavailableEngines } = useAppState();
 
   const [name, setName] = useState(cronjob?.name ?? "");
   const [scheduleType, setScheduleType] = useState<ScheduleType>(
@@ -164,6 +164,10 @@ export function CronjobDialog({
   const isCodex = agentType === "codex";
   const isOpenCode = agentType === "opencode";
   const usesBackendModels = isCodex || isOpenCode;
+  // The office host cannot run this engine (see EditAgentDialog).
+  const engineUnavailable = unavailableEngines[agentType] !== undefined;
+  const engineChoiceBlocked =
+    engineUnavailable && agentType !== cronjob?.agentType;
 
   const [modelFamily, setModelFamily] = useState<string>(
     cronjob?.modelFamily ?? MODEL_FAMILIES[0].family,
@@ -273,12 +277,16 @@ export function CronjobDialog({
   useEffect(() => {
     if (!usesBackendModels) return;
     let cancelled = false;
+    // An engine the host cannot run shows its reason instead of a model list.
     /* eslint-disable react-hooks/set-state-in-effect */
-    setModelsLoading(true);
+    setModelsLoading(!engineUnavailable);
     setModelsStarting(false);
-    setModelsError(null);
+    setModelsError(
+      engineUnavailable ? { message: "", authError: false } : null,
+    );
     setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
+    if (engineUnavailable) return;
     fetchBackendModels(
       `/api/backends/${encodeURIComponent(agentType)}/models?cwd=${encodeURIComponent(cwd)}`,
       { onStarting: () => !cancelled && setModelsStarting(true) },
@@ -735,7 +743,17 @@ export function CronjobDialog({
           >
             <option value="claude">Claude</option>
             <option value="codex">Codex</option>
-            <option value="opencode">OpenCode</option>
+            <option
+              value="opencode"
+              disabled={
+                unavailableEngines.opencode !== undefined &&
+                cronjob?.agentType !== "opencode"
+              }
+            >
+              {unavailableEngines.opencode !== undefined
+                ? `OpenCode (${t("dialogs.agent.engineNeedsLinux")})`
+                : "OpenCode"}
+            </option>
           </select>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
@@ -887,7 +905,9 @@ export function CronjobDialog({
                 margin: "3px 0 0",
               }}
             >
-              {modelListErrorMessage(i18n, isOpenCode, modelsError)}
+              {engineUnavailable
+                ? t("dialogs.agent.engineNeedsLinux")
+                : modelListErrorMessage(i18n, isOpenCode, modelsError)}
             </p>
           )}
           {isOpenCode &&
@@ -1145,7 +1165,7 @@ export function CronjobDialog({
               <button
                 onClick={handleSave}
                 style={saveBtnStyle}
-                disabled={saving || !openCodeModelReady}
+                disabled={saving || !openCodeModelReady || engineChoiceBlocked}
               >
                 {saving
                   ? t("common.saving")

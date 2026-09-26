@@ -99,6 +99,7 @@ import {
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { resolveWelcomeOpenCodeModel } from "./welcome-opencode-model.ts";
+import { openCodeUnsupportedReason } from "./backends/opencode/runtime.ts";
 import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
@@ -426,6 +427,11 @@ let appSupervisor: AppSupervisor;
 let discoverWelcomeOpenCodeModels:
   | ((userId: string) => Promise<BackendModelWire[]>)
   | undefined;
+let hostPlatform: NodeJS.Platform = process.platform;
+
+function openCodeRunsOnHost(): boolean {
+  return openCodeUnsupportedReason(hostPlatform) === null;
+}
 
 let extensionService: BrowserExtensionService | undefined;
 let extensionSessions: ExtensionBrowserSessions | undefined;
@@ -455,6 +461,7 @@ function createManagers(startOpts: StartServerOpts): void {
       ? createContainerAppSupervisor()
       : productionAppSupervisor);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
+  hostPlatform = startOpts.hostPlatform ?? process.platform;
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
       liveEmit("provider_accounts_updated", { accounts }, { userId });
@@ -610,8 +617,13 @@ async function ensureReceptionist(username: string): Promise<void> {
   }
   agentManager.ensureLobby(true);
   try {
-    const model =
-      (await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL;
+    // OpenCode runs only on Linux. Elsewhere the Receptionist runs on Claude
+    // with the same permission mode, and a member without a Claude sign-in
+    // gets the sign-in card on the first message.
+    const openCode = openCodeRunsOnHost();
+    const model = openCode
+      ? ((await welcomeOpenCodeModel(username)) ?? OPENCODE_DEFAULT_MODEL)
+      : MODEL_FAMILIES[0].family;
     const created = await agentManager.spawn(
       RECEPTIONIST_NAME,
       "~",
@@ -630,7 +642,7 @@ async function ensureReceptionist(username: string): Promise<void> {
       model,
       undefined,
       username,
-      "opencode",
+      openCode ? "opencode" : "claude",
       undefined,
       undefined,
     );
@@ -746,12 +758,23 @@ function registerBootHooks(): void {
     { agentType: "opencode", name: "Free Welcome Agent", family: "OpenCode" },
   ];
 
+  // OpenCode runs only on Linux, so other hosts get no Free Welcome Agent.
+  function seededWelcomeAgents(): typeof WELCOME_AGENTS {
+    return openCodeRunsOnHost()
+      ? WELCOME_AGENTS
+      : WELCOME_AGENTS.filter((agent) => agent.agentType !== "opencode");
+  }
+
   function welcomeAgentPrompt(agentType: AgentBackendType): string {
     const self = WELCOME_AGENTS.find((agent) => agent.agentType === agentType)!;
-    const roster = WELCOME_AGENTS.map(
-      (agent) => `${agent.name} (${agent.family})`,
-    ).join(", ");
-    return `You are the ${self.name} in this member's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription. The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet. If the member messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the member asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+    const seeded = seededWelcomeAgents();
+    const roster = seeded
+      .map((agent) => `${agent.name} (${agent.family})`)
+      .join(", ");
+    const freeAgent = seeded.some((agent) => agent.agentType === "opencode")
+      ? " The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription."
+      : "";
+    return `You are the ${self.name} in this member's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}.${freeAgent} The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet. If the member messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the member asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
   // Fixed outfits so all three welcome agents have a recognizable, friendly
@@ -849,6 +872,7 @@ function registerBootHooks(): void {
       CODEX_WELCOME_OUTFIT,
       username,
     );
+    if (!openCodeRunsOnHost()) return;
     const openCodeModel = await welcomeOpenCodeModel(username);
     if (openCodeModel) {
       await spawnWelcomeAgent(
@@ -4369,7 +4393,10 @@ function sendProjectedFullState(
       rooms: proj.rooms,
       killedAgents,
       interactions,
-    }),
+      unavailableEngines: openCodeRunsOnHost()
+        ? {}
+        : { opencode: "needs_linux" },
+    } satisfies ServerMessage),
   );
   if (options?.replayLogsForVisible) {
     for (const a of agents) {
@@ -6367,6 +6394,9 @@ export interface StartServerOpts {
   browserExtensionActionDeadline?: () => number;
   // Tests override the production install-kind marker without touching /etc.
   installKind?: InstallKind;
+  // Tests override the host platform to exercise the non-Linux seeding and
+  // engine availability without a Mac.
+  hostPlatform?: NodeJS.Platform;
   // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for
   // an ephemeral port.
   port?: number;

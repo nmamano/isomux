@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { STATE_ROOT } from "../../config.ts";
-import { resolveOpenCodeBinary } from "./runtime.ts";
+import { openCodeUnsupportedReason, resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./profile-paths.ts";
 import { linuxProcessIdentityMatches } from "./process-identity.ts";
 import {
@@ -88,6 +88,7 @@ export interface OpenCodeLease {
 export interface OpenCodeSupervisorOptions {
   profileDir?: string;
   binary?: string;
+  platform?: NodeJS.Platform;
   config?: Record<string, unknown>;
   serverCwd?: string;
   idleShutdownMs?: number;
@@ -117,7 +118,8 @@ export class OpenCodeSupervisor {
   private record: ServerRecord | null = null;
   readonly profileDir: string;
   readonly recordPath: string;
-  private readonly binary: string;
+  private resolvedBinary: string | undefined;
+  private readonly platform: NodeJS.Platform;
   private config: Record<string, unknown>;
   private configRevision: string;
   private readonly serverCwd: string;
@@ -144,7 +146,10 @@ export class OpenCodeSupervisor {
     this.profileDir =
       options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
     this.recordPath = join(this.profileDir, "server.lock");
-    this.binary = options.binary ?? resolveOpenCodeBinary();
+    // Resolved on first use, not here: the default supervisor is built at
+    // import time, and a host without OpenCode must still boot the office.
+    this.resolvedBinary = options.binary;
+    this.platform = options.platform ?? process.platform;
     this.config = {
       ...(options.config ?? DEFAULT_OPENCODE_CONFIG),
       autoupdate: false,
@@ -248,6 +253,7 @@ export class OpenCodeSupervisor {
   private async performShutdown(): Promise<void> {
     if (this.idleTimer) this.idleScheduler.clearTimeout(this.idleTimer);
     this.idleTimer = null;
+    if (openCodeUnsupportedReason(this.platform)) return;
     await mkdir(this.profileDir, { recursive: true });
     const helper = join(import.meta.dir, "start-server.ts");
     const proc = Bun.spawn(
@@ -275,8 +281,14 @@ export class OpenCodeSupervisor {
     this.record = null;
   }
 
+  private get binary(): string {
+    this.resolvedBinary ??= resolveOpenCodeBinary(this.platform);
+    return this.resolvedBinary;
+  }
+
   private async ensureServer(): Promise<void> {
     this.ensureServerSink();
+    const binary = this.binary;
     await mkdir(this.profileDir, { recursive: true });
     const configPath = join(this.profileDir, "opencode.json");
     await writeFile(configPath, `${JSON.stringify(this.config)}\n`, {
@@ -305,7 +317,7 @@ export class OpenCodeSupervisor {
           ISOMUX_OPENCODE_DEBUG: process.env.ISOMUX_OPENCODE_DEBUG,
           OPENCODE_PROFILE_DIR: this.profileDir,
           OPENCODE_SERVER_RECORD: this.recordPath,
-          OPENCODE_BINARY: this.binary,
+          OPENCODE_BINARY: binary,
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_CWD: this.serverCwd,
           OPENCODE_CONFIG: configPath,
@@ -413,8 +425,8 @@ export function openCodeSupervisorForEnvironment(
     Object.entries(env ?? {})
       // Agent tokens are per-agent capabilities. A shared OpenCode server must
       // never inherit one agent's token or use it as a profile discriminator.
-      // S1b has tools disabled; S3 must inject per-session tool authority at a
-      // narrower boundary instead of putting it in the shared process env.
+      // Per-turn tool authority reaches the agent through the authority broker
+      // (authority-broker.ts), never through the shared process env.
       .filter(([name]) => name !== "ISOMUX_AGENT_TOKEN")
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
       .sort(([a], [b]) => a.localeCompare(b)),

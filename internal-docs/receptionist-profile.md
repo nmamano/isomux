@@ -40,7 +40,9 @@ receptionist, and then seeds the three welcome agents only for a fresh office.
 No receptionist is created before an owner exists. The seed discovers the free
 OpenCode model with the same resolver as the Free Welcome Agent, and uses the
 preferred default when discovery cannot supply one. Permission mode is
-`bypassPermissions`, and cwd is `~`.
+`bypassPermissions`, and cwd is `~`. OpenCode runs only on Linux, so off Linux
+the receptionist runs on Claude with the default Claude model, the same
+permission mode and cwd, and the seed skips the Free Welcome Agent.
 An existing office without a lobby gets one at boot. A persisted empty lobby
 stays empty after a kill or move. Before the first spawn, the lobby bucket stores
 `defaultAgentPending: true`. A null or thrown spawn leaves this marker for the

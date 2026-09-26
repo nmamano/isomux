@@ -31,7 +31,7 @@ export function ContextMenu({
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { t, language } = useI18n();
-  const { sessionsList } = useAppState();
+  const { sessionsList, unavailableEngines } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
   const sessionsData = sessionsList.get(agent.id);
@@ -154,17 +154,27 @@ export function ContextMenu({
         />
       )}
       {features.sessions &&
-        alternateEngines.map((option) => (
-          <MenuItem
-            key={option.agentType}
-            label={t("contextMenu.newEngineConversation", {
-              engine: option.label,
-            })}
-            onClick={() =>
-              handleAction("new_conversation", undefined, option.agentType)
-            }
-          />
-        ))}
+        alternateEngines.map((option) => {
+          const unavailable =
+            unavailableEngines[option.agentType] !== undefined;
+          const label = t("contextMenu.newEngineConversation", {
+            engine: option.label,
+          });
+          return (
+            <MenuItem
+              key={option.agentType}
+              label={
+                unavailable
+                  ? `${label} (${t("dialogs.agent.engineNeedsLinux")})`
+                  : label
+              }
+              disabled={unavailable}
+              onClick={() =>
+                handleAction("new_conversation", undefined, option.agentType)
+              }
+            />
+          );
+        })}
 
       {features.sessions && sessions.length > 1 && (
         <>
@@ -258,6 +268,7 @@ function MenuItem({
 }) {
   return (
     <button
+      aria-disabled={disabled || undefined}
       onClick={disabled ? undefined : onClick}
       onMouseEnter={(e) => {
         if (!disabled)
