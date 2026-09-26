@@ -1,7 +1,8 @@
 // Version identity for this deployment (see internal-docs/release-design.md).
 //
 // Direct-host deployments use a Git checkout; containers use a build-generated
-// identity record when Git is absent. Releases are annotated
+// identity record when Git is absent, and a Render build uses the deployed
+// commit from Render's environment. Releases are annotated
 // CalVer tags, and deriving the version from the checkout means nothing (a
 // package.json field, a constant) can drift from what is actually running.
 // When git is unavailable the fields are null rather than a guess.
@@ -80,10 +81,35 @@ function imageVersion(root: string): VersionInfo {
   }
 }
 
+// Where the identity came from. "git" is a source checkout; "image" is a
+// container with no checkout: build metadata, or the platform's record of the
+// deployed commit. The update checker keys its mode on this.
+export type VersionSource = "git" | "image" | null;
+
+// Render builds deploy/container/Dockerfile from the repository without .git
+// or context.py, so the image has no version-info.json. Render sets the
+// deployed commit in the runtime environment.
+function renderVersion(env: Record<string, string | undefined>): VersionInfo {
+  const commit = env.RENDER_GIT_COMMIT;
+  if (env.RENDER !== "true" || !commit || !/^[a-f0-9]{40}$/.test(commit)) {
+    return { version: null, commit: null, release: null };
+  }
+  return { version: commit, commit, release: null };
+}
+
 // Uncached resolution against an explicit checkout - the testable seam.
-export function resolveVersionInfo(root: string): VersionInfo {
+// Precedence: git, then image metadata, then the Render environment.
+export function resolveVersion(
+  root: string,
+  env: Record<string, string | undefined> = process.env,
+): { info: VersionInfo; source: VersionSource } {
   const commit = git(root, "rev-parse HEAD");
-  if (!commit) return imageVersion(root);
+  if (!commit) {
+    const image = imageVersion(root);
+    if (image.commit) return { info: image, source: "image" };
+    const render = renderVersion(env);
+    return { info: render, source: render.commit ? "image" : null };
+  }
   // Enumerate ALL tags at HEAD rather than trusting `describe --exact-match`
   // to pick one: with a release tag and another v-tag on the same commit,
   // describe may return the non-CalVer tag and hide the release. Normally
@@ -97,10 +123,20 @@ export function resolveVersionInfo(root: string): VersionInfo {
       .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
       .at(-1) ?? null;
   return {
-    version: git(root, "describe --tags --always --dirty --match 'v*'"),
-    commit,
-    release,
+    info: {
+      version: git(root, "describe --tags --always --dirty --match 'v*'"),
+      commit,
+      release,
+    },
+    source: "git",
   };
+}
+
+export function resolveVersionInfo(
+  root: string,
+  env: Record<string, string | undefined> = process.env,
+): VersionInfo {
+  return resolveVersion(root, env).info;
 }
 
 // The newest CalVer release tag reachable from HEAD - the lineage anchor an
@@ -123,12 +159,19 @@ export function resolveReachableRelease(root: string): string | null {
 
 // The version never changes within a process lifetime (an update always
 // restarts the server), so resolve once on first use.
-let cached: VersionInfo | null = null;
+// Identity and source are one cached resolution, so the checker mode can
+// never disagree with the identity it reports.
+let cached: { info: VersionInfo; source: VersionSource } | null = null;
 let cachedReachable: string | null | undefined;
 
 export function getVersionInfo(): VersionInfo {
-  cached ??= resolveVersionInfo(PROJECT_ROOT);
-  return cached;
+  cached ??= resolveVersion(PROJECT_ROOT);
+  return cached.info;
+}
+
+export function getVersionSource(): VersionSource {
+  cached ??= resolveVersion(PROJECT_ROOT);
+  return cached.source;
 }
 
 export function getReachableRelease(): string | null {

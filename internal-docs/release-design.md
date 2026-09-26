@@ -360,6 +360,18 @@ Shipped (the shell-drivable slice):
   (root-owned template unit + polkit rule, written by the installer as
   described above), `systemd-run --user` running `UPDATER_PATH` on
   user-kind boxes, a clean "not updater-managed" refusal without a conf.
+- Image deployments without a host updater (Render, Kubernetes, other
+  container hosts; task a80d8bbb). With no `update.conf` and no Git checkout,
+  the identity comes from `version-info.json` or, on a Render build, from
+  `RENDER_GIT_COMMIT`, and the checker runs release mode against upstream
+  `nmamano/isomux` (never a fork channel). A release-tagged image compares
+  tags. An untagged image (Render builds a main commit) asks the compare API
+  for `<latest tag>...<running sha>`: behind shows the notice; identical,
+  ahead, diverged and 404 publish quiet; a failed call keeps the prior status.
+  A security release gets its own compare. The status carries
+  `apply: {kind: "host"} | {kind: "image", guide}`: with the image action the
+  pane has no Update now and links the platform guide
+  (`KUBERNETES_SERVICE_HOST`, then `RENDER`, else the container reference).
 - Security-release designation and sticky detection data. `scripts/release.sh
   --security` writes the exact machine-readable marker into the GitHub Release
   body. Release-mode checks preserve `releases/latest` as the banner target and

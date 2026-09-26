@@ -11,7 +11,12 @@
 //   shared/update-notice.ts.
 // - "release" (update.conf present - updater-managed boxes, written by
 //   deploy/install.sh): the running release (server/version.ts) vs. the
-//   configured repo's published GitHub releases. It walks history far enough
+//   configured repo's published GitHub releases. Container images with no
+//   update.conf (Render, Kubernetes, other container hosts) use it too, against
+//   the upstream repo, with the image action: the owner deploys the release
+//   with the platform. An untagged image (Render builds a main commit) asks
+//   the GitHub compare API whether its commit is behind the latest release.
+//   It walks history far enough
 //   to keep a marked security release sticky behind later ordinary releases.
 //   The banner means "a new release exists; the in-UI trigger / isomux-update
 //   applies it". The conf file is
@@ -29,6 +34,7 @@
 // history to a short page so it does not assume creation order matches CalVer
 // order. At 100 releases this becomes 3 calls/cycle. It refuses after 20 full
 // list pages: 21 calls/hour maximum, inside GitHub's anonymous 60/hour budget.
+// An untagged image adds at most 2 compare calls (23/hour maximum).
 // At 2,000 releases the scan hits that ceiling every cycle and publishes
 // NOTHING - ordinary latest and security data both keep their previous whole
 // status (or the cold quiet status) until history drops below the cliff or the
@@ -37,17 +43,21 @@
 // A non-github REPO_URL disables release checks entirely (we can only enumerate
 // releases through the GitHub API).
 
-import type { UpdateStatusWire } from "../shared/types.ts";
+import type { UpdateApply, UpdateStatusWire } from "../shared/types.ts";
 import {
   getVersionInfo,
+  getVersionSource,
   getReachableRelease,
   CALVER_RELEASE_RE,
+  type VersionSource,
 } from "./version.ts";
-import { readUpdateConf } from "./update-conf.ts";
+import { readUpdateConf, type UpdateConfRead } from "./update-conf.ts";
 
-// Commit-mode drift target. Release mode derives owner/repo from the conf's
-// REPO_URL instead, so forks keep a working banner.
+// Commit-mode drift target and the image-mode release channel. Host release
+// mode derives owner/repo from the conf's REPO_URL instead, so forks keep a
+// working banner.
 const REPO = "nmamano/isomux";
+const HOST_APPLY: UpdateApply = { kind: "host" };
 const CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
 const MAX_RELEASE_PAGES = 20;
 export const SECURITY_RELEASE_MARKER = "isomux-severity: security";
@@ -298,6 +308,7 @@ export function computeReleaseStatus(
   current: { release: string | null; version: string | null },
   latest: LatestRelease | null,
   security: LatestRelease | null = null,
+  apply: UpdateApply = HOST_APPLY,
 ): UpdateStatusWire {
   const updateAvailable =
     latest !== null &&
@@ -309,6 +320,7 @@ export function computeReleaseStatus(
     current,
     latest,
     securityUpdate: security,
+    apply,
   };
 }
 
@@ -332,12 +344,13 @@ async function fetchLatestRelease(
   }
 }
 
-async function checkRelease(ownerRepo: string) {
+async function checkRelease(ownerRepo: string, apply: UpdateApply) {
   const v = getVersionInfo();
   const channel = await fetchReleaseChannel(ownerRepo, v.release);
   const next = releaseStatusAfterScan(
     { release: v.release, version: v.version },
     channel,
+    apply,
   );
   if (next === null) return;
   publish(next);
@@ -353,9 +366,15 @@ export function releaseStatusAfterScan(
     latest: LatestRelease | null;
     security: LatestRelease | null;
   } | null,
+  apply: UpdateApply = HOST_APPLY,
 ): UpdateStatusWire | null {
   if (channel === null) return null;
-  return computeReleaseStatus(current, channel.latest, channel.security);
+  return computeReleaseStatus(
+    current,
+    channel.latest,
+    channel.security,
+    apply,
+  );
 }
 
 export async function fetchReleaseChannel(
@@ -409,6 +428,148 @@ export async function fetchReleaseChannel(
   };
 }
 
+// Image mode on an untagged build (a Render deploy of a main commit): the
+// running commit has no release tag, so the checker asks GitHub where the
+// commit stands against a release tag. "behind": the release has commits the
+// running build lacks. "contained": identical or ahead. "unrelated": diverged,
+// or 404 because the commit is not in the upstream repo (a fork commit).
+// "unrelated" is a definite answer and publishes quiet; only a failed check
+// keeps the previous status.
+export type Lineage = "behind" | "contained" | "unrelated";
+
+// Map a compare body. Null on anything else: a malformed 200 is a transient
+// failure, never a fresh answer. Exported for tests.
+export function parseLineage(data: unknown): Lineage | null {
+  if (typeof data !== "object" || data === null) return null;
+  const status = (data as { status?: unknown }).status;
+  if (status === "behind") return "behind";
+  if (status === "identical" || status === "ahead") return "contained";
+  if (status === "diverged") return "unrelated";
+  return null;
+}
+
+async function fetchLineage(
+  ownerRepo: string,
+  tag: string,
+  sha: string,
+  fetchImpl: ReleaseFetch,
+): Promise<Lineage | null> {
+  try {
+    const res = await fetchImpl(
+      `https://api.github.com/repos/${ownerRepo}/compare/${encodeURIComponent(tag)}...${encodeURIComponent(sha)}?per_page=1`,
+      {
+        headers: { Accept: "application/vnd.github.v3+json" },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
+    if (res.status === 404) return "unrelated";
+    if (!res.ok) return null;
+    return parseLineage(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+// The untagged-image decision, pure for tests. The latest release decides
+// availability; an "unrelated" latest quiets the whole status. The security
+// target shows only when the running commit is behind it.
+export function computeImageLineageStatus(
+  current: { release: string | null; version: string | null },
+  latest: LatestRelease | null,
+  latestLineage: Lineage | null,
+  security: LatestRelease | null,
+  securityLineage: Lineage | null,
+  apply: UpdateApply,
+): UpdateStatusWire {
+  const unrelated = latestLineage === "unrelated";
+  return {
+    mode: "release",
+    updateAvailable: latest !== null && latestLineage === "behind",
+    current,
+    latest,
+    securityUpdate:
+      !unrelated && security !== null && securityLineage === "behind"
+        ? security
+        : null,
+    apply,
+  };
+}
+
+// One atomic observation, like fetchReleaseChannel: any failed call publishes
+// nothing. Calls: the release scan, then one compare for the latest release
+// and one for a security release with a different tag. Exported for tests.
+export async function imageLineageStatusAfterScan(
+  ownerRepo: string,
+  current: { release: string | null; version: string | null },
+  sha: string,
+  apply: UpdateApply,
+  fetchImpl: ReleaseFetch = fetch,
+): Promise<UpdateStatusWire | null> {
+  const channel = await fetchReleaseChannel(ownerRepo, null, fetchImpl);
+  if (channel === null) return null;
+  const { latest, security } = channel;
+  let latestLineage: Lineage | null = null;
+  if (latest) {
+    latestLineage = await fetchLineage(ownerRepo, latest.tag, sha, fetchImpl);
+    if (latestLineage === null) return null;
+  }
+  let securityLineage: Lineage | null = null;
+  if (security && latestLineage !== "unrelated") {
+    securityLineage =
+      security.tag === latest?.tag
+        ? latestLineage
+        : await fetchLineage(ownerRepo, security.tag, sha, fetchImpl);
+    if (securityLineage === null) return null;
+  }
+  return computeImageLineageStatus(
+    current,
+    latest,
+    latestLineage,
+    security,
+    securityLineage,
+    apply,
+  );
+}
+
+async function checkImage(apply: UpdateApply) {
+  const v = getVersionInfo();
+  // A release-tagged image compares tags, like an updater-managed box.
+  if (v.release) return checkRelease(REPO, apply);
+  if (!v.commit) return;
+  const next = await imageLineageStatusAfterScan(
+    REPO,
+    { release: v.release, version: v.version },
+    v.commit,
+    apply,
+  );
+  if (next === null) return;
+  publish(next);
+}
+
+// Which checker runs, pure for tests. update.conf PRESENCE wins (a damaged
+// conf stays a quiet host release box). Without it, a source checkout keeps
+// commit mode and a container image uses release mode with the image action.
+// The platform only picks the guide link.
+export type CheckerMode =
+  | { kind: "commit" }
+  | { kind: "host" }
+  | { kind: "image"; apply: UpdateApply };
+
+export function pickCheckerMode(
+  conf: UpdateConfRead,
+  source: VersionSource,
+  env: Record<string, string | undefined>,
+): CheckerMode {
+  if (conf.state !== "absent") return { kind: "host" };
+  if (source !== "image") return { kind: "commit" };
+  const guide = env.KUBERNETES_SERVICE_HOST
+    ? "kubernetes"
+    : env.RENDER === "true"
+      ? "render"
+      : "container";
+  return { kind: "image", apply: { kind: "image", guide } };
+}
+
 // Pure change test, exported for tests: notify on any material difference in
 // the wire payload - an availability flip, but also a new latest release
 // arriving under an already-up banner (true→true with a different tag must
@@ -439,12 +600,22 @@ export function onUpdateChange(cb: (s: UpdateStatusWire) => void) {
 
 export function startUpdateChecker() {
   const conf = readUpdateConf();
+  const mode = pickCheckerMode(conf, getVersionSource(), process.env);
+  const v = getVersionInfo();
   let run = () => void checkCommit();
-  // Mode keys on PRESENCE, not parse success: a managed box with a damaged
-  // conf stays in (quiet) release mode rather than nagging about main drift.
-  if (conf.state !== "absent") {
-    const v = getVersionInfo();
+  if (mode.kind === "image") {
+    const apply = mode.apply;
     // Quiet release-mode status until the first fetch lands.
+    status = computeReleaseStatus(
+      { release: v.release, version: v.version },
+      null,
+      null,
+      apply,
+    );
+    run = () => void checkImage(apply);
+  } else if (mode.kind === "host" && conf.state !== "absent") {
+    // Mode keys on PRESENCE, not parse success: a managed box with a damaged
+    // conf stays in (quiet) release mode rather than nagging about main drift.
     status = computeReleaseStatus(
       { release: v.release, version: v.version },
       null,
@@ -461,7 +632,7 @@ export function startUpdateChecker() {
       );
       return;
     }
-    run = () => void checkRelease(ownerRepo);
+    run = () => void checkRelease(ownerRepo, HOST_APPLY);
   }
   // Initial check after a short delay to not slow down startup
   setTimeout(run, 5000);

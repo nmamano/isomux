@@ -14,20 +14,23 @@ Only the disk, mounted at `/var/data`, survives a deploy; the rest of the contai
 
 <!-- include: invites -->
 
-## Apps and later deployments
+## Apps and logs
 
 To check that app subdomains work, ask an agent to build a small app and open it.
 Render provides HTTPS for the office and configured app domains.
-
-Automatic deployments are disabled in the Blueprint. To update, use the web
-service's manual deployment control after you have finished active agent work.
-A deployment replaces the container and interrupts the office and its apps.
-Check the office and app URLs after the new deployment is live.
 
 Use Render's service logs for build and container startup failures. Office and
 app logs are on the persistent disk under
 `/var/data/home/.isomux/container-runtime`. Keep projects under `/var/data` so
 that replacement does not remove them.
+
+## Update the office
+
+The office header shows when a new release is out. Automatic deployments are
+disabled in the Blueprint. To update, use the web service's manual deployment
+control after you have finished active agent work.
+A deployment replaces the container and interrupts the office and its apps.
+Check the office and app URLs after the new deployment is live.
 
 <!-- include: backup -->
 

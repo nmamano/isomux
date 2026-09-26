@@ -489,6 +489,12 @@ App 的一些原则：
   "settings.update.busy.one": "目前有 {count} 个智能体正在执行任务。",
   "settings.update.busy.other": "目前有 {count} 个智能体正在执行任务。",
   "settings.update.busyUnavailable": "目前无法获取忙碌智能体的数量。",
+  "settings.update.imageRender":
+    "如需更新，请在 Render 中使用该 Web 服务的手动部署控件。",
+  "settings.update.imageRelease":
+    "如需更新，请部署 {tag} 版本镜像。",
+  "settings.update.updateGuide":
+    "更新指南",
   "settings.update.ownerOnly": "办公室所有者可以在此对话框中应用更新。",
   "settings.update.updateNow": "立即更新",
   "settings.update.updateNowBusy": "立即更新（{count} 个忙碌）",

@@ -992,6 +992,7 @@ export function reducer(state: AppState, action: Action): AppState {
               current: action.current,
               latest: action.latest,
               securityUpdate: action.securityUpdate,
+              apply: action.apply,
             };
       return {
         ...state,

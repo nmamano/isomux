@@ -9,12 +9,16 @@ import { describe, it, expect } from "bun:test";
 import {
   compareCalver,
   computeCommitStatus,
+  computeImageLineageStatus,
   computeSecurityFloor,
   computeReleaseStatus,
   fetchReleaseChannel,
   githubOwnerRepo,
   hasSecurityReleaseMarker,
+  imageLineageStatusAfterScan,
   parseCompare,
+  parseLineage,
+  pickCheckerMode,
   pickCompareBase,
   pickRelease,
   pickReleasePage,
@@ -459,5 +463,331 @@ describe("statusChanged (the publish/broadcast decision)", () => {
     const a = computeReleaseStatus(on, rel("v2026.7.20"));
     const b = computeReleaseStatus(on, rel("v2026.7.20"));
     expect(statusChanged(a, b)).toBe(false);
+  });
+});
+
+describe("pickCheckerMode (which checker runs)", () => {
+  const absent = { state: "absent" } as const;
+  const parsed = { state: "parsed", values: {} } as const;
+  const invalid = { state: "invalid" } as const;
+  const k8s = { KUBERNETES_SERVICE_HOST: "10.0.0.1" };
+
+  it("update.conf presence keeps the host updater, even on an image or with a damaged conf", () => {
+    for (const conf of [parsed, invalid]) {
+      for (const source of ["git", "image", null] as const) {
+        expect(
+          pickCheckerMode(conf, source, { ...k8s, RENDER: "true" }),
+        ).toEqual({ kind: "host" });
+      }
+    }
+  });
+
+  it("without update.conf, a checkout or an unknown identity keeps commit mode", () => {
+    expect(pickCheckerMode(absent, "git", { RENDER: "true" })).toEqual({
+      kind: "commit",
+    });
+    expect(pickCheckerMode(absent, null, k8s)).toEqual({ kind: "commit" });
+  });
+
+  it("an image picks the guide: Kubernetes, then Render, else the container reference", () => {
+    const guide = (env: Record<string, string>) => {
+      const mode = pickCheckerMode(absent, "image", env);
+      return mode.kind === "image" && mode.apply.kind === "image"
+        ? mode.apply.guide
+        : mode.kind;
+    };
+    expect(guide({ ...k8s, RENDER: "true" })).toBe("kubernetes");
+    expect(guide(k8s)).toBe("kubernetes");
+    expect(guide({ RENDER: "true" })).toBe("render");
+    expect(guide({ RENDER: "false" })).toBe("container");
+    expect(guide({ KUBERNETES_SERVICE_HOST: "" })).toBe("container");
+    expect(guide({})).toBe("container");
+  });
+});
+
+describe("parseLineage (compare status of a release tag against the running commit)", () => {
+  it("maps behind, contained and diverged; anything else is a failed check", () => {
+    expect(parseLineage({ status: "behind" })).toBe("behind");
+    expect(parseLineage({ status: "identical" })).toBe("contained");
+    expect(parseLineage({ status: "ahead" })).toBe("contained");
+    expect(parseLineage({ status: "diverged" })).toBe("unrelated");
+    for (const bad of [null, [], "behind", {}, { status: "BEHIND" }]) {
+      expect(parseLineage(bad)).toBeNull();
+    }
+  });
+});
+
+describe("untagged image lineage (Render main commit)", () => {
+  const sha = "c".repeat(40);
+  const current = { release: null, version: sha };
+  const image = { kind: "image", guide: "render" } as const;
+  const ordinary = (tag: string) => ({ tag_name: tag, body: "" });
+  const security = (tag: string) => ({
+    tag_name: tag,
+    body: "isomux-severity: security",
+  });
+
+  // Routes each GitHub call by URL: the release scan, then compare calls
+  // keyed by release tag. A Response value answers verbatim.
+  function github(opts: {
+    latest?: unknown;
+    list?: unknown[];
+    compare?: Record<string, unknown>;
+  }) {
+    const calls: string[] = [];
+    const fakeFetch = async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      calls.push(url);
+      const answer = (value: unknown) =>
+        value instanceof Response ? value : Response.json(value);
+      if (url.endsWith("/releases/latest")) return answer(opts.latest);
+      if (url.includes("/releases?")) return answer(opts.list ?? []);
+      const m = /\/compare\/([^.]+(?:\.[0-9]+)+)\.\.\.([a-f0-9]+)\?/.exec(url);
+      if (m && m[2] === sha && opts.compare && m[1] in opts.compare) {
+        return answer(opts.compare[m[1]]);
+      }
+      throw new Error(`unexpected call ${url}`);
+    };
+    return { calls, fakeFetch };
+  }
+  const compares = (calls: string[]) =>
+    calls.filter((u) => u.includes("/compare/")).length;
+  const run = (g: ReturnType<typeof github>) =>
+    imageLineageStatusAfterScan("nmamano/isomux", current, sha, image, g.fakeFetch);
+
+  it("behind the latest release: available, with the image action", async () => {
+    const g = github({
+      latest: ordinary("v2026.9.23"),
+      list: [ordinary("v2026.9.23")],
+      compare: { "v2026.9.23": { status: "behind" } },
+    });
+    const next = await run(g);
+    expect(next?.updateAvailable).toBe(true);
+    expect(next?.mode === "release" && next.apply).toEqual(image);
+    expect(next?.mode === "release" && next.latest?.tag).toBe("v2026.9.23");
+    expect(g.calls[g.calls.length - 1]).toBe(
+      `https://api.github.com/repos/nmamano/isomux/compare/v2026.9.23...${sha}?per_page=1`,
+    );
+  });
+
+  it("identical, ahead, diverged and 404 are definite quiet answers", async () => {
+    for (const answer of [
+      { status: "identical" },
+      { status: "ahead" },
+      { status: "diverged" },
+      new Response("not found", { status: 404 }),
+    ]) {
+      const g = github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23")],
+        compare: { "v2026.9.23": answer },
+      });
+      const next = await run(g);
+      expect(next).not.toBeNull();
+      expect(next?.updateAvailable).toBe(false);
+      expect(next?.mode === "release" && next.securityUpdate).toBeNull();
+    }
+  });
+
+  it("a failed compare publishes nothing: 5xx, rate limit, malformed or network error", async () => {
+    for (const answer of [
+      new Response("unavailable", { status: 503 }),
+      new Response("rate limited", { status: 403 }),
+      new Response("rate limited", { status: 429 }),
+      { status: "sideways" },
+    ]) {
+      const g = github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23")],
+        compare: { "v2026.9.23": answer },
+      });
+      expect(await run(g)).toBeNull();
+    }
+    const g = github({
+      latest: ordinary("v2026.9.23"),
+      list: [ordinary("v2026.9.23")],
+      compare: {},
+    });
+    expect(await run(g)).toBeNull();
+  });
+
+  it("a failed release scan publishes nothing and makes no compare call", async () => {
+    const g = github({
+      latest: new Response("unavailable", { status: 502 }),
+    });
+    expect(await run(g)).toBeNull();
+    expect(compares(g.calls)).toBe(0);
+  });
+
+  it("zero releases: quiet, no compare call", async () => {
+    const g = github({ latest: new Response("none", { status: 404 }) });
+    const next = await run(g);
+    expect(next?.updateAvailable).toBe(false);
+    expect(next?.mode === "release" && next.latest).toBeNull();
+    expect(compares(g.calls)).toBe(0);
+  });
+
+  it("an older security release shows only when the commit is behind it", async () => {
+    const list = [ordinary("v2026.9.23"), security("v2026.9.20")];
+    const behindBoth = await run(
+      github({
+        latest: ordinary("v2026.9.23"),
+        list,
+        compare: {
+          "v2026.9.23": { status: "behind" },
+          "v2026.9.20": { status: "behind" },
+        },
+      }),
+    );
+    expect(behindBoth?.updateAvailable).toBe(true);
+    expect(behindBoth?.mode === "release" && behindBoth.securityUpdate?.tag).toBe(
+      "v2026.9.20",
+    );
+
+    for (const answer of [
+      { status: "ahead" },
+      { status: "identical" },
+      { status: "diverged" },
+      new Response("not found", { status: 404 }),
+    ]) {
+      const next = await run(
+        github({
+          latest: ordinary("v2026.9.23"),
+          list,
+          compare: {
+            "v2026.9.23": { status: "behind" },
+            "v2026.9.20": answer,
+          },
+        }),
+      );
+      expect(next?.updateAvailable).toBe(true);
+      expect(next?.mode === "release" && next.securityUpdate).toBeNull();
+    }
+  });
+
+  it("a failed security compare publishes nothing", async () => {
+    const next = await run(
+      github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
+        compare: {
+          "v2026.9.23": { status: "behind" },
+          "v2026.9.20": new Response("unavailable", { status: 500 }),
+        },
+      }),
+    );
+    expect(next).toBeNull();
+  });
+
+  it("an unrelated latest release quiets the security target without asking", async () => {
+    const g = github({
+      latest: ordinary("v2026.9.23"),
+      list: [ordinary("v2026.9.23"), security("v2026.9.20")],
+      compare: { "v2026.9.23": { status: "diverged" } },
+    });
+    const next = await run(g);
+    expect(next?.updateAvailable).toBe(false);
+    expect(next?.mode === "release" && next.securityUpdate).toBeNull();
+    expect(compares(g.calls)).toBe(1);
+  });
+
+  it("the pure decision: an unrelated latest release hides a behind security release", () => {
+    const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
+    const quiet = computeImageLineageStatus(
+      current,
+      rel("v2026.9.23"),
+      "unrelated",
+      rel("v2026.9.20"),
+      "behind",
+      image,
+    );
+    expect(quiet.updateAvailable).toBe(false);
+    expect(quiet.mode === "release" && quiet.securityUpdate).toBeNull();
+    const behind = computeImageLineageStatus(
+      current,
+      rel("v2026.9.23"),
+      "contained",
+      rel("v2026.9.24"),
+      "behind",
+      image,
+    );
+    expect(behind.updateAvailable).toBe(false);
+    expect(behind.mode === "release" && behind.securityUpdate?.tag).toBe(
+      "v2026.9.24",
+    );
+  });
+
+  it("a security release that is the latest release costs one compare", async () => {
+    const g = github({
+      latest: security("v2026.9.23"),
+      list: [security("v2026.9.23")],
+      compare: { "v2026.9.23": { status: "behind" } },
+    });
+    const next = await run(g);
+    expect(next?.updateAvailable).toBe(true);
+    expect(next?.mode === "release" && next.securityUpdate?.tag).toBe(
+      "v2026.9.23",
+    );
+    expect(compares(g.calls)).toBe(1);
+  });
+
+  it("from a visible notice: a definite quiet answer replaces it, a failed check keeps it", async () => {
+    const notice = await run(
+      github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
+        compare: {
+          "v2026.9.23": { status: "behind" },
+          "v2026.9.20": { status: "behind" },
+        },
+      }),
+    );
+    expect(notice?.updateAvailable).toBe(true);
+    expect(notice?.mode === "release" && notice.securityUpdate).not.toBeNull();
+
+    const quiet = await run(
+      github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
+        compare: { "v2026.9.23": { status: "diverged" } },
+      }),
+    );
+    expect(quiet?.updateAvailable).toBe(false);
+    expect(quiet?.mode === "release" && quiet.securityUpdate).toBeNull();
+    expect(statusChanged(notice!, quiet!)).toBe(true);
+
+    const failed = await run(
+      github({
+        latest: ordinary("v2026.9.23"),
+        list: [ordinary("v2026.9.23"), security("v2026.9.20")],
+        compare: {
+          "v2026.9.23": new Response("rate limited", { status: 429 }),
+        },
+      }),
+    );
+    expect(failed).toBeNull();
+  });
+});
+
+describe("apply on release statuses", () => {
+  const on = { release: "v2026.9.1", version: "v2026.9.1" };
+  const rel = { tag: "v2026.9.8", publishedAt: null, url: null };
+
+  it("the host updater is the default; a tagged image carries the image action", () => {
+    const host = computeReleaseStatus(on, rel);
+    expect(host.mode === "release" && host.apply).toEqual({ kind: "host" });
+    const image = { kind: "image", guide: "kubernetes" } as const;
+    const next = releaseStatusAfterScan(
+      on,
+      { latest: rel, security: null },
+      image,
+    );
+    expect(next?.updateAvailable).toBe(true);
+    expect(next?.mode === "release" && next.apply).toEqual(image);
   });
 });

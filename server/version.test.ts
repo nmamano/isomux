@@ -9,7 +9,11 @@ import { execSync } from "child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { resolveVersionInfo, resolveReachableRelease } from "./version.ts";
+import {
+  resolveVersion,
+  resolveVersionInfo,
+  resolveReachableRelease,
+} from "./version.ts";
 
 let repo: string;
 let emptyDir: string;
@@ -212,6 +216,61 @@ describe("container build identity", () => {
           version: null,
         });
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Render deploy identity", () => {
+  const sha = "b".repeat(40);
+  const render = { RENDER: "true", RENDER_GIT_COMMIT: sha };
+  const unknown = { commit: null, release: null, version: null };
+
+  it("uses the Render commit when Git and image metadata are absent", () => {
+    expect(resolveVersion(emptyDir, render)).toEqual({
+      info: { commit: sha, release: null, version: sha },
+      source: "image",
+    });
+    expect(resolveVersion(emptyDir, {})).toEqual({
+      info: unknown,
+      source: null,
+    });
+  });
+
+  it("ignores the commit off Render and a commit that is not a full SHA", () => {
+    for (const env of [
+      { RENDER_GIT_COMMIT: sha },
+      { RENDER: "false", RENDER_GIT_COMMIT: sha },
+      { RENDER: "true" },
+      { RENDER: "true", RENDER_GIT_COMMIT: "main" },
+      { RENDER: "true", RENDER_GIT_COMMIT: sha.slice(1) },
+      { RENDER: "true", RENDER_GIT_COMMIT: "B".repeat(40) },
+      { RENDER: "true", RENDER_GIT_COMMIT: `${sha}\n` },
+    ]) {
+      expect(resolveVersion(emptyDir, env)).toEqual({
+        info: unknown,
+        source: null,
+      });
+    }
+  });
+
+  it("prefers Git, then image metadata, over the Render commit", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-render-version-"));
+    const identity = {
+      commit: "a".repeat(40),
+      release: "v2099.1.2",
+      version: "v2099.1.2",
+    };
+    try {
+      writeFileSync(join(dir, "version-info.json"), JSON.stringify(identity));
+      expect(resolveVersion(dir, render)).toEqual({
+        info: identity,
+        source: "image",
+      });
+      const git = resolveVersion(repo, render);
+      expect(git.source).toBe("git");
+      expect(git.info.commit).toBe(sh("git rev-parse HEAD"));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

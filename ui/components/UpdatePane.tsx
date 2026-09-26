@@ -23,6 +23,15 @@ import {
 
 const REPO = "nmamano/isomux";
 
+// Where an image deployment's owner learns to deploy a release
+// (UpdateApply "image"; the server picks the platform).
+const IMAGE_GUIDES = {
+  kubernetes: "https://isomux.com/docs/hosting-kubernetes#update-the-office",
+  render: "https://isomux.com/docs/hosting-render#update-the-office",
+  container:
+    "https://github.com/nmamano/isomux/blob/main/deploy/container/reference.md#updates",
+} as const;
+
 // Not a component, so the language arrives as an argument (ruling 18). The
 // clipboard builders above pass DEFAULT_LANGUAGE on purpose: their whole text
 // is agent-facing and stays English.
@@ -54,18 +63,40 @@ function buildCommitPlainText(notice: CommitNotice): string {
   ].join("\n");
 }
 
+// An untagged image reports its full commit as the version; the pane shows
+// the short commit, as the source-checkout notice does.
+const imageCommit = (s: ReleaseStatus): string | null =>
+  s.apply.kind === "image" &&
+  s.current.version !== null &&
+  /^[a-f0-9]{40}$/.test(s.current.version)
+    ? s.current.version.slice(0, 7)
+    : null;
+
 function buildReleasePlainText(s: ReleaseStatus): string {
   const running =
-    s.current.release ?? s.current.version ?? "an unknown version";
+    s.current.release ??
+    (imageCommit(s) ? `commit ${imageCommit(s)}` : s.current.version) ??
+    "an unknown version";
   const lines = ["New Release Available", "", `- You are on ${running}`];
   if (s.latest) {
     lines.push(
       `- Latest release: ${s.latest.tag}${s.latest.publishedAt ? ` (${formatDate(DEFAULT_LANGUAGE, s.latest.publishedAt)})` : ""}${s.latest.url ? `: ${s.latest.url}` : ""}`,
     );
-    lines.push(
-      "",
-      `To update: use the update button in the office (owner-only), or as root on the server: isomux-update ${s.latest.tag}`,
-    );
+    if (s.apply.kind === "image") {
+      lines.push(
+        "",
+        `To update: ${
+          s.apply.guide === "render"
+            ? "use the web service's manual deployment control in Render."
+            : `deploy the ${s.latest.tag} release image.`
+        } Guide: ${IMAGE_GUIDES[s.apply.guide]}`,
+      );
+    } else {
+      lines.push(
+        "",
+        `To update: use the update button in the office (owner-only), or as root on the server: isomux-update ${s.latest.tag}`,
+      );
+    }
   }
   return lines.join("\n");
 }
@@ -191,7 +222,10 @@ function ReleaseBody({
 }) {
   const { sessionContext } = useAppState();
   const { t, tn, rich, language } = useI18n();
+  // Image deployments have no host updater: no busy count, no trigger.
+  const image = status.apply.kind === "image" ? status.apply : null;
   const isOwner = sessionContext?.role === "owner";
+  const canTrigger = isOwner && !image;
   const [phase, setPhase] = useState<
     "info" | "confirm" | "starting" | "started"
   >("info");
@@ -205,7 +239,7 @@ function ReleaseBody({
   const [busyUnavailable, setBusyUnavailable] = useState(false);
 
   const loadBusy = useCallback(() => {
-    if (!isOwner) return;
+    if (!canTrigger) return;
     apiFetch<{ busyAgents: number }>("GET", "/api/office/update")
       .then((r) => {
         setBusy(r.busyAgents);
@@ -215,14 +249,18 @@ function ReleaseBody({
         setBusy(null);
         setBusyUnavailable(true);
       });
-  }, [isOwner]);
+  }, [canTrigger]);
   useEffect(() => loadBusy(), [loadBusy]);
 
-  const running = status.current.release ?? status.current.version;
+  const commit = imageCommit(status);
+  const running =
+    status.current.release ??
+    (commit ? t("updateNotice.running", { sha: commit }) : null) ??
+    status.current.version;
   const latest = status.latest;
 
   const trigger = useCallback(async () => {
-    if (!latest) return;
+    if (!latest || !canTrigger) return;
     onStart();
     setPhase("starting");
     setError(null);
@@ -234,7 +272,7 @@ function ReleaseBody({
       setError(err instanceof Error ? err.message : String(err));
       setPhase("confirm");
     }
-  }, [latest, onStart, onStartError]);
+  }, [latest, canTrigger, onStart, onStartError]);
 
   return (
     <>
@@ -274,6 +312,22 @@ function ReleaseBody({
         )}
       </ul>
 
+      {image && latest && (
+        <p style={{ ...textStyle, margin: "16px 0 0" }}>
+          {image.guide === "render"
+            ? t("settings.update.imageRender")
+            : t("settings.update.imageRelease", { tag: latest.tag })}{" "}
+          <a
+            href={IMAGE_GUIDES[image.guide]}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
+          >
+            {t("settings.update.updateGuide")}
+          </a>
+        </p>
+      )}
+
       {(phase === "starting" || phase === "started") && (
         <div role="status" style={{ ...textStyle, marginTop: 16 }}>
           <p>{t("settings.update.waiting")}</p>
@@ -307,7 +361,7 @@ function ReleaseBody({
         </p>
       )}
 
-      {!isOwner && (
+      {!isOwner && !image && (
         <p
           style={{
             fontSize: 12,
@@ -329,7 +383,7 @@ function ReleaseBody({
           marginTop: 20,
         }}
       >
-        {isOwner && latest && phase === "info" && (
+        {canTrigger && latest && phase === "info" && (
           <button
             onClick={() => {
               setPhase("confirm");
@@ -340,7 +394,9 @@ function ReleaseBody({
             {t("settings.update.updateNow")}
           </button>
         )}
-        {isOwner && latest && (phase === "confirm" || phase === "starting") && (
+        {canTrigger &&
+          latest &&
+          (phase === "confirm" || phase === "starting") && (
           <button
             onClick={() => void trigger()}
             disabled={phase === "starting"}
@@ -359,7 +415,9 @@ function ReleaseBody({
         )}
         <button
           onClick={phase === "confirm" ? () => setPhase("info") : onClose}
-          style={phase === "info" && !isOwner ? buttonStyle : quietButtonStyle}
+          style={
+            phase === "info" && !canTrigger ? buttonStyle : quietButtonStyle
+          }
         >
           {phase === "confirm" || phase === "starting"
             ? t("common.cancel")
@@ -437,8 +495,14 @@ export function UpdatePane({ onClose }: { onClose: () => void }) {
   const i18n = useI18n();
   const { t } = i18n;
 
+  // A quiet image status has nothing to deploy: it takes the up-to-date
+  // branch below. The host path keeps its release body in every state.
   const release =
-    attempt?.status ?? (updateInfo?.mode === "release" ? updateInfo : null);
+    attempt?.status ??
+    (updateInfo?.mode === "release" &&
+    (updateInfo.apply.kind === "host" || updateInfo.updateAvailable)
+      ? updateInfo
+      : null);
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
   // Null while quiet - the pill is hidden then, so this pane normally opens
   // with something to say; the guard below covers the status going quiet

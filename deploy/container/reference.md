@@ -125,7 +125,9 @@ boot. Container builds include commit and release metadata from the selected
 committed source revision.
 
 The [AWS guide](README.md#update-the-office) describes the owner flow. Custom container
-providers use their own deployment controls. Kubernetes has
+providers use their own deployment controls. Without `update.conf`, the Updates
+pane shows new releases and links the platform's update guide instead of
+offering Update now. Kubernetes has
 [reference manifests](../kubernetes/README.md) and a
 [setup guide](https://isomux.com/docs/hosting-kubernetes).
 

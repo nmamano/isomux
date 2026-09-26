@@ -1482,7 +1482,9 @@ export interface ProviderDisconnectReq {
 // gives full context across both dimensions so pulling is an informed choice),
 // "release" on updater-managed boxes with an /etc/isomux/update.conf (running
 // release vs. the repo's latest GitHub release - the banner means "a new
-// release exists", applied via the owner-only update trigger). See
+// release exists", applied via the owner-only update trigger), and on
+// container images with no update.conf (applied with the platform's own
+// deployment; see `apply`). See
 // internal-docs/release-design.md. Commit-mode copy is composed from this
 // shape in shared/update-notice.ts.
 export type UpdateStatusWire =
@@ -1527,7 +1529,17 @@ export type UpdateStatusWire =
         publishedAt: string | null;
         url: string | null;
       } | null;
+      // How the owner applies a release. "host": the installed host updater
+      // (update.conf present; the pane offers Update now). "image": a container
+      // with no host updater (Render, Kubernetes, other hosts); the owner
+      // deploys the new release with the platform, and `guide` picks the
+      // platform guide the pane links.
+      apply: UpdateApply;
     };
+
+export type UpdateApply =
+  | { kind: "host" }
+  | { kind: "image"; guide: "kubernetes" | "render" | "container" };
 
 // Server → Browser messages
 // OpenCode's supervisor and office proxy are Linux-only (see
