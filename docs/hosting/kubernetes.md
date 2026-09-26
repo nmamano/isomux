@@ -155,9 +155,10 @@ kubectl -n isomux rollout restart deployment/isomux
 
 ## Update the office
 
-The in-app update steps do not apply to Kubernetes. To find a new release, see
-the [Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux)
-and the [release notes](https://github.com/nmamano/isomux/releases).
+The office's Updates pane shows when a new release is out and links here; it
+has no Update now button on Kubernetes. Releases are on the
+[Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux)
+and in the [release notes](https://github.com/nmamano/isomux/releases).
 
 1. Finish active agent work. The update restarts the office and its apps.
 2. Take a snapshot of the office's EBS volume. An update can change stored

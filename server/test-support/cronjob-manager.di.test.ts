@@ -922,8 +922,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
       };
       await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
       await waitFor(
-        () =>
-          sends === 2 && mgr.findRun(job.id, run.id)?.status !== "running",
+        () => sends === 2 && mgr.findRun(job.id, run.id)?.status !== "running",
         "follow-up stopped",
       );
       // The backend transcript: the job prompt (absent from the run log),
@@ -986,12 +985,20 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
           throw new Error("send refused");
         },
       );
+      // The test's own send failure, found by its injected message.
+      const sendErrors = () =>
+        mgr
+          .getRunTranscript(job.id, run.id)
+          .entries.filter(
+            (e) => e.kind === "error" && e.content.includes("send refused"),
+          );
       await mgr.editRunMessage(job.id, run.id, followId, "kept after send");
-      await waitFor(
-        () => failedEdits(mgr, job.id, run.id).length > 0,
-        "send error written",
-      );
-      expect(failedEdits(mgr, job.id, run.id)).toEqual(["kept after send"]);
+      // Wait for the error itself, then assert its mark, so a missing mark
+      // fails on the metadata rather than as a wait timeout.
+      await waitFor(() => sendErrors().length > 0, "send error written");
+      expect(sendErrors().map((e) => failedEditText(e.metadata))).toEqual([
+        "kept after send",
+      ]);
       fake.sessions.forEach((s) => s.close());
     });
 
