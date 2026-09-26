@@ -85,7 +85,9 @@ async function emit(
     ...(claudeAccessDenied ? { claudeAccessDenied } : {}),
   });
   // A trailing marker: once it lands, the event before it has been handled.
-  fake.sessionForAgent(info.id)!.push({ kind: "system_text", text: OTHER_TEXT });
+  fake
+    .sessionForAgent(info.id)!
+    .push({ kind: "system_text", text: OTHER_TEXT });
   await waitUntil(
     () => mgr.getAgentLogs(info.id).some((e) => e.content === OTHER_TEXT),
     "events handled",

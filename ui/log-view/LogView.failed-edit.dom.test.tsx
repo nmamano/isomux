@@ -116,9 +116,7 @@ it("shows the text but no restore action to a viewer who cannot edit", async () 
   expect(
     view.container.querySelector("[data-failed-edit-text]")?.textContent,
   ).toBe("my edited text");
-  expect(view.container.querySelector("[data-restore-failed-edit]")).toBe(
-    null,
-  );
+  expect(view.container.querySelector("[data-restore-failed-edit]")).toBe(null);
   // Let pending effects settle before the DOM goes away.
   await act(async () => {});
   view.unmount();
@@ -144,9 +142,9 @@ it("puts the text back in the composer with an inline error when the edit reques
   await waitFor(() =>
     expect(composer(view.container).value).toBe("draft\n\nrejected edit"),
   );
-  expect(
-    view.container.querySelector('[role="alert"]')?.textContent,
-  ).toContain("edit request refused");
+  expect(view.container.querySelector('[role="alert"]')?.textContent).toContain(
+    "edit request refused",
+  );
   // Let pending effects settle before the DOM goes away.
   await act(async () => {});
   view.unmount();

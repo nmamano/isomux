@@ -512,7 +512,9 @@ export class OpenCodeTransport {
       `/session/${encodeURIComponent(sessionId)}/fork`,
       {
         method: "POST",
-        body: JSON.stringify(messageId === null ? {} : { messageID: messageId }),
+        body: JSON.stringify(
+          messageId === null ? {} : { messageID: messageId },
+        ),
       },
     );
     const child = allowSession(await response.json()).id;

@@ -19,14 +19,26 @@ const cookies = readFileSync("/work/cookies.txt", "utf8")
   .filter((l) => l && (!l.startsWith("#") || l.startsWith("#HttpOnly_")))
   .map((l) => {
     const f = l.replace(/^#HttpOnly_/, "").split("\t");
-    return { name: f[5], value: f[6], domain: f[0], path: f[2], secure: f[3] === "TRUE", httpOnly: l.startsWith("#HttpOnly_") };
+    return {
+      name: f[5],
+      value: f[6],
+      domain: f[0],
+      path: f[2],
+      secure: f[3] === "TRUE",
+      httpOnly: l.startsWith("#HttpOnly_"),
+    };
   });
 await context.addCookies(cookies);
 const page = await context.newPage();
 const office = await page.goto("https://office.k8s.test/");
 console.log("office", office.status(), await page.title());
 const app = await page.goto("https://hello.office.k8s.test/");
-console.log("app", app.status(), page.url(), (await page.textContent("body")).trim());
+console.log(
+  "app",
+  app.status(),
+  page.url(),
+  (await page.textContent("body")).trim(),
+);
 const echo = await page.evaluate(
   () =>
     new Promise((resolve, reject) => {

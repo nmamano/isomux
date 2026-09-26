@@ -17,7 +17,12 @@ type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type UnavailableEngines = import("../../shared/types.ts").UnavailableEngines;
 
 const NO_OPENCODE: UnavailableEngines = { opencode: "needs_linux" };
-const room = { id: "r1", name: "Studio", prompt: null, canCloseWhenEmpty: true };
+const room = {
+  id: "r1",
+  name: "Studio",
+  prompt: null,
+  canCloseWhenEmpty: true,
+};
 
 function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
   return {
@@ -75,7 +80,10 @@ async function settle(): Promise<void> {
   });
 }
 
-function stateWith(unavailableEngines: UnavailableEngines, agents: AgentInfo[]) {
+function stateWith(
+  unavailableEngines: UnavailableEngines,
+  agents: AgentInfo[],
+) {
   return {
     rooms: [room],
     agents,
@@ -137,7 +145,9 @@ describe("context menu", () => {
       try {
         await settle();
         const items = [...view.container.querySelectorAll("button")];
-        const openCode = items.filter((b) => b.textContent?.includes("OpenCode"));
+        const openCode = items.filter((b) =>
+          b.textContent?.includes("OpenCode"),
+        );
         const codex = items.filter((b) => b.textContent?.includes("Codex"));
         expect(openCode).toHaveLength(1);
         expect(codex).toHaveLength(1);
@@ -164,8 +174,8 @@ describe("cronjob dialog", () => {
     );
     try {
       await settle();
-      const select = [...view.container.querySelectorAll("select")].find(
-        (s) => [...s.options].some((o) => o.value === "opencode"),
+      const select = [...view.container.querySelectorAll("select")].find((s) =>
+        [...s.options].some((o) => o.value === "opencode"),
       )!;
       expect(engineOption(select, "opencode").disabled).toBe(true);
       expect(engineOption(select, "codex").disabled).toBe(false);

@@ -78,7 +78,11 @@ export function locateEditTarget(
   const t = logUsers.findIndex((u) => u.id === targetId);
   if (t === -1) return { kind: "missing" };
 
-  const pos = nthMatch(backendUsers, logUsers[t].text, occurrenceBefore(logUsers, t));
+  const pos = nthMatch(
+    backendUsers,
+    logUsers[t].text,
+    occurrenceBefore(logUsers, t),
+  );
   if (pos !== -1) return { kind: "found", index: backendUsers[pos].index };
 
   // Only the latest message can be missing for the benign reason: a later

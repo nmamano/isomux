@@ -558,7 +558,13 @@ describe("untagged image lineage (Render main commit)", () => {
   const compares = (calls: string[]) =>
     calls.filter((u) => u.includes("/compare/")).length;
   const run = (g: ReturnType<typeof github>) =>
-    imageLineageStatusAfterScan("nmamano/isomux", current, sha, image, g.fakeFetch);
+    imageLineageStatusAfterScan(
+      "nmamano/isomux",
+      current,
+      sha,
+      image,
+      g.fakeFetch,
+    );
 
   it("behind the latest release: available, with the image action", async () => {
     const g = github({
@@ -645,9 +651,9 @@ describe("untagged image lineage (Render main commit)", () => {
       }),
     );
     expect(behindBoth?.updateAvailable).toBe(true);
-    expect(behindBoth?.mode === "release" && behindBoth.securityUpdate?.tag).toBe(
-      "v2026.9.20",
-    );
+    expect(
+      behindBoth?.mode === "release" && behindBoth.securityUpdate?.tag,
+    ).toBe("v2026.9.20");
 
     for (const answer of [
       { status: "ahead" },

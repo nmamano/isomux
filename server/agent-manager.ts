@@ -3006,9 +3006,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // A backend event carries no actor, so this is worded for the agent's
     // owner (internal-docs/i18n-loop.md, S7).
     const { t } = translatorForUserId(managed.info.userId);
-    emitEphemeralLog(agentId, "system", permissionPromptLines(t, ev).join("\n"), {
-      interactionFallback: true,
-    });
+    emitEphemeralLog(
+      agentId,
+      "system",
+      permissionPromptLines(t, ev).join("\n"),
+      {
+        interactionFallback: true,
+      },
+    );
     managed.pendingPermission = queuedAsPending({ event: ev, inputSummary });
     openChoiceInteraction(
       agentId,
@@ -5193,7 +5198,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.id,
       managed,
       "canceled",
-      logTranslator(managed).t("systemEntries.permissionOutcome.sessionChanged"),
+      logTranslator(managed).t(
+        "systemEntries.permissionOutcome.sessionChanged",
+      ),
     );
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
@@ -8535,7 +8542,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // resuming a session / changing a model / answering a permission prompt.
       // Force the user to answer or cancel the pending flow first.
       if (inMultiStepFlow(managed)) {
-        failEdit(logWords(agentId, username)("systemEntries.editPendingInteraction"));
+        failEdit(
+          logWords(agentId, username)("systemEntries.editPendingInteraction"),
+        );
         return;
       }
       const targetPos = oldLogCache.findIndex((e) => e.id === logEntryId);

@@ -543,10 +543,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "The busy-agent count is unavailable right now.",
   "settings.update.imageRender":
     "To update, use the web service's manual deployment control in Render.",
-  "settings.update.imageRelease":
-    "To update, deploy the {tag} release image.",
-  "settings.update.updateGuide":
-    "Update guide",
+  "settings.update.imageRelease": "To update, deploy the {tag} release image.",
+  "settings.update.updateGuide": "Update guide",
   "settings.update.ownerOnly": "An office owner can apply it from this dialog.",
   "settings.update.updateNow": "Update now",
   "settings.update.updateNowBusy": "Update now ({count} busy)",

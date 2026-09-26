@@ -369,12 +369,7 @@ export function releaseStatusAfterScan(
   apply: UpdateApply = HOST_APPLY,
 ): UpdateStatusWire | null {
   if (channel === null) return null;
-  return computeReleaseStatus(
-    current,
-    channel.latest,
-    channel.security,
-    apply,
-  );
+  return computeReleaseStatus(current, channel.latest, channel.security, apply);
 }
 
 export async function fetchReleaseChannel(

@@ -268,7 +268,8 @@ describe("image deployments (no host updater)", () => {
 
   it("links the platform guide and names the platform action", async () => {
     const guides = {
-      kubernetes: "https://isomux.com/docs/hosting-kubernetes#update-the-office",
+      kubernetes:
+        "https://isomux.com/docs/hosting-kubernetes#update-the-office",
       render: "https://isomux.com/docs/hosting-render#update-the-office",
       container:
         "https://github.com/nmamano/isomux/blob/main/deploy/container/reference.md#updates",
@@ -297,7 +298,10 @@ describe("image deployments (no host updater)", () => {
     ).not.toBeNull();
     expect(untagged.view.container.textContent?.includes(sha)).toBe(false);
     untagged.view.unmount();
-    const tagged = renderImage(imageStatus("kubernetes", "v2026.9.1"), "member");
+    const tagged = renderImage(
+      imageStatus("kubernetes", "v2026.9.1"),
+      "member",
+    );
     expect(tagged.view.queryByText("v2026.9.1")).not.toBeNull();
   });
 
@@ -414,7 +418,9 @@ describe("image deployments (no host updater)", () => {
     expect(copied.includes("isomux-update")).toBe(false);
     expect(copied.includes(`commit ${sha.slice(0, 7)}`)).toBe(true);
     expect(
-      copied.includes("https://isomux.com/docs/hosting-render#update-the-office"),
+      copied.includes(
+        "https://isomux.com/docs/hosting-render#update-the-office",
+      ),
     ).toBe(true);
   });
 });

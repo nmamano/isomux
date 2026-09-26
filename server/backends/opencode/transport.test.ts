@@ -1488,7 +1488,8 @@ describe("OpenCode permission event integration", () => {
             { headers: { "content-type": "text/event-stream" } },
           );
         }
-        if (url.pathname === "/provider") return Response.json({ connected: [] });
+        if (url.pathname === "/provider")
+          return Response.json({ connected: [] });
         if (url.pathname.endsWith("/prompt_async")) return new Response(null);
         if (url.pathname.startsWith("/permission/") && request.body) {
           const reply = ((await request.json()) as { reply: unknown }).reply;
@@ -1560,12 +1561,10 @@ describe("OpenCode permission event integration", () => {
   });
 
   it("sends no reply for a request that a reject already closed", async () => {
-    const { replies, events } = await withTwoOpenRequests(
-      async (transport) => {
-        await transport.approve("permission-1", { kind: "deny" });
-        await transport.approve("permission-2", { kind: "allow_once" });
-      },
-    );
+    const { replies, events } = await withTwoOpenRequests(async (transport) => {
+      await transport.approve("permission-1", { kind: "deny" });
+      await transport.approve("permission-2", { kind: "allow_once" });
+    });
     // OpenCode rejects every open request of the session with the first
     // reject, so an allow for the second has nothing left to answer.
     expect(replies).toEqual([{ id: "permission-1", reply: "reject" }]);

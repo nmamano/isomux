@@ -1730,7 +1730,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         <option
                           key={option.agentType}
                           value={option.agentType}
-                          disabled={unavailable && option.agentType !== agentType}
+                          disabled={
+                            unavailable && option.agentType !== agentType
+                          }
                         >
                           {unavailable
                             ? `${option.label} (${t("dialogs.agent.engineNeedsLinux")})`

@@ -15,7 +15,12 @@ type AgentInfo = import("../../shared/types.ts").AgentInfo;
 type UnavailableEngines = import("../../shared/types.ts").UnavailableEngines;
 
 const NO_OPENCODE: UnavailableEngines = { opencode: "needs_linux" };
-const room = { id: "r1", name: "Studio", prompt: null, canCloseWhenEmpty: true };
+const room = {
+  id: "r1",
+  name: "Studio",
+  prompt: null,
+  canCloseWhenEmpty: true,
+};
 
 function agentOn(agentType: AgentInfo["agentType"]): AgentInfo {
   return {
@@ -73,7 +78,10 @@ async function settle(): Promise<void> {
   });
 }
 
-function stateWith(unavailableEngines: UnavailableEngines, agents: AgentInfo[]) {
+function stateWith(
+  unavailableEngines: UnavailableEngines,
+  agents: AgentInfo[],
+) {
   return {
     rooms: [room],
     agents,
@@ -203,4 +211,3 @@ describe("edit dialog", () => {
     }
   });
 });
-

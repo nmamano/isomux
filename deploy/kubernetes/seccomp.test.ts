@@ -96,9 +96,7 @@ test("the resolver refuses a condition it does not know", () => {
     JSON.stringify({
       defaultAction: "SCMP_ACT_ERRNO",
       defaultErrnoRet: 1,
-      archMap: [
-        { architecture: "SCMP_ARCH_X86_64", subArchitectures: [] },
-      ],
+      archMap: [{ architecture: "SCMP_ARCH_X86_64", subArchitectures: [] }],
       syscalls: [
         {
           names: ["read"],

@@ -1804,21 +1804,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return;
     }
     if (run.status === "skipped") {
-      failEdit("Cannot edit a skipped run - it never opened a session.",
-      );
+      failEdit("Cannot edit a skipped run - it never opened a session.");
       return;
     }
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      failEdit("Cannot edit: the original run never reached backend init.",
-      );
+      failEdit("Cannot edit: the original run never reached backend init.");
       return;
     }
     try {
       validateCwd(run.cwdSnapshot);
     } catch (err) {
-      failEdit(`Cannot edit: cwd is invalid: ${errMessage(err)}`,
-      );
+      failEdit(`Cannot edit: cwd is invalid: ${errMessage(err)}`);
       return;
     }
     const precheckError = checkResumableSession(run, leaf);
@@ -1888,8 +1885,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
     } catch (err) {
-      failEdit(`Failed to load session messages: ${errMessage(err)}`,
-      );
+      failEdit(`Failed to load session messages: ${errMessage(err)}`);
       return;
     }
     // The cronjob's original prompt is the backend's first user message but
@@ -1941,7 +1937,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
         sessionAccess,
       );
       if (forkResult.kind !== "fork") {
-        failEdit("Cannot edit: backend returned a fresh session (no linked fork).",
+        failEdit(
+          "Cannot edit: backend returned a fresh session (no linked fork).",
         );
         return;
       }
@@ -1972,8 +1969,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       // before this fork resume; it failed before installResumedActive, so
       // finalizeRun never runs for it - revoke here.
       revokeRunToken(jobId, runId);
-      failEdit(`Failed to start fork: ${errMessage(err)}`,
-      );
+      failEdit(`Failed to start fork: ${errMessage(err)}`);
       return;
     }
 
@@ -2045,8 +2041,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       active.failedEditText = newText;
     } catch (err) {
       abortResumedRunToken(jobId, runId, session);
-      failEdit(`Failed to start fork: ${errMessage(err)}`,
-      );
+      failEdit(`Failed to start fork: ${errMessage(err)}`);
       return;
     }
     const editMeta: Record<string, unknown> | undefined =

@@ -1019,8 +1019,11 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
           .getAgentLogs(agentId)
           .filter(
             (entry) =>
-              (entry.metadata?.permissionAudit as { event?: string } | undefined)
-                ?.event === "prompt",
+              (
+                entry.metadata?.permissionAudit as
+                  | { event?: string }
+                  | undefined
+              )?.event === "prompt",
           ).length === 2,
       2000,
       "second permission request logged",
@@ -1084,7 +1087,11 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
   it("denies the open request and the waiting one on Stop", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
-    const agent = await spawnAgent(server, "Parallel stop", firstRoomId(server));
+    const agent = await spawnAgent(
+      server,
+      "Parallel stop",
+      firstRoomId(server),
+    );
     await parkOnTwoPermissions(server, owner.rawSessionId, agent.id);
     const session = server.fakeBackend.sessionForAgent(agent.id)!;
     const response = await server.http(`/api/agents/${agent.id}/abort`, {

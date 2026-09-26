@@ -29,9 +29,9 @@ describe("locateEditTarget", () => {
   });
 
   it("classifies the latest message as not sent when the backend ends at its predecessor", () => {
-    expect(locateEditTarget(backend("a", "b"), log("a", "b", "c"), "e2")).toEqual(
-      { kind: "not_sent" },
-    );
+    expect(
+      locateEditTarget(backend("a", "b"), log("a", "b", "c"), "e2"),
+    ).toEqual({ kind: "not_sent" });
     // Empty user messages (Claude tool results) after the predecessor are
     // not user text.
     expect(
@@ -66,9 +66,9 @@ describe("locateEditTarget", () => {
   });
 
   it("refuses a target that is not the latest message", () => {
-    expect(locateEditTarget(backend("a", "c"), log("a", "b", "c"), "e1")).toEqual(
-      { kind: "missing" },
-    );
+    expect(
+      locateEditTarget(backend("a", "c"), log("a", "b", "c"), "e1"),
+    ).toEqual({ kind: "missing" });
   });
 
   it("refuses when the predecessor itself is not in the backend", () => {

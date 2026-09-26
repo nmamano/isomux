@@ -535,8 +535,7 @@ Coses que pots fer per ell:
     "Per actualitzar, fes servir el control de desplegament manual del servei web a Render.",
   "settings.update.imageRelease":
     "Per actualitzar, desplega la imatge de la versió {tag}.",
-  "settings.update.updateGuide":
-    "Guia d'actualització",
+  "settings.update.updateGuide": "Guia d'actualització",
   "settings.update.ownerOnly":
     "Un propietari de l'oficina la pot aplicar des d'aquest diàleg.",
   "settings.update.updateNow": "Actualitza ara",

@@ -21,6 +21,9 @@ test("the k3d owner overlay is the guide's overlay", () => {
     .replaceAll("office.example.com", "office.k8s.test");
   expect(expected).not.toBe(block);
   expect(
-    readFileSync(new URL("./owner/kustomization.yaml", import.meta.url), "utf8"),
+    readFileSync(
+      new URL("./owner/kustomization.yaml", import.meta.url),
+      "utf8",
+    ),
   ).toBe(expected);
 });

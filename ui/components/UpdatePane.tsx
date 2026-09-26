@@ -397,22 +397,22 @@ function ReleaseBody({
         {canTrigger &&
           latest &&
           (phase === "confirm" || phase === "starting") && (
-          <button
-            onClick={() => void trigger()}
-            disabled={phase === "starting"}
-            style={{
-              ...buttonStyle,
-              opacity: phase === "starting" ? 0.6 : 1,
-              cursor: phase === "starting" ? "default" : "pointer",
-            }}
-          >
-            {phase === "starting"
-              ? t("settings.update.updating")
-              : busy !== null
-                ? t("settings.update.updateNowBusy", { count: busy })
-                : t("settings.update.updateNow")}
-          </button>
-        )}
+            <button
+              onClick={() => void trigger()}
+              disabled={phase === "starting"}
+              style={{
+                ...buttonStyle,
+                opacity: phase === "starting" ? 0.6 : 1,
+                cursor: phase === "starting" ? "default" : "pointer",
+              }}
+            >
+              {phase === "starting"
+                ? t("settings.update.updating")
+                : busy !== null
+                  ? t("settings.update.updateNowBusy", { count: busy })
+                  : t("settings.update.updateNow")}
+            </button>
+          )}
         <button
           onClick={phase === "confirm" ? () => setPhase("info") : onClose}
           style={

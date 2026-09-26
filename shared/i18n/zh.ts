@@ -491,10 +491,8 @@ App 的一些原则：
   "settings.update.busyUnavailable": "目前无法获取忙碌智能体的数量。",
   "settings.update.imageRender":
     "如需更新，请在 Render 中使用该 Web 服务的手动部署控件。",
-  "settings.update.imageRelease":
-    "如需更新，请部署 {tag} 版本镜像。",
-  "settings.update.updateGuide":
-    "更新指南",
+  "settings.update.imageRelease": "如需更新，请部署 {tag} 版本镜像。",
+  "settings.update.updateGuide": "更新指南",
   "settings.update.ownerOnly": "办公室所有者可以在此对话框中应用更新。",
   "settings.update.updateNow": "立即更新",
   "settings.update.updateNowBusy": "立即更新（{count} 个忙碌）",
@@ -1244,8 +1242,7 @@ App 的一些原则：
   "logView.emptyResume": "继续过去的对话",
   "logView.sendFailedBanner":
     "无法发送，正在重新连接。消息仍在输入框中；提示条消失后请重试。",
-  "logView.editFailedBanner":
-    "无法发送编辑：{error}。文本已放回输入框。",
+  "logView.editFailedBanner": "无法发送编辑：{error}。文本已放回输入框。",
   "logView.attachTooLarge": "文件过大（最大 200MB）",
   "logView.attachUploading": "正在上传…",
   "logView.attachFiles": "添加附件",
