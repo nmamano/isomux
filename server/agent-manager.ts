@@ -2142,6 +2142,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingEffortPick: false,
       pendingInteraction: null,
       pendingPermission: null,
+      queuedPermissions: [],
       ptySidecar: null,
       ptyBuffer: "",
       lastWrittenEntryId: null,
@@ -2844,6 +2845,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       instruction,
       choices,
     };
+    // A client holds the cards it was sent until it hears they are gone, so
+    // a replaced interaction must be removed out loud. Otherwise the client
+    // keeps showing a card that no click can answer.
+    const replaced = managed.pendingInteraction;
+    if (replaced) {
+      managed.pendingInteractionRemoved = {
+        interactionId: replaced.id,
+        agentId: replaced.agentId,
+      };
+    }
     managed.pendingResume = kind === "resume";
     managed.pendingModelPick = kind === "model";
     managed.pendingEffortPick = kind === "effort";
@@ -2956,6 +2967,104 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       settleChoiceInteraction(managed, interaction, null);
     } else {
       syncPendingPrompt(agentId, managed);
+    }
+  }
+
+  type QueuedPermission = ManagedAgent["queuedPermissions"][number];
+
+  function queuedAsPending({
+    event,
+    inputSummary,
+  }: Omit<QueuedPermission, "session">): NonNullable<
+    ManagedAgent["pendingPermission"]
+  > {
+    return {
+      approvalId: event.approvalId,
+      toolName: event.toolName,
+      inputSummary,
+      allowPersistent: Boolean(event.allowPersistentLabel),
+      allowPrefixLabel: event.allowPrefixLabel,
+    };
+  }
+
+  // Open the card for one permission request and park the agent on it.
+  function showPermissionPrompt(
+    agentId: string,
+    managed: ManagedAgent,
+    ev: QueuedPermission["event"],
+    inputSummary: Record<string, string>,
+  ) {
+    // Build the /resolve prompt. The backend owns the SDK resolver and
+    // states per request which persistent choices it can represent.
+    // A backend event carries no actor, so this is worded for the agent's
+    // owner (internal-docs/i18n-loop.md, S7).
+    const { t } = translatorForUserId(managed.info.userId);
+    emitEphemeralLog(agentId, "system", permissionPromptLines(t, ev).join("\n"), {
+      interactionFallback: true,
+    });
+    managed.pendingPermission = queuedAsPending({ event: ev, inputSummary });
+    openChoiceInteraction(
+      agentId,
+      "permission",
+      ev.title ?? t("choices.permission.title", { tool: ev.toolName }),
+      t("choices.permission.instruction"),
+      permissionInteractionChoices(
+        t,
+        ev.allowPersistentLabel,
+        ev.allowPrefixLabel,
+      ),
+    );
+    managed.pendingPermission.interactionId = managed.pendingInteraction?.id;
+    updateState(agentId, "waiting_for_response");
+  }
+
+  // After an answer, open the oldest waiting request. A request from a
+  // session that is no longer current has no resolver left to answer.
+  function showNextPermission(agentId: string, managed: ManagedAgent) {
+    if (managed.pendingPermission) return;
+    for (;;) {
+      const next = managed.queuedPermissions.shift();
+      if (!next) return;
+      if (next.session === managed.sessionManager.session) {
+        showPermissionPrompt(agentId, managed, next.event, next.inputSummary);
+        return;
+      }
+      recordPermissionOutcome(
+        agentId,
+        queuedAsPending(next),
+        "canceled",
+        logTranslator(managed).t(
+          "systemEntries.permissionOutcome.sessionChanged",
+        ),
+      );
+    }
+  }
+
+  // Settle the open request and every waiting one without a backend answer:
+  // their session is closing or gone, and the backend's close() denies them.
+  function cancelPermissionRequests(
+    agentId: string,
+    managed: ManagedAgent,
+    outcome: "canceled" | "session_gone",
+    label: string,
+    username?: string,
+    device?: string,
+  ) {
+    const open = managed.pendingPermission;
+    const queued = managed.queuedPermissions.splice(0);
+    if (open)
+      recordPermissionOutcome(agentId, open, outcome, label, username, device);
+    if (open || managed.pendingInteraction?.kind === "permission")
+      clearPermissionPrompt(agentId, managed);
+    for (const request of queued) {
+      recordPermissionOutcome(
+        agentId,
+        queuedAsPending(request),
+        outcome,
+        label,
+        username,
+        device,
+      );
     }
   }
 
@@ -4479,7 +4588,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // A backend event carries no actor, so this is worded for the agent's
         // owner (internal-docs/i18n-loop.md, S7).
         const { t } = translatorForUserId(managed.info.userId);
-        const lines = permissionPromptLines(t, ev);
         const inputSummary = permissionInputSummary(ev.toolName, ev.input);
         addLogEntry(
           agentId,
@@ -4496,28 +4604,34 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             },
           },
         );
-        emitEphemeralLog(agentId, "system", lines.join("\n"), {
-          interactionFallback: true,
-        });
-        managed.pendingPermission = {
-          approvalId: ev.approvalId,
-          toolName: ev.toolName,
-          inputSummary,
-          allowPersistent: Boolean(ev.allowPersistentLabel),
-          allowPrefixLabel: ev.allowPrefixLabel,
-        };
-        openChoiceInteraction(
-          agentId,
-          "permission",
-          ev.title ?? t("choices.permission.title", { tool: ev.toolName }),
-          t("choices.permission.instruction"),
-          permissionInteractionChoices(
-            t,
-            ev.allowPersistentLabel,
-            ev.allowPrefixLabel,
-          ),
+        // One card at a time. A request that arrives while another is open
+        // (parallel subagents), or while an answer is still being applied,
+        // waits its turn instead of replacing the open one.
+        if (managed.pendingPermission || managed.queuedPermissions.length) {
+          managed.queuedPermissions.push({
+            event: ev,
+            inputSummary,
+            session: managed.sessionManager.session,
+          });
+          break;
+        }
+        showPermissionPrompt(agentId, managed, ev, inputSummary);
+        break;
+      }
+      case "approval_withdrawn": {
+        const managed = agents.get(agentId);
+        if (!managed) break;
+        // No member choice applies to a withdrawn request, so nothing is
+        // recorded for it. A waiting one leaves the queue unseen.
+        managed.queuedPermissions = managed.queuedPermissions.filter(
+          (queued) => queued.event.approvalId !== ev.approvalId,
         );
-        updateState(agentId, "waiting_for_response");
+        if (managed.pendingPermission?.approvalId !== ev.approvalId) break;
+        clearPermissionPrompt(agentId, managed);
+        showNextPermission(agentId, managed);
+        // Nothing left to ask: the turn goes on without an answer.
+        if (!managed.pendingPermission && managed.sessionManager.pendingTurn)
+          updateState(agentId, "thinking");
         break;
       }
       case "input_request": {
@@ -5065,17 +5179,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Clear pendingPermission so a stale approvalId from the old (about-to-close)
     // session can't accidentally route a future user message into a dead approval.
     // The backend's close() resolves any in-flight SDK resolver with deny.
-    if (managed.pendingPermission) {
-      recordPermissionOutcome(
-        managed.info.id,
-        managed.pendingPermission,
-        "canceled",
-        logTranslator(managed).t(
-          "systemEntries.permissionOutcome.sessionChanged",
-        ),
-      );
-      clearPermissionPrompt(managed.info.id, managed);
-    }
+    cancelPermissionRequests(
+      managed.info.id,
+      managed,
+      "canceled",
+      logTranslator(managed).t("systemEntries.permissionOutcome.sessionChanged"),
+    );
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
     try {
@@ -5312,6 +5421,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingEffortPick: false,
       pendingInteraction: null,
       pendingPermission: null,
+      queuedPermissions: [],
       ptySidecar: null,
       ptyBuffer: "",
       lastWrittenEntryId: null,
@@ -6582,20 +6692,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // the normal-message path below; otherwise the user's message would be
     // misinterpreted as a deny reason and lost. Pending-resume/model/effort are
     // user-initiated only, so they can't transition here.
-    if (echoEarly && managed.pendingPermission) {
+    if (
+      echoEarly &&
+      (managed.pendingPermission || managed.queuedPermissions.length)
+    ) {
       // Race-set during the abort drain. The dying session (now closed) already
-      // resolved its SDK callback with deny inside close(); we just clear the
-      // orchestrator-side pointer so the normal-message path proceeds.
-      recordPermissionOutcome(
+      // resolved its SDK callbacks with deny inside close(); we just clear the
+      // orchestrator-side pointers so the normal-message path proceeds.
+      cancelPermissionRequests(
         agentId,
-        managed.pendingPermission,
+        managed,
         "canceled",
         logWords(
           agentId,
           username,
         )("systemEntries.permissionOutcome.priorSessionStopped"),
       );
-      clearPermissionPrompt(agentId, managed);
     }
     // Skip auto-recovery for slash commands: they are control-plane actions
     // (/clear creates a fresh session, /resume picks from disk) and must stay
@@ -6625,6 +6737,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       claimedChoice?.interaction.kind === "permission"
         ? claimedChoice.value
         : null;
+    // The request this card asked for ended while the click was on its way
+    // (its session closed). Never apply the click to another request, and
+    // never send its label to the agent as a message.
+    if (
+      claimedChoice?.interaction.kind === "permission" &&
+      managed.pendingPermission?.interactionId !== claimedChoice.interaction.id
+    )
+      return;
     if (
       managed.pendingPermission &&
       (!claimedChoice || clickedPermissionChoice !== null)
@@ -6655,6 +6775,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         recordPermissionOutcome(
           agentId,
           pending,
+          "session_gone",
+          logWords(
+            agentId,
+            username,
+          )("systemEntries.permissionOutcome.sessionEnded"),
+          username,
+          device,
+        );
+        // The waiting requests died with the same session.
+        cancelPermissionRequests(
+          agentId,
+          managed,
           "session_gone",
           logWords(
             agentId,
@@ -6786,6 +6918,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
         updateState(agentId, "error");
       }
+      // A backend can withdraw other requests while it applies this answer
+      // (OpenCode's reject closes them all). The stream consumer handles
+      // those events in microtasks, so one macrotask later every withdrawal
+      // emitted before approve() resolved is in, and no card opens for one.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      // This answer settled one request only. The next waiting request, if
+      // any, gets its own card, also after a failed answer: it still waits
+      // in the backend.
+      showNextPermission(agentId, managed);
       return;
     }
 
@@ -7279,60 +7420,82 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   //                unparked. The caller must not report success on this.
   type DenyOutcome = "none" | "denied" | "gone" | "failed";
 
-  // Resolve a parked permission prompt as a denial, so a Stop actually ENDS the
-  // wait instead of leaving the SDK's canUseTool promise hanging forever.
+  // Resolve a parked permission prompt, and every request waiting behind it,
+  // as a denial, so a Stop actually ENDS the wait instead of leaving the SDK's
+  // canUseTool promises hanging forever.
   //
   // Ordering mirrors the human-reply path in sendMessage: clear the
-  // orchestrator pointer FIRST so an inbound message can't be read as a second
-  // answer to the same prompt, then resolve the backend callback.
+  // orchestrator pointers FIRST so an inbound message can't be read as a
+  // second answer to the same prompt, then resolve the backend callbacks.
   async function denyPendingPermission(
     agentId: string,
     managed: ManagedAgent,
   ): Promise<DenyOutcome> {
-    const pending = managed.pendingPermission;
-    if (!pending) return "none";
+    const open = managed.pendingPermission;
+    const queued = managed.queuedPermissions.splice(0);
+    if (!open && queued.length === 0) return "none";
     clearPermissionPrompt(agentId, managed);
     // Explicit: the main abort path flips state BEFORE calling us, so the sync
     // inside updateState has already run against the still-parked flag.
     syncPendingPrompt(agentId, managed);
     const session = managed.sessionManager.session;
-    if (!session) {
+    const requests = open ? [open] : [];
+    for (const request of queued) {
+      if (request.session === session) {
+        requests.push(queuedAsPending(request));
+        continue;
+      }
+      // Asked by a session that is already gone; its close() denied it.
       recordPermissionOutcome(
         agentId,
-        pending,
-        "session_gone",
-        logWords(agentId)("systemEntries.permissionOutcome.sessionEnded"),
+        queuedAsPending(request),
+        "canceled",
+        logWords(agentId)("systemEntries.permissionOutcome.sessionChanged"),
       );
+    }
+    if (requests.length === 0) return "gone";
+    if (!session) {
+      for (const pending of requests) {
+        recordPermissionOutcome(
+          agentId,
+          pending,
+          "session_gone",
+          logWords(agentId)("systemEntries.permissionOutcome.sessionEnded"),
+        );
+      }
       return "gone";
     }
-    try {
-      await session.approve(pending.approvalId, {
-        kind: "deny",
-        reason: ABORT_DENY_REASON,
-      });
-      recordPermissionOutcome(
-        agentId,
-        pending,
-        "deny",
-        logWords(agentId)("systemEntries.permissionOutcome.denyWhenStopped"),
-      );
-      return "denied";
-    } catch (err) {
-      recordPermissionOutcome(
-        agentId,
-        pending,
-        "failed",
-        logWords(agentId)("systemEntries.permissionOutcome.failed"),
-      );
-      addLogEntry(
-        agentId,
-        "error",
-        logWords(agentId)("systemEntries.permissionResolveFailed", {
-          error: errMessage(err),
-        }),
-      );
-      return "failed";
+    let failed = false;
+    for (const pending of requests) {
+      try {
+        await session.approve(pending.approvalId, {
+          kind: "deny",
+          reason: ABORT_DENY_REASON,
+        });
+        recordPermissionOutcome(
+          agentId,
+          pending,
+          "deny",
+          logWords(agentId)("systemEntries.permissionOutcome.denyWhenStopped"),
+        );
+      } catch (err) {
+        failed = true;
+        recordPermissionOutcome(
+          agentId,
+          pending,
+          "failed",
+          logWords(agentId)("systemEntries.permissionOutcome.failed"),
+        );
+        addLogEntry(
+          agentId,
+          "error",
+          logWords(agentId)("systemEntries.permissionResolveFailed", {
+            error: errMessage(err),
+          }),
+        );
+      }
     }
+    return failed ? "failed" : "denied";
   }
 
   async function abort(agentId: string): Promise<AbortResult> {
@@ -7581,15 +7744,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       await managed.sessionManager.session!.abort();
       // Mirror createSession's stale-approval cleanup: replaceSession would
       // have cleared this; the hot path doesn't go through createSession.
-      if (managed.pendingPermission) {
-        recordPermissionOutcome(
-          agentId,
-          managed.pendingPermission,
-          "canceled",
-          logWords(agentId)("systemEntries.permissionOutcome.turnStopped"),
-        );
-      }
-      clearPermissionPrompt(agentId, managed);
+      cancelPermissionRequests(
+        agentId,
+        managed,
+        "canceled",
+        logWords(agentId)("systemEntries.permissionOutcome.turnStopped"),
+      );
       // Attach to the in-flight turn's promise (snapshot once) so abortPromise
       // doesn't resolve before pendingTurn settles - otherwise a follow-up
       // createTurnDeferred would supersede the original turn with a
@@ -7665,15 +7825,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // in-flight SDK approval with deny; clearing pendingPermission here just
     // drops the orchestrator's pointer so the next message path doesn't think
     // an approval is pending.
-    if (managed.pendingPermission) {
-      recordPermissionOutcome(
-        agentId,
-        managed.pendingPermission,
-        "canceled",
-        logWords(agentId)("systemEntries.permissionOutcome.agentKilled"),
-      );
-      clearPermissionPrompt(agentId, managed);
-    }
+    cancelPermissionRequests(
+      agentId,
+      managed,
+      "canceled",
+      logWords(agentId)("systemEntries.permissionOutcome.agentKilled"),
+    );
     const turn = managed.sessionManager.pendingTurn;
     managed.sessionManager.pendingTurn = null;
     if (turn) {

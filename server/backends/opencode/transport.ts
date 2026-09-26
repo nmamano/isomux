@@ -272,7 +272,12 @@ export class OpenCodeTransport {
   private abortController: AbortController | null = null;
   private activeTurn = false;
   private abortRequested = false;
-  private pendingPermission: { id: string; sessionId: string } | null = null;
+  // Open permission requests: request id -> OpenCode session id. OpenCode
+  // runs the tool calls of one step in parallel, and each can ask at once.
+  private pendingPermissions = new Map<string, string>();
+  // The open turn's sink, so a request that OpenCode closes outside a member
+  // answer can be withdrawn from the orchestrator.
+  private turnSink: EventSink | null = null;
   private closed = false;
   private authorityBinding: OpenCodeAuthorityBinding | null = null;
 
@@ -368,13 +373,18 @@ export class OpenCodeTransport {
         if (settled) return;
         settled = true;
         this.activeTurn = false;
-        this.pendingPermission = null;
+        // A request still open when the turn ends can never be answered.
+        for (const id of this.pendingPermissions.keys())
+          sink({ kind: "approval_withdrawn", approvalId: id });
+        this.pendingPermissions.clear();
+        this.turnSink = null;
         this.authorityBinding?.deactivate();
         if (turnStarted) this.lease?.endTurn();
         controller?.abort();
       }
       sink(event);
     };
+    this.turnSink = emit;
     const fail = (error: unknown, context: string): void => {
       // Late failures after settlement or intentional close are deliberately silent.
       if (settled || this.closed) return;
@@ -456,21 +466,29 @@ export class OpenCodeTransport {
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
-    const pending = this.pendingPermission;
-    if (
-      !pending ||
-      pending.id !== approvalId ||
-      pending.sessionId !== this.sessionId
-    )
-      return;
+    const sessionId = this.pendingPermissions.get(approvalId);
+    if (!sessionId || sessionId !== this.sessionId) return;
     if (decision.kind !== "allow_once" && decision.kind !== "deny") {
       throw new Error("OpenCode supports Allow once and Deny.");
     }
-    this.pendingPermission = null;
-    await this.replyPermission(
-      approvalId,
-      decision.kind === "allow_once" ? "once" : "reject",
-    );
+    // Out of the map while the reply is in flight, so an abort cannot answer
+    // it a second time.
+    this.pendingPermissions.delete(approvalId);
+    try {
+      await this.replyPermission(
+        approvalId,
+        decision.kind === "allow_once" ? "once" : "reject",
+      );
+    } catch (err) {
+      // OpenCode did not take the answer, so the request is still open,
+      // unless its turn ended meanwhile.
+      if (this.activeTurn && this.sessionId === sessionId)
+        this.pendingPermissions.set(approvalId, sessionId);
+      throw err;
+    }
+    // Only after OpenCode took the reject: it closes every open request of
+    // the session, so none of the others can be answered after it.
+    if (decision.kind === "deny") this.forgetPermissions(sessionId);
   }
 
   async getSessionMessages(): Promise<NormalizedMessage[]> {
@@ -650,10 +668,7 @@ export class OpenCodeTransport {
                     (value): value is string => typeof value === "string",
                   )
                 : [];
-              this.pendingPermission = {
-                id: event.id,
-                sessionId: event.sessionId,
-              };
+              this.pendingPermissions.set(event.id, event.sessionId);
               sink({
                 kind: "approval_request",
                 approvalId: event.id,
@@ -754,11 +769,25 @@ export class OpenCodeTransport {
     });
   }
 
+  // One reject is enough: OpenCode rejects the other open requests of the
+  // session with it.
   private async rejectPendingPermission(): Promise<void> {
-    const pending = this.pendingPermission;
-    if (!pending || pending.sessionId !== this.sessionId) return;
-    this.pendingPermission = null;
-    await this.replyPermission(pending.id, "reject").catch(() => undefined);
+    const sessionId = this.sessionId;
+    if (!sessionId) return;
+    const id = [...this.pendingPermissions].find(
+      ([, owner]) => owner === sessionId,
+    )?.[0];
+    if (!id) return;
+    this.forgetPermissions(sessionId);
+    await this.replyPermission(id, "reject").catch(() => undefined);
+  }
+
+  private forgetPermissions(sessionId: string): void {
+    for (const [id, owner] of this.pendingPermissions) {
+      if (owner !== sessionId) continue;
+      this.pendingPermissions.delete(id);
+      this.turnSink?.({ kind: "approval_withdrawn", approvalId: id });
+    }
   }
 
   private async request(

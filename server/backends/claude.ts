@@ -806,8 +806,10 @@ export class ClaudeSession implements BackendSession {
     }
     return new Promise<PermissionResult>((resolve) => {
       const approvalId = callOpts.toolUseID;
-      // If a prior pending request with the same approvalId exists (shouldn't
-      // happen - SDK tool calls are serialized - but defensive), deny it.
+      // Several requests can be open at once: the SDK asks one at a time
+      // within one agent, but parallel subagents each ask on their own. Each
+      // has a distinct toolUseID. A second request with the SAME id should
+      // not happen; deny the older one defensively.
       const existing = this.pendingApprovals.get(approvalId);
       if (existing) {
         try {
@@ -836,9 +838,13 @@ export class ClaudeSession implements BackendSession {
         "abort",
         () => {
           const pending = this.pendingApprovals.get(approvalId);
+          // The CLI cancels a pending request (control_cancel_request, for
+          // example on interrupt). close() empties the map first, so a
+          // session teardown reaches no request here.
           if (pending) {
             this.pendingApprovals.delete(approvalId);
             pending.resolve({ behavior: "deny", message: "Request aborted." });
+            this.enqueue({ kind: "approval_withdrawn", approvalId });
           }
         },
         { once: true },

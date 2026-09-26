@@ -169,6 +169,11 @@ export type NormalizedEvent =
       allowPrefixLabel?: string;
       allowPrefixExample?: string;
     }
+  // The backend settled an approval_request by itself, so no answer can reach
+  // it any more: the SDK cancelled the request, a reject closed its siblings,
+  // or the turn ended. The orchestrator drops the request, or closes its card,
+  // and records no member choice for it.
+  | { kind: "approval_withdrawn"; approvalId: string }
   // Backend requested interactive input that is not a tool permission. The
   // payload stays backend-owned and default-denied; callers only need the
   // reviewed request kind and id to fail an unattended turn visibly.

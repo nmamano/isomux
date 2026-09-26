@@ -1564,6 +1564,30 @@ describe("CodexSession approvals", () => {
     await session.approve("appr-2b", { kind: "deny" });
     expect(await denyResp).toEqual({ decision: "decline" });
   });
+
+  it("withdraws an approval that codex resolved by itself", async () => {
+    const { session, fake, it } = await bootstrapped();
+    const response = fake.fireServerRequest({
+      id: "appr-3",
+      method: "item/commandExecution/requestApproval",
+      params: execApprovalParams("ls", null),
+    });
+    expectKind(await nextEvent(it, "approval_request"), "approval_request");
+    fake.fireNotification("serverRequest/resolved", {
+      threadId: FIXTURE_THREAD_ID,
+      requestId: "appr-3",
+    });
+    // MUTANT: the notification is ignored, and the orchestrator keeps a card
+    // for a request that codex no longer waits on.
+    expect(await nextEvent(it, "approval_withdrawn")).toEqual({
+      kind: "approval_withdrawn",
+      approvalId: "appr-3",
+    });
+    // The parked handler frame unwinds.
+    expect(await response).toEqual({ decision: "decline" });
+    // A late member answer finds nothing to answer.
+    await session.approve("appr-3", { kind: "allow_once" });
+  });
 });
 
 // ---------------------------------------------------------------------------

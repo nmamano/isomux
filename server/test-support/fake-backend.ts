@@ -237,9 +237,16 @@ export class FakeSession implements BackendSession {
   // so the path needs to be reachable under test.
   approveError: Error | null = null;
 
+  // Set by a test to act when approve() is called - as a real backend does
+  // when an answer also closes other requests (OpenCode's reject closes every
+  // open request of the session).
+  onApprove: ((approvalId: string, decision: ApprovalDecision) => void) | null =
+    null;
+
   approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     if (this.approveError) return Promise.reject(this.approveError);
     this.approvals.push({ approvalId, decision });
+    this.onApprove?.(approvalId, decision);
     return Promise.resolve();
   }
 

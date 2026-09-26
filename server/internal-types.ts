@@ -8,6 +8,7 @@ import type {
   SkillInfo,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
+import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 
@@ -192,7 +193,20 @@ export interface ManagedAgent {
     // applies it on an "allow_prefix" decision. Undefined means no prefix
     // option was shown, so an unmatched number denies with that as the reason.
     allowPrefixLabel?: string;
+    // The card that asks for this request. A click on any other card never
+    // answers it.
+    interactionId?: string;
   } | null;
+  // Permission requests that arrived while pendingPermission was open, oldest
+  // first. Claude's parallel subagents can ask at the same time, and each
+  // request has its own backend resolver, so none may overwrite another. The
+  // next one opens when the open one is answered. `session` is the session
+  // that asked: a request from a replaced session is never shown.
+  queuedPermissions: {
+    event: Extract<NormalizedEvent, { kind: "approval_request" }>;
+    inputSummary: Record<string, string>;
+    session: BackendSession | null;
+  }[];
   ptySidecar: import("bun").Subprocess | null;
   ptyBuffer: string;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,

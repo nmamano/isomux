@@ -1444,4 +1444,194 @@ describe("OpenCode permission event integration", () => {
       isomuxAuthored: true,
     });
   });
+
+  // OpenCode runs the tool calls of one step in parallel, and each call can
+  // ask for permission before any answer (probe of the pinned 1.18.23 server,
+  // 2026-09-26, task 7a185be0). The event stream stays open here, as in a
+  // live turn, so both requests are open when the answers arrive.
+  async function withTwoOpenRequests(
+    answer: (
+      transport: OpenCodeTransport,
+      events: NormalizedEvent[],
+    ) => Promise<void>,
+    options: { refuseRejects?: boolean } = {},
+  ): Promise<{
+    replies: { id: string; reply: unknown }[];
+    events: NormalizedEvent[];
+  }> {
+    const replies: { id: string; reply: unknown }[] = [];
+    const frames = ["permission-1", "permission-2"].map((id) => ({
+      type: "permission.asked",
+      properties: {
+        sessionID: "session-1",
+        id,
+        permission: "bash",
+        patterns: [`printf ${id}`],
+        metadata: { command: `printf ${id}` },
+      },
+    }));
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/event") {
+          const body = frames
+            .map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
+            .join("");
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode(body));
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.pathname === "/provider") return Response.json({ connected: [] });
+        if (url.pathname.endsWith("/prompt_async")) return new Response(null);
+        if (url.pathname.startsWith("/permission/") && request.body) {
+          const reply = ((await request.json()) as { reply: unknown }).reply;
+          replies.push({
+            id: decodeURIComponent(url.pathname.split("/")[2] ?? ""),
+            reply,
+          });
+          // The server did not apply this reject: every request stays open.
+          if (options.refuseRejects && reply === "reject")
+            return new Response("unavailable", { status: 503 });
+          return new Response(null);
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: "system",
+      supervisor,
+      sessionId: "session-1",
+    });
+    const events: NormalizedEvent[] = [];
+    try {
+      await transport.send([{ type: "text", text: "go" }], (event) =>
+        events.push(event),
+      );
+      const deadline = Date.now() + 1_000;
+      while (
+        events.filter((event) => event.kind === "approval_request").length <
+          2 &&
+        Date.now() < deadline
+      )
+        await Bun.sleep(5);
+      expect(
+        events.flatMap((event) =>
+          event.kind === "approval_request" ? [event.approvalId] : [],
+        ),
+      ).toEqual(["permission-1", "permission-2"]);
+      await answer(transport, events);
+    } finally {
+      transport.close();
+      await server.stop(true);
+    }
+    return { replies, events };
+  }
+
+  it("answers each of two open requests, not only the newest", async () => {
+    const { replies } = await withTwoOpenRequests(async (transport) => {
+      await transport.approve("permission-1", { kind: "allow_once" });
+      await transport.approve("permission-2", { kind: "deny" });
+    });
+    // MUTANT: one pending slot, so the second request overwrites the first
+    // and the answer to permission-1 is dropped.
+    expect(replies).toEqual([
+      { id: "permission-1", reply: "once" },
+      { id: "permission-2", reply: "reject" },
+    ]);
+  });
+
+  it("sends no reply for a request that a reject already closed", async () => {
+    const { replies, events } = await withTwoOpenRequests(
+      async (transport) => {
+        await transport.approve("permission-1", { kind: "deny" });
+        await transport.approve("permission-2", { kind: "allow_once" });
+      },
+    );
+    // OpenCode rejects every open request of the session with the first
+    // reject, so an allow for the second has nothing left to answer.
+    expect(replies).toEqual([{ id: "permission-1", reply: "reject" }]);
+    // MUTANT: the transport forgets permission-2 silently, and the
+    // orchestrator later shows a card for it.
+    expect(
+      events.filter((event) => event.kind === "approval_withdrawn"),
+    ).toEqual([{ kind: "approval_withdrawn", approvalId: "permission-2" }]);
+  });
+
+  it("keeps every request open when OpenCode refuses a reject", async () => {
+    let withdrawnBeforeClose: NormalizedEvent[] = [];
+    const { replies } = await withTwoOpenRequests(
+      async (transport, events) => {
+        await expectRejection(
+          transport.approve("permission-1", { kind: "deny" }),
+          /503/,
+        );
+        await transport.approve("permission-2", { kind: "allow_once" });
+        // The refused request itself also stays answerable.
+        await transport.approve("permission-1", { kind: "allow_once" });
+        // Closing the transport ends the turn, which withdraws whatever is
+        // still open; only the answers are under test here.
+        withdrawnBeforeClose = events.filter(
+          (event) => event.kind === "approval_withdrawn",
+        );
+      },
+      { refuseRejects: true },
+    );
+    // MUTANT: forgetting the session's requests before the reply succeeds
+    // withdraws permission-2 while OpenCode still waits on it.
+    expect(replies).toEqual([
+      { id: "permission-1", reply: "reject" },
+      { id: "permission-2", reply: "once" },
+      { id: "permission-1", reply: "once" },
+    ]);
+    expect(withdrawnBeforeClose).toEqual([]);
+  });
+
+  it("withdraws the requests still open when the turn ends", async () => {
+    const asked = (id: string) => ({
+      type: "permission.asked",
+      properties: {
+        sessionID: "session-1",
+        id,
+        permission: "bash",
+        patterns: [`printf ${id}`],
+        metadata: { command: `printf ${id}` },
+      },
+    });
+    const result = await runFrames([
+      asked("permission-1"),
+      asked("permission-2"),
+      { type: "session.idle", properties: { sessionID: "session-1" } },
+    ]);
+    const kinds = result.events.map((event) =>
+      event.kind === "approval_withdrawn"
+        ? `withdrawn:${event.approvalId}`
+        : event.kind,
+    );
+    // MUTANT: the turn ends with both requests still open in the
+    // orchestrator, which leaves a parked card behind.
+    expect(kinds.slice(-3)).toEqual([
+      "withdrawn:permission-1",
+      "withdrawn:permission-2",
+      "turn_completed",
+    ]);
+  });
 });

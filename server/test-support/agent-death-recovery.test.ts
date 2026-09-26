@@ -997,6 +997,260 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
   });
 
+  // Parallel subagents ask for permission at the same time (task 7a185be0).
+  async function parkOnTwoPermissions(
+    srv: TestServer,
+    rawSessionId: string,
+    agentId: string,
+  ) {
+    await parkOnPermission(srv, rawSessionId, agentId, { approvalId: "ap-1" });
+    const firstCard = srv.agentManager.getPendingInteractions()[0];
+    if (!firstCard) throw new Error("first permission card missing");
+    srv.fakeBackend.sessionForAgent(agentId)!.push({
+      kind: "approval_request",
+      approvalId: "ap-2",
+      toolName: "Bash",
+      input: { command: "ls /tmp/y" },
+      title: "Claude wants to use Bash",
+    });
+    await waitUntil(
+      () =>
+        srv.agentManager
+          .getAgentLogs(agentId)
+          .filter(
+            (entry) =>
+              (entry.metadata?.permissionAudit as { event?: string } | undefined)
+                ?.event === "prompt",
+          ).length === 2,
+      2000,
+      "second permission request logged",
+    );
+    return firstCard;
+  }
+
+  it("keeps a second concurrent request waiting and answers each in turn", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Parallel", firstRoomId(server));
+    const firstCard = await parkOnTwoPermissions(
+      server,
+      owner.rawSessionId,
+      agent.id,
+    );
+    // MUTANT: one pending slot. The second request replaced the first card,
+    // and nothing could answer ap-1 after that.
+    expect(
+      server.agentManager.getPendingInteractions().map((card) => card.id),
+    ).toEqual([firstCard.id]);
+    const session = server.fakeBackend.sessionForAgent(agent.id)!;
+
+    const allow = await clickPermission(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      firstCard.id,
+      "1",
+    );
+    expect(allow.status).toBe(200);
+    await waitUntil(
+      () => server!.agentManager.getPendingInteractions().length === 1,
+      2000,
+      "card for the waiting request",
+    );
+    expect(session.approvals).toEqual([
+      { approvalId: "ap-1", decision: { kind: "allow_once" } },
+    ]);
+    const secondCard = server.agentManager.getPendingInteractions()[0];
+    expect(secondCard.id).not.toBe(firstCard.id);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe("permission");
+
+    const deny = await clickPermission(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      secondCard.id,
+      "2",
+    );
+    expect(deny.status).toBe(200);
+    await waitUntil(() => session.approvals.length === 2);
+    expect(session.approvals[1]).toEqual({
+      approvalId: "ap-2",
+      decision: { kind: "deny" },
+    });
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+  });
+
+  it("denies the open request and the waiting one on Stop", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Parallel stop", firstRoomId(server));
+    await parkOnTwoPermissions(server, owner.rawSessionId, agent.id);
+    const session = server.fakeBackend.sessionForAgent(agent.id)!;
+    const response = await server.http(`/api/agents/${agent.id}/abort`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(response.status).toBe(204);
+    // MUTANT: Stop denies only the open request and leaves ap-2 waiting in
+    // the backend.
+    expect(
+      session.approvals.map((approval) => [
+        approval.approvalId,
+        approval.decision.kind,
+      ]),
+    ).toEqual([
+      ["ap-1", "deny"],
+      ["ap-2", "deny"],
+    ]);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+  });
+
+  function permissionOutcomes(srv: TestServer, agentId: string) {
+    return srv.agentManager
+      .getAgentLogs(agentId)
+      .filter(
+        (entry) =>
+          (entry.metadata?.permissionAudit as { event?: string } | undefined)
+            ?.event === "outcome",
+      );
+  }
+
+  it("never shows a request that the backend withdrew, and ends the turn clean", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Cascade", firstRoomId(server));
+    const socket = await server.connectWs(owner.rawSessionId);
+    await socket.waitFor("full_state");
+    const firstCard = await parkOnTwoPermissions(
+      server,
+      owner.rawSessionId,
+      agent.id,
+    );
+    const session = server.fakeBackend.sessionForAgent(agent.id)!;
+    // OpenCode: a reject closes every open request of the session. The
+    // withdrawal reaches the stream a few microtasks after approve()
+    // resolves, as it can through an adapter's own async hop.
+    session.onApprove = (_approvalId, decision) => {
+      if (decision.kind !== "deny") return;
+      let hops = Promise.resolve();
+      for (let n = 0; n < 5; n++) hops = hops.then(() => {});
+      void hops.then(() =>
+        session.push({ kind: "approval_withdrawn", approvalId: "ap-2" }),
+      );
+    };
+    const deny = await clickPermission(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      firstCard.id,
+      "2",
+    );
+    expect(deny.status).toBe(200);
+    await waitUntil(
+      () => permissionOutcomes(server!, agent.id).length === 1,
+      2000,
+      "outcome of the denied request",
+    );
+    // MUTANT: without the withdrawal, ap-2 gets its own card here.
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+    session.push({ kind: "turn_completed", status: "completed" });
+    await waitUntil(
+      () => agentOf(server!, agent.id).state === "waiting_for_response",
+    );
+    // No client ever saw a card for the withdrawn request, not even briefly.
+    // MUTANT: opening the next card before the withdrawal is handled shows
+    // ap-2's card for a moment.
+    expect(
+      socket.messages
+        .filter(
+          (message) =>
+            (message as { type?: string }).type === "interaction_added",
+        )
+        .map(
+          (message) =>
+            (message as { interaction?: { id?: string } }).interaction?.id,
+        ),
+    ).toEqual([firstCard.id]);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+    expect(session.approvals).toEqual([
+      { approvalId: "ap-1", decision: { kind: "deny" } },
+    ]);
+    // No member choice is recorded for the withdrawn request.
+    expect(permissionOutcomes(server, agent.id)).toHaveLength(1);
+  });
+
+  it("closes the open card when the backend withdraws its request", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Withdrawn", firstRoomId(server));
+    const firstCard = await parkOnTwoPermissions(
+      server,
+      owner.rawSessionId,
+      agent.id,
+    );
+    const session = server.fakeBackend.sessionForAgent(agent.id)!;
+    session.push({ kind: "approval_withdrawn", approvalId: "ap-1" });
+    await waitUntil(
+      () =>
+        server!.agentManager.getPendingInteractions()[0]?.id !== firstCard.id,
+      2000,
+      "card for the waiting request",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
+    session.push({ kind: "approval_withdrawn", approvalId: "ap-2" });
+    await waitUntil(
+      () => agentOf(server!, agent.id).pendingPrompt === null,
+      2000,
+      "last card closed",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    // The turn goes on without an answer, so the agent is busy, not parked.
+    expect(agentOf(server, agent.id).state).toBe("thinking");
+    expect(session.approvals).toEqual([]);
+    expect(permissionOutcomes(server, agent.id)).toHaveLength(0);
+  });
+
+  it("tells clients to remove an interaction that a new one replaces", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Replaced", firstRoomId(server));
+    const socket = await server.connectWs(owner.rawSessionId);
+    await socket.waitFor("full_state");
+    await sendHuman(server, owner.rawSessionId, agent.id, "run something");
+    await waitUntil(() => agentOf(server!, agent.id).state === "thinking");
+    await sendHuman(server, owner.rawSessionId, agent.id, "/model");
+    const modelCard = server.agentManager.getPendingInteractions()[0];
+    expect(modelCard?.kind).toBe("model");
+    server.fakeBackend.sessionForAgent(agent.id)!.push({
+      kind: "approval_request",
+      approvalId: "ap-1",
+      toolName: "Bash",
+      input: { command: "ls" },
+      title: "Claude wants to use Bash",
+    });
+    await waitUntil(
+      () => agentOf(server!, agent.id).pendingPrompt === "permission",
+    );
+    // MUTANT: no removal event, so a client keeps the model card on screen,
+    // and every click on it gets a 404.
+    await waitUntil(
+      () =>
+        socket.messages.some((message) => {
+          const event = message as { type?: string; interactionId?: string };
+          return (
+            event.type === "interaction_removed" &&
+            event.interactionId === modelCard.id
+          );
+        }),
+      2000,
+      "removal of the replaced card",
+    );
+  });
+
   it("removes the permission card when abort clears the prompt", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();

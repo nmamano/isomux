@@ -627,6 +627,37 @@ describe("ClaudeSession approval flow", () => {
       behavior: "deny",
       message: "Request aborted.",
     });
+    // End the stream, so a missing withdrawal fails the assertion below
+    // instead of waiting for an event that never comes.
+    session.close();
+    const rest: unknown[] = [];
+    for (;;) {
+      const next = await it.next();
+      if (next.done) break;
+      rest.push(next.value);
+    }
+    // MUTANT: no withdrawal, so the orchestrator keeps a card for a request
+    // that no answer can reach.
+    expect(rest).toEqual([{ kind: "approval_withdrawn", approvalId: "u7" }]);
+  });
+
+  it("withdraws nothing when close() ends a pending approval", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const ctrl = new AbortController();
+    void canUseTool("X", {}, fakeCallOpts("u8", { signal: ctrl.signal }));
+    await nextEvent(it);
+    session.close();
+    // The SDK's cleanup aborts every request signal after close().
+    ctrl.abort();
+    const rest: unknown[] = [];
+    for (;;) {
+      const next = await it.next();
+      if (next.done) break;
+      rest.push(next.value);
+    }
+    expect(rest).toEqual([]);
   });
 });
 

@@ -1543,6 +1543,25 @@ export class CodexSession implements BackendSession {
 
   private handleNotification(n: JsonRpcNotification): void {
     const params = n.params as Record<string, unknown> | null | undefined;
+    // Codex settled a server request itself (for example when its turn
+    // ended). An approval we still hold was not answered by the member, so
+    // withdraw it. Request ids are unique per connection, so this runs before
+    // the thread filter. approve() deletes its entry first, so a member answer
+    // never comes back here.
+    if (n.method === "serverRequest/resolved") {
+      const approvalId = String(params?.requestId);
+      const pending = this.pendingApprovals.get(approvalId);
+      if (!pending) return;
+      this.pendingApprovals.delete(approvalId);
+      // Unwind the parked handler frame, the same way abort() does.
+      try {
+        pending.resolve({
+          decision: mapApprovalDecision(pending.method, { kind: "deny" }),
+        });
+      } catch {}
+      this.enqueue({ kind: "approval_withdrawn", approvalId });
+      return;
+    }
     // Per-thread filter: every notification carrying a threadId must match
     // ours. Sub-agent / review-mode child threads have their own ids.
     const eventThreadId = params?.threadId;
