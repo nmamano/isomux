@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isomux
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+---
+# The seccomp installer writes one node directory, so its namespace allows
+# hostPath. Keep other workloads out of it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: isomux-node-setup
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

@@ -125,7 +125,9 @@ boot. Container builds include commit and release metadata from the selected
 committed source revision.
 
 The [AWS guide](README.md#update-the-office) describes the owner flow. Custom container
-providers use their own deployment controls.
+providers use their own deployment controls. Kubernetes has
+[reference manifests](../kubernetes/README.md) and a
+[setup guide](https://isomux.com/docs/hosting-kubernetes).
 
 Development test commands, tested source revisions, and acceptance limits are
 in the [internal verification record](../../internal-docs/container-verification.md).

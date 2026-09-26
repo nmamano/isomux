@@ -1,0 +1,52 @@
+# AWS Load Balancer Controller. One ACM certificate must cover the office host
+# and its wildcard; the office routes app hosts itself.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: isomux
+  namespace: isomux
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/REPLACE_WITH_CERTIFICATE_ID
+    # Longer than the office's own 120-second idle timeout.
+    alb.ingress.kubernetes.io/load-balancer-attributes: idle_timeout.timeout_seconds=300
+    alb.ingress.kubernetes.io/healthcheck-path: /
+    # Setup answers 200; the office answers 401 without a session.
+    alb.ingress.kubernetes.io/success-codes: "200,401"
+    # The certificate gate is for on-box proxies only.
+    alb.ingress.kubernetes.io/actions.tls-ask-404: >-
+      {"type":"fixed-response","fixedResponseConfig":{"contentType":"text/plain","statusCode":"404","messageBody":"Not found"}}
+spec:
+  ingressClassName: alb
+  rules:
+    - host: office.example.com
+      http:
+        paths:
+          - path: /__isomux/tls-ask
+            pathType: Exact
+            backend:
+              service:
+                name: tls-ask-404
+                port:
+                  name: use-annotation
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: isomux
+                port:
+                  name: http
+    - host: "*.office.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: isomux
+                port:
+                  name: http

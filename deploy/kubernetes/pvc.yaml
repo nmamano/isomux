@@ -1,0 +1,13 @@
+# One writer: ReadWriteOncePod lets only one pod use the claim, also while an
+# old pod is still terminating. Never force-delete the office pod.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: isomux-data
+  namespace: isomux
+spec:
+  accessModes: [ReadWriteOncePod]
+  storageClassName: isomux-gp3
+  resources:
+    requests:
+      storage: 30Gi

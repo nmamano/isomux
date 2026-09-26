@@ -80,8 +80,8 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 
 ## Hosting and Setup
 The decision diagram at isomux.com/docs/hosting links to one complete static guide per setup. Each guide links back to the diagram.
-The routes are /docs/hosting-hosted (paid Hosted Isomux), /docs/hosting-render (Render), /docs/hosting-aws (AWS EC2 container), /docs/hosting-vps (fresh Ubuntu VPS), /docs/hosting-local (this computer only), /docs/hosting-private (private Tailscale on Linux), /docs/hosting-funnel (public Tailscale Funnel on Linux), and /docs/hosting-domain (Linux computer and a public domain).
-Render charges for compute and persistent storage; do not claim full Render deployment validation. The AWS container release image is public and the installer guide is available. Do not infer Fargate support.
+The routes are /docs/hosting-hosted (paid Hosted Isomux), /docs/hosting-render (Render), /docs/hosting-aws (AWS EC2 container), /docs/hosting-kubernetes (Kubernetes on Amazon EKS), /docs/hosting-vps (fresh Ubuntu VPS), /docs/hosting-local (this computer only), /docs/hosting-private (private Tailscale on Linux), /docs/hosting-funnel (public Tailscale Funnel on Linux), and /docs/hosting-domain (Linux computer and a public domain).
+Render charges for compute and persistent storage; do not claim full Render deployment validation. The AWS container release image is public and the installer guide is available. Do not infer Fargate support. Do not claim Kubernetes validation on EKS.
 Each selected guide includes prerequisites, owner creation, provider connection, and later operations. Advanced settings and deployment boundaries are at /docs/hosting-reference. The page context identifies the guide the visitor is reading. Follow that guide's steps and availability notice.
 
 ## Hosted Isomux

@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Local k3d verification only; not a user path. owner/ is the overlay the
+# Kubernetes guide tells owners to write (owner.test.ts keeps them equal).
+# This layer changes only what k3d cannot provide: Traefik replaces the ALB,
+# and the hostpath CSI driver replaces EBS. See run.sh.
+resources:
+  - owner
+  - storageclass.yaml
+patches:
+  - target:
+      kind: StorageClass
+      name: isomux-gp3
+    patch: |-
+      $patch: delete
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: isomux-gp3
+  - target:
+      kind: PersistentVolumeClaim
+      name: isomux-data
+    patch: |-
+      - op: replace
+        path: /spec/storageClassName
+        value: isomux-hostpath
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: 5Gi
+  # Keep the owner's host rules; drop the ALB-only fixed-response path.
+  - target:
+      kind: Ingress
+      name: isomux
+    patch: |-
+      - op: test
+        path: /spec/rules/0/http/paths/0/path
+        value: /__isomux/tls-ask
+      - op: remove
+        path: /spec/rules/0/http/paths/0
+      - op: replace
+        path: /spec/ingressClassName
+        value: traefik
+      - op: add
+        path: /spec/tls
+        value:
+          - hosts: [office.k8s.test, "*.office.k8s.test"]
+            secretName: isomux-tls

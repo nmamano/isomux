@@ -24,6 +24,14 @@ export const HOSTING_GUIDES = [
     source: "deploy/container/README.md",
   },
   {
+    id: "kubernetes",
+    label: "Kubernetes (EKS)",
+    detail: "A cluster in your AWS account",
+    source: "docs/hosting/kubernetes.md",
+    notice:
+      "Tested on a local Kubernetes cluster. Testing on EKS is incomplete.",
+  },
+  {
     id: "vps",
     label: "A VPS provider such as Hetzner",
     detail: "Your cloud server and domain",
@@ -137,6 +145,7 @@ export function hostingNavigation(current?: HostingId): string {
 <div class="flow-leaves">
 <div class="flow-leaf">${guideLink("render", current)}</div>
 <div class="flow-leaf">${guideLink("aws", current)}</div>
+<div class="flow-leaf">${guideLink("kubernetes", current)}</div>
 <div class="flow-leaf">${guideLink("vps", current)}</div>
 </div></div>
 <div class="flow-branch"><div class="flow-edge"><span>Yes</span></div>
@@ -166,7 +175,7 @@ export function hostingNavigationMarkdown(): string {
       - No: Will every user and device be in the same Tailscale network?
         - Yes: [Tailscale](${hostingUrl("private")}).
         - No: [Tailscale Funnel](${hostingUrl("funnel")}).
-    - No: Where do you want to rent hosting? Choose [Render](${hostingUrl("render")}), [AWS EC2 container](${hostingUrl("aws")}), or [A VPS provider such as Hetzner](${hostingUrl("vps")}).\n`;
+    - No: Where do you want to rent hosting? Choose [Render](${hostingUrl("render")}), [AWS EC2 container](${hostingUrl("aws")}), [Kubernetes (EKS)](${hostingUrl("kubernetes")}), or [A VPS provider such as Hetzner](${hostingUrl("vps")}).\n`;
 }
 
 // Preserve incoming links from README, feature docs, old pages, and bookmarks.

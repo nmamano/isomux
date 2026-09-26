@@ -1,6 +1,6 @@
 # Hosting guide composition
 
-Implemented for the hosting-guide-0921 lane on 2026-09-21. The hosting decision diagram has eight canonical guide identities. Each leaf
+Implemented for the hosting-guide-0921 lane on 2026-09-21. The hosting decision diagram has nine canonical guide identities. Each leaf
 opens a static page with one complete guide. Native navigation supplies direct
 links, keyboard activation, browser history, and no-JavaScript access. The
 chatbot reads that page's composed body without client-side context switching.
@@ -12,6 +12,7 @@ chatbot reads that page's composed body without client-side context switching.
 | hosted | `/docs/hosting-hosted` | `docs/hosting/hosted.md`; `site/hosted.html` links to `cloud.isomux.com`; `control-plane/web/app/signin`, `app/signup/page.tsx`, `components/signup-form.tsx`, and `lib/i18n/en.ts` define Google sign-in, saved administrator key, payment, invite, and confirmed handoff. No purchase or provisioning run in this lane. |
 | render | `/docs/hosting-render` | `docs/hosting/render.md`; `render.yaml`, `deploy/render/README.md`, and the previous hosting guide define the paid Blueprint, disk, custom domains, and setup key. Nil removed the Preview diagram label on 2026-09-22; incomplete deployment validation does not make the route unavailable. No new Render acceptance claim. |
 | aws | `/docs/hosting-aws` | `deploy/container/README.md` is the only maintained body. The public release image and installer are available. Actual new-installer acceptance is separate, recorded in `container-verification.md`. |
+| kubernetes | `/docs/hosting-kubernetes` | `docs/hosting/kubernetes.md`; `deploy/kubernetes/` holds the reference Kustomize base and `internal-docs/kubernetes-design.md` its design. Local k3d verification is recorded in `container-verification.md`; EKS validation is incomplete. |
 | vps | `/docs/hosting-vps` | `docs/hosting/vps.md`; `deploy/install.sh` implements the fresh Ubuntu host installer, owner invite, Caddy, hardening, and updater. |
 | local | `/docs/hosting-local` | `docs/hosting/local.md`; README Get Started, `package.json` dev command, and `docs/access-and-invites.md` cover prerequisites and loopback owner claim. The local guide covers Linux/macOS, with the systemd app limitation stated. |
 | private | `/docs/hosting-private` | `docs/hosting/private.md`; previous own-hardware path, access settings in `server/isomux-office.ts`, and Tailscale Serve. Always-on instructions explicitly target Linux/systemd. |

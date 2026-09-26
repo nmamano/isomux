@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: isomux
+  namespace: isomux
+spec:
+  selector:
+    app.kubernetes.io/name: isomux
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: isomux
+  namespace: isomux
+  labels:
+    app.kubernetes.io/name: isomux
+spec:
+  # One replica only. Recreate stops the old pod before a rollout starts the
+  # new one; the ReadWriteOncePod claim stops a second pod in other cases.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: isomux
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: isomux
+    spec:
+      serviceAccountName: isomux
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/os: linux
+        isomux.com/office-node: "true"
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        # Written to each office node by the isomux-seccomp-installer DaemonSet.
+        seccompProfile:
+          type: Localhost
+          localhostProfile: isomux/isomux-chromium-v1.json
+      containers:
+        - name: office
+          image: ghcr.io/nmamano/isomux
+          ports:
+            - name: http
+              containerPort: 10000
+          env:
+            - name: PORT
+              value: "10000"
+            - name: ISOMUX_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: isomux-config
+                  key: ISOMUX_PUBLIC_URL
+            # Needed until the first owner exists. Delete the Secret after
+            # that; the next pod start drops it from the environment.
+            - name: ISOMUX_SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: isomux-setup
+                  key: ISOMUX_SETUP_KEY
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/data
+          # GET / returns 200 during setup and 401 after it. An httpGet probe
+          # treats 401 as a failure, so run the image's own check.
+          startupProbe:
+            exec:
+              command: [bun, deploy/container/probe.ts]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: [bun, deploy/container/probe.ts]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: [bun, deploy/container/probe.ts]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: isomux-data
