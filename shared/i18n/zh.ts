@@ -1917,6 +1917,8 @@ App 的一些原则：
   "systemEntries.claudeAuth.personalLocation": "设置 → 你 → 个人连接",
   "systemEntries.claudeAuth.disconnected":
     "Claude 拒绝了凭据。请在 {location} 中登录 Claude。",
+  "systemEntries.claudeAuth.accessUnavailable":
+    "此账户无法使用 Claude Code。请检查其订阅，或使用其他账户登录。",
   "systemEntries.claudeAuth.pinned":
     "此对话沿用开始时的 Claude 账户。请开始新对话（`/clear`）以使用新账户。",
   "systemEntries.claudeSession.invalid": "无法访问此 Claude 对话。",

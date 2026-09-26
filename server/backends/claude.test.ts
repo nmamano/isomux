@@ -236,6 +236,32 @@ describe("translateSDKMessage - assistant", () => {
     expect(events).toEqual([{ kind: "system_text", text: "queue flushed" }]);
   });
 
+  it("synthetic oauth_org_not_allowed marks the notice claudeAccessDenied", () => {
+    const events = translate({
+      type: "assistant",
+      error: "oauth_org_not_allowed",
+      message: {
+        model: "<synthetic>",
+        content: [{ type: "text", text: "org text" }],
+      },
+    });
+    expect(events).toEqual([
+      { kind: "system_text", text: "org text", claudeAccessDenied: true },
+    ]);
+  });
+
+  it("other synthetic errors do not mark the notice claudeAccessDenied", () => {
+    const events = translate({
+      type: "assistant",
+      error: "authentication_failed",
+      message: {
+        model: "<synthetic>",
+        content: [{ type: "text", text: "Not logged in" }],
+      },
+    });
+    expect(events).toEqual([{ kind: "system_text", text: "Not logged in" }]);
+  });
+
   it("tool_use block emits tool_call with id/name/input", () => {
     const events = translate({
       type: "assistant",

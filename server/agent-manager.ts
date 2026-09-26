@@ -4086,6 +4086,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // rules (a command containing `401` is not a sign-in problem), and
         // being ours they can never BE a provider auth notice.
         const managedForAuth = agents.get(agentId);
+        if (
+          ev.claudeAccessDenied &&
+          managedForAuth?.info.agentType === "claude"
+        ) {
+          managedForAuth.pendingFreshRecoveryNotice = false;
+          addLogEntry(
+            agentId,
+            "system",
+            logWords(agentId)("systemEntries.claudeAuth.accessUnavailable"),
+            { providerLogin: "claude" },
+          );
+          break;
+        }
         const providerAuthSignal =
           (managedForAuth?.info.agentType === "codex" ||
             managedForAuth?.info.agentType === "claude") &&

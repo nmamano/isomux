@@ -2141,6 +2141,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Settings → You → Individual connections",
   "systemEntries.claudeAuth.disconnected":
     "Claude rejected the credentials. Sign in to Claude in {location}.",
+  "systemEntries.claudeAuth.accessUnavailable":
+    "Claude Code access is not available for this account. Check its subscription, or sign in with another account.",
   "systemEntries.claudeAuth.pinned":
     "This conversation keeps the Claude account it started with. Start a new conversation (`/clear`) to use the new account.",
   "systemEntries.claudeSession.invalid":

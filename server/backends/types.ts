@@ -222,7 +222,16 @@ export type NormalizedEvent =
   // quote a command or a rule the user typed, and a quoted `401` is not a
   // sign-in problem. Set it ONLY for text Isomux composed - never for
   // anything relayed from a backend.
-  | { kind: "system_text"; text: string; isomuxAuthored?: true }
+  //
+  // `claudeAccessDenied` marks Claude's refusal to let a signed-in account use
+  // Claude Code (SDK assistant error `oauth_org_not_allowed`). The code does
+  // not say why: an expired subscription and an admin block both send it.
+  | {
+      kind: "system_text";
+      text: string;
+      isomuxAuthored?: true;
+      claudeAccessDenied?: true;
+    }
   // Background-task lifecycle breadcrumb (Claude-only at v1). Emitted when a
   // genuinely-background task (run_in_background Bash/Agent, workflow, or a
   // task backgrounded mid-run) starts or settles, so the transcript shows a

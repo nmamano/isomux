@@ -1040,6 +1040,11 @@ export function* translateSDKMessage(
       // things like usage-limit hits and queue-flush gaps. Map their text to
       // system breadcrumbs so they don't render as Claude-voice.
       const isSynthetic = message?.model === "<synthetic>";
+      // The CLI's typed error code, not its text: the text blames "your
+      // organization", which is wrong for a personal account whose
+      // subscription expired.
+      const claudeAccessDenied =
+        isSynthetic && msg.error === "oauth_org_not_allowed";
       const subagent = subagentOriginOf(msg);
       // Known divergence from the original message-level deriveState: when
       // text precedes tool_use in the same assistant message, state will
@@ -1052,7 +1057,13 @@ export function* translateSDKMessage(
       for (const block of content) {
         if (block.type === "text" && block.text) {
           yield isSynthetic
-            ? { kind: "system_text", text: block.text }
+            ? {
+                kind: "system_text",
+                text: block.text,
+                ...(claudeAccessDenied
+                  ? { claudeAccessDenied: true as const }
+                  : {}),
+              }
             : { kind: "assistant_text", text: block.text };
         } else if (block.type === "tool_use") {
           yield {

@@ -2152,6 +2152,8 @@ Cosas que puedes hacer por él:
     "Ajustes → Tú → Conexiones individuales",
   "systemEntries.claudeAuth.disconnected":
     "Claude rechazó las credenciales. Inicia sesión en Claude en {location}.",
+  "systemEntries.claudeAuth.accessUnavailable":
+    "El acceso a Claude Code no está disponible para esta cuenta. Revisa su suscripción o inicia sesión con otra cuenta.",
   "systemEntries.claudeAuth.pinned":
     "Esta conversación conserva la cuenta de Claude con la que se inició. Inicia una conversación nueva (`/clear`) para usar la cuenta nueva.",
   "systemEntries.claudeSession.invalid":

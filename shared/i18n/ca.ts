@@ -2147,6 +2147,8 @@ Coses que pots fer per ell:
     "Configuració → Tu → Connexions individuals",
   "systemEntries.claudeAuth.disconnected":
     "Claude ha rebutjat les credencials. Inicia sessió a Claude a {location}.",
+  "systemEntries.claudeAuth.accessUnavailable":
+    "L'accés a Claude Code no està disponible per a aquest compte. Revisa'n la subscripció o inicia la sessió amb un altre compte.",
   "systemEntries.claudeAuth.pinned":
     "Aquesta conversa conserva el compte de Claude amb què es va iniciar. Inicia una conversa nova (`/clear`) per fer servir el compte nou.",
   "systemEntries.claudeSession.invalid":
