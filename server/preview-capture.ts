@@ -109,12 +109,15 @@ export const BROWSER_CANDIDATES = [
 // the name probe - /snap/bin (where Ubuntu 24.04 puts chromium) is never on it.
 // Last resort on purpose: snap-confined chromium usually installs fine and then
 // fails the capture itself, which at least surfaces the browser's own stderr
-// instead of a flat "no browser found".
+// instead of a flat "no browser found". On macOS, Chrome installs as an app
+// bundle and puts nothing on PATH.
 export const BROWSER_ABSOLUTE_PATHS = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
   "/usr/bin/chromium-browser",
   "/snap/bin/chromium",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
 ];
 
 // A full Chrome process tree peaked at 188-208 MiB for typical pages and 403 MiB

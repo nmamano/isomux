@@ -50,6 +50,91 @@ jobs:
           "node_modules/@anthropic-ai/claude-agent-sdk-darwin-$arch/claude" --version
           bun node_modules/@openai/codex/bin/codex.js --version
 
+      - name: "PROBE: tar, statfs, Chrome"
+        continue-on-error: true
+        run: |
+          set +e
+          tar --version; which -a tar gtar
+          df -k "$HOME" "$RUNNER_TEMP"
+          bun -e 'const fs=require("fs"); for (const d of [process.env.HOME, process.env.RUNNER_TEMP]) { const s=fs.statfsSync(d); console.log(d, JSON.stringify(s, (k,v)=>typeof v==="bigint"?String(v):v)) }'
+          root="$RUNNER_TEMP/tp"
+          mkdir -p "$root/.isomux/apps/units" "$root/.isomux/claude/x"
+          echo secret > "$root/.isomux/apps/units/secret"
+          echo cred > "$root/.isomux/claude/x/.credentials.json"
+          echo state > "$root/.isomux/state.txt"
+          echo "--- GNU-style args"
+          tar -czf "$RUNNER_TEMP/t1.tgz" --anchored --wildcards --exclude=.isomux/apps/units --exclude=".isomux/*/.credentials.json" -C "$root" .isomux; echo "create exit=$?"
+          ls -l "$RUNNER_TEMP/t1.tgz"; tar -tzf "$RUNNER_TEMP/t1.tgz"; echo "list exit=$?"
+          echo "--- plain --exclude args"
+          tar -czf "$RUNNER_TEMP/t2.tgz" --exclude=.isomux/apps/units --exclude=".isomux/apps/units/*" --exclude=".isomux/*/.credentials.json" -C "$root" .isomux; echo "create exit=$?"
+          tar -tzf "$RUNNER_TEMP/t2.tgz"; echo "list exit=$?"
+          echo "--- empty file listing"
+          : > "$RUNNER_TEMP/empty.tgz"; tar -tzf "$RUNNER_TEMP/empty.tgz"; echo "empty list exit=$?"
+          ls -d /Applications/*Chrom* 2>&1
+
+      - name: "PROBE: backup, Codex hook, preview tests"
+        continue-on-error: true
+        run: bun test server/backup.test.ts server/backends/codex/safety-hook.test.ts server/backends/codex/safety-hook-install.test.ts server/test-support/preview-capture.test.ts
+
+      - name: "PROBE: Codex hook trust on a dummy login"
+        continue-on-error: true
+        run: |
+          auth="$RUNNER_TEMP/codex-auth"; mkdir -p "$auth"
+          echo '{"OPENAI_API_KEY":"sk-dummy"}' > "$auth/auth.json"
+          ISOMUX_TEST_LIVE=1 ISOMUX_TEST_CODEX_AUTH_HOME="$auth" bun test server/backends/codex/safety-hook-install.live.test.ts
+
+      - name: "PROBE: compiled hook denies on this Mac"
+        continue-on-error: true
+        run: |
+          set +e
+          out="$RUNNER_TEMP/hook-probe"
+          cat > "$RUNNER_TEMP/hook-probe.ts" <<'TS'
+          import { buildCodexSafetyHook } from "./server/backends/codex/safety-hook-build.ts";
+          const built = await buildCodexSafetyHook(process.argv[2]);
+          console.log("built", built.sizeBytes, built.sourceSha256);
+          for (const command of ["git status", "rm -rf /"]) {
+            const child = Bun.spawn([built.executablePath], { stdin: new Blob([JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command }, cwd: process.cwd() })]), stdout: "pipe", stderr: "pipe" });
+            console.log(command, "=>", await child.exited, (await new Response(child.stdout).text()).slice(0, 300));
+          }
+          TS
+          cp "$RUNNER_TEMP/hook-probe.ts" ./hook-probe.ts
+          bun ./hook-probe.ts "$out"
+          codesign -dv "$out" 2>&1 | head -5
+
+      - name: "PROBE: preview capture with the default browser lookup"
+        continue-on-error: true
+        run: |
+          cat > ./preview-probe.ts <<'TS'
+          import { capturePreview, defaultFindBrowser } from "./server/preview-capture.ts";
+          const server = Bun.serve({ port: 0, fetch: () => new Response("<h1 style='color:red'>hello mac</h1>", { headers: { "content-type": "text/html" } }) });
+          console.log("browser", defaultFindBrowser());
+          const t = Date.now();
+          const r = await capturePreview({ url: `http://127.0.0.1:${server.port}/` });
+          console.log(JSON.stringify(r, (k, v) => (k === "png" || (v && v.type === "Buffer")) ? `<${v.length ?? v.data?.length} bytes>` : v).slice(0, 600), Date.now() - t, "ms");
+          server.stop(true);
+          TS
+          bun ./preview-probe.ts
+
+      - name: "PROBE: Claude sign-in storage"
+        continue-on-error: true
+        run: |
+          set +e
+          arch=arm64
+          if [ "$(uname -m)" = "x86_64" ]; then arch=x64; fi
+          claude="$PWD/node_modules/@anthropic-ai/claude-agent-sdk-darwin-$arch/claude"
+          cfg="$RUNNER_TEMP/claude-cfg"; mkdir -p "$cfg"
+          echo "--- signed out"; CLAUDE_CONFIG_DIR="$cfg" "$claude" auth status; echo "exit=$?"
+          hash=$(printf %s "$cfg" | shasum -a 256 | cut -c1-8)
+          echo "service: Claude Code-credentials-$hash"
+          security add-generic-password -U -a "$USER" -s "Claude Code-credentials-$hash" -w '{"claudeAiOauth":{"accessToken":"sk-ant-oat01-fake","refreshToken":"sk-ant-ort01-fake","expiresAt":4102444800000,"scopes":["user:inference","user:profile"],"subscriptionType":"pro"}}'; echo "add exit=$?"
+          echo "--- keychain item present"; time (CLAUDE_CONFIG_DIR="$cfg" "$claude" auth status; echo "exit=$?")
+          ls -la "$cfg"
+          security find-generic-password -a "$USER" -s "Claude Code-credentials-$hash" >/dev/null; echo "find exit=$?"
+          security delete-generic-password -a "$USER" -s "Claude Code-credentials-$hash" >/dev/null; echo "delete exit=$?"
+          echo "--- file only"
+          echo '{"claudeAiOauth":{"accessToken":"sk-ant-oat01-fake","refreshToken":"sk-ant-ort01-fake","expiresAt":4102444800000,"scopes":["user:inference"]}}' > "$cfg/.credentials.json"
+          CLAUDE_CONFIG_DIR="$cfg" "$claude" auth status; echo "exit=$?"
+
       - name: Boot the office and check that it answers HTTP
         env:
           ISOMUX_HOME: ${{ runner.temp }}/isomux-home
@@ -71,3 +156,10 @@ jobs:
           cat "$log"
           kill "$pid" 2>/dev/null || true
           test "$status" = "200"
+
+      - name: "PROBE: inspect the boot backup"
+        continue-on-error: true
+        run: |
+          set +e
+          ls -la "$HOME/isomux-backups"
+          for f in "$HOME"/isomux-backups/*.tar.gz; do echo "== $f"; tar -tzf "$f" | head -20; echo "entries: $(tar -tzf "$f" | wc -l)"; done
