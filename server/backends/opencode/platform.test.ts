@@ -23,27 +23,37 @@ async function root(): Promise<string> {
   return path;
 }
 
-describe("OpenCode on a non-Linux host", () => {
-  it("is supported only on Linux", () => {
+describe("OpenCode on an unsupported host", () => {
+  it("is supported only on Linux and macOS", () => {
     expect(openCodeUnsupportedReason("linux")).toBeNull();
-    for (const platform of ["darwin", "win32"] as const) {
+    expect(openCodeUnsupportedReason("darwin")).toBeNull();
+    for (const platform of ["win32", "freebsd"] as const) {
       const reason = openCodeUnsupportedReason(platform);
       expect(reason).not.toBeNull();
       expect(() => resolveOpenCodeBinary(platform)).toThrow(reason!);
     }
   });
 
+  it.skipIf(process.platform !== "darwin")(
+    "resolves the pinned darwin binary on macOS",
+    () => {
+      const binary = resolveOpenCodeBinary("darwin");
+      expect(binary).toContain(`/opencode-darwin-${process.arch}`);
+      expect(existsSync(binary)).toBe(true);
+    },
+  );
+
   it("refuses a lease with the reason and touches nothing on disk", async () => {
     const profileDir = join(await root(), "profile");
     const supervisor = new OpenCodeSupervisor({
       profileDir,
-      platform: "darwin",
+      platform: "win32",
     });
     const refusal = await supervisor.acquire().then(
       () => null,
       (error: unknown) => (error as Error).message,
     );
-    expect(refusal).toBe(openCodeUnsupportedReason("darwin"));
+    expect(refusal).toBe(openCodeUnsupportedReason("win32"));
     await supervisor.shutdown();
     expect(existsSync(profileDir)).toBe(false);
   });
@@ -51,7 +61,7 @@ describe("OpenCode on a non-Linux host", () => {
   it("fails a turn with the reason, not a reduced error name", async () => {
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(await root(), "profile"),
-      platform: "darwin",
+      platform: "win32",
     });
     const transport = new OpenCodeTransport({
       supervisor,
@@ -67,7 +77,7 @@ describe("OpenCode on a non-Linux host", () => {
       {
         kind: "turn_completed",
         status: "failed",
-        error: openCodeUnsupportedReason("darwin")!,
+        error: openCodeUnsupportedReason("win32")!,
       },
     ]);
   });

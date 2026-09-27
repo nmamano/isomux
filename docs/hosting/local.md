@@ -3,8 +3,7 @@
 Use this guide for a local office on Linux or macOS. You need an internet
 connection and access to an AI provider. The office runs while its terminal is
 open and the computer is awake. The Linux app supervisor requires systemd;
-this guide does not set up background app services on macOS. OpenCode agents
-need Linux; on macOS, use Claude or Codex agents.
+this guide does not set up background app services on macOS.
 
 <!-- include: install -->
 

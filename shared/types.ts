@@ -1551,7 +1551,7 @@ export type UpdateApply =
   | { kind: "image"; guide: "kubernetes" | "render" | "container" };
 
 // Server → Browser messages
-// OpenCode's supervisor and office proxy are Linux-only (see
+// OpenCode's supervisor and office proxy run only on Linux and macOS (see
 // server/backends/opencode/runtime.ts).
 export type UnavailableEngines = Partial<
   Record<AgentBackendType, "needs_linux">

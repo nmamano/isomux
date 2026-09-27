@@ -11,10 +11,11 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
-  linuxProcessIdentityMatches,
-  parseLinuxProcessState,
-  readLinuxProcessStartTicks,
+  processIdentityMatches,
+  processIsRunning,
+  readProcessStartTicks,
 } from "./process-identity.ts";
+import { lockDarwinFileUntilExit } from "./darwin-libsystem.ts";
 import { openCodeServerIsHealthy } from "./server-health.ts";
 
 interface ServerRecord {
@@ -31,6 +32,10 @@ interface ServerRecord {
 const profileDir = required("OPENCODE_PROFILE_DIR");
 const recordPath = required("OPENCODE_SERVER_RECORD");
 const action = process.env.OPENCODE_SERVER_ACTION ?? "start";
+// macOS has no flock CLI, so there the supervisor asks this helper to take the
+// record lock itself, before it reads or writes the record. Linux runs the
+// helper under flock(1) instead.
+if (process.env.OPENCODE_SERVER_LOCK === "self") lockRecord();
 const prior = await readRecord();
 if (action === "stop") {
   if (prior) await stop(prior);
@@ -57,6 +62,11 @@ function required(name: string): string {
   return value;
 }
 
+function lockRecord(): void {
+  if (!lockDarwinFileUntilExit(recordPath))
+    throw new Error("Could not lock the OpenCode server record.");
+}
+
 function authHeader(secret: string): string {
   return `Basic ${btoa(`${username}:${secret}`)}`;
 }
@@ -81,7 +91,7 @@ async function readRecord(): Promise<ServerRecord | null> {
 }
 
 async function stop(record: ServerRecord): Promise<void> {
-  if (!linuxProcessIdentityMatches(record.pid, record.startTicks)) {
+  if (!processIdentityMatches(record.pid, record.startTicks)) {
     process.stderr.write(
       `Refusing to signal unverifiable OpenCode process ${record.pid}.\n`,
     );
@@ -92,24 +102,17 @@ async function stop(record: ServerRecord): Promise<void> {
   } catch {}
   for (let i = 0; i < 40; i++) {
     if (!(await running(record.pid))) return;
-    if (!linuxProcessIdentityMatches(record.pid, record.startTicks)) return;
+    if (!processIdentityMatches(record.pid, record.startTicks)) return;
     await Bun.sleep(25);
   }
   try {
-    if (linuxProcessIdentityMatches(record.pid, record.startTicks))
+    if (processIdentityMatches(record.pid, record.startTicks))
       process.kill(record.pid, "SIGKILL");
   } catch {}
 }
 
 async function running(pid: number): Promise<boolean> {
-  try {
-    const state = parseLinuxProcessState(
-      await readFile(`/proc/${pid}/stat`, "utf8"),
-    );
-    return state !== "Z";
-  } catch {
-    return false;
-  }
+  return processIsRunning(pid);
 }
 
 async function waitHealthy(
@@ -152,7 +155,7 @@ function bindFailure(stderr: string): boolean {
 
 await mkdir(profileDir, { recursive: true });
 if (prior && (await healthy(prior))) {
-  const startTicks = readLinuxProcessStartTicks(prior.pid);
+  const startTicks = readProcessStartTicks(prior.pid);
   if (startTicks) {
     if (prior.startTicks !== startTicks) {
       prior.startTicks = startTicks;
@@ -222,7 +225,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
   child.unref();
   let identityLostAfterHealth = false;
   if (child.pid && (await waitHealthy(child, port))) {
-    const startTicks = readLinuxProcessStartTicks(child.pid);
+    const startTicks = readProcessStartTicks(child.pid);
     if (startTicks) {
       started = {
         pid: child.pid,
@@ -249,7 +252,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       profileDir,
       environmentRevision,
       configRevision,
-      startTicks: readLinuxProcessStartTicks(child.pid) ?? undefined,
+      startTicks: readProcessStartTicks(child.pid) ?? undefined,
     });
   const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });

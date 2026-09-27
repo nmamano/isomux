@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import { dlopen, ptr } from "bun:ffi";
 import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
+import { readDarwinPeerCredentials } from "./darwin-libsystem.ts";
+import { readProcessHop, type ProcessHop } from "./process-identity.ts";
 
 interface TurnBinding {
   owner: symbol;
@@ -14,8 +16,7 @@ interface TurnBinding {
 }
 
 interface ConnectionData {
-  peerPid: number | null;
-  peerUid: number | null;
+  peer: PeerIdentity | null;
   buffer: Buffer;
   handled: boolean;
 }
@@ -27,11 +28,23 @@ export interface OpenCodeAuthorityBinding {
   unbind(): void;
 }
 
-interface ProcessHop {
+// The connecting process as read when the broker accepts the connection. The
+// request-time ancestry walk must start at this same process.
+interface PeerIdentity {
   pid: number;
-  parentPid: number;
+  uid: number;
   startTicks: string;
 }
+
+export interface OpenCodeAuthorityProcessReaders {
+  readPeerCredentials(fd: number): { pid: number; uid: number } | null;
+  readProcessHop(pid: number): ProcessHop | null;
+}
+
+const HOST_PROCESS_READERS: OpenCodeAuthorityProcessReaders = {
+  readPeerCredentials,
+  readProcessHop: (pid) => readProcessHop(pid),
+};
 
 const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -92,6 +105,7 @@ export class OpenCodeAuthorityBroker {
     private readonly socketPath = openCodeAuthoritySocketPath(),
     private readonly expectedUid = process.getuid?.() ?? -1,
     private readonly upstreamOrigin = `http://127.0.0.1:${PORT}`,
+    private readonly readers = HOST_PROCESS_READERS,
   ) {}
 
   bind(agentId: string, token: string): OpenCodeAuthorityBinding {
@@ -103,7 +117,7 @@ export class OpenCodeAuthorityBroker {
       handle,
       activate: (serverPid) => {
         if (active) this.turns.delete(handle);
-        const identity = readProcessHop(serverPid);
+        const identity = this.readers.readProcessHop(serverPid);
         if (!identity)
           throw new Error("OpenCode server process identity is unreadable.");
         this.turns.set(handle, {
@@ -146,18 +160,15 @@ export class OpenCodeAuthorityBroker {
     this.server = Bun.listen<ConnectionData>({
       unix: this.socketPath,
       data: {
-        peerPid: null,
-        peerUid: null,
+        peer: null,
         buffer: Buffer.alloc(0),
         handled: false,
       },
       socket: {
         open: (socket) => {
           const fd = socketFileDescriptor(socket);
-          const peer = fd === null ? null : readPeerCredentials(fd);
           socket.data = {
-            peerPid: peer?.pid ?? null,
-            peerUid: peer?.uid ?? null,
+            peer: fd === null ? null : this.readPeer(fd),
             buffer: Buffer.alloc(0),
             handled: false,
           };
@@ -185,11 +196,7 @@ export class OpenCodeAuthorityBroker {
           }
           if (!request) return;
           socket.data.handled = true;
-          void this.proxy(
-            request,
-            socket.data.peerPid,
-            socket.data.peerUid,
-          ).then(
+          void this.proxy(request, socket.data.peer).then(
             (response) => socket.end(response),
             () =>
               socket.end(httpResponse(502, "OpenCode office request failed.")),
@@ -199,21 +206,29 @@ export class OpenCodeAuthorityBroker {
     });
   }
 
+  private readPeer(fd: number): PeerIdentity | null {
+    const credentials = this.readers.readPeerCredentials(fd);
+    if (!credentials) return null;
+    const hop = this.readers.readProcessHop(credentials.pid);
+    return hop ? { ...credentials, startTicks: hop.startTicks } : null;
+  }
+
   private async proxy(
     request: ParsedRequest,
-    peerPid: number | null,
-    peerUid: number | null,
+    peer: PeerIdentity | null,
   ): Promise<Buffer> {
     const handle = request.headers.get("x-isomux-turn") ?? "";
     const turn = this.turns.get(handle);
-    const ancestry = peerPid === null ? null : readVerifiedAncestry(peerPid);
+    const ancestry = peer
+      ? readVerifiedAncestry(peer, (pid) => this.readers.readProcessHop(pid))
+      : null;
     const ancestryText =
       ancestry?.map((hop) => `${hop.pid}:${hop.startTicks}`).join(",") ??
       "refused";
     console.info(
-      `[opencode-office-proxy] agent=${turn?.agentId ?? "unknown"} peer=${peerPid ?? "unknown"} ancestry=${ancestryText} method=${request.method} path=${request.url.pathname}`,
+      `[opencode-office-proxy] agent=${turn?.agentId ?? "unknown"} peer=${peer?.pid ?? "unknown"} ancestry=${ancestryText} method=${request.method} path=${request.url.pathname}`,
     );
-    if (peerUid !== this.expectedUid || !turn || !ancestry)
+    if (peer?.uid !== this.expectedUid || !turn || !ancestry)
       return httpResponse(403, ancestryFailureMessage(ancestry));
     const serverHop = ancestry.find((hop) => hop.pid === turn.serverPid);
     if (!serverHop || serverHop.startTicks !== turn.serverStartTicks)
@@ -370,45 +385,28 @@ function ancestryFailureMessage(ancestry: ProcessHop[] | null): string {
     : "OpenCode office call refused because its process ancestry was lost. Run the call in the foreground, not through nohup, disown, or a background daemon.";
 }
 
-function readVerifiedAncestry(pid: number): ProcessHop[] | null {
+function readVerifiedAncestry(
+  peer: PeerIdentity,
+  readHop: (pid: number) => ProcessHop | null,
+): ProcessHop[] | null {
   const hops: ProcessHop[] = [];
-  let current = pid;
+  let current = peer.pid;
   for (let depth = 0; depth < MAX_ANCESTRY_DEPTH && current > 1; depth++) {
-    const hop = readProcessHop(current);
+    const hop = readHop(current);
     if (!hop) return null;
     hops.push(hop);
     current = hop.parentPid;
   }
   if (current > 1) return null;
+  // The walk must start at the process that connected. If it exited and its
+  // pid was reused before the request arrived, start ticks differ.
+  if (hops[0]?.startTicks !== peer.startTicks) return null;
   // Every hop is read again after the walk. If a process exits or a pid is
   // reused during the walk, start ticks differ and the request fails closed.
   for (const hop of hops) {
-    if (readProcessHop(hop.pid)?.startTicks !== hop.startTicks) return null;
+    if (readHop(hop.pid)?.startTicks !== hop.startTicks) return null;
   }
   return hops;
-}
-
-function readProcessHop(pid: number): ProcessHop | null {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-    const close = stat.lastIndexOf(")");
-    if (close < 0) return null;
-    const fields = stat
-      .slice(close + 1)
-      .trim()
-      .split(/\s+/);
-    const parentPid = Number(fields[1]);
-    const startTicks = fields[19];
-    if (
-      !Number.isSafeInteger(parentPid) ||
-      !startTicks ||
-      !/^\d+$/.test(startTicks)
-    )
-      return null;
-    return { pid, parentPid, startTicks };
-  } catch {
-    return null;
-  }
 }
 
 const LIBC_SYMBOLS = {
@@ -461,9 +459,9 @@ function socketFileDescriptor(
   return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : null;
 }
 
-function readPeerCredentials(
-  fd: number,
-): { pid: number; uid: number; gid: number } | null {
+function readPeerCredentials(fd: number): { pid: number; uid: number } | null {
+  if (process.platform === "darwin") return readDarwinPeerCredentials(fd);
+  if (process.platform !== "linux") return null;
   const loaded = loadLibc();
   if (!loaded) return null;
   const credential = new Uint32Array(3);
@@ -475,7 +473,7 @@ function readPeerCredentials(
     return null;
   }
   if (result !== 0 || length[0] !== credential.byteLength) return null;
-  return { pid: credential[0], uid: credential[1], gid: credential[2] };
+  return { pid: credential[0], uid: credential[1] };
 }
 
 export const openCodeAuthorityBroker = new OpenCodeAuthorityBroker();

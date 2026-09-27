@@ -73,6 +73,22 @@ jobs:
           echo '{"OPENAI_API_KEY":"sk-isomux-ci-placeholder"}' > "$auth/auth.json"
           ISOMUX_TEST_LIVE=1 ISOMUX_TEST_CODEX_AUTH_HOME="$auth" bun test server/backends/codex/safety-hook-install.live.test.ts
 
+      # OpenCode's authority broker and server supervisor use macOS system
+      # calls here. The last file runs a real turn on the pinned OpenCode
+      # server against a mock provider, so it needs no key.
+      - name: Test OpenCode process identity, server lock and authority broker
+        env:
+          ISOMUX_TEST_OPENCODE: "1"
+        run: >-
+          bun test
+          server/backends/opencode/darwin-libsystem.test.ts
+          server/backends/opencode/platform.test.ts
+          server/backends/opencode/supervisor.lock.test.ts
+          server/backends/opencode/authority-broker.test.ts
+          server/backends/opencode/authority-broker.identity.test.ts
+          server/backends/opencode/authority-broker.ancestry.test.ts
+          server/backends/opencode/authority-broker.opencode.test.ts
+
       - name: Boot the office and check that it answers HTTP
         env:
           ISOMUX_HOME: ${{ runner.temp }}/isomux-home

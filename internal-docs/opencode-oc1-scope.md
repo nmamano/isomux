@@ -586,7 +586,9 @@ larger concurrency probes use 4 GiB or another measured bound rather than
 turning a cgroup kill into a false startup-lock failure.
 
 The profile's `server.lock` is both the cross-process `flock` target and its
-0600 pid/port/auth record. Every start takes that file lock, probes the record,
+0600 pid/port/auth record. On Linux the supervisor runs the start helper under
+flock(1); macOS has no flock CLI, so there the helper takes flock(2) on the
+record itself before it reads it. Every start and stop takes that file lock, probes the record,
 adopts a healthy pinned server, and replaces a stale or unhealthy process.
 Turn entry probes the cached record in-process. It starts the locked replacement
 path only for a dead process, or for an unhealthy process with no other active
@@ -597,7 +599,8 @@ server before the signal is re-raised. The reserved retry range is
 22000-22999, directly above Isomux app allocation at 21000-21999 and below the
 Linux ephemeral range; an occupied port is retried.
 Two concurrent starts are proved by a `/proc` count of the exact pinned binary,
-not by the supervisor registry.
+not by the supervisor registry. `supervisor.lock.test.ts` proves the lock on
+both Linux and macOS with a health-only stand-in binary.
 
 The environment identity hashes only the normalized configured office and user
 environment-file paths. It does not hash file contents or inherited process
@@ -611,7 +614,9 @@ The child first removes every inherited `OPENCODE_*` variable and then applies
 only the reviewed launch controls. A pinned profile plugin requests the token
 for the exact OpenCode session only while Isomux holds that session's active
 turn lease. The request uses a Unix socket in a `0700` directory. The broker
-checks the kernel's `SO_PEERCRED` pid, the process start ticks, the session id,
+checks the kernel's peer pid and uid (`SO_PEERCRED` on Linux, `LOCAL_PEERPID`
+and `LOCAL_PEERCRED` on macOS), the process start identity (`/proc/<pid>/stat`
+on Linux, `proc_pidinfo` on macOS), the session id,
 and the active lease before it returns the token from memory. A missing or
 unknown session id returns no token. The plugin is rewritten and hash-checked
 immediately before each server spawn.

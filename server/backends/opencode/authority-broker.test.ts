@@ -139,7 +139,21 @@ describe("OpenCode office proxy", () => {
 
   it("rejects a peer outside the bound server ancestry and non-allowlisted routes", async () => {
     const { broker, socketPath } = fixture();
-    const wrongServer = broker.bind("agent-b", "token-b").activate(1);
+    let wrongServer: string;
+    if (process.platform === "darwin") {
+      // launchd (pid 1) belongs to root, and macOS reads process info only
+      // for the same user, so binding it refuses. Bind a live unrelated
+      // process of this user instead.
+      expect(() => broker.bind("agent-a", "token-a").activate(1)).toThrow();
+      const unrelated = Bun.spawn(["sleep", "30"]);
+      cleanup.push(async () => {
+        unrelated.kill();
+        await unrelated.exited;
+      });
+      wrongServer = broker.bind("agent-b", "token-b").activate(unrelated.pid);
+    } else {
+      wrongServer = broker.bind("agent-b", "token-b").activate(1);
+    }
     expect((await request(socketPath, wrongServer)).status).toBe(403);
     const handle = broker.bind("agent-c", "token-c").activate(process.pid);
     expect((await request(socketPath, handle, "/api/invites")).status).toBe(

@@ -507,8 +507,9 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
   });
 });
 
-// OpenCode runs only on Linux (server/backends/opencode/runtime.ts). Off Linux
-// a fresh office seeds no OpenCode agent, and full_state tells the pickers.
+// OpenCode runs only on Linux and macOS (server/backends/opencode/runtime.ts).
+// Elsewhere a fresh office seeds no OpenCode agent, and full_state tells the
+// pickers.
 describe("onboarding by host platform", () => {
   async function claimOn(platform: NodeJS.Platform) {
     server = await startTestServer({ startServer: { hostPlatform: platform } });
@@ -530,8 +531,16 @@ describe("onboarding by host platform", () => {
     expect(fullState.unavailableFeatures).toEqual({});
   });
 
-  it("macOS seeds a Claude Receptionist with the same permission mode and no Free Welcome Agent", async () => {
+  it("macOS seeds like Linux", async () => {
     const { agents, receptionist, fullState } = await claimOn("darwin");
+    expect(receptionist.agentType).toBe("opencode");
+    expect(receptionist.permissionMode).toBe("bypassPermissions");
+    expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
+    expect(fullState.unavailableEngines).toEqual({});
+  });
+
+  it("an unsupported host seeds a Claude Receptionist with the same permission mode and no Free Welcome Agent", async () => {
+    const { agents, receptionist, fullState } = await claimOn("win32");
     expect(receptionist.agentType).toBe("claude");
     expect(receptionist.modelFamily).toBe(MODEL_FAMILIES[0].family);
     expect(receptionist.permissionMode).toBe("bypassPermissions");
