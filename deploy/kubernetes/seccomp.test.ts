@@ -107,9 +107,7 @@ describe.each(targets)("$arch profile", (target) => {
       (!rule.includes?.minKernel || rule.includes.minKernel === "4.8");
     const expected = allowed(basis.syscalls.filter(holds));
     for (const name of namespaceCalls) expected.add(name);
-    expect([...allowed(profile.syscalls)].sort()).toEqual(
-      [...expected].sort(),
-    );
+    expect([...allowed(profile.syscalls)].sort()).toEqual([...expected].sort());
 
     // Names that only capability-gated rules allow stay denied.
     // Chromium's sandbox calls chroot inside its user namespace.
@@ -170,9 +168,9 @@ type PodSpec = {
 };
 const podSpec = (file: string) =>
   (
-    Bun.YAML.parse(
-      readFileSync(new URL(file, import.meta.url), "utf8"),
-    ) as { spec: { template: { spec: PodSpec } } }
+    Bun.YAML.parse(readFileSync(new URL(file, import.meta.url), "utf8")) as {
+      spec: { template: { spec: PodSpec } };
+    }
   ).spec.template.spec;
 
 test("the office and the installer schedule on amd64 and arm64 nodes only", () => {
