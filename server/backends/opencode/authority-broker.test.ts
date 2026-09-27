@@ -49,7 +49,13 @@ function fixture() {
   return { broker, socketPath, seen };
 }
 
-async function request(socketPath: string, handle?: string, path = "/agents") {
+async function request(
+  socketPath: string,
+  handle?: string,
+  path = "/agents",
+  method = "GET",
+  body = "",
+) {
   return await new Promise<{ status: number; body: string }>(
     (resolve, reject) => {
       let text = "";
@@ -58,7 +64,7 @@ async function request(socketPath: string, handle?: string, path = "/agents") {
         socket: {
           open(socket) {
             socket.write(
-              `GET ${path} HTTP/1.1\r\nHost: isomux\r\n${handle ? `X-Isomux-Turn: ${handle}\r\n` : ""}\r\n`,
+              `${method} ${path} HTTP/1.1\r\nHost: isomux\r\n${handle ? `X-Isomux-Turn: ${handle}\r\n` : ""}${body ? `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` : ""}\r\n${body}`,
             );
           },
           data(_socket, chunk) {
@@ -142,6 +148,18 @@ describe("OpenCode office proxy", () => {
     expect(
       (await request(socketPath, handle, "http://example.com/agents")).status,
     ).toBe(400);
+  });
+
+  it("lets an agent reply to a remote API token's inbox", async () => {
+    const { broker, socketPath, seen } = fixture();
+    const handle = broker.bind("agent-b", "token-b").activate(process.pid);
+    const inbox = "/api/api-token-inboxes/pat-123/messages";
+    expect(
+      (await request(socketPath, handle, inbox, "POST", '{"text":"hi"}'))
+        .status,
+    ).toBe(200);
+    expect(seen).toEqual([{ authorization: "Bearer token-b", path: inbox }]);
+    expect((await request(socketPath, handle, inbox)).status).toBe(403);
   });
 
   it("limits calls for each turn", async () => {

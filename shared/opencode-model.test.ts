@@ -24,14 +24,24 @@ describe("preferredFreeOpenCodeModel", () => {
   });
 
   it("ignores the caller's list order, so display-label sorting cannot steer selection", () => {
-    const a = { id: "gate/gate-model", isFree: true };
+    const a = { id: "opencode/a-model", isFree: true };
     const b = { id: "opencode/big-pickle", isFree: true };
-    expect(preferredFreeOpenCodeModel([a, b], preferred)?.id).toBe(
-      "gate/gate-model",
+    expect(preferredFreeOpenCodeModel([a, b], preferred)?.id).toBe(a.id);
+    expect(preferredFreeOpenCodeModel([b, a], preferred)?.id).toBe(a.id);
+  });
+
+  it("falls back only inside the preferred model's provider", () => {
+    const models = [
+      { id: "opencode-go/sorts-first-free", isFree: true },
+      { id: "gate/gate-model", isFree: true },
+      { id: "opencode/replacement-free", isFree: true },
+    ];
+    expect(preferredFreeOpenCodeModel(models, preferred)?.id).toBe(
+      "opencode/replacement-free",
     );
-    expect(preferredFreeOpenCodeModel([b, a], preferred)?.id).toBe(
-      "gate/gate-model",
-    );
+    expect(
+      preferredFreeOpenCodeModel(models.slice(0, 2), preferred),
+    ).toBeUndefined();
   });
 
   it("refuses hidden and paid candidates", () => {

@@ -10,14 +10,7 @@ function selectWelcomeOpenCodeModel(
   models: BackendModelWire[],
   preferredModel: string,
 ): WelcomeOpenCodeModelResult {
-  // Only the preferred model's provider. Another connected provider can list
-  // cost-0 models that still need a subscription: OpenCode Go refuses its
-  // "-free" models without one (measured 2026-09-26).
-  const provider = preferredModel.slice(0, preferredModel.indexOf("/") + 1);
-  const selected = preferredFreeOpenCodeModel(
-    models.filter((model) => model.id.startsWith(provider)),
-    preferredModel,
-  );
+  const selected = preferredFreeOpenCodeModel(models, preferredModel);
   return selected
     ? { kind: "selected", model: selected.id }
     : { kind: "no_free_model" };

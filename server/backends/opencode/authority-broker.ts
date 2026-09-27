@@ -81,6 +81,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "PATCH", path: /^\/api\/cronjobs\/[^/]+$/ },
   { method: "DELETE", path: /^\/api\/cronjobs\/[^/]+$/ },
   { method: "GET", path: /^\/api\/cron-runs$/ },
+  { method: "POST", path: /^\/api\/api-token-inboxes\/[^/]+\/messages$/ },
 ];
 
 export class OpenCodeAuthorityBroker {

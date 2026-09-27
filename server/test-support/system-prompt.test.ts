@@ -141,6 +141,12 @@ describe("buildSystemPrompt - OpenCode office proxy", () => {
     expect(prompt).toContain(
       "The APP uses its server-side ISOMUX_APP_TOKEN for this route",
     );
+    const inboxReply = prompt
+      .split("\n")
+      .find((line) =>
+        line.includes("curl -s -X POST http://isomux/api/api-token-inboxes/"),
+      );
+    expect(inboxReply).toContain("--unix-socket");
   });
 });
 
