@@ -113,7 +113,9 @@ const DEFAULT_DEPS: BackupDeps = {
 
 export function dfAvailableBytes(dir: string): number {
   const df = Bun.spawnSync(["df", "-Pk", dir], { stderr: "pipe" });
-  const kib = Number(df.stdout.toString().trim().split("\n").at(-1)?.split(/\s+/)[3]);
+  const kib = Number(
+    df.stdout.toString().trim().split("\n").at(-1)?.split(/\s+/)[3],
+  );
   if (df.exitCode !== 0 || !Number.isFinite(kib))
     throw new Error(
       `could not read free space: df exit ${df.exitCode}: ${df.stderr.toString().trim()}`,

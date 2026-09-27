@@ -3476,7 +3476,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.topicGenToken === startToken &&
         detectAgentAuthError(managed, text) &&
         (await agentIsKnownUnauthenticated(managed));
-      if (signedOutNotice && agents.has(agentId) && managed.topicGenToken === startToken) {
+      if (
+        signedOutNotice &&
+        agents.has(agentId) &&
+        managed.topicGenToken === startToken
+      ) {
         // A signed-out backend can return its auth notice as a successful
         // one-shot result. Treat it like the quiet auth-error catch below,
         // rather than publishing provider copy as the topic. A null topic
@@ -5346,7 +5350,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const sessionOpts: CreateSessionOptions = backend.toolBoundaryDelivery
       ? {
           ...opts,
-          takeToolBoundaryMessage: () => takeToolBoundaryMessage(agentId, bound),
+          takeToolBoundaryMessage: () =>
+            takeToolBoundaryMessage(agentId, bound),
         }
       : opts;
     bound = resumeSessionId

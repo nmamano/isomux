@@ -183,9 +183,13 @@ async function startTurn(
 }
 
 function steer(mgr: Manager, id: string, text: string, extra = {}) {
-  return mgr.enqueueMessage(id, { sender: SENDER, text, ...extra }, {
-    steer: true,
-  });
+  return mgr.enqueueMessage(
+    id,
+    { sender: SENDER, text, ...extra },
+    {
+      steer: true,
+    },
+  );
 }
 
 // Everything any session of this agent received, in order.
@@ -209,7 +213,9 @@ describe("steer at a backend with tool-boundary delivery", () => {
     expect(session.abortCount).toBe(0);
     expect(session.closed).toBe(false);
     expect(fake.createSessionCount).toBe(1);
-    expect(logs.some((e) => e.kind === "system" && /interrupt/i.test(e.content))).toBe(false);
+    expect(
+      logs.some((e) => e.kind === "system" && /interrupt/i.test(e.content)),
+    ).toBe(false);
     expect(visibleQueue(mgr, info.id).map((m) => m.text)).toEqual(["urgent"]);
 
     const text = session.toolBoundary();
@@ -240,7 +246,9 @@ describe("steer at a backend with tool-boundary delivery", () => {
     );
     await sleep(100);
     // Drained at turn_completed: no second delivery through the flush.
-    expect(allSent(fake, info.id).filter((t) => t.includes("urgent"))).toEqual([]);
+    expect(allSent(fake, info.id).filter((t) => t.includes("urgent"))).toEqual(
+      [],
+    );
     expect(persistedQueue(info.id)).toEqual([]);
   });
 
@@ -283,7 +291,8 @@ describe("steer at a backend with tool-boundary delivery", () => {
     await waitUntil(
       () =>
         session.sent.some(
-          (m) => m.text.includes("from the member") && m.text.includes("urgent"),
+          (m) =>
+            m.text.includes("from the member") && m.text.includes("urgent"),
         ),
       2000,
       "both flushed together",
@@ -316,7 +325,9 @@ describe("steer at a backend with tool-boundary delivery", () => {
 
     const r = steer(mgr, info.id, "never mind");
     expect(r.ok && r.messageId).toBeTruthy();
-    expect(mgr.cancelQueued(info.id, (r as { messageId: string }).messageId)).toBe(true);
+    expect(
+      mgr.cancelQueued(info.id, (r as { messageId: string }).messageId),
+    ).toBe(true);
     mgr.enqueueMessage(info.id, { sender: SENDER, text: "plain" });
     expect(session.toolBoundary()).toBeNull();
   });
@@ -369,7 +380,9 @@ describe("steer at a backend with tool-boundary delivery", () => {
     await waitUntil(
       () =>
         fake.sessionForAgent(info.id) !== session &&
-        fake.sessionForAgent(info.id)!.sent.some((m) => m.text.includes("urgent")),
+        fake
+          .sessionForAgent(info.id)!
+          .sent.some((m) => m.text.includes("urgent")),
       3000,
       "redelivered",
     );
@@ -410,9 +423,16 @@ describe("paths that still abort name the cause", () => {
     const info = await spawn(mgr, "codex");
     await startTurn(mgr, fake, info.id);
 
-    void mgr.sendMessage(info.id, "change of plan", "Boss", undefined, undefined, {
-      sendNow: true,
-    });
+    void mgr.sendMessage(
+      info.id,
+      "change of plan",
+      "Boss",
+      undefined,
+      undefined,
+      {
+        sendNow: true,
+      },
+    );
     await waitUntil(
       () => allSent(fake, info.id).some((t) => t.includes("change of plan")),
       3000,

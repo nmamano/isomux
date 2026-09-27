@@ -62,7 +62,11 @@ export function parseProcBsdInfo(
 ): DarwinProcessHop | null {
   if (written !== PROC_BSDINFO_SIZE || buffer.byteLength < PROC_BSDINFO_SIZE)
     return null;
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const view = new DataView(
+    buffer.buffer,
+    buffer.byteOffset,
+    buffer.byteLength,
+  );
   if (view.getUint32(PBI_PID, true) !== pid) return null;
   if (view.getUint32(PBI_STATUS, true) === SZOMB) return null;
   const parentPid = view.getUint32(PBI_PPID, true);
@@ -81,12 +85,19 @@ export function parseXucredUid(
   length: number,
 ): number | null {
   if (length !== XUCRED_SIZE || buffer.byteLength < XUCRED_SIZE) return null;
-  const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  const view = new DataView(
+    buffer.buffer,
+    buffer.byteOffset,
+    buffer.byteLength,
+  );
   if (view.getUint32(0, true) !== XUCRED_VERSION) return null;
   return view.getUint32(XUCRED_CR_UID, true);
 }
 
-export function parsePeerPid(buffer: Uint8Array, length: number): number | null {
+export function parsePeerPid(
+  buffer: Uint8Array,
+  length: number,
+): number | null {
   if (length !== PID_SIZE || buffer.byteLength < PID_SIZE) return null;
   const pid = new DataView(
     buffer.buffer,

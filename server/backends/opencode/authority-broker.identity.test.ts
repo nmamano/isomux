@@ -124,7 +124,11 @@ describe("OpenCode authority broker identity checks", () => {
     const f = fixture();
     expect(
       await request(f, () =>
-        f.table.set(PEER, { pid: PEER, parentPid: SHELL, startTicks: "peer-2" }),
+        f.table.set(PEER, {
+          pid: PEER,
+          parentPid: SHELL,
+          startTicks: "peer-2",
+        }),
       ),
     ).toBe(403);
   });
@@ -134,7 +138,11 @@ describe("OpenCode authority broker identity checks", () => {
     f.table.delete(PEER);
     expect(
       await request(f, () =>
-        f.table.set(PEER, { pid: PEER, parentPid: SHELL, startTicks: "peer-1" }),
+        f.table.set(PEER, {
+          pid: PEER,
+          parentPid: SHELL,
+          startTicks: "peer-1",
+        }),
       ),
     ).toBe(403);
   });

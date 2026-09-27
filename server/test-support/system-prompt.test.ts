@@ -453,7 +453,9 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
   // and only to it: a real human denial keeps its force.
   it("reads an Isomux interruption note as the cause, without voiding real denials", () => {
     const p = build();
-    expect(p).toMatch(/Isomux note[^.]*interrupted your turn[^.]*not from a human/);
+    expect(p).toMatch(
+      /Isomux note[^.]*interrupted your turn[^.]*not from a human/,
+    );
     expect(p).toMatch(/human denial or safety refusal[^.]*still stands/);
   });
 

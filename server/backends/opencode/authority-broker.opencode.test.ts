@@ -228,10 +228,13 @@ it.skipIf(!LIVE)(
     cleanup.push(() => transport.close());
     const events: NormalizedEvent[] = [];
     const completed = Promise.withResolvers<void>();
-    await transport.send([{ type: "text", text: "Call the office." }], (event) => {
-      events.push(event);
-      if (event.kind === "turn_completed") completed.resolve();
-    });
+    await transport.send(
+      [{ type: "text", text: "Call the office." }],
+      (event) => {
+        events.push(event);
+        if (event.kind === "turn_completed") completed.resolve();
+      },
+    );
     await completed.promise;
 
     expect(events.at(-1)).toMatchObject({

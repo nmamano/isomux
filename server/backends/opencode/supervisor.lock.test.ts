@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OpenCodeSupervisor } from "./supervisor.ts";
@@ -133,7 +140,14 @@ await Bun.sleep(1500);`,
             { stdout: "pipe" },
           )
         : Bun.spawn(
-            ["flock", "--exclusive", recordPath, "sh", "-c", "echo locked; sleep 1.5"],
+            [
+              "flock",
+              "--exclusive",
+              recordPath,
+              "sh",
+              "-c",
+              "echo locked; sleep 1.5",
+            ],
             { stdout: "pipe" },
           );
     const reader = holder.stdout.getReader();

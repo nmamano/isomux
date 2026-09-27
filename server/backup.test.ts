@@ -447,9 +447,9 @@ describe("verified backup publication", () => {
     const file = await runBackupOnceForTest(config(f), realDeps);
     expect(file).toBe("isomux-2026-08-13-2.tar.gz");
     expect(fs.existsSync(`${empty}.invalid.json`)).toBe(true);
-    expect(fs.readFileSync(path.join(extract(f, file), "state.txt"), "utf8")).toBe(
-      "state",
-    );
+    expect(
+      fs.readFileSync(path.join(extract(f, file), "state.txt"), "utf8"),
+    ).toBe("state");
   });
 
   test("a state root named like a glob still omits its credentials", async () => {
@@ -462,7 +462,11 @@ describe("verified backup publication", () => {
     };
     write(f.state, "state.txt", "state");
     write(f.state, "tls/cert.key", "SECRET\n");
-    write(f.state, "provider-homes/u-alice/claude/.credentials.json", "SECRET\n");
+    write(
+      f.state,
+      "provider-homes/u-alice/claude/.credentials.json",
+      "SECRET\n",
+    );
 
     const file = await runBackupOnceForTest(config(f), realDeps);
     const restored = extract(f, file);

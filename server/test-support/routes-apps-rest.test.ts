@@ -2367,7 +2367,10 @@ describe("routes/apps: a host that cannot run apps", () => {
 
   it("refuses every route that would change or run an app with 501 before any side effect", async () => {
     for (const [opId, body] of [
-      ["apps.register", { name: "hello", command: "bun run serve.ts", cwd: "/tmp" }],
+      [
+        "apps.register",
+        { name: "hello", command: "bun run serve.ts", cwd: "/tmp" },
+      ],
       ["apps.update", { command: "bun run other.ts" }],
       ["apps.start", {}],
       ["apps.stop", {}],

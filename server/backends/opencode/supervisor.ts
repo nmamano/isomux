@@ -255,21 +255,18 @@ export class OpenCodeSupervisor {
     this.idleTimer = null;
     if (openCodeUnsupportedReason(this.platform)) return;
     await mkdir(this.profileDir, { recursive: true });
-    const proc = Bun.spawn(
-      this.helperCommand(),
-      {
-        env: {
-          ...process.env,
-          ...this.helperLockEnvironment(),
-          ISOMUX_AGENT_TOKEN: undefined,
-          OPENCODE_SERVER_ACTION: "stop",
-          OPENCODE_PROFILE_DIR: this.profileDir,
-          OPENCODE_SERVER_RECORD: this.recordPath,
-        },
-        stdout: "ignore",
-        stderr: "ignore",
+    const proc = Bun.spawn(this.helperCommand(), {
+      env: {
+        ...process.env,
+        ...this.helperLockEnvironment(),
+        ISOMUX_AGENT_TOKEN: undefined,
+        OPENCODE_SERVER_ACTION: "stop",
+        OPENCODE_PROFILE_DIR: this.profileDir,
+        OPENCODE_SERVER_RECORD: this.recordPath,
       },
-    );
+      stdout: "ignore",
+      stderr: "ignore",
+    });
     await proc.exited;
     this.record = null;
   }
@@ -278,7 +275,11 @@ export class OpenCodeSupervisor {
   // flock(1) on Linux, and the helper's own flock(2) on macOS, which has no
   // flock CLI.
   private helperCommand(): string[] {
-    const helper = [process.execPath, "run", join(import.meta.dir, "start-server.ts")];
+    const helper = [
+      process.execPath,
+      "run",
+      join(import.meta.dir, "start-server.ts"),
+    ];
     return this.platform === "darwin"
       ? helper
       : ["flock", "--exclusive", this.recordPath, ...helper];
@@ -305,31 +306,28 @@ export class OpenCodeSupervisor {
     });
     await chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
-    const proc = Bun.spawn(
-      this.helperCommand(),
-      {
-        cwd: this.serverCwd,
-        env: {
-          ...process.env,
-          ...this.launchEnv,
-          ...this.helperLockEnvironment(),
-          ISOMUX_AGENT_TOKEN: undefined,
-          // Debug capture is an operator-only process setting. An agent's
-          // configured environment cannot enable secret-bearing output.
-          ISOMUX_OPENCODE_DEBUG: process.env.ISOMUX_OPENCODE_DEBUG,
-          OPENCODE_PROFILE_DIR: this.profileDir,
-          OPENCODE_SERVER_RECORD: this.recordPath,
-          OPENCODE_BINARY: binary,
-          OPENCODE_SERVER_PASSWORD: password,
-          OPENCODE_SERVER_CWD: this.serverCwd,
-          OPENCODE_CONFIG: configPath,
-          OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
-          OPENCODE_CONFIG_REVISION: this.configRevision,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
+    const proc = Bun.spawn(this.helperCommand(), {
+      cwd: this.serverCwd,
+      env: {
+        ...process.env,
+        ...this.launchEnv,
+        ...this.helperLockEnvironment(),
+        ISOMUX_AGENT_TOKEN: undefined,
+        // Debug capture is an operator-only process setting. An agent's
+        // configured environment cannot enable secret-bearing output.
+        ISOMUX_OPENCODE_DEBUG: process.env.ISOMUX_OPENCODE_DEBUG,
+        OPENCODE_PROFILE_DIR: this.profileDir,
+        OPENCODE_SERVER_RECORD: this.recordPath,
+        OPENCODE_BINARY: binary,
+        OPENCODE_SERVER_PASSWORD: password,
+        OPENCODE_SERVER_CWD: this.serverCwd,
+        OPENCODE_CONFIG: configPath,
+        OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
+        OPENCODE_CONFIG_REVISION: this.configRevision,
       },
-    );
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),

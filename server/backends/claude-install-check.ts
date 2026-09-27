@@ -178,7 +178,10 @@ export function claudeSignInState(
     return Promise.resolve("signed_out");
   const now = deps.now ?? Date.now;
   for (const [key, probe] of authStatusProbes) {
-    if (probe.settledAt !== null && now() - probe.settledAt >= AUTH_STATUS_REUSE_MS)
+    if (
+      probe.settledAt !== null &&
+      now() - probe.settledAt >= AUTH_STATUS_REUSE_MS
+    )
       authStatusProbes.delete(key);
   }
   const key = authStatusKey(effective);

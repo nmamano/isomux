@@ -27,7 +27,8 @@ const HOOK = join(ROOT, ".githooks", "pre-push");
 
 const dirs: string[] = [];
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 function git(cwd: string, ...args: string[]): string {
@@ -36,7 +37,12 @@ function git(cwd: string, ...args: string[]): string {
   return r.stdout.trim();
 }
 
-type Probe = { base: string; main: string; wt: string; env: Record<string, string> };
+type Probe = {
+  base: string;
+  main: string;
+  wt: string;
+  env: Record<string, string>;
+};
 
 /** A repo with a linked worktree, and the git environment a hook started from that worktree sees. */
 function makeProbe(): Probe {
@@ -77,7 +83,8 @@ function snapshot(p: Probe): string {
 function childEnv(extra: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && !k.startsWith("ISOMUX_TEST_") && k !== "ISOMUX_HOME") env[k] = v;
+    if (v !== undefined && !k.startsWith("ISOMUX_TEST_") && k !== "ISOMUX_HOME")
+      env[k] = v;
   }
   return { ...env, ...extra };
 }
