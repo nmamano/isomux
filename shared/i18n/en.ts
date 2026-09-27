@@ -1152,7 +1152,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.agents.listInvalidFilter": "List agents (invalid killed filter)",
   "apiCall.agents.sendMessage": "Send agent message",
   "apiCall.agents.sendMessageTo": "Send a message to {who}",
-  "apiCall.agents.steerMessage": "Interrupt {who} with a message",
+  "apiCall.agents.steerMessage": "Message {who} mid-turn",
   "apiCall.agents.scheduleMessage": "Schedule a message to {who}",
   "apiCall.agents.spawn": "Spawn a new agent",
   "apiCall.agents.spawnNamed": "Spawn agent {name}",

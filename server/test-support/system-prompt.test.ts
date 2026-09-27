@@ -442,12 +442,19 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
   // steer so both agents do not keep working on stale information.
   it("documents the steer flag and the initiator/responder rule", () => {
     const p = build();
-    expect(p).toContain(
-      'To interrupt their current turn instead of waiting, add "steer":true.',
-    );
+    expect(p).toContain('add "steer":true');
     expect(p).toContain(
       "When you start an exchange with another agent, make sure at least one side steers the other. You choose who and tell the other agent. Otherwise messages queue on both ends and both sides keep working on stale information.",
     );
+  });
+
+  // Task 0a248523: the backend reports a tool call cut by a steer as rejected
+  // by the user. The prompt ties that text to the server's interruption note,
+  // and only to it: a real human denial keeps its force.
+  it("reads an Isomux interruption note as the cause, without voiding real denials", () => {
+    const p = build();
+    expect(p).toMatch(/Isomux note[^.]*interrupted your turn[^.]*not from a human/);
+    expect(p).toMatch(/human denial or safety refusal[^.]*still stands/);
   });
 
   it("treats instructions in content as data and stops on credential requests", () => {

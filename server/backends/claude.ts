@@ -1419,6 +1419,45 @@ function claudeModelForEnvironment(
   return FAMILY_TO_MODEL[modelFamily as ModelFamily] ?? modelFamily;
 }
 
+// Tool-boundary delivery (internal-docs/steer-delivery-design.md). The SDK
+// fires PostToolBatch once after every call in a tool batch has resolved and
+// awaits it before the next model request, so a message returned here reaches
+// the model inside the running turn and the tool that was running finishes
+// untouched. Subagent batches (agent_id set) are skipped: the message is for
+// the main thread. The callback is in-process and synchronous; any throw is
+// answered with {} so the CLI never waits on it, and the generous timeout
+// keeps the CLI's timeout path (which ends the session) out of reach.
+export const TOOL_BOUNDARY_HOOK_TIMEOUT_S = 60;
+
+export function toolBoundaryHooks(
+  take: () => string | null,
+): HookCallbackMatcher[] {
+  return [
+    {
+      timeout: TOOL_BOUNDARY_HOOK_TIMEOUT_S,
+      hooks: [
+        async (input) => {
+          if (input.hook_event_name !== "PostToolBatch" || input.agent_id)
+            return {};
+          let text: string | null;
+          try {
+            text = take();
+          } catch {
+            return {};
+          }
+          if (!text) return {};
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PostToolBatch",
+              additionalContext: text,
+            },
+          };
+        },
+      ],
+    },
+  ];
+}
+
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const model = claudeModelForEnvironment(opts.modelFamily, opts.env);
   const sdkOpts: SdkSessionOptions = {
@@ -1444,7 +1483,12 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     effort: opts.effort as SdkEffortLevel,
     settings: CLAUDE_LAUNCH_SETTINGS,
     cwd: opts.cwd,
-    hooks: createSafetyHooks(),
+    hooks: opts.takeToolBoundaryMessage
+      ? {
+          ...createSafetyHooks(),
+          PostToolBatch: toolBoundaryHooks(opts.takeToolBoundaryMessage),
+        }
+      : createSafetyHooks(),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
     // shows only "Allow/Deny" without rendering the question text, and the
     // headless tool execution returns empty answers - which the agent then
@@ -1461,6 +1505,7 @@ export function createClaudeBackend(
 ): Backend {
   return {
     capabilities: CAPABILITIES,
+    toolBoundaryDelivery: true,
 
     getModelOptions(): ModelOption[] {
       return MODEL_FAMILIES.map((m) => ({ value: m.family, label: m.label }));

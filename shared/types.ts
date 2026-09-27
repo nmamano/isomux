@@ -430,6 +430,14 @@ export interface QueuedMessage {
   // time to mark the message as coming from the agent's previous session, so the
   // fresh copy treats it as its own brief instead of replying to itself.
   handoff?: boolean;
+  // Accepted through an agent's "steer":true while the receiver was running a
+  // turn. On a backend with tool-boundary delivery it lets the next main-thread
+  // tool batch deliver the queue inside that turn. Lives and dies with the item.
+  steer?: boolean;
+  // Set when a send-now aborted the receiver's running turn to deliver this
+  // item. The flush then names the cause, so the receiver does not read the
+  // cut tool call's "rejected by the user" text as a human decision.
+  interruptCause?: "agent_steer" | "member_send_now";
   attachments?: Attachment[];
   queuedAt: number;
 }

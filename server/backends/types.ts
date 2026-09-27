@@ -61,6 +61,11 @@ export interface CreateSessionOptions {
   // Hash of configured environment-file contents only. Shared-process
   // backends use it to replace a server without changing profile identity.
   environmentRevision?: string;
+  // Called after each main-thread tool batch, before the next model request,
+  // by backends that declare `toolBoundaryDelivery`. A string return reaches
+  // the model as context inside the running turn; null delivers nothing.
+  // Synchronous and cheap: the backend awaits it before the model continues.
+  takeToolBoundaryMessage?: () => string | null;
 }
 
 export interface SessionEnvironmentOptions {
@@ -503,6 +508,9 @@ export type ForkSessionBeforeMessageResult =
 
 export interface Backend {
   readonly capabilities: BackendCapabilities;
+  // True when createSession/resumeSession honor `takeToolBoundaryMessage`, so
+  // an agent steer can wait for the running tool batch instead of aborting.
+  readonly toolBoundaryDelivery?: boolean;
 
   getModelOptions(): ModelOption[];
   getPermissionModes(): PermissionModeOption[];

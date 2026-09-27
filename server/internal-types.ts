@@ -255,6 +255,12 @@ export interface ManagedAgent {
   // correct (no turn survives it to be interrupted). Human "Send now" is not
   // counted and not limited.
   recentSteers: number[];
+  // Queue items the session's PostToolBatch hook delivered inside the running
+  // turn (internal-docs/steer-delivery-design.md). They stay in messageQueue
+  // (and on disk) until that session's turn_completed drains them; a claim
+  // whose session is no longer the installed one is stale and its items flush
+  // again (at-least-once). Object references, not queue ids: ids are reused.
+  boundaryClaim?: { session: BackendSession; items: Set<QueuedMessage> };
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
   // 5 min TTL; entries are pruned lazily inside enqueueMessage. Persisted with
   // the queue so a retry arriving after a restart still dedupes against a

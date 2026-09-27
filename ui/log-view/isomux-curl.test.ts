@@ -1259,7 +1259,7 @@ describe("humanizeIsomuxRequest", () => {
     ).toBe("Cancel one of Todoer's outgoing scheduled messages");
   });
 
-  test("steer turns send into interrupt, and only when it is true", () => {
+  test("steer reads as a mid-turn message, and only when it is true", () => {
     const say = (body: string) =>
       humanizeIsomuxRequest(
         EN,
@@ -1269,7 +1269,7 @@ describe("humanizeIsomuxRequest", () => {
         () => "Todoer",
       );
     expect(say(`{"text":"hi","steer":true}`)).toBe(
-      "Interrupt Todoer with a message",
+      EN.t("apiCall.agents.steerMessage", { who: "Todoer" }),
     );
     // An explicit steer:false is the plain send it says it is.
     expect(say(`{"text":"hi","steer":false}`)).toBe("Send a message to Todoer");

@@ -1035,8 +1035,8 @@ export function humanizeIsomuxRequest(
         if (sub === "messages" && m === "POST") {
           if (field("deliverAt"))
             return t("apiCall.agents.scheduleMessage", { who });
-          // steer:true interrupts the receiver's turn, which is a different
-          // action to a reader watching the card - and "true" is matched
+          // steer:true reaches the receiver during its current turn, which is
+          // a different action to a reader watching the card - and "true" is matched
           // exactly so an explicit steer:false reads as the plain send it is.
           return field("steer") === "true"
             ? t("apiCall.agents.steerMessage", { who })

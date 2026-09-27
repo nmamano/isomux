@@ -172,7 +172,10 @@ export interface ConversationDeps {
   // Returns the outcome rather than void: "flush started" and "cannot flush"
   // are different answers and the caller has to be able to tell them apart.
   // Synchronous - it decides, then kicks the delivery off.
-  sendNow(agentId: string): SendNowResult;
+  sendNow(
+    agentId: string,
+    cause: "agent_steer" | "member_send_now",
+  ): SendNowResult;
   newConversation(agentId: string, agentType?: AgentBackendType): void;
   // Self-handoff: reset the agent's session then deliver `text`
   // into the fresh session as a self-handoff brief. The manager guards to one
@@ -516,7 +519,12 @@ export function conversationHandlers(
     // trigger is gated on an idle state, so the flush silently does nothing,
     // and the old unconditional 204 was indistinguishable from a delivery.
     "agents.sendNow": (ctx) => {
-      const r = deps.sendNow(ctx.params.id);
+      // An agent's call or a member's (cookie or personal API token): the
+      // flush names the cause.
+      const r = deps.sendNow(
+        ctx.params.id,
+        ctx.identity.scope === "agent" ? "agent_steer" : "member_send_now",
+      );
       if (!r.ok) return fail(r.status, r.code, r.message);
       return noContent();
     },

@@ -185,6 +185,7 @@ import type {
   Backend,
   BackendSession,
   ContextUsage,
+  CreateSessionOptions,
   NormalizedEvent,
   SubscriptionUsage,
   SubscriptionUsageResult,
@@ -236,7 +237,11 @@ import {
   formatMemoryNotice,
 } from "./agent-turn.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
-import { stripAttachmentNotices } from "./attachment-prompt.ts";
+import {
+  formatAttachmentLines,
+  resolveAttachmentNotices,
+  stripAttachmentNotices,
+} from "./attachment-prompt.ts";
 import {
   editLogUserText,
   locateEditTarget,
@@ -429,6 +434,18 @@ export function permissionPromptLines(
   lines.push("", t("choices.permission.denyByMessage"));
   return lines;
 }
+
+// Notes Isomux puts before messages it delivers into or across a busy turn
+// (internal-docs/steer-delivery-design.md). The interrupt notes replace the
+// "queued while you were processing" note when a send-now cut the turn: the
+// backend reports the cut tool call as rejected by the user, and the receiver
+// must not read that as a human decision.
+export const AGENT_INTERRUPT_NOTE =
+  "[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from a human. A tool call cut short may have done partial work: check its effects before you continue.]";
+export const MEMBER_INTERRUPT_NOTE =
+  "[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]";
+export const TOOL_BOUNDARY_NOTE =
+  "[Isomux: delivered between your tool calls; nothing was interrupted.]";
 
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
@@ -1642,7 +1659,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // incremental event happened to set.
     return [...agents.values()].map((a) => ({
       ...a.info,
-      queue: [...a.messageQueue],
+      queue: unclaimedQueue(a),
       pendingPrompt: pendingPromptOf(a),
     }));
   }
@@ -4352,6 +4369,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       }
       case "turn_completed": {
+        // Items delivered at this turn's tool boundaries leave the queue now,
+        // before the idle transition below can start a flush that would send
+        // them again. Only the installed session's claim drains (liveClaimed).
+        {
+          const m = agents.get(agentId);
+          if (m) drainBoundaryClaim(agentId, m);
+        }
         // Backends report token totals per turn. We accumulate cumulative
         // totals into sessions.json (`usage`) and append a snapshot anchored
         // to the most recently written log entry. The snapshots let /isomux-usage's
@@ -5300,9 +5324,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const backend = getBackend(managed.info.agentType);
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
-    return resumeSessionId
-      ? backend.resumeSession(resumeSessionId, opts)
-      : backend.createSession(opts);
+    // The boundary callback is bound to the session it is created with, so a
+    // hook still firing in a closed or replaced session cannot claim the queue
+    // of the session that replaced it.
+    let bound: BackendSession | null = null;
+    const agentId = managed.info.id;
+    const sessionOpts: CreateSessionOptions = backend.toolBoundaryDelivery
+      ? {
+          ...opts,
+          takeToolBoundaryMessage: () => takeToolBoundaryMessage(agentId, bound),
+        }
+      : opts;
+    bound = resumeSessionId
+      ? backend.resumeSession(resumeSessionId, sessionOpts)
+      : backend.createSession(sessionOpts);
+    return bound;
   }
 
   async function spawn(
@@ -5689,11 +5725,174 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return `${senderPrefixText(m.sender)}[This message was scheduled by the sender for delivery at ${when}.${gone}] `;
   }
 
+  // What the receiver's model reads for one queued item. Shared by the flush
+  // and the tool-boundary delivery so the two cannot drift.
+  function queuedItemText(m: QueuedMessage, receiverAgentId: string): string {
+    // sdkText is set for pre-expanded slash commands (e.g. an /subagent-review
+    // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
+    // but the SDK needs the full skill prompt.
+    return `${queuedItemPrefix(m, receiverAgentId)}${m.sdkText ?? m.text}`;
+  }
+
+  // Delivered items become chat entries. Shared by the flush (after the backend
+  // accepts the send) and the tool-boundary delivery (when its hook returns).
+  function logDeliveredItems(
+    agentId: string,
+    managed: ManagedAgent,
+    items: readonly QueuedMessage[],
+    extraMeta?: Record<string, unknown>,
+  ): void {
+    for (const m of items) {
+      // Carry sdkText into the log metadata so editMessage can match
+      // this entry against the SDK session (the SDK saw the expanded
+      // prompt, not m.text). Same shape executeSkill uses on the
+      // immediate path.
+      let meta = senderMeta(m.sender);
+      if (m.sdkText) meta = { ...(meta ?? {}), sdkText: m.sdkText };
+      // Scheduled-delivery provenance (see scheduled-messages.ts):
+      // mirrors the flush-prefix marker into the persisted log entry.
+      if (m.scheduledFor !== undefined) {
+        meta = {
+          ...(meta ?? {}),
+          scheduled_for: m.scheduledFor,
+          ...(m.scheduledSenderGone ? { scheduled_sender_gone: true } : {}),
+        };
+      }
+      // Self-handoff provenance: mirror the flush-prefix
+      // marker into the persisted log entry, matching the scheduled path.
+      if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
+      if (extraMeta) meta = { ...(meta ?? {}), ...extraMeta };
+      addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
+    }
+    // Trigger topic generation only after the user_message log entries
+    // land in logCache. generateTopic reads the first user message
+    // synchronously before its first await - running it earlier (e.g.
+    // before the send) on a fresh conversation finds an empty cache
+    // and bails out, leaving topic null. Matches the sendMessage path
+    // which also logs before triggering.
+    if (
+      (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
+      !managed.topicGenerating
+    ) {
+      void generateTopic(agentId);
+    }
+  }
+
+  // Remove delivered items from the live queue and from disk.
+  function drainQueueItems(
+    agentId: string,
+    managed: ManagedAgent,
+    items: ReadonlySet<QueuedMessage>,
+  ): void {
+    managed.messageQueue = managed.messageQueue.filter((m) => !items.has(m));
+    emitQueueUpdate(agentId, managed);
+    // Best-effort durable removal. A crash between the
+    // backend accepting the send and this write replays the items on
+    // next boot - at-least-once, mirroring scheduled-messages'
+    // enqueue-then-persist-removal decision.
+    persistQueueState(agentId, managed);
+  }
+
+  const NO_CLAIM: ReadonlySet<QueuedMessage> = new Set();
+
+  // Items the INSTALLED session delivered at a tool boundary. A claim whose
+  // session was closed, swapped or released is stale: its items are ordinary
+  // queued items again and the next flush redelivers them (at-least-once).
+  function liveClaimed(managed: ManagedAgent): ReadonlySet<QueuedMessage> {
+    const claim = managed.boundaryClaim;
+    if (!claim) return NO_CLAIM;
+    if (claim.session !== managed.sessionManager.session) {
+      managed.boundaryClaim = undefined;
+      return NO_CLAIM;
+    }
+    return claim.items;
+  }
+
+  // The queue minus items already delivered inside the running turn: what the
+  // UI shows, what a flush sends, and what a boundary delivery may take.
+  function unclaimedQueue(managed: ManagedAgent): QueuedMessage[] {
+    const claimed = liveClaimed(managed);
+    return claimed.size === 0
+      ? [...managed.messageQueue]
+      : managed.messageQueue.filter((m) => !claimed.has(m));
+  }
+
+  // Machine traffic that the flush would send as plain prefixed text. A member
+  // message, an expanded skill or a handoff keeps the whole queue on the flush
+  // path, where it becomes a backend user message (edit/fork map onto those).
+  function boundaryEligible(m: QueuedMessage): boolean {
+    return m.sender.kind !== "user" && !m.sdkText && !m.handoff;
+  }
+
+  // The PostToolBatch callback (backends/claude.ts toolBoundaryHooks), bound to
+  // the session it was created with. When the queue holds a steer and the whole
+  // queue is eligible, it claims the queue, logs the items, and returns the text
+  // the model reads before its next request. The items stay queued (and on
+  // disk) until that session's turn_completed drains them. Must not throw: a
+  // failure releases what it claimed and delivers nothing.
+  function takeToolBoundaryMessage(
+    agentId: string,
+    session: BackendSession | null,
+  ): string | null {
+    const managed = agents.get(agentId);
+    if (!managed || !session) return null;
+    const sm = managed.sessionManager;
+    if (
+      sm.session !== session ||
+      !sm.pendingTurn ||
+      sm.aborting ||
+      sm.abortPromise ||
+      managed.info.sessionSwapping ||
+      (managed.info.state !== "thinking" &&
+        managed.info.state !== "tool_executing") ||
+      inMultiStepFlow(managed)
+    )
+      return null;
+    const items = unclaimedQueue(managed);
+    if (!items.some((m) => m.steer) || !items.every(boundaryEligible))
+      return null;
+    const claim =
+      managed.boundaryClaim?.session === session
+        ? managed.boundaryClaim
+        : { session, items: new Set<QueuedMessage>() };
+    try {
+      const parts = [TOOL_BOUNDARY_NOTE];
+      for (const m of items) {
+        const lines = m.attachments
+          ? formatAttachmentLines(
+              resolveAttachmentNotices(agentId, m.attachments),
+            )
+          : [];
+        parts.push([queuedItemText(m, agentId), ...lines].join("\n"));
+      }
+      const text = parts.join("\n\n");
+      for (const m of items) claim.items.add(m);
+      managed.boundaryClaim = claim;
+      logDeliveredItems(agentId, managed, items, { delivery: "tool_boundary" });
+      emitQueueUpdate(agentId, managed);
+      return text;
+    } catch (err) {
+      for (const m of items) claim.items.delete(m);
+      console.error(
+        `Tool-boundary delivery failed for ${agentId}; the queue waits for the turn to end:`,
+        errMessage(err),
+      );
+      return null;
+    }
+  }
+
+  // turn_completed of the installed session: its boundary deliveries are done.
+  function drainBoundaryClaim(agentId: string, managed: ManagedAgent): void {
+    const claimed = liveClaimed(managed);
+    managed.boundaryClaim = undefined;
+    if (claimed.size > 0) drainQueueItems(agentId, managed, claimed);
+  }
+
   function emitQueueUpdate(agentId: string, managed: ManagedAgent) {
     emit({
       type: "agent_updated",
       agentId,
-      changes: { queue: [...managed.messageQueue] },
+      changes: { queue: unclaimedQueue(managed) },
     });
   }
 
@@ -5938,6 +6137,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     const id = generateQueuedId(managed.messageQueue);
     const queuedDuringBusyTurn = state !== "error" && !isQueueIdleState(state);
+    // A steer at a busy receiver whose backend delivers at tool boundaries
+    // waits for the running tool batch instead of aborting the turn
+    // (internal-docs/steer-delivery-design.md). Decided here, against the same
+    // state read as the rest of this call, and marked on the item itself so a
+    // cancelled item takes its steer with it.
+    const boundarySteer =
+      opts?.steer === true &&
+      queuedDuringBusyTurn &&
+      !inMultiStepFlow(managed) &&
+      getBackend(managed.info.agentType).toolBoundaryDelivery === true;
     managed.messageQueue.push({
       id,
       sender: msg.sender,
@@ -5949,6 +6158,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       ...(msg.handoff ? { handoff: true } : {}),
+      ...(boundarySteer ? { steer: true } : {}),
       attachments: msg.attachments,
       queuedAt: Date.now(),
     });
@@ -6027,6 +6237,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           steerDeclined: "multi_step_flow",
         };
       }
+      // Nothing is interrupted, so the rate limit (which protects the
+      // receiver's ability to finish a turn) neither applies nor counts it.
+      // The next main-thread tool batch delivers it, or the turn-end flush.
+      if (boundarySteer) {
+        return { ok: true, queued: false, messageId: id, steered: true };
+      }
       if (steerRateLimited(managed)) {
         return {
           ok: true,
@@ -6042,7 +6258,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // both existing call sites - sendNow owns its own state handling, and the
       // ack must not wait on a session replacement. The queue is non-empty (we
       // just pushed), so sendNow's empty-queue no-op cannot fire.
-      void sendNow(agentId);
+      void sendNow(agentId, "agent_steer");
       // queued:false: the receiver's current turn is being cut short precisely
       // so this message does NOT wait for it, which is what queued reports.
       return { ok: true, queued: false, messageId: id, steered: true };
@@ -6174,18 +6390,29 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // user with chip-less log entries for messages the agent never received.
       // Instead, we send first and then drain + log only on success; on a swap
       // the items remain in the queue and the post-swap idle trigger re-flushes.
-      const items = [...managed.messageQueue];
+      // Items a live boundary claim already delivered are excluded; a stale
+      // claim's items are included again (at-least-once).
+      const items = unclaimedQueue(managed);
+      if (items.length === 0) return;
 
       const promptParts: string[] = [];
       const allAttachments: Attachment[] = [];
       // If any items were queued while the agent was busy, prepend a single
       // coalesced note so the agent doesn't read them as reactions to its most
       // recent reply (the sender hadn't seen that reply when sending them).
+      // When a send-now cut the turn to deliver them, the note names that
+      // cause instead: the backend reports the cut tool call as rejected by
+      // the user, and the receiver must not read it as a human decision.
       const busyCount = items.reduce(
         (n, m) => (m.queuedDuringBusyTurn ? n + 1 : n),
         0,
       );
-      if (busyCount > 0) {
+      const causes = new Set(items.map((m) => m.interruptCause));
+      if (causes.has("member_send_now")) {
+        promptParts.push(MEMBER_INTERRUPT_NOTE);
+      } else if (causes.has("agent_steer")) {
+        promptParts.push(AGENT_INTERRUPT_NOTE);
+      } else if (busyCount > 0) {
         const note =
           busyCount === 1
             ? `[Note: this message was queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent it.]`
@@ -6193,11 +6420,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         promptParts.push(note);
       }
       for (const m of items) {
-        // sdkText is set for pre-expanded slash commands (e.g. an /subagent-review
-        // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
-        // but the SDK needs the full skill prompt.
-        const body = m.sdkText ?? m.text;
-        promptParts.push(`${queuedItemPrefix(m, agentId)}${body}`);
+        promptParts.push(queuedItemText(m, agentId));
         if (m.attachments) allAttachments.push(...m.attachments);
       }
       const prompt = promptParts.join("\n\n");
@@ -6218,52 +6441,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // the SDK) - log them so chat history matches what the receiver
             // actually saw. Runs synchronously inside runAgentTurn after
             // session.send resolves.
-            for (const m of items) {
-              // Carry sdkText into the log metadata so editMessage can match
-              // this entry against the SDK session (the SDK saw the expanded
-              // prompt, not m.text). Same shape executeSkill uses on the
-              // immediate path.
-              let meta = senderMeta(m.sender);
-              if (m.sdkText) meta = { ...(meta ?? {}), sdkText: m.sdkText };
-              // Scheduled-delivery provenance (see scheduled-messages.ts):
-              // mirrors the flush-prefix marker into the persisted log entry.
-              if (m.scheduledFor !== undefined) {
-                meta = {
-                  ...(meta ?? {}),
-                  scheduled_for: m.scheduledFor,
-                  ...(m.scheduledSenderGone
-                    ? { scheduled_sender_gone: true }
-                    : {}),
-                };
-              }
-              // Self-handoff provenance: mirror the flush-prefix
-              // marker into the persisted log entry, matching the scheduled path.
-              if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
-              addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
-            }
-            // Trigger topic generation only after the user_message log entries
-            // land in logCache. generateTopic reads the first user message
-            // synchronously before its first await - running it earlier (e.g.
-            // before the send) on a fresh conversation finds an empty cache
-            // and bails out, leaving topic null. Matches the sendMessage path
-            // which also logs before triggering.
-            if (
-              (managed.info.topic === null ||
-                shouldAutoRegenerateTopic(managed)) &&
-              !managed.topicGenerating
-            ) {
-              void generateTopic(agentId);
-            }
-            const sentIds = new Set(items.map((m) => m.id));
-            managed.messageQueue = managed.messageQueue.filter(
-              (m) => !sentIds.has(m.id),
-            );
-            emitQueueUpdate(agentId, managed);
-            // Best-effort durable removal. A crash between the
-            // backend accepting the send and this write replays the items on
-            // next boot - at-least-once, mirroring scheduled-messages'
-            // enqueue-then-persist-removal decision.
-            persistQueueState(agentId, managed);
+            logDeliveredItems(agentId, managed, items);
+            drainQueueItems(agentId, managed, new Set(items));
           },
         });
       } catch (err) {
@@ -6373,6 +6552,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!managed) return false;
     const idx = managed.messageQueue.findIndex((m) => m.id === messageId);
     if (idx < 0) return false;
+    // Already delivered inside the running turn; only the drain is pending.
+    if (liveClaimed(managed).has(managed.messageQueue[idx])) return false;
     managed.messageQueue.splice(idx, 1);
     emitQueueUpdate(agentId, managed);
     persistQueueState(agentId, managed);
@@ -6393,7 +6574,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // itself is kicked off fire-and-forget below. Awaiting the abort would make
   // the route hold the request open for the ~1-2s of a session replacement,
   // and no caller ever used the resolution (both call sites voided it).
-  function sendNow(agentId: string): SendNowResult {
+  function sendNow(
+    agentId: string,
+    // Who asked, for the note the flush puts before the delivered messages.
+    cause: NonNullable<QueuedMessage["interruptCause"]>,
+  ): SendNowResult {
     const managed = agents.get(agentId);
     if (!managed)
       return {
@@ -6441,7 +6626,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // effect: queued items land in the same session (hot-abort) or in the
       // freshly-installed replacement (slow path / Codex fallback), never in a
       // half-closed one.
-      void abort(agentId);
+      //
+      // Stamp the cause on the items this abort delivers, so the flush can say
+      // why the turn was cut. A member's stamp wins over an agent's. If the
+      // abort turns out to have interrupted nothing, restore what was there.
+      const stamped = unclaimedQueue(managed).map((m) => {
+        const prev = m.interruptCause;
+        if (prev !== "member_send_now") m.interruptCause = cause;
+        return { m, prev };
+      });
+      persistQueueState(agentId, managed);
+      void abort(agentId)
+        .then((r) => {
+          if (r.ok) return;
+          for (const { m, prev } of stamped) {
+            if (prev === undefined) delete m.interruptCause;
+            else m.interruptCause = prev;
+          }
+          persistQueueState(agentId, managed);
+        })
+        .catch(() => {});
     } else {
       flushQueue(agentId).catch(() => {});
     }
@@ -6644,7 +6848,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // multi-step flow, not a slash command) apply for free - everywhere
         // else a sendNow message takes the plain path. Fire-and-forget like
         // the endpoint's own wiring (sendNow handles its own state).
-        void sendNow(agentId);
+        void sendNow(agentId, "member_send_now");
       }
       if (result.ok) opts?.onAccepted?.({ ok: true });
       return;
@@ -8621,7 +8825,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         agentId,
         oldSessionId,
       )
-        .filter((e) => e.kind === "user_message" && !e.ephemeral)
+        // A tool-boundary delivery reached the model as hook context, not as
+        // a backend user message, so it has nothing to match and must not
+        // shift the occurrence count of a message with the same text.
+        .filter(
+          (e) =>
+            e.kind === "user_message" &&
+            !e.ephemeral &&
+            e.metadata?.delivery !== "tool_boundary",
+        )
         .map((e) => ({ id: e.id, text: editLogUserText(e) }));
 
       // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in

@@ -77,6 +77,12 @@ flush), fire-and-forget, exactly as the composer's Ctrl/Cmd+Enter does.
 | Over the steer rate limit | `{queued:true, steered:false, steerDeclined:"rate_limited"}` | queued |
 | Deduped retry | `{messageId}` only | nothing touched, nothing interrupted |
 
+Since 2026-09-26 (`steer-delivery-design.md`), a steer at a busy Claude receiver aborts nothing: the next
+main-thread tool batch delivers the queue inside the turn, or the turn-end flush does. The ack shape is unchanged;
+for those receivers `steered:true` means "delivered at the next tool batch, or as the next turn", and the rate limit
+does not count them. Codex and OpenCode receivers keep the abort row above, and every flush after a send-now abort
+names the cause of the interruption.
+
 `queued:false` on a steer is deliberate: `queued` answers "does this wait for their current turn", and a steer
 exists precisely so it does not. `steered:true` is asserted at interrupt-issue time, not delivery time.
 

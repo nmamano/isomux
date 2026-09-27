@@ -13,6 +13,7 @@ import {
   ClaudeSession,
   createClaudeBackend,
   sessionOptsToV1,
+  toolBoundaryHooks,
   type SdkClient,
   type SdkConversation,
   type SdkOneShotOptions,
@@ -1143,4 +1144,76 @@ describe("Claude launch telemetry settings", () => {
       }
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Tool-boundary delivery (tasks 0a248523, 7529b23b)
+// ---------------------------------------------------------------------------
+
+describe("tool-boundary delivery hook", () => {
+  const batchInput = (agentId?: string) =>
+    ({
+      hook_event_name: "PostToolBatch",
+      session_id: "s-1",
+      transcript_path: "/tmp/t.jsonl",
+      cwd: "/tmp",
+      tool_calls: [],
+      ...(agentId ? { agent_id: agentId } : {}),
+    }) as unknown as Parameters<
+      ReturnType<typeof toolBoundaryHooks>[0]["hooks"][0]
+    >[0];
+  const run = (take: () => string | null, agentId?: string) =>
+    toolBoundaryHooks(take)[0].hooks[0](batchInput(agentId), undefined, {
+      signal: new AbortController().signal,
+    });
+
+  it("hands a main-thread batch the callback's text as additional context", async () => {
+    expect(await run(() => "a message")).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PostToolBatch",
+        additionalContext: "a message",
+      },
+    });
+  });
+
+  it("delivers nothing to a subagent batch and does not ask the callback", async () => {
+    let asked = 0;
+    const out = await run(() => {
+      asked++;
+      return "a message";
+    }, "sub-1");
+    expect(out).toEqual({});
+    expect(asked).toBe(0);
+  });
+
+  it("delivers nothing when the callback has nothing or throws", async () => {
+    expect(await run(() => null)).toEqual({});
+    expect(
+      await run(() => {
+        throw new Error("boom");
+      }),
+    ).toEqual({});
+  });
+
+  it("is registered only when the orchestrator passes a callback", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    expect(backend.toolBoundaryDelivery).toBe(true);
+    const base = {
+      agentId: "a",
+      cwd: "/tmp",
+      systemPrompt: "",
+      modelFamily: "opus",
+      effort: "high",
+      permissionMode: "default",
+    };
+    backend.createSession(base);
+    backend.createSession({ ...base, takeToolBoundaryMessage: () => null });
+    expect(fake.createCalls[0].opts.hooks?.PostToolBatch).toBeUndefined();
+    expect(fake.createCalls[1].opts.hooks?.PostToolBatch).toHaveLength(1);
+    // The safety hooks stay in place next to it.
+    expect(fake.createCalls[1].opts.hooks?.PreToolUse).toEqual(
+      fake.createCalls[0].opts.hooks?.PreToolUse,
+    );
+  });
 });

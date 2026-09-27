@@ -1161,7 +1161,7 @@ Coses que pots fer per ell:
     "Llistar agents (filtre d'eliminats no vàlid)",
   "apiCall.agents.sendMessage": "Enviar un missatge a un agent",
   "apiCall.agents.sendMessageTo": "Enviar un missatge a {who}",
-  "apiCall.agents.steerMessage": "Interrompre {who} amb un missatge",
+  "apiCall.agents.steerMessage": "Enviar un missatge a {who} a mig torn",
   "apiCall.agents.scheduleMessage": "Programar un missatge per a {who}",
   "apiCall.agents.spawn": "Crear un agent nou",
   "apiCall.agents.spawnNamed": "Crear l'agent {name}",

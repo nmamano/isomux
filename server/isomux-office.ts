@@ -3842,7 +3842,7 @@ function buildExecutorDeps(
       // AWAITED, unlike the fire-and-forget it used to be: the refusal is the
       // point. sendNow resolves as soon as it has decided whether it can flush -
       // the delivery itself still streams over WS.
-      sendNow: (agentId) => agentManager.sendNow(agentId),
+      sendNow: (agentId, cause) => agentManager.sendNow(agentId, cause),
       newConversation: (agentId, agentType) => {
         // The WS case awaited this purely for handler sequencing; the clear_logs
         // + turn events stream over WS regardless, so void-discard for an

@@ -1023,7 +1023,7 @@ App 的一些原则：
   "apiCall.agents.listInvalidFilter": "列出智能体（终止状态筛选条件无效）",
   "apiCall.agents.sendMessage": "发送智能体消息",
   "apiCall.agents.sendMessageTo": "向 {who} 发送消息",
-  "apiCall.agents.steerMessage": "用消息打断 {who}",
+  "apiCall.agents.steerMessage": "在 {who} 的回合中发送消息",
   "apiCall.agents.scheduleMessage": "定时向 {who} 发送消息",
   "apiCall.agents.spawn": "创建新智能体",
   "apiCall.agents.spawnNamed": "创建智能体 {name}",

@@ -170,6 +170,12 @@ export class FakeSession implements BackendSession {
     });
   }
 
+  // Play the SDK's main-thread PostToolBatch hook: what the orchestrator's
+  // callback hands the model at this tool boundary (null: nothing).
+  toolBoundary(): string | null {
+    return this.opts.takeToolBoundaryMessage?.() ?? null;
+  }
+
   // Terminate the event stream (idempotent). Unblocks a parked stream().
   endStream(): void {
     if (this.ended) return;
@@ -287,6 +293,9 @@ export class FakeSession implements BackendSession {
 
 export interface FakeBackendConfig {
   capabilities?: BackendCapabilities;
+  // Declare Backend.toolBoundaryDelivery. The session then carries the
+  // orchestrator's callback in opts; toolBoundary() plays the SDK hook.
+  toolBoundaryDelivery?: boolean;
   modelOptions?: ModelOption[];
   permissionModes?: PermissionModeOption[];
   models?: BackendModel[];
@@ -317,6 +326,7 @@ export interface FakeBackendConfig {
 // optionally configured, and inject it via the managers' resolveBackend dep.
 export class FakeBackend implements Backend {
   readonly capabilities: BackendCapabilities;
+  readonly toolBoundaryDelivery: boolean;
 
   readonly sessions: FakeSession[] = [];
   createSessionCount = 0;
@@ -343,6 +353,7 @@ export class FakeBackend implements Backend {
   constructor(cfg: FakeBackendConfig = {}) {
     this.cfg = cfg;
     this.capabilities = cfg.capabilities ?? { ...DEFAULT_AGENT_CAPABILITIES };
+    this.toolBoundaryDelivery = cfg.toolBoundaryDelivery ?? false;
   }
 
   get lastSession(): FakeSession | undefined {

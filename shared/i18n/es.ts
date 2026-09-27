@@ -1164,7 +1164,7 @@ Cosas que puedes hacer por él:
     "Listar agentes (filtro de eliminados no válido)",
   "apiCall.agents.sendMessage": "Enviar un mensaje a un agente",
   "apiCall.agents.sendMessageTo": "Enviar un mensaje a {who}",
-  "apiCall.agents.steerMessage": "Interrumpir a {who} con un mensaje",
+  "apiCall.agents.steerMessage": "Enviar un mensaje a {who} a mitad de turno",
   "apiCall.agents.scheduleMessage": "Programar un mensaje para {who}",
   "apiCall.agents.spawn": "Crear un agente nuevo",
   "apiCall.agents.spawnNamed": "Crear el agente {name}",
