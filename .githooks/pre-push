@@ -10,6 +10,12 @@
 # Losing it costs another full run to learn which step failed.
 set -e
 
+# git exports GIT_DIR to hooks; from a linked worktree it is an absolute path
+# into the shared repo. CI must not inherit it: a test that runs `git init` in
+# a temp dir would otherwise write into the shared repo config and refs.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+
 LOG_FILE="${TMPDIR:-/tmp}/isomux-pre-push-$(date +%Y%m%dT%H%M%S).log"
 
 echo "→ bun run ci (the exact GitHub gate)"

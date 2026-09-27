@@ -16,6 +16,22 @@ import { mkdtempSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
 import { canonicalize, removeStateDir } from "./temp-state.ts";
+import { inheritedGitRepoEnv } from "./git-env.ts";
+
+// A git hook or `git rebase --exec` exports GIT_DIR to this process, and every
+// git command a test runs in its temp repo would act on that repository
+// instead. Deleting the variables here does not help: bun gives a child
+// spawned without an explicit env the process's startup environment, not
+// process.env. It exits instead of throwing: bun reports a preload throw
+// against the first test file and runs the other files. See git-env.ts.
+const inheritedGit = inheritedGitRepoEnv(process.env);
+if (inheritedGit.length > 0) {
+  console.error(
+    `[test preload] ${inheritedGit.join(", ")} set: tests that run git would ` +
+      `write into that repository. Unset them before bun test.`,
+  );
+  process.exit(1);
+}
 
 // Test processes must not race each other or the live office for app ports.
 // Each process claims one block by holding its sentinel socket. The kernel
