@@ -3,8 +3,8 @@
 
 containerd reads a Kubernetes Localhost profile as OCI LinuxSeccomp, which has
 no archMap and no per-rule includes/excludes. Resolve those conditions here,
-the way Moby does, for one fixed target: amd64, no capabilities, kernel 4.8 or
-later. Usage: resolve.py [DOCKER_PROFILE] > isomux-chromium-v1.json
+the way Moby does, for one fixed target: amd64, kernel 4.8 or later, and only
+CAP_SYS_CHROOT among capability conditions. Usage: resolve.py [DOCKER_PROFILE] > isomux-chromium-v1.json
 """
 import json
 import pathlib
@@ -12,7 +12,10 @@ import sys
 
 ARCH = "amd64"
 SECCOMP_ARCH = "SCMP_ARCH_X86_64"
-CAPABILITIES = ()  # The office container drops ALL capabilities.
+# The office container drops ALL capabilities, but Chromium's sandbox calls
+# chroot inside its own user namespace. Docker allows chroot through its
+# default CAP_SYS_CHROOT; resolve as if that one capability were present.
+CAPABILITIES = ("CAP_SYS_CHROOT",)
 KERNEL = (4, 8)  # Lowest kernel we resolve minKernel conditions for.
 SOURCE = pathlib.Path(__file__).resolve().parents[2] / "container/seccomp/chromium.json"
 

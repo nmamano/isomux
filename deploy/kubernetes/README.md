@@ -21,7 +21,9 @@ python3 deploy/kubernetes/seccomp/resolve.py > deploy/kubernetes/seccomp/isomux-
 
 containerd reads a Localhost profile as OCI `LinuxSeccomp`, which has no
 `archMap` and no per-rule `includes`/`excludes`. The script resolves those
-conditions for amd64, no capabilities and kernel 4.8 or later. A profile change
+conditions for amd64 and kernel 4.8 or later, with `CAP_SYS_CHROOT` as the only
+capability: Chromium's sandbox calls `chroot` inside its user namespace, which
+Docker allows through its default capabilities. A profile change
 gets a new versioned filename; do not change a published file in place.
 
 ## Tests

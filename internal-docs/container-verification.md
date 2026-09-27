@@ -108,9 +108,8 @@ Not proven here:
   bwrap reported that it cannot create namespaces. Plain Docker on the same
   host with the Compose profile creates user namespaces (the container runs
   under `docker-default`).
-  Chromium and Codex sandbox verification remains pending the EKS run on
-  AL2023 (Amazon Linux 2023 nodes, no AppArmor).
-- ALB, ACM, EBS gp3, IMDS, and Amazon Linux 2023 nodes. These need the EKS run.
+  The EKS run below covers both sandboxes on Amazon Linux 2023.
+- ALB, ACM, EBS gp3, IMDS, and Amazon Linux 2023 nodes: see the EKS run below.
 
 The first OpenCode welcome model, `opencode/muse-spark-1.2-contributor-free`,
 was refused by the provider on that date; OpenCode model discovery had timed
@@ -120,3 +119,102 @@ this is not specific to Kubernetes. Fixed 2026-09-26: the fallback is now
 `opencode/nemotron-3-ultra-free`, and after a seed falls back, discovery
 retries in the background and moves the seeded agents to a discovered free
 model (`repickFallbackSeeds` in `server/isomux-office.ts`).
+
+## Kubernetes (EKS)
+
+On 2026-09-26, one disposable EKS cluster in us-west-2, created 18:40Z and
+deleted 19:55Z. Tools: eksctl 0.230.0, AWS CLI 2.37.4, Helm 4.3.0, kubectl
+1.33.13. EKS 1.33 (platform eks.48); one managed node, `m7i-flex.large`
+(2 vCPU, 8 GiB), `AL2023_x86_64_STANDARD` release `1.33.13-20260923` (AMI
+`ami-09c972394b519fee1`), kernel
+`6.12.103-129.197.amzn2023.x86_64`, containerd 2.2.7, no AppArmor
+(`/proc/self/attr/current` reports SELinux `unconfined_service_t`),
+`user.max_user_namespaces` 30890. Node metadata: IMDSv2 required, hop limit 1
+(eksctl `disableIMDSv1` and `disablePodIMDS`). Add-ons: vpc-cni
+v1.22.4-eksbuild.3 with `enableNetworkPolicy`, coredns v1.12.4-eksbuild.38,
+kube-proxy v1.33.10-eksbuild.29, aws-ebs-csi-driver v1.66.0-eksbuild.1. The
+CoreDNS add-on status was DEGRADED when sampled at 19:20Z, shortly after the
+node joined; both CoreDNS pods were Running at the next check, and the add-on
+status was not sampled again. AWS
+Load Balancer Controller chart 3.5.0. The account allowed only Free Tier
+instance types, so `m6i.large` failed to launch and the node group used
+`m7i-flex.large` instead.
+
+Deployment: the guide's overlay, with a local path base to `deploy/kubernetes`
+(the remote `?ref=<tag>` form waits for a release), the v2026.9.23 digest, host
+`office.eks-verify.test`, and an ACM certificate imported from a test CA. One
+test-only patch limited the ALB to this box's address (`inbound-cidrs`).
+Clients on this box used `--resolve` and Chromium host-resolver rules to the
+ALB. Evidence: `/tmp/eks-verify` (checks.log, teardown.log, env.txt).
+
+Passed:
+- Chromium sandbox with the Localhost profile, after one fix (below):
+  `chrome://sandbox` reported Layer 1 Namespace, PID and network namespaces,
+  and Seccomp-BPF. The production preview path (`capturePreview`) returned a
+  PNG from the office pod.
+- The office pod ran as UID 1000, CapEff 0, NoNewPrivs 1, seccomp filter, in
+  the `restricted` namespace; `unshare -Urn` succeeded.
+- ALB: HTTP 301 to HTTPS; setup page 200 over the imported certificate;
+  `/__isomux/tls-ask` 404 at the ALB; the target stayed healthy before and
+  after the claim (success codes 200,401).
+- Owner claim through the ALB: setup 200, office 200 with the cookie, 401
+  without.
+- Agent reply: the Free Welcome Agent (`opencode/big-pickle`, chosen at boot)
+  answered "pong"; the model call took about 4 minutes.
+- App on a wildcard host: `https://hello.office.eks-verify.test` after app
+  sign-in in Chromium, websocket echo, office websocket frames; anonymous 302
+  to app sign-in; unknown label 404.
+- EBS: gp3, 30 GiB, encrypted, `ReadWriteOncePod`, `Retain`.
+- A second pod on the claim stayed Pending with the ReadWriteOncePod reason.
+  On normal pod deletion the replacement stayed Pending until the old pod
+  completed (the scheduler reported insufficient CPU and memory on the
+  2-vCPU node, because the terminating pod still held its requests).
+- A rollout (seccomp patch) was Recreate: the old pod completed before the new
+  pod was created.
+- After pod replacement: owner session, agent history, app running state and
+  the app in Chromium all kept.
+- `SIGSTOP` on the office child: readiness failed, a liveness failure
+  restarted the container, and the office became Ready.
+- Instance metadata: from the office pod, the IMDSv2 token request and a plain
+  request both timed out (NetworkPolicy enforced). From a pod in another
+  namespace (no policy), the token response did not arrive (hop limit 1) and a
+  plain request returned 401 (IMDSv2 required).
+- `RuntimeDefault` for comparison: `unshare` failed with "Operation not
+  permitted", and Chromium exited ("Failed to move to new namespace").
+
+Fix made during the run: with the first resolved profile, Chromium failed at
+`Check failed: sys_chroot("/proc/self/fdinfo/") == 0`. The sandbox calls
+`chroot` inside its user namespace. The Docker basis allows `chroot` only with
+`CAP_SYS_CHROOT`, which Docker grants by default and the pod drops. The
+resolver now keeps rules gated on `CAP_SYS_CHROOT` only, which adds `chroot`.
+`isomux-chromium-v1.json` changed in place because no release contains it.
+The guide's first `kubectl create namespace` now uses `--save-config`, so the
+later `kubectl apply` prints no missing-annotation warning.
+
+Not passed: Codex's own sandbox, used only when an agent selects a Codex
+sandbox mode other than the default `danger-full-access`. Not observed: no
+Codex agent turn ran in this run (no Codex login in the test office). Running
+`codex sandbox` directly in the office pod failed before the command started,
+with `bwrap: Failed to make / slave: Operation not permitted`. bwrap needs
+`mount`, which the profile allows only with `CAP_SYS_ADMIN`, as Docker's
+default does; the profile keeps that restriction (Isomux PM ruling,
+2026-09-26). The Compose deployment has the same profile rule (unchecked
+there).
+
+Not checked on EKS: update by digest (no second published image; the local run
+covers it), node-group replacement, and snapshot restore.
+
+Teardown, 19:41Z-20:01Z: ingress deleted and the ALB and target group gone;
+resources and PV deleted and the retained EBS volume deleted; controller
+uninstalled; `eksctl delete cluster`; imported certificate deleted. The final
+checks listed no EKS cluster, load balancer, target group, cluster volume or
+instance, Elastic IP, NAT gateway, tagged security group, eksctl VPC, launch
+template, remaining CloudFormation stack, OIDC provider, ACM certificate, EBS
+snapshot, autoscaling group or tagged network interface. A pre-existing
+instance `isomux-aws-test` (from 2026-09-21) and its two volumes were not
+touched. Cost is unmeasured: Cost Explorer is not enabled for this account.
+Estimate from us-west-2 list prices read 2026-09-26: EKS 1.33 was in extended
+support (standard support ended 2026-07-29), so the control plane costs
+$0.10 + $0.50 = $0.60 per hour; about 1.25 hours gives about $0.75. The node
+(`m7i-flex.large`, $0.0958/h, about 0.6 h), the ALB, public IPv4 addresses and
+EBS add roughly $0.10, so about $0.85 in total.

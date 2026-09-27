@@ -58,12 +58,12 @@ test("the Kubernetes profile has only OCI seccomp fields", () => {
       expect(["names", "action", "errnoRet", "args"]).toContain(key);
 });
 
-test("the Kubernetes profile allows the basis's amd64 no-capability set plus the namespace calls", () => {
-  // Rules that hold for amd64, no capabilities, and kernel 4.8 or later.
+test("the Kubernetes profile allows the basis's amd64 set with only CAP_SYS_CHROOT plus the namespace calls", () => {
+  // Rules that hold for amd64, only CAP_SYS_CHROOT, and kernel 4.8 or later.
   const holds = (rule: Rule) =>
     !rule.excludes?.arches?.includes("amd64") &&
     (!rule.includes?.arches || rule.includes.arches.includes("amd64")) &&
-    !rule.includes?.caps?.length &&
+    (rule.includes?.caps ?? []).every((cap) => cap === "CAP_SYS_CHROOT") &&
     (!rule.includes?.minKernel || rule.includes.minKernel === "4.8");
   const allowed = (rules: Rule[]) =>
     new Set(
@@ -76,6 +76,8 @@ test("the Kubernetes profile allows the basis's amd64 no-capability set plus the
   expect([...allowed(profile.syscalls)].sort()).toEqual([...expected].sort());
 
   // Names that only capability-gated rules allow stay denied.
+  // Chromium's sandbox calls chroot inside its user namespace.
+  expect(allowed(profile.syscalls).has("chroot")).toBe(true);
   for (const name of ["bpf", "perf_event_open", "mount", "reboot", "kcmp"])
     expect(allowed(profile.syscalls).has(name)).toBe(false);
   // Rules for other architectures are gone.

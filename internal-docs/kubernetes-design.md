@@ -80,7 +80,8 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   `pidfd_getfd`, `process_madvise`) would become unconditional.
   So we ship a resolved OCI profile, not the Docker file.
 - Derivation. A script (`deploy/kubernetes/seccomp/resolve.py`) resolves the
-  pinned Docker basis the way Moby does, for amd64, with no capabilities, and
+  pinned Docker basis the way Moby does, for amd64, with only `CAP_SYS_CHROOT`
+  (Chromium calls `chroot` inside its user namespace; found in the EKS run), and
   kernel 4.8 or later (EKS nodes run 6.x): keep a rule when every include
   holds and no exclude holds, and drop the conditions. It sets
   `architectures: [SCMP_ARCH_X86_64, SCMP_ARCH_X86, SCMP_ARCH_X32]` from
@@ -90,12 +91,14 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   in place on nodes.
 - Test (bun, no cluster): the committed file equals the script output; it
   has only OCI fields; no `includes`, `excludes`, `archMap` or `comment`;
-  rules gated only on capabilities the pod lacks add no allowed names
-  (outside the three Chromium calls); no rule from another architecture; `clone3` keeps its
-  ENOSYS rule; the allowed names equal the basis's unconditional rules plus
-  its amd64 rules plus its `minKernel: 4.8` rule (`ptrace`,
-  `process_vm_readv`, `process_vm_writev`, which Docker also allows on these
-  kernels) plus the three calls.
+  rules gated on capabilities other than `CAP_SYS_CHROOT` add no allowed
+  names (outside the three Chromium calls); no rule from another
+  architecture; `clone3` keeps its ENOSYS rule; the allowed names equal the
+  basis's unconditional rules plus its amd64 rules plus its `minKernel: 4.8`
+  rule (`ptrace`, `process_vm_readv`, `process_vm_writev`, which Docker also
+  allows on these kernels) plus its `CAP_SYS_CHROOT` rule (`chroot`) plus the
+  three calls. The pod still has no capabilities; only the seccomp resolution
+  counts `CAP_SYS_CHROOT`.
 - Localhost path: kubelet reads `/var/lib/kubelet/seccomp/<localhostProfile>`.
   The container sets `seccompProfile: {type: Localhost, localhostProfile:
   isomux/isomux-chromium-v1.json}`.

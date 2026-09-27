@@ -34,7 +34,7 @@ The setup key lets you claim the office as its first owner. It must have at
 least 32 characters.
 
 ```sh
-kubectl create namespace isomux
+kubectl create namespace isomux --save-config
 kubectl -n isomux create secret generic isomux-setup \
   --from-literal=ISOMUX_SETUP_KEY="$(openssl rand -hex 32)"
 ```
