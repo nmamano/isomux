@@ -139,7 +139,7 @@ failed), `sendNow` restores the previous stamps on the items still queued. The s
 `"agent_steer"` for an agent caller and `"member_send_now"` for a member (cookie or personal API token). The flush picks the note by precedence (member over agent)
 and uses it in place of the "queued while you were processing" note:
 
-- agent steer: `[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from a human. A tool call cut short may have done partial work: check its effects before you continue.]`
+- agent steer: `[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]`
 - member Send now: `[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]`
 
 The strings are exported from `server/agent-manager.ts` (`AGENT_INTERRUPT_NOTE`, `MEMBER_INTERRUPT_NOTE`,
@@ -149,7 +149,7 @@ The strings are exported from `server/agent-manager.ts` (`AGENT_INTERRUPT_NOTE`,
 
 Replace *"To interrupt their current turn instead of waiting, add "steer":true."* with:
 
-> To reach them during their current turn instead of waiting, add "steer":true: Claude agents get it when their running tool calls end; other agents are interrupted. An Isomux note that another agent interrupted your turn means the rejection or interruption text before it came from that interruption, not from a human. A human denial or safety refusal outside that interruption still stands.
+> To reach them during their current turn instead of waiting, add "steer":true: Claude agents get it when their running tool calls end; other agents are interrupted. An Isomux note that another agent interrupted your turn means the rejection or interruption text before it came from that interruption, not from an office member. A member's denial or safety refusal outside that interruption still stands.
 
 The receiver rule is conditioned on the server marker only, and only for the interruption it names.
 

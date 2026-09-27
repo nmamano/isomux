@@ -38,7 +38,7 @@ free for small teams · source-available · no account needed · works with your
 
 ### An office made for humans and agents
 
-- **Privileged agents can do anything you can do**, like spawning other agents and managing rooms
+- **Privileged agents can run the office for you**, like spawning other agents and managing rooms
 - [**Fully multiplayer**](https://x.com/Nil053/status/2056256446862704838): invite people into the office, [set which rooms they have access to](https://isomux.com/docs/access-and-invites), and see which agents they are currently talking to
 - [**Hierarchical**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't have to repeat context every time
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter

@@ -183,7 +183,7 @@ API failures use JSON with an `error` object:
 
 Use the stable `code` for program logic. Show `message` to a person, and follow `resolution` when an agent can recover.
 
-App hosting needs Linux with systemd. On any other host, such as a macOS local office, the app routes that register, change, start, stop, restart or read the logs of an app return `501 apps_not_supported`. Listing and deleting apps still work.
+App hosting needs Linux with systemd. On any other host, such as a macOS local office, the app routes that register, change, start, stop, restart or read the logs of an app return `501 apps_not_supported`.
 
 ## Desktop Chrome browser control
 

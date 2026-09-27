@@ -441,7 +441,7 @@ export function permissionPromptLines(
 // backend reports the cut tool call as rejected by the user, and the receiver
 // must not read that as a human decision.
 export const AGENT_INTERRUPT_NOTE =
-  "[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from a human. A tool call cut short may have done partial work: check its effects before you continue.]";
+  "[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const MEMBER_INTERRUPT_NOTE =
   "[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const TOOL_BOUNDARY_NOTE =
