@@ -6,7 +6,6 @@ const { act, render, fireEvent } = await import("@testing-library/react");
 const { NewRoomDialog } = await import("./NewRoomDialog.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
-const { SELECTABLE_ROOM_SKIN_IDS } = await import("../../shared/room-skins.ts");
 
 afterAll(() => setApiShim(null));
 
@@ -117,55 +116,9 @@ it("restores opener focus on cancel but leaves it behind after creating a room",
   }
 });
 
-// The dialog grew a control, and its Tab trap is hand-written: a control the
-// ring does not list is a control a keyboard cannot reach.
-it("keeps the look in the Tab ring, and offers only the selectable looks", async () => {
-  let body: unknown;
-  setApiShim(async (_method, _path, sent) => {
-    body = sent;
-    return {
-      room: {
-        id: "ward",
-        name: "Room 2",
-        prompt: null,
-        canCloseWhenEmpty: true,
-        skin: "hospital",
-      },
-    };
-  });
-  const view = render(<NewRoomDialog onClose={() => {}} />);
-  const look = view.getByLabelText("Room look") as HTMLSelectElement;
-  const cancel = view.getByRole("button", { name: "Cancel" });
-  const confirm = view.getByRole("button", { name: "Open room" });
-  expect(look.value).toBe("office");
-  expect(document.activeElement).toBe(cancel);
-  fireEvent.keyDown(cancel, { key: "Tab", bubbles: true });
-  expect(document.activeElement).toBe(confirm);
-  fireEvent.keyDown(confirm, { key: "Tab", bubbles: true });
-  expect(document.activeElement).toBe(look);
-  fireEvent.keyDown(look, { key: "Tab", bubbles: true });
-  expect(document.activeElement).toBe(cancel);
-  fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true, bubbles: true });
-  expect(document.activeElement).toBe(look);
-  fireEvent.keyDown(look, { key: "Tab", shiftKey: true, bubbles: true });
-  expect(document.activeElement).toBe(confirm);
-
-  // A new room has no skin of its own to keep in its list, so the control
-  // offers exactly the selectable ids. Pinning that here is what stops a skin
-  // being offered again before its drawing is signed off; the assertion that a
-  // chosen skin reaches the POST body went with the second option, and the
-  // route tests still cover a skin arriving at room creation.
-  expect([...look.options].map((o) => o.value)).toEqual([
-    ...SELECTABLE_ROOM_SKIN_IDS,
-  ]);
-  await act(async () => fireEvent.click(confirm));
-  expect(body).toEqual({});
-  view.unmount();
-});
-
-// The office look is the absence of the field, so opening a room without
-// touching the control writes the record every room had before skins existed.
-it("sends no skin at all when the look is left alone", async () => {
+// The dialog offers no look: a new room is created with the default one, which
+// is the absence of the skin field.
+it("opens the room with no skin field", async () => {
   let body: unknown = "unset";
   setApiShim(async (_method, _path, sent) => {
     body = sent;
