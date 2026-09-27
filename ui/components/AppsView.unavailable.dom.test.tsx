@@ -42,7 +42,7 @@ it("says why apps cannot run when the host reports app hosting unavailable", asy
   expect(view.queryByRole("note")).toBeNull();
 
   const fullState = (unavailableFeatures: { apps?: "needs_linux" }) =>
-    act(() =>
+    act(async () => {
       dispatch({
         type: "full_state",
         agents: [],
@@ -51,8 +51,8 @@ it("says why apps cannot run when the host reports app hosting unavailable", asy
         rooms: [],
         killedAgents: [],
         unavailableFeatures,
-      }),
-    );
+      });
+    });
   await fullState({ apps: "needs_linux" });
   expect(view.getByRole("note").textContent).toBe(
     en["apps.unavailable.needsLinux"],
