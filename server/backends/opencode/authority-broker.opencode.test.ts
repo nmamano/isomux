@@ -33,7 +33,10 @@ function officeCall(socketPath: string, handle: string): string {
   return `curl -s -w ' status=%{http_code}' --unix-socket ${quote(socketPath)} -H ${quote(`X-Isomux-Turn: ${handle}`)} http://isomux/agents`;
 }
 
-it.skipIf(!LIVE)(
+// Quarantined on Intel macOS (task 98b167aa): flaky there, green on rerun.
+const INTEL_MAC = process.platform === "darwin" && process.arch === "x64";
+
+it.skipIf(!LIVE || INTEL_MAC)(
   "runs an office call from a real OpenCode bash tool and refuses a process outside its server",
   async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-abo-"));
