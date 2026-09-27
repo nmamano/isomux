@@ -1557,6 +1557,9 @@ export type UnavailableEngines = Partial<
   Record<AgentBackendType, "needs_linux">
 >;
 
+// Office features this host cannot run. Apps need systemd (server/app-hosting.ts).
+export type UnavailableFeatures = Partial<Record<"apps", "needs_linux">>;
+
 export type ServerMessage =
   | { type: "api_token_log_entry"; tokenId: string; entry: ApiTokenLogEntry }
   | {
@@ -1573,6 +1576,7 @@ export type ServerMessage =
       // Engines this office's host cannot run, with the reason. Absent on
       // older servers, where every engine is available.
       unavailableEngines?: UnavailableEngines;
+      unavailableFeatures?: UnavailableFeatures;
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions

@@ -467,9 +467,9 @@ export class FakeBackend implements Backend {
     return this.cfg.isAuthError ? this.cfg.isAuthError(text) : false;
   }
 
-  getLoginInstructions(_opts?: {
+  async getLoginInstructions(_opts?: {
     env?: { [key: string]: string | undefined };
-  }): LoginInstructions {
+  }): Promise<LoginInstructions> {
     const configured = this.cfg.loginInstructions;
     if (!configured)
       return {

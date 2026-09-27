@@ -206,6 +206,10 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     }
     expect(BROWSER_ABSOLUTE_PATHS).toContain("/usr/bin/google-chrome");
     expect(BROWSER_ABSOLUTE_PATHS).toContain("/snap/bin/chromium");
+    // macOS installs Chrome as an app bundle, off PATH.
+    expect(BROWSER_ABSOLUTE_PATHS).toContain(
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    );
     expect(BROWSER_ABSOLUTE_PATHS.every((p) => p.startsWith("/"))).toBe(true);
   });
 
@@ -345,3 +349,30 @@ describe("preview-capture: happy path + concurrency", () => {
     expect(tmpLeftovers()).toEqual([]);
   });
 });
+
+// A real browser run, found by the production lookup. Opt-in, because most
+// machines that run the suite have no Chrome; the macOS CI job turns it on.
+describe.skipIf(process.env.ISOMUX_TEST_REAL_PREVIEW !== "1")(
+  "preview-capture: installed browser",
+  () => {
+    it("captures a local page with the browser this machine has", async () => {
+      const server = Bun.serve({
+        port: 0,
+        hostname: "127.0.0.1",
+        fetch: () =>
+          new Response("<h1>preview</h1>", {
+            headers: { "content-type": "text/html" },
+          }),
+      });
+      try {
+        const r = await capturePreview({
+          url: `http://127.0.0.1:${server.port}/`,
+        });
+        if (!r.ok) throw new Error(`expected ok, got ${r.code}: ${r.error}`);
+        expect(r.png.subarray(1, 4).toString()).toBe("PNG");
+      } finally {
+        void server.stop(true);
+      }
+    }, 30_000);
+  },
+);

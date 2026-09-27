@@ -527,6 +527,7 @@ describe("onboarding by host platform", () => {
     expect(receptionist.permissionMode).toBe("bypassPermissions");
     expect(agents.map((a) => a.name)).toContain(OPENCODE_WELCOME);
     expect(fullState.unavailableEngines).toEqual({});
+    expect(fullState.unavailableFeatures).toEqual({});
   });
 
   it("macOS seeds a Claude Receptionist with the same permission mode and no Free Welcome Agent", async () => {
@@ -544,5 +545,6 @@ describe("onboarding by host platform", () => {
       expect(agent.customInstructions).not.toContain(OPENCODE_WELCOME);
     }
     expect(fullState.unavailableEngines).toEqual({ opencode: "needs_linux" });
+    expect(fullState.unavailableFeatures).toEqual({ apps: "needs_linux" });
   });
 });

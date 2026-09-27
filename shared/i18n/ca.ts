@@ -1659,6 +1659,8 @@ Coses que pots fer per ell:
   "apps.previewsOn": "vistes prèvies activades",
   "apps.previewsOff": "vistes prèvies desactivades",
   "apps.empty": "Encara no hi ha apps.",
+  "apps.unavailable.needsLinux":
+    "L'allotjament d'apps necessita Linux amb systemd, així que no està disponible en aquest ordinador.",
   "apps.loadFailed": "No s'han pogut carregar les apps.",
   "apps.deleteFailed": "No s'ha pogut eliminar.",
   "apps.logReadFailed": "No s'ha pogut llegir el registre.",

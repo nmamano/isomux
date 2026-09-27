@@ -261,7 +261,7 @@ describe("provider auth affordances", () => {
         },
       });
       const { mgr, agentId } = await harness({ backendType: "claude", fake });
-      const instructions = claudeBackend.getLoginInstructions({
+      const instructions = await claudeBackend.getLoginInstructions({
         env: mgr.buildEnvForUserId("user-a"),
       });
       expect(instructions.kind).toBe("already_authed");

@@ -533,6 +533,7 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
   }
 
   const deps = (over: Partial<AppsDeps>): AppsDeps => ({
+    appHostingUnsupportedReason: () => null,
     list: () => [record],
     get: () => record,
     register: () => record,

@@ -95,7 +95,7 @@ import {
   claudeSessionFileExists,
 } from "../cwd-utils.ts";
 import {
-  isClaudeCodeAuthenticated,
+  claudeSignInState,
   isClaudeCloudSelected,
   isClaudeCodeInstalled,
 } from "./claude-install-check.ts";
@@ -134,8 +134,8 @@ Once complete, it takes effect immediately for all Isomux agents.
 Alternative: add \`ANTHROPIC_API_KEY\` under Settings → You → Individual connections, then \`/clear\`.`;
 
 // Surfaced when an auth-error fires (or the user types /login) but the
-// office already has a valid Claude auth (credentials.json present, or
-// ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
+// office already has a valid Claude auth (credentials.json or a macOS Keychain
+// login present, or ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
 const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
 const LOGIN_COMMAND = `claude`;
@@ -1689,15 +1689,16 @@ export function createClaudeBackend(
       return AUTH_ERROR_PATTERNS.test(text);
     },
 
-    getLoginInstructions(opts?: {
+    async getLoginInstructions(opts?: {
       env?: { [key: string]: string | undefined };
-    }): LoginInstructions {
+    }): Promise<LoginInstructions> {
       // Short-circuit: if the office is already signed in (credentials.json
-      // present, API key, or cloud provider selected), the user can /clear
-      // a dead session - no walkthrough needed. Symmetric with Codex's
-      // ALREADY_AUTHED hint. The check honors the agent's merged env so
-      // managed ANTHROPIC_API_KEY counts as authed.
-      if (isClaudeCodeAuthenticated(opts?.env)) {
+      // present, a macOS Keychain login, API key, or cloud provider selected),
+      // the user can /clear a dead session - no walkthrough needed. Symmetric
+      // with Codex's ALREADY_AUTHED hint. The check honors the agent's merged
+      // env so managed ANTHROPIC_API_KEY counts as authed. An "unknown" answer
+      // gets the walkthrough below.
+      if ((await claudeSignInState(opts?.env)) === "signed_in") {
         return {
           kind: "already_authed",
           cardEligible: false,

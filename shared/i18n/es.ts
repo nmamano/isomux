@@ -1662,6 +1662,8 @@ Cosas que puedes hacer por él:
   "apps.previewsOn": "vistas previas activadas",
   "apps.previewsOff": "vistas previas desactivadas",
   "apps.empty": "Aún no hay apps.",
+  "apps.unavailable.needsLinux":
+    "El alojamiento de apps necesita Linux con systemd, así que no está disponible en este ordenador.",
   "apps.loadFailed": "No se pudieron cargar las apps.",
   "apps.deleteFailed": "No se pudo eliminar.",
   "apps.logReadFailed": "No se pudo leer el registro.",

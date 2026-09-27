@@ -761,21 +761,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
           }
         }
         if (ev.status !== "completed") {
-          const errorText = ev.error ?? `Run stopped: ${ev.status}.`;
-          writeLog(active, "error", errorText);
-          if (getBackend(active.agentType).detectAuthError(errorText)) {
-            // Cronjob runs have no chat desk; surface the text portion of the
-            // login hint and drop the companion terminal-command - there's
-            // nowhere for a [Copy to terminal] card to render.
-            writeLog(
-              active,
-              "system",
-              getBackend(active.agentType).getLoginInstructions({
-                env: bestEffortRunEnv(active),
-                modelFamily: active.modelFamily,
-              }).text,
-            );
-          }
+          // consumeUntilTurnCompleted adds the login hint before it
+          // finalizes the run.
+          writeLog(active, "error", ev.error ?? `Run stopped: ${ev.status}.`);
         }
         break;
       }
@@ -813,20 +801,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
         break;
       }
       case "error": {
+        // consumeUntilTurnCompleted adds the login hint before it finalizes
+        // the run.
         writeLog(active, "error", ev.message);
-        if (getBackend(active.agentType).detectAuthError(ev.message)) {
-          // Cronjob runs have no chat desk; surface the text portion of the
-          // login hint and drop the companion terminal-command - there's
-          // nowhere for a [Copy to terminal] card to render.
-          writeLog(
-            active,
-            "system",
-            getBackend(active.agentType).getLoginInstructions({
-              env: bestEffortRunEnv(active),
-              modelFamily: active.modelFamily,
-            }).text,
-          );
-        }
         break;
       }
     }
@@ -988,11 +965,17 @@ How to answer questions about Isomux itself: the source lives at https://github.
             ev.status === "completed"
               ? null
               : (ev.error ?? `Run stopped: ${ev.status}`);
+          if (ev.status !== "completed")
+            await writeLoginHintIfAuthError(
+              active,
+              ev.error ?? `Run stopped: ${ev.status}.`,
+            );
           finalizeRun(active, status, errorReason);
           return;
         }
         if (ev.kind === "error") {
           // processNormalizedEvent already wrote the error LogEntry; terminate.
+          await writeLoginHintIfAuthError(active, ev.message);
           finalizeRun(active, "failed", ev.message);
           return;
         }
@@ -1010,6 +993,32 @@ How to answer questions about Isomux itself: the source lives at https://github.
       );
       writeLog(active, "error", `Stream error: ${errMessage(err)}`);
       finalizeRun(active, "failed", `Stream error: ${errMessage(err)}`);
+    }
+  }
+
+  // Cronjob runs have no chat desk; surface the text portion of the login hint
+  // and drop the companion terminal-command - there's nowhere for a [Copy to
+  // terminal] card to render. The hint belongs to this run, so nothing is
+  // written once the run is gone (a hard timeout can finalize it during the
+  // await), and a failed lookup writes nothing.
+  async function writeLoginHintIfAuthError(
+    active: ActiveRun,
+    errorText: string,
+  ): Promise<void> {
+    const backend = getBackend(active.agentType);
+    if (!backend.detectAuthError(errorText)) return;
+    try {
+      const instructions = await backend.getLoginInstructions({
+        env: bestEffortRunEnv(active),
+        modelFamily: active.modelFamily,
+      });
+      if (activeRuns.get(active.runId) !== active) return;
+      writeLog(active, "system", instructions.text);
+    } catch (err) {
+      console.error(
+        `Cronjob run ${active.runId} login hint failed:`,
+        errMessage(err),
+      );
     }
   }
 

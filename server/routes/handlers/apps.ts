@@ -71,6 +71,8 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 export interface AppsDeps {
+  // Why this host cannot run apps, or null when it can (server/app-hosting.ts).
+  appHostingUnsupportedReason(): string | null;
   list(): AppRecord[];
   get(name: string): AppRecord | null;
   register(input: {
@@ -238,7 +240,15 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   registry_corrupt: 500,
   persist_failed: 500,
   supervisor_failed: 500,
+  apps_not_supported: 501,
 };
+
+// Answered first by every route that would change or run an app, so a host
+// that cannot run apps makes no registry write and no supervisor call.
+function refuseUnsupportedHost(deps: AppsDeps) {
+  const reason = deps.appHostingUnsupportedReason();
+  return reason === null ? null : fail(501, "apps_not_supported", reason);
+}
 
 export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
   // toWire with this office's address rule applied, so no call site can build
@@ -305,6 +315,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     },
 
     "apps.register": (ctx) => {
+      const refused = refuseUnsupportedHost(deps);
+      if (refused) return refused;
       const body = (ctx.body ?? {}) as Partial<AppRegisterReq>;
       if (typeof body.name !== "string") {
         return fail(400, "invalid_name", "name is required");
@@ -385,6 +397,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // and its data. Everything about it is shaped by one fact: the registry
     // write is the commit point, and past it the update HAS happened.
     "apps.update": (ctx) => {
+      const refused = refuseUnsupportedHost(deps);
+      if (refused) return refused;
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       // Inside the try from the first registry touch onward, like every other
       // handler here: a corrupt registry must answer `registry_corrupt`, not an
@@ -685,6 +699,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     },
 
     "apps.logs": (ctx) => {
+      const refused = refuseUnsupportedHost(deps);
+      if (refused) return refused;
       try {
         const record = deps.get(ctx.params.name);
         if (!record) return fail(404, "not_found");
@@ -757,6 +773,8 @@ function actionHandler(
   act: (name: string) => void,
 ): RouteHandler {
   return (ctx) => {
+    const refused = refuseUnsupportedHost(deps);
+    if (refused) return refused;
     try {
       const record = deps.get(ctx.params.name);
       if (!record) return fail(404, "not_found");

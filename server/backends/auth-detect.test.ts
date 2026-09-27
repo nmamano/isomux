@@ -73,16 +73,16 @@ describe("detectAuthError", () => {
 });
 
 describe("getLoginInstructions - already-authed short-circuit", () => {
-  it("claudeBackend: ANTHROPIC_API_KEY in env -> /clear hint, no command cards", () => {
-    const r = claudeBackend.getLoginInstructions({
+  it("claudeBackend: ANTHROPIC_API_KEY in env -> /clear hint, no command cards", async () => {
+    const r = await claudeBackend.getLoginInstructions({
       env: { ANTHROPIC_API_KEY: "sk-ant-test" },
     });
     expect(r.commands).toBeUndefined();
     expect(r.text).toMatch(/\/clear/i);
   });
 
-  it("codexBackend: OPENAI_API_KEY in env -> /clear hint, no command cards", () => {
-    const r = codexBackend.getLoginInstructions({
+  it("codexBackend: OPENAI_API_KEY in env -> /clear hint, no command cards", async () => {
+    const r = await codexBackend.getLoginInstructions({
       env: { OPENAI_API_KEY: "sk-test" },
     });
     expect(r.commands).toBeUndefined();

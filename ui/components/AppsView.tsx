@@ -604,8 +604,15 @@ export function AppsView({
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { apps, appsLoaded, appsRevision, isMobile, hydrationEpoch, agents } =
-    useAppState();
+  const {
+    apps,
+    appsLoaded,
+    appsRevision,
+    isMobile,
+    hydrationEpoch,
+    agents,
+    unavailableFeatures,
+  } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
   const features = useFeatures();
@@ -868,6 +875,21 @@ export function AppsView({
         </div>
       </div>
 
+      {unavailableFeatures.apps !== undefined && (
+        <div
+          role="note"
+          style={{
+            padding: "8px 16px",
+            background: "var(--bg-subtle)",
+            borderBottom: "1px solid var(--border-subtle)",
+            color: "var(--text-secondary)",
+            fontSize: 12,
+            flexShrink: 0,
+          }}
+        >
+          {t("apps.unavailable.needsLinux")}
+        </div>
+      )}
       {error && (
         <div
           style={{

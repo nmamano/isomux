@@ -183,6 +183,8 @@ API failures use JSON with an `error` object:
 
 Use the stable `code` for program logic. Show `message` to a person, and follow `resolution` when an agent can recover.
 
+App hosting needs Linux with systemd. On any other host, such as a macOS local office, the app routes that register, change, start, stop, restart or read the logs of an app return `501 apps_not_supported`. Listing and deleting apps still work.
+
 ## Desktop Chrome browser control
 
 `GET /api/me/browser` reports the browser owner, extension version, paired state and online state. There is no backend selector. `PATCH /api/me/browser` is retired: authenticated requests receive JSON 404. `POST /api/me/browser/pair` creates a five-minute code; `replace: true` permits replacement. `DELETE /api/me/browser` revokes pairing. `GET /api/me/browser/extension.zip` downloads the extension. The retained routes use the authenticated member's `user:self` capability; agent tokens cannot use them.

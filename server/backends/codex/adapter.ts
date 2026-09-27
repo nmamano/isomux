@@ -3161,9 +3161,9 @@ export const codexBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(opts?: {
+  async getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
-  }): LoginInstructions {
+  }): Promise<LoginInstructions> {
     if (isCodexAuthenticated(opts?.env)) {
       return {
         kind: "already_authed",

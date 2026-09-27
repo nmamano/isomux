@@ -76,12 +76,19 @@ interface BackupDeps {
   now(): number;
   spawn(argv: string[]): Subprocess;
   availableBytes(dir: string): number;
+  // Defaults to asking `tar --version`.
+  tarFlavor?(): Promise<TarFlavor>;
 }
 
 interface Subprocess {
   exited: Promise<number>;
+  stdout: ReadableStream<Uint8Array>;
   stderr: ReadableStream<Uint8Array>;
 }
+
+// GNU tar on Linux; bsdtar (libarchive) is the macOS system tar. They differ in
+// the options below and in what a non-zero exit means.
+type TarFlavor = "gnu" | "bsd";
 
 const DEFAULT_CONFIG: BackupConfig = {
   backupDir: BACKUP_DIR,
@@ -94,12 +101,41 @@ const DEFAULT_CONFIG: BackupConfig = {
 
 const DEFAULT_DEPS: BackupDeps = {
   now: () => Date.now(),
-  spawn: (argv) => Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" }),
+  spawn: (argv) => Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" }),
   availableBytes: (dir) => {
     const fs = statfsSync(dir);
-    return Number(fs.bavail) * Number(fs.bsize);
+    // Bun 1.3.11 on Intel macOS returns statfs with its fields shifted
+    // (bsize 0), checked 2026-09-26. df gives the same number portably.
+    if (Number(fs.bsize) > 0) return Number(fs.bavail) * Number(fs.bsize);
+    return dfAvailableBytes(dir);
   },
 };
+
+export function dfAvailableBytes(dir: string): number {
+  const df = Bun.spawnSync(["df", "-Pk", dir], { stderr: "pipe" });
+  const kib = Number(df.stdout.toString().trim().split("\n").at(-1)?.split(/\s+/)[3]);
+  if (df.exitCode !== 0 || !Number.isFinite(kib))
+    throw new Error(
+      `could not read free space: df exit ${df.exitCode}: ${df.stderr.toString().trim()}`,
+    );
+  return kib * 1024;
+}
+
+async function detectTarFlavor(): Promise<TarFlavor> {
+  const tar = Bun.spawn(["tar", "--version"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const [version] = await Promise.all([
+    new Response(tar.stdout).text(),
+    tar.exited,
+  ]);
+  if (/bsdtar|libarchive/.test(version)) return "bsd";
+  if (/GNU tar/.test(version)) return "gnu";
+  throw new Error(
+    `unsupported tar: ${version.split("\n")[0] || "no version output"}`,
+  );
+}
 
 interface VerifiedBackup {
   file: string;
@@ -228,7 +264,14 @@ function readVerifiedBackup(dir: string, file: string): VerifiedBackup | null {
     const marker = JSON.parse(
       readFileSync(markerPath(path), "utf8"),
     ) as VerificationMarker;
-    if (marker.size !== stat.size || marker.mtimeMs !== stat.mtimeMs)
+    // A 0-byte archive is never a backup, whatever its marker says. Older
+    // releases verified such files on macOS, where bsdtar lists them as
+    // empty archives.
+    if (
+      stat.size === 0 ||
+      marker.size !== stat.size ||
+      marker.mtimeMs !== stat.mtimeMs
+    )
       return null;
     return { file, path, size: stat.size, mtimeMs: stat.mtimeMs };
   } catch {
@@ -274,10 +317,16 @@ function partialPath(dir: string, now: number): string {
   );
 }
 
+// A state root named like a glob (".isomux[1]") must match only itself, or
+// its credential exclusions would miss. Both tars honor a backslash escape.
+function escapeGlob(name: string): string {
+  return name.replace(/[\\*?[\]]/g, "\\$&");
+}
+
 function archiveExclusionArgs(stateRootName: string): string[] {
   return BACKUP_EXCLUSIONS.flatMap((entry) =>
     entry
-      .archivePatterns(stateRootName)
+      .archivePatterns(escapeGlob(stateRootName))
       .map((pattern) => `--exclude=${pattern}`),
   );
 }
@@ -307,13 +356,35 @@ async function runTar(
 ): Promise<{
   exitCode: number;
   stderr: string;
+  firstLine: string;
 }> {
   const proc = deps.spawn(argv);
-  const [exitCode, stderr] = await Promise.all([
+  const [exitCode, stderr, firstLine] = await Promise.all([
     proc.exited,
     new Response(proc.stderr).text(),
+    readFirstLine(proc.stdout),
   ]);
-  return { exitCode, stderr: stderr.trim().slice(0, 500) };
+  return { exitCode, stderr: stderr.trim().slice(0, 500), firstLine };
+}
+
+// Reads the whole stream, so a long listing never blocks tar on a full pipe,
+// but keeps only its first line.
+async function readFirstLine(
+  stream: ReadableStream<Uint8Array>,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  let head = "";
+  let complete = false;
+  for await (const chunk of stream) {
+    if (complete) continue;
+    head += decoder.decode(chunk, { stream: true });
+    const end = head.indexOf("\n");
+    if (end >= 0) {
+      head = head.slice(0, end);
+      complete = true;
+    }
+  }
+  return head;
 }
 
 function writeMarker(archivePath: string): void {
@@ -362,11 +433,22 @@ function writeInvalidMarker(archivePath: string): void {
   );
 }
 
-async function verifyArchive(path: string, deps: BackupDeps): Promise<void> {
+async function verifyArchive(
+  path: string,
+  stateRootName: string,
+  deps: BackupDeps,
+): Promise<void> {
   const checked = await runTar(["tar", "-tzf", path], deps);
   if (checked.exitCode !== 0) {
     throw new Error(
       `archive verification exit ${checked.exitCode}: ${checked.stderr || "no error text"}`,
+    );
+  }
+  // bsdtar lists an empty file as an empty archive and exits 0. A real backup
+  // starts with the state root directory.
+  if (checked.firstLine !== `${stateRootName}/`) {
+    throw new Error(
+      `archive verification: first entry is ${JSON.stringify(checked.firstLine)}, expected "${stateRootName}/"`,
     );
   }
 }
@@ -384,7 +466,7 @@ async function certifyUnmarkedArchives(
     .sort((a, b) => statSync(b.path).mtimeMs - statSync(a.path).mtimeMs);
   for (const candidate of candidates) {
     try {
-      await verifyArchive(candidate.path, deps);
+      await verifyArchive(candidate.path, config.stateRootName, deps);
       writeMarker(candidate.path);
     } catch (err) {
       writeInvalidMarker(candidate.path);
@@ -443,6 +525,7 @@ async function runBackup(
     );
   }
 
+  const flavor = await (deps.tarFlavor ?? detectTarFlavor)();
   const now = deps.now();
   const partial = partialPath(config.backupDir, now);
   const final = allocateFinalPath(config.backupDir, now);
@@ -456,8 +539,9 @@ async function runBackup(
         "tar",
         "-czf",
         partial,
-        "--anchored",
-        "--wildcards",
+        // bsdtar rejects these two, and its exclusions are always globs.
+        // Unanchored at the start, its patterns can only exclude more.
+        ...(flavor === "gnu" ? ["--anchored", "--wildcards"] : []),
         ...archiveExclusionArgs(config.stateRootName),
         "-C",
         config.stateRootParent,
@@ -465,7 +549,9 @@ async function runBackup(
       ],
       deps,
     );
-    if (created.exitCode >= 2) {
+    // GNU tar exits 1 only when a file changed while it was read. bsdtar
+    // exits 1 for every error, so any non-zero bsdtar exit is a failure.
+    if (created.exitCode >= 2 || (flavor === "bsd" && created.exitCode !== 0)) {
       throw new Error(
         `tar exit ${created.exitCode}: ${created.stderr || "no error text"}`,
       );
@@ -476,7 +562,7 @@ async function runBackup(
       );
     }
     chmodSync(partial, 0o600);
-    await verifyArchive(partial, deps);
+    await verifyArchive(partial, config.stateRootName, deps);
     renameSync(partial, final);
     writeMarker(final);
     pruneVerified(config);

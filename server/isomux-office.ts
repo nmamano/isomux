@@ -218,6 +218,10 @@ import {
 } from "./app-supervisor.ts";
 import { appTokens } from "./app-tokens.ts";
 import { createContainerAppSupervisor } from "./container-app-supervisor.ts";
+import {
+  appHostingUnsupportedReason,
+  createUnavailableAppSupervisor,
+} from "./app-hosting.ts";
 import { appMessageLimiter } from "./app-message-limits.ts";
 import { reconcileAppTokens } from "./app-token-reconcile.ts";
 import { reconcileAppUrls } from "./app-url-reconcile.ts";
@@ -437,6 +441,13 @@ function openCodeRunsOnHost(): boolean {
   return openCodeUnsupportedReason(hostPlatform) === null;
 }
 
+// The container supervisor runs apps without systemd; every other supervisor
+// needs a Linux host.
+function appHostingUnsupported(): string | null {
+  if (process.env.ISOMUX_APP_SUPERVISOR === "container") return null;
+  return appHostingUnsupportedReason(hostPlatform);
+}
+
 let extensionService: BrowserExtensionService | undefined;
 let extensionSessions: ExtensionBrowserSessions | undefined;
 export function mayUseExtension(member: string, agentId: string): boolean {
@@ -459,14 +470,16 @@ function createManagers(startOpts: StartServerOpts): void {
   // office env-file provider. createProductionCronjobManager() wires the real
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
+  hostPlatform = startOpts.hostPlatform ?? process.platform;
   appSupervisor =
     startOpts.appSupervisor ??
     (process.env.ISOMUX_APP_SUPERVISOR === "container"
       ? createContainerAppSupervisor()
-      : productionAppSupervisor);
+      : appHostingUnsupported() !== null
+        ? createUnavailableAppSupervisor()
+        : productionAppSupervisor);
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   welcomeModelTiming = startOpts.welcomeModelTiming ?? WELCOME_MODEL_TIMING;
-  hostPlatform = startOpts.hostPlatform ?? process.platform;
   providerAccountManager = new ProviderAccountManager(
     (userId, accounts) => {
       liveEmit("provider_accounts_updated", { accounts }, { userId });
@@ -2256,6 +2269,7 @@ function buildExecutorDeps(
   // list.
   register(
     appsHandlers({
+      appHostingUnsupportedReason: appHostingUnsupported,
       list: () => appRegistry.list(),
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
@@ -4530,6 +4544,8 @@ function sendProjectedFullState(
       unavailableEngines: openCodeRunsOnHost()
         ? {}
         : { opencode: "needs_linux" },
+      unavailableFeatures:
+        appHostingUnsupported() === null ? {} : { apps: "needs_linux" },
     } satisfies ServerMessage),
   );
   if (options?.replayLogsForVisible) {
@@ -6671,9 +6687,14 @@ export async function startServer(
   // After the managers (the supervisor is assigned in createManagers) and
   // before the listener: an app's token should be settled before anything can
   // present one.
-  reconcileAppTokensAtBoot();
-  // Then their addresses, on the units the pass above may just have written.
-  reconcileAppUrlsAtBoot();
+  const appsOff = appHostingUnsupported();
+  if (appsOff !== null) {
+    console.log(`[apps] app hosting is off: ${appsOff}`);
+  } else {
+    reconcileAppTokensAtBoot();
+    // Then their addresses, on the units the pass above may just have written.
+    reconcileAppUrlsAtBoot();
+  }
   executorDeps = buildExecutorDeps(opts.getBackupStatus, opts.installKind);
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

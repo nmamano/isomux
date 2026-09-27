@@ -176,8 +176,8 @@ import {
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import {
+  claudeSignInState,
   isClaudeCloudSelected,
-  isClaudeCodeAuthenticated,
 } from "./backends/claude-install-check.ts";
 import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
 import type {
@@ -532,7 +532,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       (value) => backend.detectAuthError(value),
     );
   }
-  function agentIsKnownUnauthenticated(managed: ManagedAgent): boolean {
+  async function agentIsKnownUnauthenticated(
+    managed: ManagedAgent,
+  ): Promise<boolean> {
     // Credential state must gate topic-output sniffing. The per-turn auth
     // notice cannot: topic generation starts at send time, before the backend
     // can emit that notice, so the first-run ordering is racy.
@@ -542,14 +544,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     } catch {
       return false;
     }
+    // An "unknown" Claude answer is not known-unauthenticated.
     if (managed.info.agentType === "claude")
-      return !isClaudeCodeAuthenticated(env);
+      return (await claudeSignInState(env)) === "signed_out";
     if (managed.info.agentType === "codex") return !isCodexAuthenticated(env);
     return false;
   }
-  function agentLoginInstructions(
+  async function agentLoginInstructions(
     managed: ManagedAgent | undefined,
-  ): LoginInstructions {
+  ): Promise<LoginInstructions> {
     if (!managed)
       return {
         kind: "login",
@@ -570,11 +573,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     } catch {
       env = undefined;
     }
-    return getBackend(managed.info.agentType).getLoginInstructions({
-      env,
-      environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-      modelFamily: managed.info.modelFamily,
-    });
+    try {
+      return await getBackend(managed.info.agentType).getLoginInstructions({
+        env,
+        environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+        modelFamily: managed.info.modelFamily,
+      });
+    } catch (err) {
+      // The sign-in state is unknown: give the generic guidance.
+      console.error(
+        `[auth] login instructions failed for ${managed.info.agentType}:`,
+        errMessage(err),
+      );
+      return { kind: "login", cardEligible: false, text: LOGIN_INSTRUCTIONS };
+    }
   }
 
   // Emit a system log entry with the login/install text, plus the backend's
@@ -636,7 +648,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       void emitClaudeAuthInstructions(agentId, managed);
       return;
     }
-    void emitLoginInstructions(agentId, agentLoginInstructions(managed));
+    void agentLoginInstructions(managed).then((instructions) =>
+      emitLoginInstructions(agentId, instructions),
+    );
   }
 
   async function emitClaudeAuthInstructions(
@@ -3457,12 +3471,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           : {}),
       });
-      if (
+      const signedOutNotice =
         agents.has(agentId) &&
         managed.topicGenToken === startToken &&
         detectAgentAuthError(managed, text) &&
-        agentIsKnownUnauthenticated(managed)
-      ) {
+        (await agentIsKnownUnauthenticated(managed));
+      if (signedOutNotice && agents.has(agentId) && managed.topicGenToken === startToken) {
         // A signed-out backend can return its auth notice as a successful
         // one-shot result. Treat it like the quiet auth-error catch below,
         // rather than publishing provider copy as the topic. A null topic
@@ -5574,17 +5588,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     openChoiceInteraction,
     cancelChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed, username) => {
-      const instructions = agentLoginInstructions(managed);
-      if (instructions.kind === "already_authed") {
-        void emitAlreadySignedInAffordance(
-          agentId,
-          managed,
-          instructions,
-          username,
-        );
-        return;
-      }
-      void emitLoginInstructions(agentId, instructions, username);
+      void agentLoginInstructions(managed).then((instructions) => {
+        if (managed && agents.get(agentId) !== managed) return;
+        if (instructions.kind === "already_authed") {
+          void emitAlreadySignedInAffordance(
+            agentId,
+            managed,
+            instructions,
+            username,
+          );
+          return;
+        }
+        void emitLoginInstructions(agentId, instructions, username);
+      });
     },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     createSession,

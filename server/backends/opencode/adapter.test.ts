@@ -241,7 +241,7 @@ describe("OpenCode deterministic tracer", () => {
       status: "failed",
       error: "OpenCode authentication is not configured.",
     });
-    expect(backend.getLoginInstructions()).toEqual({
+    expect(await backend.getLoginInstructions()).toEqual({
       kind: "login",
       cardEligible: false,
       text: "Add `OPENCODE_API_KEY` under Settings → You → Individual connections, then `/clear`, or use an agent with the Claude or Codex backend.",

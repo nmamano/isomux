@@ -471,6 +471,97 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     fake.sessions.forEach((session) => session.close());
   });
 
+  it("writes the login hint for an auth failure before it finalizes the run", async () => {
+    const fake = new FakeBackend({
+      isAuthError: (text) => text.includes("401"),
+      loginInstructions: { kind: "login", text: "sign-in hint" },
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.push({ kind: "error", message: "401 unauthorized" }),
+      },
+    });
+    const events: CronEvent[] = [];
+    const statusAtHint: Array<string | undefined> = [];
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        eventSink: (event) => {
+          events.push(event);
+          if (event.type === "log_entry" && event.entry.kind === "system")
+            statusAtHint.push(mgr.findRun(job.id, run.id)?.status);
+        },
+      }),
+    );
+    const job = mgr.addCronjob(intervalInput("AuthHint"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      const deadline = Date.now() + 2000;
+      while (
+        mgr.findRun(job.id, run.id)?.status === "running" &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(mgr.findRun(job.id, run.id)?.status).toBe("failed");
+      const entries = events.flatMap((event) =>
+        event.type === "log_entry" ? [event.entry] : [],
+      );
+      expect(
+        entries.map((entry) => [entry.kind, entry.content]).slice(-2),
+      ).toEqual([
+        ["error", "401 unauthorized"],
+        ["system", "sign-in hint"],
+      ]);
+      expect(statusAtHint).toEqual(["running"]);
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
+  it("drops a login hint that resolves after the run was torn down", async () => {
+    let releaseHint: () => void = () => {};
+    const hintRequested = Promise.withResolvers<void>();
+    const fake = new FakeBackend({
+      isAuthError: (text) => text.includes("401"),
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.push({ kind: "error", message: "401 unauthorized" }),
+      },
+    });
+    fake.getLoginInstructions = () => {
+      hintRequested.resolve();
+      return new Promise((resolve) => {
+        releaseHint = () =>
+          resolve({ kind: "login", cardEligible: false, text: "late hint" });
+      });
+    };
+    const timers = fakeScheduler();
+    const { events, sink } = capture();
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        eventSink: sink,
+        scheduler: timers.scheduler,
+      }),
+    );
+    const job = mgr.addCronjob(intervalInput("LateHint"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    try {
+      await hintRequested.promise;
+      for (const timeout of timers.timeouts) timeout.fn();
+      expect(mgr.findRun(job.id, run.id)?.status).toBe("timed_out");
+      releaseHint();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const contents = events.flatMap((event) =>
+        event.type === "log_entry" ? [event.entry.content] : [],
+      );
+      expect(contents).not.toContain("late hint");
+      expect(mgr.findRun(job.id, run.id)?.status).toBe("timed_out");
+    } finally {
+      fake.sessions.forEach((session) => session.close());
+    }
+  });
+
   it("aborts and explains an interactive question request", async () => {
     const fake = new FakeBackend({
       session: {

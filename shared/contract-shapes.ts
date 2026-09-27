@@ -1012,7 +1012,10 @@ export type AppErrorCode =
   // created, and the same diagnosis rides on the success body as `startError`.
   // The code is for the control routes and delete, where nothing was created
   // and a failure is simply a failure.
-  | "supervisor_failed";
+  | "supervisor_failed"
+  // This host cannot run apps at all (no systemd: macOS). HTTP 501, and every
+  // route that would change or run an app answers it before any side effect.
+  | "apps_not_supported";
 
 // The wire contract for the disk-usage breakdown and the manual pruner. Defined
 // here rather than in the server modules so the route table and the

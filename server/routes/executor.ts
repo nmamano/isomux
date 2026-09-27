@@ -44,6 +44,7 @@ export type HandlerErrorStatus =
   | 422
   | 429
   | 500
+  | 501
   | 502;
 export type HandlerResult =
   | { kind: "json"; status?: number; body: unknown }

@@ -1632,6 +1632,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apps.previewsOn": "previews on",
   "apps.previewsOff": "previews off",
   "apps.empty": "No apps yet.",
+  "apps.unavailable.needsLinux":
+    "App hosting needs Linux with systemd, so it is not available on this computer.",
   "apps.loadFailed": "Could not load apps.",
   "apps.deleteFailed": "Could not delete.",
   "apps.logReadFailed": "Could not read the log.",

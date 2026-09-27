@@ -405,7 +405,7 @@ export function createOpenCodeTracerBackend(
       return text.includes(OPENCODE_AUTH_FAILURE);
     },
 
-    getLoginInstructions() {
+    async getLoginInstructions() {
       return {
         kind: "login",
         cardEligible: false,
@@ -678,7 +678,7 @@ export function createOpenCodeBackend(
     detectAuthError(text: string): boolean {
       return text.includes(OPENCODE_AUTH_FAILURE);
     },
-    getLoginInstructions() {
+    async getLoginInstructions() {
       return {
         kind: "login",
         cardEligible: false,

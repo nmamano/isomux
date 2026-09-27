@@ -42,6 +42,7 @@ import type {
   ProviderAccountWire,
   MembersChatMessage,
   UnavailableEngines,
+  UnavailableFeatures,
 } from "../shared/types.ts";
 import {
   type UserView,
@@ -223,6 +224,8 @@ export interface AppState {
   // Engines the office host cannot run (full_state). The engine and model
   // pickers show them as unavailable with the reason.
   unavailableEngines: UnavailableEngines;
+  // Office features the host cannot run (full_state). The Apps view explains.
+  unavailableFeatures: UnavailableFeatures;
 }
 
 type Action =
@@ -235,6 +238,7 @@ type Action =
       killedAgents: KilledAgentSummary[];
       interactions?: AgentChoiceInteraction[];
       unavailableEngines?: UnavailableEngines;
+      unavailableFeatures?: UnavailableFeatures;
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
@@ -468,6 +472,7 @@ export function reducer(state: AppState, action: Action): AppState {
         killedAgents: action.killedAgents,
         interactions: action.interactions ?? [],
         unavailableEngines: action.unavailableEngines ?? {},
+        unavailableFeatures: action.unavailableFeatures ?? {},
         currentRoomId,
         logs:
           holding && focusedId
@@ -1233,6 +1238,7 @@ export const initialState: AppState = {
   interactions: [],
   providerAccounts: [],
   unavailableEngines: {},
+  unavailableFeatures: {},
 };
 
 // Exported so a static render can supply a seeded state. The app itself

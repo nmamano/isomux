@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   backupStatusForTest,
+  dfAvailableBytes,
   isBackupPartialForTest,
   prepareBackupDirectoryForTest,
   runBackupOnceForTest,
@@ -28,10 +29,16 @@ function fixture() {
 interface Step {
   exitCode: number;
   stderr?: string;
+  // Defaults to a listing that starts with the fixture's state root.
+  stdout?: string;
   writeArchive?: boolean;
 }
 
-function deps(steps: Step[], availableBytes = 10_000) {
+function deps(
+  steps: Step[],
+  availableBytes = 10_000,
+  flavor: "gnu" | "bsd" = "gnu",
+) {
   const calls: string[][] = [];
   const partialModesBeforeWrite: number[] = [];
   return {
@@ -40,6 +47,7 @@ function deps(steps: Step[], availableBytes = 10_000) {
     impl: {
       now: () => Date.UTC(2026, 7, 13, 12),
       availableBytes: () => availableBytes,
+      tarFlavor: async () => flavor,
       spawn(argv: string[]) {
         calls.push(argv);
         const step = steps.shift();
@@ -51,6 +59,7 @@ function deps(steps: Step[], availableBytes = 10_000) {
         }
         return {
           exited: Promise.resolve(step.exitCode),
+          stdout: new Blob([step.stdout ?? ".isomux/\nstate.txt\n"]).stream(),
           stderr: new Blob([step.stderr ?? ""]).stream(),
         };
       },
@@ -80,7 +89,7 @@ const realDeps = {
   now: () => Date.UTC(2026, 7, 13, 12),
   availableBytes: () => 10_000_000,
   spawn: (argv: string[]) =>
-    Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" }),
+    Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" }),
 };
 
 function write(
@@ -384,5 +393,97 @@ describe("verified backup publication", () => {
     // The known-bad unchanged legacy archive is not walked again. The two calls
     // are only create + verify for the new archive.
     expect(retry.calls).toHaveLength(2);
+  });
+
+  test("an archive that does not list the state root never verifies", async () => {
+    const f = fixture();
+    const d = deps([
+      { exitCode: 0, writeArchive: true },
+      { exitCode: 0, stdout: "" },
+    ]);
+    expect(runBackupOnceForTest(config(f), d.impl)).rejects.toThrow(
+      /first entry is "", expected "\.isomux\/"/,
+    );
+    expect(finals(f.backupDir)).toEqual([]);
+  });
+
+  test("bsdtar gets no GNU-only options, and any non-zero bsdtar exit fails", async () => {
+    const f = fixture();
+    const ok = deps(
+      [{ exitCode: 0, writeArchive: true }, { exitCode: 0 }],
+      10_000,
+      "bsd",
+    );
+    await runBackupOnceForTest(config(f), ok.impl);
+    expect(ok.calls[0]).not.toContain("--anchored");
+    expect(ok.calls[0]).not.toContain("--wildcards");
+    expect(ok.calls[0]).toContain("--exclude=.isomux/tls/cert.key");
+
+    const failed = deps(
+      [{ exitCode: 1, stderr: "Couldn't open", writeArchive: true }],
+      10_000_000_000,
+      "bsd",
+    );
+    expect(runBackupOnceForTest(config(f), failed.impl)).rejects.toThrow(
+      /tar exit 1.*Couldn't open/,
+    );
+    expect(finals(f.backupDir)).toHaveLength(1);
+  });
+
+  test("a 0-byte archive with a marker is not a backup and gets replaced", async () => {
+    const f = fixture();
+    fs.mkdirSync(f.backupDir);
+    const empty = path.join(f.backupDir, "isomux-2026-08-13.tar.gz");
+    fs.writeFileSync(empty, "");
+    const stat = fs.statSync(empty);
+    fs.writeFileSync(
+      `${empty}.verified.json`,
+      `${JSON.stringify({ size: 0, mtimeMs: stat.mtimeMs })}\n`,
+    );
+    expect(
+      backupStatusForTest(config(f), Date.UTC(2026, 7, 13, 12)).lastBackupFile,
+    ).toBeNull();
+
+    const file = await runBackupOnceForTest(config(f), realDeps);
+    expect(file).toBe("isomux-2026-08-13-2.tar.gz");
+    expect(fs.existsSync(`${empty}.invalid.json`)).toBe(true);
+    expect(fs.readFileSync(path.join(extract(f, file), "state.txt"), "utf8")).toBe(
+      "state",
+    );
+  });
+
+  test("a state root named like a glob still omits its credentials", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-backup-test-"));
+    roots.push(root);
+    const f = {
+      root,
+      state: path.join(root, "office[1]"),
+      backupDir: path.join(root, "backups"),
+    };
+    write(f.state, "state.txt", "state");
+    write(f.state, "tls/cert.key", "SECRET\n");
+    write(f.state, "provider-homes/u-alice/claude/.credentials.json", "SECRET\n");
+
+    const file = await runBackupOnceForTest(config(f), realDeps);
+    const restored = extract(f, file);
+
+    expect(fs.readFileSync(path.join(restored, "state.txt"), "utf8")).toBe(
+      "state",
+    );
+    expect(fs.existsSync(path.join(restored, "tls/cert.key"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(restored, "provider-homes/u-alice/claude/.credentials.json"),
+      ),
+    ).toBe(false);
+  });
+
+  test("df reads free space for the statfs fallback", () => {
+    const available = dfAvailableBytes(os.tmpdir());
+    const statfs = fs.statfsSync(os.tmpdir());
+    const expected = Number(statfs.bavail) * Number(statfs.bsize);
+    expect(available).toBeGreaterThan(0);
+    if (expected > 0)
+      expect(Math.abs(available - expected)).toBeLessThan(expected / 10 + 1e8);
   });
 });

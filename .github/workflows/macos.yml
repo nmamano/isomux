@@ -50,6 +50,29 @@ jobs:
           "node_modules/@anthropic-ai/claude-agent-sdk-darwin-$arch/claude" --version
           bun node_modules/@openai/codex/bin/codex.js --version
 
+      # These features call macOS programs that differ from their Linux
+      # versions: bsdtar for backups, code signing for the compiled Codex
+      # safety hook, the Chrome app bundle for previews, and the Keychain for
+      # the Claude sign-in check.
+      - name: Run the tests for macOS-specific behavior
+        env:
+          ISOMUX_TEST_MAC_KEYCHAIN: "1"
+          ISOMUX_TEST_REAL_PREVIEW: "1"
+        run: >-
+          bun test server/backup.test.ts
+          server/backends/codex/safety-hook.test.ts
+          server/backends/codex/safety-hook-install.test.ts
+          server/test-support/preview-capture.test.ts
+          server/backends/claude-install-check.test.ts
+
+      # Codex lists a hook and reports its trust without a real login.
+      - name: Check that Codex trusts the installed safety hook
+        run: |
+          auth="$RUNNER_TEMP/codex-auth"
+          mkdir -p "$auth"
+          echo '{"OPENAI_API_KEY":"sk-isomux-ci-placeholder"}' > "$auth/auth.json"
+          ISOMUX_TEST_LIVE=1 ISOMUX_TEST_CODEX_AUTH_HOME="$auth" bun test server/backends/codex/safety-hook-install.live.test.ts
+
       - name: Boot the office and check that it answers HTTP
         env:
           ISOMUX_HOME: ${{ runner.temp }}/isomux-home

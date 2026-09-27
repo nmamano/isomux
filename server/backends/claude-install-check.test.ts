@@ -1,11 +1,16 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
 import {
+  authStatusFromCli,
+  claudeSignInState,
   isClaudeCodeAuthenticated,
   isClaudeCodeInstalled,
+  resetClaudeSignInProbesForTest,
+  runClaudeAuthStatus,
+  type ClaudeSignInState,
 } from "./claude-install-check.ts";
 
 const roots: string[] = [];
@@ -61,4 +66,199 @@ describe("Claude Code effective-environment probes", () => {
     expect(isClaudeCodeInstalled({ PATH: installed })).toBe(true);
     expect(isClaudeCodeInstalled({ PATH: absent })).toBe(false);
   });
+});
+
+describe("Claude sign-in state", () => {
+  beforeEach(() => resetClaudeSignInProbesForTest());
+
+  function probe(answers: Array<ClaudeSignInState | Error>) {
+    const calls: Array<{ [key: string]: string | undefined }> = [];
+    let clock = 0;
+    return {
+      calls,
+      advance(ms: number) {
+        clock += ms;
+      },
+      deps: {
+        platform: "darwin" as const,
+        now: () => clock,
+        runAuthStatus: async (env: { [key: string]: string | undefined }) => {
+          calls.push(env);
+          const answer = answers.shift() ?? "unknown";
+          if (answer instanceof Error) throw answer;
+          return answer;
+        },
+      },
+    };
+  }
+
+  it("keeps Linux on the credentials file and never asks the CLI", async () => {
+    const p = probe(["signed_in"]);
+    const env = { CLAUDE_CONFIG_DIR: tempDir() };
+    expect(await claudeSignInState(env, { ...p.deps, platform: "linux" })).toBe(
+      "signed_out",
+    );
+    expect(p.calls).toHaveLength(0);
+  });
+
+  it("does not ask the CLI when the credentials file exists", async () => {
+    const p = probe(["signed_out"]);
+    const dir = tempDir();
+    writeFileSync(join(dir, ".credentials.json"), "{}");
+    expect(await claudeSignInState({ CLAUDE_CONFIG_DIR: dir }, p.deps)).toBe(
+      "signed_in",
+    );
+    expect(p.calls).toHaveLength(0);
+  });
+
+  it("on macOS without the file, reports what the CLI says, and a failure as unknown", async () => {
+    for (const answer of [
+      "signed_in",
+      "signed_out",
+      "unknown",
+      new Error("spawn failed"),
+    ] as const) {
+      resetClaudeSignInProbesForTest();
+      const p = probe([answer]);
+      const env = { CLAUDE_CONFIG_DIR: tempDir() };
+      expect(await claudeSignInState(env, p.deps)).toBe(
+        answer instanceof Error ? "unknown" : answer,
+      );
+      expect(p.calls).toEqual([env]);
+    }
+  });
+
+  it("shares one probe per environment and asks again after the reuse window", async () => {
+    const p = probe(["signed_out", "signed_in"]);
+    const env = { CLAUDE_CONFIG_DIR: tempDir() };
+    const [first, second] = await Promise.all([
+      claudeSignInState(env, p.deps),
+      claudeSignInState({ ...env }, p.deps),
+    ]);
+    expect([first, second]).toEqual(["signed_out", "signed_out"]);
+    p.advance(14_000);
+    expect(await claudeSignInState(env, p.deps)).toBe("signed_out");
+    expect(p.calls).toHaveLength(1);
+    p.advance(1_000);
+    expect(await claudeSignInState(env, p.deps)).toBe("signed_in");
+    expect(p.calls).toHaveLength(2);
+  });
+
+  it("does not share an answer between environments that share a config dir", async () => {
+    const p = probe(["signed_in", "signed_out"]);
+    const dir = tempDir();
+    expect(
+      await claudeSignInState({ CLAUDE_CONFIG_DIR: dir, USER: "a" }, p.deps),
+    ).toBe("signed_in");
+    expect(
+      await claudeSignInState({ CLAUDE_CONFIG_DIR: dir, USER: "b" }, p.deps),
+    ).toBe("signed_out");
+    expect(p.calls).toHaveLength(2);
+  });
+
+  it("asks the bundled CLI, which reports an empty config dir as signed out", async () => {
+    const env = {
+      CLAUDE_CONFIG_DIR: tempDir(),
+      HOME: process.env.HOME,
+      PATH: process.env.PATH,
+    };
+    expect(await claudeSignInState(env, { platform: "darwin" })).toBe(
+      "signed_out",
+    );
+  });
+});
+
+describe("claude auth status result", () => {
+  const out = (loggedIn: unknown) => JSON.stringify({ loggedIn });
+
+  it("trusts only exit 0 with loggedIn true and exit 1 with loggedIn false", () => {
+    const exited = (exitCode: number) => ({ exitCode, signalCode: null });
+    expect(authStatusFromCli(exited(0), out(true))).toBe("signed_in");
+    expect(authStatusFromCli(exited(1), out(false))).toBe("signed_out");
+    for (const [exit, stdout] of [
+      [exited(0), out(false)],
+      [exited(1), out(true)],
+      [exited(2), out(false)],
+      [exited(143), out(false)],
+      [exited(0), "not json"],
+      [exited(1), ""],
+      [exited(1), "null"],
+      [exited(1), out("false")],
+      [{ exitCode: null, signalCode: "SIGTERM" }, out(false)],
+      [{ exitCode: 1, signalCode: "SIGKILL" }, out(false)],
+    ] as const)
+      expect(authStatusFromCli(exit, stdout)).toBe("unknown");
+  });
+
+  function fakeCli(body: string): string {
+    const path = join(tempDir(), "claude");
+    writeFileSync(path, `#!/bin/sh\n${body}\n`);
+    chmodSync(path, 0o700);
+    return path;
+  }
+
+  it("reads the exit and the output of a real process", async () => {
+    const cases: Array<[string, ClaudeSignInState]> = [
+      [`echo '${out(true)}'; exit 0`, "signed_in"],
+      [`echo '${out(false)}'; exit 1`, "signed_out"],
+      [`echo '${out(false)}'; exit 2`, "unknown"],
+      [`echo '${out(false)}'; kill -TERM $$`, "unknown"],
+    ];
+    for (const [body, expected] of cases)
+      expect(await runClaudeAuthStatus({}, fakeCli(body))).toBe(expected);
+  });
+
+  it("reports a probe killed by its timeout as unknown", async () => {
+    const cli = fakeCli(`echo '${out(false)}'; exec sleep 5`);
+    expect(await runClaudeAuthStatus({}, cli, 200)).toBe("unknown");
+  });
+});
+
+// Writes to the login Keychain, so it runs only where the macOS CI job opts in.
+describe.skipIf(
+  process.platform !== "darwin" || process.env.ISOMUX_TEST_MAC_KEYCHAIN !== "1",
+)("Claude sign-in state from the macOS Keychain", () => {
+  it("sees a Keychain login that has no credentials file", async () => {
+    resetClaudeSignInProbesForTest();
+    const dir = tempDir();
+    const service = `Claude Code-credentials-${new Bun.CryptoHasher("sha256")
+      .update(dir)
+      .digest("hex")
+      .slice(0, 8)}`;
+    const account = process.env.USER!;
+    const secret = JSON.stringify({
+      claudeAiOauth: {
+        accessToken: "sk-ant-oat01-isomux-test",
+        refreshToken: "sk-ant-ort01-isomux-test",
+        expiresAt: 4102444800000,
+        scopes: ["user:inference", "user:profile"],
+      },
+    });
+    const add = Bun.spawnSync([
+      "security",
+      "add-generic-password",
+      "-U",
+      "-a",
+      account,
+      "-s",
+      service,
+      "-w",
+      secret,
+    ]);
+    expect(add.exitCode).toBe(0);
+    try {
+      const env = { ...process.env, CLAUDE_CONFIG_DIR: dir };
+      expect(isClaudeCodeAuthenticated(env)).toBe(false);
+      expect(await claudeSignInState(env)).toBe("signed_in");
+    } finally {
+      Bun.spawnSync([
+        "security",
+        "delete-generic-password",
+        "-a",
+        account,
+        "-s",
+        service,
+      ]);
+    }
+  }, 30_000);
 });

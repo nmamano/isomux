@@ -44,7 +44,13 @@ omitted and the concrete recovery action.
   snapshot cannot catch half-written state. GNU tar's exit 1 ("file
   changed as we read it") is logged as a warning and the archive is kept;
   exit 2 or higher is a real failure and is recorded as one. Every archive is
-  then walked independently with `tar -tzf` before publication.
+  then walked independently with `tar -tzf` before publication, and its first
+  entry must be the state root directory.
+- **macOS:** the system tar there is bsdtar. It gets no `--anchored` or
+  `--wildcards` (it rejects both; its exclusions are always globs), and any
+  non-zero bsdtar exit is a failure, because bsdtar uses exit 1 for every
+  error. Releases before this check verified empty archives on macOS. A 0-byte
+  archive is never counted as a backup, so the next hourly check replaces it.
 
 Before it reads the state root, the job checks free space. A later run needs the
 newest verified archive size plus the larger of 25% or 256 MiB. The first run

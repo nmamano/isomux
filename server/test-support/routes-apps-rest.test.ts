@@ -2286,6 +2286,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     throw new Error("the wire is on fire");
   };
   return {
+    appHostingUnsupportedReason: () => null,
     list: () => [record],
     get: () => record,
     register: () => record,
@@ -2338,6 +2339,64 @@ const unitCtx = (
   rawBody: JSON.stringify(body ?? {}),
   query: new URLSearchParams(),
   req: new Request("http://localhost/"),
+});
+
+describe("routes/apps: a host that cannot run apps", () => {
+  const reason = "App hosting is off on this host.";
+  // Every dependency except the host check records its call, so a refusal
+  // that reached the registry or the supervisor shows up in `touched`.
+  function unsupportedDeps() {
+    const touched: string[] = [];
+    const base = throwingDeps();
+    const recorded = Object.fromEntries(
+      Object.entries(base).map(([key, value]) => [
+        key,
+        typeof value === "function"
+          ? (...args: unknown[]) => {
+              touched.push(key);
+              return (value as (...a: unknown[]) => unknown)(...args);
+            }
+          : value,
+      ]),
+    ) as unknown as AppsDeps;
+    return {
+      touched,
+      deps: { ...recorded, appHostingUnsupportedReason: () => reason },
+    };
+  }
+
+  it("refuses every route that would change or run an app with 501 before any side effect", async () => {
+    for (const [opId, body] of [
+      ["apps.register", { name: "hello", command: "bun run serve.ts", cwd: "/tmp" }],
+      ["apps.update", { command: "bun run other.ts" }],
+      ["apps.start", {}],
+      ["apps.stop", {}],
+      ["apps.restart", {}],
+      ["apps.logs", {}],
+    ] as const) {
+      const { touched, deps } = unsupportedDeps();
+      const result = await appsHandlers(deps)[opId](unitCtx(body));
+      expect(result).toMatchObject({
+        kind: "error",
+        status: 501,
+        code: "apps_not_supported",
+        message: reason,
+      });
+      expect(touched).toEqual([]);
+    }
+  });
+
+  it("still lists apps and deletes one registered before", async () => {
+    const { deps } = unsupportedDeps();
+    const handlers = appsHandlers({
+      ...deps,
+      announceRemoved: () => {},
+    });
+    const listed = await handlers["apps.list"](unitCtx());
+    expect(listed).toMatchObject({ kind: "json" });
+    const removed = await handlers["apps.delete"](unitCtx());
+    expect(removed.kind).not.toBe("error");
+  });
 });
 
 describe("routes/apps: screenshot preview", () => {

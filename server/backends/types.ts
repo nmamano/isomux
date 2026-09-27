@@ -581,5 +581,5 @@ export interface Backend {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;
     modelFamily?: string;
-  }): LoginInstructions;
+  }): Promise<LoginInstructions>;
 }

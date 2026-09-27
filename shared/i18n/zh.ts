@@ -1489,6 +1489,7 @@ App 的一些原则：
   "apps.previewsOn": "预览已开启",
   "apps.previewsOff": "预览已关闭",
   "apps.empty": "还没有 App。",
+  "apps.unavailable.needsLinux": "App 托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
   "apps.loadFailed": "无法加载 App。",
   "apps.deleteFailed": "无法删除。",
   "apps.logReadFailed": "无法读取日志。",
