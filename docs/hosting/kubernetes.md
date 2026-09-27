@@ -11,8 +11,8 @@ The office is one pod with one persistent disk. It runs one replica only.
 You need:
 
 - An EKS cluster on Kubernetes 1.29 or later, with IPv4 addressing.
-- A node group of **Amazon Linux 2023, x86_64** nodes, each with at least
-  **2 CPUs and 8 GiB of memory**. The image is for amd64 only.
+- A node group of **Amazon Linux 2023** nodes, **x86_64 or arm64
+  (Graviton)**, each with at least **2 CPUs and 8 GiB of memory**.
   - Add the Kubernetes label `isomux.com/office-node=true` to these nodes.
     The office and its seccomp installer run only on labeled nodes.
   - In the launch template (or Karpenter `EC2NodeClass`), set instance
@@ -46,7 +46,8 @@ from your own secret manager.
 
 On the [Isomux container images page](https://github.com/nmamano/isomux/pkgs/container/isomux),
 choose a release tag, which starts with `v`, and copy its image digest
-(`sha256:…`). You can also read the digest with
+(`sha256:…`). One digest covers x86_64 and arm64 nodes; releases before
+arm64 support are for x86_64 only. You can also read the digest with
 `docker buildx imagetools inspect ghcr.io/nmamano/isomux:REPLACE_WITH_RELEASE_TAG`.
 
 Create a directory for your office and save this file in it as
@@ -98,8 +99,9 @@ create:
   ranges to that policy.
 - A DaemonSet that writes the office's seccomp profile to each labeled node.
   The browser in the office needs this profile for its sandbox. If your
-  cluster does not allow `hostPath` volumes, write the file from node user
-  data instead, to
+  cluster does not allow `hostPath` volumes, write the file for the node's
+  architecture (`deploy/kubernetes/seccomp/amd64/` or `arm64/`) from node
+  user data instead, to
   `/var/lib/kubelet/seccomp/isomux/isomux-chromium-v1.json`, and remove the
   DaemonSet with a patch.
 

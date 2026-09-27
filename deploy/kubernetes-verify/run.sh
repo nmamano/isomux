@@ -12,6 +12,9 @@
 #
 # Needs docker, git, openssl, k3d and kubectl. Ports on this machine are not
 # used: clients run on the cluster's Docker network.
+#
+# ISOMUX_VERIFY_IMAGE=NAME:TAG checks a local image instead of the released one:
+# `up` imports it into the cluster and deploys it in place of the pinned digest.
 set -euo pipefail
 
 K3S_IMAGE=rancher/k3s:v1.33.13-k3s2@sha256:ada5ff2e138120efe877f76d514dedda65b304122112b982eab532732c028c89
@@ -20,7 +23,8 @@ SNAPSHOTTER_REF=v8.6.0
 CLUSTER=isomux-verify
 DOMAIN=office.k8s.test
 # The released image under test; owner/kustomization.yaml pins the same digest.
-IMAGE=ghcr.io/nmamano/isomux@sha256:56feb68ff1eea2ece0a6f0f7e8eaf522ad958021d0672fe6fe74abb69a22889c
+RELEASED=ghcr.io/nmamano/isomux@sha256:56feb68ff1eea2ece0a6f0f7e8eaf522ad958021d0672fe6fe74abb69a22889c
+IMAGE=${ISOMUX_VERIFY_IMAGE:-$RELEASED}
 
 here=$(cd "$(dirname "$0")" && pwd)
 work=${ISOMUX_VERIFY_DIR:-/tmp/isomux-k8s-verify}
@@ -56,14 +60,18 @@ up)
     https://github.com/kubernetes-csi/csi-driver-host-path "$work/hostpath"
   "$work/hostpath/deploy/kubernetes-latest/deploy.sh"
   # The client containers use the image from this machine's Docker.
-  docker pull --quiet "$IMAGE" >/dev/null
+  if [[ $IMAGE == "$RELEASED" ]]; then
+    docker pull --quiet "$IMAGE" >/dev/null
+  else
+    k3d image import --cluster "$CLUSTER" "$IMAGE"
+  fi
   kubectl create namespace isomux --dry-run=client -o yaml | kubectl apply -f -
   kubectl -n isomux create secret tls isomux-tls --cert "$work/tls.pem" --key "$work/tls.key" \
     --dry-run=client -o yaml | kubectl apply -f -
   [[ -f $work/setup-key ]] || openssl rand -hex 32 > "$work/setup-key"
   kubectl -n isomux create secret generic isomux-setup \
     --from-literal=ISOMUX_SETUP_KEY="$(cat "$work/setup-key")" --dry-run=client -o yaml | kubectl apply -f -
-  kubectl apply -k "$here"
+  kubectl kustomize "$here" | sed "s|$RELEASED|$IMAGE|g" | kubectl apply -f -
   kubectl -n isomux rollout status deployment/isomux --timeout=10m
   ;;
 client)

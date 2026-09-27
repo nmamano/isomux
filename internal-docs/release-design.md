@@ -21,16 +21,27 @@ gate tests a different runtime than customer boxes run.
 ### Container publication
 
 `.github/workflows/container-release.yml` runs on `release: published` in
-`nmamano/isomux`. It builds the common Linux amd64 image from the event's commit
-through `deploy/container/build.sh`, then runs `smoke.py` and `compose-check.py`
-with isolated state before it publishes `ghcr.io/nmamano/isomux:RELEASE_TAG`.
-The run summary records the source commit and registry digest. Deploy by digest.
-Source installation and local image builds remain available.
+`nmamano/isomux`. It builds the image from the event's commit natively on one
+runner per architecture (`ubuntu-24.04` for linux/amd64, `ubuntu-24.04-arm` for
+linux/arm64) through `deploy/container/build.sh`, and runs `smoke.py` and
+`compose-check.py` with isolated state on each. Only after both pass does the
+publish job push both images by digest and then one OCI index under
+`ghcr.io/nmamano/isomux:RELEASE_TAG`. The run summary records the source commit
+and the index digest. Deploy by digest: Docker and Kubernetes resolve the index
+digest to the node's image. Source installation and local image builds remain
+available.
 
-Before registry authentication or publication, the publisher runs the built
-image's version reader with networking disabled and a read-only filesystem. Its
-reported release and commit must match the publication target; missing or wrong
-identity, an unreadable result, or a failed probe stops publication.
+In each build job, with no registry credentials, `publish.py layout` runs the
+built image's version reader with networking disabled and a read-only
+filesystem. Its reported release and commit must match the publication target;
+missing or wrong identity, an unreadable result, or a failed probe stops
+publication. It then writes that exact image (its configuration and gzip
+layers) as the layout artifact the publish job pushes; the publish job
+rechecks every blob hash, the platform and the revision label.
+
+A `workflow_dispatch` run is a probe: its images must report their commit and
+no release, and the `rehearse` job publishes to a registry on the runner and
+pulls the index the way the Docker updater does. It pushes nothing to GHCR.
 
 The container installer is downloaded from that same release tag, and checks
 its bytes against the tag before changing the host. Its Compose/unit/seccomp
@@ -51,12 +62,16 @@ Draft releases do not publish an image until published. GitHub documents
 The workflow serializes runs per release tag and never cancels an active run.
 A rerun preserves an existing image after it checks its source revision and
 platform; it reports the original digest even if a rebuild has different bytes.
+Tags published before arm64 support hold one amd64 image; a rerun accepts them
+as they are and never rewrites them. A tag this workflow writes must read back
+as the index of exactly the two images.
 A different revision or a registry error fails the run without an overwrite.
 The workflow must be the only writer of release tags. GHCR tags are mutable;
 the digest is the immutable deployment identity. A failure after upload is safe
 to rerun from Actions. A failed build or image check publishes nothing.
 
-The job grants only `contents: read` and `packages: write` to `GITHUB_TOKEN`.
+Only the publish job grants `packages: write` (with `contents: read`) to
+`GITHUB_TOKEN`.
 It needs no personal registry secret and does not edit releases. Cut releases
 with the existing authenticated CLI flow: a release created by another Actions
 workflow's `GITHUB_TOKEN` does not trigger this workflow. See GitHub's

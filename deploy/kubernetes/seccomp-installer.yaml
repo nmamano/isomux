@@ -1,5 +1,7 @@
 # Writes the office's seccomp profile to each office node, where kubelet reads
 # Localhost profiles. Not privileged: root with no capabilities, one hostPath.
+# The ConfigMap has one profile per node architecture, keyed by `uname -m`; a
+# node with no matching key gets no file and the installer is not Ready.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -19,9 +21,17 @@ spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 5
       nodeSelector:
-        kubernetes.io/arch: amd64
         kubernetes.io/os: linux
         isomux.com/office-node: "true"
+      # The image is published for these two architectures.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [amd64, arm64]
       containers:
         - name: install
           # The office image: already on the node, and it has bash and coreutils.
@@ -32,7 +42,9 @@ spec:
             - |
               set -euo pipefail
               name=isomux-chromium-v1.json
-              cp "/profile/$name" "/host/.$name.tmp"
+              profile="/profile/$(uname -m).json"
+              [[ -f $profile ]] || { echo "No seccomp profile for $(uname -m)" >&2; exit 1; }
+              cp "$profile" "/host/.$name.tmp"
               chmod 0644 "/host/.$name.tmp"
               mv -f "/host/.$name.tmp" "/host/$name"
               exec sleep infinity
@@ -50,7 +62,7 @@ spec:
               command:
                 - bash
                 - -c
-                - cmp -s /profile/isomux-chromium-v1.json /host/isomux-chromium-v1.json
+                - cmp -s "/profile/$(uname -m).json" /host/isomux-chromium-v1.json
             periodSeconds: 10
           resources:
             requests:

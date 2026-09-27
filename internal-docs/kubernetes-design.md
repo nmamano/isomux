@@ -58,9 +58,10 @@ CSI driver whose sidecars support RWOP (csi-provisioner 3.0+, csi-attacher
   The entrypoint already has a non-root branch; with `fsGroup` the volume root
   is group-writable, so it creates `home` and `workspaces` itself. This passes
   the Pod Security Standard `restricted`.
-- Placement: `nodeSelector` `kubernetes.io/arch: amd64` (the image is amd64
-  only) and `isomux.com/office-node: "true"`, a label the operator puts on the
-  office node group. Resources match Compose: requests `cpu: 1`,
+- Placement: required node affinity `kubernetes.io/arch` in `amd64`, `arm64`
+  (the release index has those two images) and `nodeSelector`
+  `isomux.com/office-node: "true"`, a label the operator puts on the office
+  node group. Resources match Compose: requests `cpu: 1`,
   `memory: 4Gi`; limits `cpu: 2`, `memory: 4Gi`.
   `terminationGracePeriodSeconds: 30`.
 - Fargate is out: Fargate has no EBS volumes and no Localhost seccomp profiles.
@@ -80,21 +81,25 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   `pidfd_getfd`, `process_madvise`) would become unconditional.
   So we ship a resolved OCI profile, not the Docker file.
 - Derivation. A script (`deploy/kubernetes/seccomp/resolve.py`) resolves the
-  pinned Docker basis the way Moby does, for amd64, with only `CAP_SYS_CHROOT`
+  pinned Docker basis the way Moby does, for one architecture (amd64 or
+  arm64), with only `CAP_SYS_CHROOT`
   (Chromium calls `chroot` inside its user namespace; found in the EKS run), and
   kernel 4.8 or later (EKS nodes run 6.x): keep a rule when every include
   holds and no exclude holds, and drop the conditions. It sets
-  `architectures: [SCMP_ARCH_X86_64, SCMP_ARCH_X86, SCMP_ARCH_X32]` from
-  `archMap`, and adds the one Chromium rule (`clone`, `setns`, `unshare`
-  allow). Output: `deploy/kubernetes/seccomp/isomux-chromium-v1.json`,
-  committed. Version in the filename: a change is a new file, never an edit
-  in place on nodes.
+  `architectures` from `archMap` (`SCMP_ARCH_X86_64, SCMP_ARCH_X86,
+  SCMP_ARCH_X32` for amd64, `SCMP_ARCH_AARCH64, SCMP_ARCH_ARM` for arm64), and
+  adds the one Chromium rule (`clone`, `setns`, `unshare` allow). Output:
+  `deploy/kubernetes/seccomp/{amd64,arm64}/isomux-chromium-v1.json`,
+  committed. One file per architecture, not a union, so the published amd64
+  bytes stay as they were. Version in the filename: a change is a new file,
+  never an edit in place on nodes.
 - Test (bun, no cluster): the committed file equals the script output; it
   has only OCI fields; no `includes`, `excludes`, `archMap` or `comment`;
   rules gated on capabilities other than `CAP_SYS_CHROOT` add no allowed
   names (outside the three Chromium calls); no rule from another
   architecture; `clone3` keeps its ENOSYS rule; the allowed names equal the
-  basis's unconditional rules plus its amd64 rules plus its `minKernel: 4.8`
+  basis's unconditional rules plus its rules for that architecture plus its
+  `minKernel: 4.8`
   rule (`ptrace`, `process_vm_readv`, `process_vm_writev`, which Docker also
   allows on these kernels) plus its `CAP_SYS_CHROOT` rule (`chroot`) plus the
   three calls. The pod still has no capabilities; only the seccomp resolution
@@ -109,8 +114,11 @@ with `CAP_SYS_ADMIN`. `clone` without namespace flags stays allowed.
   `allowPrivilegeEscalation: false`. Its only `hostPath` is
   `/var/lib/kubelet/seccomp/isomux` (`DirectoryOrCreate`). It writes a temp
   file in that directory and renames it, then sleeps; a readiness probe
-  checks the file's SHA-256. It has the same `nodeSelector` as the office,
-  so it writes only to office nodes. A new node gets the file when its
+  compares the file with the source. The ConfigMap has one key per
+  architecture, named by `uname -m` (`x86_64.json`, `aarch64.json`); the
+  installer and its probe select the node's key, and a node with no key gets
+  no file and stays not Ready. It has the same placement as the office, so it
+  writes only to office nodes. A new node gets the file when its
   DaemonSet pod starts; until then the office pod reports
   `CreateContainerError` on that node and kubelet retries. Alternative for
   clusters that forbid `hostPath`: the same file from node user data (launch

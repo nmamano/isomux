@@ -15,6 +15,15 @@ environment = {**os.environ, "ISOMUX_IMAGE": sys.argv[1],
                "ISOMUX_SETUP_KEY": "synthetic-compose-setup-key-for-local-check",
                "ISOMUX_MEMORY_LIMIT": "2g", "ISOMUX_CPUS": "1"}
 project = "isomux-compose-check-" + uuid.uuid4().hex[:8]
+# The image must be this machine's native build, so a check on an arm64 runner
+# cannot pass by running an amd64 image.
+native = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]
+architecture = subprocess.run(["docker", "image", "inspect", "--format", "{{.Os}}/{{.Architecture}}", sys.argv[1]],
+                              capture_output=True, text=True, check=True).stdout.strip()
+assert architecture == "linux/" + native, architecture
+# The shipped compose.yaml pins linux/amd64 (the Compose installer is x86 only).
+# Checking the arm64 image needs this test override; it is not arm64 Compose support.
+platform = "" if native == "amd64" else "    platform: linux/arm64\n"
 with tempfile.TemporaryDirectory(prefix=project) as temporary:
     override = Path(temporary) / "override.yaml"
     command = ["docker", "compose", "--env-file", "/dev/null", "-p", project,
@@ -26,7 +35,7 @@ with tempfile.TemporaryDirectory(prefix=project) as temporary:
 
     override.write_text("""services:
   office:
-    network_mode: none
+""" + platform + """    network_mode: none
     ports: !reset []
     volumes: !override
       - fixture:/var/data
@@ -56,6 +65,10 @@ volumes:
             inspected = subprocess.run(["docker", "inspect", "--format", "{{json .HostConfig}}", container],
                                        capture_output=True, text=True, check=True)
             config = json.loads(inspected.stdout)
+            image = subprocess.run(["docker", "inspect", "--format", "{{.Image}}", container],
+                                   capture_output=True, text=True, check=True).stdout.strip()
+            assert subprocess.run(["docker", "image", "inspect", "--format", "{{.Architecture}}", image],
+                                  capture_output=True, text=True, check=True).stdout.strip() == native
             assert config["Memory"] == 2 * 1024**3 and config["NanoCpus"] == 10**9
             assert config["Privileged"] is False and config["NetworkMode"] == "none"
             assert not config["CapAdd"]
@@ -70,12 +83,12 @@ volumes:
             assert foreground.returncode in (0, 143), error
             print(f"Compose explicit stop exit={foreground.returncode}", flush=True)
             foreground = None
-        print("PASS Compose foreground startup, stop, replay, limits, and retained data", flush=True)
+        print(f"PASS Compose foreground startup, stop, replay, limits, and retained data ({architecture})", flush=True)
         run("down", "--volumes")
         missing = Path(temporary) / "absent-data"
         override.write_text(f"""services:
   office:
-    network_mode: none
+{platform}    network_mode: none
     ports: !reset []
     volumes: !override
       - type: bind

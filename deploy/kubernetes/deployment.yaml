@@ -24,9 +24,17 @@ spec:
       enableServiceLinks: false
       terminationGracePeriodSeconds: 30
       nodeSelector:
-        kubernetes.io/arch: amd64
         kubernetes.io/os: linux
         isomux.com/office-node: "true"
+      # The image is published for these two architectures.
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/arch
+                    operator: In
+                    values: [amd64, arm64]
       securityContext:
         runAsUser: 1000
         runAsGroup: 1000

@@ -3,23 +3,32 @@ name: Publish container
 on:
   release:
     types: [published]
+  # A probe: builds and checks both architectures and rehearses publication
+  # against a registry on the runner. It pushes nothing to ghcr.io.
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 # A retry must finish checking the existing tag before another run can write it.
 concurrency:
-  group: container-release-${{ github.event.release.tag_name }}
+  group: container-release-${{ github.event.release.tag_name || format('probe-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # One native build per architecture, with every image gate. No registry
+  # credentials; the gated image leaves the job only as a layout artifact.
+  image:
     if: github.repository == 'nmamano/isomux'
-    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: write
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name }}
       REVISION: ${{ github.sha }}
@@ -27,21 +36,113 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: refs/tags/${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           persist-credentials: false
       - name: Check release identity
         shell: bash
         run: |
-          [[ "$RELEASE_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
           test "$(git rev-parse HEAD)" = "$REVISION"
-          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$REVISION"
+          if [[ $GITHUB_EVENT_NAME == release ]]; then
+            [[ "$RELEASE_TAG" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]]
+            test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$REVISION"
+          fi
       - name: Build committed production export
         run: bash deploy/container/build.sh "$REVISION" "$LOCAL_IMAGE"
       - name: Check image and Compose
         run: |
           python3 deploy/container/smoke.py "$LOCAL_IMAGE"
           python3 deploy/container/compose-check.py "$LOCAL_IMAGE"
-      - name: Publish release image and record digest
+      - name: Check version identity and write the image layout
+        shell: bash
+        run: |
+          if [[ $GITHUB_EVENT_NAME == release ]]; then identity=(--release "$RELEASE_TAG"); else identity=(--unreleased); fi
+          python3 scripts/container/publish.py layout ${{ matrix.arch }} "$RUNNER_TEMP/layout" "${identity[@]}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: layout-${{ matrix.arch }}
+          path: ${{ runner.temp }}/layout
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  # The sole publisher: runs only after both architectures passed.
+  publish:
+    needs: image
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: layout-amd64
+          path: ${{ runner.temp }}/layout-amd64
+      - uses: actions/download-artifact@v8
+        with:
+          name: layout-arm64
+          path: ${{ runner.temp }}/layout-arm64
+      - name: Publish release index and record digest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/container/publish.py
+        run: python3 scripts/container/publish.py publish "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64"
+
+  # The probe's stand-in for publish: the same code against a local registry,
+  # then the Docker updater's pull sequence on the index.
+  rehearse:
+    needs: image
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 127.0.0.1:5000:5000
+    env:
+      REVISION: ${{ github.sha }}
+      REHEARSAL: localhost:5000/nmamano/isomux
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: layout-amd64
+          path: ${{ runner.temp }}/layout-amd64
+      - uses: actions/download-artifact@v8
+        with:
+          name: layout-arm64
+          path: ${{ runner.temp }}/layout-arm64
+      - name: Publish to the local registry
+        shell: bash
+        run: python3 scripts/container/publish.py rehearse "$REHEARSAL" v2099.1.1 "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64" | tee "$RUNNER_TEMP/index"
+      - name: Pull the index as the Docker updater does
+        shell: bash
+        run: |
+          set -euo pipefail
+          # scripts/update.sh container_prepare, with the local repository.
+          docker pull "$REHEARSAL:v2099.1.1"
+          digest=$(docker image inspect "$REHEARSAL:v2099.1.1" --format '{{json .RepoDigests}}' |
+            jq -er --arg prefix "$REHEARSAL@sha256:" '[.[] | select(startswith($prefix))] | if length == 1 then .[0] else error("ambiguous digest") end')
+          test "$digest" = "$REHEARSAL@$(cat "$RUNNER_TEMP/index")"
+          docker pull "$digest"
+          test "$(docker image inspect "$digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
+          docker run --rm --network=none --entrypoint bun "$digest" -e \
+            'import {getVersionInfo} from "./server/version.ts"; console.log(JSON.stringify(getVersionInfo()))' |
+            jq -e --arg commit "$REVISION" '.commit == $commit and .release == null'
+          test "$(docker run --rm --entrypoint uname "$digest" -m)" = x86_64
+          # Pulling the arm64 image checks its layers against its configuration.
+          # By its own digest: the classic store keeps one platform per reference.
+          arm64=$(curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json' "http://localhost:5000/v2/nmamano/isomux/manifests/v2099.1.1" |
+            jq -er '[.manifests[] | select(.platform.architecture == "arm64")] | if length == 1 then .[0].digest else error("arm64 image") end')
+          docker pull "$REHEARSAL@$arm64"
+          test "$(docker image inspect "$REHEARSAL@$arm64" --format '{{.Os}}/{{.Architecture}}')" = linux/arm64

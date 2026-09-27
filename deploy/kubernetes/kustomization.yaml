@@ -21,8 +21,10 @@ configMapGenerator:
       - ISOMUX_PUBLIC_URL=https://office.example.com
   - name: isomux-seccomp
     namespace: isomux-node-setup
+    # Keys are `uname -m` names; the installer selects the node's profile.
     files:
-      - seccomp/isomux-chromium-v1.json
+      - x86_64.json=seccomp/amd64/isomux-chromium-v1.json
+      - aarch64.json=seccomp/arm64/isomux-chromium-v1.json
 images:
   - name: ghcr.io/nmamano/isomux
     digest: sha256:REPLACE_WITH_IMAGE_DIGEST

@@ -48,7 +48,10 @@ console.log(
 );
 
 for (const args of [
-  ["node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude", "--version"],
+  [
+    `node_modules/@anthropic-ai/claude-agent-sdk-linux-${process.arch}/claude`,
+    "--version",
+  ],
   ["node", resolveCodexLauncherPath(), "--version"],
   [resolveOpenCodeBinary(), "--version"],
 ]) {

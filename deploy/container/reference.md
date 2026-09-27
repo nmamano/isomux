@@ -27,7 +27,7 @@ instead of a moving tag. Registry credentials belong on the host.
 
 | Setting            | Value                                                            |
 | ------------------ | ---------------------------------------------------------------- |
-| Architecture       | Linux amd64                                                      |
+| Architecture       | Linux amd64 and arm64                                            |
 | Data mount         | `/var/data`, one writer                                          |
 | Public origin      | `ISOMUX_PUBLIC_URL=https://office.example.com`                   |
 | First owner        | `ISOMUX_SETUP_KEY`, at least 32 characters                       |
