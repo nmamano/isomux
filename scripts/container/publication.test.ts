@@ -95,11 +95,12 @@ test("release workflow gates its sole publisher on both architectures' build and
   );
   expect(image.steps.at(-1)!.uses).toStartWith("actions/upload-artifact@");
 
-  // The only job that can write packages runs after both builds, on releases.
+  // Only publish writes a tag, after both builds, on releases. A probe's
+  // rehearse writes ghcr.io by digest only.
   const writers = Object.entries(workflow.jobs)
     .filter(([, job]) => job.permissions?.packages)
     .map(([name]) => name);
-  expect(writers).toEqual(["publish"]);
+  expect(writers).toEqual(["publish", "rehearse"]);
   const publish = workflow.jobs.publish;
   expect(publish.needs).toBe("image");
   expect(publish.if).toBe("github.event_name == 'release'");
@@ -115,13 +116,17 @@ test("release workflow gates its sole publisher on both architectures' build and
     'python3 scripts/container/publish.py publish "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64"',
   ]);
 
-  // A probe rehearses against a local registry and never reaches a secret.
   const rehearse = workflow.jobs.rehearse;
   expect(rehearse.needs).toBe("image");
   expect(rehearse.if).toBe("github.event_name == 'workflow_dispatch'");
-  expect(commands(rehearse)[0]).toStartWith(
-    'python3 scripts/container/publish.py rehearse "$REHEARSAL"',
+  expect(rehearse.permissions).toEqual({
+    contents: "read",
+    packages: "write",
+  });
+  // The rehearse command takes no tag and no release; see publish_test.py.
+  expect(commands(rehearse)[0]).toBe(
+    'python3 scripts/container/publish.py rehearse "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64" | tee "$RUNNER_TEMP/rehearsal"',
   );
-  expect(JSON.stringify(rehearse)).not.toContain("secrets.");
+  expect(JSON.stringify(rehearse)).not.toContain("RELEASE_TAG");
   expect(JSON.stringify(image)).not.toContain("secrets.");
 });

@@ -81,6 +81,9 @@ def fake_save(architecture="amd64", revision=REVISION, diff_ids=None, compressed
     return run
 
 
+REGISTRY = publish.Registry("registry.test/image", "api", "fixture", "/auth.json", True)
+
+
 class PublicationTests(unittest.TestCase):
     def setUp(self):
         self.dir = pathlib.Path(tempfile.mkdtemp())
@@ -297,23 +300,48 @@ class PublicationTests(unittest.TestCase):
             directories[architecture] = self.dir / architecture
         return directories
 
-    @patch.object(publish, "put_manifest")
-    @patch.object(publish, "push_blob")
-    def test_retry_keeps_original_digest_without_push(self, blob, manifest):
+    def push(self, tag, directories, registry=None, read_back=None):
+        """publish_layouts with a recording skopeo. Returns (digest, command, layout).
+
+        The layout skopeo gets is read while the command runs, before its
+        temporary directory is removed.
+        """
+        registry = registry or REGISTRY
+        seen = {}
+
+        def run(command, **kwargs):
+            assert command[:2] == ["skopeo", "copy"]
+            source = pathlib.Path(command[-2].removeprefix("oci:"))
+            blobs = source / "blobs" / "sha256"
+            seen["command"] = command
+            seen["index.json"] = json.loads((source / "index.json").read_text())
+            seen["blobs"] = {path.name: path.read_bytes() for path in blobs.iterdir()}
+            return subprocess.CompletedProcess(command, 0)
+
+        def existing(reference, revision, authorization, require=None, api=None):
+            if require is None:
+                return None
+            seen["read_back"] = (reference, require, api)
+            return read_back or seen["index.json"]["manifests"][0]["digest"]
+        with patch.object(publish.subprocess, "run", side_effect=run), \
+             patch.object(publish, "existing_digest", side_effect=existing):
+            digest = publish.publish_layouts(registry, tag, REVISION, directories)
+        return digest, seen
+
+    def test_retry_keeps_original_digest_without_push(self):
         # Includes a tag published before multi-arch releases: kept as it is.
-        with patch.object(publish, "existing_digest", return_value="sha256:original") as existing:
-            self.assertEqual(publish.publish_layouts("api", "fixture", TAG, REVISION, self.layouts()),
+        with patch.object(publish, "existing_digest", return_value="sha256:original") as existing, \
+             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
+            self.assertEqual(publish.publish_layouts(REGISTRY, TAG, REVISION, self.layouts()),
                              "sha256:original")
         existing.assert_called_once_with(TAG, REVISION, "fixture", api="api")
-        blob.assert_not_called()
-        manifest.assert_not_called()
 
     def test_retry_of_a_past_single_arch_tag_is_neither_rewritten_nor_rechecked_for_arm64(self):
         directories = self.layouts()
         single = manifests()
         with patch.object(publish, "request", side_effect=single), \
-             patch.object(publish, "send", side_effect=AssertionError("registry write")):
-            self.assertEqual(publish.publish_layouts("api", "fixture", TAG, REVISION, directories),
+             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
+            self.assertEqual(publish.publish_layouts(REGISTRY, TAG, REVISION, directories),
                              single[0].headers["Docker-Content-Digest"])
 
     def test_retry_of_a_multi_arch_tag_writes_nothing(self):
@@ -322,157 +350,125 @@ class PublicationTests(unittest.TestCase):
         raw = index(("amd64", amd64[0].headers["Docker-Content-Digest"]),
                     ("arm64", arm64[0].headers["Docker-Content-Digest"]))
         with patch.object(publish, "request", side_effect=[response(raw), *amd64, *arm64]), \
-             patch.object(publish, "send", side_effect=AssertionError("registry write")):
-            self.assertEqual(publish.publish_layouts("api", "fixture", TAG, REVISION, directories),
+             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
+            self.assertEqual(publish.publish_layouts(REGISTRY, TAG, REVISION, directories),
                              "sha256:" + hashlib.sha256(raw).hexdigest())
 
     def test_an_existing_tag_of_another_revision_writes_nothing(self):
         directories = self.layouts()
         for existing in (manifests("b" * 40), manifests("b" * 40, "arm64")):
             with self.subTest(existing=existing), patch.object(publish, "request", side_effect=existing), \
-                 patch.object(publish, "send", side_effect=AssertionError("registry write")):
+                 patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
                 with self.assertRaises(ValueError):
-                    publish.publish_layouts("api", "fixture", TAG, REVISION, directories)
+                    publish.publish_layouts(REGISTRY, TAG, REVISION, directories)
 
-    def test_new_tag_pushes_both_images_by_digest_then_one_index(self):
+    def test_new_tag_pushes_the_checked_images_and_their_index_unchanged(self):
         directories = self.layouts()
-        writes = []
-        with patch.object(publish, "push_blob", side_effect=lambda api, auth, directory, blob:
-                          writes.append(("blob", blob["digest"]))), \
-             patch.object(publish, "put_manifest", side_effect=lambda api, auth, reference, raw, kind:
-                          writes.append((kind, reference, raw))), \
-             patch.object(publish, "existing_digest", side_effect=lambda *args, **kwargs:
-                          None if "require" not in kwargs else
-                          "sha256:" + hashlib.sha256(writes[-1][2]).hexdigest()) as existing:
-            digest = publish.publish_layouts("api", "fixture", TAG, REVISION, directories)
-        self.assertEqual(existing.call_args.kwargs["require"], publish.ARCHES)
-        children = [write for write in writes if write[0] == publish.MANIFEST_TYPE]
-        # The children are the checked layouts, pushed under their own digests.
-        self.assertEqual([child[1] for child in children],
-                         [publish.read_layout(directories[arch], arch, REVISION)["digest"]
-                          for arch in publish.ARCHES])
-        for child in children:
-            self.assertEqual(child[1], "sha256:" + hashlib.sha256(child[2]).hexdigest())
-            self.assertTrue(all(("blob", blob["digest"]) in writes[:writes.index(child)]
-                                for blob in [json.loads(child[2])["config"], *json.loads(child[2])["layers"]]))
-        self.assertEqual(writes[-1][:2], (publish.INDEX_TYPE, TAG))
-        self.assertEqual([write[0] for write in writes].count(publish.INDEX_TYPE), 1)
-        pushed = json.loads(writes[-1][2])
-        self.assertEqual([(entry["platform"]["architecture"], entry["digest"]) for entry in pushed["manifests"]],
-                         [(arch, child[1]) for arch, child in zip(publish.ARCHES, children)])
-        self.assertEqual(digest, "sha256:" + hashlib.sha256(writes[-1][2]).hexdigest())
+        digest, seen = self.push(TAG, directories)
+        command = seen["command"]
+        self.assertEqual(command[:6], ["skopeo", "copy", "--all", "--preserve-digests", "--retry-times", "3"])
+        self.assertIn("--dest-authfile", command)
+        self.assertNotIn("--dest-tls-verify=false", command)
+        self.assertEqual(command[-1], "docker://registry.test/image:" + TAG)
+        # The layout's one entry is the index, and the index is exactly the checked images.
+        [entry] = seen["index.json"]["manifests"]
+        self.assertEqual(entry["mediaType"], publish.INDEX_TYPE)
+        raw = seen["blobs"][entry["digest"][7:]]
+        self.assertEqual(entry["digest"], "sha256:" + hashlib.sha256(raw).hexdigest())
+        layouts = [publish.read_layout(directories[arch], arch, REVISION) for arch in publish.ARCHES]
+        self.assertEqual([(child["platform"]["architecture"], child["digest"])
+                          for child in json.loads(raw)["manifests"]],
+                         [(arch, layout["digest"]) for arch, layout in zip(publish.ARCHES, layouts)])
+        for layout in layouts:
+            self.assertEqual(seen["blobs"][layout["digest"][7:]], layout["manifest"])
+            for blob in layout["blobs"]:
+                self.assertEqual("sha256:" + hashlib.sha256(seen["blobs"][blob["digest"][7:]]).hexdigest(),
+                                 blob["digest"])
+        # The tag is read back and must be that index of exactly both architectures.
+        self.assertEqual(seen["read_back"], (TAG, publish.ARCHES, "api"))
+        self.assertEqual(digest, entry["digest"])
 
-    @patch.object(publish, "put_manifest")
-    @patch.object(publish, "push_blob")
-    def test_a_different_published_index_fails(self, blob, manifest):
-        with patch.object(publish, "existing_digest", side_effect=[None, "sha256:other"]):
+    def test_a_push_without_a_tag_goes_by_digest(self):
+        directories = self.layouts()
+        with patch.object(publish, "request", side_effect=AssertionError("no tag lookup")):
+            digest, seen = self.push(None, directories)
+        self.assertEqual(seen["command"][-1], "docker://registry.test/image@" + digest)
+        self.assertEqual(seen["read_back"], (digest, publish.ARCHES, "api"))
+
+    def test_a_different_published_index_fails(self):
+        with self.assertRaises(ValueError):
+            self.push(TAG, self.layouts(), read_back="sha256:" + "0" * 64)
+
+    def test_collision_never_pushes(self):
+        with patch.object(publish, "existing_digest", side_effect=ValueError), \
+             patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write")):
             with self.assertRaises(ValueError):
-                publish.publish_layouts("api", "fixture", TAG, REVISION, self.layouts())
+                publish.publish_layouts(REGISTRY, TAG, REVISION, self.layouts())
 
-    @patch.object(publish, "push_blob")
-    def test_collision_never_pushes(self, blob):
-        with patch.object(publish, "existing_digest", side_effect=ValueError):
-            with self.assertRaises(ValueError):
-                publish.publish_layouts("api", "fixture", TAG, REVISION, self.layouts())
-        blob.assert_not_called()
-
-    @patch.object(publish, "send", side_effect=AssertionError("registry write"))
+    @patch.object(publish.subprocess, "run", side_effect=AssertionError("registry write"))
     @patch.object(publish, "existing_digest")
-    def test_publication_needs_both_checked_layouts_before_registry_access(self, existing, send):
+    def test_publication_needs_both_checked_layouts_before_registry_access(self, existing, run):
         directories = self.layouts()
         for bad in ({"amd64": directories["amd64"]},
                     {"amd64": directories["arm64"], "arm64": directories["amd64"]}):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
-                publish.publish_layouts("api", "fixture", TAG, REVISION, bad)
+                publish.publish_layouts(REGISTRY, TAG, REVISION, bad)
         with self.assertRaises(ValueError):
-            publish.publish_layouts("api", "fixture", TAG, "b" * 40, directories)
+            publish.publish_layouts(REGISTRY, TAG, "b" * 40, directories)
         # A corrupt arm64 artifact stops publication before the amd64 image is pushed.
         layer = json.loads((directories["arm64"] / "manifest.json").read_bytes())["layers"][0]
         blob = directories["arm64"] / "blobs" / layer["digest"][7:]
         blob.write_bytes(blob.read_bytes()[:-1])
         with self.assertRaises(ValueError):
-            publish.publish_layouts("api", "fixture", TAG, REVISION, directories)
+            publish.publish_layouts(REGISTRY, TAG, REVISION, directories)
         existing.assert_not_called()
-        send.assert_not_called()
+        run.assert_not_called()
 
-    def test_blob_push_skips_present_blobs_and_uploads_missing_ones(self):
-        directory = self.layouts()["amd64"]
-        blob = publish.read_layout(directory, "amd64", REVISION)["blobs"][1]
-        calls = []
-
-        def send(method, url, authorization, data=None, headers=None):
-            calls.append((method, url))
-            if method == "HEAD":
-                raise urllib.error.HTTPError(url, 404, "absent", {}, None)
-            reply = io.BytesIO()
-            reply.headers = {"Location": "/v2/upload/1?state=x"} if method != "PUT" else \
-                {"Docker-Content-Digest": blob["digest"]}
-            if method == "PATCH":
-                self.assertEqual(data.read(), (directory / "blobs" / blob["digest"][7:]).read_bytes())
-            return reply
-        with patch.object(publish, "send", side_effect=send):
-            publish.push_blob("https://registry.test/v2/image", "fixture", directory, blob)
-        self.assertEqual([method for method, _ in calls], ["HEAD", "POST", "PATCH", "PUT"])
-        self.assertEqual(calls[3][1], "https://registry.test/v2/upload/1?state=x&digest=" +
-                         urllib.parse.quote(blob["digest"]))
-        with patch.object(publish, "send", return_value=io.BytesIO()) as present:
-            publish.push_blob("https://registry.test/v2/image", "fixture", directory, blob)
-        self.assertEqual(present.call_args.args[0], "HEAD")
-
-    def test_upload_locations_stay_on_the_registry_scheme_and_host(self):
-        directory = self.layouts()["amd64"]
-        blob = publish.read_layout(directory, "amd64", REVISION)["blobs"][1]
-        for api, post, patch_location in (
-                # Both hops are checked: the location from POST and from PATCH.
-                ("https://ghcr.io/v2/image", "https://storage.example.invalid/upload", None),
-                ("https://ghcr.io/v2/image", "http://ghcr.io/upload", None),
-                ("https://ghcr.io/v2/image", "/v2/upload/1", "https://storage.example.invalid/upload"),
-                ("https://ghcr.io/v2/image", "/v2/upload/1", "http://ghcr.io/upload"),
-                ("http://localhost:5000/v2/image", "http://localhost:5001/upload", None)):
-            calls = []
-
-            def send(method, url, authorization, data=None, headers=None):
-                calls.append(method)
-                if method == "HEAD":
-                    raise urllib.error.HTTPError(url, 404, "absent", {}, None)
-                reply = io.BytesIO()
-                reply.headers = {"Location": post if method == "POST" else patch_location}
-                return reply
-            with self.subTest(post=post, patch=patch_location):
-                with patch.object(publish, "send", side_effect=send), self.assertRaises(ValueError):
-                    publish.push_blob(api, "fixture", directory, blob)
-                # Nothing is sent, with or without the credential, to the refused location.
-                self.assertEqual(calls, ["HEAD", "POST"] if patch_location is None else ["HEAD", "POST", "PATCH"])
-        # The local rehearsal's plain HTTP registry is its own origin.
-        sent = []
-
-        def local(method, url, authorization, data=None, headers=None):
-            sent.append((method, url))
-            if method == "HEAD":
-                raise urllib.error.HTTPError(url, 404, "absent", {}, None)
-            reply = io.BytesIO()
-            reply.headers = {"Location": "http://localhost:5000/v2/image/blobs/uploads/1"} \
-                if method != "PUT" else {"Docker-Content-Digest": blob["digest"]}
-            return reply
-        with patch.object(publish, "send", side_effect=local):
-            publish.push_blob("http://localhost:5000/v2/image", None, directory, blob)
-        self.assertEqual([method for method, _ in sent], ["HEAD", "POST", "PATCH", "PUT"])
-
-    def test_manifest_stored_under_another_digest_fails(self):
-        reply = io.BytesIO()
-        reply.headers = {"Docker-Content-Digest": "sha256:" + "e" * 64}
-        with patch.object(publish, "send", return_value=reply):
-            with self.assertRaises(ValueError):
-                publish.put_manifest("api", "fixture", TAG, b"{}", publish.INDEX_TYPE)
-
-    def test_rehearsal_reaches_only_a_local_registry(self):
-        self.assertEqual(publish.local_api("localhost:5000/nmamano/isomux"),
-                         "http://localhost:5000/v2/nmamano/isomux")
-        self.assertEqual(publish.local_api("127.0.0.1:15000/isomux-fixture"),
-                         "http://127.0.0.1:15000/v2/isomux-fixture")
+    def test_only_a_local_registry_is_reached_over_plain_http_without_credentials(self):
+        registry = publish.local_registry("127.0.0.1:15000/isomux-fixture")
+        self.assertEqual(registry, publish.Registry("127.0.0.1:15000/isomux-fixture",
+                                                    "http://127.0.0.1:15000/v2/isomux-fixture",
+                                                    None, None, False))
+        _, seen = self.push(TAG, self.layouts(), registry)
+        self.assertIn("--dest-tls-verify=false", seen["command"])
+        self.assertNotIn("--dest-authfile", seen["command"])
         for image in ("ghcr.io/nmamano/isomux", "localhost.example.com/isomux", "localhost:5000"):
             with self.subTest(image=image), self.assertRaises(ValueError):
-                publish.local_api(image)
+                publish.local_registry(image)
+
+    def test_ghcr_login_keeps_the_credential_out_of_arguments(self):
+        for tag in (TAG, None):
+            logins, published = [], []
+
+            def run(command, **kwargs):
+                logins.append((command, kwargs))
+                return subprocess.CompletedProcess(command, 0)
+
+            def publish_layouts(registry, tag, revision, directories):
+                published.append((registry, tag, pathlib.Path(registry.authfile).parent.exists()))
+                return "sha256:" + "c" * 64
+            with self.subTest(tag=tag), patch.object(publish.subprocess, "run", side_effect=run), \
+                 patch.object(publish, "registry_token", return_value="Bearer fixture"), \
+                 patch.object(publish, "publish_layouts", side_effect=publish_layouts):
+                self.assertEqual(publish.to_ghcr(tag, REVISION, {}, "actor", "secret-credential"),
+                                 publish.IMAGE + "@sha256:" + "c" * 64)
+                [(login, options)] = logins
+                self.assertEqual(login[:2], ["skopeo", "login"])
+                self.assertEqual(login[-1], "ghcr.io")
+                self.assertNotIn("secret-credential", login)
+                self.assertEqual(options["input"], "secret-credential")
+                [(registry, pushed_tag, present)] = published
+                self.assertEqual(registry.authfile, login[login.index("--authfile") + 1])
+                self.assertEqual((registry.image, registry.api, registry.authorization, registry.tls_verify),
+                                 (publish.IMAGE, publish.API, "Bearer fixture", True))
+                self.assertEqual(pushed_tag, tag)
+                # The credential file exists only while skopeo pushes.
+                self.assertTrue(present)
+                self.assertFalse(pathlib.Path(registry.authfile).parent.exists())
+
+    def test_only_a_release_publishes_a_tag(self):
+        with self.assertRaises(ValueError):
+            publish.publish(None, REVISION, {}, "actor", "secret")
 
     @patch.object(publish, "registry_token")
     def test_invalid_identity_never_authenticates(self, token):

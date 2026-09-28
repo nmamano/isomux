@@ -3,12 +3,14 @@
 `layout ARCH DIR` runs in each architecture's build job, which has no registry
 credentials: it checks the built image's version identity and writes that
 exact image as a push-ready layout. `publish AMD64_DIR ARM64_DIR` runs in the
-one job that can write the registry, after both build jobs passed: it pushes
-both images by digest and then one index under the tag. The workflow
-serializes writers per tag.
+one job that writes release tags, after both build jobs passed: skopeo pushes
+both images and their index, digests unchanged, under the tag, and the index
+is read back. `rehearse` does the same into ghcr.io by digest only, with no
+tag. The workflow serializes writers per tag.
 """
 import argparse
 import base64
+import collections
 import gzip
 import hashlib
 import json
@@ -58,15 +60,6 @@ def request(url, authorization, accept="application/json"):
         urllib.request.Request(url, headers=headers), timeout=30)
 
 
-def send(method, url, authorization, data=None, headers=None):
-    """One registry write or HEAD. urllib follows no redirect for writes."""
-    headers = dict(headers or {})
-    if authorization:
-        headers["Authorization"] = authorization
-    return urllib.request.build_opener(RegistryRedirect()).open(
-        urllib.request.Request(url, data=data, headers=headers, method=method), timeout=60)
-
-
 def registry_token(actor, credential):
     basic = base64.b64encode(f"{actor}:{credential}".encode()).decode()
     with request("https://ghcr.io/token?service=ghcr.io&scope=repository:nmamano/isomux:pull,push",
@@ -95,7 +88,7 @@ def check_config(api, authorization, manifest, architecture, revision):
 
 
 def existing_digest(tag, revision, authorization, require=None, api=API):
-    """The tag's digest if it already holds this revision, None if absent.
+    """The digest of a tag (or digest reference) if it holds this revision, None if absent.
 
     Tags published before multi-arch releases hold one amd64 image, or an
     index of one amd64 image and attestations. A retry accepts them as they
@@ -300,49 +293,6 @@ def read_layout(directory, architecture, revision):
             "digest": "sha256:" + hashlib.sha256(raw).hexdigest()}
 
 
-def location(api, response):
-    """The next upload URL. It carries the registry credential, so it must stay
-    on the registry's own scheme and host."""
-    target = response.headers.get("Location")
-    if not target:
-        raise ValueError("Registry upload has no location")
-    resolved = urllib.parse.urljoin(api, target)
-    if urllib.parse.urlsplit(resolved).scheme != urllib.parse.urlsplit(api).scheme:
-        raise ValueError("Registry upload location changes scheme")
-    if urllib.parse.urlsplit(resolved).netloc != urllib.parse.urlsplit(api).netloc:
-        raise ValueError("Registry upload location changes host")
-    return resolved
-
-
-def push_blob(api, authorization, directory, blob):
-    try:
-        send("HEAD", f"{api}/blobs/{blob['digest']}", authorization).close()
-        return
-    except urllib.error.HTTPError as error:
-        if error.code != 404:
-            raise
-    with send("POST", f"{api}/blobs/uploads/", authorization, b"") as response:
-        upload = location(api, response)
-    path = directory / "blobs" / blob["digest"].split(":")[1]
-    with open(path, "rb") as stream, send("PATCH", upload, authorization, stream, {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": str(blob["size"])}) as response:
-        upload = location(api, response)
-    separator = "&" if "?" in upload else "?"
-    with send("PUT", upload + separator + "digest=" + urllib.parse.quote(blob["digest"]),
-              authorization, b"") as response:
-        if response.headers.get("Docker-Content-Digest") not in (None, blob["digest"]):
-            raise ValueError("Registry stored a different blob")
-
-
-def put_manifest(api, authorization, reference, raw, media_type):
-    with send("PUT", f"{api}/manifests/{reference}", authorization, raw,
-              {"Content-Type": media_type}) as response:
-        stored = response.headers.get("Docker-Content-Digest")
-    if stored != "sha256:" + hashlib.sha256(raw).hexdigest():
-        raise ValueError("Registry stored a different manifest")
-
-
 def index_manifest(layouts):
     return json.dumps({
         "schemaVersion": 2,
@@ -353,43 +303,85 @@ def index_manifest(layouts):
     }, separators=(",", ":")).encode()
 
 
-def publish_layouts(api, authorization, tag, revision, directories):
-    """Push both images by digest, then the index under the tag. Never rewrites a tag."""
-    if tag is None:
-        raise ValueError("Publication requires a release tag")
+def oci_layout(layouts, directory):
+    """One OCI image layout of both checked images and their index, for skopeo."""
+    blobs = directory / "blobs" / "sha256"
+    blobs.mkdir(parents=True)
+    for layout in layouts:
+        for blob in layout["blobs"]:
+            source = layout["directory"] / "blobs" / blob["digest"].split(":")[1]
+            try:
+                os.link(source, blobs / source.name)
+            except OSError:
+                shutil.copyfile(source, blobs / source.name)
+        (blobs / layout["digest"].split(":")[1]).write_bytes(layout["manifest"])
+    index = index_manifest(layouts)
+    digest = "sha256:" + hashlib.sha256(index).hexdigest()
+    (blobs / digest.split(":")[1]).write_bytes(index)
+    (directory / "oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}')
+    (directory / "index.json").write_text(json.dumps({"schemaVersion": 2, "manifests": [
+        {"mediaType": INDEX_TYPE, "digest": digest, "size": len(index)}]}))
+    return digest
+
+
+# Where to push, how to read back, and skopeo's credential file.
+Registry = collections.namedtuple("Registry", "image api authorization authfile tls_verify")
+
+
+def publish_layouts(registry, tag, revision, directories):
+    """Push both images and their index with skopeo, unchanged: under the tag,
+    or by digest only when tag is None. Never rewrites a tag."""
     check_identity(tag, revision)
     if set(directories) != set(ARCHES):
         raise ValueError("Publication requires exactly the linux/amd64 and linux/arm64 images")
     layouts = [read_layout(directories[architecture], architecture, revision) for architecture in ARCHES]
-    digest = existing_digest(tag, revision, authorization, api=api)
-    if digest is not None:
-        return digest
-    for layout in layouts:
-        for blob in layout["blobs"]:
-            push_blob(api, authorization, layout["directory"], blob)
-        put_manifest(api, authorization, layout["digest"], layout["manifest"], MANIFEST_TYPE)
-    index = index_manifest(layouts)
-    put_manifest(api, authorization, tag, index, INDEX_TYPE)
-    digest = existing_digest(tag, revision, authorization, require=ARCHES, api=api)
-    if digest != "sha256:" + hashlib.sha256(index).hexdigest():
+    if tag is not None:
+        digest = existing_digest(tag, revision, registry.authorization, api=registry.api)
+        if digest is not None:
+            return digest
+    # Beside the layouts, so the blobs can be hard links.
+    with tempfile.TemporaryDirectory(dir=pathlib.Path(directories["amd64"]).parent) as scratch:
+        expected = oci_layout(layouts, pathlib.Path(scratch) / "oci")
+        command = ["skopeo", "copy", "--all", "--preserve-digests", "--retry-times", "3"]
+        if registry.authfile:
+            command += ["--dest-authfile", registry.authfile]
+        if not registry.tls_verify:
+            command += ["--dest-tls-verify=false"]
+        destination = f"{registry.image}:{tag}" if tag is not None else f"{registry.image}@{expected}"
+        subprocess.run([*command, "oci:" + scratch + "/oci", "docker://" + destination],
+                       check=True, timeout=3600)
+    digest = existing_digest(tag or expected, revision, registry.authorization, require=ARCHES,
+                             api=registry.api)
+    if digest != expected:
         raise ValueError("Published index is missing or different")
     return digest
 
 
-def local_api(image):
-    """The registry API of a local test image reference such as localhost:5000/nmamano/isomux."""
+def local_registry(image):
+    """A local test registry, such as localhost:5000/nmamano/isomux, over plain HTTP."""
     host, _, name = image.partition("/")
     if host.split(":")[0] not in ("localhost", "127.0.0.1") or not name:
-        raise ValueError("Rehearsal publishes only to a local registry")
-    return f"http://{host}/v2/{name}"
+        raise ValueError("Only a local registry is reached without credentials")
+    return Registry(image, f"http://{host}/v2/{name}", None, None, False)
+
+
+def to_ghcr(tag, revision, directories, actor, credential):
+    """Publish to ghcr.io; with tag None, by digest only, so no tag changes."""
+    check_identity(tag, revision)
+    authorization = registry_token(actor, credential)
+    with tempfile.TemporaryDirectory() as private:
+        authfile = str(pathlib.Path(private) / "auth.json")
+        subprocess.run(["skopeo", "login", "--authfile", authfile, "--username", actor,
+                        "--password-stdin", "ghcr.io"],
+                       input=credential, text=True, check=True, stdout=subprocess.DEVNULL, timeout=60)
+        registry = Registry(IMAGE, API, authorization, authfile, True)
+        return f"{IMAGE}@{publish_layouts(registry, tag, revision, directories)}"
 
 
 def publish(tag, revision, directories, actor, credential):
     if tag is None:
         raise ValueError("Publication requires a release tag")
-    check_identity(tag, revision)
-    authorization = registry_token(actor, credential)
-    return f"{IMAGE}@{publish_layouts(API, authorization, tag, revision, directories)}"
+    return to_ghcr(tag, revision, directories, actor, credential)
 
 
 def main():
@@ -403,10 +395,8 @@ def main():
     release.add_argument("--unreleased", action="store_true", help="the image must report no release")
     commands.add_parser("publish", help="publish both layouts to ghcr.io").add_argument(
         "directories", nargs=2, metavar=("AMD64_DIR", "ARM64_DIR"))
-    rehearse = commands.add_parser("rehearse", help="publish both layouts to a local test registry")
-    rehearse.add_argument("image", help="a local registry repository, such as localhost:5000/nmamano/isomux")
-    rehearse.add_argument("tag")
-    rehearse.add_argument("directories", nargs=2, metavar=("AMD64_DIR", "ARM64_DIR"))
+    commands.add_parser("rehearse", help="publish both layouts to ghcr.io by digest, with no tag").add_argument(
+        "directories", nargs=2, metavar=("AMD64_DIR", "ARM64_DIR"))
     args = parser.parse_args()
     revision = os.environ["REVISION"]
     if args.command == "layout":
@@ -416,7 +406,7 @@ def main():
         return
     directories = dict(zip(ARCHES, args.directories))
     if args.command == "rehearse":
-        print(publish_layouts(local_api(args.image), None, args.tag, revision, directories))
+        print(to_ghcr(None, revision, directories, os.environ["GITHUB_ACTOR"], os.environ["GITHUB_TOKEN"]))
         return
     reference = publish(os.environ["RELEASE_TAG"], revision, directories,
                         os.environ["GITHUB_ACTOR"], os.environ["GITHUB_TOKEN"])

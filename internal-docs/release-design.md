@@ -25,8 +25,10 @@ gate tests a different runtime than customer boxes run.
 runner per architecture (`ubuntu-24.04` for linux/amd64, `ubuntu-24.04-arm` for
 linux/arm64) through `deploy/container/build.sh`, and runs `smoke.py` and
 `compose-check.py` with isolated state on each. Only after both pass does the
-publish job push both images by digest and then one OCI index under
-`ghcr.io/nmamano/isomux:RELEASE_TAG`. The run summary records the source commit
+publish job push both images and one OCI index of them under
+`ghcr.io/nmamano/isomux:RELEASE_TAG`, with `skopeo copy --all
+--preserve-digests` (skopeo ships on GitHub's Ubuntu runners), and read the tag
+back. The run summary records the source commit
 and the index digest. Deploy by digest: Docker and Kubernetes resolve the index
 digest to the node's image. Source installation and local image builds remain
 available.
@@ -40,8 +42,11 @@ layers) as the layout artifact the publish job pushes; the publish job
 rechecks every blob hash, the platform and the revision label.
 
 A `workflow_dispatch` run is a probe: its images must report their commit and
-no release, and the `rehearse` job publishes to a registry on the runner and
-pulls the index the way the Docker updater does. It pushes nothing to GHCR.
+no release, and the `rehearse` job publishes them the same way into
+`ghcr.io/nmamano/isomux` by digest only, with no tag, then pulls the index the
+way a Docker office and a node do. Rehearsals leave untagged package versions;
+no tag moves. A local `registry:2` is not enough: the first multi-arch release
+(v2026.9.28) passed that and failed on GHCR.
 
 The container installer is downloaded from that same release tag, and checks
 its bytes against the tag before changing the host. Its Compose/unit/seccomp

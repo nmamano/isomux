@@ -111,7 +111,7 @@ try:
             with tempfile.TemporaryDirectory(dir=OUT) as scratch:
                 amd64 = Path(scratch) / "amd64"
                 publish.write_layout(tag, commit, IMAGE + ":" + tag, "amd64", amd64)
-                index = publish.publish_layouts(publish.local_api(IMAGE), None, tag, commit,
+                index = publish.publish_layouts(publish.local_registry(IMAGE), tag, commit,
                                                 {"amd64": amd64, "arm64": args.index})
             print(tag + " published as index " + index)
         else:

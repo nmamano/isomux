@@ -95,21 +95,19 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 scripts/container/publish.py publish "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64"
 
-  # The probe's stand-in for publish: the same code against a local registry,
-  # then the Docker updater's pull sequence on the index.
+  # The probe's stand-in for publish: the same code into ghcr.io by digest,
+  # with no tag, so no user sees it; then the pulls a Docker office and a node
+  # make.
   rehearse:
     needs: image
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 127.0.0.1:5000:5000
+    permissions:
+      contents: read
+      packages: write
     env:
       REVISION: ${{ github.sha }}
-      REHEARSAL: localhost:5000/nmamano/isomux
     steps:
       - uses: actions/checkout@v7
         with:
@@ -122,27 +120,28 @@ jobs:
         with:
           name: layout-arm64
           path: ${{ runner.temp }}/layout-arm64
-      - name: Publish to the local registry
+      - name: Publish to ghcr.io by digest, with no tag
         shell: bash
-        run: python3 scripts/container/publish.py rehearse "$REHEARSAL" v2099.1.1 "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64" | tee "$RUNNER_TEMP/index"
-      - name: Pull the index as the Docker updater does
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/container/publish.py rehearse "$RUNNER_TEMP/layout-amd64" "$RUNNER_TEMP/layout-arm64" | tee "$RUNNER_TEMP/rehearsal"
+      - name: Pull the index as a Docker office and a node do
         shell: bash
         run: |
           set -euo pipefail
-          # scripts/update.sh container_prepare, with the local repository.
-          docker pull "$REHEARSAL:v2099.1.1"
-          digest=$(docker image inspect "$REHEARSAL:v2099.1.1" --format '{{json .RepoDigests}}' |
-            jq -er --arg prefix "$REHEARSAL@sha256:" '[.[] | select(startswith($prefix))] | if length == 1 then .[0] else error("ambiguous digest") end')
-          test "$digest" = "$REHEARSAL@$(cat "$RUNNER_TEMP/index")"
-          docker pull "$digest"
-          test "$(docker image inspect "$digest" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
-          docker run --rm --network=none --entrypoint bun "$digest" -e \
+          reference=$(tail -n 1 "$RUNNER_TEMP/rehearsal")
+          [[ $reference =~ ^ghcr\.io/nmamano/isomux@sha256:[a-f0-9]{64}$ ]]
+          # Anonymous, as the public package is pulled.
+          docker pull "$reference"
+          docker image inspect "$reference" --format '{{json .RepoDigests}}' | jq -e --arg reference "$reference" 'index($reference) != null'
+          test "$(docker image inspect "$reference" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
+          docker run --rm --network=none --entrypoint bun "$reference" -e \
             'import {getVersionInfo} from "./server/version.ts"; console.log(JSON.stringify(getVersionInfo()))' |
             jq -e --arg commit "$REVISION" '.commit == $commit and .release == null'
-          test "$(docker run --rm --entrypoint uname "$digest" -m)" = x86_64
+          test "$(docker run --rm --entrypoint uname "$reference" -m)" = x86_64
           # Pulling the arm64 image checks its layers against its configuration.
           # By its own digest: the classic store keeps one platform per reference.
-          arm64=$(curl -fsS -H 'Accept: application/vnd.oci.image.index.v1+json' "http://localhost:5000/v2/nmamano/isomux/manifests/v2099.1.1" |
+          arm64=$(docker buildx imagetools inspect --raw "$reference" |
             jq -er '[.manifests[] | select(.platform.architecture == "arm64")] | if length == 1 then .[0].digest else error("arm64 image") end')
-          docker pull "$REHEARSAL@$arm64"
-          test "$(docker image inspect "$REHEARSAL@$arm64" --format '{{.Os}}/{{.Architecture}}')" = linux/arm64
+          docker pull "ghcr.io/nmamano/isomux@$arm64"
+          test "$(docker image inspect "ghcr.io/nmamano/isomux@$arm64" --format '{{.Os}}/{{.Architecture}}')" = linux/arm64
