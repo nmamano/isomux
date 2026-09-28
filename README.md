@@ -63,7 +63,7 @@ self-hosters.
 
 ## Get Started
 
-> Isomux is in alpha. [Bug reports welcome](https://github.com/nmamano/isomux/issues).
+> Isomux is in beta. [Bug reports welcome](https://github.com/nmamano/isomux/issues).
 
 ### 1. Prerequisites
 
