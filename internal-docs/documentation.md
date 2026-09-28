@@ -58,6 +58,15 @@ Keep these consistent across all surfaces below.
 - **Language:** English only, in every language of the site, and named as the governing text.
 - **Operator runbook:** `internal-docs/support-runbook.md`; update it when the refund terms, billing records, Stripe operator path, or customer portal status changes.
 
+## 2d. About page (isomux.com/about)
+
+- **File:** `site/about.html`.
+- **Audience:** Visitors and AI search engines that want to know what Isomux is and who builds it.
+- **Structure:** a one-sentence value line, then What Isomux does, What makes Isomux different, Related projects, Ways to use Isomux, The team behind Isomux, How Isomux works, a Key facts table, and FAQ. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
+- **Update when:** a fact on it changes - features, hosting options, license, prices, support channels, status, or a named competitor. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
+- **Language:** English only for now. The landing and hosted footers link it in all four languages.
+- **Deploy note:** static, `cleanUrls`, served at `/about`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
+
 ## 3. Site chatbot system prompt
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
@@ -88,7 +97,7 @@ Keep these consistent across all surfaces below.
 
 ## 4b. Machine-readable site resources
 
-- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
+- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, the `AboutPage` JSON-LD in `site/about.html`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
 - **Audience:** Agents, API clients, and search indexes.
 - **Update when:** public site routes, the website API, docs paths, or the product's developer-resource links change.
 - **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406.

@@ -2,6 +2,10 @@
 
 > Isomux is a source-available meta-harness for managing Claude, Codex, and OpenCode agents side by side.
 
+## Company
+
+- [About Isomux](https://isomux.com/about): What Isomux does, who builds it, and key facts
+
 ## Documentation
 
 - [Isomux documentation](https://isomux.com/docs): Feature index and product guide

@@ -48,6 +48,7 @@ const STATIC_PATHS = [
   "/ca",
   "/zh",
   "/demo",
+  "/about",
   "/hosted",
   "/es/hosted",
   "/ca/hosted",

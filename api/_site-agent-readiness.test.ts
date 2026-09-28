@@ -138,6 +138,25 @@ describe("isomux.com agent readiness", () => {
     );
   });
 
+  it("publishes the about page with structured company facts", async () => {
+    const about = await Bun.file("site/about.html").text();
+    const canonical = about.match(/<link rel="canonical" href="([^"]+)"/);
+    const jsonLd = about.match(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+    );
+    expect(canonical).not.toBeNull();
+    expect(jsonLd).not.toBeNull();
+    const data = JSON.parse(jsonLd![1]);
+    expect(data["@type"]).toBe("AboutPage");
+    expect(data.url).toBe(canonical![1]);
+    expect(data.mainEntity["@type"]).toBe("Organization");
+    expect(data.mainEntity.founder["@type"]).toBe("Person");
+    expect(data.mainEntity.foundingDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const llms = await Bun.file("site/llms.txt").text();
+    expect(llms).toContain(canonical![1]);
+  });
+
   it("rewrites cross-document Markdown links to canonical docs URLs", () => {
     expect(
       rewriteMarkdownLinks(

@@ -1,0 +1,854 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="canonical" href="https://isomux.com/about" />
+    <title>About Isomux</title>
+    <meta
+      name="description"
+      content="Isomux is a meta-harness that runs Claude Code, Codex, and other agents as coworkers in a shared office. Built by Nil Mamano; Isomux LLC is the company behind it."
+    />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "AboutPage",
+        "url": "https://isomux.com/about",
+        "name": "About Isomux",
+        "mainEntity": {
+          "@type": "Organization",
+          "name": "Isomux",
+          "legalName": "Isomux LLC",
+          "url": "https://isomux.com/",
+          "email": "llc@isomux.com",
+          "foundingDate": "2026-08-03",
+          "founder": {
+            "@type": "Person",
+            "name": "Nil Mamano",
+            "url": "https://nilmamano.com",
+            "sameAs": [
+              "https://x.com/Nil053",
+              "https://linkedin.com/in/nilmamano",
+              "https://github.com/nmamano"
+            ]
+          },
+          "sameAs": [
+            "https://github.com/nmamano/isomux",
+            "https://discord.gg/FrjEYyNvYs"
+          ]
+        }
+      }
+    </script>
+
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>"
+    />
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        --max-width: 760px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #1f9550;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #1f9550;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      main {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 24px 24px 8px;
+      }
+
+      h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 20px;
+      }
+
+      .lead {
+        font-size: 1.1rem;
+        margin-bottom: 12px;
+      }
+
+      h2 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        margin-top: 40px;
+        margin-bottom: 12px;
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-top: 20px;
+        margin-bottom: 6px;
+      }
+
+      p,
+      ul {
+        margin-bottom: 12px;
+      }
+
+      section p,
+      section li {
+        color: var(--text-dim);
+      }
+      section strong {
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+        margin-bottom: 12px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th {
+        color: var(--text);
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      td {
+        color: var(--text-dim);
+      }
+
+      footer {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 32px 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--text-dim);
+        font-size: 0.9rem;
+      }
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 24px;
+      }
+
+      @media (max-width: 640px) {
+        main {
+          padding: 20px 16px 8px;
+        }
+        h1 {
+          font-size: 1.6rem;
+        }
+        .topbar {
+          padding: 20px 16px 0;
+        }
+        th {
+          white-space: normal;
+        }
+        footer {
+          flex-direction: column;
+          gap: 12px;
+          text-align: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
+
+    <main>
+      <h1>About Isomux</h1>
+
+      <p class="lead">
+        Isomux is a <a href="#meta-harness">meta-harness</a>: it runs Claude
+        Code, Codex, and other agents as coworkers in a shared office, for
+        individuals, teams and companies who want agents that work around the
+        clock and are reachable from any device.
+      </p>
+
+      <section id="what">
+        <h2>What Isomux does</h2>
+
+        <h3>A shared office for your agents</h3>
+        <p>
+          Each agent sits at a desk in a room, with a name, a look, custom
+          instructions, and memories built over time. You see who's working,
+          waiting, or idle at a glance.
+        </p>
+
+        <h3>Agents that work together</h3>
+        <p>
+          Agents find each other, read each other's current or past chats, and
+          message each other. They track work on a shared board and schedule
+          reminders for themselves or others, so work moves between agents
+          without you passing it along.
+        </p>
+
+        <h3>Multiplayer, on every device</h3>
+        <p>
+          Invite people into your office with a link and pick which rooms each
+          one sees. Everyone sees the same agents and conversations, updated
+          instantly on laptop and phone, and anyone in a room can chime in.
+        </p>
+
+        <h3>A desk that comes stocked</h3>
+        <p>
+          Every agent has a built-in terminal, editor, diff viewer, diagram
+          viewer, and URL screenshotter, and can use your browser. Agents can
+          also build apps that the office keeps running for you and the people
+          you invite.
+        </p>
+
+        <h3>Scheduled work</h3>
+        <p>
+          Schedule recurring agent runs daily, weekly, or every N minutes. Each
+          run is a fresh session with a saved transcript, and you can resume any
+          run as a conversation.
+        </p>
+
+        <h3>Hosted Isomux</h3>
+        <p>
+          For people who would rather not run a server: we set up a private
+          server for your office at <code>yourname.isomux.app</code>. Agents run
+          on your own Claude or ChatGPT plan.
+        </p>
+      </section>
+
+      <section id="different">
+        <h2>What makes Isomux different</h2>
+
+        <h3>Agents are coworkers, not sessions</h3>
+        <p>
+          An Isomux agent keeps its name, desk, look, instructions, and memory
+          when you switch it between Claude, Codex, and OpenCode. Each room has
+          8 desks, and each agent shows its state at its desk: sleeping when
+          idle, typing when working, waving when it needs you.
+        </p>
+
+        <h3>Agents can run the office</h3>
+        <p>
+          Privileged agents can spawn agents, create rooms, set prompts, and
+          manage schedules. Memory is shared at four levels - office, room,
+          agent, and person - so what one agent learns can inform the others.
+        </p>
+
+        <h3>One always-on office per team</h3>
+        <p>
+          An office is one persistent server, where agents, files, and apps stay
+          between sessions. Run it on your laptop, your own hardware, a VPS,
+          Render, AWS, or Kubernetes, or let us host it.
+        </p>
+
+        <h3>Made for phones and for people who don't code</h3>
+        <p>
+          Install the office on your phone's home screen, speak your prompt, and
+          hear the reply. New members join with a link, with no account or
+          password, and the office reads in English, Spanish, Catalan, or
+          Chinese.
+        </p>
+      </section>
+
+      <section id="related">
+        <h2>Related projects</h2>
+        <ul>
+          <li>
+            <strong>Omnigent</strong>, from Databricks, open-sourced under
+            Apache 2.0 in
+            <a
+              href="https://www.databricks.com/blog/introducing-omnigent-meta-harness-combine-control-and-share-your-agents"
+              target="_blank"
+              rel="noopener"
+              >June 2026</a
+            >. Its
+            <a
+              href="https://github.com/omnigent-ai/omnigent"
+              target="_blank"
+              rel="noopener"
+              >README</a
+            >
+            lists Claude Code, Codex, Cursor, OpenCode, Hermes, and Pi.
+          </li>
+          <li>
+            <strong>qm</strong>, from Y Combinator, is
+            <a
+              href="https://github.com/yc-software/qm"
+              target="_blank"
+              rel="noopener"
+              >a multiplayer agent harness</a
+            >
+            in Slack and on the web, under the MIT License. Pi, OpenCode, Codex,
+            and Claude Code drive its core.
+          </li>
+          <li>
+            <strong>Orca</strong>, from Stably AI, is
+            <a
+              href="https://github.com/stablyai/orca"
+              target="_blank"
+              rel="noopener"
+              >an agent development environment</a
+            >
+            that runs Claude Code, Codex, OpenCode, Pi, and other CLI agents in
+            parallel, with desktop apps and iOS and Android apps. It is MIT
+            licensed.
+          </li>
+          <li>
+            <strong>Munder Difflin</strong>, by GitHub user chaitanyagiri, is
+            <a
+              href="https://github.com/chaitanyagiri/munder-difflin"
+              target="_blank"
+              rel="noopener"
+              >a local multi-agent harness</a
+            >
+            that runs Claude Code, Codex, OpenCode, Pi, and other agent CLIs as
+            an office of agents at desks. It is MIT licensed.
+          </li>
+          <li>
+            <strong>OpenClaw</strong> is an
+            <a
+              href="https://github.com/openclaw/openclaw"
+              target="_blank"
+              rel="noopener"
+              >open-source AI assistant</a
+            >
+            that runs on your own computer and talks to you through apps such as
+            Discord, Slack, Telegram, and WhatsApp. Peter Steinberger and the
+            community built it; the OpenClaw Foundation develops it under the
+            MIT License.
+          </li>
+          <li>
+            <strong>Hermes Agent</strong> is a
+            <a
+              href="https://github.com/NousResearch/hermes-agent"
+              target="_blank"
+              rel="noopener"
+              >self-improving AI agent</a
+            >
+            from Nous Research, reachable from the CLI, Telegram, Discord,
+            Slack, WhatsApp, and Signal. It is MIT licensed.
+          </li>
+          <li>
+            <strong>Pi</strong> is a
+            <a href="https://pi.dev/" target="_blank" rel="noopener"
+              >minimal agent harness</a
+            >
+            that Mario Zechner
+            <a
+              href="https://mariozechner.at/posts/2025-11-30-pi-coding-agent/"
+              target="_blank"
+              rel="noopener"
+              >started in 2025</a
+            >, now from Earendil Inc. under the MIT License.
+          </li>
+          <li>
+            <strong>AdaL</strong>, from SylphAI, is
+            <a
+              href="https://github.com/SylphAI-Inc/adal-cli"
+              target="_blank"
+              rel="noopener"
+              >an automation-first agent harness</a
+            >
+            named after Ada Lovelace. It works with Claude, GPT, Gemini, and
+            local models, among others.
+          </li>
+          <li>
+            <strong>Cursor</strong> is a coding agent from Anysphere, which
+            <a
+              href="https://cursor.com/blog/joining-spacex"
+              target="_blank"
+              rel="noopener"
+              >SpaceX acquired</a
+            >
+            in August 2026.
+          </li>
+          <li>
+            <strong>Grok Bot</strong> is a
+            <a
+              href="https://x.ai/news/introducing-grok-bot"
+              target="_blank"
+              rel="noopener"
+              >team of always-on agents</a
+            >
+            from SpaceXAI, launched in August 2026 for SuperGrok and Cursor
+            subscribers.
+          </li>
+          <li>
+            <strong>Muse</strong> is
+            <a
+              href="https://about.fb.com/news/2026/09/introducing-muse-personal-ai-agent/"
+              target="_blank"
+              rel="noopener"
+              >a personal AI agent</a
+            >
+            from Meta, rolling out in the US since September 2026 on iOS,
+            Android, and muse.ai. It is free for most uses, with subscription
+            plans.
+          </li>
+        </ul>
+      </section>
+
+      <section id="use">
+        <h2>Ways to use Isomux</h2>
+        <h3>Self-hosted</h3>
+        <p>
+          Run Isomux on your own machine or server. It is free for personal use,
+          for organizations of up to 10 people, and for any non-production use.
+        </p>
+        <h3>Hosted Isomux</h3>
+        <p>
+          A hosting service we sell directly to customers. We set up a private
+          server for your office, and you pay monthly for the server.
+        </p>
+        <h3>Enterprise agreements</h3>
+        <p>
+          Organizations of more than 10 people that run Isomux in production on
+          their own infrastructure need a commercial license from Isomux LLC.
+          Engineers set up the agents, non-technical employees build their own
+          tools with them, and engineers join the same conversation when they
+          need help. We are running a pilot with a startup.
+        </p>
+      </section>
+
+      <section id="team">
+        <h2>The team behind Isomux</h2>
+        <p>
+          Isomux is built by
+          <a href="https://nilmamano.com" target="_blank" rel="noopener"
+            >Nil Mamano</a
+          >, its founder. Isomux LLC is the company behind it. Nil has a PhD in
+          computer science from UC Irvine, was a senior software engineer at
+          Google, and co-wrote <em>Beyond Cracking the Coding Interview</em>.
+        </p>
+        <p>
+          Isomux started in March 2026 as a nicer way to manage agents. Nil had
+          a mix of local and remote sessions: for the local ones he had to keep
+          his laptop open, and for the remote ones he had to ssh all the time.
+          He couldn't check in from his phone and he had no good way to
+          collaborate with others. The fix was to run every agent on a server
+          with a browser UI, so all his devices see the same agents. The name is
+          short for Isometric Multiplexer.
+        </p>
+        <p>
+          Read the
+          <a
+            href="https://nilmamano.com/blog/isomux"
+            target="_blank"
+            rel="noopener"
+            >technical deep dive</a
+          >, or connect with Nil on
+          <a href="https://x.com/Nil053" target="_blank" rel="noopener">X</a>,
+          <a
+            href="https://linkedin.com/in/nilmamano"
+            target="_blank"
+            rel="noopener"
+            >LinkedIn</a
+          >, and
+          <a href="https://github.com/nmamano" target="_blank" rel="noopener"
+            >GitHub</a
+          >.
+        </p>
+      </section>
+
+      <section id="how">
+        <h2>How Isomux works</h2>
+        <ul>
+          <li>
+            <strong>Get it:</strong> clone the repo and run it locally, follow a
+            <a href="/docs/hosting">hosting guide</a> for an always-on server,
+            or sign up for <a href="/hosted">Hosted Isomux</a>.
+          </li>
+          <li>
+            <strong>Onboarding:</strong> new offices start with welcome agents,
+            and a Receptionist in the lobby answers questions about Isomux.
+          </li>
+          <li>
+            <strong>Updates:</strong> releases are tagged by date. When one is
+            out, your office tells you and you apply it when you choose.
+          </li>
+          <li>
+            <strong>Support:</strong> ask in
+            <a
+              href="https://discord.gg/FrjEYyNvYs"
+              target="_blank"
+              rel="noopener"
+              >Discord</a
+            >
+            or write to <a href="mailto:llc@isomux.com">llc@isomux.com</a>. We
+            aim to respond within 24 hours, but do not commit to a response
+            time. Bug reports go to
+            <a
+              href="https://github.com/nmamano/isomux/issues"
+              target="_blank"
+              rel="noopener"
+              >GitHub issues</a
+            >.
+          </li>
+        </ul>
+      </section>
+
+      <section id="facts">
+        <h2>Key facts</h2>
+        <table>
+          <tbody>
+            <tr>
+              <th scope="row">Company Name</th>
+              <td>Isomux LLC</td>
+            </tr>
+            <tr>
+              <th scope="row">Type</th>
+              <td>
+                Software company; Isomux is a source-available meta-harness
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Founded</th>
+              <td>August 3, 2026, as Isomux LLC in Oregon</td>
+            </tr>
+            <tr>
+              <th scope="row">Founder</th>
+              <td>Nil Mamano</td>
+            </tr>
+            <tr>
+              <th scope="row">Website</th>
+              <td><a href="https://isomux.com">isomux.com</a></td>
+            </tr>
+            <tr>
+              <th scope="row">Core Offering</th>
+              <td>
+                Isomux, a meta-harness for Claude Code, Codex, and OpenCode;
+                Hosted Isomux, a private server for your office
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Contract Terms</th>
+              <td>
+                Self-hosted:
+                <a
+                  href="https://github.com/nmamano/isomux/blob/main/LICENSE"
+                  target="_blank"
+                  rel="noopener"
+                  >Business Source License 1.1</a
+                >, free for teams of up to 10 people and for any non-production
+                use. Hosted: monthly, cancel anytime.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Pricing</th>
+              <td>
+                Self-hosted: free for personal use and for organizations of up
+                to 10 people; a commercial license for production use above
+                that. Hosted: Entry 8 EUR/month, Poweruser 17 EUR/month.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Services</th>
+              <td>Hosted Isomux; commercial licenses</td>
+            </tr>
+            <tr>
+              <th scope="row">Status</th>
+              <td>Beta</td>
+            </tr>
+            <tr>
+              <th scope="row">Communication</th>
+              <td>Discord, email (llc@isomux.com), GitHub issues</td>
+            </tr>
+            <tr>
+              <th scope="row">Competitors</th>
+              <td>
+                Omnigent (Databricks), qm (Y Combinator), Orca (Stably AI),
+                Munder Difflin, OpenClaw, Hermes Agent (Nous Research), Pi
+                (Earendil), AdaL (SylphAI), Cursor (Anysphere), Grok Bot
+                (SpaceXAI), Muse (Meta).
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Social</th>
+              <td>
+                <a
+                  href="https://github.com/nmamano/isomux"
+                  target="_blank"
+                  rel="noopener"
+                  >GitHub</a
+                >,
+                <a
+                  href="https://discord.gg/FrjEYyNvYs"
+                  target="_blank"
+                  rel="noopener"
+                  >Discord</a
+                >, founder on
+                <a href="https://x.com/Nil053" target="_blank" rel="noopener"
+                  >X</a
+                >
+                and
+                <a
+                  href="https://linkedin.com/in/nilmamano"
+                  target="_blank"
+                  rel="noopener"
+                  >LinkedIn</a
+                >
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="faq">
+        <h2>Frequently asked questions</h2>
+
+        <h3 id="meta-harness">What is a meta-harness?</h3>
+        <p>
+          Claude Code and Codex are harnesses around models. A meta-harness sits
+          one level above them and runs them side by side. Isomux adds, among
+          other things, messaging between agents, a shared task board,
+          multiplayer, and a mobile UI.
+        </p>
+
+        <h3>Which agents does Isomux support?</h3>
+        <p>
+          Claude Code, Codex, and OpenCode. Codex and OpenCode come bundled with
+          Isomux; OpenCode needs Linux or macOS.
+        </p>
+
+        <h3>Do I need API keys?</h3>
+        <p>
+          No. Isomux works with your subscriptions: you sign in with your Claude
+          or ChatGPT plan from inside the office. OpenCode also offers free
+          models.
+        </p>
+
+        <h3>Is Isomux free?</h3>
+        <p>
+          Self-hosted Isomux is free for personal use and for organizations of
+          up to 10 people, and anyone can evaluate, develop, and test with it.
+          Larger organizations need a
+          <a
+            href="https://github.com/nmamano/isomux/blob/main/COMMERCIAL-LICENSE.md"
+            target="_blank"
+            rel="noopener"
+            >commercial license</a
+          >
+          for production use. <a href="/hosted">Hosted Isomux</a> costs 8
+          EUR/month (Entry) or 17 EUR/month (Poweruser) for the server; agents
+          run on your own Claude or ChatGPT plan.
+        </p>
+
+        <h3>Is Isomux open source?</h3>
+        <p>
+          It is source-available under the
+          <a
+            href="https://github.com/nmamano/isomux/blob/main/LICENSE"
+            target="_blank"
+            rel="noopener"
+            >Business Source License 1.1</a
+          >. Each version converts to the Apache License 2.0 two years after its
+          first release, and releases through v2026.9.10 remain available under
+          the MIT License.
+        </p>
+
+        <h3>How is Isomux different from Omnigent and qm?</h3>
+        <p>
+          All three run several agent harnesses side by side. Omnigent is
+          written in Python and licensed Apache 2.0; qm works in Slack and on
+          the web and is licensed MIT. Isomux is written in TypeScript on Bun
+          and puts agents at persistent desks in a shared office.
+        </p>
+
+        <h3>Where does my data live?</h3>
+        <p>
+          On the server that runs your office. A hosted office runs entirely on
+          your own server, with no Isomux cloud service in between, and keeps
+          seven daily backups.
+        </p>
+
+        <h3>Is Isomux ready for production?</h3>
+        <p>
+          It is in beta.
+          <a
+            href="https://github.com/nmamano/isomux/issues"
+            target="_blank"
+            rel="noopener"
+            >Bug reports welcome</a
+          >.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <a href="/">Isomux</a>
+
+      <div class="footer-links">
+        <a href="/hosted">Hosted</a>
+        <a href="/hosted-terms">Terms</a>
+        <a href="/hosted-privacy">Privacy</a>
+        <a
+          href="https://github.com/nmamano/isomux"
+          target="_blank"
+          rel="noopener"
+          >GitHub</a
+        >
+      </div>
+    </footer>
+
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/analytics.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+  </body>
+</html>
