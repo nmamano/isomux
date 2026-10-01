@@ -208,6 +208,12 @@ bun run server/isomux-office.ts owner-login --name "<your-display-name>"
 
 That prints a one-time login URL valid for 15 minutes. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600 - only the Isomux service user can connect), so on a multi-user box only the UID running isomux can mint recovery URLs. The server has to be running for the CLI to work.
 
+In the container image (Docker), run it inside the container as the `node` user:
+
+```
+docker exec -u node -e HOME=/var/data/home -e ISOMUX_HOME=/var/data/home/.isomux <container> bun run server/isomux-office.ts owner-login --name "<your-display-name>"
+```
+
 ## Operating notes
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
