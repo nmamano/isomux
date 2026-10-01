@@ -61,7 +61,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/tasks\/[^/]+\/(claim|done)$/ },
   {
     method: "GET",
-    path: /^\/api\/agents\/[^/]+\/(context|logs|sessions|instructions|scheduled-messages)$/,
+    path: /^\/api\/agents\/[^/]+\/(context|subscription|logs|sessions|instructions|scheduled-messages)$/,
   },
   {
     method: "POST",
@@ -95,6 +95,11 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "DELETE", path: /^\/api\/cronjobs\/[^/]+$/ },
   { method: "GET", path: /^\/api\/cron-runs$/ },
   { method: "POST", path: /^\/api\/api-token-inboxes\/[^/]+\/messages$/ },
+  { method: "GET", path: /^\/api\/members-chat$/ },
+  { method: "POST", path: /^\/api\/members-chat$/ },
+  { method: "PATCH", path: /^\/api\/members-chat\/[^/]+$/ },
+  { method: "DELETE", path: /^\/api\/members-chat\/[^/]+$/ },
+  { method: "PUT", path: /^\/api\/members-chat\/[^/]+\/thumbs-up$/ },
 ];
 
 export class OpenCodeAuthorityBroker {
