@@ -6,8 +6,8 @@ You can use Isomux in production for your own personal purposes, or for an
 organization with at most 10 people. Anyone can use it for evaluation,
 development, and testing.
 
-Any other production use needs a commercial license from Isomux LLC. This
-includes a company's internal use on its own infrastructure.
+Any other production use needs a commercial license from Isomux LLC, wherever
+Isomux runs, including on Hosted Isomux.
 
 To ask about a commercial license, email [llc@isomux.com](mailto:llc@isomux.com).
 

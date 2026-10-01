@@ -62,8 +62,8 @@ Keep these consistent across all surfaces below.
 
 - **File:** `site/about.html`.
 - **Audience:** Visitors and AI search engines that want to know what Isomux is and who builds it.
-- **Structure:** a one-sentence value line, then What Isomux does, What makes Isomux different, Related projects, Ways to use Isomux, The team behind Isomux, How Isomux works, a Key facts table, and FAQ. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
-- **Update when:** a fact on it changes - features, hosting options, license, prices, support channels, status, or a named competitor. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
+- **Structure:** a one-sentence definition, then The team behind Isomux, Enterprise, Support, a Key facts table, FAQ, and Related projects. Features stay on the landing page and hosting options in the hosting guide; this page does not repeat them. It carries `AboutPage` / `Organization` JSON-LD. Styled like the legal pages (section 2c).
+- **Update when:** a fact on it changes - license, prices, support channels, status, or a named competitor. Every claim traces to a public surface (this repo, the site, nilmamano.com, or a competitor's own site or repo); a claim about a competitor is a verifiable fact with a source, never a subjective comparison.
 - **Language:** English only for now. The landing and hosted footers link it in all four languages.
 - **Deploy note:** static, `cleanUrls`, served at `/about`. Listed in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`) and in `site/llms.txt`.
 

@@ -4,7 +4,7 @@
 
 ## Company
 
-- [About Isomux](https://isomux.com/about): What Isomux does, who builds it, and key facts
+- [About Isomux](https://isomux.com/about): Who builds Isomux, licensing, enterprise use, and key facts
 
 ## Documentation
 
