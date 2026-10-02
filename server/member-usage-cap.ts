@@ -20,10 +20,7 @@ import type { OfficeUsageStatusWire } from "../shared/contract-shapes.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 import { timeUntilFine } from "../shared/i18n/time.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
-import {
-  loadMemberUsageCap,
-  saveMemberUsageCap,
-} from "./persistence.ts";
+import { loadMemberUsageCap, saveMemberUsageCap } from "./persistence.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   createOfficeUsageReader,
@@ -168,9 +165,7 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
     };
   }
 
-  async function read(
-    provider: ProviderAccountProvider,
-  ): Promise<Admission> {
+  async function read(provider: ProviderAccountProvider): Promise<Admission> {
     const outcome = await deps.reader.read(provider);
     if (outcome.kind === "no_limit") return { kind: "exempt" };
     if (outcome.kind !== "weekly") return refusedReadFailed(now());
@@ -216,23 +211,26 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
     async status() {
       const providers: ProviderAccountProvider[] = ["claude", "codex"];
       const rows = await Promise.all(
-        providers.map(async (provider): Promise<OfficeUsageStatusWire | null> => {
-          const outcome = await deps.reader.read(provider);
-          if (outcome.kind === "signed_out") return null;
-          if (outcome.kind === "no_limit") return { provider, state: "no_limit" };
-          if (outcome.kind === "failed") return { provider, state: "failed" };
-          const pace = evaluatePace(
-            outcome.usedPercent,
-            outcome.resetsAtMs,
-            now(),
-          );
-          return {
-            provider,
-            state: "weekly",
-            usedPercent: outcome.usedPercent,
-            pacePercent: pace.pacePercent,
-          };
-        }),
+        providers.map(
+          async (provider): Promise<OfficeUsageStatusWire | null> => {
+            const outcome = await deps.reader.read(provider);
+            if (outcome.kind === "signed_out") return null;
+            if (outcome.kind === "no_limit")
+              return { provider, state: "no_limit" };
+            if (outcome.kind === "failed") return { provider, state: "failed" };
+            const pace = evaluatePace(
+              outcome.usedPercent,
+              outcome.resetsAtMs,
+              now(),
+            );
+            return {
+              provider,
+              state: "weekly",
+              usedPercent: outcome.usedPercent,
+              pacePercent: pace.pacePercent,
+            };
+          },
+        ),
       );
       return rows.filter((row): row is OfficeUsageStatusWire => row !== null);
     },

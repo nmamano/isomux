@@ -8,7 +8,8 @@ const { onLanguage } = await import("../test-support/language-fixture");
 afterAll(() => setApiShim(null));
 
 test("Chrome pairing adds named browsers; each one unpairs through its own self route", async () => {
-  type Status = import("../../shared/browser-extension-protocol").MemberBrowserStatus;
+  type Status =
+    import("../../shared/browser-extension-protocol").MemberBrowserStatus;
   let status: Status = {
     paired: false,
     online: false,

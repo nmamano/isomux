@@ -140,7 +140,13 @@ test("several browsers pair, stay connected, and unpair one at a time", async ()
   const pair = async (body: unknown) =>
     (
       await (
-        await memberRequest(server!, owner, "POST", "/api/me/browser/pair", body)
+        await memberRequest(
+          server!,
+          owner,
+          "POST",
+          "/api/me/browser/pair",
+          body,
+        )
       ).json()
     ).code as string;
   const connect = async (code: string) => {

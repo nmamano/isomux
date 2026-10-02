@@ -149,9 +149,9 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await until(() => !agent!.isConnected());
       expect(await pending).toBe("rejected");
       await configure();
-      expect(fixture.bridge.connections("fixture-member")[0].generation).not.toBe(
-        old.generation,
-      );
+      expect(
+        fixture.bridge.connections("fixture-member")[0].generation,
+      ).not.toBe(old.generation);
       expect(() =>
         browserExtensionTransport(
           fixture.bridge.connections("fixture-member")[0],

@@ -49,7 +49,11 @@ export function BrowserPane() {
       clearInterval(timer);
     };
   }, []);
-  async function change(method: "POST" | "DELETE", path: string, body?: unknown) {
+  async function change(
+    method: "POST" | "DELETE",
+    path: string,
+    body?: unknown,
+  ) {
     setBusy(true);
     setError(false);
     setCopied(false);

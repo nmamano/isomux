@@ -106,11 +106,7 @@ test("version-2 browsers load, names default and are bounded, and a bad entry is
     expect(() => store.pair("member", "x".repeat(41))).toThrow();
     // Sanitized and trimmed; control characters do not count.
     store.pair("member", " \u202e" + "y".repeat(40) + "\n");
-    const added = store.redeem(
-      store.pair("member").code,
-      origin,
-      () => true,
-    );
+    const added = store.redeem(store.pair("member").code, origin, () => true);
     expect(store.browsers("member").map((b) => b.name)).toEqual([
       "Browser 2",
       "Browser 1",
@@ -190,11 +186,7 @@ test("legacy headless choices migrate to Chrome and preserve pairing and profile
         },
       ]);
       // The next write is version 2 and keeps the migrated credential.
-      const added = store.redeem(
-        store.pair("member").code,
-        origin,
-        () => true,
-      );
+      const added = store.redeem(store.pair("member").code, origin, () => true);
       const reloaded = new BrowserExtensionStore(path);
       expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(2);
       expect(reloaded.memberForHash(hash, origin)).toBe("member");

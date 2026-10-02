@@ -620,7 +620,11 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     expect(out).toMatchObject({ kind: "error", status: 409 });
     // The loop is still arrested (burst spent), but a stopped agent has not
     // eaten the app's day - it woke nobody and burned no model tokens.
-    expect(rec.calls).toEqual(["burst:habits", "hold:habits", "release:habits"]);
+    expect(rec.calls).toEqual([
+      "burst:habits",
+      "hold:habits",
+      "release:habits",
+    ]);
   });
 
   it("spends NEITHER on a request that was never valid", async () => {
@@ -647,7 +651,11 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     );
     const out = await h["apps.sendMessage"](appCtx({ text: "hi" }));
     expect(out).toMatchObject({ kind: "error", status: 404 });
-    expect(rec.calls).toEqual(["burst:habits", "hold:habits", "release:habits"]);
+    expect(rec.calls).toEqual([
+      "burst:habits",
+      "hold:habits",
+      "release:habits",
+    ]);
     expect(reads).toBe(1);
   });
 

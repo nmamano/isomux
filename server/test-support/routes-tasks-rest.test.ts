@@ -184,7 +184,11 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const patched = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, created.id), priority: "P1", description: "d" },
+      body: {
+        version: currentVersion(srv, created.id),
+        priority: "P1",
+        description: "d",
+      },
     });
     expect(patched.status).toBe(200);
     expect((patched.body as TaskItem).priority).toBe("P1");
@@ -905,7 +909,10 @@ describe("routes/tasks REST: room scoping", () => {
     await api(srv, `/api/tasks/${survivor.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { version: currentVersion(srv, survivor.id), title: "global, edited" },
+      body: {
+        version: currentVersion(srv, survivor.id),
+        title: "global, edited",
+      },
     });
     await waitUntil(
       () => upsertsOf(sock).some((t) => t.title === "global, edited"),
@@ -1201,7 +1208,12 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
 
 describe("routes/tasks REST: version guard + claim", () => {
   type ErrBody = {
-    error: { code: string; message?: string; version?: string; task?: TaskItem };
+    error: {
+      code: string;
+      message?: string;
+      version?: string;
+      task?: TaskItem;
+    };
   };
   const err = (r: Res) => (r.body as ErrBody).error;
 
@@ -1217,7 +1229,8 @@ describe("routes/tasks REST: version guard + claim", () => {
         body: { title: "T" },
       })
     ).body as TaskItem;
-    const stored = () => srv.agentManager.getTasks().find((x) => x.id === t.id)!;
+    const stored = () =>
+      srv.agentManager.getTasks().find((x) => x.id === t.id)!;
     return { srv, sid, t, stored };
   }
 
@@ -1436,9 +1449,9 @@ describe("routes/tasks REST: P4 replaces the backlog status", () => {
       // The way forward is the priority level, so the error names it.
       expect(e.message).toContain("P4");
     }
-    expect(
-      srv.agentManager.getTasks().find((x) => x.id === t.id)?.status,
-    ).toBe("open");
+    expect(srv.agentManager.getTasks().find((x) => x.id === t.id)?.status).toBe(
+      "open",
+    );
     expect(srv.agentManager.getTasks()).toHaveLength(1);
   });
 });

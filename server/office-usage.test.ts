@@ -59,7 +59,11 @@ describe("parseClaudeWeekly", () => {
 });
 
 function codexLimits(
-  windows: { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null }[],
+  windows: {
+    usedPercent: number;
+    windowDurationMins: number | null;
+    resetsAt: number | null;
+  }[],
 ): GetAccountRateLimitsResponse {
   return {
     rateLimits: {
@@ -90,9 +94,7 @@ describe("parseCodexWeekly", () => {
     expect(
       parseCodexWeekly(
         chatgpt,
-        codexLimits([
-          { usedPercent: 11, windowDurationMins: 10080, resetsAt },
-        ]),
+        codexLimits([{ usedPercent: 11, windowDurationMins: 10080, resetsAt }]),
       ),
     ).toEqual({ kind: "weekly", usedPercent: 11, resetsAtMs: resetsAt * 1000 });
     expect(
@@ -230,7 +232,11 @@ describe("createOfficeUsageReader", () => {
   it("rejects a reset in the past or more than a week and an hour away", async () => {
     const h = harness([
       { kind: "weekly", usedPercent: 5, resetsAtMs: NOW - 1 },
-      { kind: "weekly", usedPercent: 5, resetsAtMs: NOW + WEEK_MS + 2 * 3600_000 },
+      {
+        kind: "weekly",
+        usedPercent: 5,
+        resetsAtMs: NOW + WEEK_MS + 2 * 3600_000,
+      },
       { kind: "weekly", usedPercent: 5, resetsAtMs: NOW + WEEK_MS },
     ]);
     expect(await h.reader.read("claude")).toEqual({ kind: "failed" });

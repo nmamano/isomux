@@ -299,7 +299,11 @@ describe("backlog -> P4 boot migration (task 77460aea)", () => {
     seed();
     const first = loadTasks();
     const onDisk = readFileSync(tasksFile(), "utf-8");
-    expect(JSON.parse(onDisk).some((t: { status: string }) => t.status === "backlog")).toBe(false);
+    expect(
+      JSON.parse(onDisk).some(
+        (t: { status: string }) => t.status === "backlog",
+      ),
+    ).toBe(false);
     expect(loadTasks()).toEqual(first);
     expect(readFileSync(tasksFile(), "utf-8")).toBe(onDisk);
   });

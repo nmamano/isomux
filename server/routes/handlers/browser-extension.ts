@@ -1,10 +1,7 @@
 import { resolve } from "node:path";
 import { fail, ok, noContent, file, type RouteHandler } from "../executor";
 import type { BrowserExtensionService } from "../../browser-extension-service";
-import {
-  BROWSER_NAME_MAX,
-  browserName,
-} from "../../browser-extension-store";
+import { BROWSER_NAME_MAX, browserName } from "../../browser-extension-store";
 
 export function browserExtensionHandlers(
   service: BrowserExtensionService,

@@ -480,7 +480,8 @@ function TaskDetailPanel({
             onKeyDown={(e) => {
               // Plain Enter saves; Ctrl/Cmd+Enter is handled by the panel's
               // capture handler (avoid double-submitting here).
-              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) void handleSave();
+              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey)
+                void handleSave();
               e.stopPropagation();
             }}
           />

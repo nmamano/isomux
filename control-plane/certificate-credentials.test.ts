@@ -134,8 +134,9 @@ describe("one-office certificate credentials", () => {
           [issued.id],
         )
       )?.last_used_at ?? null;
-    expect(await authenticateCertificateCredential(store, issued.token)).not
-      .toBeNull();
+    expect(
+      await authenticateCertificateCredential(store, issued.token),
+    ).not.toBeNull();
     expect(await lastContact()).toBeNull();
     expect(await service.reportStatus(issued.token, "failed")).toBe("ok");
     expect(await lastContact()).not.toBeNull();

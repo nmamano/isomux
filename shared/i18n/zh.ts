@@ -28,8 +28,7 @@ export const zh: Catalog = {
     "智能体使用你配对的电脑上的 Chrome。请在每台电脑上安装并配对扩展。",
   "browser.setup": "设置 Chrome",
   "browser.extract": "解压 ZIP 文件。",
-  "browser.extensions":
-    "在 Chrome 中打开 {address} 并启用开发者模式。",
+  "browser.extensions": "在 Chrome 中打开 {address} 并启用开发者模式。",
   "browser.load": "选择“加载已解压的扩展程序”，然后选择解压后的文件夹。",
   "browser.pin": "将 Isomux Browser 固定到工具栏。",
   "browser.finish":
@@ -55,8 +54,7 @@ export const zh: Catalog = {
   "browser.generate": "创建配对码",
   "browser.replace": "替换配对",
   "browser.name": "浏览器名称",
-  "browser.nameHint":
-    "可选，例如“工作笔记本”。智能体会看到这个名称。",
+  "browser.nameHint": "可选，例如“工作笔记本”。智能体会看到这个名称。",
   "browser.pairedOn": "配对于 {date}",
   "browser.code": "配对码",
   "browser.expires": "到期时间：{time}",
@@ -1545,8 +1543,7 @@ App 的一些原则：
   "tasks.showLess": "显示更少",
   "tasks.moreAgents": "另有 {count} 个",
   "tasks.discardPrompt": "放弃未保存的更改？",
-  "tasks.saveConflict":
-    "此任务在你编辑时已被更改，因此你的更改未保存。",
+  "tasks.saveConflict": "此任务在你编辑时已被更改，因此你的更改未保存。",
   "tasks.discard": "放弃",
   "tasks.create": "创建",
   "tasks.confirmDelete": "确认？",

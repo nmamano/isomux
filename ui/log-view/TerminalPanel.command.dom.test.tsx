@@ -12,9 +12,8 @@ const { act, render } = await import("@testing-library/react");
 const { createElement } = await import("react");
 const { setShim, shimEmit } = await import("./../ws.ts");
 const { TerminalPanel } = await import("./TerminalPanel.tsx");
-const { INTERRUPT_INPUT_BYTES, commandInputBytes } = await import(
-  "./terminal-command.ts"
-);
+const { INTERRUPT_INPUT_BYTES, commandInputBytes } =
+  await import("./terminal-command.ts");
 import type { ClientCommand } from "../../shared/types.ts";
 
 const AGENT = "agent-1";

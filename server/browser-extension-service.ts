@@ -100,7 +100,10 @@ export class BrowserExtensionService {
   disconnect(member: string, terminal = false, credentialHash?: string): void {
     for (const ws of this.sockets) {
       if (ws.data.connection?.memberId !== member) continue;
-      if (credentialHash !== undefined && ws.data.credentialHash !== credentialHash)
+      if (
+        credentialHash !== undefined &&
+        ws.data.credentialHash !== credentialHash
+      )
         continue;
       if (terminal) ws.send(JSON.stringify({ kind: "refused" }));
       ws.data.connection.close();

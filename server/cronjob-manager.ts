@@ -908,7 +908,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     run: CronjobRun,
     username: string | undefined,
   ): Promise<
-    { kind: "proceed" } | { kind: "abandon" } | { kind: "refused"; text: string }
+    | { kind: "proceed" }
+    | { kind: "abandon" }
+    | { kind: "refused"; text: string }
   > {
     if (!memberUsageCap().isEnabled() || !directInputCapped(username))
       return { kind: "proceed" };
@@ -924,7 +926,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const leafAtGate = run.currentSessionId ?? run.rootSessionId;
     const admission = await memberUsageCap().admit(billing);
     const current = findRun(run.cronjobId, run.id);
-    if (!current || (current.currentSessionId ?? current.rootSessionId) !== leafAtGate)
+    if (
+      !current ||
+      (current.currentSessionId ?? current.rootSessionId) !== leafAtGate
+    )
       return { kind: "abandon" };
     if (admission.kind !== "refused") return { kind: "proceed" };
     return {

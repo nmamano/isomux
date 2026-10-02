@@ -302,9 +302,7 @@ export function OfficePane({
                   style={{
                     fontSize: 10,
                     color:
-                      row.state === "failed"
-                        ? "#ff6b6b"
-                        : "var(--text-muted)",
+                      row.state === "failed" ? "#ff6b6b" : "var(--text-muted)",
                     margin: "3px 0 0",
                   }}
                 >

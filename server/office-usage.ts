@@ -179,10 +179,9 @@ export function codexOfficeProbe(
         });
       })();
       await started;
-      const account = await client.request<GetAccountResponse>(
-        "account/read",
-        { refreshToken: false },
-      );
+      const account = await client.request<GetAccountResponse>("account/read", {
+        refreshToken: false,
+      });
       if (!account.account || account.account.type !== "chatgpt")
         return parseCodexWeekly(account.account, null);
       const limits = await client.request<GetAccountRateLimitsResponse>(
@@ -293,7 +292,8 @@ export function createOfficeUsageReader(
   }
 
   function settle(result: ProbeResult, at: number): OfficeWeeklyOutcome {
-    if (result.kind === "no_limit") return { kind: "no_limit", observedAtMs: at };
+    if (result.kind === "no_limit")
+      return { kind: "no_limit", observedAtMs: at };
     if (result.kind !== "weekly") return result;
     if (
       result.resetsAtMs <= at ||

@@ -26,10 +26,7 @@ import {
   type OfficeUsageProbe,
   type OfficeWeeklyOutcome,
 } from "../office-usage.ts";
-import {
-  loadMemberUsageCap,
-  saveMemberUsageCap,
-} from "../persistence.ts";
+import { loadMemberUsageCap, saveMemberUsageCap } from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { setTestManagedOfficeEnv } from "./managed-office-env.ts";
@@ -404,9 +401,9 @@ describe("member usage cap: cron runs", () => {
       "member run refused or sent",
     );
     expect(memberPromptSent()).toBe(false);
-    expect(
-      srv.cronjobManager.findRun(memberJob.id, memberRun.id)?.status,
-    ).toBe("failed");
+    expect(srv.cronjobManager.findRun(memberJob.id, memberRun.id)?.status).toBe(
+      "failed",
+    );
 
     const ownerJob = seed("Boss");
     const ownerRun = srv.cronjobManager.runCronjobNow(ownerJob.id, "Boss")!;
@@ -488,7 +485,10 @@ describe("member usage cap: owner switch", () => {
     installCap({ enabled: false });
     const get = async (rawSessionId: string) => {
       const res = await srv.http("/api/office/settings", { rawSessionId });
-      return { status: res.status, body: (await res.json()) as OfficeSettingsRes };
+      return {
+        status: res.status,
+        body: (await res.json()) as OfficeSettingsRes,
+      };
     };
 
     const before = await get(owner.rawSessionId);
@@ -544,9 +544,7 @@ describe("member usage cap: owner switch", () => {
 
 describe("member usage cap: office sign-in changes", () => {
   // The production reader and office target over a counting probe factory.
-  function installRealReader(
-    createProbe: () => OfficeUsageProbe,
-  ): void {
+  function installRealReader(createProbe: () => OfficeUsageProbe): void {
     setMemberUsageCapForTests(
       createMemberUsageCap({
         reader: createOfficeUsageReader({

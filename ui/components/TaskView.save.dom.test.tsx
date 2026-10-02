@@ -158,7 +158,10 @@ function deferredPatch(outcome: "ok" | "conflict") {
     });
 }
 
-async function saveAThenEditB(view: ReturnType<typeof mount>["view"], open: ReturnType<typeof mount>["open"]) {
+async function saveAThenEditB(
+  view: ReturnType<typeof mount>["view"],
+  open: ReturnType<typeof mount>["open"],
+) {
   await open(editable.id);
   const title = await view.findByDisplayValue(editable.title);
   // Unchanged fields, so selecting B needs no discard prompt.

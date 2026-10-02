@@ -1433,12 +1433,7 @@ async function applyAccessSettings(
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
   return versionOf(
-    JSON.stringify([
-      s.prompt,
-      s.envFile,
-      s.name,
-      memberUsageCap().isEnabled(),
-    ]),
+    JSON.stringify([s.prompt, s.envFile, s.name, memberUsageCap().isEnabled()]),
   );
 }
 

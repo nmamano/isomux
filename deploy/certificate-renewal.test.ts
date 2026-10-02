@@ -99,8 +99,7 @@ function makeBox(
   writeFileSync(
     join(etc, "renewal/enrollment.json"),
     JSON.stringify({
-      endpoint:
-        opts.endpoint ?? "https://cp.test/internal/certificates/renew",
+      endpoint: opts.endpoint ?? "https://cp.test/internal/certificates/renew",
       token: "t".repeat(40),
     }),
   );
@@ -387,7 +386,9 @@ refresh_hosted_tls_renewal`;
     expect(box.read(box.timer)).toContain("OnCalendar=daily");
     const run = box.read("run.log");
     expect(run).toContain("systemctl daemon-reload");
-    expect(run).toContain("systemctl enable --now isomux-certificate-renew.timer");
+    expect(run).toContain(
+      "systemctl enable --now isomux-certificate-renew.timer",
+    );
     // The timer runs the new helper. An update does not renew.
     expect(run).not.toContain("isomux-renew-certificate\n");
   });
