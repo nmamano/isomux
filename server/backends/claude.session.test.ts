@@ -764,6 +764,19 @@ describe("ClaudeSession getContextUsage", () => {
 // createClaudeBackend - module-level backend functions
 // ---------------------------------------------------------------------------
 
+describe("createClaudeBackend.listModels", () => {
+  it("lists no effort levels for haiku and the family levels for the rest", async () => {
+    const backend = createClaudeBackend(new FakeSdkClient());
+    const models = await backend.listModels({ cwd: "/tmp" });
+    const efforts = (id: string) =>
+      models
+        .find((model) => model.id === id)
+        ?.supportedEfforts.map((option) => option.level);
+    expect(efforts("haiku")).toEqual([]);
+    expect(efforts("sonnet")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+});
+
 describe("createClaudeBackend.forkSessionBeforeMessage", () => {
   // forkSessionBeforeMessage walks the transcript by sdkClient.getSessionMessages
   // and decides between a real fork (predecessor uuid) and a fresh session

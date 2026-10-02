@@ -11,7 +11,6 @@ import type {
 } from "../../shared/types.ts";
 import {
   MODEL_FAMILIES,
-  EFFORT_LEVELS,
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
@@ -75,6 +74,7 @@ import {
   modelListErrorMessage,
   modelSelectCursor,
   selectSupportedEffort,
+  effortPickerOptions,
 } from "../backend-model-selection.ts";
 export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 export { defaultBackendModel } from "../backend-model-selection.ts";
@@ -386,10 +386,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     modelsError === null &&
     backendModels !== null &&
     !openCodeModelReady;
-  const selectedOpenCodeEfforts = isOpenCode
-    ? (backendModels?.find((model) => model.id === modelFamily)
-        ?.supportedEfforts ?? [])
-    : [];
+  const effortOptions = effortPickerOptions(
+    targetEngine,
+    modelFamily,
+    backendModels,
+  );
 
   // What "unsaved" is measured against. Seeded from the same
   // values the form state above is seeded from, so on open the dialog is clean
@@ -1217,65 +1218,31 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           </p>
         )}
       </div>
-      {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
+      {effortOptions.length > 0 && (
         <div>
           <label style={{ ...labelStyle, marginTop: 12 }}>
             {t("common.field.effort")}
           </label>
-          {(() => {
-            // For Codex we use the selected model's supportedReasoningEfforts
-            // when available; otherwise we fall back to the global EFFORT_LEVELS
-            // with the same backend/family filter we used pre-fetch. The words
-            // come from the catalog either way (effortLabel), including for a
-            // level the table does not carry, which renders as its own id.
-            let effortLevels: { level: string }[];
-            if (isOpenCode) {
-              effortLevels = selectedOpenCodeEfforts;
-            } else if (isCodex && backendModels) {
-              const picked = backendModels.find((m) => m.id === modelFamily);
-              if (picked && picked.supportedEfforts.length > 0) {
-                effortLevels = picked.supportedEfforts.map((o) => ({
-                  level: o.level,
-                }));
-              } else {
-                // Codex model with no supportedEfforts reported: fall back to
-                // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
-                // across Codex models - e.g. luna lacks ultra; the dynamic
-                // per-model list is the real source when available).
-                effortLevels = EFFORT_LEVELS.filter(
-                  (opt) => opt.level !== "max" && opt.level !== "ultra",
-                ).map((o) => ({ level: o.level }));
-              }
-            } else {
-              effortLevels = EFFORT_LEVELS.filter((opt) => {
-                if (opt.level === "max")
-                  return !isCodex && claudeFamilySupportsMaxEffort(modelFamily);
-                if (opt.level === "minimal") return isCodex;
-                if (opt.level === "ultra") return false; // per-model Codex list only
-                return true;
-              }).map((o) => ({ level: o.level }));
-            }
-            return (
-              <select
-                value={effort}
-                onChange={(e) => {
-                  cancelPendingTemplateModelResolution();
-                  setEffort(e.target.value as EffortLevel);
-                }}
-                style={{
-                  ...inputStyle,
-                  appearance: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {effortLevels.map((opt) => (
-                  <option key={opt.level} value={opt.level}>
-                    {effortLabel(i18n, opt.level)}
-                  </option>
-                ))}
-              </select>
-            );
-          })()}
+          {/* The words come from the catalog (effortLabel), including for a
+              level the table does not carry, which renders as its own id. */}
+          <select
+            value={effort}
+            onChange={(e) => {
+              cancelPendingTemplateModelResolution();
+              setEffort(e.target.value as EffortLevel);
+            }}
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+            }}
+          >
+            {effortOptions.map((opt) => (
+              <option key={opt.level} value={opt.level}>
+                {effortLabel(i18n, opt.level)}
+              </option>
+            ))}
+          </select>
         </div>
       )}
       <div>

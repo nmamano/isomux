@@ -230,7 +230,11 @@ export function validateEffort(
     return DEFAULT_EFFORT;
   if (agentType === "opencode") return raw;
   // Claude family-level rules: "minimal" and "ultra" are unavailable; "max"
-  // only where claudeFamilySupportsMaxEffort allows it.
+  // only where claudeFamilySupportsMaxEffort allows it. A family without
+  // effort support (claudeFamilySupportsEffort) offers no levels, but it keeps
+  // a stored value under the same rules: boot restore runs this validator, and
+  // the CLI ignores effort on such a family, so rewriting it would change
+  // nothing but the record.
   if (raw === "minimal" || raw === "ultra") return DEFAULT_EFFORT;
   if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily))
     return DEFAULT_EFFORT;

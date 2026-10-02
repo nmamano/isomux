@@ -1,7 +1,10 @@
 import {
   CODEX_MODELS,
   DEFAULT_EFFORT,
+  EFFORT_LEVELS,
   OPENCODE_DEFAULT_MODEL,
+  effortLevelsFor,
+  type AgentBackendType,
   type BackendModelWire,
   type EffortLevel,
 } from "../shared/types.ts";
@@ -91,6 +94,28 @@ export function selectSupportedEffort(
   if (levels.includes(current)) return current;
   if (levels.includes(DEFAULT_EFFORT)) return DEFAULT_EFFORT;
   return levels[0] as EffortLevel | undefined;
+}
+
+// The levels an effort picker offers for the selected engine and model. The
+// dialogs show no effort field when this is empty.
+export function effortPickerOptions(
+  engine: AgentBackendType,
+  modelFamily: string,
+  backendModels: BackendModelWire[] | null,
+): { level: string }[] {
+  const picked = backendModels?.find((model) => model.id === modelFamily);
+  if (engine === "opencode") return picked?.supportedEfforts ?? [];
+  if (engine === "codex") {
+    if (picked && picked.supportedEfforts.length > 0)
+      return picked.supportedEfforts.map((o) => ({ level: o.level }));
+    // No supportedEfforts reported (or list not yet loaded): the static list
+    // minus "max"/"ultra" (not universal across Codex models - e.g. luna
+    // lacks ultra; the dynamic per-model list is the real source).
+    return EFFORT_LEVELS.filter(
+      (opt) => opt.level !== "max" && opt.level !== "ultra",
+    ).map((o) => ({ level: o.level }));
+  }
+  return effortLevelsFor("claude", modelFamily);
 }
 
 export function modelSelectCursor(

@@ -21,6 +21,8 @@ import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
+import { familyDisplayLabel } from "../../shared/types.ts";
+import { translatorFor } from "../../shared/i18n/translate.ts";
 import {
   loadAgents,
   ensureSessionClaudeConfigDir,
@@ -407,6 +409,47 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).getPendingInteractions;
     expect(getPendingInteractions?.call(mgr) ?? []).toEqual([]);
     expect(mgr.pendingPrompt(info!.id)).toBeNull();
+  });
+
+  it("does not park Haiku on an empty effort interaction", async () => {
+    const fake = new FakeBackend();
+    const { events, sink } = capture();
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-haiku-effort") }),
+      initialRooms: [],
+      eventSink: sink,
+    });
+    const info = await mgr.spawn(
+      "Haiku effort",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-haiku-effort",
+      undefined,
+      "haiku",
+      "low",
+      undefined,
+      "claude",
+    );
+
+    await mgr.sendMessage(info!.id, "/effort", "tester");
+
+    const notice = translatorFor("en").t("commands.effort.unsupported", {
+      model: familyDisplayLabel("haiku"),
+    });
+    expect(
+      mgr.getAgentLogs(info!.id).some((entry) => entry.content === notice),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => (event as { type: string }).type === "interaction_added",
+      ),
+    ).toBe(false);
+    expect(mgr.pendingPrompt(info!.id)).toBeNull();
+    // A stored Haiku effort is kept, not migrated.
+    expect(mgr.getAgent(info!.id)?.effort).toBe("low");
   });
 
   it("redacts new entries before the agent cache and event stream", async () => {

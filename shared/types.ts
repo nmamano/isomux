@@ -362,16 +362,26 @@ export function claudeFamilySupportsMaxEffort(family: string): boolean {
   return family === "opus" || family === "fable" || family === "sonnet";
 }
 
+// Claude families that support effort levels: the families whose
+// supportedModels() row sets supportsEffort (SDK 0.3.287, 2026-10-02). The
+// haiku row does not, and the CLI drops an effort option on haiku: it sends
+// no effort parameter.
+export function claudeFamilySupportsEffort(family: string): boolean {
+  return family === "opus" || family === "fable" || family === "sonnet";
+}
+
 // Static effort options for slash commands, filtered by backend + model
-// family. Claude applies family-level rules. Codex uses the full static list;
-// model/list is the real allow-list. OpenCode exposes its dynamic per-model
-// variants in the dialogs, so its slash command has no static list.
+// family. Claude applies family-level rules, and a family without effort
+// support gets none. Codex uses the full static list; model/list is the real
+// allow-list. OpenCode exposes its dynamic per-model variants in the dialogs,
+// so its slash command has no static list.
 export function effortLevelsFor(
   agentType: AgentBackendType,
   modelFamily: string,
 ): { level: EffortLevel }[] {
   if (agentType === "codex") return EFFORT_LEVELS;
   if (agentType === "opencode") return [];
+  if (!claudeFamilySupportsEffort(modelFamily)) return [];
   return EFFORT_LEVELS.filter((e) => {
     if (e.level === "minimal" || e.level === "ultra") return false;
     if (e.level === "max") return claudeFamilySupportsMaxEffort(modelFamily);

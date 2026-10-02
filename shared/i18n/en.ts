@@ -1892,6 +1892,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   // /effort
   "commands.effort.openCodeSettings":
     "OpenCode effort choices are available in agent settings for models that expose them.",
+  "commands.effort.unsupported": "{model} does not support effort levels.",
   "commands.effort.header": "Switch thinking effort (current: **{current}**):",
 
   // /isomux-all-hands

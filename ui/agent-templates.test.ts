@@ -12,6 +12,7 @@ import {
 } from "../shared/outfit-options.ts";
 import {
   CODEX_MODELS,
+  DEFAULT_EFFORT,
   MODEL_FAMILIES,
   effortLevelsFor,
 } from "../shared/types.ts";
@@ -297,25 +298,25 @@ describe("resolveTemplateModel", () => {
     ).toBe(paid.id);
   });
 
-  it("clamps a Claude max recommendation through effortLevelsFor", () => {
+  it("falls back to the default effort for a Claude family with no levels", () => {
     const changed = {
       ...template,
       recommendations: {
         ...template.recommendations,
         claude: {
           preferredFamilies: ["haiku"],
-          desiredEffort: "max" as const,
+          desiredEffort: "low" as const,
         },
       },
     };
     const result = resolveTemplateModel(
       changed,
       "claude",
-      { modelFamily: "opus", effort: "high" },
+      { modelFamily: "opus", effort: "medium" },
       null,
       false,
     );
-    expect(result).toEqual({ modelFamily: "haiku", effort: "high" });
+    expect(result).toEqual({ modelFamily: "haiku", effort: DEFAULT_EFFORT });
   });
 });
 

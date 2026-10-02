@@ -7,7 +7,6 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import {
   MODEL_FAMILIES,
-  EFFORT_LEVELS,
   DEFAULT_EFFORT,
   CODEX_MODELS,
   modelVersionLabel,
@@ -37,6 +36,7 @@ import {
   modelSelectCursor,
   openCodeModelSelectionReady,
   selectSupportedEffort,
+  effortPickerOptions,
 } from "../backend-model-selection.ts";
 import {
   ExpandableTextarea,
@@ -236,10 +236,11 @@ export function CronjobDialog({
     modelsError === null &&
     backendModels !== null &&
     !openCodeModelReady;
-  const selectedOpenCodeEfforts = isOpenCode
-    ? (backendModels?.find((model) => model.id === modelFamily)
-        ?.supportedEfforts ?? [])
-    : [];
+  const effortOptions = effortPickerOptions(
+    agentType,
+    modelFamily,
+    backendModels,
+  );
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -936,61 +937,26 @@ export function CronjobDialog({
             </p>
           )}
 
-          {(!isOpenCode || selectedOpenCodeEfforts.length > 0) && (
+          {effortOptions.length > 0 && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 {t("common.field.effort")}
               </label>
-              {(() => {
-                // Codex: per-model supportedEfforts from model/list when available.
-                // Claude: family-level rules (max only for opus).
-                let effortOptions: { level: string }[];
-                if (isOpenCode) {
-                  effortOptions = selectedOpenCodeEfforts;
-                } else if (isCodex) {
-                  const picked = backendModels?.find(
-                    (m) => m.id === modelFamily,
-                  );
-                  if (picked && picked.supportedEfforts.length > 0) {
-                    effortOptions = picked.supportedEfforts.map((o) => ({
-                      level: o.level,
-                    }));
-                  } else {
-                    // No supportedEfforts reported (or list not yet loaded): fall
-                    // back to the static list minus "max"/"ultra" (not universal
-                    // across Codex models - e.g. luna lacks ultra; the dynamic
-                    // per-model list is the real source when available).
-                    effortOptions = EFFORT_LEVELS.filter(
-                      (opt) => opt.level !== "max" && opt.level !== "ultra",
-                    ).map((o) => ({ level: o.level }));
-                  }
-                } else {
-                  effortOptions = EFFORT_LEVELS.filter((opt) => {
-                    if (opt.level === "max")
-                      return claudeFamilySupportsMaxEffort(modelFamily);
-                    if (opt.level === "minimal") return false; // Codex-only
-                    if (opt.level === "ultra") return false; // Codex-only
-                    return true;
-                  }).map((o) => ({ level: o.level }));
-                }
-                return (
-                  <select
-                    value={effort}
-                    onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                    style={{
-                      ...inputStyle,
-                      appearance: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {effortOptions.map((opt) => (
-                      <option key={opt.level} value={opt.level}>
-                        {effortLabel(i18n, opt.level)}
-                      </option>
-                    ))}
-                  </select>
-                );
-              })()}
+              <select
+                value={effort}
+                onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                style={{
+                  ...inputStyle,
+                  appearance: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {effortOptions.map((opt) => (
+                  <option key={opt.level} value={opt.level}>
+                    {effortLabel(i18n, opt.level)}
+                  </option>
+                ))}
+              </select>
             </>
           )}
 

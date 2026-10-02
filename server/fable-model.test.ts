@@ -6,8 +6,10 @@ import {
   familyFromLegacyModel,
   modelVersionLabel,
   familyDisplayLabel,
+  claudeFamilySupportsEffort,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
+  effortLevelsFor,
   DEFAULT_EFFORT,
 } from "../shared/types.ts";
 import { validateEffort } from "./agent-validators.ts";
@@ -57,6 +59,20 @@ describe("top-tier capability gates", () => {
     expect(claudeFamilySupportsAutoPermission("fable")).toBe(true);
     expect(claudeFamilySupportsAutoPermission("sonnet")).toBe(true);
     expect(claudeFamilySupportsAutoPermission("haiku")).toBe(false);
+  });
+
+  it("grants effort levels to opus, fable and sonnet, none to haiku", () => {
+    expect(claudeFamilySupportsEffort("opus")).toBe(true);
+    expect(claudeFamilySupportsEffort("fable")).toBe(true);
+    expect(claudeFamilySupportsEffort("sonnet")).toBe(true);
+    expect(claudeFamilySupportsEffort("haiku")).toBe(false);
+    expect(effortLevelsFor("claude", "haiku")).toEqual([]);
+    expect(effortLevelsFor("claude", "sonnet").length).toBeGreaterThan(0);
+  });
+
+  it("validateEffort keeps a stored haiku effort", () => {
+    expect(validateEffort("claude", "haiku", "low")).toBe("low");
+    expect(validateEffort("claude", "haiku", "xhigh")).toBe("xhigh");
   });
 
   it("validateEffort allows max for fable and sonnet, rejects it for haiku", () => {

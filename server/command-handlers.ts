@@ -670,16 +670,27 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      const currentLabel = effortDisplayLabel(t, managed.info.effort);
-      const lines: string[] = [
-        `${t("commands.effort.header", { current: currentLabel })}\n`,
-      ];
       // Backend/model-filtered list. The structured interaction carries each
       // level id, so a typed number and a card click resolve to the same value.
       const levels = effortLevelsFor(
         managed.info.agentType,
         managed.info.modelFamily,
       );
+      if (levels.length === 0) {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          t("commands.effort.unsupported", {
+            model: familyDisplayLabel(managed.info.modelFamily),
+          }),
+        );
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+      const currentLabel = effortDisplayLabel(t, managed.info.effort);
+      const lines: string[] = [
+        `${t("commands.effort.header", { current: currentLabel })}\n`,
+      ];
       const choices = levels.map((effort) => ({
         value: effort.level,
         label: effortDisplayLabel(t, effort.level),

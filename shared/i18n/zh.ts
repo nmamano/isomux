@@ -1721,6 +1721,7 @@ App 的一些原则：
   "commands.model.header": "切换模型（当前：**{current}**）：",
   "commands.effort.openCodeSettings":
     "对于提供推理强度选项的 OpenCode 模型，可以在智能体设置中选择。",
+  "commands.effort.unsupported": "{model} 不支持推理强度。",
   "commands.effort.header": "切换推理强度（当前：**{current}**）：",
   "commands.isomuxAllHands.room": "**=== 房间 {number} ===**",
   "commands.isomuxAllHands.me": "**（我）**",

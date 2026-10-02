@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { ApiError } from "./api.ts";
 import {
+  effortPickerOptions,
   fetchBackendModels,
   modelListErrorMessage,
 } from "./backend-model-selection.ts";
+import { effortLevelsFor, type BackendModelWire } from "../shared/types.ts";
 import { translatorFor } from "../shared/i18n/translate.ts";
 
 const noSleep = async () => {};
@@ -138,5 +140,52 @@ describe("modelListErrorMessage", () => {
         authError: false,
       }),
     ).toBe(english.t("common.model.listLoadFailed", { detail: "" }));
+  });
+});
+
+describe("effortPickerOptions", () => {
+  const levels = (options: { level: string }[]) =>
+    options.map((option) => option.level);
+  const model = (id: string, efforts: string[]): BackendModelWire => ({
+    id,
+    label: id,
+    isDefault: false,
+    hidden: false,
+    supportedEfforts: efforts.map((level) => ({ level })),
+  });
+
+  it("offers no levels for Claude haiku, so the dialogs hide the field", () => {
+    expect(effortPickerOptions("claude", "haiku", null)).toEqual([]);
+  });
+
+  it("offers the Claude family levels from effortLevelsFor", () => {
+    for (const family of ["opus", "fable", "sonnet"]) {
+      expect(levels(effortPickerOptions("claude", family, null))).toEqual(
+        levels(effortLevelsFor("claude", family)),
+      );
+    }
+  });
+
+  it("offers the selected OpenCode model's levels, or none", () => {
+    const models = [model("p/a", ["low", "high"]), model("p/b", [])];
+    expect(levels(effortPickerOptions("opencode", "p/a", models))).toEqual([
+      "low",
+      "high",
+    ]);
+    expect(effortPickerOptions("opencode", "p/b", models)).toEqual([]);
+    expect(effortPickerOptions("opencode", "p/a", null)).toEqual([]);
+  });
+
+  it("offers the Codex model's levels, else the static fallback", () => {
+    const models = [model("gpt-x", ["low", "ultra"]), model("gpt-y", [])];
+    expect(levels(effortPickerOptions("codex", "gpt-x", models))).toEqual([
+      "low",
+      "ultra",
+    ]);
+    const fallback = levels(effortPickerOptions("codex", "gpt-y", models));
+    expect(fallback).toEqual(levels(effortPickerOptions("codex", "gpt-y", null)));
+    expect(fallback).toContain("minimal");
+    expect(fallback).not.toContain("max");
+    expect(fallback).not.toContain("ultra");
   });
 });

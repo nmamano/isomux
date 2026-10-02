@@ -1911,6 +1911,7 @@ Coses que pots fer per ell:
   "commands.model.header": "Canviar de model (actual: **{current}**):",
   "commands.effort.openCodeSettings":
     "Les opcions d'esforç d'OpenCode estan disponibles a la configuració de l'agent per als models que les ofereixen.",
+  "commands.effort.unsupported": "{model} no admet nivells d'esforç.",
   "commands.effort.header":
     "Canviar l'esforç de raonament (actual: **{current}**):",
   "commands.isomuxAllHands.room": "**=== Sala {number} ===**",

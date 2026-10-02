@@ -1919,6 +1919,7 @@ Cosas que puedes hacer por él:
   "commands.model.header": "Cambiar de modelo (actual: **{current}**):",
   "commands.effort.openCodeSettings":
     "Las opciones de esfuerzo de OpenCode están disponibles en los ajustes del agente para los modelos que las ofrecen.",
+  "commands.effort.unsupported": "{model} no admite niveles de esfuerzo.",
   "commands.effort.header":
     "Cambiar el esfuerzo de razonamiento (actual: **{current}**):",
   "commands.isomuxAllHands.room": "**=== Sala {number} ===**",

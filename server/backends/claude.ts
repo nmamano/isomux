@@ -1519,8 +1519,8 @@ export function createClaudeBackend(
       // Claude has no runtime model-discovery API: the family list is static
       // and identical across auth tiers. Promote MODEL_FAMILIES to the
       // BackendModel shape so the UI can render Claude through the same
-      // fetched-list path it uses for Codex. Effort filtering remains a
-      // family-level concern ("max" is not on haiku, etc.) handled UI-side.
+      // fetched-list path it uses for Codex. Effort filtering is a
+      // family-level rule from effortLevelsFor: haiku lists no levels.
       return MODEL_FAMILIES.map((m, i) => ({
         id: m.family,
         label: m.label,
