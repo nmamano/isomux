@@ -111,6 +111,7 @@ import {
 import { type GuardDeps } from "./identity/guards.ts";
 import {
   listUsers,
+  createMember,
   getUser,
   getUserById,
   getUserByName,
@@ -146,11 +147,14 @@ import {
   isOutsideReachabilityBlocked,
   isProcessBoundLoopback,
   isProcessPreClaim,
+  loadAuthState,
   INVITE_TTL_MS,
+  SELF_INVITE_TTL_MS,
+  revokeInvitesForUser,
   listActiveSessions,
   listActiveSessionsForUserId,
   listInvites,
-  listInvitesForUsername,
+  listInvitesForUser,
   logoutBySessionHash,
   mintInvite,
   noteSessionDeviceByHash,
@@ -161,7 +165,7 @@ import {
   revalidateByHash,
   revokeActiveSessionByPrefixForUserId,
   revokeInviteByPrefix,
-  revokeOutstandingInviteByPrefixForUsername,
+  revokeOutstandingInviteByPrefixForUser,
   revokeSessionByPrefix,
   toInviteWire,
   sessionContextFor,
@@ -337,6 +341,10 @@ function bootPrelude(): void {
   // future eager-load refactors. Audit if any imported module starts loading
   // eagerly. On a fresh harness boot it is a no-op (no pre-userid state).
   runPreUseridBackupIfNeeded();
+
+  // Load auth state now: legacy sign-in links bind to member ids before any
+  // member edit (a rename) can run.
+  loadAuthState();
 
   // Resolve access settings from office-config.json + the deprecated
   // ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
@@ -1111,23 +1119,16 @@ function editorKey(agentId: string, absPath: string): string {
 }
 
 // No raw ws.send fan-out lives outside emit() and the per-WS direct replies.
-// Map an auth MintErr code → the REST status for the invite mint routes:
-// bad input → 400, conflict (user/role already exists) → 409.
+// Map an auth MintErr code → the REST status for the invite mint routes.
 function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
   switch (code) {
-    case "USER_EXISTS":
-    case "ROLE_MISMATCH":
-      return 409;
-    case "INVALID_USERNAME":
-    case "INVALID_ROLE":
-    case "INVALID_ROOMS":
-    case "INVALID_PROFILE":
-      return 400;
+    case "USER_NOT_FOUND":
+      return 404;
   }
 }
 
 // Scoped invite list for a user: owner sees ALL outstanding invites; a member
-// sees only invites bound to their own current display name. The whole invite
+// sees only their own links. The whole invite
 // seam (this projection, the inviteOwnerOrSelf precondition, and the revoke
 // branch) keys owner/member off the user RECORD via getUserById, NOT the WS
 // session role - because the recipient-scoped emit is
@@ -1141,7 +1142,7 @@ function scopedInvitesFor(userId: string | null): InviteWire[] {
   if (!userId) return [];
   const u = getUserById(userId);
   if (!u) return [];
-  return u.role === "owner" ? listInvites() : listInvitesForUsername(u.name);
+  return u.role === "owner" ? listInvites() : listInvitesForUser(u);
 }
 
 // Emit one recipient-scoped invites_list to all of a single user's sockets.
@@ -1181,7 +1182,7 @@ async function revokeInviteForUserRecord(
   const result =
     u.role === "owner"
       ? await revokeInviteByPrefix(tokenPrefix)
-      : await revokeOutstandingInviteByPrefixForUsername(tokenPrefix, u.name);
+      : await revokeOutstandingInviteByPrefixForUser(tokenPrefix, u);
   if (result === "ok") {
     liveEmit("invite_revoked", { tokenPrefix });
     emitInvitesList();
@@ -1386,11 +1387,9 @@ async function applyAccessSettings(
     const me = userId ? getUserById(userId) : undefined;
     if (me) {
       const minted = await mintInvite({
-        username: me.name,
-        role: me.role,
+        userId: me.id,
         createdBy: me.name,
-        allowExisting: true,
-        replacePriorForUsername: true,
+        ttlMs: SELF_INVITE_TTL_MS,
       });
       if (minted.ok) {
         signInUrl = `${origin}/i/${minted.rawToken}`;
@@ -2638,28 +2637,16 @@ function buildExecutorDeps(
   // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
     invitesHandlers({
-      mint: async ({
-        username,
-        label,
-        language,
-        memberPrompt,
-        role,
-        allowedRooms,
-        identity,
-      }) => {
+      // Sign-in link for an EXISTING member (invites.mint, and its permanent
+      // alias invites.mintRecovery). userId resolves against the live record.
+      // Policy: one outstanding link per member (the mint replaces the prior
+      // one) and the standard 24h owner send-and-wait delivery window.
+      mint: async (userId, identity) => {
         const { createdBy } = attributionFor(identity);
-        // NEW users only: the auth core rejects an existing username with
-        // USER_EXISTS (409). Device links for existing accounts are self-service
-        // (mintSelf below); owners deliberately cannot mint them for others.
         const r = await mintInvite({
-          username,
-          role,
+          userId,
           createdBy,
-          allowExisting: false,
-          label,
-          language,
-          memberPrompt,
-          allowedRooms,
+          ttlMs: INVITE_TTL_MS,
         });
         if (!r.ok) {
           return { ok: false, status: mintErrStatus(r.code), error: r.error };
@@ -2681,42 +2668,9 @@ function buildExecutorDeps(
           };
         }
         const r = await mintInvite({
-          username: me.name,
-          role: me.role === "owner" ? "owner" : "member",
+          userId: me.id,
           createdBy: me.name,
-          allowExisting: true,
-          replacePriorForUsername: true,
-        });
-        if (!r.ok) {
-          return { ok: false, status: mintErrStatus(r.code), error: r.error };
-        }
-        emitInvitesList();
-        return {
-          ok: true,
-          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
-          invite: toInviteWire(r.invite),
-        };
-      },
-      // Owner recovery: a device link for an EXISTING user who can't self-serve
-      // (signed out everywhere). userId resolves against the live record;
-      // name/role derive from it. Policy:
-      // one outstanding link per username (replacePriorForUsername) and the
-      // standard 24h owner-issued delivery window (ttlMsOverride pins it -
-      // replacePriorForUsername alone would imply the 1h self-invite TTL,
-      // which fits "both devices right here", not owner send-and-wait).
-      mintRecovery: async (userId, identity) => {
-        const target = getUserById(userId);
-        if (!target) {
-          return { ok: false, status: 404, error: "User not found." };
-        }
-        const { createdBy } = attributionFor(identity);
-        const r = await mintInvite({
-          username: target.name,
-          role: target.role,
-          createdBy,
-          allowExisting: true,
-          replacePriorForUsername: true,
-          ttlMsOverride: INVITE_TTL_MS,
+          ttlMs: SELF_INVITE_TTL_MS,
         });
         if (!r.ok) {
           return { ok: false, status: mintErrStatus(r.code), error: r.error };
@@ -2753,14 +2707,14 @@ function buildExecutorDeps(
   // role) may revoke any invite; a member only one bound to their own name.
   // NON-LEAKING: a foreign prefix AND a nonexistent prefix BOTH return the same
   // 403 envelope (no exists-but-hidden distinction). The revoke dep then
-  // re-checks atomically via revokeOutstandingInviteByPrefixForUsername.
+  // re-checks atomically via revokeOutstandingInviteByPrefixForUser.
   preconditions.set("inviteOwnerOrSelf", (ctx) => {
     const u = ctx.identity.userId
       ? getUserById(ctx.identity.userId)
       : undefined;
     if (!u) return fail(403, "forbidden");
     if (u.role === "owner") return null;
-    const owns = listInvitesForUsername(u.name).some(
+    const owns = listInvitesForUser(u).some(
       (i) => i.tokenPrefix === ctx.params.tokenPrefix,
     );
     return owns ? null : fail(403, "forbidden");
@@ -2919,6 +2873,53 @@ function buildExecutorDeps(
   );
   register(
     usersHandlers({
+      create: async ({ name, role, memberPrompt, avatarColor, avatarVariant, allowedRooms }) => {
+        // Room grants: members only (owners reach every room by rule, and
+        // materialized owner grants are the demotion bomb), live rooms only -
+        // an unknown id is refused, not pruned, so a stale owner UI can't
+        // create a member with less access than the owner picked.
+        const roomIds = agentManager.getOrdinaryRooms().map((r) => r.id);
+        const grants = [...new Set(allowedRooms ?? [])];
+        if (grants.length > 0 && role !== "member") {
+          return {
+            ok: false,
+            status: 400,
+            code: "invalid_rooms",
+            error:
+              "Room grants only apply to members (owners can reach every room).",
+          };
+        }
+        const unknown = grants.find((id) => !roomIds.includes(id));
+        if (unknown !== undefined) {
+          return {
+            ok: false,
+            status: 400,
+            code: "invalid_rooms",
+            error: `Unknown room id: ${unknown}`,
+          };
+        }
+        const r = createMember(name, {
+          role,
+          memberPrompt,
+          avatarColor,
+          avatarVariant,
+          allowedRooms: grants,
+          // A new owner is notified for every room by default, like the
+          // first owner; a member for the rooms granted here.
+          ...(role === "owner" ? { notifRooms: roomIds } : {}),
+        });
+        if (!r.ok) {
+          return {
+            ok: false,
+            status: r.code === "name_taken" ? 409 : 400,
+            code: r.code,
+            error: r.error,
+          };
+        }
+        // No full_state/presence push: the member has no session yet.
+        emitUsersList();
+        return { ok: true, user: r.user };
+      },
       update: async ({ username, changes, identity }) => {
         const target = getUser(username);
         if (!target) {
@@ -3126,7 +3127,10 @@ function buildExecutorDeps(
         // users_list broadcast still fires so a watcher sees the target absent.
         deleteUser(username);
         emitUsersList();
-        if (target) await evictSessionsForUserId(target.id);
+        if (target) {
+          await evictSessionsForUserId(target.id);
+          if ((await revokeInvitesForUser(target)) > 0) emitInvitesList();
+        }
         announceAppAudienceChanges(appAudienceBefore);
         return { ok: true };
       },

@@ -37,8 +37,8 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 ## Multiple members
 
 - **Real-time collaboration** - multiple authenticated members can chime in to the same conversation simultaneously.
-- **Invite-link access** - the office owner mints an invite URL per new member, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords. Existing members add their own devices with device links from My devices; if someone is signed out of every device, an office owner can mint them a recovery link.
-- **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
+- **Invite-link access** - the office owner creates a member, then sends them a sign-in link out-of-band; the invitee clicks and is signed in. No accounts, no passwords. Members add their own devices with device links from Sign-in links; if someone is signed out of every device, an office owner sends them a new sign-in link.
+- **Per-member room access** - owners pick which rooms each member sees: when they create the member (so they land in the right rooms from the first click) or any time from `Settings` → `Members`.
 - **Per-member room display** - each member picks which of their accessible rooms actually show in their own view, from the Members page.
 - **Live member presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that member's settings. Seen crossings between rooms, including the lobby, move the ghost through the door and swing it open. The viewer's own navigation does not trigger a swing.
 - **Members chat** - a humans-only chat on the Lobby.

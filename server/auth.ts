@@ -23,9 +23,9 @@ import {
   SUPPORTED_LANGUAGES,
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
-import { lowercaseKey } from "../shared/identity.ts";
 import {
   claimUser,
+  completeFirstSignIn,
   deleteUserById,
   getUserById,
   getUserByName,
@@ -55,7 +55,15 @@ const SESSIONS_FILE = join(ISOMUX_DIR, "sessions.json");
 interface StoredInvite {
   tokenHash: string; // sha256(rawToken) hex; the map key duplicates this for convenience
   tokenPrefix: string; // first 8 chars of the raw base64url token, kept clear for UI
-  username: string | null; // null when the invitee chooses their name
+  // The member a sign-in link signs in as. Rename-proof: accept resolves the
+  // current name from this id. Absent only on legacy new-member and bootstrap
+  // rows; loadInvitesFromDisk binds the other legacy rows at boot.
+  userId?: string;
+  // Name at mint time; on legacy rows the binding itself. null when the
+  // invitee chooses their name (legacy new-member and bootstrap invites).
+  username: string | null;
+  // Legacy new-member invite (minted before members were created up front):
+  // accepting it creates the member. No path mints these anymore.
   newUser?: true;
   label?: string;
   language?: SupportedLanguageCode | null;
@@ -67,9 +75,8 @@ interface StoredInvite {
   consumed: boolean;
   consumedAt: number | null;
   bootstrap: boolean;
-  // Room grants attached at mint time (member invites for NEW users only).
-  // Seeds the created record's allowedRooms on accept. Absent on legacy
-  // rows and on invites minted without grants.
+  // Legacy new-member invites only: room grants that seed the created
+  // record's allowedRooms on accept.
   allowedRooms?: string[];
 }
 
@@ -121,6 +128,17 @@ function mutate<T>(fn: () => Promise<T> | T): Promise<T> {
   return run;
 }
 
+// True once loadInvitesFromDisk has bound or dropped a legacy row;
+// ensureLoaded() persists the result once, like sessionsNeedsPersist below.
+let invitesNeedsPersist = false;
+
+// Legacy sign-in links for existing members (recovery, self-invite,
+// owner-login rows minted before StoredInvite.userId) carry only a username.
+// The load binds each to the userId that name has NOW - at boot, before any
+// member edit can run - so a later rename or name reuse cannot redirect it.
+// A row whose name resolves to nobody is dropped: accept then shows the
+// invalid-link page. After the load, accept resolves these rows only by id.
+// Legacy new-member and bootstrap rows create their member and stay as-is.
 function loadInvitesFromDisk(): Map<string, StoredInvite> {
   const map = new Map<string, StoredInvite>();
   try {
@@ -128,9 +146,27 @@ function loadInvitesFromDisk(): Map<string, StoredInvite> {
     const raw = readFileSync(INVITES_FILE, "utf-8");
     if (!raw.trim()) return map;
     const parsed = JSON.parse(raw) as Record<string, StoredInvite>;
+    let bound = 0;
+    let dropped = 0;
     for (const [k, v] of Object.entries(parsed)) {
       if (!v || typeof v.tokenHash !== "string") continue;
+      if (!v.userId && !v.newUser && !v.bootstrap) {
+        const user = getUserByName(v.username);
+        if (!user) {
+          dropped++;
+          continue;
+        }
+        map.set(k, { ...v, userId: user.id });
+        bound++;
+        continue;
+      }
       map.set(k, v);
+    }
+    if (bound || dropped) {
+      console.log(
+        `[migration] invites: bound ${bound} legacy sign-in link(s) to userId, dropped ${dropped} with no matching member`,
+      );
+      invitesNeedsPersist = true;
     }
   } catch (err) {
     console.error("Failed to load invites.json:", err);
@@ -229,8 +265,34 @@ function persistSessions() {
   atomicWriteFileSync(SESSIONS_FILE, JSON.stringify(obj, null, 2));
 }
 
+// Boot hook: load (and so migrate) the auth state before the office serves
+// any request. bootPrelude calls it, so legacy sign-in links bind to ids
+// before a member edit can rename anyone. Throws, stopping the boot, when the
+// binding cannot be saved.
+export function loadAuthState(): void {
+  ensureLoaded();
+}
+
 function ensureLoaded() {
-  if (invites === null) invites = loadInvitesFromDisk();
+  if (invites === null) {
+    invites = loadInvitesFromDisk();
+    if (invitesNeedsPersist) {
+      // The id binding must be on disk before anything can rename a member:
+      // otherwise the next boot re-binds by the then-current name. A failed
+      // save throws (bootPrelude aborts the boot) and leaves the store
+      // unloaded, so any retry re-runs the binding and the save.
+      try {
+        persistInvites();
+      } catch (err) {
+        invites = null;
+        throw new Error(
+          `[migration] could not save the legacy sign-in link binding to invites.json; refusing to start: ${(err as Error).message}`,
+          { cause: err },
+        );
+      }
+      invitesNeedsPersist = false;
+    }
+  }
   if (sessions === null) {
     sessions = loadSessionsFromDisk();
     // If the loader migrated any sessions out of the legacy `username`
@@ -352,50 +414,31 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
   wsBySession.delete(sessionIdHash);
 }
 
-// Invite acceptance window. 24h, fixed for the standard invite paths
-// (bootstrap, owner-issued via mint_invite). Invite URLs are bearer
-// tokens; the shorter the acceptance window, the smaller the exposure
-// in browser history, the delivery channel, and disk-restorable
-// backups. 24h covers every realistic delivery-to-click scenario;
-// longer windows trade real security for marginal convenience the
-// per-username `replacePriorForUsername` flow already covers (the
-// operator can mint a fresh invite if the first one expires).
+// Sign-in link acceptance window. 24h, fixed for owner-issued links
+// (invites.mint). Link URLs are bearer tokens; the shorter the acceptance
+// window, the smaller the exposure in browser history, the delivery channel,
+// and disk-restorable backups. 24h covers every realistic delivery-to-click
+// scenario; if a link expires, the owner mints a fresh one.
 export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
-// Member self-invite (mint_self_invite) is deliberately tighter than
+// Member self-invite (invites.mintSelf) is deliberately tighter than
 // the standard 24h. The use case is "I'm at my laptop, I want to add
 // my phone right now" - both devices are physically with the member
 // and the link is intended to be clicked within seconds. A 1h window
 // is more than enough for the legitimate flow and shrinks the
 // bearer-URL exposure window by 24x compared to the standard TTL.
-const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
+export const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
 
+// A sign-in link always targets a member that already exists: accepting it
+// never creates a member (members are created by users.create). Every
+// caller replaces the member's prior outstanding link, so each member has
+// at most one live link at a time.
 export interface MintOptions {
-  username: string | null; // null lets a new invitee choose their name
-  label?: string;
-  language?: SupportedLanguageCode | null;
-  memberPrompt?: string | null;
-  role: UserRole;
+  userId: string;
   createdBy: string | null;
-  allowExisting: boolean;
-  bootstrap?: boolean;
-  // Self-invite and owner-recovery paths: revoke any other outstanding
-  // (unconsumed, unexpired) invite bound to the same username in the same
-  // mutation, so each user only ever has one active device/recovery link. Atomic with the new
-  // mint so a concurrent caller can't see both the old and new at once.
-  replacePriorForUsername?: boolean;
-  // Override the default TTL. Two server-side callers: the admin-socket
-  // owner-login handler (15min - shell access + immediate hand-off to a
-  // browser) and the REST owner-recovery seam (invites.mintRecovery pins the
-  // standard 24h INVITE_TTL_MS, because replacePriorForUsername alone would
-  // imply the 1h self-invite TTL and recovery is owner send-and-wait
-  // delivery). Never exposed on any client wire, so a misbehaving client
-  // can't shorten or lengthen tokens it issues to third parties.
-  ttlMsOverride?: number;
-  // Room grants to attach to the invite. Only valid for member invites that
-  // will CREATE the user (owners reach every room by rule; an existing
-  // user's access lives on their record - see the INVALID_ROOMS checks).
-  // Applied at accept time as the new record's initial allowedRooms.
-  allowedRooms?: string[];
+  // Acceptance window. Server-side only, never taken from a client wire:
+  // INVITE_TTL_MS for owner-issued links, SELF_INVITE_TTL_MS for self-invites,
+  // 15min for the admin-socket owner-login.
+  ttlMs: number;
 }
 
 export interface MintResult {
@@ -406,183 +449,86 @@ export interface MintResult {
 export interface MintErr {
   ok: false;
   error: string;
-  code:
-    | "INVALID_USERNAME"
-    | "USER_EXISTS"
-    | "INVALID_ROLE"
-    | "ROLE_MISMATCH"
-    | "INVALID_ROOMS"
-    | "INVALID_PROFILE";
+  code: "USER_NOT_FOUND";
 }
 
-// Invite TTL is the acceptance window: the URL stops being redeemable
-// after this many ms. Standard invite paths (bootstrap, owner-issued
-// via mint_invite) use INVITE_TTL_MS; member self-invite uses the
-// tighter SELF_INVITE_TTL_MS. There is no per-invite knob in either
-// path. Session lifetime (the cookie's rolling/absolute expiry) is
-// governed separately at acceptance time - see acceptInvite - and is
-// intentionally not coupled to invite TTL.
+// True when an invite row signs in as `user`. Every such row carries a
+// userId: the load binds legacy rows (loadInvitesFromDisk).
+function inviteBelongsTo(v: StoredInvite, user: { id: string }): boolean {
+  return v.userId === user.id;
+}
+
+// Insert a freshly built row, first removing `removeKeys` in the same
+// mutation. A persist failure restores the pre-mint state. Caller holds the
+// mutex.
+function insertInvite(invite: StoredInvite, removeKeys: string[]): void {
+  const removed = removeKeys.map((k) => [k, invites!.get(k)!] as const);
+  for (const k of removeKeys) invites!.delete(k);
+  invites!.set(invite.tokenHash, invite);
+  try {
+    persistInvites();
+  } catch (err) {
+    invites!.delete(invite.tokenHash);
+    for (const [k, v] of removed) invites!.set(k, v);
+    throw err;
+  }
+}
 
 export async function mintInvite(
   opts: MintOptions,
 ): Promise<MintResult | MintErr> {
   return mutate(() => {
     ensureLoaded();
-    const trimmedName = opts.username?.trim() ?? null;
-    if (
-      (opts.label !== undefined &&
-        (typeof opts.label !== "string" || opts.label.length > 64)) ||
-      (opts.memberPrompt !== undefined &&
-        opts.memberPrompt !== null &&
-        typeof opts.memberPrompt !== "string") ||
-      (opts.language !== undefined &&
-        opts.language !== null &&
-        !SUPPORTED_LANGUAGES.some((l) => l.code === opts.language)) ||
-      (opts.allowExisting &&
-        (opts.label !== undefined ||
-          opts.language !== undefined ||
-          opts.memberPrompt !== undefined))
-    ) {
-      return {
-        ok: false,
-        error: "Invalid invite profile",
-        code: "INVALID_PROFILE",
-      };
-    }
-    // Room grants: dedupe up-front; validated below (non-bootstrap only -
-    // the bootstrap path never passes grants).
-    const grantRooms = opts.allowedRooms?.length
-      ? [...new Set(opts.allowedRooms)]
-      : [];
-    if (!opts.bootstrap) {
-      if (!trimmedName && (opts.allowExisting || opts.username !== null))
-        return {
-          ok: false,
-          error: "Username required",
-          code: "INVALID_USERNAME",
-        };
-      if (opts.role !== "owner" && opts.role !== "member")
-        return { ok: false, error: "Invalid role", code: "INVALID_ROLE" };
-      const existing = trimmedName ? getUserByName(trimmedName) : undefined;
-      if (existing && !opts.allowExisting)
-        return {
-          ok: false,
-          error: `User "${existing.name}" already exists. Invites create new users; existing users mint device links from My devices in their own settings.`,
-          code: "USER_EXISTS",
-        };
-      if (existing && existing.role !== opts.role)
-        return {
-          ok: false,
-          error: `Invite role (${opts.role}) does not match existing user role (${existing.role}). Change the user's role first.`,
-          code: "ROLE_MISMATCH",
-        };
-      // Room grants only make sense on a member invite that will CREATE the
-      // user record: owners reach every room by rule (materialized owner
-      // grants are the demotion bomb - see commitBootstrapOwnerUser), and an
-      // existing user's access is managed on their record, not re-seeded by
-      // a later invite. Unknown room ids are refused rather than silently
-      // pruned so a stale owner UI can't mint an invite that quietly grants
-      // less than the owner picked.
-      //
-      // Identity/role conflicts (USER_EXISTS / ROLE_MISMATCH, both 409) are
-      // checked ABOVE and win over grant-applicability errors. A request that is
-      // broken both ways (e.g. existing user + mismatched role + grants) reports
-      // the more fundamental invite conflict, not INVALID_ROOMS. So the
-      // "existing" branch below is reachable only with allowExisting and a
-      // MATCHING role.
-      if (grantRooms.length > 0) {
-        if (opts.role !== "member")
-          return {
-            ok: false,
-            error:
-              "Room grants only apply to member invites (owners can reach every room).",
-            code: "INVALID_ROOMS",
-          };
-        if (existing)
-          return {
-            ok: false,
-            error: `User "${existing.name}" already exists. Manage their room access in Settings → Members instead of on the invite.`,
-            code: "INVALID_ROOMS",
-          };
-        const liveRooms = new Set(snapshotRoomIds());
-        const unknown = grantRooms.find((id) => !liveRooms.has(id));
-        if (unknown !== undefined)
-          return {
-            ok: false,
-            error: `Unknown room id: ${unknown}`,
-            code: "INVALID_ROOMS",
-          };
-      }
-    }
-
-    // Member self-invite path: remove any outstanding (unconsumed,
-    // unexpired) invites bound to the same username before inserting the
-    // new one, so the "1 active self-invite per member" rule is enforced
-    // atomically with the mint.
-    const removedKeys: string[] = [];
-    const removedSnapshots: StoredInvite[] = [];
-    if (opts.replacePriorForUsername && trimmedName) {
-      const target = lowercaseKey(trimmedName);
-      const now0 = Date.now();
-      for (const [k, v] of invites!) {
-        if (v.consumed) continue;
-        if (v.expiresAt < now0) continue;
-        if (!v.username || lowercaseKey(v.username) !== target) continue;
-        removedKeys.push(k);
-        removedSnapshots.push(v);
-      }
-      for (const k of removedKeys) invites!.delete(k);
-    }
-
-    const { raw, hash, prefix } = randomToken();
+    const user = getUserById(opts.userId);
+    if (!user)
+      return { ok: false, error: "User not found.", code: "USER_NOT_FOUND" };
     const now = Date.now();
+    const prior: string[] = [];
+    for (const [k, v] of invites!) {
+      if (v.consumed || v.expiresAt < now) continue;
+      if (inviteBelongsTo(v, user)) prior.push(k);
+    }
+    const { raw, hash, prefix } = randomToken();
     const invite: StoredInvite = {
       tokenHash: hash,
       tokenPrefix: prefix,
-      username: trimmedName,
-      ...(!opts.bootstrap && !opts.allowExisting
-        ? { newUser: true as const }
-        : {}),
-      ...(opts.label?.trim() ? { label: opts.label.trim() } : {}),
-      ...(opts.language != null ? { language: opts.language } : {}),
-      ...(opts.memberPrompt?.trim()
-        ? { memberPrompt: opts.memberPrompt.trim() }
-        : {}),
-      role: opts.role,
+      userId: user.id,
+      username: user.name,
+      role: user.role,
       createdBy: opts.createdBy,
       createdAt: now,
-      // TTL selection. ttlMsOverride wins (admin-socket owner-login: 15min;
-      // REST owner-recovery: pinned to the standard 24h). Otherwise
-      // replacePriorForUsername - self-invites, which don't pass the
-      // override - picks the tighter 1h TTL; everything else uses the
-      // standard 24h.
-      expiresAt:
-        now +
-        (opts.ttlMsOverride !== undefined
-          ? opts.ttlMsOverride
-          : opts.replacePriorForUsername
-            ? SELF_INVITE_TTL_MS
-            : INVITE_TTL_MS),
+      expiresAt: now + opts.ttlMs,
       consumed: false,
       consumedAt: null,
-      bootstrap: !!opts.bootstrap,
-      // Stored only when non-empty (mirrors the wire shape; legacy rows and
-      // grant-less invites simply lack the field).
-      ...(grantRooms.length > 0 ? { allowedRooms: grantRooms } : {}),
+      bootstrap: false,
     };
-    invites!.set(hash, invite);
+    insertInvite(invite, prior);
+    return { ok: true, rawToken: raw, invite };
+  });
+}
+
+// Remove every outstanding link of a member. users.delete calls it, so a
+// link minted before the delete cannot sign in once the record is gone.
+export async function revokeInvitesForUser(user: {
+  id: string;
+  name: string;
+}): Promise<number> {
+  return mutate(() => {
+    ensureLoaded();
+    const removed: [string, StoredInvite][] = [];
+    for (const [k, v] of invites!) {
+      if (v.consumed || !inviteBelongsTo(v, user)) continue;
+      removed.push([k, v]);
+    }
+    if (removed.length === 0) return 0;
+    for (const [k] of removed) invites!.delete(k);
     try {
       persistInvites();
     } catch (err) {
-      invites!.delete(hash);
-      // Roll back the replace-prior deletions too, so a persist failure
-      // leaves disk + memory in the pre-mint state.
-      for (let i = 0; i < removedKeys.length; i++) {
-        invites!.set(removedKeys[i], removedSnapshots[i]);
-      }
+      for (const [k, v] of removed) invites!.set(k, v);
       throw err;
     }
-    return { ok: true, rawToken: raw, invite };
+    return removed.length;
   });
 }
 
@@ -592,6 +538,9 @@ export async function mintInvite(
 export interface InvitePeek {
   language?: SupportedLanguageCode | null;
   newUser?: true;
+  // The link signs in an owner-created member who has never signed in: the
+  // accept page asks for their language.
+  firstSignIn?: true;
   label?: string;
   needsName: boolean; // true for bootstrap or otherwise null-username invites
   username: string | null;
@@ -615,15 +564,26 @@ export function peekInvite(
   // doesn't take the mutex; acceptInvite is the authoritative gate. This
   // check is for UX, not safety.
   if (invite.bootstrap && hasOwner()) return { error: "owner_exists" };
+  const target = inviteTarget(invite);
+  if (target === "gone") return { error: "not_found" };
   return {
     ...(invite.language ? { language: invite.language } : {}),
     ...(invite.newUser ? { newUser: true as const } : {}),
+    ...(target?.pendingSignIn ? { firstSignIn: true as const } : {}),
     ...(invite.label ? { label: invite.label } : {}),
     needsName: invite.username === null,
-    username: invite.username,
+    username: target ? target.name : invite.username,
     role: invite.role,
     bootstrap: invite.bootstrap,
   };
+}
+
+// The member an invite row signs in as, by id only. null for the rows that
+// create a member at accept (legacy new-member and bootstrap invites). "gone"
+// when the row can no longer sign anyone in: its member was deleted.
+function inviteTarget(invite: StoredInvite): UserRecord | null | "gone" {
+  if (invite.bootstrap || invite.newUser) return null;
+  return getUserById(invite.userId) ?? "gone";
 }
 
 export interface AcceptOk {
@@ -804,9 +764,10 @@ function commitBootstrapOwnerUser(chosenName: string): {
   };
 }
 
-// Accept an invite token. If the invite has a pre-set username, that username
-// is bound to the new session. If the invite is a bootstrap invite, the
-// caller must supply `chosenName`. New unnamed invites use the same form.
+// Accept an invite token. A sign-in link binds the new session to its member
+// (resolved by id, so a rename between mint and accept is harmless) and
+// never creates one. Legacy rows that create a member: a bootstrap invite
+// and an unnamed new-member invite need `chosenName`.
 export async function acceptInvite(
   rawToken: string,
   ctx: {
@@ -837,15 +798,23 @@ export async function acceptInvite(
       return { ok: false, error: "owner_exists" };
     }
 
+    const target = inviteTarget(invite);
+    if (target === "gone") return { ok: false, error: "not_found" };
+    // The accept page asks for a language on a legacy new-member invite and
+    // on an owner-created member's first sign-in.
+    const asksLanguage = !!invite.newUser || !!target?.pendingSignIn;
     if (
-      invite.newUser &&
+      asksLanguage &&
       ctx.language != null &&
       !SUPPORTED_LANGUAGES.some((l) => l.code === ctx.language)
     )
       return { ok: false, error: "invalid_language" };
     // An unnamed invite asks the recipient for their display name.
-    let chosenName: string | null = invite.username;
-    if (invite.username === null) {
+    let chosenName: string | null = target ? target.name : invite.username;
+    if (target) {
+      if (target.role !== invite.role)
+        return { ok: false, error: "role_mismatch" };
+    } else if (invite.username === null) {
       const raw = (ctx.chosenName ?? "").trim();
       if (!raw) return { ok: false, error: "needs_name" };
       // Cheap shape check; mirrors the constraints implicit elsewhere in the
@@ -854,10 +823,6 @@ export async function acceptInvite(
       if (!/^[\p{L}\p{N} ._'-]+$/u.test(raw))
         return { ok: false, error: "invalid_name" };
       chosenName = raw;
-    } else {
-      const existing = getUserByName(invite.username);
-      if (existing && existing.role !== invite.role)
-        return { ok: false, error: "role_mismatch" };
     }
     if (!chosenName) return { ok: false, error: "invalid_name" };
 
@@ -873,14 +838,21 @@ export async function acceptInvite(
     // (invite-consumed write or session create+persist) would leave the
     // office with an owner record but no session, and the Step-1
     // owner_exists guard would block recovery on retry.
-    let userRecord = getUserByName(chosenName);
+    let userRecord = target ?? getUserByName(chosenName);
     if (invite.newUser && userRecord) return { ok: false, error: "name_taken" };
     let userRollback: (() => void) | null = null;
-    if (invite.bootstrap) {
+    if (target) {
+      userRecord = target;
+      userRollback = completeFirstSignIn(
+        target.id,
+        ctx.language as SupportedLanguageCode | null | undefined,
+      );
+    } else if (invite.bootstrap) {
       const committed = commitBootstrapOwnerUser(chosenName);
       userRecord = committed.user;
       userRollback = committed.rollback;
     } else if (!userRecord) {
+      // Legacy new-member invite (the only other row kind that reaches here).
       // An owner invite seeds EMPTY grants (rule covers owner access)
       // but notifRooms from current rooms (so the new owner is notified for
       // their office by default). A member invite seeds allowedRooms from the
@@ -895,10 +867,9 @@ export async function acceptInvite(
       );
       userRecord = claimUser(chosenName, {
         role: invite.role,
-        language: invite.newUser
-          ? ((ctx.language as SupportedLanguageCode | null | undefined) ??
-            invite.language)
-          : undefined,
+        language:
+          (ctx.language as SupportedLanguageCode | null | undefined) ??
+          invite.language,
         memberPrompt: invite.memberPrompt,
         ...(invite.role === "owner" ? { notifRooms: snapshotRoomIds() } : {}),
         ...(invite.role === "member" && grantRooms.length > 0
@@ -910,14 +881,6 @@ export async function acceptInvite(
       userRollback = () => {
         deleteUserById(createdId);
       };
-    } else if (invite.allowedRooms?.length) {
-      // Mint refuses grants for existing users, so reaching here means the
-      // record appeared between mint and accept. Grants only seed a NEW
-      // record - the existing record's access wins. Log so an owner who
-      // attached rooms can tell why they didn't land.
-      console.warn(
-        `[auth] acceptInvite: user "${userRecord.name}" already exists; ignoring the invite's room grants (manage their access in user settings)`,
-      );
     }
 
     // Create the session. Identity is the stable user.id; the username
@@ -1339,12 +1302,13 @@ function validateByHash(hash: string): SessionLookup | null {
 
 // Pure shape helper: StoredInvite → the InviteWire the owner/member UIs render.
 // Exported so the isomux-office.ts invites seam builds the mint-response wire
-// from ONE source of truth (the same helper listInvites/listInvitesForUsername
+// from ONE source of truth (the same helper listInvites/listInvitesForUser
 // use) instead of duplicating the field list. Read-only - never widens mutation.
 export function toInviteWire(v: StoredInvite): InviteWire {
   return {
     tokenPrefix: v.tokenPrefix,
-    username: v.username,
+    // Current name for id-bound rows, so a rename shows in the list at once.
+    username: (v.userId && getUserById(v.userId)?.name) || v.username,
     ...(v.label ? { label: v.label } : {}),
     role: v.role,
     createdBy: v.createdBy,
@@ -1411,21 +1375,19 @@ export function listInvites(): InviteWire[] {
   return result.sort((a, b) => b.createdAt - a.createdAt);
 }
 
-// Self-scoped invite list for the member UI. Matches by lowercased
-// display name (the same key the rest of the codebase uses for user
-// identity in invite-binding); userId isn't stored on invites so a
-// rename between mint and list will hide the row from the member's own
-// view, but acceptance still binds to the recorded name. The 1-hour
-// member TTL keeps that window narrow.
-export function listInvitesForUsername(name: string): InviteWire[] {
+// Self-scoped invite list for the member UI: the member's own outstanding
+// links, by id.
+export function listInvitesForUser(user: {
+  id: string;
+  name: string;
+}): InviteWire[] {
   ensureLoaded();
   const now = Date.now();
-  const target = lowercaseKey(name);
   const result: InviteWire[] = [];
   for (const v of invites!.values()) {
     if (v.consumed) continue;
     if (v.expiresAt < now) continue;
-    if (!v.username || lowercaseKey(v.username) !== target) continue;
+    if (!inviteBelongsTo(v, user)) continue;
     result.push(toInviteWire(v));
   }
   return result.sort((a, b) => b.createdAt - a.createdAt);
@@ -1466,13 +1428,12 @@ export function listActiveSessionsForUserId(userId: string): SessionWire[] {
 // outstanding invites refuses regardless of caller scope); a unique
 // prefix that doesn't belong to the caller returns "not_found" so we
 // don't reveal that another user holds that prefix.
-export async function revokeOutstandingInviteByPrefixForUsername(
+export async function revokeOutstandingInviteByPrefixForUser(
   prefix: string,
-  username: string,
+  user: { id: string; name: string },
 ): Promise<RevokeResult> {
   return mutate(() => {
     ensureLoaded();
-    const target = lowercaseKey(username);
     const now = Date.now();
     const matches: string[] = [];
     for (const [k, v] of invites!) {
@@ -1486,9 +1447,7 @@ export async function revokeOutstandingInviteByPrefixForUsername(
     if (matches.length > 1) return "ambiguous";
     const k = matches[0];
     const row = invites!.get(k)!;
-    if (!row.username || lowercaseKey(row.username) !== target) {
-      return "not_found";
-    }
+    if (!inviteBelongsTo(row, user)) return "not_found";
     invites!.delete(k);
     try {
       persistInvites();
@@ -2134,17 +2093,54 @@ export interface TestSeedResult {
   role: UserRole;
 }
 
+// Insert a legacy invite row, a kind no production path mints anymore but
+// invites.json can still hold: a bootstrap invite, or a new-member invite (the
+// default).
+export async function _testMintLegacyInvite(row: {
+  username: string | null;
+  role: UserRole;
+  bootstrap?: boolean;
+  label?: string;
+  language?: SupportedLanguageCode;
+  memberPrompt?: string;
+  allowedRooms?: string[];
+  createdBy?: string | null;
+  ttlMs?: number;
+}): Promise<{ rawToken: string; invite: StoredInvite }> {
+  return mutate(() => {
+    ensureLoaded();
+    const { raw, hash, prefix } = randomToken();
+    const now = Date.now();
+    const invite: StoredInvite = {
+      tokenHash: hash,
+      tokenPrefix: prefix,
+      username: row.username,
+      ...(row.bootstrap ? {} : { newUser: true as const }),
+      ...(row.label ? { label: row.label } : {}),
+      ...(row.language ? { language: row.language } : {}),
+      ...(row.memberPrompt ? { memberPrompt: row.memberPrompt } : {}),
+      role: row.role,
+      createdBy: row.createdBy ?? null,
+      createdAt: now,
+      expiresAt: now + (row.ttlMs ?? INVITE_TTL_MS),
+      consumed: false,
+      consumedAt: null,
+      bootstrap: !!row.bootstrap,
+      ...(row.allowedRooms?.length ? { allowedRooms: row.allowedRooms } : {}),
+    };
+    insertInvite(invite, []);
+    return { rawToken: raw, invite };
+  });
+}
+
 export async function _testSeedOwner(
   displayName: string,
 ): Promise<TestSeedResult> {
-  const m = await mintInvite({
+  const m = await _testMintLegacyInvite({
     username: null,
     role: "owner",
-    createdBy: null,
-    allowExisting: false,
     bootstrap: true,
   });
-  if (!m.ok) throw new Error(`seed: mint failed: ${m.error}`);
   const a = await acceptInvite(m.rawToken, {
     userAgent: "test",
     chosenName: displayName,
@@ -2193,6 +2189,7 @@ export function _testResetState() {
   // bootExternalAccess are re-frozen by startServer's freezeBootState.)
   mutexTail = Promise.resolve();
   sessionsNeedsPersist = false;
+  invitesNeedsPersist = false;
   lastPersist = 0;
   cachedFallbackOrigin = null;
   envEvaluated = false;

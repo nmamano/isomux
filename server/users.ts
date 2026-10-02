@@ -199,6 +199,7 @@ function load(): Record<string, UserRecord> {
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
+        ...(value.pendingSignIn === true ? { pendingSignIn: true as const } : {}),
       };
     }
     users = result;
@@ -307,6 +308,9 @@ export function claimUser(
     notifRooms?: NotifRoomsSetting;
     role?: UserRole;
     allowedRooms?: string[];
+    avatarColor?: string;
+    avatarVariant?: string;
+    pendingSignIn?: true;
   },
 ): UserRecord {
   load();
@@ -340,10 +344,14 @@ export function claimUser(
     // Live-avatars defaults. Color is deterministic per user-id so the
     // same user gets a consistent hue across restarts; variant is the
     // baseline ghost shape. Both are user-editable post-creation.
-    avatarColor: defaultGhostColorForUserId(id),
-    avatarVariant: "classic",
-    // Invites can seed preferences; other creation paths start unset.
+    avatarColor:
+      initial?.avatarColor !== undefined
+        ? normalizeAvatarColor(initial.avatarColor, id)
+        : defaultGhostColorForUserId(id),
+    avatarVariant: normalizeAvatarVariant(initial?.avatarVariant),
+    // Legacy invites can seed preferences; other creation paths start unset.
     language: normalizeLanguage(initial?.language),
+    ...(initial?.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
   users[id] = record;
   try {
@@ -353,6 +361,76 @@ export function claimUser(
     throw err;
   }
   return record;
+}
+
+// Display-name rule shared by member creation, the first-owner claim and the
+// legacy invitee-chosen name.
+export function isValidMemberName(name: string): boolean {
+  return name.length <= 64 && /^[\p{L}\p{N} ._'-]+$/u.test(name);
+}
+
+// Owner-created member (users.create). Unlike claimUser this refuses an
+// existing name, and the record is marked pendingSignIn until the member
+// accepts their first sign-in link.
+export function createMember(
+  rawName: string,
+  initial: {
+    role: UserRole;
+    memberPrompt?: string | null;
+    notifRooms?: string[];
+    allowedRooms?: string[];
+    avatarColor?: string;
+    avatarVariant?: string;
+  },
+):
+  | { ok: true; user: UserRecord }
+  | { ok: false; code: "invalid_name" | "name_taken"; error: string } {
+  load();
+  const name = rawName.trim();
+  if (!name || !isValidMemberName(name))
+    return {
+      ok: false,
+      code: "invalid_name",
+      error:
+        "Names use letters, digits, spaces and . _ ' - (at most 64 characters).",
+    };
+  if (getUserByName(name))
+    return {
+      ok: false,
+      code: "name_taken",
+      error: `User "${name}" already exists`,
+    };
+  return {
+    ok: true,
+    user: claimUser(name, { ...initial, pendingSignIn: true }),
+  };
+}
+
+// First accepted sign-in link of an owner-created member: removes
+// pendingSignIn and stores the language the member picked. Returns a rollback
+// for the caller's later persist failures; null when nothing changed.
+export function completeFirstSignIn(
+  id: string,
+  language: SupportedLanguageCode | null | undefined,
+): (() => void) | null {
+  load();
+  const existing = users[id];
+  if (!existing?.pendingSignIn) return null;
+  const { pendingSignIn: _, ...rest } = existing;
+  users[id] = {
+    ...rest,
+    ...(language != null ? { language } : {}),
+  };
+  try {
+    persist();
+  } catch (err) {
+    users[id] = existing;
+    throw err;
+  }
+  return () => {
+    users[id] = existing;
+    persist();
+  };
 }
 
 // Fired after a role actually changes (promote or demote) via
@@ -516,6 +594,7 @@ export function updateUserById(
       changes.language !== undefined
         ? normalizeLanguage(changes.language)
         : existing.language,
+    ...(existing.pendingSignIn ? { pendingSignIn: true as const } : {}),
   };
 
   users[id] = next;

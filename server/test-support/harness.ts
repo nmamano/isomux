@@ -28,11 +28,12 @@ import {
   buildPublicOrigin,
   acceptInvite,
   mintInvite,
+  INVITE_TTL_MS,
   _testResetState,
   _testResetOwnerClaimedInThisProcess,
   _testSeedOwner,
 } from "../auth.ts";
-import { _testResetUsers } from "../users.ts";
+import { _testResetUsers, createMember } from "../users.ts";
 import { _testResetTokens } from "../identity/tokens.ts";
 import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
@@ -239,17 +240,16 @@ async function bootTestServer(
     }
 
     async function seedMember(displayName: string): Promise<SeededIdentity> {
+      const created = createMember(displayName, { role: "member" });
+      if (!created.ok)
+        throw new Error(`seedMember: create failed: ${created.error}`);
       const mint = await mintInvite({
-        username: displayName,
-        role: "member",
+        userId: created.user.id,
         createdBy: null,
-        allowExisting: false,
+        ttlMs: INVITE_TTL_MS,
       });
       if (!mint.ok) throw new Error(`seedMember: mint failed: ${mint.error}`);
-      const acc = await acceptInvite(mint.rawToken, {
-        userAgent: "test",
-        chosenName: displayName,
-      });
+      const acc = await acceptInvite(mint.rawToken, { userAgent: "test" });
       if (!acc.ok) throw new Error(`seedMember: accept failed: ${acc.error}`);
       return {
         username: acc.username,

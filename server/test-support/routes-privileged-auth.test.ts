@@ -267,6 +267,11 @@ describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () =>
     expect(can("office.setSettings", privilegedAgent)).toBe(false);
     expect(can("users.setAccess", owner, { username: "x" })).toBe(true); // owner can
   });
+  it("CANNOT create members: users.create is office-owner only", () => {
+    expect(can("users.create", privilegedAgent)).toBe(false);
+    expect(can("users.create", member)).toBe(false);
+    expect(can("users.create", owner)).toBe(true);
+  });
 });
 
 describe("no-impersonation: sendMessage takes the AGENT branch", () => {

@@ -2,11 +2,12 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
   acceptInvite,
-  mintInvite,
+  _testMintLegacyInvite,
   peekInvite,
   validateSession,
 } from "../auth.ts";
 import { getUserByName } from "../users.ts";
+import { mintMemberLink } from "./member-link.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -15,67 +16,103 @@ afterEach(async () => {
 });
 
 describe("invite onboarding", () => {
-  it("carries owner defaults through REST, shows a localized name form, and accepts the invitee's language", async () => {
+  it("keeps an owner-created member through an expired link and takes their language at first sign-in", async () => {
     let srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
-    const res = await srv.http("/api/invites", {
+    const created = await srv.http("/api/users", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        name: "Marc",
         role: "member",
-        label: "Marc",
-        language: "ca",
         memberPrompt: "Explain each step.",
       }),
     });
+    expect(created.status).toBe(201);
+    const { user } = await created.json();
+    expect(user).toMatchObject({
+      name: "Marc",
+      pendingSignIn: true,
+      memberPrompt: "Explain each step.",
+      language: null,
+    });
+
+    // The bug this flow fixes: an expired link loses nothing.
+    const expired = await mintMemberLink("Marc", "member", -1000);
+    expect(peekInvite(expired.rawToken)).toEqual({ error: "expired" });
+    expect(getUserByName("Marc")).toMatchObject({
+      pendingSignIn: true,
+      memberPrompt: "Explain each step.",
+    });
+
+    const res = await srv.http("/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: user.id }),
+    });
     expect(res.status).toBe(200);
     const { url, invite } = await res.json();
-    expect(invite.label).toBe("Marc");
-    expect(invite.username).toBeNull();
-    expect(invite.memberPrompt).toBeUndefined();
-    expect(getUserByName("Marc")).toBeUndefined();
+    expect(invite.username).toBe("Marc");
     const token = new URL(url).pathname.split("/").at(-1)!;
     srv = server = await srv.restart();
     const page = await srv.http(`/i/${token}`, {
-      headers: { "Accept-Language": "en" },
+      headers: { "Accept-Language": "ca" },
     });
     const html = await page.text();
     expect(page.status).toBe(200);
     expect(html).toContain('<html lang="ca"');
-    expect(html).toContain('name="name"');
-    expect(html).toContain('value="Marc"');
-    expect(html).toContain("Pots canviar el teu nom i idioma");
+    expect(html).not.toContain('name="name"');
     expect(html).toContain('value="ca" selected');
     expect(html).not.toContain("Explain each step.");
-    expect(peekInvite(token)).not.toHaveProperty("error");
+    expect(peekInvite(token)).toMatchObject({ firstSignIn: true });
+
     const accepted = await srv.http("/auth/accept", {
       method: "POST",
       redirect: "manual",
-      body: new URLSearchParams({ token, name: "Marc Garcia", language: "es" }),
+      body: new URLSearchParams({ token, language: "es" }),
     });
     expect(accepted.status).toBe(302);
     expect(accepted.headers.has("set-cookie")).toBe(true);
-    expect(getUserByName("Marc Garcia")).toMatchObject({
+    const after = getUserByName("Marc");
+    expect(after).toMatchObject({
+      id: user.id,
       language: "es",
       memberPrompt: "Explain each step.",
       role: "member",
     });
+    expect(after?.pendingSignIn).toBeUndefined();
     expect(peekInvite(token)).toEqual({ error: "consumed" });
+
+    // A later link is a plain sign-in: no language question.
+    const later = await mintMemberLink("Marc");
+    expect(peekInvite(later.rawToken)).not.toHaveProperty("firstSignIn");
   });
 
+  it("refuses an unsupported language at first sign-in without consuming the link", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const { rawToken } = await mintMemberLink("Marc");
+    expect(
+      await acceptInvite(rawToken, { userAgent: null, language: "fr" }),
+    ).toEqual({ ok: false, error: "invalid_language" });
+    expect(getUserByName("Marc")?.pendingSignIn).toBe(true);
+    expect(peekInvite(rawToken)).not.toHaveProperty("error");
+  });
+
+  // Legacy new-member rows minted before this change still accept until
+  // they expire: the invitee chooses their name.
   it("rejects an existing name without consuming the invite, preserves the form, and permits a retry", async () => {
     const srv = (server = await startTestServer());
     await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
-    const minted = await mintInvite({
+    const minted = await _testMintLegacyInvite({
       username: null,
       role: "owner",
       createdBy: "Boss",
-      allowExisting: false,
       language: "es",
     });
-    if (!minted.ok) throw new Error(minted.error);
     const token = minted.rawToken;
     const refused = await srv.http("/auth/accept", {
       method: "POST",
@@ -102,15 +139,13 @@ describe("invite onboarding", () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     const mint = () =>
-      mintInvite({
+      _testMintLegacyInvite({
         username: null,
         role: "member",
         createdBy: "Boss",
-        allowExisting: false,
       });
     const a = await mint(),
       b = await mint();
-    if (!a.ok || !b.ok) throw new Error("mint failed");
     const results = await Promise.all(
       [a, b].map((m) =>
         acceptInvite(m.rawToken, { userAgent: null, chosenName: "Same Name" }),
@@ -122,35 +157,19 @@ describe("invite onboarding", () => {
     ]);
   });
 
-  it("refuses a signed-in owner on a new invite and rejects malformed defaults", async () => {
+  it("refuses a signed-in owner on a legacy new-member invite and an unsupported language", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
-    const minted = await mintInvite({
+    const minted = await _testMintLegacyInvite({
       username: null,
       role: "member",
       createdBy: "Boss",
-      allowExisting: false,
     });
-    if (!minted.ok) throw new Error(minted.error);
     const page = await srv.http(`/i/${minted.rawToken}`, {
       rawSessionId: owner.rawSessionId,
     });
     expect(page.status).toBe(409);
     expect(peekInvite(minted.rawToken)).not.toHaveProperty("error");
-    for (const fields of [
-      { label: 42 },
-      { label: "a".repeat(65) },
-      { language: "fr" },
-      { memberPrompt: {} },
-    ]) {
-      const res = await srv.http("/api/invites", {
-        method: "POST",
-        rawSessionId: owner.rawSessionId,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "member", ...fields }),
-      });
-      expect(res.status).toBe(400);
-    }
     expect(
       await acceptInvite(minted.rawToken, {
         userAgent: null,

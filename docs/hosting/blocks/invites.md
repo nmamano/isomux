@@ -3,8 +3,10 @@
 For another device of your own, open **Settings → You → Sign-in links** and
 create a device link. Open it on that device.
 
-To invite another person, open **Settings → Office → Invites**, enter their
-name, select a role and room access, and issue an invite. Send the link privately.
+To invite another person, first create them: in **Settings**, select **New
+member** at the end of the Members list, fill in the form and select **Create
+member**. Then open **Settings → Office → Invites**, select them and create a
+sign-in link. Send the link privately.
 Only invite people you trust: members and their agents can run commands on the
 server with the office's operating-system permissions.
 

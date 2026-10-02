@@ -9,7 +9,9 @@ const { setApiShim } = await import("../api.ts");
 const { InvitesPane } = await import("./InvitesPane.tsx");
 afterAll(() => setApiShim(null));
 
-it("creates an unnamed invite and sends optional profile defaults without treating the suggested name as an account", async () => {
+// An invite is a sign-in link for an existing member (task ec1724a8): the pane
+// picks a member and sends only their id - no name, role or profile fields.
+it("mints a sign-in link for the picked existing member by id, with no profile form", async () => {
   const calls: { method: string; path: string; body: unknown }[] = [];
   setApiShim(async (method, path, body) => {
     calls.push({ method, path, body });
@@ -21,38 +23,21 @@ it("creates an unnamed invite and sends optional profile defaults without treati
       invitesLoaded: true,
     }),
   );
-  const issue = view.getByRole("button", {
-    name: "Issue invite",
-  }) as HTMLButtonElement;
-  expect(issue.disabled).toBe(false);
-  fireEvent.change(view.getByLabelText("Member name (optional)"), {
-    target: { value: "Tester" },
-  });
-  expect(issue.disabled).toBe(false);
-  fireEvent.change(view.getByLabelText("Language"), {
-    target: { value: "ca" },
-  });
-  fireEvent.click(view.getByRole("checkbox", { name: "Office owner" }));
-  const prompt = view.container.querySelector("textarea")!;
-  fireEvent.change(prompt, { target: { value: "Explain each step." } });
+  expect(view.container.querySelector("textarea")).toBeNull();
+  expect(view.queryAllByRole("checkbox")).toEqual([]);
+  expect(view.queryAllByRole("textbox")).toEqual([]);
+
+  const [create] = view.getAllByRole("button") as HTMLButtonElement[];
+  expect(create.disabled).toBe(true);
+  const member = view.getByRole("combobox") as HTMLSelectElement;
+  fireEvent.change(member, { target: { value: "u1" } });
+  expect(create.disabled).toBe(false);
   await act(async () => {
-    fireEvent.click(issue);
+    fireEvent.click(create);
   });
   expect(calls).toEqual([
-    {
-      method: "POST",
-      path: "/api/invites",
-      body: {
-        role: "owner",
-        label: "Tester",
-        language: "ca",
-        memberPrompt: "Explain each step.",
-      },
-    },
+    { method: "POST", path: "/api/invites", body: { userId: "u1" } },
   ]);
-  expect(
-    (view.getByLabelText("Member name (optional)") as HTMLInputElement).value,
-  ).toBe("");
-  expect((view.getByLabelText("Language") as HTMLSelectElement).value).toBe("");
-  expect(prompt.value).toBe("");
+  expect(view.container.textContent).toContain("https://example.com/i/test");
+  expect(member.value).toBe("");
 });

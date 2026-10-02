@@ -24,13 +24,13 @@
 //   - A rename does not disturb in-flight sessions (identity is the stable
 //     userId), and a case-only collision is still refused.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { builtPwaAssetsExist } from "./built-ui.ts";
 import {
   COOKIE_NAME,
   buildPublicOrigin,
-  mintInvite,
   validateSession,
   revokeSessionByPrefix,
   _testSetSessionExpiry,
@@ -313,13 +313,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
   it("GET /i/<token> renders without consuming; POST /auth/accept consumes once and sets the cookie", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    const m = await mintInvite({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    if (!m.ok) throw new Error("mint failed");
+    const m = await mintMemberLink("Newbie");
 
     // Two GETs: a link unfurler or a browser prefetch must not burn the token.
     expect((await raw(server, `/i/${m.rawToken}`)).status).toBe(200);
@@ -331,7 +325,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
     // A bound-username invite must NOT ask for a display name - only a
     // bootstrap (null-username) invite does.
     expect(peekHtml).not.toContain('name="name"');
-    expect(getUserByName("Newbie")).toBeUndefined();
+    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
 
     const accept = await raw(server, "/auth/accept", {
       method: "POST",
@@ -346,6 +340,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");
     expect(getUserByName("Newbie")?.role).toBe("member");
+    expect(getUserByName("Newbie")?.pendingSignIn).toBeUndefined();
 
     // The issued cookie actually works.
     const issued = setCookie.split(";")[0].split("=").slice(1).join("=");
@@ -365,14 +360,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
   it("an expired invite is 410 on both the peek and the accept; a bad Origin never reaches the token", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    const m = await mintInvite({
-      username: "Ghost",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-      ttlMsOverride: -1000,
-    });
-    if (!m.ok) throw new Error("mint failed");
+    const m = await mintMemberLink("Ghost", "member", -1000);
 
     const peek = await raw(server, `/i/${m.rawToken}`);
     expect(peek.status).toBe(410);
@@ -385,17 +373,11 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
       body: new URLSearchParams({ token: m.rawToken }).toString(),
     });
     expect(accept.status).toBe(410);
-    expect(getUserByName("Ghost")).toBeUndefined();
+    expect(getUserByName("Ghost")?.pendingSignIn).toBe(true);
 
     // Cross-origin accept of a LIVE token is refused before the token is ever
     // looked at, so a hostile page can't redeem an invite it managed to read.
-    const live = await mintInvite({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    if (!live.ok) throw new Error("mint failed");
+    const live = await mintMemberLink("Newbie");
     const crossOrigin = await raw(server, "/auth/accept", {
       method: "POST",
       origin: "https://evil.example",
@@ -403,7 +385,7 @@ describe("auth/wall: the two-step invite flow over HTTP", () => {
       body: new URLSearchParams({ token: live.rawToken }).toString(),
     });
     expect(crossOrigin.status).toBe(403);
-    expect(getUserByName("Newbie")).toBeUndefined();
+    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
   });
 });
 

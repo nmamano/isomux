@@ -22,13 +22,14 @@
 //
 // Seam: startTestServer(). Zero LLM.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import {
   startTestServer,
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
-import { mintInvite, acceptInvite } from "../auth.ts";
+import { acceptInvite } from "../auth.ts";
 import { setUserRole } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, SessionWire } from "../../shared/types.ts";
@@ -88,17 +89,8 @@ async function api(
 // Add a SECOND owner user (distinct name) with an active session - the positive
 // control for last-owner lockout. Returns its cookie.
 async function addOwner(name: string): Promise<string> {
-  const mint = await mintInvite({
-    username: name,
-    role: "owner",
-    createdBy: null,
-    allowExisting: false,
-  });
-  if (!mint.ok) throw new Error(`addOwner mint: ${mint.error}`);
-  const acc = await acceptInvite(mint.rawToken, {
-    userAgent: "test",
-    chosenName: name,
-  });
+  const { rawToken } = await mintMemberLink(name, "owner");
+  const acc = await acceptInvite(rawToken, { userAgent: "test" });
   if (!acc.ok) throw new Error(`addOwner accept: ${acc.error}`);
   return acc.rawSessionId;
 }

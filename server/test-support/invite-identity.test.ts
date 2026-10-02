@@ -8,12 +8,13 @@ import {
   COOKIE_NAME,
   _testSetSessionExpiry,
   listInvites,
-  mintInvite,
+  _testMintLegacyInvite,
   peekInvite,
   revokeSessionByPrefix,
   validateSession,
 } from "../auth.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
+import { mintMemberLink } from "./member-link.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -21,19 +22,13 @@ afterEach(async () => {
   server = null;
 });
 
+// A sign-in link for `username`; an unknown name is created first, as an
+// owner does in Members before inviting.
 async function mintFor(
   username: string,
   role: "owner" | "member" = "member",
-  allowExisting = false,
 ): Promise<string> {
-  const minted = await mintInvite({
-    username,
-    role,
-    createdBy: "Boss",
-    allowExisting,
-  });
-  if (!minted.ok) throw new Error(`mint failed: ${minted.error}`);
-  return minted.rawToken;
+  return (await mintMemberLink(username, role)).rawToken;
 }
 
 function postAccept(
@@ -132,7 +127,7 @@ describe("invite identity allow-list", () => {
     const openContext = (await socket.waitFor("session_context")) as {
       context: { userId: string; username: string };
     };
-    const token = await mintFor("Boss", "owner", true);
+    const token = await mintFor("Boss", "owner");
 
     const accepted = await postAccept(server, token, owner.rawSessionId);
     expect(accepted.status).toBe(302);
@@ -170,14 +165,11 @@ describe("invite identity allow-list", () => {
       validateSession(originalOwner.rawSessionId)!.userId,
       "member",
     );
-    const minted = await mintInvite({
+    const minted = await _testMintLegacyInvite({
       username: null,
       role: "owner",
-      createdBy: null,
-      allowExisting: false,
       bootstrap: true,
     });
-    if (!minted.ok) throw new Error(`mint failed: ${minted.error}`);
 
     const wrongIdentity = await postAccept(
       server,

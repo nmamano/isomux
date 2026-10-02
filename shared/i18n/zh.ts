@@ -361,6 +361,9 @@ App 的一些原则：
   "settings.members.onlineSessions.one": "在线 · {count} 个会话",
   "settings.members.onlineSessions.other": "在线 · {count} 个会话",
   "settings.members.lastSeen": "上次在线：{when}",
+  "settings.members.newMember": "新成员",
+  "settings.members.create": "创建成员",
+  "settings.members.neverSignedIn": "从未登录",
   "settings.role.officeOwner": "办公室所有者",
   "settings.role.officeOwnerExplanation":
     "可以访问所有房间、邀请成员，并管理成员的访问权限和会话。",
@@ -604,34 +607,16 @@ App 的一些原则：
   "settings.access.sendUrl":
     "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
   "settings.invites.intro":
-    "添加新成员或办公室所有者：生成邀请 URL，再通过其他渠道发送给对方。打开链接会创建账户并登录该设备。已有账户的成员可在<i>我的设备</i>中自行生成设备链接，用于登录其他设备。",
-  "settings.invites.memberName": "成员名称（可选）",
-  "settings.invites.memberNamePlaceholder": "例如：Marc",
-  "settings.invites.changeLater":
-    "所有这些设置以后都可以更改。成员在接受邀请时可以修改此名称。",
+    "登录链接让一台设备以现有成员身份登录。要邀请新成员，请先在<i>成员</i>中创建。",
+  "settings.invites.linkHint": "请私下发送链接。链接在 24 小时后过期，新链接会替换该成员的上一个链接。",
+  "settings.invites.createLink": "创建登录链接",
+  "settings.invites.creatingLink": "正在创建…",
+  "settings.invites.createLinkFailed": "创建登录链接失败",
   "preAuth.invite.changeLater": "你以后可以在设置中更改名称和语言。",
-  "settings.invites.browserLanguage": "受邀者的浏览器语言",
   "preAuth.invite.nameTaken": "该名称已被使用，请另选一个。",
   "preAuth.invite.errorLanguage": "请选择一种语言。",
   "preAuth.invite.newMember": "新成员",
-  "settings.invites.issueFor": "为以下成员发出邀请…",
-  "settings.invites.namePlaceholder": "新用户名（例如 Marc）",
-  "settings.invites.existing":
-    "<b>{name}</b> 已存在，无需邀请。要登录其他设备，{name} 可以在自己的设置中通过<i>我的设备</i>生成设备链接，也可以由你在下方生成恢复链接。",
-  "settings.invites.grantRoom": "授予 {room} 的访问权限",
-  "settings.invites.roomsHint":
-    "受邀者将获得选中房间的访问权限。全部不选，则可稍后从「设置 → 成员」中授予权限。",
-  "settings.invites.expiryHint":
-    "邀请链接若未使用，将在发出 24 小时后过期。接受邀请后建立的会话最长持续 1 年（可随时从「会话」部分撤销）。",
-  "settings.invites.minting": "正在生成…",
-  "settings.invites.issue": "发出邀请",
-  "settings.invites.mintFailed": "生成邀请失败",
-  "settings.invites.recovery": "恢复访问",
-  "settings.invites.recoveryHint":
-    "帮助已有成员恢复访问。设备链接可自行生成，但在所有设备上都已退出登录的成员无法自行生成链接。请在此选择成员，再通过其他渠道发送链接。链接在 24 小时后过期；生成新链接会替换其上一个链接。",
   "settings.invites.selectUser": "选择成员…",
-  "settings.invites.mintRecovery": "生成恢复链接",
-  "settings.invites.recoveryFailed": "生成恢复链接失败",
   "settings.invites.outstanding": "尚未接受的邀请",
   "settings.invites.columnFor": "受邀者",
   "settings.invites.columnExpires": "过期时间",

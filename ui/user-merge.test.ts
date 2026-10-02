@@ -181,3 +181,33 @@ describe("rebuildUserViews - authoritative membership, preserve survivors", () =
     expect(next).not.toBe(prev);
   });
 });
+
+// Task ec1724a8: pendingSignIn is an OPTIONAL field the server removes at a
+// member's first sign-in. A full record without it must clear it; a spread
+// merge would keep the stale `true` and show "never signed in" forever.
+describe("a full record replaces the held view, clearing a removed optional field", () => {
+  const pending = () => full("Pia", { pendingSignIn: true });
+
+  it("single-record update: a full record without pendingSignIn clears it", () => {
+    const m = upsertUserView(mapOf(pending()), full("Pia"));
+    expect(m.get("pia")!.pendingSignIn).toBeUndefined();
+  });
+
+  it("single-record rename: the full record under the new name clears it", () => {
+    const m = upsertUserView(mapOf(pending()), full("Pia Ros"), "Pia");
+    expect(m.has("pia")).toBe(false);
+    expect(m.get("pia ros")!.pendingSignIn).toBeUndefined();
+  });
+
+  it("bulk rebuild: a full record without pendingSignIn clears it", () => {
+    const m = rebuildUserViews(mapOf(pending()), [full("Pia")]);
+    expect(m.get("pia")!.pendingSignIn).toBeUndefined();
+  });
+
+  it("public updates keep it, single and bulk", () => {
+    const single = upsertUserView(mapOf(pending()), pub("Pia"));
+    expect(single.get("pia")!.pendingSignIn).toBe(true);
+    const bulk = rebuildUserViews(mapOf(pending()), [pub("Pia")]);
+    expect(bulk.get("pia")!.pendingSignIn).toBe(true);
+  });
+});

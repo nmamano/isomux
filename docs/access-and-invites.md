@@ -6,8 +6,8 @@ How Isomux gates who can use an office, and how the invite-link flow works end-t
 
 - Isomux agents can run shell commands, so authenticated members effectively have shell access to the host. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
-- Two roles: `owner` (can toggle external access and mint invites for new members) and `member`. Both have full operational access, and every member can mint device links for their own extra devices.
-- Sessions are created when someone opens an invite URL (issued by an owner, or by a member for one of their own devices).
+- Two roles: `owner` (can toggle external access, create members and mint sign-in links for them) and `member`. Both have full operational access, and every member can mint device links for their own extra devices.
+- Sessions are created when someone opens a sign-in link (issued by an owner, or by a member for one of their own devices). A link always signs in as a member that already exists.
 - The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server is only reachable from the host (or via an SSH tunnel).
 
 ## End-to-end flow
@@ -39,21 +39,25 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 ### 2. Inviting members
 
-Once you're the owner, open `Settings` → `Office` → `Invites`:
+Inviting is two steps: create the member, then send them a sign-in link.
 
-- **Issue invite**: enter the new member's name, pick a role. For a member invite, check the rooms they should have access to (leave all unchecked to grant rooms later from `Settings` → `Members`). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
-- **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
+1. **Create the member**: in `Settings`, select `New member` at the end of the `Members` list. The form is the member editor: name, office owner, room access, profile prompt and avatar. Click `Create member`. The member exists from now on, and the list shows "never signed in" until they accept a link. Their language is theirs to pick when they first sign in.
+2. **Send a sign-in link**: open `Settings` → `Office` → `Invites`, select the member and click `Create sign-in link`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused. A new link replaces the member's previous one.
+
+- **Outstanding invites**: every unclaimed link is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
-Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
+Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords. On a member's first sign-in, the page asks for their language.
+
+If a link expires, nothing is lost: the member and everything entered for them stay, and you send a new link.
 
 A browser that is already signed in as a member cannot accept an invite for a different member (the invite is not consumed).
 
-Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If the first link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
+Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If a link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
 
 ### 3. Multi-device members
 
-Invites create new members only. Typing a name that already exists shows a pointer instead of a form mode: existing members add devices themselves, with a device link from `My devices` in their own settings (the server rejects office-owner-minted invites for existing names too). The exception is recovery: someone signed out of every device can't self-serve, so an office owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per member). One member can have many simultaneous sessions (laptop + phone + tablet).
+Members add their own devices with a device link from `Sign-in links` in their own settings. Someone signed out of every device can't self-serve: an office owner sends them a sign-in link from the Invites section, the same way as for a new member. One member can have many simultaneous sessions (laptop + phone + tablet).
 
 ### 4. Device links
 
@@ -218,8 +222,9 @@ docker exec -u node -e HOME=/var/data/home -e ISOMUX_HOME=/var/data/home/.isomux
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
 - **Revoking a live session?** The Sessions pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to mint an invite for a new member?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
-- **Office owner tries to mint an invite for an existing member?** Rejected too (409): invites create new members only, and device links are self-service. To get a locked-out member back in, use the Recovery card in the Invites section.
+- **Member tries to create a member or mint a link for someone else?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't create identities. The account panes are scoped per role; the server-side check is the actual gate.
+- **Scripts and the API.** `POST /api/users` creates a member (owner only); `POST /api/invites` with `{"userId": "..."}` mints their sign-in link. The old one-step body (`username`, `label`, `role`, ...) returns 400. `POST /api/invites/recovery` is a permanent alias of `POST /api/invites`.
+- **Member renamed or deleted before they accept?** A link is bound to the member's id, so it still works after a rename. Deleting a member revokes their outstanding links.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
 
 ## Personal API tokens

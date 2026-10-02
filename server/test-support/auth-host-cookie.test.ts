@@ -17,6 +17,7 @@
 //     real Access route + a cold restart, since the signal is boot-frozen):
 //     writes and migrates onto `__Host-`.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach, beforeEach } from "bun:test";
 import { createHash } from "crypto";
 import {
@@ -34,7 +35,6 @@ import {
   formatBrowserSessionDiagnostic,
   emitBrowserSessionDiagnostic,
   listActiveSessions,
-  mintInvite,
   readSessionCookies,
   validateSession,
 } from "../auth.ts";
@@ -79,14 +79,7 @@ async function startHttps(): Promise<{
 }
 
 async function mintFor(username: string, role: "owner" | "member" = "member") {
-  const mint = await mintInvite({
-    username,
-    role,
-    createdBy: null,
-    allowExisting: false,
-  });
-  if (!mint.ok) throw new Error(`mint failed: ${mint.error}`);
-  return mint.rawToken;
+  return (await mintMemberLink(username, role)).rawToken;
 }
 
 // POST /auth/accept the way a browser does, so we can read the real Set-Cookie.

@@ -1,6 +1,6 @@
 // Users resource handlers. The
-// user-management surface on the unified REST surface (opIds users.{list,update,
-// setAccess,delete}).
+// user-management surface on the unified REST surface (opIds users.{create,
+// update,setAccess,delete}).
 //
 // users.update carries ONLY the
 // record fields (name/env/prompt/avatar) via UserUpdateReq; users.setAccess
@@ -19,12 +19,15 @@
 
 import {
   ok,
+  created,
   noContent,
   fail,
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type {
+  UserAdminWire,
+  UserCreateReq,
   UserSelfWire,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
@@ -42,6 +45,12 @@ type DeleteOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string; error: string };
 
 export interface UsersDeps {
+  // Owner creates a member (officeOwner already passed). Validates the name and
+  // the room grants, creates the record with pendingSignIn, emits users_list.
+  create(input: UserCreateReq): Promise<
+    | { ok: true; user: UserAdminWire }
+    | { ok: false; status: HandlerErrorStatus; code: string; error: string }
+  >;
   // Record edit (name/prompt/avatar). selfOrOwner already passed. On ok emits
   // user_updated + users_list + presence.
   update(input: {
@@ -101,6 +110,35 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
 
 export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
   return {
+    "users.create": async (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<UserCreateReq>;
+      if (typeof body.name !== "string" || body.name.trim().length === 0)
+        return fail(422, "invalid_request", "name must be a non-empty string");
+      if (body.role !== "member" && body.role !== "owner")
+        return fail(422, "invalid_request", "role must be member or owner");
+      const malformed = malformedUserUpdate(body);
+      if (malformed) return fail(422, "invalid_request", malformed);
+      if (
+        body.allowedRooms !== undefined &&
+        (!Array.isArray(body.allowedRooms) ||
+          !body.allowedRooms.every((x) => typeof x === "string"))
+      )
+        return fail(
+          422,
+          "invalid_request",
+          "allowedRooms must be an array of room ids",
+        );
+      const r = await deps.create({
+        name: body.name,
+        role: body.role,
+        memberPrompt: body.memberPrompt,
+        avatarColor: body.avatarColor,
+        avatarVariant: body.avatarVariant,
+        allowedRooms: body.allowedRooms,
+      });
+      return r.ok ? created({ user: r.user }) : fail(r.status, r.code, r.error);
+    },
+
     "users.update": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
       const changes = { ...body };

@@ -1,12 +1,9 @@
 // Invites resource handlers. The auth invite surface on
-// the unified REST surface (opIds invites.{mint,mintSelf,list,revoke}).
-//
-// Strangler EXPAND: these REST handlers + the still-living WS arms
-// (mint_invite / mint_self_invite / list_invites / revoke_invite) BOTH delegate
-// to the SAME auth core ops (mintInvite / revokeInviteByPrefix /
-// revokeOutstandingInviteByPrefixForUsername) and the SAME recipient-scoped emit
-// (emitInvitesList / liveEmit("invite_revoked")). One scoped-payload path for
-// both transports - the strangler leaves no WS-path divergence.
+// the unified REST surface (opIds invites.{mint,mintRecovery,mintSelf,list,
+// revoke}). An invite is a sign-in link for an EXISTING member; members are
+// created by users.create. The handlers delegate to the auth core ops
+// (mintInvite / revokeInviteByPrefix / revokeOutstandingInviteByPrefixForUser)
+// and the recipient-scoped emit (emitInvitesList / liveEmit("invite_revoked")).
 //
 // EMIT-IN-DEP (unlike tasks/cron, which emit via a manager event-sink): there is
 // NO auth-manager event sink, so the isomux-office.ts seam owns mutate→emit. The
@@ -31,14 +28,11 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { InviteWire, UserRole } from "../../../shared/types.ts";
-import type {
-  InviteMintReq,
-  RecoveryMintReq,
-} from "../../../shared/contract-shapes.ts";
+import type { InviteWire } from "../../../shared/types.ts";
+import type { InviteMintReq } from "../../../shared/contract-shapes.ts";
 
 // Mint outcome: the {url, invite} the caller renders, or a status-mapped failure
-// (the seam maps the auth MintErr code → 400 bad-input / 409 conflict).
+// (the seam maps the auth MintErr code: a missing member → 404).
 type MintOutcome =
   | { ok: true; url: string; invite: InviteWire }
   | { ok: false; status: HandlerErrorStatus; error: string };
@@ -51,31 +45,14 @@ type RevokeOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string };
 
 export interface InvitesDeps {
-  // Owner mint (officeOwner guard already enforced) - NEW users only: an
-  // existing username is rejected by the auth core
-  // (USER_EXISTS → 409). Device links for existing accounts are self-service
-  // via mintSelf; owners deliberately cannot mint them for others. createdBy
-  // is token-derived in the seam; on ok the seam fans out emitInvitesList().
-  // allowedRooms are optional room grants for member invites (validated in
-  // the auth core: member-role + new-user only, ids must be live rooms).
-  mint(input: {
-    username: string | null;
-    label?: string;
-    language?: InviteMintReq["language"];
-    memberPrompt?: string | null;
-    role: UserRole;
-    allowedRooms?: string[];
-    identity: Identity;
-  }): Promise<MintOutcome>;
-  // Self mint - binds to the caller's OWN record (userId/role) with
-  // replacePriorForUsername; on ok the seam fans out emitInvitesList().
+  // Owner mint (officeOwner guard already enforced) - a sign-in link for an
+  // EXISTING member, by stable userId (404 when missing). The seam derives
+  // name/role from the record and fixes TTL/replacement; createdBy is
+  // token-derived; on ok the seam fans out emitInvitesList().
+  mint(userId: string, identity: Identity): Promise<MintOutcome>;
+  // Self mint - binds to the caller's OWN record and replaces their prior
+  // link; on ok the seam fans out emitInvitesList().
   mintSelf(identity: Identity): Promise<MintOutcome>;
-  // Owner recovery mint (officeOwner guard already enforced) - a device link
-  // for an EXISTING user who is locked out of every device. Target resolves by
-  // stable userId (404 when missing);
-  // the seam derives name/role from the record and fixes TTL/replacement;
-  // on ok it fans out emitInvitesList().
-  mintRecovery(userId: string, identity: Identity): Promise<MintOutcome>;
   // Scoped list for the caller (record role): owner → all; member → own. Direct
   // reply only - NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): InviteWire[];
@@ -85,66 +62,48 @@ export interface InvitesDeps {
   revoke(identity: Identity, tokenPrefix: string): Promise<RevokeOutcome>;
 }
 
+// Fields of the retired new-member invite body. A caller that still sends
+// them gets the two-step pointer instead of a bare "userId is required".
+const LEGACY_MINT_FIELDS = [
+  "username",
+  "label",
+  "role",
+  "language",
+  "memberPrompt",
+  "allowedRooms",
+];
+
 export function invitesHandlers(
   deps: InvitesDeps,
 ): Record<string, RouteHandler> {
+  const mint: RouteHandler = async (ctx) => {
+    const body = (
+      typeof ctx.body === "object" && ctx.body !== null ? ctx.body : {}
+    ) as Partial<InviteMintReq>;
+    if (typeof body.userId !== "string" || body.userId.trim().length === 0) {
+      const legacy = LEGACY_MINT_FIELDS.some((f) => f in body);
+      return fail(
+        400,
+        "invalid_request",
+        legacy
+          ? "Invites no longer create members. Create the member with POST /api/users, then send POST /api/invites with {userId}."
+          : "userId is required",
+      );
+    }
+    const r = await deps.mint(body.userId, ctx.identity);
+    // Spec: 200 {url, invite} (not 201) - matches the explicit slice contract.
+    return r.ok
+      ? ok({ url: r.url, invite: r.invite })
+      : fail(r.status, "mint_failed", r.error);
+  };
   return {
-    "invites.mint": async (ctx) => {
-      const body = (ctx.body ?? {}) as Partial<InviteMintReq>;
-      if (
-        body.username !== undefined &&
-        (typeof body.username !== "string" || !body.username.trim())
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "username must be a non-empty string",
-        );
-      }
-      if (body.role !== "owner" && body.role !== "member") {
-        return fail(400, "invalid_request", "role must be 'owner' or 'member'");
-      }
-      // Shape check only - the auth core owns the semantic validation
-      // (member-role + new-user only, room ids must exist).
-      if (
-        body.allowedRooms !== undefined &&
-        (!Array.isArray(body.allowedRooms) ||
-          !body.allowedRooms.every((x) => typeof x === "string"))
-      ) {
-        return fail(
-          400,
-          "invalid_request",
-          "allowedRooms must be an array of room ids",
-        );
-      }
-      const r = await deps.mint({
-        username: body.username ?? null,
-        label: body.label,
-        language: body.language,
-        memberPrompt: body.memberPrompt,
-        role: body.role,
-        allowedRooms: body.allowedRooms,
-        identity: ctx.identity,
-      });
-      // Spec: 200 {url, invite} (not 201) - matches the explicit slice contract.
-      return r.ok
-        ? ok({ url: r.url, invite: r.invite })
-        : fail(r.status, "mint_failed", r.error);
-    },
+    "invites.mint": mint,
+    // Permanent alias of invites.mint: deploy/install.sh and the control plane
+    // call it on offices of every version.
+    "invites.mintRecovery": mint,
 
     "invites.mintSelf": async (ctx) => {
       const r = await deps.mintSelf(ctx.identity);
-      return r.ok
-        ? ok({ url: r.url, invite: r.invite })
-        : fail(r.status, "mint_failed", r.error);
-    },
-
-    "invites.mintRecovery": async (ctx) => {
-      const body = (ctx.body ?? {}) as Partial<RecoveryMintReq>;
-      if (typeof body.userId !== "string" || body.userId.trim().length === 0) {
-        return fail(400, "invalid_request", "userId is required");
-      }
-      const r = await deps.mintRecovery(body.userId, ctx.identity);
       return r.ok
         ? ok({ url: r.url, invite: r.invite })
         : fail(r.status, "mint_failed", r.error);

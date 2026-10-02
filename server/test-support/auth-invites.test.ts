@@ -1,4 +1,4 @@
-// Auth core - invite lifecycle (tasks 5676b6cb / 530680ae).
+// Auth core - invite lifecycle (tasks 5676b6cb / 530680ae / ec1724a8).
 //
 // The auth module was shipped on manual smoke tests; this file is the
 // automated catalog for the INVITE half of server/auth.ts. It drives the real
@@ -6,35 +6,54 @@
 // harness's temp STATE_ROOT, so every assertion runs the production code path.
 //
 // What this freezes:
-//   - TTL SELECTION, the whole precedence ladder: ttlMsOverride wins, else
-//     replacePriorForUsername picks the tight 1h self-invite window, else the
-//     standard 24h INVITE_TTL_MS. No client wire carries the override, so this
-//     ladder is the only thing standing between "self-invite" and a 24x wider
-//     bearer-URL exposure window.
-//   - replacePriorForUsername: removes exactly the OUTSTANDING invites for the
-//     same username (case-insensitively), and nothing else - a consumed row, an
-//     expired row, and another user's row all survive.
+//   - A sign-in link targets an EXISTING member by id: mint refuses an unknown
+//     id, accept never creates a member, a rename between mint and accept is
+//     harmless, and a deleted member's link signs nobody in.
+//   - The stamped expiry is exactly the caller's window (the seam picks it;
+//     no client wire carries it).
+//   - Every mint replaces the member's OUTSTANDING links (by id) and nothing
+//     else - a consumed row, an expired row, and another user's row all survive.
+//   - Legacy name-bound links bind to the member's id when the server boots,
+//     persist that, and drop a name with no member; renames and name reuse
+//     after boot cannot redirect them.
 //   - peekInvite NEVER consumes (link unfurlers / prefetch must not burn a
 //     one-time bearer token), and reports consumed/expired/not_found/owner_exists.
 //   - acceptInvite's refusal matrix, including the two that only exist for
 //     between-mint-and-accept races: role_mismatch and owner_exists.
 //   - CONCURRENT acceptance of one token: the mutex lets exactly one win.
-//   - Bootstrap: the invitee names themselves, lands as owner, and sibling
-//     bootstrap invites are SWEPT the moment an owner exists.
+//   - Legacy bootstrap rows: the invitee names themselves, lands as owner, and
+//     sibling bootstrap invites are SWEPT the moment an owner exists.
 //
 // Seam: startTestServer() for a clean STATE_ROOT + reset auth/users caches.
 // Zero LLM.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
+import { createHash, randomBytes } from "crypto";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
   mintInvite,
   acceptInvite,
   peekInvite,
   listInvites,
+  revokeInvitesForUser,
+  _testMintLegacyInvite,
   INVITE_TTL_MS,
+  SELF_INVITE_TTL_MS,
+  loadAuthState,
+  validateSession,
 } from "../auth.ts";
-import { getUserByName, setUserRole, hasOwner } from "../users.ts";
+import * as persistence from "../persistence.ts";
+import {
+  deleteUserById,
+  getUserByName,
+  hasOwner,
+  listUsers,
+  setUserRole,
+  updateUserById,
+} from "../users.ts";
+import { mintMemberLink } from "./member-link.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -42,14 +61,19 @@ afterEach(async () => {
   server = null;
 });
 
-const HOUR_MS = 60 * 60 * 1000;
+function idOf(name: string): string {
+  const u = getUserByName(name);
+  if (!u) throw new Error(`no user record for ${name}`);
+  return u.id;
+}
 
 // Mint and unwrap, failing loudly on the error arm so a broken mint surfaces as
 // itself rather than as a confusing downstream assertion.
 async function mintOk(
-  opts: Parameters<typeof mintInvite>[0],
+  name: string,
+  ttlMs: number = INVITE_TTL_MS,
 ): Promise<{ rawToken: string; prefix: string; expiresAt: number }> {
-  const m = await mintInvite(opts);
+  const m = await mintInvite({ userId: idOf(name), createdBy: "Boss", ttlMs });
   if (!m.ok) throw new Error(`mint failed: ${m.code} ${m.error}`);
   return {
     rawToken: m.rawToken,
@@ -62,135 +86,69 @@ function outstandingPrefixes(): string[] {
   return listInvites().map((i) => i.tokenPrefix);
 }
 
-describe("auth/invites: TTL selection ladder", () => {
-  it("standard mint = 24h, self-invite (replacePrior) = 1h, ttlMsOverride beats both", async () => {
+describe("auth/invites: expiry window", () => {
+  it("stamps exactly the caller's window: 24h, the 1h self-invite, 15min", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     await server.seedMember("Alice");
+    await server.seedMember("Bob");
+    await server.seedMember("Carol");
 
     const before = Date.now();
-    const standard = await mintOk({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    const selfInvite = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: "Alice",
-      allowExisting: true,
-      replacePriorForUsername: true,
-    });
-    // The admin-socket owner-login path: a 15min window, and the override must
-    // win even though replacePriorForUsername is also set (owner-recovery mints
-    // pass both, and picking the 1h self-invite TTL there would be wrong).
-    const overridden = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: null,
-      allowExisting: true,
-      replacePriorForUsername: true,
-      ttlMsOverride: 15 * 60 * 1000,
-    });
+    const standard = await mintOk("Alice", INVITE_TTL_MS);
+    const selfInvite = await mintOk("Bob", SELF_INVITE_TTL_MS);
+    const ownerLogin = await mintOk("Carol", 15 * 60 * 1000);
     const after = Date.now();
 
     // Window rather than an exact equality: expiresAt is stamped from a
     // Date.now() taken inside the mutex, somewhere in [before, after].
-    const spans = (expiresAt: number) => ({
-      atLeast: expiresAt - after,
-      atMost: expiresAt - before,
-    });
-    const s = spans(standard.expiresAt);
-    expect(s.atLeast).toBeLessThanOrEqual(INVITE_TTL_MS);
-    expect(s.atMost).toBeGreaterThanOrEqual(INVITE_TTL_MS);
-
-    const si = spans(selfInvite.expiresAt);
-    expect(si.atLeast).toBeLessThanOrEqual(HOUR_MS);
-    expect(si.atMost).toBeGreaterThanOrEqual(HOUR_MS);
-    // The distinction is the point: a self-invite is not merely "shorter", it
-    // is the 1h window specifically.
-    expect(selfInvite.expiresAt).toBeLessThan(
-      standard.expiresAt - 22 * HOUR_MS,
-    );
-
-    const ov = spans(overridden.expiresAt);
-    expect(ov.atLeast).toBeLessThanOrEqual(15 * 60 * 1000);
-    expect(ov.atMost).toBeGreaterThanOrEqual(15 * 60 * 1000);
-    expect(overridden.expiresAt).toBeLessThan(selfInvite.expiresAt);
+    for (const [minted, ttl] of [
+      [standard, INVITE_TTL_MS],
+      [selfInvite, SELF_INVITE_TTL_MS],
+      [ownerLogin, 15 * 60 * 1000],
+    ] as const) {
+      expect(minted.expiresAt - after).toBeLessThanOrEqual(ttl);
+      expect(minted.expiresAt - before).toBeGreaterThanOrEqual(ttl);
+    }
+    expect(SELF_INVITE_TTL_MS).toBe(60 * 60 * 1000);
+    expect(INVITE_TTL_MS).toBe(24 * 60 * 60 * 1000);
   });
 
-  it("an already-expired invite (negative override) is refused by BOTH peek and accept", async () => {
+  it("an already-expired link is refused by BOTH peek and accept, and the member stays", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
 
-    const stale = await mintOk({
-      username: "Ghost",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-      ttlMsOverride: -1000,
-    });
+    const stale = await mintMemberLink("Ghost", "member", -1000);
 
     expect(peekInvite(stale.rawToken)).toEqual({ error: "expired" });
     const acc = await acceptInvite(stale.rawToken, { userAgent: "test" });
     expect(acc).toEqual({ ok: false, error: "expired" });
-    // ...and it never created the user it was bound to.
-    expect(getUserByName("Ghost")).toBeUndefined();
+    // The member and their profile outlive the link (task ec1724a8).
+    expect(getUserByName("Ghost")?.pendingSignIn).toBe(true);
     // Expired rows drop out of the outstanding list.
-    expect(outstandingPrefixes()).not.toContain(stale.prefix);
+    expect(outstandingPrefixes()).not.toContain(stale.tokenPrefix);
   });
 });
 
-describe("auth/invites: replacePriorForUsername scope", () => {
-  it("replaces only the same user's OUTSTANDING invites - consumed, expired and foreign rows survive", async () => {
+describe("auth/invites: a mint replaces the member's outstanding links", () => {
+  it("replaces only the same member's OUTSTANDING links - consumed, expired and foreign rows survive", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     await server.seedMember("Alice");
     await server.seedMember("Bob");
 
-    // Four pre-existing rows around Alice.
-    const aliceOutstanding = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: "Alice",
-      allowExisting: true,
-      replacePriorForUsername: true,
-    });
-    const aliceExpired = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: true,
-      ttlMsOverride: -1000,
-    });
-    const aliceConsumed = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: true,
-    });
+    // Pre-existing rows around Alice. Each mint replaces the previous
+    // outstanding one, so the consumed and expired rows are minted first.
+    const aliceConsumed = await mintOk("Alice");
     const consumeIt = await acceptInvite(aliceConsumed.rawToken, {
       userAgent: "test",
     });
     expect(consumeIt.ok).toBe(true);
-    const bobOutstanding = await mintOk({
-      username: "Bob",
-      role: "member",
-      createdBy: "Bob",
-      allowExisting: true,
-      replacePriorForUsername: true,
-    });
+    const aliceExpired = await mintOk("Alice", -1000);
+    const aliceOutstanding = await mintOk("Alice");
+    const bobOutstanding = await mintOk("Bob");
 
-    // Re-mint for "alice" in DIFFERENT CASE: the match is case-insensitive, so
-    // this must still displace the outstanding row above.
-    const replacement = await mintOk({
-      username: "alice",
-      role: "member",
-      createdBy: "Alice",
-      allowExisting: true,
-      replacePriorForUsername: true,
-    });
+    const replacement = await mintOk("Alice");
 
     const outstanding = outstandingPrefixes();
     expect(outstanding).not.toContain(aliceOutstanding.prefix); // displaced
@@ -202,72 +160,229 @@ describe("auth/invites: replacePriorForUsername scope", () => {
     // consumed (not deleted-and-forgotten), expired stays expired.
     expect(peekInvite(aliceConsumed.rawToken)).toEqual({ error: "consumed" });
     expect(peekInvite(aliceExpired.rawToken)).toEqual({ error: "expired" });
-    // And the displaced one is genuinely gone, not merely hidden from the list.
+    // And the displaced ones are genuinely gone, not merely hidden from the list.
     expect(peekInvite(aliceOutstanding.rawToken)).toEqual({
       error: "not_found",
     });
   });
 });
 
-describe("auth/invites: mint refusal matrix", () => {
-  it("existing user without allowExisting -> USER_EXISTS; role conflict -> ROLE_MISMATCH", async () => {
+describe("auth/invites: a link targets an existing member", () => {
+  it("mint refuses an unknown member id and stores nothing", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+
+    const r = await mintInvite({
+      userId: "deadbeef",
+      createdBy: "Boss",
+      ttlMs: INVITE_TTL_MS,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("USER_NOT_FOUND");
+    expect(listInvites()).toEqual([]);
+  });
+
+  it("a rename between mint and accept signs in the renamed member and creates no one", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const { rawToken, userId } = await mintMemberLink("Marc");
+    const usersBefore = listUsers().length;
+
+    updateUserById(userId, { name: "Marc Garcia" });
+    expect(peekInvite(rawToken)).toMatchObject({ username: "Marc Garcia" });
+    expect(listInvites().map((i) => i.username)).toEqual(["Marc Garcia"]);
+
+    const acc = await acceptInvite(rawToken, { userAgent: "test" });
+    expect(acc.ok).toBe(true);
+    if (!acc.ok) return;
+    expect(acc.username).toBe("Marc Garcia");
+    expect(getUserByName("Marc")).toBeUndefined();
+    expect(listUsers().length).toBe(usersBefore);
+  });
+
+  it("a deleted member's link signs nobody in, even after the name is reused", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const { rawToken, userId } = await mintMemberLink("Marc");
+
+    deleteUserById(userId);
+    expect(peekInvite(rawToken)).toEqual({ error: "not_found" });
+    expect(await acceptInvite(rawToken, { userAgent: "test" })).toEqual({
+      ok: false,
+      error: "not_found",
+    });
+    expect(getUserByName("Marc")).toBeUndefined();
+    // A new member named Marc does not inherit the old link.
+    await mintMemberLink("Marc");
+    expect(peekInvite(rawToken)).toEqual({ error: "not_found" });
+  });
+
+  it("revokeInvitesForUser removes every unconsumed link of that member only", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     await server.seedMember("Alice");
+    await server.seedMember("Bob");
+    const alice = await mintOk("Alice");
+    const bob = await mintOk("Bob");
 
-    const dup = await mintInvite({
-      username: "Alice",
+    expect(await revokeInvitesForUser(getUserByName("Alice")!)).toBe(1);
+    expect(peekInvite(alice.rawToken)).toEqual({ error: "not_found" });
+    expect(peekInvite(bob.rawToken)).not.toHaveProperty("error");
+  });
+});
+
+// Sign-in links minted before StoredInvite.userId (recovery, self-invite,
+// owner-login) carry only a username. invites.json is planted on disk and the
+// server restarted, so the real boot load does the binding.
+describe("auth/invites: legacy name-bound links bind to ids at boot", () => {
+  function plantLegacyLink(stateRoot: string, username: string): string {
+    const raw = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(raw).digest("hex");
+    const file = join(stateRoot, "invites.json");
+    const rows = existsSync(file)
+      ? (JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>)
+      : {};
+    const now = Date.now();
+    rows[tokenHash] = {
+      tokenHash,
+      tokenPrefix: raw.slice(0, 8),
+      username,
       role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    expect(dup.ok).toBe(false);
-    if (!dup.ok) expect(dup.code).toBe("USER_EXISTS");
+      createdBy: username,
+      createdAt: now,
+      expiresAt: now + INVITE_TTL_MS,
+      consumed: false,
+      consumedAt: null,
+      bootstrap: false,
+    };
+    writeFileSync(file, JSON.stringify(rows, null, 2));
+    return raw;
+  }
 
-    // allowExisting clears USER_EXISTS but NOT a role conflict: Alice is a
-    // member on the record, so an owner-role invite for her is refused rather
-    // than silently promoting her on accept.
-    const mismatch = await mintInvite({
-      username: "Alice",
-      role: "owner",
-      createdBy: "Boss",
-      allowExisting: true,
-    });
-    expect(mismatch.ok).toBe(false);
-    if (!mismatch.ok) expect(mismatch.code).toBe("ROLE_MISMATCH");
+  it("a rename chain after boot keeps the link on its member: Marc -> Marco, then another member -> Marc", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Boss");
+    await srv.seedMember("Marc");
+    await srv.seedMember("Alice");
+    const token = plantLegacyLink(srv.stateRoot, "marc");
+    srv = server = await srv.restart();
+    const marcId = idOf("Marc");
 
-    // Positive control: matching role passes, so the two refusals above are the
-    // named checks and not a blanket "existing users can't be minted for".
-    const okMint = await mintInvite({
-      username: "Alice",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: true,
-    });
-    expect(okMint.ok).toBe(true);
+    updateUserById(marcId, { name: "Marco" });
+    updateUserById(idOf("Alice"), { name: "Marc" });
+
+    expect(peekInvite(token)).toMatchObject({ username: "Marco" });
+    const acc = await acceptInvite(token, { userAgent: "test" });
+    expect(acc.ok).toBe(true);
+    if (!acc.ok) return;
+    expect(acc.username).toBe("Marco");
+    expect(validateSession(acc.rawSessionId)?.userId).toBe(marcId);
   });
 
-  it("blank username and an unknown role are refused", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Boss");
+  it("the binding persists across restarts; a name with no member is dropped and stays refused", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Boss");
+    await srv.seedMember("Marc");
+    const token = plantLegacyLink(srv.stateRoot, "Marc");
+    const orphan = plantLegacyLink(srv.stateRoot, "Ghost");
+    srv = server = await srv.restart();
+    const marcId = idOf("Marc");
 
-    const blank = await mintInvite({
-      username: "   ",
+    const onDisk = () =>
+      Object.values(
+        JSON.parse(
+          readFileSync(join(srv.stateRoot, "invites.json"), "utf-8"),
+        ) as Record<string, { username: string | null; userId?: string }>,
+      );
+    expect(onDisk().find((r) => r.username === "Marc")?.userId).toBe(marcId);
+    expect(onDisk().some((r) => r.username === "Ghost")).toBe(false);
+
+    // A member created later under the dropped name gets nothing from it.
+    await mintMemberLink("Ghost");
+    expect(peekInvite(orphan)).toEqual({ error: "not_found" });
+
+    // The second boot reads the persisted id: a rename made before it is
+    // harmless, and the link still signs in as Marc's id.
+    updateUserById(marcId, { name: "Marco" });
+    srv = server = await srv.restart();
+    expect(peekInvite(token)).toMatchObject({ username: "Marco" });
+    const acc = await acceptInvite(token, { userAgent: "test" });
+    expect(acc.ok && validateSession(acc.rawSessionId)?.userId).toBe(marcId);
+  });
+});
+
+// A binding that is not on disk would be redone by name on the next boot,
+// after renames: the boot must stop instead, and a retry must save again.
+describe("auth/invites: a failed binding save stops the boot", () => {
+  it("refuses to boot, retries the save on every load, and binds to the right member once the save works", async () => {
+    let srv = (server = await startTestServer());
+    await srv.seedOwner("Boss");
+    await srv.seedMember("Marc");
+    await srv.seedMember("Alice");
+    const marcId = idOf("Marc");
+    const raw = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(raw).digest("hex");
+    const file = join(srv.stateRoot, "invites.json");
+    const rows = JSON.parse(readFileSync(file, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    rows[tokenHash] = {
+      tokenHash,
+      tokenPrefix: raw.slice(0, 8),
+      username: "Marc",
       role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    expect(blank.ok).toBe(false);
-    if (!blank.ok) expect(blank.code).toBe("INVALID_USERNAME");
+      createdBy: "Marc",
+      createdAt: Date.now(),
+      expiresAt: Date.now() + INVITE_TTL_MS,
+      consumed: false,
+      consumedAt: null,
+      bootstrap: false,
+    };
+    writeFileSync(file, JSON.stringify(rows, null, 2));
+    const rowOnDisk = () =>
+      (
+        JSON.parse(readFileSync(file, "utf-8")) as Record<
+          string,
+          { userId?: string }
+        >
+      )[tokenHash];
 
-    const badRole = await mintInvite({
-      username: "Zed",
-      role: "admin" as never,
-      createdBy: "Boss",
-      allowExisting: false,
-    });
-    expect(badRole.ok).toBe(false);
-    if (!badRole.ok) expect(badRole.code).toBe("INVALID_ROLE");
+    const realWrite = persistence.atomicWriteFileSync;
+    let faults = 0;
+    const spy = spyOn(persistence, "atomicWriteFileSync").mockImplementation(
+      (path, data, mode) => {
+        if (path === file) {
+          faults++;
+          throw new Error("injected invites.json write failure");
+        }
+        return realWrite(path, data, mode);
+      },
+    );
+    try {
+      const booted = await srv.restart().then(
+        () => true,
+        () => false,
+      );
+      expect(booted).toBe(false);
+      expect(faults).toBe(1);
+      // In-process retries cannot skip the save: each load re-binds and
+      // writes again, and fails again.
+      expect(() => loadAuthState()).toThrow();
+      expect(() => loadAuthState()).toThrow();
+      expect(faults).toBe(3);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(rowOnDisk().userId).toBeUndefined();
+
+    srv = server = await srv.restart();
+    expect(rowOnDisk().userId).toBe(marcId);
+    updateUserById(marcId, { name: "Marco" });
+    updateUserById(idOf("Alice"), { name: "Marc" });
+    srv = server = await srv.restart();
+    const acc = await acceptInvite(raw, { userAgent: "test" });
+    expect(acc.ok && validateSession(acc.rawSessionId)?.userId).toBe(marcId);
   });
 });
 
@@ -275,17 +390,12 @@ describe("auth/invites: peek never consumes", () => {
   it("two peeks then an accept still succeeds; the accept is what flips it consumed", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    const inv = await mintOk({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
+    const inv = await mintMemberLink("Newbie");
 
     const first = peekInvite(inv.rawToken);
     const second = peekInvite(inv.rawToken);
     expect(first).toEqual({
-      newUser: true,
+      firstSignIn: true,
       needsName: false,
       username: "Newbie",
       role: "member",
@@ -303,17 +413,12 @@ describe("auth/invites: peek never consumes", () => {
 });
 
 describe("auth/invites: accept happy path + refusal matrix", () => {
-  it("accept creates the user, issues a session, and consumes the invite", async () => {
+  it("accept signs the existing member in, ends their pending state, and consumes the link", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    expect(getUserByName("Newbie")).toBeUndefined();
+    const inv = await mintMemberLink("Newbie");
+    expect(getUserByName("Newbie")?.pendingSignIn).toBe(true);
 
-    const inv = await mintOk({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
     const acc = await acceptInvite(inv.rawToken, { userAgent: "ua/1" });
     expect(acc.ok).toBe(true);
     if (!acc.ok) return;
@@ -325,9 +430,10 @@ describe("auth/invites: accept happy path + refusal matrix", () => {
     expect(acc.rawSessionId.length).toBeGreaterThan(20);
     expect(acc.absoluteExpiresAt).toBeGreaterThan(acc.expiresAt);
 
-    // User upserted with the invited role.
     const rec = getUserByName("Newbie");
+    expect(rec?.id).toBe(inv.userId);
     expect(rec?.role).toBe("member");
+    expect(rec?.pendingSignIn).toBeUndefined();
     // Invite burnt.
     expect(peekInvite(inv.rawToken)).toEqual({ error: "consumed" });
     const replay = await acceptInvite(inv.rawToken, { userAgent: "ua/1" });
@@ -339,13 +445,8 @@ describe("auth/invites: accept happy path + refusal matrix", () => {
     await server.seedOwner("Boss");
     await server.seedMember("Alice");
 
-    // Minted while Alice is a member (so mint's own ROLE_MISMATCH check passes)...
-    const inv = await mintOk({
-      username: "Alice",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: true,
-    });
+    // Minted while Alice is a member...
+    const inv = await mintOk("Alice");
     // ...then she is promoted before the link is clicked.
     expect(setUserRole("Alice", "owner")).toBe(true);
 
@@ -358,14 +459,12 @@ describe("auth/invites: accept happy path + refusal matrix", () => {
     expect(peekInvite(inv.rawToken)).not.toHaveProperty("error");
   });
 
-  it("a null-username (bootstrap) invite demands a valid chosen name", async () => {
+  it("a null-username (legacy bootstrap) invite demands a valid chosen name", async () => {
     server = await startTestServer();
     // No owner yet - a bootstrap invite is only meaningful pre-claim.
-    const inv = await mintOk({
+    const inv = await _testMintLegacyInvite({
       username: null,
       role: "owner",
-      createdBy: null,
-      allowExisting: false,
       bootstrap: true,
     });
     expect(peekInvite(inv.rawToken)).toEqual({
@@ -414,12 +513,7 @@ describe("auth/invites: concurrent acceptance of one token", () => {
   it("exactly one of two simultaneous accepts wins; the loser sees consumed", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
-    const inv = await mintOk({
-      username: "Newbie",
-      role: "member",
-      createdBy: "Boss",
-      allowExisting: false,
-    });
+    const inv = await mintMemberLink("Newbie");
 
     // Both calls are in flight before either resolves - the mutex, not call
     // ordering, is what serializes them.
@@ -447,27 +541,11 @@ describe("auth/invites: bootstrap invites go stale once an owner exists", () => 
 
     // Three bootstrap invites minted pre-claim (the operator re-ran the
     // bootstrap printer a few times).
-    const a = await mintOk({
-      username: null,
-      role: "owner",
-      createdBy: null,
-      allowExisting: false,
-      bootstrap: true,
-    });
-    const b = await mintOk({
-      username: null,
-      role: "owner",
-      createdBy: null,
-      allowExisting: false,
-      bootstrap: true,
-    });
-    const c = await mintOk({
-      username: null,
-      role: "owner",
-      createdBy: null,
-      allowExisting: false,
-      bootstrap: true,
-    });
+    const bootstrap = () =>
+      _testMintLegacyInvite({ username: null, role: "owner", bootstrap: true });
+    const a = await bootstrap();
+    const b = await bootstrap();
+    const c = await bootstrap();
 
     // The first one claims the office.
     const claimed = await acceptInvite(a.rawToken, {
@@ -480,18 +558,12 @@ describe("auth/invites: bootstrap invites go stale once an owner exists", () => 
     // Siblings are swept by that same accept - not merely refused later.
     expect(peekInvite(b.rawToken)).toEqual({ error: "consumed" });
     expect(peekInvite(c.rawToken)).toEqual({ error: "consumed" });
-    expect(outstandingPrefixes()).not.toContain(b.prefix);
-    expect(outstandingPrefixes()).not.toContain(c.prefix);
+    expect(outstandingPrefixes()).not.toContain(b.invite.tokenPrefix);
+    expect(outstandingPrefixes()).not.toContain(c.invite.tokenPrefix);
 
     // And a fresh bootstrap invite minted AFTER the claim is refused with
     // owner_exists (the mutex-held recheck), not honored as a second owner.
-    const late = await mintOk({
-      username: null,
-      role: "owner",
-      createdBy: null,
-      allowExisting: false,
-      bootstrap: true,
-    });
+    const late = await bootstrap();
     expect(peekInvite(late.rawToken)).toEqual({ error: "owner_exists" });
     const acc = await acceptInvite(late.rawToken, {
       userAgent: "t",

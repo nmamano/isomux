@@ -394,6 +394,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.members.onlineSessions.one": "online · {count} session",
   "settings.members.onlineSessions.other": "online · {count} sessions",
   "settings.members.lastSeen": "last seen {when}",
+  "settings.members.newMember": "New member",
+  "settings.members.create": "Create member",
+  "settings.members.neverSignedIn": "never signed in",
   "settings.role.officeOwner": "Office owner",
   "settings.role.officeOwnerExplanation":
     "Can access all rooms, invite members, and manage member access and sessions.",
@@ -675,35 +678,17 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Send this URL to the invitee. It's one-time: opening it on their device signs them in. The URL is shown once - copy it now.",
 
   "settings.invites.intro":
-    "Add a new member or office owner: issue an invite URL and send it to them out-of-band. Opening it creates their account and signs that device in. For extra devices on an existing account, each member generates their own device link from <i>My devices</i>.",
-  "settings.invites.memberName": "Member name (optional)",
-  "settings.invites.memberNamePlaceholder": "e.g. Marc",
-  "settings.invites.changeLater":
-    "All of these settings can be changed later. The member can edit this name when they accept the invite.",
+    "A sign-in link signs one device in as an existing member. To invite a new member, create them first in <i>Members</i>.",
+  "settings.invites.linkHint": "Send the link privately. It expires in 24h, and a new link replaces the member's previous one.",
+  "settings.invites.createLink": "Create sign-in link",
+  "settings.invites.creatingLink": "Creating…",
+  "settings.invites.createLinkFailed": "Failed to create sign-in link",
   "preAuth.invite.changeLater":
     "You can change your name and language later in Settings.",
-  "settings.invites.browserLanguage": "Invitee’s browser language",
   "preAuth.invite.nameTaken": "That name is in use. Choose another name.",
   "preAuth.invite.errorLanguage": "Choose a language.",
   "preAuth.invite.newMember": "New member",
-  "settings.invites.issueFor": "Issue invite for…",
-  "settings.invites.namePlaceholder": "New username (e.g. Marc)",
-  "settings.invites.existing":
-    "<b>{name}</b> already exists, so no invite is needed: to sign in another device, {name} can generate a device link from <i>My devices</i> in their own settings - or you can mint them a recovery link below.",
-  "settings.invites.grantRoom": "Grant access to {room}",
-  "settings.invites.roomsHint":
-    "The invitee lands with access to the checked rooms. Leave all unchecked to grant access later from Settings → Members.",
-  "settings.invites.expiryHint":
-    "Invite link expires 24h after issuing if unused. Accepted sessions last up to 1 year (revocable from the Sessions section any time).",
-  "settings.invites.minting": "Minting…",
-  "settings.invites.issue": "Issue invite",
-  "settings.invites.mintFailed": "Failed to mint invite",
-  "settings.invites.recovery": "Recovery",
-  "settings.invites.recoveryHint":
-    "Help an existing member get back in. Device links are self-service, but someone signed out of every device can't mint their own - pick them here and send the link out-of-band. It expires in 24h; minting a new one replaces their previous link.",
   "settings.invites.selectUser": "Select a member…",
-  "settings.invites.mintRecovery": "Mint recovery link",
-  "settings.invites.recoveryFailed": "Failed to mint recovery link",
   "settings.invites.outstanding": "Outstanding invites",
   "settings.invites.columnFor": "For",
   "settings.invites.columnExpires": "Expires",

@@ -12,9 +12,10 @@
 //
 // Seam: startTestServer() - the real boot path and the real /auth routes.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { mintInvite } from "../auth.ts";
+import { _testMintLegacyInvite } from "../auth.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 
 let server: TestServer | null = null;
@@ -42,26 +43,16 @@ async function page(
 }
 
 async function bootstrapInviteToken(): Promise<string> {
-  const mint = await mintInvite({
+  const mint = await _testMintLegacyInvite({
     username: null,
     role: "owner",
-    createdBy: null,
-    allowExisting: false,
     bootstrap: true,
   });
-  if (!mint.ok) throw new Error(`bootstrap mint failed: ${mint.error}`);
   return mint.rawToken;
 }
 
 async function inviteTokenFor(username: string): Promise<string> {
-  const mint = await mintInvite({
-    username,
-    role: "member",
-    createdBy: null,
-    allowExisting: false,
-  });
-  if (!mint.ok) throw new Error(`mint failed: ${mint.error}`);
-  return mint.rawToken;
+  return (await mintMemberLink(username)).rawToken;
 }
 
 function setLanguage(username: string, language: "es" | "ca" | null): void {

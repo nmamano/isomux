@@ -776,6 +776,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "apiTokenInbox.drain": { caps: ["api:drain-inbox"], emits: [] },
   // Users
+  "users.create": { caps: ["user:admin"], emits: ["users_list"] },
   "users.update": {
     caps: ["user:self", "user:admin"],
     emits: ["user_updated", "users_list"],
@@ -786,7 +787,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "users.delete": {
     caps: ["user:self", "user:admin"],
-    emits: ["users_list", "session_expired"],
+    emits: ["users_list", "session_expired", "invites_list"],
   },
   // Sessions, invites, access
   "invites.mint": { caps: ["invite:manage"], emits: ["invites_list"] },

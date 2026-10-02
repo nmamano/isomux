@@ -303,7 +303,7 @@ How to use the members chat (the office's humans-only chat on the Lobby tab; ord
 
 Bounding: these act with your manager's reach, scoped by ROOM ACCESS (not by who owns what). You can touch any room your manager can access and any agent sitting in one of those rooms - even another member's agent, as long as it shares an accessible room; an agent in a room your manager can't access returns 403. Cron mutations are limited to the jobs you own.
 
-You CANNOT (these are human-only and return 403): mint invites, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a member to do it in the UI.`;
+You CANNOT (these are human-only and return 403): create members or mint sign-in links, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a member to do it in the UI.`;
   }
   if (agentType === "opencode")
     systemPrompt = rewriteOpenCodeOfficeCommands(systemPrompt);

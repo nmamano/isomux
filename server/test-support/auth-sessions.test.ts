@@ -39,7 +39,7 @@ import {
   revokeSessionByPrefix,
   revokeInviteByPrefix,
   revokeActiveSessionByPrefixForUserId,
-  revokeOutstandingInviteByPrefixForUsername,
+  revokeOutstandingInviteByPrefixForUser,
   resolveSessionHashByPrefix,
   logoutBySessionHash,
   evictSessionsForUserId,
@@ -47,6 +47,7 @@ import {
   wouldRevokeLeaveOfficeUnreachable,
   registerSocket,
   mintInvite,
+  INVITE_TTL_MS,
   _testSetSessionExpiry,
 } from "../auth.ts";
 import {
@@ -55,6 +56,7 @@ import {
   setUserRole,
   wouldDeleteLeaveNoOwner,
   countOwners,
+  updateUserById,
 } from "../users.ts";
 
 let server: TestServer | null = null;
@@ -205,11 +207,9 @@ describe("auth/sessions: revoke / logout / evict force-close sockets", () => {
 
     // A second device for Alice: accept a self-invite as her.
     const m = await mintInvite({
-      username: "Alice",
-      role: "member",
+      userId: userIdOf("Alice"),
       createdBy: "Alice",
-      allowExisting: true,
-      replacePriorForUsername: true,
+      ttlMs: INVITE_TTL_MS,
     });
     if (!m.ok) throw new Error("mint failed");
     const { acceptInvite } = await import("../auth.ts");
@@ -367,31 +367,32 @@ describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test
     await server.seedMember("Bob");
 
     const m = await mintInvite({
-      username: "Bob",
-      role: "member",
+      userId: userIdOf("Bob"),
       createdBy: "Bob",
-      allowExisting: true,
-      replacePriorForUsername: true,
+      ttlMs: INVITE_TTL_MS,
     });
     if (!m.ok) throw new Error("mint failed");
     const bobPrefix = m.invite.tokenPrefix;
+    const alice = getUserByName("Alice")!;
 
     // Alice cannot revoke Bob's invite, and cannot tell it apart from a
     // prefix that does not exist.
+    expect(await revokeOutstandingInviteByPrefixForUser(bobPrefix, alice)).toBe(
+      "not_found",
+    );
     expect(
-      await revokeOutstandingInviteByPrefixForUsername(bobPrefix, "Alice"),
-    ).toBe("not_found");
-    expect(
-      await revokeOutstandingInviteByPrefixForUsername("deadbeef", "Alice"),
+      await revokeOutstandingInviteByPrefixForUser("deadbeef", alice),
     ).toBe("not_found");
 
-    // POSITIVE CONTROL: Bob can, and the scope match is case-insensitive.
-    expect(
-      await revokeOutstandingInviteByPrefixForUsername(bobPrefix, "bob"),
-    ).toBe("ok");
-    expect(
-      await revokeOutstandingInviteByPrefixForUsername(bobPrefix, "Bob"),
-    ).toBe("not_found");
+    // POSITIVE CONTROL: Bob can, and the scope follows his id across a rename.
+    updateUserById(userIdOf("Bob"), { name: "Robert" });
+    const robert = getUserByName("Robert")!;
+    expect(await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert)).toBe(
+      "ok",
+    );
+    expect(await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert)).toBe(
+      "not_found",
+    );
   });
 });
 
@@ -453,11 +454,9 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
     await srv.seedMember("Alice");
 
     const m = await mintInvite({
-      username: "Alice",
-      role: "member",
+      userId: userIdOf("Alice"),
       createdBy: "Alice",
-      allowExisting: true,
-      replacePriorForUsername: true,
+      ttlMs: INVITE_TTL_MS,
     });
     if (!m.ok) throw new Error("mint failed");
     const sharedPrefix = m.invite.tokenPrefix;
@@ -478,7 +477,10 @@ describe("auth/sessions: 8-char prefix collisions refuse rather than guess", () 
 
     expect(await revokeInviteByPrefix(sharedPrefix)).toBe("ambiguous");
     expect(
-      await revokeOutstandingInviteByPrefixForUsername(sharedPrefix, "Alice"),
+      await revokeOutstandingInviteByPrefixForUser(
+        sharedPrefix,
+        getUserByName("Alice")!,
+      ),
     ).toBe("ambiguous");
   });
 });

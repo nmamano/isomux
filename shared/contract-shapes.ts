@@ -676,33 +676,31 @@ export interface SetAccessReq {
   allowedRooms: string[];
 }
 
-// Owner-minted invites create NEW users only. Omit username to let the
-// invitee choose their name. The label is a suggested member name that also
-// identifies the pending invite.
-// Legacy clients can preassign a name; existing names are rejected. Device links for existing
-// accounts ride POST /api/invites/self - or, when the user is locked out of
-// every device, the owner recovery op below.
+// invites.mint (POST /api/invites) - an owner-issued sign-in link for an
+// EXISTING member. Members are created first (users.create); an invite never
+// creates one. Target is the stable userId; the server derives name/role from
+// the record and fixes TTL/replacement policy - no other knobs on the wire.
 export interface InviteMintReq {
-  username?: string; // Legacy clients can still preassign a name.
-  label?: string;
-  language?: UserRecord["language"];
-  memberPrompt?: string | null;
-  role: UserRecord["role"];
-  // Optional room grants to attach to the invite (member invites for NEW
-  // users only - owners reach every room by rule, and an existing user's
-  // access is managed on their record). On accept, the created member
-  // record's allowedRooms seeds from this list so the invitee doesn't land
-  // in an empty office.
-  allowedRooms?: string[];
+  userId: string;
 }
 
-// invites.mintRecovery (POST /api/invites/recovery) - owner-only recovery for
-// an EXISTING user: device links are normally
-// self-service, but a user signed out of every device can't mint one. Target
-// is the stable userId; the server derives name/role from the record and
-// fixes TTL/replacement policy - no other knobs on the wire.
-export interface RecoveryMintReq {
-  userId: string;
+// invites.mintRecovery (POST /api/invites/recovery) - the permanent alias of
+// invites.mint. deploy/install.sh and the control plane call it on offices of
+// every version.
+export type RecoveryMintReq = InviteMintReq;
+
+// users.create (POST /api/users) - an owner creates a member before any
+// sign-in link exists. The record starts with pendingSignIn. Language is a
+// self-only preference, picked by the member at their first sign-in.
+export interface UserCreateReq {
+  name: string;
+  role: UserRecord["role"];
+  memberPrompt?: string | null;
+  avatarColor?: string;
+  avatarVariant?: UserRecord["avatarVariant"];
+  // Member room grants; refused for an owner (owners reach every room by
+  // rule). Unknown room ids are refused.
+  allowedRooms?: string[];
 }
 
 export interface AccessSettingsReq {

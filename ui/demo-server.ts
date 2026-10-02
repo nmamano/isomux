@@ -1872,6 +1872,12 @@ export async function demoApi(
         "invites_disabled",
         "Invites are disabled in the demo.",
       );
+    case "POST /api/users":
+      throw new ApiError(
+        403,
+        "members_disabled",
+        "Creating members is disabled in the demo.",
+      );
     case "DELETE /api/sessions/current":
       // logout: no real auth to tear down; emit session_expired so the store
       // reloads (landing back on the same seeded demo identity).

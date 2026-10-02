@@ -448,7 +448,7 @@ export async function handleAccept(
         renderAcceptPage(
           i18n,
           token,
-          true,
+          "error" in peek ? true : peek.needsName,
           i18n.t(
             result.error === "name_taken"
               ? "preAuth.invite.nameTaken"
@@ -1021,6 +1021,9 @@ function renderAcceptPage(
   const heading = officeName
     ? t("preAuth.invite.headingNamed", { office: escapeHtml(officeName) })
     : t("preAuth.invite.heading");
+  // A legacy new-member invite and an owner-created member's first sign-in
+  // ask for a language.
+  const asksLanguage = !!(invite?.newUser || invite?.firstSignIn);
   return baseHtml(
     i18n.language,
     authPageTitle(officeName, t("preAuth.invite.titleAccept")),
@@ -1032,8 +1035,8 @@ function renderAcceptPage(
       <form method="POST" action="/auth/accept">
         <input type="hidden" name="token" value="${safeToken}" />
         ${needsName ? `<label>${t("common.displayName")} <input name="name" type="text" autofocus maxlength="64" required value="${escapeAttr(chosenName ?? invite?.label ?? "")}" /></label>` : ""}
-      ${invite?.newUser ? `<label>${t("preferences.language")} <select name="language">${SUPPORTED_LANGUAGES.map((l) => `<option value="${l.code}"${l.code === i18n.language ? " selected" : ""}>${l.label}</option>`).join("")}</select></label>` : ""}
-      ${invite?.newUser ? `<p class="muted">${t("preAuth.invite.changeLater")}</p>` : ""}
+      ${asksLanguage ? `<label>${t("preferences.language")} <select name="language">${SUPPORTED_LANGUAGES.map((l) => `<option value="${l.code}"${l.code === i18n.language ? " selected" : ""}>${l.label}</option>`).join("")}</select></label>` : ""}
+      ${asksLanguage ? `<p class="muted">${t("preAuth.invite.changeLater")}</p>` : ""}
       ${err}
         <button type="submit"${needsName ? "" : " autofocus"}>${t("preAuth.invite.accept")}</button>
       </form>

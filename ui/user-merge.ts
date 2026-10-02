@@ -51,7 +51,7 @@ export function upsertUserView(
   const renamed = prevKey !== undefined && prevKey !== key;
   const base = (renamed ? next.get(prevKey) : undefined) ?? next.get(key);
   if (renamed) next.delete(prevKey);
-  const merged: UserView = { ...base, ...incoming };
+  const merged = mergeUserView(base, incoming);
   next.set(key, merged);
   return next;
 }
@@ -67,8 +67,18 @@ export function rebuildUserViews(
   const next = new Map<string, UserView>();
   for (const wire of list) {
     const key = wire.name.toLowerCase();
-    const merged: UserView = { ...prev.get(key), ...wire };
+    const merged = mergeUserView(prev.get(key), wire);
     next.set(key, merged);
   }
   return next;
+}
+
+// A full record replaces the held view, so an optional field it omits (e.g. a
+// cleared pendingSignIn) is cleared here too; a public wire keeps the held
+// sensitive fields.
+function mergeUserView(
+  base: UserView | undefined,
+  incoming: UserPublicWire | UserRecord,
+): UserView {
+  return isFullUserView(incoming) ? { ...incoming } : { ...base, ...incoming };
 }

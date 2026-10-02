@@ -113,6 +113,7 @@ import type {
   ApiTokenInboxSendReq,
   ApiTokenInboxSendRes,
   RecoveryMintReq,
+  UserCreateReq,
   UserUpdateReq,
   SetAccessReq,
   UserEnvNamesRes,
@@ -1007,6 +1008,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
+  // An owner creates a member up front; sign-in links (invites.mint) only
+  // target existing members. The record starts with pendingSignIn.
+  defineRoute<UserCreateReq, { user: UserAdminWire }>({
+    opId: "users.create",
+    method: "POST",
+    path: "/api/users",
+    auth: cap("user:admin", officeOwner),
+    emits: ["users_list"],
+  }),
   // Response is UserSelfWire (self) or UserAdminWire (owner) - same UserRecord
   // shape; the audience distinction is enforced by the handler, not the type.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
@@ -1035,10 +1045,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
-    emits: ["users_list", "session_expired"],
+    // The delete also revokes the member's outstanding sign-in links.
+    emits: ["users_list", "session_expired", "invites_list"],
     preconditions: ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
   }),
 
+  // A sign-in link for an EXISTING member, by stable userId. Invites never
+  // create members (users.create does). Ungated on current sessions: the same
+  // link signs in a new member for the first time or a member locked out of
+  // every device.
   defineRoute<InviteMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mint",
     method: "POST",
@@ -1053,11 +1068,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("invite:manage", authenticated),
     emits: ["invites_list"],
   }),
-  // Owner recovery for an EXISTING user locked out of every device: a device
-  // link minted by the owner, targeted by stable userId. Kept as its OWN op -
-  // invites.mint stays new-user only, so
-  // the wire semantics read "invites create users; recovery links restore
-  // access". Ungated on current sessions (an owner may pre-empt a lockout).
+  // Permanent alias of invites.mint (same handler). deploy/install.sh and the
+  // control plane call it on offices of every version.
   defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
     opId: "invites.mintRecovery",
     method: "POST",

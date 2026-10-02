@@ -379,6 +379,9 @@ Cosas que puedes hacer por él:
   "settings.members.onlineSessions.one": "en línea · {count} sesión",
   "settings.members.onlineSessions.other": "en línea · {count} sesiones",
   "settings.members.lastSeen": "visto por última vez {when}",
+  "settings.members.newMember": "Nuevo miembro",
+  "settings.members.create": "Crear miembro",
+  "settings.members.neverSignedIn": "nunca ha iniciado sesión",
   "settings.role.officeOwner": "Propietario de la oficina",
   "settings.role.officeOwnerExplanation":
     "Puede acceder a todas las salas, invitar a miembros y gestionar el acceso y las sesiones de los miembros.",
@@ -674,36 +677,17 @@ Cosas que puedes hacer por él:
     "Envía esta URL a la persona invitada. Es de un solo uso: al abrirla en su dispositivo, entra. La URL se muestra una vez - cópiala ahora.",
 
   "settings.invites.intro":
-    "Añade un miembro o un propietario de la oficina: emite una URL de invitación y envíasela por otro canal. Al abrirla se crea su cuenta y ese dispositivo entra. Para más dispositivos en una cuenta que ya existe, cada persona genera su propio enlace desde <i>Mis dispositivos</i>.",
-  "settings.invites.memberName": "Nombre del miembro (opcional)",
-  "settings.invites.memberNamePlaceholder": "p. ej. Marc",
-  "settings.invites.changeLater":
-    "Todos estos ajustes se pueden cambiar más adelante. El miembro puede editar este nombre al aceptar la invitación.",
+    "Un enlace de inicio de sesión inicia la sesión de un dispositivo como un miembro existente. Para invitar a un miembro nuevo, créalo primero en <i>Miembros</i>.",
+  "settings.invites.linkHint": "Envía el enlace en privado. Caduca en 24 h, y un enlace nuevo sustituye al anterior del miembro.",
+  "settings.invites.createLink": "Crear enlace de inicio de sesión",
+  "settings.invites.creatingLink": "Creando…",
+  "settings.invites.createLinkFailed": "No se ha podido crear el enlace de inicio de sesión",
   "preAuth.invite.changeLater":
     "Puedes cambiar tu nombre e idioma más adelante en Ajustes.",
-  "settings.invites.browserLanguage": "Idioma del navegador del invitado",
   "preAuth.invite.nameTaken": "Ese nombre ya está en uso. Elige otro.",
   "preAuth.invite.errorLanguage": "Elige un idioma.",
   "preAuth.invite.newMember": "Nuevo miembro",
-  "settings.invites.issueFor": "Emitir invitación para…",
-  "settings.invites.namePlaceholder": "Nombre nuevo (p. ej. Marc)",
-  "settings.invites.existing":
-    "<b>{name}</b> ya existe, así que no hace falta ninguna invitación: para entrar con otro dispositivo, {name} puede generar un enlace desde <i>Mis dispositivos</i> en sus propios ajustes - o le puedes emitir un enlace de recuperación aquí abajo.",
-  "settings.invites.grantRoom": "Dar acceso a {room}",
-  "settings.invites.roomsHint":
-    "La persona invitada entra con acceso a las salas marcadas. Déjalas todas sin marcar para dar acceso más tarde desde Ajustes → Miembros.",
-  "settings.invites.expiryHint":
-    "El enlace de invitación caduca 24 h después de emitirlo si no se usa. Las sesiones aceptadas duran hasta 1 año (revocables desde la sección Sesiones en cualquier momento).",
-  "settings.invites.minting": "Emitiendo…",
-  "settings.invites.issue": "Emitir invitación",
-  "settings.invites.mintFailed": "No se ha podido emitir la invitación",
-  "settings.invites.recovery": "Recuperación",
-  "settings.invites.recoveryHint":
-    "Ayuda a alguien que ya tiene cuenta a volver a entrar. Los enlaces de dispositivo son autoservicio, pero quien ha salido de todos sus dispositivos no puede generarse uno - elige a esa persona aquí y envíale el enlace por otro canal. Caduca en 24 h; al emitir uno nuevo se sustituye el anterior.",
   "settings.invites.selectUser": "Elige a alguien…",
-  "settings.invites.mintRecovery": "Emitir enlace de recuperación",
-  "settings.invites.recoveryFailed":
-    "No se ha podido emitir el enlace de recuperación",
   "settings.invites.outstanding": "Invitaciones pendientes",
   "settings.invites.columnFor": "Para",
   "settings.invites.columnExpires": "Caduca",

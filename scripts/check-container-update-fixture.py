@@ -66,9 +66,12 @@ def main():
     assert code == 200 and json.loads(raw)["managed"] is True
     old_container = shell("docker", "ps", "-q", "--filter", "label=com.docker.compose.project=isomux", "--filter", "label=com.docker.compose.service=office")
     assert old_container
-    # Create a real member through the office's invite flow.
-    code, _, raw = http("/api/invites", "POST", {"username": "Fixture Member", "role": "member"}, owner)
-    assert code == 200 or code == 201, "Fixture member invite failed"
+    # Create a real member, then sign them in through the office's invite flow.
+    code, _, raw = http("/api/users", "POST", {"name": "Fixture Member", "role": "member"}, owner)
+    assert code == 201, "Fixture member creation failed"
+    member_id = json.loads(raw)["user"]["id"]
+    code, _, raw = http("/api/invites", "POST", {"userId": member_id}, owner)
+    assert code == 200, "Fixture member invite failed"
     invite = json.loads(raw)["url"]
     code, headers, _ = http("/auth/accept", "POST", {"token": urllib.parse.urlparse(invite).path.removeprefix("/i/")}, form=True)
     assert code in (200, 302, 303), "Fixture member acceptance failed"

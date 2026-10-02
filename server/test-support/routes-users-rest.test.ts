@@ -1,5 +1,9 @@
 // Phase 3d slice 9b - the users.* REST EXPAND contract (Group 7 auth surface).
 //
+// users.create (task ec1724a8): an owner creates a member up front - with the
+// profile and room grants an invite used to carry - and a sign-in link only
+// targets that existing member.
+//
 // users.{update,setAccess,delete} were table-declared but NEVER registered
 // (Phase 1 probe: an unauth probe returned the LEGACY flat {error:"..."} shape,
 // identical to a nonexistent path), so this slice BUILDS them. What it freezes:
@@ -18,9 +22,10 @@
 //
 // Seam: startTestServer(). Zero LLM.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { mintInvite, acceptInvite } from "../auth.ts";
+import { _testMintLegacyInvite, acceptInvite, peekInvite } from "../auth.ts";
 import { getUserByName } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 
@@ -63,17 +68,8 @@ async function api(
 }
 
 async function addOwner(name: string): Promise<string> {
-  const mint = await mintInvite({
-    username: name,
-    role: "owner",
-    createdBy: null,
-    allowExisting: false,
-  });
-  if (!mint.ok) throw new Error(`addOwner mint: ${mint.error}`);
-  const acc = await acceptInvite(mint.rawToken, {
-    userAgent: "test",
-    chosenName: name,
-  });
+  const { rawToken } = await mintMemberLink(name, "owner");
+  const acc = await acceptInvite(rawToken, { userAgent: "test" });
   if (!acc.ok) throw new Error(`addOwner accept: ${acc.error}`);
   return acc.rawSessionId;
 }
@@ -81,6 +77,170 @@ async function addOwner(name: string): Promise<string> {
 const errCode = (r: Res) =>
   (r.body as { error?: { code?: string } })?.error?.code;
 const userOf = (r: Res) => (r.body as { user: Record<string, unknown> }).user;
+
+describe("routes/users REST - create (owner creates a member before any link)", () => {
+  it("owner creates a pending member -> 201 { user } with profile + grants; a link then signs them in keeping them", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Grants B");
+
+    const r = await api(srv, "/api/users", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        name: " Yu ",
+        role: "member",
+        memberPrompt: "Explain each step.",
+        avatarVariant: "sleepy",
+        allowedRooms: [roomA, roomB, roomA],
+      },
+    });
+    expect(r.status).toBe(201);
+    expect(userOf(r)).toMatchObject({
+      name: "Yu",
+      role: "member",
+      pendingSignIn: true,
+      memberPrompt: "Explain each step.",
+      avatarVariant: "sleepy",
+      allowedRooms: [roomA, roomB],
+      // A member is notified for the rooms granted at creation.
+      notifRooms: [roomA, roomB],
+      language: null,
+    });
+
+    const link = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { userId: userOf(r).id },
+    });
+    expect(link.status).toBe(200);
+    const rawToken = (link.body as { url: string }).url.split("/i/")[1];
+    const acc = await acceptInvite(rawToken, { userAgent: null });
+    expect(acc.ok).toBe(true);
+    expect(getUserByName("Yu")).toMatchObject({
+      id: userOf(r).id,
+      allowedRooms: [roomA, roomB],
+      memberPrompt: "Explain each step.",
+    });
+    expect(getUserByName("Yu")?.pendingSignIn).toBeUndefined();
+  });
+
+  it("an owner-role member gets no grants but notifications for every room", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Boss");
+    const rooms = srv.agentManager.getRooms().map((room) => room.id);
+
+    const r = await api(srv, "/api/users", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "Co Owner", role: "owner" },
+    });
+    expect(r.status).toBe(201);
+    expect(userOf(r)).toMatchObject({
+      role: "owner",
+      allowedRooms: [],
+      notifRooms: rooms,
+      pendingSignIn: true,
+    });
+  });
+
+  it("refuses: taken name 409, bad name 400, grants on an owner or an unknown room 400, malformed 422 - creating no one", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Boss");
+    await srv.seedMember("Alice");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const cases: [unknown, number, string][] = [
+      [{ name: "alice", role: "member" }, 409, "name_taken"],
+      [{ name: "bad<script>", role: "member" }, 400, "invalid_name"],
+      [{ name: "x".repeat(65), role: "member" }, 400, "invalid_name"],
+      [{ name: "Yu", role: "owner", allowedRooms: [roomA] }, 400, "invalid_rooms"],
+      [{ name: "Yu", role: "member", allowedRooms: ["nope"] }, 400, "invalid_rooms"],
+      [{ name: "Yu", role: "member", allowedRooms: [42] }, 422, "invalid_request"],
+      [{ name: "Yu", role: "king" }, 422, "invalid_request"],
+      [{ name: " ", role: "member" }, 422, "invalid_request"],
+      [{ name: "Yu", role: "member", memberPrompt: {} }, 422, "invalid_request"],
+    ];
+    for (const [body, status, code] of cases) {
+      const r = await api(srv, "/api/users", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body,
+      });
+      expect({ body, status: r.status, code: errCode(r) }).toEqual({
+        body,
+        status,
+        code,
+      });
+    }
+    expect(getUserByName("Yu")).toBeUndefined();
+  });
+
+  it("a member -> 403 (officeOwner); AGENT bearer -> 403; unauth -> 401", async () => {
+    const srv = (server = await startTestServer());
+    await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const info = await srv.agentManager.spawn(
+      "Bot",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+    );
+    if (!info) throw new Error("spawn failed");
+    const body = { name: "Yu", role: "member" };
+    expect(
+      (
+        await api(srv, "/api/users", {
+          method: "POST",
+          rawSessionId: alice.rawSessionId,
+          body,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api(srv, "/api/users", {
+          method: "POST",
+          bearer: getAgentTokenRaw(info.id)!,
+          body,
+        })
+      ).status,
+    ).toBe(403);
+    expect((await api(srv, "/api/users", { method: "POST", body })).status).toBe(
+      401,
+    );
+    expect(getUserByName("Yu")).toBeUndefined();
+  });
+
+  // Legacy new-member rows minted before members were created up front still
+  // seed their grants at accept, pruned to rooms that still exist.
+  it("a legacy new-member invite prunes a room deleted between mint and accept", async () => {
+    const srv = (server = await startTestServer());
+    await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Doomed");
+    const legacy = await _testMintLegacyInvite({
+      username: "Yu",
+      role: "member",
+      allowedRooms: [roomA, roomB],
+    });
+    expect(srv.agentManager.closeRoom(roomB)).toBe(true);
+
+    const acc = await acceptInvite(legacy.rawToken, { userAgent: null });
+    if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
+    const u = getUserByName("Yu");
+    expect(u?.allowedRooms).toEqual([roomA]);
+    expect(u?.notifRooms).toEqual([roomA]);
+  });
+});
 
 describe("routes/users REST - update (record split, Option A)", () => {
   it("owner edits a member's record -> 200 { user }; allowedRooms is NOT touched", async () => {
@@ -244,6 +404,22 @@ describe("routes/users REST - delete (preconditions + non-leak)", () => {
     });
     expect(r.status).toBe(204);
     expect(getUserByName(member.username)).toBeUndefined();
+  });
+
+  it("deleting a member revokes their outstanding sign-in link", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const { rawToken } = await mintMemberLink("Mia");
+    const r = await api(server, "/api/users/Mia", {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(r.status).toBe(204);
+    expect(peekInvite(rawToken)).toEqual({ error: "not_found" });
+    const list = await api(server, "/api/invites", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect((list.body as { invites: unknown[] }).invites).toEqual([]);
   });
 
   it("an owner CANNOT delete their own record -> 403 owner_self_delete", async () => {

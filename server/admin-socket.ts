@@ -126,18 +126,15 @@ async function handleAdmin(req: Request): Promise<Response> {
   if (user.role !== "owner") {
     return jsonResponse(400, {
       ok: false,
-      error: `User "${name}" is a member, not an owner. The owner-login CLI is for owner recovery; have an owner mint a normal invite from the Invites pane.`,
+      error: `User "${name}" is a member, not an owner. The owner-login CLI is for owner recovery; have an owner create a sign-in link from the Invites pane.`,
     });
   }
+  // The mint replaces any prior unconsumed link for this user, so repeated
+  // CLI runs don't pile up owner-login URLs in invites.json.
   const minted = await mintInvite({
-    username: name,
-    role: "owner",
+    userId: user.id,
     createdBy: "(admin-cli)",
-    allowExisting: true,
-    // Replace any prior unconsumed invite for this user so we don't pile up
-    // owner-login URLs in invites.json on repeated CLI runs.
-    replacePriorForUsername: true,
-    ttlMsOverride: OWNER_LOGIN_TTL_MS,
+    ttlMs: OWNER_LOGIN_TTL_MS,
   });
   if (!minted.ok) {
     return jsonResponse(500, { ok: false, error: minted.error });

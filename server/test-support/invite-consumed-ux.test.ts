@@ -18,9 +18,10 @@
 // Seam: startTestServer() - the real boot path (registerBootHooks) and the
 // real HTTP auth routes. Zero LLM.
 
+import { mintMemberLink } from "./member-link.ts";
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { mintInvite, COOKIE_NAME } from "../auth.ts";
+import { COOKIE_NAME } from "../auth.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -43,14 +44,7 @@ async function waitUntil(
 }
 
 async function mintFor(username: string): Promise<string> {
-  const mint = await mintInvite({
-    username,
-    role: "member",
-    createdBy: null,
-    allowExisting: false,
-  });
-  if (!mint.ok) throw new Error(`mint failed: ${mint.error}`);
-  return mint.rawToken;
+  return (await mintMemberLink(username)).rawToken;
 }
 
 // POST /auth/accept the way a browser does: urlencoded form, no auto-follow

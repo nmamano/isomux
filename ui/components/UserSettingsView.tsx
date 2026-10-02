@@ -138,7 +138,7 @@ function sameSelection(a: Selection, b: Selection): boolean {
     return a.section === b.section;
   if (a.kind === "user" && b.kind === "user") return a.id === b.id;
   if (a.kind === "room" && b.kind === "room") return a.roomId === b.roomId;
-  return false;
+  return a.kind === "newMember";
 }
 
 export type Selection =
@@ -146,7 +146,9 @@ export type Selection =
   | { kind: "section"; section: SettingsSection }
   // Rooms are not a fixed set, so a room cannot be a section name. It carries
   // its id instead, which is also how the room-tab double-click points here.
-  | { kind: "room"; roomId: string };
+  | { kind: "room"; roomId: string }
+  // An owner creating a member: the member editor with no record behind it.
+  | { kind: "newMember" };
 
 export function UserSettingsView({
   initialUserId,
@@ -330,6 +332,9 @@ export function UserSettingsView({
     selection?.kind === "user"
       ? ([...users.values()].find((u) => u.id === selection.id) ?? null)
       : null;
+
+  // The record a new member starts from; the editor diffs against it.
+  const [newMemberDraft] = useState(newMemberRecord);
 
   const canEdit = (u: UserView) =>
     (sessionContext?.userId === u.id || isOwner) && isFullUserView(u);
@@ -580,6 +585,7 @@ export function UserSettingsView({
               const summary = summarizeRoster(
                 online,
                 isOwner ? (sessionStats.get(u.id) ?? null) : null,
+                isOwner && u.pendingSignIn === true,
                 i18n,
               );
               // Editable rows are real <button>s (keyboard-focusable, with
@@ -688,6 +694,43 @@ export function UserSettingsView({
                 </Row>
               );
             })}
+            {isOwner && (
+              <button
+                onClick={() => select({ kind: "newMember" })}
+                aria-current={
+                  selection?.kind === "newMember" ? "true" : undefined
+                }
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  width: "100%",
+                  textAlign: "left",
+                  font: "inherit",
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  padding: "8px 14px",
+                  border: "none",
+                  cursor: "pointer",
+                  background:
+                    selection?.kind === "newMember"
+                      ? "var(--bg-hover)"
+                      : "transparent",
+                  borderLeft:
+                    selection?.kind === "newMember"
+                      ? "2px solid var(--accent)"
+                      : "2px solid transparent",
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{ width: 22, textAlign: "center", fontSize: 16 }}
+                >
+                  +
+                </span>
+                {t("settings.members.newMember")}
+              </button>
+            )}
 
             {groupsAfterRoster.map((group) => (
               <SidebarGroupRows
@@ -864,6 +907,16 @@ export function UserSettingsView({
                   onDeleted={() => setSelection(null)}
                 />
               </div>
+            ) : selection?.kind === "newMember" && isOwner ? (
+              <UserEditPanel
+                key="newMember"
+                user={newMemberDraft}
+                creating
+                isMobile={isMobile}
+                closeRef={detailCloseRef}
+                onClose={() => setSelection(null)}
+                onCreated={(id) => setSelection({ kind: "user", id })}
+              />
             ) : selectedUser && isFullUserView(selectedUser) ? (
               <UserEditPanel
                 key={selectedUser.id}
@@ -922,6 +975,27 @@ export function UserSettingsView({
   );
 }
 
+function newMemberRecord(): UserRecord {
+  return {
+    id: "",
+    name: "",
+    notifRooms: [],
+    createdAt: 0,
+    role: "member",
+    // A random palette color, as the server's per-id default would be.
+    avatarColor:
+      GHOST_COLOR_PALETTE[
+        Math.floor(Math.random() * GHOST_COLOR_PALETTE.length)
+      ],
+    avatarVariant: "classic",
+    allowedRooms: [],
+    hidden: [],
+    order: [],
+    memberPrompt: null,
+    language: null,
+  };
+}
+
 function sameRoomSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
   const setB = new Set(b);
@@ -936,9 +1010,12 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 // `stats` is non-null only for OWNER viewers (session count / last-seen are
 // owner-only signals); everyone else gets a bare "online" or, when offline,
 // no line at all - same as the old public-view behavior.
+// `pending` (owner viewers only) marks an owner-created member who has not
+// accepted a sign-in link yet.
 function summarizeRoster(
   online: boolean,
   stats: { count: number; lastSeenAt: number } | null,
+  pending: boolean,
   i18n: UiTranslator,
 ): string {
   const { t, tn } = i18n;
@@ -946,6 +1023,7 @@ function summarizeRoster(
     if (!stats) return t("settings.members.online");
     return tn("settings.members.onlineSessions", stats.count);
   }
+  if (pending) return t("settings.members.neverSignedIn");
   if (!stats) return "";
   return t("settings.members.lastSeen", {
     when: formatSince(i18n, stats.lastSeenAt),
@@ -1042,17 +1120,24 @@ function MemberVariableNames({ username }: { username: string }) {
 
 function UserEditPanel({
   user,
+  creating = false,
   isMobile,
   onClose,
   onRenamed,
   onDeleted,
+  onCreated,
   closeRef,
 }: {
   user: UserRecord;
+  // Create mode: `user` is a blank draft, Save creates the member
+  // (POST /api/users) and hands the new id to onCreated. Sections that need a
+  // stored record (memory, variable names, delete) are hidden until then.
+  creating?: boolean;
   isMobile: boolean;
   onClose: () => void;
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
+  onCreated?: (id: string) => void;
   // Parent (UserSettingsView) calls `closeRef.current(after?)` when it wants
   // to navigate away from the currently-edited user (switch selection, close
   // the page, ESC, mobile back). The panel decides whether to gate on a
@@ -1071,12 +1156,15 @@ function UserEditPanel({
   // Self-edit vs owner-editing-another. Notifications are
   // SELF-only (view.*), so they render only when isMe; an owner editing a
   // member manages record fields + access, not their prefs.
-  const isMe = sessionContext?.userId === user.id;
+  const isMe = !creating && sessionContext?.userId === user.id;
   // The TARGET's access is rule-based for owners (they reach every room without
   // materialized grants), literal allowedRooms for members. Drives the self-pref
   // rendering (Notifications) and whether a save writes grants.
   const targetIsOwner = user.role === "owner";
   const [officeOwner, setOfficeOwner] = useState(targetIsOwner);
+  // Whose access the Rooms table edits: a new member's role follows the
+  // checkbox at once, an existing member's the saved record.
+  const ownerTarget = creating ? officeOwner : targetIsOwner;
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
   // own view, and so the Notifications list reflects every room the
@@ -1138,7 +1226,7 @@ function UserEditPanel({
   // Member-scoped memory for this user, edited via the unified /api/memory verbs
   // (load + version-guarded save), keyed by the stable userId so it survives a
   // rename. Saved separately from the user PATCH.
-  const mem = useMemoryEditor("boss", user.id, true);
+  const mem = useMemoryEditor("boss", user.id, !creating);
   // Live-avatars: visual identity for the user's ghost in the office
   // scene. Color is stored as #rrggbb (normalized at save time);
   // variant is one of GHOST_VARIANTS. Both default to the user record's
@@ -1303,6 +1391,10 @@ function UserEditPanel({
   async function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    if (creating) {
+      void handleCreate(trimmed);
+      return;
+    }
     // Save supersedes any in-flight discard prompt: the user picked Save
     // over Discard. Without this, a save failure leaves the prompt up
     // with a stale pending action (e.g. "close the page") that a later
@@ -1417,6 +1509,29 @@ function UserEditPanel({
     }
   }
 
+  async function handleCreate(trimmed: string) {
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await apiFetch<{ user: UserRecord }>("POST", "/api/users", {
+        name: trimmed,
+        role: officeOwner ? "owner" : "member",
+        memberPrompt: memberPrompt.trim() || null,
+        avatarColor: isHexColor(avatarColor)
+          ? normalizeHexColor(avatarColor)
+          : user.avatarColor,
+        avatarVariant,
+        ...(!officeOwner && allowedSetting.length > 0
+          ? { allowedRooms: allowedSetting }
+          : {}),
+      });
+      onCreated?.(r.user.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t("common.saveFailed"));
+      setSaving(false);
+    }
+  }
+
   const contentPad = isMobile ? "0 16px" : "0 24px";
 
   // Drives the dirty-aware Save button (save-flow friction pass, task
@@ -1452,12 +1567,12 @@ function UserEditPanel({
           }}
         >
           <GhostGraphic
-            variant={user.avatarVariant}
-            color={user.avatarColor}
+            variant={creating ? avatarVariant : user.avatarVariant}
+            color={creating ? avatarColor : user.avatarColor}
             size={26}
           />
           <h4
-            {...noTranslate()}
+            {...(creating ? {} : noTranslate())}
             style={{
               fontSize: 15,
               fontWeight: 700,
@@ -1465,9 +1580,9 @@ function UserEditPanel({
               color: "var(--text-primary)",
             }}
           >
-            {user.name}
+            {creating ? t("settings.members.newMember") : user.name}
           </h4>
-          <RoleBadge role={user.role} />
+          {!creating && <RoleBadge role={user.role} />}
           {isMe && (
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
               {t("settings.you")}
@@ -1498,12 +1613,12 @@ function UserEditPanel({
             columns ever render at once (owner-editing-member: Access only;
             self-edit: Displayed + Notifications). A member viewer only ever
             mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
-        {(isOwner && (!targetIsOwner || isMe)) || (!isOwner && isMe) ? (
+        {(isOwner && (!ownerTarget || isMe)) || (!isOwner && isMe) ? (
           <>
             <h5 style={sectionTitleStyle}>{t("common.rooms")}</h5>
             <p style={sectionHintStyle}>
-              {isOwner && !targetIsOwner && t("settings.profile.accessHint")}
-              {isOwner && !targetIsOwner && isMe && " "}
+              {isOwner && !ownerTarget && t("settings.profile.accessHint")}
+              {isOwner && !ownerTarget && isMe && " "}
               {isMe && t("settings.profile.viewHint")}
             </p>
             <div
@@ -1529,7 +1644,7 @@ function UserEditPanel({
                 <span style={{ flex: 1, minWidth: 0 }}>
                   {t("settings.profile.roomColumn")}
                 </span>
-                {isOwner && !targetIsOwner && (
+                {isOwner && !ownerTarget && (
                   <span style={{ width: 80, textAlign: "center" }}>
                     {t("settings.profile.accessColumn")}
                   </span>
@@ -1585,7 +1700,7 @@ function UserEditPanel({
                       >
                         {r.name}
                       </span>
-                      {isOwner && !targetIsOwner && (
+                      {isOwner && !ownerTarget && (
                         <span
                           style={{
                             width: 80,
@@ -1684,7 +1799,9 @@ function UserEditPanel({
           </span>
         </label>
         <ExpandableTextarea
-          title={t("settings.profile.profilePromptTitle", { user: user.name })}
+          title={t("settings.profile.profilePromptTitle", {
+            user: creating ? name.trim() : user.name,
+          })}
           hint={t("settings.profile.profilePromptExpandedHint")}
           value={memberPrompt}
           onChange={setMemberPrompt}
@@ -1699,6 +1816,8 @@ function UserEditPanel({
           }}
         />
 
+        {!creating && (
+          <>
         <label style={subLabelStyle}>
           {t("common.memory")}{" "}
           <span style={hintStyle}>
@@ -1728,10 +1847,12 @@ function UserEditPanel({
             lineHeight: 1.45,
           }}
         />
+          </>
+        )}
 
         {/* Owners inspect other members here; their own connections have a
             dedicated sidebar pane. */}
-        {isOwner && !isMe && (
+        {isOwner && !isMe && !creating && (
           <MemberVariableNames key={user.name} username={user.name} />
         )}
 
@@ -1846,6 +1967,9 @@ function UserEditPanel({
               gap: 8,
             }}
           >
+            {creating ? (
+              <span />
+            ) : (
             <button
               onClick={handleDelete}
               onBlur={() => setConfirmDelete(false)}
@@ -1864,6 +1988,7 @@ function UserEditPanel({
             >
               {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
             </button>
+            )}
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => requestClose()}
@@ -1884,9 +2009,11 @@ function UserEditPanel({
               >
                 {saving
                   ? t("common.saving")
-                  : dirty
-                    ? t("common.save")
-                    : t("common.saved")}
+                  : creating
+                    ? t("settings.members.create")
+                    : dirty
+                      ? t("common.save")
+                      : t("common.saved")}
               </button>
             </div>
           </div>

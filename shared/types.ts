@@ -1289,6 +1289,10 @@ export interface UserRecord {
   // agent system prompt plus the voice input/output locale. null means "no
   // clause" - agents behave exactly as they did before the setting existed.
   language: SupportedLanguageCode | null;
+  // Set when an owner creates the member (users.create); removed by the
+  // member's first accepted sign-in link. Absent on every other record,
+  // legacy ones included: absent means "has signed in".
+  pendingSignIn?: true;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`
@@ -1330,17 +1334,16 @@ export interface SessionContext {
 // the wire - only the 8-char display prefix.
 export interface InviteWire {
   tokenPrefix: string;
-  username: string | null; // null when the invitee chooses their name
+  username: string | null; // null when the invitee chooses their name (legacy)
   label?: string;
   role: UserRole;
   createdBy: string | null; // null for bootstrap (no owner existed yet)
   createdAt: number;
   expiresAt: number;
   bootstrap?: true; // present on bootstrap invites so the UI can label them
-  // Room grants attached at mint time (member invites for NEW users only).
-  // On accept these seed the created record's allowedRooms so the invitee
-  // lands in the intended rooms instead of an empty office. Present only
-  // when non-empty.
+  // Legacy new-member invites only: room grants attached at mint time, which
+  // seed the created record's allowedRooms on accept. Present only when
+  // non-empty. Sign-in links for existing members never carry grants.
   allowedRooms?: string[];
 }
 

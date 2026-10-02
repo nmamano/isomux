@@ -379,6 +379,9 @@ Coses que pots fer per ell:
   "settings.members.onlineSessions.one": "en línia · {count} sessió",
   "settings.members.onlineSessions.other": "en línia · {count} sessions",
   "settings.members.lastSeen": "vist per última vegada {when}",
+  "settings.members.newMember": "Membre nou",
+  "settings.members.create": "Crea el membre",
+  "settings.members.neverSignedIn": "no ha iniciat mai la sessió",
   "settings.role.officeOwner": "Propietari de l’oficina",
   "settings.role.officeOwnerExplanation":
     "Pot accedir a totes les sales, convidar membres i gestionar l’accés i les sessions dels membres.",
@@ -671,36 +674,17 @@ Coses que pots fer per ell:
     "Envia aquesta URL a la persona convidada. És d'un sol ús: en obrir-la al seu dispositiu, hi entra. La URL es mostra un cop - copia-la ara.",
 
   "settings.invites.intro":
-    "Afegeix un membre o un propietari de l'oficina: emet una URL d'invitació i envia-l'hi per un altre canal. En obrir-la es crea el seu compte i aquell dispositiu hi entra. Per a més dispositius en un compte que ja existeix, cadascú genera el seu propi enllaç des de <i>Els meus dispositius</i>.",
-  "settings.invites.memberName": "Nom del membre (opcional)",
-  "settings.invites.memberNamePlaceholder": "p. ex. Marc",
-  "settings.invites.changeLater":
-    "Tots aquests ajustos es poden canviar més endavant. El membre pot editar aquest nom en acceptar la invitació.",
+    "Un enllaç d'inici de sessió inicia la sessió d'un dispositiu com a membre existent. Per convidar un membre nou, crea'l primer a <i>Membres</i>.",
+  "settings.invites.linkHint": "Envia l'enllaç en privat. Caduca en 24 h, i un enllaç nou substitueix l'anterior del membre.",
+  "settings.invites.createLink": "Crea un enllaç d'inici de sessió",
+  "settings.invites.creatingLink": "Creant…",
+  "settings.invites.createLinkFailed": "No s'ha pogut crear l'enllaç d'inici de sessió",
   "preAuth.invite.changeLater":
     "Pots canviar el teu nom i idioma més endavant a Configuració.",
-  "settings.invites.browserLanguage": "Idioma del navegador del convidat",
   "preAuth.invite.nameTaken": "Aquest nom ja està en ús. Tria’n un altre.",
   "preAuth.invite.errorLanguage": "Tria un idioma.",
   "preAuth.invite.newMember": "Membre nou",
-  "settings.invites.issueFor": "Emet una invitació per a…",
-  "settings.invites.namePlaceholder": "Nom nou (p. ex. Marc)",
-  "settings.invites.existing":
-    "<b>{name}</b> ja existeix, així que no cal cap invitació: per entrar amb un altre dispositiu, {name} pot generar un enllaç des d'<i>Els meus dispositius</i> a la seva configuració - o li pots emetre un enllaç de recuperació aquí sota.",
-  "settings.invites.grantRoom": "Dona accés a {room}",
-  "settings.invites.roomsHint":
-    "La persona convidada hi entra amb accés a les sales marcades. Deixa-les totes sense marcar per donar-li accés més tard des de Configuració → Membres.",
-  "settings.invites.expiryHint":
-    "L'enllaç d'invitació caduca 24 h després d'emetre'l si no s'usa. Les sessions acceptades duren fins a 1 any (revocables des de la secció Sessions en qualsevol moment).",
-  "settings.invites.minting": "Emetent…",
-  "settings.invites.issue": "Emet la invitació",
-  "settings.invites.mintFailed": "No s'ha pogut emetre la invitació",
-  "settings.invites.recovery": "Recuperació",
-  "settings.invites.recoveryHint":
-    "Ajuda algú que ja té compte a tornar a entrar. Els enllaços de dispositiu són autoservei, però qui ha sortit de tots els seus dispositius no se'n pot generar cap - tria'l aquí i envia-li l'enllaç per un altre canal. Caduca en 24 h; en emetre'n un de nou se substitueix l'anterior.",
   "settings.invites.selectUser": "Tria algú…",
-  "settings.invites.mintRecovery": "Emet un enllaç de recuperació",
-  "settings.invites.recoveryFailed":
-    "No s'ha pogut emetre l'enllaç de recuperació",
   "settings.invites.outstanding": "Invitacions pendents",
   "settings.invites.columnFor": "Per a",
   "settings.invites.columnExpires": "Caduca",
