@@ -10,6 +10,6 @@ describe("modelListingLabel", () => {
 
   it("does not repeat an engine already identified by the model label", () => {
     expect(modelListingLabel("codex", "gpt-5.6-sol")).toBe("GPT-5.6 Sol");
-    expect(modelListingLabel("claude", "sonnet")).toBe("Sonnet 5");
+    expect(modelListingLabel("claude", "sonnet")).toBe("Sonnet 5.5");
   });
 });

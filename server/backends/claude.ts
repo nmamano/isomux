@@ -1520,7 +1520,7 @@ export function createClaudeBackend(
       // and identical across auth tiers. Promote MODEL_FAMILIES to the
       // BackendModel shape so the UI can render Claude through the same
       // fetched-list path it uses for Codex. Effort filtering remains a
-      // family-level concern ("max" is top-tier only, etc.) handled UI-side.
+      // family-level concern ("max" is not on haiku, etc.) handled UI-side.
       return MODEL_FAMILIES.map((m, i) => ({
         id: m.family,
         label: m.label,

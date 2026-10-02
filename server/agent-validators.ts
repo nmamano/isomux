@@ -230,7 +230,7 @@ export function validateEffort(
     return DEFAULT_EFFORT;
   if (agentType === "opencode") return raw;
   // Claude family-level rules: "minimal" and "ultra" are unavailable; "max"
-  // is top-tier only.
+  // only where claudeFamilySupportsMaxEffort allows it.
   if (raw === "minimal" || raw === "ultra") return DEFAULT_EFFORT;
   if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily))
     return DEFAULT_EFFORT;

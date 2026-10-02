@@ -26,6 +26,10 @@ describe("fable model family", () => {
     expect(isClaudeFamily("fable")).toBe(true);
   });
 
+  it("maps sonnet to claude-sonnet-5-5", () => {
+    expect(FAMILY_TO_MODEL.sonnet).toBe("claude-sonnet-5-5");
+  });
+
   it("resolves from a legacy claude-fable-5 model id", () => {
     expect(familyFromLegacyModel("claude-fable-5")).toBe("fable");
   });
@@ -35,16 +39,16 @@ describe("fable model family", () => {
     expect(familyDisplayLabel("fable")).toBe("Fable 5.1");
     expect(modelVersionLabel("opus")).toBe("5.5");
     expect(familyDisplayLabel("opus")).toBe("Opus 5.5");
-    expect(modelVersionLabel("sonnet")).toBe("5");
-    expect(familyDisplayLabel("sonnet")).toBe("Sonnet 5");
+    expect(modelVersionLabel("sonnet")).toBe("5.5");
+    expect(familyDisplayLabel("sonnet")).toBe("Sonnet 5.5");
   });
 });
 
 describe("top-tier capability gates", () => {
-  it("grants max effort to opus and fable only", () => {
+  it("grants max effort to opus, fable and sonnet, not haiku", () => {
     expect(claudeFamilySupportsMaxEffort("opus")).toBe(true);
     expect(claudeFamilySupportsMaxEffort("fable")).toBe(true);
-    expect(claudeFamilySupportsMaxEffort("sonnet")).toBe(false);
+    expect(claudeFamilySupportsMaxEffort("sonnet")).toBe(true);
     expect(claudeFamilySupportsMaxEffort("haiku")).toBe(false);
   });
 
@@ -55,8 +59,9 @@ describe("top-tier capability gates", () => {
     expect(claudeFamilySupportsAutoPermission("haiku")).toBe(false);
   });
 
-  it("validateEffort allows max for fable, rejects it for sonnet", () => {
+  it("validateEffort allows max for fable and sonnet, rejects it for haiku", () => {
     expect(validateEffort("claude", "fable", "max")).toBe("max");
-    expect(validateEffort("claude", "sonnet", "max")).toBe(DEFAULT_EFFORT);
+    expect(validateEffort("claude", "sonnet", "max")).toBe("max");
+    expect(validateEffort("claude", "haiku", "max")).toBe(DEFAULT_EFFORT);
   });
 });

@@ -148,7 +148,7 @@ export type ClaudeModel = string;
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5-5",
   fable: "claude-fable-5-1",
-  sonnet: "claude-sonnet-5",
+  sonnet: "claude-sonnet-5-5",
   haiku: "claude-haiku-4-5-20251001",
 };
 
@@ -354,12 +354,12 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
   return "opus";
 }
 
-// Claude families that support the "max" effort level. Historically opus-only;
-// Fable 5.1 also supports it, verified end-to-end through
-// the bundled binary. Single source so the UI effort filters, the backend's
+// Claude families that support the "max" effort level: the families whose
+// supportedModels() row lists "max" in supportedEffortLevels (SDK 0.3.287,
+// 2026-10-02). Single source so the UI effort filters, the backend's
 // listModels metadata, and server-side validateEffort stay aligned.
 export function claudeFamilySupportsMaxEffort(family: string): boolean {
-  return family === "opus" || family === "fable";
+  return family === "opus" || family === "fable" || family === "sonnet";
 }
 
 // Static effort options for slash commands, filtered by backend + model

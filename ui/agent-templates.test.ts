@@ -303,7 +303,7 @@ describe("resolveTemplateModel", () => {
       recommendations: {
         ...template.recommendations,
         claude: {
-          preferredFamilies: ["sonnet"],
+          preferredFamilies: ["haiku"],
           desiredEffort: "max" as const,
         },
       },
@@ -315,7 +315,7 @@ describe("resolveTemplateModel", () => {
       null,
       false,
     );
-    expect(result).toEqual({ modelFamily: "sonnet", effort: "high" });
+    expect(result).toEqual({ modelFamily: "haiku", effort: "high" });
   });
 });
 

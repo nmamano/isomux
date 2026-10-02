@@ -788,8 +788,8 @@ export function CronjobDialog({
                   onChange={(e) => {
                     const next = e.target.value;
                     setModelFamily(next);
-                    // Claude family-level interlock: "max" effort is top-tier
-                    // only. (The "auto" permission mode interlock is gone now
+                    // Claude family-level interlock: "max" effort only where
+                    // claudeFamilySupportsMaxEffort allows it. (The "auto" permission mode interlock is gone now
                     // that cron's only Claude permission option is
                     // bypassPermissions.)
                     if (
