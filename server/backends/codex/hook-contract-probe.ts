@@ -1,4 +1,4 @@
-// Opt-in live measurements for the Codex 0.153.4 hook contract.
+// Opt-in live measurements for the Codex 0.160.0 hook contract.
 // This is probe-only: it installs hooks in a scratch CODEX_HOME and does not
 // wire enforcement into an Isomux agent.
 import {
@@ -417,7 +417,7 @@ export async function runHookContractProbe(): Promise<Json> {
   for (const testCase of selectedCases) readings.push(await runCase(testCase));
   return {
     measuredAt: new Date().toISOString(),
-    codexVersion: "0.153.4",
+    codexVersion: "0.160.0",
     documentedContractSnapshot: {
       fetchedAt: "2026-08-29",
       fieldsTested: [

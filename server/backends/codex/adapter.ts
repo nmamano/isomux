@@ -101,6 +101,7 @@ import type { ErrorNotification } from "./_generated/v2/ErrorNotification.ts";
 import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRateLimitsResponse.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
+import type { PlanType } from "./_generated/PlanType.ts";
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
@@ -172,16 +173,14 @@ const CAPABILITIES: BackendCapabilities = {
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
 // getModelOptions() and modelDisplayLabel() when the RPC isn't available.
-// Slugs verified against `codex debug models` on codex-cli 0.153.4,
-// 2026-09-05; mirror of CODEX_MODELS in shared/types.ts.
+// Slugs listed by `codex debug models` on codex-cli 0.160.0, 2026-10-02;
+// mirror of CODEX_MODELS in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-6-astra", label: "GPT-6 Astra" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.5", label: "GPT-5.5" },
-  { value: "gpt-5.4", label: "GPT-5.4" },
-  { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
 ];
 
 function modelDisplayLabel(slug: string): string {
@@ -388,8 +387,8 @@ function findTurnIndexContainingItemId(
 // Fork a thread so that the child ends before the turn that holds
 // targetItemId. A user message starts its own turn, so that turn and every
 // later one are excluded (thread/fork beforeTurnId). null forks the whole
-// history. Returns the child thread id. Paginated threads reject
-// thread/rollback, so the fork must not be rolled back after the fact.
+// history. Returns the child thread id. Codex 0.160 has no thread/rollback,
+// so the fork must not be rolled back after the fact.
 export async function forkThreadBeforeItem(
   client: Pick<JsonRpcLiteClient, "request">,
   threadId: string,
@@ -528,6 +527,9 @@ export function mergeRateLimitSnapshots(
   return {
     limitId: newer.limitId ?? older.limitId,
     limitName: newer.limitName ?? older.limitName,
+    // Nothing reads it yet. Falling back on null is our convention for
+    // metadata here, not a documented upstream contract.
+    normalModelSlug: newer.normalModelSlug ?? older.normalModelSlug,
     // A null window is "not in this update", not "this window is gone". An
     // account that genuinely loses a window reports it via a fresh read (or a
     // new limitId), not by omitting it from a rolling update.
@@ -548,21 +550,30 @@ export function mergeRateLimitSnapshots(
   };
 }
 
-// OpenAI's wire slugs vs the ChatGPT plan names users know:
-// a Pro Max account reports planType "pro", which the pill showed verbatim
-// and read as a different tier. "pro" -> "Pro Max" observed live against a
-// Pro Max account on 2026-08-16; "prolite" -> "Pro Codex" (the $100 tier)
-// follows the same wire naming. An unknown slug passes through verbatim.
-const CODEX_PLAN_DISPLAY_NAMES: Record<string, string> = {
+// Wire plan slugs -> the labels Codex itself shows in /status, copied from
+// openai/codex rust-v0.160.0 codex-rs/tui/src/subscription.rs
+// (SubscriptionDisplay::Status). Typed over the whole PlanType union, so a
+// schema regen that adds a plan fails the typecheck until it has a label.
+// A slug outside the union passes through verbatim. Exported for tests.
+export const CODEX_PLAN_DISPLAY_NAMES: Record<PlanType, string> = {
   free: "Free",
   go: "Go",
   plus: "Plus",
-  prolite: "Pro Codex",
-  pro: "Pro Max",
-  team: "Team",
-  business: "Business",
+  pro: "Pro 200",
+  prolite: "Pro 100",
+  promax: "Pro 500",
+  team: "Business",
+  self_serve_business_usage_based: "Business",
+  business: "Enterprise",
+  self_serve_business_prolite: "Business Premium",
+  enterprise_cbp_automation: "Enterprise (Automation)",
+  enterprise_cbp_usage_based: "Enterprise",
   enterprise: "Enterprise",
+  ent26: "Enterprise",
   edu: "Edu",
+  edu_plus: "Edu Plus",
+  edu_pro: "Edu Pro",
+  unknown: "Unknown",
 };
 
 // RateLimitSnapshot -> isomux's backend-agnostic reading. Exported for tests.

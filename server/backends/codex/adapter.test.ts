@@ -29,6 +29,7 @@ import { STATE_ROOT } from "../../config.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
   buildCodexUserInput,
+  CODEX_PLAN_DISPLAY_NAMES,
   codexResetsAtMs,
   codexWindowLabel,
   CodexSession,
@@ -607,7 +608,7 @@ describe("Codex edit fork", () => {
       threadId: "parent",
       beforeTurnId: "turn-2",
     });
-    // Paginated threads reject thread/rollback (codex 0.153.4).
+    // Codex 0.160 removed thread/rollback.
     expect(requests.map((r) => r.method)).not.toContain("thread/rollback");
   });
 
@@ -2669,6 +2670,7 @@ describe("codex subscription usage", () => {
     return {
       limitId: "codex",
       limitName: null,
+      normalModelSlug: null,
       primary: week,
       secondary: null,
       credits: null,
@@ -2729,6 +2731,22 @@ describe("codex subscription usage", () => {
         spendControlReached: merged.spendControlReached,
       }).toEqual({ limitName: "older", spendControlReached: null });
     });
+  });
+
+  // Codex 0.160 added normalModelSlug. Upstream documents no merge rule for
+  // it; falling back on null is our convention for snapshot metadata.
+  it("normalModelSlug falls back when the newer snapshot omits it", () => {
+    const older = snapshot({ normalModelSlug: "gpt-6.1-sol" });
+    expect(
+      mergeRateLimitSnapshots(older, snapshot({ normalModelSlug: null }))
+        .normalModelSlug,
+    ).toBe("gpt-6.1-sol");
+    expect(
+      mergeRateLimitSnapshots(
+        older,
+        snapshot({ normalModelSlug: "gpt-6-astra" }),
+      ).normalModelSlug,
+    ).toBe("gpt-6-astra");
   });
 
   async function usageOf(session: CodexSession) {
@@ -2799,15 +2817,23 @@ describe("codex subscription usage", () => {
       if (out.kind !== "usage") throw new Error(out.kind);
       return out.usage.plan;
     };
-    // "pro" is the $200 Pro Max tier (observed live 2026-08-16); "prolite"
-    // is the $100 Pro Codex tier. Verbatim slugs read as the wrong plan.
-    expect(planOf("pro")).toBe("Pro Max");
-    expect(planOf("prolite")).toBe("Pro Codex");
-    expect(planOf("plus")).toBe("Plus");
+    // The pill shows the label from the table, never the raw slug.
+    for (const [slug, label] of Object.entries(CODEX_PLAN_DISPLAY_NAMES)) {
+      expect({ slug, plan: planOf(slug) }).toEqual({ slug, plan: label });
+    }
+    // The three Pro tiers stay distinguishable from each other.
+    const pro = ["pro", "prolite", "promax"].map(planOf);
+    expect(new Set(pro).size).toBe(3);
+    for (const [i, slug] of ["pro", "prolite", "promax"].entries()) {
+      expect(pro[i]).not.toBe(slug);
+    }
+    // Codex's own grouping: a "business" account shows as the Enterprise
+    // tier, and "team" shows as the Business tier.
+    expect(planOf("business")).toBe(planOf("enterprise"));
+    expect(planOf("team")).toBe(planOf("self_serve_business_usage_based"));
+    expect(planOf("team")).not.toBe(planOf("business"));
     // A slug this table doesn't know survives untouched.
-    expect(planOf("self_serve_business_usage_based")).toBe(
-      "self_serve_business_usage_based",
-    );
+    expect(planOf("future_plan")).toBe("future_plan");
   });
 
   it("separates 'nothing to report' from 'nothing asked yet'", () => {
@@ -2954,7 +2980,7 @@ describe("codex subscription usage", () => {
       rateLimitResetCredits: null,
     };
     const { session } = await bootstrapped(fake);
-    expect((await usageOf(session)).plan).toBe("Pro Max");
+    expect((await usageOf(session)).plan).toBe(CODEX_PLAN_DISPLAY_NAMES.pro);
     // Cached now: a second call is served locally.
     await session.getSubscriptionUsage();
     expect(

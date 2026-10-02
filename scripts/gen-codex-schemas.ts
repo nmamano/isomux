@@ -9,17 +9,23 @@
 // script must stay in sync with the runtime spawn path.
 
 import { spawnSync } from "child_process";
+import { rmSync } from "fs";
 
 import { resolveCodexLauncherPath } from "../server/backends/codex/native-bin.ts";
 
 const launcher = resolveCodexLauncherPath();
+const outDir = "server/backends/codex/_generated";
+
+// generate-ts does not delete types the new version dropped; start empty so
+// a removed type fails the typecheck instead of lingering.
+rmSync(outDir, { recursive: true, force: true });
 
 const args = [
   launcher,
   "app-server",
   "generate-ts",
   "--out",
-  "server/backends/codex/_generated",
+  outDir,
   "--experimental",
 ];
 

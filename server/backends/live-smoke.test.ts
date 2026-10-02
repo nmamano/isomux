@@ -49,7 +49,9 @@ const PROVIDERS: ProviderConfig[] = [
   {
     name: "codex",
     backend: codexBackend,
-    modelFamily: "gpt-5.4-mini",
+    // Cheapest model Codex 0.160 lists: $0.10 in / $0.50 out per 1M tokens
+    // (developers.openai.com/api/docs/pricing, 2026-10-02).
+    modelFamily: "gpt-6-luna",
     permissionMode: "never",
     sandbox: "read-only",
   },

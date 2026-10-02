@@ -5,8 +5,10 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   writeFileSync,
 } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
 import { JsonRpcLiteClient } from "./client.ts";
@@ -186,9 +188,11 @@ describe.skipIf(!paidEnabled || !authHome)(
       "allows one Bash write and blocks one protected Bash write",
       async () => {
         const home = join(STATE_ROOT, "codex-safety-paid-home");
+        // Outside STATE_ROOT: the hook protects the state root, so a
+        // workspace inside it would block the allow write too.
         const cwd =
           process.env.ISOMUX_TEST_CODEX_SAFETY_WORKSPACE ??
-          join(STATE_ROOT, "codex-safety-paid-workspace");
+          mkdtempSync(join(tmpdir(), "isomux-codex-safety-paid-workspace-"));
         const hooksPath = join(home, "hooks.json");
         const allowMarker = join(cwd, "allowed-marker");
         const denyMarker = join(STATE_ROOT, "denied-protected-marker");

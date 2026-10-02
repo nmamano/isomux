@@ -355,7 +355,7 @@ const OFFICE_CHARACTERS: {
     customInstructions:
       "You are in sales but would rather be doing crossword puzzles. Be blunt, no-nonsense, and minimally enthusiastic. Do the work, skip the small talk.",
     agentType: "codex",
-    modelFamily: "gpt-5.4-mini",
+    modelFamily: "gpt-5.6-luna",
   },
   {
     name: "Kevin",

@@ -20,7 +20,6 @@ describe("styleForModel", () => {
     expect(styleForModel("fable").deskProp).toBe("book");
     expect(styleForModel("gpt-5.6-sol").deskProp).toBe("book");
     expect(styleForModel("haiku").deskProp).toBe("crayons");
-    expect(styleForModel("gpt-5.4-mini").deskProp).toBe("crayons");
     expect(styleForModel("gpt-5.6-luna").deskProp).toBe("crayons");
     expect(styleForModel("sonnet").deskProp).toBeUndefined();
     expect(styleForModel("gpt-5.5").deskProp).toBeUndefined();

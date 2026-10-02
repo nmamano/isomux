@@ -36,6 +36,8 @@ The Codex hook contract was measured with Codex 0.144.6 on 2026-08-28 and 2026-0
 
 On 2026-08-29, the production installer was proven end to end for the allow arm: it installed and trusted the hook, the hook ran and returned a decision, and the allowed command completed. The installed hook's own deny was not observed end to end because the model declined to issue the protected command. The deny claim is a composition: the production installer was shown to create the trusted decision path, and the 2026-08-28 hook-contract measurement showed that a trusted deny blocked the action in both measured runs. The link between those measurements is inferred.
 
+On 2026-10-02, the trust pin (`CODEX_HOOK_TRUST_HASH_PROVEN_VERSION`) moved to Codex 0.160.0. The live trust contract test showed the installer hash equal to Codex's `currentHash`. The paid pair allowed the workspace write and blocked the protected write on both gpt-6.1-sol and gpt-5.6-sol. The coverage matrix passed on gpt-5.6-sol. On gpt-6.1-sol, every action the model issued got the expected hook result, but in 4 of 31 cells the model issued no tool call.
+
 ## Failure behavior
 
 Codex fails open when a hook executable is missing, exits with an error, times out, or returns an invalid result. Isomux surfaces the same signed transcript warning when it detects a pre-spawn installation or trust failure, a caught checker fault, or a technical `hook/completed` failure:

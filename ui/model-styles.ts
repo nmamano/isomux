@@ -31,7 +31,7 @@ export interface ModelStyle {
 // Desk props encode capability TIER, not identity: frontier
 // models get the book (opus, fable, gpt-6-astra, gpt-5.6-sol), small/fast
 // models get the
-// crayons (haiku, gpt-5.4-mini, gpt-5.6-luna), mid models get a bare desk.
+// crayons (haiku, gpt-5.6-luna), mid models get a bare desk.
 // At-a-glance encoding: color hue ~ provider/family, desk prop ~ tier.
 export const MODEL_STYLES: Record<string, ModelStyle> = {
   opus: {
@@ -51,12 +51,6 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
     deskProp: "crayons",
   },
   "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
-  "gpt-5.4": { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
-  "gpt-5.4-mini": {
-    border: "rgba(120,220,160,0.62)",
-    bg: "rgba(120,220,160,0.20)",
-    deskProp: "crayons",
-  },
   "gpt-5.6-sol": {
     border: "rgba(80,220,150,0.95)",
     bg: "rgba(80,220,150,0.40)",

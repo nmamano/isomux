@@ -1,4 +1,4 @@
-// Opt-in live integration probe for Codex 0.153.4 PreToolUse behavior.
+// Opt-in live integration probe for Codex 0.160.0 PreToolUse behavior.
 //
 // This script makes coverage claims only from model-driven App Server turns.
 // It never reads or writes the effective Isomux CODEX_HOME. The caller must
@@ -927,7 +927,7 @@ async function runLiveProbeWithCleanup(): Promise<Json> {
   const validationErrors = validate(readings);
   return {
     measuredAt: new Date().toISOString(),
-    codexVersion: "0.153.4",
+    codexVersion: "0.160.0",
     settings: { approvalPolicy: "never", sandbox: "danger-full-access", model },
     consecutiveRunCount: runCount,
     authMaterialCopied: { file: "auth.json", from: authHome },
