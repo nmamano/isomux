@@ -3519,6 +3519,16 @@ had even cancelled.
 waits for the other, per the design. Chaining them would let a DNS record nobody
 has reaped hold open an asset we are still paying for.
 
+The provider asset can end before `deprovision_due`, and then that phase never
+comes. So the `ended` phase also opens `remove_dns`, on every pass, under the
+same derived id. An office that passed through `deprovision_due` already has
+that row and gets no second one. Without this, the office and wildcard records
+would keep pointing at a provider address that can go to another customer.
+
+On every pass, the lifecycle tick also clears an open liveness alert on a
+`deprovisioned` office. Nothing probes such an office, so the alert is stale.
+Reconcile stops reading an `absent` asset once its office is `deprovisioned`.
+
 `remove_dns` deletes every A record at the exact office and wildcard names
 through the configured Cloudflare target zone. It then re-lists authoritative
 Cloudflare state and concludes only when both A record sets are empty. It does

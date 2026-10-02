@@ -202,10 +202,18 @@ export async function lifecycleTick(
             outcome: "succeeded",
             detail: decision.note,
           });
-          // A live office can raise this during its grace week. Power-off then
-          // stops future probes, so provider-proven teardown is the last point
-          // that can resolve the stale measurement. Match the whole durable
-          // identity: the empty source sentinel is shared by other conditions.
+          finished = true;
+        }
+
+        let cleared = 0;
+        // A live office can raise this during its grace week. Power-off then
+        // stops future probes, so the data end is the last point that can
+        // resolve the stale measurement. Every pass, not only the one that
+        // records the end: nothing probes a deprovisioned office, so an open
+        // liveness row on one is stale however it got there. Match the whole
+        // durable identity: the empty source sentinel is shared by other
+        // conditions.
+        if (finished || instance.service_state === "deprovisioned") {
           for (const open of await store.openReasons(instance.id)) {
             if (open.source_op_id !== "" || open.reason !== LIVENESS_REASON)
               continue;
@@ -215,15 +223,14 @@ export async function lifecycleTick(
               open.id,
               LIFECYCLE_TICK_ACTOR,
             );
+            cleared++;
           }
-          finished = true;
         }
 
         // IN ORDER, IN THIS TRANSACTION. A promotion is a clear followed by a
         // raise, and the two committing separately would leave a superseded
         // instruction on the ops floor beside the incident that replaced it.
         let raised = false;
-        let cleared = 0;
         for (const action of decision.attention) {
           if (action.kind === "raise") {
             // sourceOpId is the condition's KEY, so a second tick observing the

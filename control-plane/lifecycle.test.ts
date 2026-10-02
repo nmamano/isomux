@@ -440,7 +440,16 @@ describe("decideLifecycle", () => {
       now: endedAt + GRACE_MS,
     });
     expect(gone.finish).toBe(true);
-    expect(gone.open).toEqual([]);
+    // The only thing an ended office opens is DNS removal, under the id
+    // deprovision_due would have used.
+    const removeDns = [
+      {
+        kind: "remove_dns" as const,
+        id: lifecycleOperationId("remove_dns", "sub_1", endedAt),
+        evidence: expect.objectContaining({ reason: LIFECYCLE_REASON }),
+      },
+    ];
+    expect(gone.open).toEqual(removeDns);
     expect(gone.attention).toContainEqual({
       kind: "clear",
       key: LIFECYCLE_REPOWERED,
@@ -457,6 +466,9 @@ describe("decideLifecycle", () => {
       now: endedAt + GRACE_MS,
     });
     expect(already.finish).toBe(false);
+    // Level, not edge: an office whose end was recorded before this rule
+    // existed still gets it.
+    expect(already.open).toEqual(removeDns);
   });
 });
 

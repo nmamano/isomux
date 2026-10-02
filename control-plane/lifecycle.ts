@@ -507,6 +507,10 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   if (!subscription) return none("no subscription is linked to this office");
 
   const terminal = isCustomerCancellation(subscription);
+  // KNOWN LIMIT, accepted 2026-10-02 (task 6e13f9d8): an office deprovisioned
+  // by hand while its subscription is not terminal (cp2's shape) gets no
+  // remove_dns from this arm. Its id is anchored on ended_at, and there is
+  // none. lifecycle-tick still clears its stale liveness alert.
   if (!terminal) {
     const assetGone =
       instance.service_state !== "deprovisioned" &&
@@ -597,7 +601,21 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
         timeline.promisedUntil !== null &&
         now < timeline.promisedUntil);
     return {
-      open: [],
+      // The asset can end before deprovision_due, and then that phase never
+      // opens remove_dns. The office and wildcard records would keep pointing at
+      // a provider address that can go to another customer. Same derived id as
+      // deprovision_due, so an office that passed through it gets no second row.
+      open: [
+        {
+          kind: "remove_dns",
+          id: lifecycleOperationId("remove_dns", subscription.id, endedAt),
+          evidence: {
+            reason: LIFECYCLE_REASON,
+            subscription: subscription.id,
+            assetState: asset?.asset_state ?? null,
+          },
+        },
+      ],
       // Deprovisioned is recorded from PROVIDER TRUTH and nothing else. Our own
       // deadline passing is a request, not a deletion.
       finish: instance.service_state !== "deprovisioned",

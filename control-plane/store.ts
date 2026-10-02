@@ -91,6 +91,16 @@ const SEVERITY_RANK: Record<Severity, number> = {
   critical: 3,
 };
 
+/**
+ * The provider_assets rows reconcile still polls. An absent asset (the provider
+ * answered 404) on an office whose data end is recorded has nothing left to
+ * tell us. While the office is not deprovisioned, polling continues, so a 404
+ * the provider takes back still clears the lifecycle alert it raised.
+ */
+const STILL_RECONCILED =
+  "not (provider_assets.asset_state = 'absent' and exists (select 1 from instances ri " +
+  "where ri.id = provider_assets.instance_id and ri.service_state = 'deprovisioned'))";
+
 export interface InstanceRow {
   id: string;
   run_id: string | null;
@@ -1886,7 +1896,8 @@ export class Store {
   async assetsDueForReconcile(now: number): Promise<AssetRow[]> {
     return this.sqlAll<AssetRow>(
       "select * from provider_assets where provider_id is not null " +
-        "and next_reconcile_at <= $1 order by next_reconcile_at",
+        `and next_reconcile_at <= $1 and ${STILL_RECONCILED} ` +
+        "order by next_reconcile_at",
       [now],
     );
   }
@@ -2072,7 +2083,7 @@ export class Store {
         "exists (select 1 from operations where status in ('pending', 'running', 'ambiguous') " +
         "and next_attempt_at <= $1 and (lease_until is null or lease_until <= $1)) as operation_due, " +
         "($4 = 1 and exists (select 1 from provider_assets where provider_id is not null " +
-        "and next_reconcile_at <= $1)) as provider_due, " +
+        `and next_reconcile_at <= $1 and ${STILL_RECONCILED})) as provider_due, ` +
         "($10 = 1 and (($5 = 1 and exists (select 1 from subscriptions s " +
         "join instances i on i.id = s.instance_id " +
         "join name_reservations n on n.instance_id = i.id " +
@@ -2120,6 +2131,7 @@ export class Store {
         "then lease_until else next_attempt_at end as due_at from operations " +
         "where status in ('pending', 'running', 'ambiguous') " +
         "union all select next_reconcile_at from provider_assets where $4 = 1 and provider_id is not null " +
+        `and ${STILL_RECONCILED} ` +
         "union all select n.checkout_next_check_at from name_reservations n " +
         "left join subscriptions s on s.instance_id = n.instance_id " +
         "where $10 = 1 and $6 = 1 and n.checkout_state = 'pending' " +

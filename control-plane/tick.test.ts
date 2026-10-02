@@ -674,6 +674,61 @@ describe("reconcile", () => {
     expect(asset.ipv4).toBe("169.58.97.2");
     expect(asset.next_reconcile_at).toBeGreaterThan(c.now());
   });
+
+  test("an absent asset stops being read once its office is deprovisioned", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
+      id: "asset-absent",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-absent",
+      intent_id: null,
+      asset_state: "absent",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    const reads: string[] = [];
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      now: c.now,
+      reconcile: async (asset) => {
+        reads.push(asset.id);
+        return { assetState: "absent" };
+      },
+    });
+    const schedule = () =>
+      store.workSchedule(c.now(), 0, 0, {
+        providerConfigured: true,
+        provisioningConfigured: false,
+        checkoutConfigured: false,
+        cadenceConfigured: false,
+        livenessConfigured: false,
+        staleProvisioningMs: 30 * 60_000,
+        staleProvisioningReason: "stalled",
+      });
+
+    // Before the data end a 404 can still be taken back, so it is read.
+    expect((await schedule()).tickDue).toBe(true);
+    await ticker.once();
+    expect(reads).toEqual(["asset-absent"]);
+
+    const instance = (await store.getInstance(inst))!;
+    await store.casInstance(inst, instance.version, {
+      service_state: "deprovisioned",
+    });
+    c.advance(10 * 60_000);
+    expect(await schedule()).toMatchObject({
+      tickDue: false,
+      nextDueAt: null,
+    });
+    await ticker.once();
+    expect(reads).toEqual(["asset-absent"]);
+  });
 });
 
 describe("enqueue", () => {

@@ -28,7 +28,8 @@ import {
   PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
-import { RemoteBudget } from "./tick.ts";
+import { RemoteBudget, Ticker } from "./tick.ts";
+import { removeDnsHandler } from "./deprovision.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
 
@@ -164,6 +165,26 @@ async function seedAssetGoneAttention(store: Store): Promise<void> {
       severity: "critical",
     }),
   );
+}
+
+async function raiseLiveness(store: Store): Promise<void> {
+  await store.tx(() =>
+    raiseAttentionIn(store, {
+      instanceId: "inst-1",
+      reasonClass: "operation_condition",
+      reason: LIVENESS_REASON,
+      severity: "critical",
+    }),
+  );
+  // The precondition every clear test depends on: the alarm is open before
+  // the tick under test runs.
+  expect(await openLivenessCount(store)).toBe(1);
+}
+
+async function openLivenessCount(store: Store): Promise<number> {
+  return (await store.openReasons("inst-1")).filter(
+    (row) => row.source_op_id === "" && row.reason === LIVENESS_REASON,
+  ).length;
 }
 
 async function openAttentionKeys(store: Store): Promise<string[]> {
@@ -603,6 +624,13 @@ describe("the walk, on seeded dates", () => {
     ).toHaveLength(1);
     // Recorded once, not on every pass afterwards.
     expect(await lifecycleTick(store, c.now())).toMatchObject({ finished: 0 });
+    // The data end asks for DNS removal under the id deprovision_due already
+    // used, so the scheduled path keeps exactly one row.
+    expect(
+      (await store.operationsFor("inst-1")).filter(
+        (op) => op.kind === "remove_dns",
+      ),
+    ).toHaveLength(1);
     await store.close();
   });
 
@@ -641,6 +669,120 @@ describe("the walk, on seeded dates", () => {
     expect(
       (await store.openReasons("inst-1")).map((row) => row.reason),
     ).toEqual([LIVENESS_REASON]);
+    await store.close();
+  });
+
+  test("an asset that ends before deprovision_due still gets its DNS removed", async () => {
+    // The early end: the provider asset is gone the day after the period end,
+    // long before the day-14 deletion that would have opened remove_dns.
+    const c = clock(ENDED + 86_400_000);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await setAssetState(store, "absent");
+    await raiseLiveness(store);
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      opened: 1,
+      finished: 1,
+    });
+    const removeDnsId = lifecycleOperationId("remove_dns", "sub_1", ENDED);
+    expect(await store.getOperation(removeDnsId)).toMatchObject({
+      kind: "remove_dns",
+      status: "pending",
+    });
+    expect(await openLivenessCount(store)).toBe(0);
+
+    // Every later pass sees the same ended phase and opens nothing more.
+    c.set(ENDED + 30 * 86_400_000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 0 });
+    expect(
+      (await store.operationsFor("inst-1")).map((op) => op.id),
+    ).toEqual([removeDnsId]);
+    await store.close();
+  });
+
+  test("an office that ended without DNS removal gets it, and its liveness clear, on the next pass", async () => {
+    // The stored state the early end left behind before this fix: data end
+    // recorded, no remove_dns row, the liveness alarm still open.
+    const c = clock(ENDED + 3 * 86_400_000);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await setAssetState(store, "absent");
+    await raiseLiveness(store);
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      opened: 1,
+      finished: 0,
+    });
+    expect(
+      await store.getOperation(
+        lifecycleOperationId("remove_dns", "sub_1", ENDED),
+      ),
+    ).toMatchObject({ kind: "remove_dns" });
+    expect(await openLivenessCount(store)).toBe(0);
+    expect(
+      (await store.auditEvents()).filter((e) => e.action === "data_end"),
+    ).toHaveLength(0);
+    await store.close();
+  });
+
+  test("a deprovisioned office on a subscription that is not terminal clears liveness and opens nothing", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await setAssetState(store, "absent");
+    await raiseLiveness(store);
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 0 });
+    expect(await openLivenessCount(store)).toBe(0);
+    expect(await store.operationsFor("inst-1")).toEqual([]);
+    await store.close();
+  });
+
+  test("the opened remove_dns runs on a deprovisioned office", async () => {
+    const c = clock(ENDED + 86_400_000);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await setAssetState(store, "absent");
+    await lifecycleTick(store, c.now());
+    expect((await store.getInstance("inst-1"))!.service_state).toBe(
+      "deprovisioned",
+    );
+
+    const calls: string[] = [];
+    const ticker = new Ticker({
+      store,
+      now: c.now,
+      handlers: [
+        removeDnsHandler({
+          officeDns: {
+            officeARecords: async () => [],
+            replaceOfficeARecords: async () => {
+              throw new Error("remove_dns must not write a record");
+            },
+            removeOfficeARecords: async (host) => {
+              calls.push(host);
+              return true;
+            },
+          },
+        }),
+      ],
+    });
+    await ticker.once();
+    expect(calls).toEqual(["cp2.test.isomux.app"]);
+    expect(
+      await store.getOperation(
+        lifecycleOperationId("remove_dns", "sub_1", ENDED),
+      ),
+    ).toMatchObject({ status: "succeeded" });
     await store.close();
   });
 
@@ -767,6 +909,13 @@ describe("the walk, on seeded dates", () => {
     expect(
       (await store.auditEvents()).filter((e) => e.action === "data_end"),
     ).toHaveLength(1);
+    // The DNS removal the data end opened is the only work left, and once it
+    // concludes the loop has nothing due.
+    expect(await pending(store, c.now())).toBe(true);
+    await succeed(store, lifecycleOperationId("remove_dns", "sub_1", ENDED), {
+      reason: LIFECYCLE_REASON,
+      removed: true,
+    });
     expect(await pending(store, c.now())).toBe(false);
     await store.close();
   });
