@@ -13,6 +13,7 @@ import {
 import {
   BROWSER_EXTENSION_PROTOCOL,
   fields,
+  type MemberBrowserStatus,
 } from "../shared/browser-extension-protocol";
 
 export interface ExtensionWsData {
@@ -64,6 +65,7 @@ export class BrowserExtensionService {
         const member = store.memberForHash(hash);
         return member && access.memberExists(member) ? member : undefined;
       },
+      browserName: (hash) => store.browserForHash(hash)?.browser.name ?? "",
       agents: (member) => access.agents?.(member) ?? [],
       mayUse: (member, agent) => access.mayUse(member, agent),
       ...(access.memberName && access.agentName
@@ -76,20 +78,30 @@ export class BrowserExtensionService {
         : {}),
     });
   }
-  status(member: string) {
+  status(member: string): MemberBrowserStatus {
+    const browsers = this.store.browsers(member).map((b) => ({
+      id: b.id,
+      name: b.name,
+      pairedAt: b.pairedAt,
+      online: !!this.bridge.forCredentialHash(b.hash),
+    }));
     return {
       member: browserDisplay(
         member,
         this.access.memberName?.(member) ?? member,
       ),
       version: manifest.version,
-      paired: !!this.store.record(member).hash,
-      online: !!this.bridge.forMember(member),
+      paired: browsers.length > 0,
+      online: browsers.some((b) => b.online),
+      browsers,
     };
   }
-  disconnect(member: string, terminal = false): void {
+  // Ends the member's live connections, or only the one with this credential.
+  disconnect(member: string, terminal = false, credentialHash?: string): void {
     for (const ws of this.sockets) {
       if (ws.data.connection?.memberId !== member) continue;
+      if (credentialHash !== undefined && ws.data.credentialHash !== credentialHash)
+        continue;
       if (terminal) ws.send(JSON.stringify({ kind: "refused" }));
       ws.data.connection.close();
       ws.close(terminal ? 4003 : 1000);
@@ -128,7 +140,6 @@ export class BrowserExtensionService {
           const paired = this.store.redeem(msg.code, ws.data.origin, (member) =>
             this.access.memberExists(member),
           );
-          this.disconnect(paired.member, true);
           credential = paired.credential;
           ws.send(
             JSON.stringify({
@@ -166,13 +177,15 @@ export class BrowserExtensionService {
         const connection = ws.data.connection;
         if (
           msg.generation !== connection.generation ||
-          this.bridge.forMember(connection.memberId) !== connection ||
+          this.bridge.forCredentialHash(ws.data.credentialHash!) !==
+            connection ||
           !this.access.memberExists(connection.memberId) ||
           this.store.memberForHash(ws.data.credentialHash!, ws.data.origin) !==
             connection.memberId
         )
           throw new Error();
-        this.store.revoke(connection.memberId);
+        const browser = this.store.browserForHash(ws.data.credentialHash!)!;
+        this.store.revokeBrowser(connection.memberId, browser.browser.id);
         ws.send(
           JSON.stringify({
             kind: "unpaired",

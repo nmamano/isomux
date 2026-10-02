@@ -165,6 +165,12 @@ export interface MemberBrowserStatus {
   online: boolean;
   member: BrowserDisplay;
   version: string;
+  browsers: {
+    id: string;
+    name: string;
+    pairedAt: number | null;
+    online: boolean;
+  }[];
 }
 export interface ExtensionUIState {
   office: string;

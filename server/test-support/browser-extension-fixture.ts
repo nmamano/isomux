@@ -86,7 +86,7 @@ export function browserExtensionFixture() {
     extensionURL: origin.replace("http:", "ws:") + "/extension",
     starts: () => starts,
     stop: () => {
-      bridge.forMember("fixture-member")?.close();
+      bridge.connections("fixture-member")[0]?.close();
       void server.stop(true);
     },
   };

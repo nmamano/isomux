@@ -39,14 +39,14 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
     return { ws: typed, messages, closed: () => closed };
   };
   try {
-    const pair = store.pair("member", false);
+    const pair = store.pair("member");
     const obsolete = socket();
     service.message(
       obsolete.ws,
       JSON.stringify({ kind: "hello", version: 3, code: pair.code }),
     );
     expect(obsolete.closed()).toBe(true);
-    expect(store.record("member").hash).toBeUndefined();
+    expect(store.paired("member")).toBe(false);
     expect(
       obsolete.messages.some((m) => m.kind === "ready" || m.kind === "command"),
     ).toBe(false);
@@ -61,7 +61,7 @@ test("socket payload limits precede redemption; heartbeat loss rejects work with
       }),
     );
     expect(oversized.closed()).toBe(true);
-    expect(store.record("member").hash).toBeUndefined();
+    expect(store.paired("member")).toBe(false);
     const first = socket();
     service.message(
       first.ws,
@@ -138,7 +138,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
   };
   const socket = ws as unknown as ServerWebSocket<ExtensionWsData>;
   try {
-    const { code } = store.pair("m", false);
+    const { code } = store.pair("m");
     service.open(socket);
     service.message(
       socket,
@@ -205,7 +205,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
       socket,
       JSON.stringify({ kind: "unpair", generation: "stale" }),
     );
-    expect(store.record("m").hash).toBeDefined();
+    expect(store.paired("m")).toBe(true);
     expect(messages.some((m) => m.kind === "unpaired")).toBe(false);
     const credential = String(
       messages.find((m) => m.kind === "paired")!.credential,
@@ -230,7 +230,7 @@ test("metadata uses current records; unpair is bound to authenticated generation
         generation: ws.data.connection!.generation,
       }),
     );
-    expect(store.record("m").hash).toBeDefined();
+    expect(store.paired("m")).toBe(true);
     reconnect();
     service.message(
       socket,
@@ -239,9 +239,9 @@ test("metadata uses current records; unpair is bound to authenticated generation
         generation: ws.data.connection!.generation,
       }),
     );
-    expect(store.record("m").hash).toBeUndefined();
+    expect(store.paired("m")).toBe(false);
     expect(messages.some((m) => m.kind === "unpaired")).toBe(true);
-    const fresh = store.pair("m", false);
+    const fresh = store.pair("m");
     member = false;
     ws.data = {
       kind: "extension",
@@ -254,6 +254,111 @@ test("metadata uses current records; unpair is bound to authenticated generation
       JSON.stringify({ kind: "hello", version: 4, code: fresh.code }),
     );
     expect(messages.filter((m) => m.kind === "metadata")).toHaveLength(count);
+  } finally {
+    service.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("popup unpair from one of two browsers revokes only that browser and keeps a pending code", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-two-unpair-"));
+  const store = new BrowserExtensionStore(join(dir, "connections.json"));
+  const service = new BrowserExtensionService(store, {
+    memberExists: () => true,
+    mayUse: () => true,
+  });
+  const socket = (code: string) => {
+    const messages: Fields[] = [];
+    let closed = false;
+    const ws = {
+      data: {
+        kind: "extension",
+        origin: "chrome-extension://" + "a".repeat(32),
+      } as ExtensionWsData,
+      send: (value: string) => {
+        messages.push(JSON.parse(value));
+      },
+      close: () => {
+        closed = true;
+        service.close(ws as unknown as ServerWebSocket<ExtensionWsData>);
+      },
+    };
+    const typed = ws as unknown as ServerWebSocket<ExtensionWsData>;
+    service.open(typed);
+    service.message(typed, JSON.stringify({ kind: "hello", version: 4, code }));
+    return { ws: typed, messages, closed: () => closed };
+  };
+  try {
+    const laptop = socket(store.pair("m", "Laptop").code);
+    const desk = socket(store.pair("m", "Desk").code);
+    const hash = (s: typeof laptop) => s.ws.data.credentialHash!;
+    // Precondition: two browsers of one member, both connected.
+    expect(
+      [laptop, desk].map((s) => s.messages.map((m) => m.kind).slice(0, 2)),
+    ).toEqual([
+      ["paired", "ready"],
+      ["paired", "ready"],
+    ]);
+    expect(service.bridge.connections("m")).toEqual([
+      laptop.ws.data.connection!,
+      desk.ws.data.connection!,
+    ]);
+    expect(service.status("m").browsers.map((b) => [b.name, b.online])).toEqual(
+      [
+        ["Laptop", true],
+        ["Desk", true],
+      ],
+    );
+    const pending = store.pair("m");
+    service.message(
+      laptop.ws,
+      JSON.stringify({
+        kind: "unpair",
+        generation: laptop.ws.data.connection!.generation,
+      }),
+    );
+    expect(laptop.messages.at(-1)).toMatchObject({ kind: "unpaired" });
+    expect(laptop.closed()).toBe(true);
+    expect(store.memberForHash(hash(laptop))).toBeUndefined();
+    expect(store.memberForHash(hash(desk))).toBe("m");
+    expect(desk.closed()).toBe(false);
+    expect(service.bridge.connections("m")).toEqual([desk.ws.data.connection!]);
+    expect(service.status("m").browsers.map((b) => [b.name, b.online])).toEqual(
+      [["Desk", true]],
+    );
+    // The remaining browser still serves an offer.
+    const connection = desk.ws.data.connection!;
+    connection.receive({
+      kind: "offer",
+      durationMinutes: 0,
+      generation: connection.generation,
+      assignment: crypto.randomUUID(),
+      scope: { kind: "all" },
+    });
+    connection.receive({
+      kind: "result",
+      generation: connection.generation,
+      id: desk.messages.at(-1)!.id,
+      result: {
+        targetInfo: {
+          targetId: "desk",
+          type: "page",
+          url: "https://example.com/",
+        },
+      },
+    });
+    await Promise.resolve();
+    expect(service.bridge.resolve("m", "agent")?.connection).toBe(connection);
+    // Popup unpair revokes one browser; the pending code still pairs.
+    const third = socket(pending.code);
+    expect(third.messages.map((m) => m.kind).slice(0, 2)).toEqual([
+      "paired",
+      "ready",
+    ]);
+    expect(store.browsers("m").map((b) => b.name)).toEqual([
+      "Desk",
+      "Browser 1",
+    ]);
   } finally {
     service.stop();
     rmSync(dir, { recursive: true, force: true });

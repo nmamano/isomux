@@ -109,7 +109,7 @@ describe("browser extension isolation", () => {
         ws.onerror = () => reject(new Error("Fixture socket failed"));
       });
       expect(received).toHaveLength(0);
-      expect(fixture.bridge.forMember("fixture-member")).toBeUndefined();
+      expect(fixture.bridge.connections("fixture-member")[0]).toBeUndefined();
     } finally {
       ws.close();
       fixture.stop();
@@ -1239,5 +1239,101 @@ test("All timed expiry releases every caller before first action and Never has n
     expect(c.offered("b")).toBe(never);
   } finally {
     c.close();
+  }
+});
+
+test("offers from several browsers of one member resolve as one set", async () => {
+  const names: Record<string, string> = {
+    [browserCredentialHash("laptop")]: "Laptop",
+    [browserCredentialHash("desk")]: "Desk",
+  };
+  const bridge = new BrowserExtensionBridge({
+    memberForCredentialHash: (hash) => (hash in names ? "member" : undefined),
+    browserName: (hash) => names[hash],
+    mayUse: () => true,
+  });
+  const laptopWire = peer(),
+    deskWire = peer();
+  const laptop = bridge.connect("laptop", laptopWire);
+  const desk = bridge.connect("desk", deskWire);
+  const offer = (
+    connection: typeof laptop,
+    wire: typeof laptopWire,
+    scope: { kind: "all" } | { kind: "agent"; agentId: string },
+    targetId?: string,
+  ) => {
+    const assignment = crypto.randomUUID();
+    connection.receive({
+      kind: "offer",
+      durationMinutes: 0,
+      generation: connection.generation,
+      assignment,
+      scope,
+    });
+    const attach = wire.messages.at(-1)!;
+    if (targetId && attach.method === "attach")
+      connection.receive({
+        kind: "result",
+        generation: connection.generation,
+        id: attach.id,
+        result: {
+          targetInfo: { targetId, type: "page", url: "https://example.com/" },
+        },
+      });
+    return assignment;
+  };
+  try {
+    expect(bridge.connections("member")).toEqual([laptop, desk]);
+    expect(() => bridge.connect("laptop", peer())).toThrow();
+    offer(laptop, laptopWire, { kind: "all" }, "laptop-all");
+    await Promise.resolve();
+    const sole = bridge.resolve("member", "agent")!;
+    expect(sole.connection).toBe(laptop);
+    expect(sole.grant).toBe(laptop.offered("agent")!);
+    offer(desk, deskWire, { kind: "all" }, "desk-all");
+    await Promise.resolve();
+    expect(bridge.ambiguous("member", "agent")).toBe(true);
+    expect(bridge.resolve("member", "agent")).toBeUndefined();
+    const tabs = bridge.targets("member", "agent");
+    expect(tabs.map((t) => [t.browser, t.scope.kind])).toEqual([
+      ["Laptop", "all"],
+      ["Desk", "all"],
+    ]);
+    expect(bridge.resolve("member", "agent", tabs[1].target)).toMatchObject({
+      connection: desk,
+      target: tabs[1].target,
+    });
+    const own = offer(
+      desk,
+      deskWire,
+      { kind: "agent", agentId: "agent" },
+      "desk-own",
+    );
+    await Promise.resolve();
+    expect(bridge.ambiguous("member", "agent")).toBe(false);
+    expect(bridge.resolve("member", "agent")).toMatchObject({
+      connection: desk,
+      grant: own,
+    });
+    // One individual offer per agent across browsers, also while the first
+    // one is still attaching.
+    const sent = laptopWire.messages.length;
+    offer(laptop, laptopWire, { kind: "agent", agentId: "agent" });
+    expect(laptopWire.messages.slice(sent)).toEqual([
+      expect.objectContaining({ kind: "offered", error: true }),
+    ]);
+    offer(desk, deskWire, { kind: "agent", agentId: "other" });
+    const refused = laptopWire.messages.length;
+    offer(laptop, laptopWire, { kind: "agent", agentId: "other" });
+    expect(laptopWire.messages.slice(refused)).toEqual([
+      expect.objectContaining({ kind: "offered", error: true }),
+    ]);
+    // Closing one browser leaves the other's offers in place.
+    desk.close();
+    expect(bridge.connections("member")).toEqual([laptop]);
+    expect(bridge.resolve("member", "agent")?.connection).toBe(laptop);
+  } finally {
+    laptop.close();
+    desk.close();
   }
 });

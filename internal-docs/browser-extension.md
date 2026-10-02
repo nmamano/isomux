@@ -6,28 +6,29 @@ Desktop Chrome is the interactive browser. Server screenshot previews remain sep
 
 ## Member flow and state
 
-The normal route table declares these self-scoped routes. All four require
+The normal route table declares these self-scoped routes. All five require
 `cap("user:self", authenticated)`, as personal preferences do. An agent token
 cannot use them. Other identities need that actual capability; owning another
 member's office does not select that member's browser.
 
 | Method | Path | Operation |
 | --- | --- | --- |
-| GET | `/api/me/browser` | Read paired/online state, member label and package version |
+| GET | `/api/me/browser` | Read paired/online state, each paired browser, member label and package version |
 | GET | `/api/me/browser/extension.zip` | Download the built extension with attachment/no-store headers |
-| POST | `/api/me/browser/pair` | Create a pairing code; `replace: true` permits replacement |
-| DELETE | `/api/me/browser` | Revoke the credential and end control |
+| POST | `/api/me/browser/pair` | Create a pairing code for one more browser; optional `name` |
+| DELETE | `/api/me/browser` | Revoke every browser and end control |
+| DELETE | `/api/me/browser/browsers/:id` | Revoke one browser and end its control |
 
 The server creates a 32-byte random base64url code, valid for five minutes and
 one redemption. A new code replaces the member's pending code. Code hashes live
 only in memory. The authenticated response contains the code and expiry.
-Creating a replacement code leaves the live browser alone. Redemption validates
+Creating a code leaves live browsers alone. Redemption validates
 protocol version, code, current member existence and exact extension Origin,
-consumes the code, atomically writes the new credential hash and Origin, closes
-the old connection, then sends the new credential. A failed send does not restore
+consumes the code, atomically adds a browser with the new credential hash and
+Origin, then sends the new credential. Other browsers stay connected. A failed send does not restore
 the code. The member pairs again after a lost paired response.
 
-`browser-connections.json` retains its version-1 envelope and credential hash/Origin fields. Legacy flat maps also load. Old headless choices become extension records; valid paired credentials remain usable. Missing or invalid state requires fresh pairing. Redemption preserves unreadable/corrupt source data under a unique `.unavailable-` filename before an atomic replacement, and restores it if the write fails. No raw credentials are saved server-side.
+`browser-connections.json` holds a version-2 list of browsers per member (see "Several paired browsers"). Version-1 envelopes and legacy flat maps also load. Old headless choices become extension records; valid paired credentials remain usable. Missing or invalid state requires fresh pairing. Redemption preserves unreadable/corrupt source data under a unique `.unavailable-` filename before an atomic replacement, and restores it if the write fails. No raw credentials are saved server-side.
 
 The removed PATCH `/api/me/browser` returns JSON 404 through the existing retired-route wall. Status no longer reports a backend or selectionRequired. Legacy experimental panel settings are ignored on load and update. The old panel WebSocket commands are ignored; no frames or input callbacks exist. Saved server profile files remain untouched and are never loaded or imported. Pairing never grants a tab automatically.
 
@@ -44,8 +45,8 @@ The first frame, within five seconds and at most 4 KiB, is
 `{kind: "hello", version: 4, code}` or the same shape with `credential`.
 Pairing returns `{kind: "paired", version: 4, credential}` before
 `{kind: "ready", version: 4, generation}`. Authentication binds the credential
-hash to the saved extension Origin. Duplicate live connections are refused;
-only explicit replacement displaces the current connection.
+hash to the saved extension Origin. Each credential has at most one live
+connection; a duplicate is refused.
 
 Later messages are limited to 8 MiB before JSON parsing. Each command has a
 30-second deadline. The server sends a ping every 15 seconds and closes control
@@ -313,3 +314,85 @@ The real office/extension Chrome reading scenario in
 contenteditable textbox with nested spans, hidden controls, a long feed,
 nested frame scopes and selector syntax errors. All page content is fake.
 The pre-fix HTTP snapshot omitted the nested draft while `text` returned it.
+
+## Several paired browsers (task e9f8d0b8, 2026-10-02)
+
+A member pairs Chrome on several computers (or several Chrome profiles). Each
+pairing is a separate **browser** with its own credential. All of them stay
+paired, and agents use tabs offered from any of them.
+
+**Stored shape.** `browser-connections.json` becomes version 2:
+`{version: 2, members: {<memberId>: {browsers: [{id, name, hash, origin, pairedAt}]}}}`.
+`id` is a random, non-secret handle; `pairedAt` is epoch ms or null. Load still
+reads version 1 and the legacy flat map. A version-1 record with a valid
+hash/Origin (from version 1 or the legacy flat map) becomes one browser named
+`Browser 1` with `pairedAt: null`; a record without a valid credential becomes
+no browser. The file is rewritten as
+version 2 at the next pair or revoke, with the existing unavailable-file
+preservation. A rollback restores the pre-update state snapshot, so no
+downgrade reader is needed.
+
+**Naming.** The member types an optional name next to Create pairing code
+(sanitized like other display labels, at most 40 characters). An empty name
+gets `Browser N`, the smallest unused N for that member. Duplicate names are
+allowed. The code carries the name; the browser exists only after redemption.
+There is no rename; Unpair and pair again.
+
+**Pairing and replace.** `POST /api/me/browser/pair` takes `{name?}` and always
+adds a browser. `browser_already_paired` (409) is gone. `replace` is retired:
+a boolean `replace` is still accepted and ignored. This changes its meaning: an
+old client that sends `replace: true` adds a browser, and the former browser's
+credential stays valid until the member unpairs it. One pending code per member
+remains; a new code voids the previous code.
+
+**Re-pairing the same Chrome.** The protocol does not change. A Chrome that
+pairs again with a new code is a new browser; its old row shows Offline until
+the member unpairs it.
+
+**Settings.** `GET /api/me/browser` keeps `paired` (any browser) and `online`
+(any connected) and adds `browsers: [{id, name, pairedAt, online}]`. The
+Connection card lists one row per browser: name, Connected/Offline, paired
+date, and Unpair. The new route `DELETE /api/me/browser/browsers/:id` uses
+`cap("user:self", authenticated)` like its siblings. It looks the id up only
+among the caller's browsers; a missing id and another member's id both return
+the same 404 `browser_not_found`. It revokes that browser, sends terminal
+refusal to its socket only, and leaves a pending code alone. `DELETE
+/api/me/browser` still revokes all browsers and clears the pending code. The
+popup's Unpair revokes only its own browser.
+
+**Connections.** The bridge keys live connections by credential hash, so each
+browser has at most one live socket and pairing one browser never disconnects
+another. Generations, queues (`generation:assignment`) and timeout recovery are
+already per connection and stay unchanged.
+
+**Agent tab selection.** The bridge resolves an agent's offers across all live
+connections of its manager as one set:
+- An agent has at most one individual offer across all browsers. The check
+  covers offers still being created on every connection and runs before the
+  async attach, so two browsers cannot race. An individual offer from a second
+  browser is refused. That popup only knows its own tabs, so it shows the
+  generic refusal, not the "This agent already has a tab" conflict; a specific
+  message would need an extension change.
+- Unqualified actions use the individual offer, otherwise a sole All offer
+  from any browser. Several All offers, on one browser or several, return
+  `browser_target_required`.
+- `tabs` lists offers from every connected browser and adds `browser` (its
+  name) to each entry. Target handles are random and unique across browsers.
+- An action resolves its connection and grant together when it is queued. Before
+  it runs, the session checks that exact pair again and returns
+  `browser_control_ended` if it changed. A queued action never moves to another
+  browser because an offer disappeared or a new one took precedence. Recovery
+  and close stay scoped to that pair.
+- `browser_not_paired`: no browser is paired. `browser_offline`: no paired
+  browser is connected; its message becomes "No paired Chrome browser is
+  online". An offline browser contributes no tabs.
+
+**Prompt copy (server/system-prompt.ts).** The pairing sentence stays. "Use
+{"action":"tabs"} to list accessible offered tabs as {target,scope,title,url};
+... An individual offer takes precedence, otherwise a sole All offer is used."
+becomes "...as {target,scope,browser,title,url}; ... Offers from all paired
+browsers count together: an individual offer takes precedence, otherwise a sole
+All offer is used."
+
+**Not included.** Re-pairing in place, rename, a per-member browser cap, showing the browser name in
+the extension popup.

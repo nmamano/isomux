@@ -56,13 +56,24 @@ type Assignment = {
   closed: boolean;
 };
 
+export type BrowserTab = {
+  target: string;
+  scope: BrowserGrantScope;
+  browser: string;
+  title: string;
+  url: string;
+};
+
 // No HTTP listener or production route is registered here. The caller supplies
 // a browser-only hash lookup and live member/agent authorization on every use.
+// A member can pair several browsers; each credential has at most one live
+// connection, and an agent sees the offers of all of them as one set.
 export class BrowserExtensionBridge {
-  private connections = new Map<string, ExtensionConnection>();
+  private live = new Map<string, ExtensionConnection>();
   constructor(
     private readonly access: {
       memberForCredentialHash(hash: string): string | undefined;
+      browserName?(hash: string): string;
       mayUse(memberId: string, agentId: string): boolean;
       memberDisplay?(member: string): BrowserDisplay;
       agentDisplay?(agent: string): BrowserDisplay;
@@ -74,7 +85,7 @@ export class BrowserExtensionBridge {
   connect(credential: string, peer: BridgePeer): ExtensionConnection {
     const hash = browserCredentialHash(credential);
     const member = this.access.memberForCredentialHash(hash);
-    if (!member || this.connections.has(member))
+    if (!member || this.live.has(hash))
       throw new Error("Browser connection refused");
     const connection = new ExtensionConnection(
       member,
@@ -83,8 +94,7 @@ export class BrowserExtensionBridge {
         this.access.memberForCredentialHash(hash) === member &&
         this.access.mayUse(member, agent),
       () => {
-        if (this.connections.get(member) === connection)
-          this.connections.delete(member);
+        if (this.live.get(hash) === connection) this.live.delete(hash);
       },
       this.access.memberDisplay
         ? () => this.access.memberDisplay!(member)
@@ -95,8 +105,12 @@ export class BrowserExtensionBridge {
       () => this.access.agents?.(member) ?? [],
       this.clock,
       () => this.access.memberForCredentialHash(hash) === member,
+      hash,
+      // One individual offer per agent across all of the member's browsers,
+      // including offers that are still attaching.
+      (agent) => this.connections(member).some((c) => c.holdsAgent(agent)),
     );
-    this.connections.set(member, connection);
+    this.live.set(hash, connection);
     try {
       peer.send({
         kind: "ready",
@@ -111,8 +125,62 @@ export class BrowserExtensionBridge {
     return connection;
   }
 
-  forMember(memberId: string): ExtensionConnection | undefined {
-    return this.connections.get(memberId);
+  connections(memberId: string): ExtensionConnection[] {
+    return [...this.live.values()].filter((c) => c.memberId === memberId);
+  }
+
+  forCredentialHash(hash: string): ExtensionConnection | undefined {
+    return this.live.get(hash);
+  }
+
+  targets(memberId: string, agent: string): BrowserTab[] {
+    return this.offers(memberId, agent).map(({ tab }) => tab);
+  }
+
+  private offers(
+    memberId: string,
+    agent: string,
+  ): { connection: ExtensionConnection; tab: BrowserTab }[] {
+    return this.connections(memberId).flatMap((connection) =>
+      connection.targets(agent).map((t) => ({
+        connection,
+        tab: {
+          target: t.target,
+          scope: t.scope,
+          browser: this.access.browserName?.(connection.credentialHash) ?? "",
+          title: t.title,
+          url: t.url,
+        },
+      })),
+    );
+  }
+
+  // The individual offer first, then a sole All offer, across all browsers.
+  resolve(
+    memberId: string,
+    agent: string,
+    target?: string,
+  ):
+    | { connection: ExtensionConnection; grant: string; target: string }
+    | undefined {
+    const offers = this.offers(memberId, agent);
+    const chosen =
+      target !== undefined
+        ? offers.find((o) => o.tab.target === target)
+        : (offers.find((o) => o.tab.scope.kind === "agent") ??
+          (offers.length === 1 ? offers[0] : undefined));
+    if (!chosen) return undefined;
+    const grant = chosen.connection.offered(agent, chosen.tab.target);
+    return grant
+      ? { connection: chosen.connection, grant, target: chosen.tab.target }
+      : undefined;
+  }
+
+  ambiguous(memberId: string, agent: string): boolean {
+    const offers = this.offers(memberId, agent);
+    return (
+      !offers.some((o) => o.tab.scope.kind === "agent") && offers.length > 1
+    );
   }
 }
 
@@ -132,7 +200,16 @@ export class ExtensionConnection {
     private agents: () => string[] = () => [],
     private clock: GrantClock = grantClock,
     private ownerValid: () => boolean = () => true,
+    readonly credentialHash = "",
+    private agentTaken: (agentId: string) => boolean = (agentId) =>
+      this.holdsAgent(agentId),
   ) {}
+
+  holdsAgent(agentId: string): boolean {
+    return [...this.assignments.values()].some(
+      (a) => a.scope.kind === "agent" && a.scope.agentId === agentId,
+    );
+  }
 
   assign(
     agentId: string,
@@ -250,10 +327,7 @@ export class ExtensionConnection {
       !this.ownerValid() ||
       (scope.kind === "agent" && !this.authorize(scope.agentId)) ||
       this.assignments.has(id) ||
-      (scope.kind === "agent" &&
-        [...this.assignments.values()].some(
-          (a) => a.scope.kind === "agent" && a.scope.agentId === scope.agentId,
-        ))
+      (scope.kind === "agent" && this.agentTaken(scope.agentId))
     ) {
       this.peer.send({
         kind: "offered",

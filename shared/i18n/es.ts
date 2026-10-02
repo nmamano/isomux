@@ -29,7 +29,7 @@ export const es: Catalog = {
   "browser.intro":
     "Permite que los agentes naveguen, lean páginas y rellenen formularios en tu Chrome de escritorio con tus sesiones iniciadas. Ofrece una pestaña a Todos o a un agente.",
   "browser.chromeHelp":
-    "Los agentes usan Chrome en este ordenador. Instala y vincula la extensión abajo.",
+    "Los agentes usan Chrome en los ordenadores que vincules. Instala y vincula la extensión en cada uno.",
   "browser.setup": "Configurar Chrome",
   "browser.extract": "Extrae el ZIP.",
   "browser.extensions":
@@ -61,8 +61,10 @@ export const es: Catalog = {
     "Chrome avisa «Leer tu historial de navegación». La extensión usa este permiso para vincular las ventanas abiertas por los sitios con la pestaña de su agente; no recopila el historial.",
   "browser.generate": "Crear código de vinculación",
   "browser.replace": "Reemplazar vinculación",
-  "browser.replaceHint":
-    "El navegador anterior pierde el acceso cuando se usa el nuevo código.",
+  "browser.name": "Nombre del navegador",
+  "browser.nameHint":
+    "Opcional, por ejemplo Portátil del trabajo. Los agentes ven este nombre.",
+  "browser.pairedOn": "Vinculado el {date}",
   "browser.code": "Código de vinculación",
   "browser.expires": "Caduca a las {time}",
   "browser.expired": "El código ha caducado. Crea uno nuevo.",
@@ -1168,6 +1170,7 @@ Cosas que puedes hacer por él:
   "apiCall.agents.shareFileDetail": "Compartir un archivo en el chat",
   "apiCall.agents.previewUrl": "Capturar una página en el chat",
   "apiCall.agents.previewUrlDetail": "Capturar una página en el chat",
+  "apiCall.browser.unpairOne": "Desvincular un navegador",
   "apiCall.agents.browser": "Usar el navegador",
   "apiCall.agents.browserDetail": "Usar el navegador",
   "apiCall.agents.showDiff": "Mostrar un diff en el chat",

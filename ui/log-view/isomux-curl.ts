@@ -819,6 +819,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/agents/*/read-file", "apiCall.agents.shareFile"],
   ["POST", "/api/agents/*/preview-url", "apiCall.agents.previewUrl"],
   ["POST", "/api/agents/*/browser", "apiCall.agents.browser"],
+  ["DELETE", "/api/me/browser/browsers/*", "apiCall.browser.unpairOne"],
   ["POST", "/api/agents/*/diff", "apiCall.agents.showDiff"],
   ["POST", "/api/agents/*/edit-file", "apiCall.agents.offerFile"],
   ["POST", "/api/agents/*/terminal-command", "apiCall.agents.suggestCommand"],

@@ -49,7 +49,7 @@ export function BrowserPane() {
       clearInterval(timer);
     };
   }, []);
-  async function change(method: "POST" | "DELETE", body?: unknown) {
+  async function change(method: "POST" | "DELETE", path: string, body?: unknown) {
     setBusy(true);
     setError(false);
     setCopied(false);
@@ -57,11 +57,14 @@ export function BrowserPane() {
     try {
       const result = await apiFetch<{ code: string; expiresAt: number }>(
         method,
-        `/api/me/browser${method === "POST" ? "/pair" : ""}`,
+        path,
         body,
       );
       if (!mounted.current) return;
-      setPair(method === "POST" ? result : undefined);
+      if (method === "POST") {
+        setPair(result);
+        setName("");
+      }
       await refresh();
     } catch {
       if (mounted.current) setError(true);
@@ -72,6 +75,7 @@ export function BrowserPane() {
   const [revealed, setRevealed] = useState(false);
   const [officeCopied, setOfficeCopied] = useState(false);
   const [extensionsCopied, setExtensionsCopied] = useState(false);
+  const [name, setName] = useState("");
   const expired = !!pair && now >= pair.expiresAt;
   return (
     <section
@@ -136,16 +140,59 @@ export function BrowserPane() {
             <p style={hint}>
               {t("browser.owner", { name: status.member.name })}
             </p>
-            <p
+            <ul
               role="status"
               data-testid="browser-state"
               data-online={status.online}
               data-paired={status.paired}
-              style={{ margin: "16px 0", color: "var(--text-secondary)" }}
+              style={{
+                margin: "16px 0",
+                padding: 0,
+                listStyle: "none",
+                display: "grid",
+                gap: 8,
+                color: "var(--text-secondary)",
+              }}
             >
-              {t(status.paired ? "browser.paired" : "browser.unpaired")} ·{" "}
-              {t(status.online ? "browser.connected" : "browser.offline")}
-            </p>
+              {status.browsers.length === 0 && <li>{t("browser.unpaired")}</li>}
+              {status.browsers.map((b) => (
+                <li
+                  key={b.id}
+                  data-testid="browser-row"
+                  data-online={b.online}
+                  style={{ display: "flex", gap: 8, alignItems: "center" }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <strong style={{ color: "var(--text-primary)" }}>
+                      {b.name}
+                    </strong>{" "}
+                    · {t(b.online ? "browser.connected" : "browser.offline")}
+                    {b.pairedAt !== null && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        {t("browser.pairedOn", {
+                          date: new Date(b.pairedAt).toLocaleDateString(),
+                        })}
+                      </>
+                    )}
+                  </span>
+                  <button
+                    data-testid="browser-revoke"
+                    style={dialogCancelBtn}
+                    disabled={busy}
+                    onClick={() =>
+                      void change(
+                        "DELETE",
+                        `/api/me/browser/browsers/${encodeURIComponent(b.id)}`,
+                      )
+                    }
+                  >
+                    {t("browser.unpair")}
+                  </button>
+                </li>
+              ))}
+            </ul>
             <label style={dialogLabel} htmlFor="browser-office">
               {t("browser.office")}
             </label>
@@ -170,27 +217,31 @@ export function BrowserPane() {
                 {t(officeCopied ? "browser.copied" : "common.copy")}
               </button>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <label style={dialogLabel} htmlFor="browser-name">
+              {t("browser.name")}
+            </label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                id="browser-name"
+                data-testid="browser-name"
+                style={{ ...dialogInput, minWidth: 0 }}
+                maxLength={40}
+                autoComplete="off"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
               <button
                 data-testid="browser-pair"
                 style={dialogCancelBtn}
                 disabled={busy}
-                onClick={() => void change("POST", { replace: status.paired })}
+                onClick={() =>
+                  void change("POST", "/api/me/browser/pair", { name })
+                }
               >
-                {t(status.paired ? "browser.replace" : "browser.generate")}
+                {t("browser.generate")}
               </button>
-              {status.paired && (
-                <button
-                  data-testid="browser-revoke"
-                  style={dialogCancelBtn}
-                  disabled={busy}
-                  onClick={() => void change("DELETE")}
-                >
-                  {t("browser.unpair")}
-                </button>
-              )}
             </div>
-            {status.paired && <p style={hint}>{t("browser.replaceHint")}</p>}
+            <p style={hint}>{t("browser.nameHint")}</p>
             {pair && (
               <div style={{ marginTop: 16 }}>
                 <p style={hint}>{t("browser.pairHelp")}</p>

@@ -16,30 +16,34 @@ import { tmpdir } from "node:os";
 import { BrowserExtensionStore } from "./browser-extension-store";
 import { browserCredentialHash } from "./browser-extension-bridge";
 const origin = "chrome-extension://" + "a".repeat(32);
-test("pairing is single use, expires, stores hashes only, and replacement waits for redemption", () => {
+test("pairing is single use, expires, stores hashes only, and a second code adds a browser", () => {
   const dir = mkdtempSync(join(tmpdir(), "browser-store-"));
   const path = join(dir, "connections.json");
   let now = 0;
   try {
     const store = new BrowserExtensionStore(path, () => now);
-    expect(store.record("one").backend).toBe("extension");
-    const first = store.pair("one", false);
+    expect(store.paired("one")).toBe(false);
+    const first = store.pair("one");
     expect(first.code.length).toBe(43);
     const paired = store.redeem(first.code, origin, () => true);
     expect(
       store.memberForHash(browserCredentialHash(paired.credential), origin),
     ).toBe("one");
     expect(() => store.redeem(first.code, origin, () => true)).toThrow();
-    expect(() => store.pair("one", false)).toThrow();
-    const replacement = store.pair("one", true);
+    // A paired member gets a code without any replace flag; it adds a browser.
+    const replacement = store.pair("one", "Work laptop");
+    const voided = store.pair("one", "Work laptop");
+    expect(() => store.redeem(replacement.code, origin, () => true)).toThrow();
+    const second = store.redeem(voided.code, origin, () => true);
+    expect(() => store.redeem(voided.code, origin, () => true)).toThrow();
     expect(
       store.memberForHash(browserCredentialHash(paired.credential), origin),
     ).toBe("one");
-    const second = store.redeem(replacement.code, origin, () => true);
-    expect(() => store.redeem(replacement.code, origin, () => true)).toThrow();
-    expect(
-      store.memberForHash(browserCredentialHash(paired.credential), origin),
-    ).toBeUndefined();
+    expect(store.browsers("one").map((b) => [b.name, b.pairedAt])).toEqual([
+      ["Browser 1", 0],
+      ["Work laptop", 0],
+    ]);
+    expect(second.browser).toBe(store.browsers("one")[1].id);
     expect(
       store.memberForHash(browserCredentialHash(second.credential), origin),
     ).toBe("one");
@@ -51,22 +55,85 @@ test("pairing is single use, expires, stores hashes only, and replacement waits 
     ).toBeUndefined();
     const saved = readFileSync(path, "utf8");
     expect(saved).not.toContain(second.credential);
-    expect(saved).not.toContain(replacement.code);
-    const pending = store.pair("two", false);
+    expect(saved).not.toContain(voided.code);
+    expect(JSON.parse(saved).version).toBe(2);
+    const pending = store.pair("two");
     const restart = new BrowserExtensionStore(path);
-    expect(restart.record("one").backend).toBe("extension");
+    expect(restart.browsers("one")).toEqual(store.browsers("one"));
     expect(
       restart.memberForHash(browserCredentialHash(second.credential), origin),
     ).toBe("one");
     expect(() => restart.redeem(pending.code, origin, () => true)).toThrow();
     now = pending.expiresAt;
     expect(() => store.redeem(pending.code, origin, () => true)).toThrow();
-    const fresh = store.pair("two", false);
+    const fresh = store.pair("two");
     expect(() => store.redeem(fresh.code, "null", () => true)).toThrow();
     expect(() => store.redeem(fresh.code, origin, () => false)).toThrow();
     expect(store.redeem(fresh.code, origin, () => true).member).toBe("two");
     restart.revoke("one");
-    expect(restart.record("one").hash).toBeUndefined();
+    expect(restart.paired("one")).toBe(false);
+    expect(
+      new BrowserExtensionStore(path).memberForHash(
+        browserCredentialHash(second.credential),
+      ),
+    ).toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("version-2 browsers load, names default and are bounded, and a bad entry is preserved on write", () => {
+  const dir = mkdtempSync(join(tmpdir(), "browser-v2-"));
+  const path = join(dir, "connections.json");
+  const hash = browserCredentialHash("fixture credential");
+  try {
+    writeFileSync(
+      path,
+      JSON.stringify({
+        version: 2,
+        members: {
+          member: {
+            browsers: [
+              { id: "kept", name: "Browser 2", hash, origin, pairedAt: 5 },
+              { id: "bad", name: "Broken", hash: "x", origin, pairedAt: 5 },
+            ],
+          },
+        },
+      }),
+    );
+    const store = new BrowserExtensionStore(path);
+    expect(store.browsers("member").map((b) => b.id)).toEqual(["kept"]);
+    expect(() => store.pair("member", "x".repeat(41))).toThrow();
+    // Sanitized and trimmed; control characters do not count.
+    store.pair("member", " \u202e" + "y".repeat(40) + "\n");
+    const added = store.redeem(
+      store.pair("member").code,
+      origin,
+      () => true,
+    );
+    expect(store.browsers("member").map((b) => b.name)).toEqual([
+      "Browser 2",
+      "Browser 1",
+    ]);
+    const unavailable = readdirSync(dir).filter((n) =>
+      n.includes(".unavailable-"),
+    );
+    expect(unavailable).toHaveLength(1);
+    expect(readFileSync(join(dir, unavailable[0]), "utf8")).toContain("Broken");
+    const pending = store.pair("member");
+    expect(store.revokeBrowser("member", "missing")).toBeUndefined();
+    expect(store.revokeBrowser("other", "kept")).toBeUndefined();
+    expect(store.revokeBrowser("member", added.browser)).toBe(
+      browserCredentialHash(added.credential),
+    );
+    expect(store.memberForHash(hash, origin)).toBe("member");
+    expect(store.redeem(pending.code, origin, () => true).member).toBe(
+      "member",
+    );
+    const cleared = store.pair("member");
+    store.revoke("member");
+    expect(() => store.redeem(cleared.code, origin, () => true)).toThrow();
+    expect(new BrowserExtensionStore(path).paired("member")).toBe(false);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -93,7 +160,10 @@ test("legacy headless choices migrate to Chrome and preserve pairing and profile
       );
       const store = new BrowserExtensionStore(path);
       expect(store.memberForHash(hash, origin)).toBe("member");
-      expect(store.record("member").backend).toBe("extension");
+      expect(
+        store.browsers("member").map((b) => [b.name, b.hash, b.pairedAt]),
+      ).toEqual([["Browser 1", hash, null]]);
+      expect(store.paired("unpaired")).toBe(false);
       const service = new BrowserExtensionService(store, {
         memberExists: () => true,
         mayUse: () => true,
@@ -111,6 +181,30 @@ test("legacy headless choices migrate to Chrome and preserve pairing and profile
         online: false,
       });
       expect(service.status("member")).not.toHaveProperty("backend");
+      expect(service.status("member").browsers).toEqual([
+        {
+          id: store.browsers("member")[0].id,
+          name: "Browser 1",
+          pairedAt: null,
+          online: false,
+        },
+      ]);
+      // The next write is version 2 and keeps the migrated credential.
+      const added = store.redeem(
+        store.pair("member").code,
+        origin,
+        () => true,
+      );
+      const reloaded = new BrowserExtensionStore(path);
+      expect(JSON.parse(readFileSync(path, "utf8")).version).toBe(2);
+      expect(reloaded.memberForHash(hash, origin)).toBe("member");
+      expect(
+        reloaded.memberForHash(browserCredentialHash(added.credential), origin),
+      ).toBe("member");
+      expect(reloaded.browsers("member").map((b) => b.name)).toEqual([
+        "Browser 1",
+        "Browser 2",
+      ]);
       expect(readFileSync(join(profile, "member.json"), "utf8")).toBe(
         "legacy profile fixture",
       );
@@ -131,8 +225,8 @@ test("corrupt state requires pairing and preserves source on redemption, includi
       else writeFileSync(path, "{");
       const inode = statSync(path).ino;
       const store = new BrowserExtensionStore(path);
-      expect(store.record("member").hash).toBeUndefined();
-      const pair = store.pair("member", false);
+      expect(store.paired("member")).toBe(false);
+      const pair = store.pair("member");
       mkdirSync(path + ".tmp");
       expect(() => store.redeem(pair.code, origin, () => true)).toThrow();
       expect(statSync(path).ino).toBe(inode);
@@ -140,7 +234,7 @@ test("corrupt state requires pairing and preserves source on redemption, includi
         readdirSync(dir).filter((n) => n.includes(".unavailable-")),
       ).toHaveLength(0);
       rmSync(path + ".tmp", { recursive: true });
-      const retry = store.pair("member", false);
+      const retry = store.pair("member");
       const redeemed = store.redeem(retry.code, origin, () => true);
       const backup = readdirSync(dir).find((n) => n.includes(".unavailable-"))!;
       expect(statSync(join(dir, backup)).ino).toBe(inode);
@@ -174,7 +268,7 @@ test("queued browser work cannot cross Off into a replacement tab offer", async 
     () => 500,
   );
   try {
-    const { code } = store.pair("member", false);
+    const { code } = store.pair("member");
     const { credential } = store.redeem(
       code,
       "chrome-extension://" + "a".repeat(32),
@@ -257,7 +351,7 @@ test("connected extension without an offered tab rejects agent actions without c
     () => 500,
   );
   try {
-    const { code } = store.pair("member", false);
+    const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, {
@@ -266,7 +360,7 @@ test("connected extension without an offered tab rejects agent actions without c
       },
       close() {},
     });
-    expect(service.bridge.forMember("member")).toBe(connection);
+    expect(service.bridge.connections("member")[0]).toBe(connection);
     expect(connection.offered("agent")).toBeUndefined();
     for (const body of [
       { action: "snapshot" },
@@ -336,7 +430,7 @@ test("Never has no desktop idle timer and stays offered across four hours and ac
     },
   );
   try {
-    const { code } = store.pair("member", false);
+    const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, {
@@ -407,7 +501,7 @@ test("timed expiry interrupts pending browser work with unknown outcome and neve
   let now = Date.now();
   const clock = spyOn(Date, "now").mockImplementation(() => now);
   try {
-    const { code } = store.pair("member", false);
+    const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, {
@@ -496,7 +590,7 @@ async function timeoutSessionFixture(
     access,
     () => 20,
   );
-  const { code } = store.pair("member", false);
+  const { code } = store.pair("member");
   const { credential } = store.redeem(code, origin, () => true);
   const messages: Record<string, unknown>[] = [];
   const connection = service.bridge.connect(credential, {
@@ -642,6 +736,8 @@ async function timeoutSessionFixture(
     messages,
     grant,
     allowed,
+    store,
+    service,
     pageClosed: () => pageClosed,
     frameCalls: () => frameCalls,
     backgroundOnNextClick: () => {
@@ -816,7 +912,7 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
   );
   const diagnostics = spyOn(console, "info").mockImplementation(() => {});
   try {
-    const { code } = store.pair("member", false);
+    const { code } = store.pair("member");
     const { credential } = store.redeem(code, origin, () => true);
     const messages: Record<string, unknown>[] = [];
     const connection = service.bridge.connect(credential, {
@@ -852,7 +948,7 @@ test.skip("Playwright initialization timeout retains the offer while outstanding
     });
     expect(connection.pendingCount(grant)).toBeGreaterThan(0);
     expect(connection.offered("agent")).toBe(grant);
-    expect(service.bridge.forMember("member")).toBe(connection);
+    expect(service.bridge.connections("member")[0]).toBe(connection);
     expect(messages.some((m) => m.method === "detach")).toBe(false);
     const count = messages.length;
     expect(await sessions.run("agent", { action: "text" })).toMatchObject({
@@ -996,6 +1092,7 @@ test("target discovery resolves ambiguity without creating a session and recheck
         {
           target,
           scope: { kind: "all" },
+          browser: "Browser 1",
           title: "",
           url: "https://example.com/",
         },
@@ -1150,3 +1247,67 @@ for (const expiry of [false, true])
       clock.mockRestore();
     }
   });
+
+test("a queued action stays bound to its browser and grant when another browser's offer takes precedence", async () => {
+  const h = await timeoutSessionFixture(true, true);
+  const { code } = h.store.pair("member", "Desk");
+  const { credential } = h.store.redeem(code, origin, () => true);
+  const deskWire: Record<string, unknown>[] = [];
+  const desk = h.service.bridge.connect(credential, {
+    send: (m) => deskWire.push(m),
+    close() {},
+  });
+  try {
+    expect(await h.sessions.run("agent", { action: "tabs" })).toMatchObject({
+      ok: true,
+      tabs: [{ browser: "Browser 1", scope: { kind: "all" } }],
+    });
+    const first = h.sessions.run("agent", {
+      action: "fill",
+      selector: "#fixture",
+      text: "fixture",
+    });
+    const queued = h.sessions.run("agent", { action: "text" });
+    await Bun.sleep(0);
+    expect(h.connection.pendingCount(h.grant)).toBe(1);
+    desk.receive({
+      kind: "offer",
+      generation: desk.generation,
+      assignment: crypto.randomUUID(),
+      scope: { kind: "agent", agentId: "agent" },
+      durationMinutes: 0,
+    });
+    desk.receive({
+      kind: "result",
+      generation: desk.generation,
+      id: deskWire.at(-1)!.id,
+      result: {
+        targetInfo: {
+          targetId: "desk-owned",
+          type: "page",
+          url: "https://example.com/desk",
+        },
+      },
+    });
+    await Promise.resolve();
+    const sent = deskWire.length;
+    // As with one browser, a newly preferred offer ends unqualified work on
+    // the old grant; neither action moves to the other browser.
+    expect(await first).toMatchObject({ code: "browser_control_ended" });
+    expect(await queued).toMatchObject({ code: "browser_control_ended" });
+    expect(h.calls()).toBe(0);
+    expect(deskWire.slice(sent).filter((m) => m.kind === "command")).toEqual(
+      [],
+    );
+    expect(await h.sessions.run("agent", { action: "tabs" })).toMatchObject({
+      ok: true,
+      tabs: [
+        { browser: "Browser 1", scope: { kind: "all" } },
+        { browser: "Desk", scope: { kind: "agent", agentId: "agent" } },
+      ],
+    });
+  } finally {
+    desk.close();
+    h.stop();
+  }
+});

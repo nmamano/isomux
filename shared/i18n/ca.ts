@@ -29,7 +29,7 @@ export const ca: Catalog = {
   "browser.intro":
     "Permet que els agents naveguin, llegeixin pàgines i emplenin formularis al teu Chrome d’escriptori amb les sessions iniciades. Ofereix una pestanya a Tots o a un agent.",
   "browser.chromeHelp":
-    "Els agents utilitzen Chrome en aquest ordinador. Instal·la i vincula l’extensió a continuació.",
+    "Els agents utilitzen Chrome als ordinadors que vinculis. Instal·la i vincula l’extensió a cadascun.",
   "browser.setup": "Configura Chrome",
   "browser.extract": "Extreu el ZIP.",
   "browser.extensions":
@@ -61,8 +61,10 @@ export const ca: Catalog = {
     "Chrome avisa «Llegeix l’historial de navegació». L’extensió fa servir aquest permís per vincular les finestres obertes pels llocs amb la pestanya del seu agent; no recull l’historial.",
   "browser.generate": "Crea un codi de vinculació",
   "browser.replace": "Substitueix la vinculació",
-  "browser.replaceHint":
-    "El navegador anterior perd l’accés quan es fa servir el codi nou.",
+  "browser.name": "Nom del navegador",
+  "browser.nameHint":
+    "Opcional, per exemple Portàtil de la feina. Els agents veuen aquest nom.",
+  "browser.pairedOn": "Vinculat el {date}",
   "browser.code": "Codi de vinculació",
   "browser.expires": "Caduca a les {time}",
   "browser.expired": "El codi ha caducat. Crea’n un de nou.",
@@ -1165,6 +1167,7 @@ Coses que pots fer per ell:
   "apiCall.agents.shareFileDetail": "Compartir un fitxer al xat",
   "apiCall.agents.previewUrl": "Capturar una pàgina al xat",
   "apiCall.agents.previewUrlDetail": "Capturar una pàgina al xat",
+  "apiCall.browser.unpairOne": "Desvincular un navegador",
   "apiCall.agents.browser": "Utilitzar el navegador",
   "apiCall.agents.browserDetail": "Utilitzar el navegador",
   "apiCall.agents.showDiff": "Mostrar un diff al xat",

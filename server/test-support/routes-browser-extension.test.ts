@@ -133,6 +133,107 @@ test("production routes pair, bind Origin, reject office credential use, persist
   ).toMatchObject({ paired: false, online: false });
 });
 
+test("several browsers pair, stay connected, and unpair one at a time", async () => {
+  server = await startTestServer();
+  const owner = await server.seedOwner();
+  const other = await server.seedMember("Other");
+  const pair = async (body: unknown) =>
+    (
+      await (
+        await memberRequest(server!, owner, "POST", "/api/me/browser/pair", body)
+      ).json()
+    ).code as string;
+  const connect = async (code: string) => {
+    const socket = await extensionSocket(server!, {
+      kind: "hello",
+      version: 4,
+      code,
+    });
+    await socket.wait("ready");
+    return socket;
+  };
+  const status = async () =>
+    (await (
+      await memberRequest(server!, owner, "GET", "/api/me/browser")
+    ).json()) as {
+      online: boolean;
+      browsers: { id: string; name: string; online: boolean }[];
+    };
+  const laptop = await connect(await pair({ name: " Laptop " }));
+  // A retired replace flag is ignored: the code adds a browser.
+  const desk = await connect(await pair({ replace: true }));
+  expect(laptop.closed()).toBe(false);
+  const both = await status();
+  expect(both.browsers.map((b) => [b.name, b.online])).toEqual([
+    ["Laptop", true],
+    ["Browser 1", true],
+  ]);
+  for (const body of [{ name: "x".repeat(41) }, { name: 1 }, { replace: 1 }])
+    expect(
+      (await memberRequest(server, owner, "POST", "/api/me/browser/pair", body))
+        .status,
+    ).toBe(422);
+  const laptopId = both.browsers[0].id;
+  const missing = await memberRequest(
+    server,
+    owner,
+    "DELETE",
+    "/api/me/browser/browsers/unknown",
+  );
+  const foreign = await memberRequest(
+    server,
+    other,
+    "DELETE",
+    `/api/me/browser/browsers/${laptopId}`,
+  );
+  expect([missing.status, foreign.status]).toEqual([404, 404]);
+  expect(await foreign.json()).toEqual(await missing.json());
+  const token = getAgentTokenRaw(
+    (await ownedAgent(server, owner, "browser agent")).id,
+  )!;
+  expect(
+    (
+      await server.http(`/api/me/browser/browsers/${laptopId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    ).status,
+  ).toBe(403);
+  const pending = await pair({});
+  expect(
+    (
+      await memberRequest(
+        server,
+        owner,
+        "DELETE",
+        `/api/me/browser/browsers/${laptopId}`,
+      )
+    ).status,
+  ).toBe(204);
+  await laptop.wait("refused");
+  expect(desk.closed()).toBe(false);
+  expect((await status()).browsers.map((b) => b.name)).toEqual(["Browser 1"]);
+  // Unpairing one browser leaves a pending code usable.
+  const third = await connect(pending);
+  expect((await status()).browsers.map((b) => b.name)).toEqual([
+    "Browser 1",
+    "Browser 2",
+  ]);
+  const cleared = await pair({});
+  expect(
+    (await memberRequest(server, owner, "DELETE", "/api/me/browser")).status,
+  ).toBe(204);
+  await desk.wait("refused");
+  await third.wait("refused");
+  const late = await extensionSocket(server, {
+    kind: "hello",
+    version: 4,
+    code: cleared,
+  });
+  await late.wait("refused");
+  expect(await status()).toMatchObject({ online: false, browsers: [] });
+});
+
 test("extension socket requires exact Origin and canonical office host", () => {
   const request = (url: string, host: string, o: string) =>
     new Request(url, { headers: { host, origin: o } });

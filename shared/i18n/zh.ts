@@ -24,7 +24,8 @@ export const zh: Catalog = {
   "browser.title": "浏览器使用",
   "browser.intro":
     "让代理使用桌面 Chrome 中现有的登录状态浏览、读取页面和填写表单。可将标签页提供给全部代理或一个代理。",
-  "browser.chromeHelp": "智能体使用此电脑上的 Chrome。请在下方安装并配对扩展。",
+  "browser.chromeHelp":
+    "智能体使用你配对的电脑上的 Chrome。请在每台电脑上安装并配对扩展。",
   "browser.setup": "设置 Chrome",
   "browser.extract": "解压 ZIP 文件。",
   "browser.extensions":
@@ -53,7 +54,10 @@ export const zh: Catalog = {
     "Chrome 会提示“读取您的浏览记录”。扩展使用此权限将网站打开的弹出窗口关联到相应代理的标签页；扩展不收集浏览记录。",
   "browser.generate": "创建配对码",
   "browser.replace": "替换配对",
-  "browser.replaceHint": "使用新配对码后，原浏览器将失去访问权限。",
+  "browser.name": "浏览器名称",
+  "browser.nameHint":
+    "可选，例如“工作笔记本”。智能体会看到这个名称。",
+  "browser.pairedOn": "配对于 {date}",
   "browser.code": "配对码",
   "browser.expires": "到期时间：{time}",
   "browser.expired": "配对码已过期。请创建新配对码。",
@@ -1025,6 +1029,7 @@ App 的一些原则：
   "apiCall.agents.shareFileDetail": "将文件分享到聊天",
   "apiCall.agents.previewUrl": "将网页截图发到聊天",
   "apiCall.agents.previewUrlDetail": "将网页截图发到聊天",
+  "apiCall.browser.unpairOne": "解除一个浏览器的配对",
   "apiCall.agents.browser": "使用浏览器",
   "apiCall.agents.browserDetail": "使用浏览器",
   "apiCall.agents.showDiff": "在聊天中显示差异",

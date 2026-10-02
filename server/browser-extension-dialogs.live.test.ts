@@ -85,7 +85,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
         },
       );
       const deadline = Date.now() + 5000;
-      while (!fixture.bridge.forMember("fixture-member")) {
+      while (!fixture.bridge.connections("fixture-member")[0]) {
         if (Date.now() > deadline) throw Error("Fixture connection timed out");
         await Bun.sleep(20);
       }
@@ -103,12 +103,12 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
         'document.querySelector("#allow").checked && !document.querySelector("#allow").disabled',
       );
       await popup.close();
-      const connection = fixture.bridge.forMember("fixture-member")!;
+      const connection = fixture.bridge.connections("fixture-member")[0];
       const grant = connection.offered("fixture-agent")!;
       await connection.drain(grant);
       agent = await chromium.connectOverCDP(
         browserExtensionTransport(
-          fixture.bridge.forMember("fixture-member")!,
+          fixture.bridge.connections("fixture-member")[0],
           "fixture-agent",
         ),
         { noDefaults: true, timeout: 5000 },
@@ -172,7 +172,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_DIALOGS !== "1")(
         await inside!.locator("#file").waitFor();
         await upload(inside!, role + " child");
       }
-      fixture.bridge.forMember("fixture-member")!.revoke("fixture-agent");
+      fixture.bridge.connections("fixture-member")[0].revoke("fixture-agent");
       await Bun.sleep(300);
       await offered.bringToFront();
       await offered.locator("#file").click({ timeout: 3000 });

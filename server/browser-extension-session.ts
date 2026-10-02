@@ -50,7 +50,16 @@ const timeoutResult = (recovering = false) =>
       ? "The previous browser action is still settling; its outcome may be unknown. Control remains on. Inspect the page after it settles before retrying."
       : "The browser action timed out; its outcome may be unknown. Control remains on. Inspect the page before retrying.",
   );
+const offline = () =>
+  failure("browser_offline", "No paired Chrome browser is online");
 const SETTLEMENT_GRACE_MS = 1000;
+type Resolved = {
+  connection: ExtensionConnection;
+  grant: string;
+  target: string;
+};
+const same = (a: Resolved | undefined, b: Resolved | undefined): boolean =>
+  a?.connection === b?.connection && a?.grant === b?.grant;
 
 export class ExtensionBrowserSessions {
   private sessions = new Map<string, Session>();
@@ -78,38 +87,36 @@ export class ExtensionBrowserSessions {
     const params = parseBrowserParams(body);
     if (!params.ok) return Promise.resolve(params);
     const member = this.owner(agent);
-    const queuedConnection = member
-      ? this.service.bridge.forMember(member)
-      : undefined;
+    const bridge = this.service.bridge;
     if (params.action === "tabs") {
-      if (!member || !this.service.store.record(member).hash)
+      if (!member || !this.service.store.paired(member))
         return Promise.resolve(
           failure("browser_not_paired", "No Chrome browser is paired"),
         );
       if (!this.mayUse(member, agent)) return Promise.resolve(ended());
-      if (!queuedConnection)
-        return Promise.resolve(
-          failure("browser_offline", "The Chrome browser is offline"),
-        );
+      if (!bridge.connections(member).length) return Promise.resolve(offline());
       return Promise.resolve({
         ok: true,
         url: "",
         title: "",
-        tabs: queuedConnection.targets(agent),
+        tabs: bridge.targets(member, agent),
       });
     }
-    if (!params.target && queuedConnection?.ambiguous(agent))
+    if (!params.target && member && bridge.ambiguous(member, agent))
       return Promise.resolve(
         failure(
           "browser_target_required",
           'Several tabs are offered. Use action "tabs", then pass the chosen target with the browser action.',
         ),
       );
-    const queuedGrant = queuedConnection?.offered(agent, params.target);
-    const key =
-      queuedConnection && queuedGrant
-        ? `${queuedConnection.generation}:${queuedGrant}`
-        : agent;
+    // The connection and grant are bound here. A queued action never moves to
+    // another browser when an offer disappears or a new one takes precedence.
+    const queued = member
+      ? bridge.resolve(member, agent, params.target)
+      : undefined;
+    const key = queued
+      ? `${queued.connection.generation}:${queued.grant}`
+      : agent;
     const previous = this.queues.get(key) ?? Promise.resolve();
     const work = previous
       .catch(() => {})
@@ -120,12 +127,9 @@ export class ExtensionBrowserSessions {
             ? { ok: true, url: "", title: "", closed: true }
             : failure("browser_not_paired", "No Chrome browser is paired");
         if (!this.mayUse(member, agent)) return ended();
-        if (
-          this.service.bridge.forMember(member) !== queuedConnection ||
-          queuedConnection?.offered(agent, params.target) !== queuedGrant
-        )
+        if (!same(bridge.resolve(member, agent, params.target), queued))
           return ended();
-        return this.extensionAction(member, agent, body, key);
+        return this.extensionAction(member, agent, body, key, queued);
       });
     this.queues.set(key, work);
     void work
@@ -140,15 +144,14 @@ export class ExtensionBrowserSessions {
     agent: string,
     body: unknown,
     key: string,
+    bound: Resolved | undefined,
   ): Promise<BrowserResult> {
     const actionMs = this.actionDeadline();
     const params = parseBrowserParams(body);
     if (!params.ok) return params;
-    if (!this.service.store.record(member).hash)
+    if (!this.service.store.paired(member))
       return failure("browser_not_paired", "No Chrome browser is paired");
-    const connection = this.service.bridge.forMember(member);
-    if (!connection)
-      return failure("browser_offline", "The Chrome browser is offline");
+    if (!this.service.bridge.connections(member).length) return offline();
     let session = this.sessions.get(key);
     if (
       session &&
@@ -157,15 +160,15 @@ export class ExtensionBrowserSessions {
       this.end(key);
       session = undefined;
     }
-    const grant = connection.offered(agent, params.target);
-    if (!grant)
+    if (!bound)
       return failure(
         "browser_control_ended",
         "Open the Chrome extension popup on an HTTP(S) tab, choose All or this agent, and turn on Agent control",
       );
+    const { connection, grant, target } = bound;
     if (params.action === "close") {
       this.end(key);
-      connection.revoke(agent, params.target);
+      connection.revoke(agent, target);
       return { ok: true, url: "", title: "", closed: true };
     }
     const prior = this.recovering.get(key);
@@ -230,17 +233,11 @@ export class ExtensionBrowserSessions {
     const valid = () =>
       this.owner(agent) === member &&
       this.mayUse(member, agent) &&
-      this.service.bridge.forMember(member) === connection &&
-      connection.offered(agent, params.target) === grant;
+      same(this.service.bridge.resolve(member, agent, params.target), bound);
     if (session) watchEnd(session.signal);
     const task = async (): Promise<BrowserResult> => {
       if (!session) {
-        transport = browserExtensionTransport(
-          connection,
-          agent,
-          true,
-          params.target,
-        );
+        transport = browserExtensionTransport(connection, agent, true, target);
         watchEnd(transport.signal);
         const browser = await chromium.connectOverCDP(transport, {
           noDefaults: true,
@@ -352,9 +349,7 @@ export class ExtensionBrowserSessions {
       const current = session.page;
       const result: BrowserResult = {
         ok: true,
-        target: connection
-          .targets(agent)
-          .find((t) => connection.offered(agent, t.target) === grant)?.target,
+        target,
         url: current.url(),
         title: await current.title(),
         ...(uploaded ? { uploaded } : {}),

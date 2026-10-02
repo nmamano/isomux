@@ -737,6 +737,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "browser.get": { caps: ["user:self"], emits: [] },
   "browser.pair": { caps: ["user:self"], emits: [] },
   "browser.revoke": { caps: ["user:self"], emits: [] },
+  "browser.revokeOne": { caps: ["user:self"], emits: [] },
   "prefs.update": {
     caps: ["user:self"],
     emits: ["user_admin_updated", "user_self_updated"],

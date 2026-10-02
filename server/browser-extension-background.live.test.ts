@@ -50,7 +50,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
         },
       );
       const deadline = Date.now() + 5000;
-      while (!fixture.bridge.forMember("fixture-member")) {
+      while (!fixture.bridge.connections("fixture-member")[0]) {
         if (Date.now() >= deadline)
           throw new Error("Fixture connection did not settle");
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -144,7 +144,7 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
       await unrelated.bringToFront();
       agent = await chromium.connectOverCDP(
         browserExtensionTransport(
-          fixture.bridge.forMember("fixture-member")!,
+          fixture.bridge.connections("fixture-member")[0],
           "fixture-agent",
         ),
         { noDefaults: true, timeout: 5000 },

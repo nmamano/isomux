@@ -61,13 +61,13 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
             nonce: crypto.randomUUID(),
           },
         );
-        await until(() => !!fixture.bridge.forMember("fixture-member"));
+        await until(() => !!fixture.bridge.connections("fixture-member")[0]);
       };
       await configure();
       const connect = () =>
         chromium.connectOverCDP(
           browserExtensionTransport(
-            fixture.bridge.forMember("fixture-member")!,
+            fixture.bridge.connections("fixture-member")[0],
             "fixture-agent",
           ),
           { noDefaults: true, timeout: 5000 },
@@ -144,17 +144,17 @@ test.skipIf(process.env.ISOMUX_TEST_BROWSER_EXTENSION !== "1")(
           () => "rejected",
         );
       await until(() => fixture.starts() === 1);
-      const old = fixture.bridge.forMember("fixture-member")!;
+      const old = fixture.bridge.connections("fixture-member")[0];
       old.close();
       await until(() => !agent!.isConnected());
       expect(await pending).toBe("rejected");
       await configure();
-      expect(fixture.bridge.forMember("fixture-member")!.generation).not.toBe(
+      expect(fixture.bridge.connections("fixture-member")[0].generation).not.toBe(
         old.generation,
       );
       expect(() =>
         browserExtensionTransport(
-          fixture.bridge.forMember("fixture-member")!,
+          fixture.bridge.connections("fixture-member")[0],
           "fixture-agent",
         ),
       ).toThrow();

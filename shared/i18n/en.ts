@@ -44,7 +44,7 @@ export const en = {
   "browser.intro":
     "Let agents browse, read pages, and fill forms in your desktop Chrome using your existing logins. Offer a tab to All or one agent.",
   "browser.chromeHelp":
-    "Agents use Chrome on this computer. Install and pair the extension below.",
+    "Agents use Chrome on the computers you pair. Install and pair the extension on each one.",
   "browser.setup": "Set up Chrome",
   "browser.extract": "Extract the ZIP.",
   "browser.extensions":
@@ -74,8 +74,10 @@ export const en = {
     "Chrome warns “Read your browsing history”. The extension uses this permission to bind site-opened popups to their agent’s tab; it does not collect browsing history.",
   "browser.generate": "Create pairing code",
   "browser.replace": "Replace pairing",
-  "browser.replaceHint":
-    "The previous browser loses access when the new code is used.",
+  "browser.name": "Browser name",
+  "browser.nameHint":
+    "Optional, for example Work laptop. Agents see this name.",
+  "browser.pairedOn": "Paired {date}",
   "browser.code": "Pairing code",
   "browser.expires": "Expires at {time}",
   "browser.expired": "Pairing code expired. Create a new code.",
@@ -1155,6 +1157,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.agents.shareFileDetail": "Share a file to chat",
   "apiCall.agents.previewUrl": "Screenshot page to chat",
   "apiCall.agents.previewUrlDetail": "Screenshot a page to chat",
+  "apiCall.browser.unpairOne": "Unpair a browser",
   "apiCall.agents.browser": "Use the browser",
   "apiCall.agents.browserDetail": "Use the browser",
   "apiCall.agents.showDiff": "Show diff in chat",
