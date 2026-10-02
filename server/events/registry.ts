@@ -28,6 +28,7 @@
 
 import type { RoomPet } from "../../shared/pets.ts";
 import type { RoomSkin } from "../../shared/room-skins.ts";
+import type { RoomDecor } from "../../shared/room-decor.ts";
 import type {
   LogEntry,
   AgentInfo,
@@ -149,6 +150,7 @@ export interface EventPayloads {
   room_settings_updated: { roomId: string; prompt: string | null };
   room_pet_updated: { roomId: string; pet: RoomPet | null };
   room_skin_updated: { roomId: string; skin: RoomSkin | null };
+  room_decor_updated: { roomId: string; decor: RoomDecor | null };
 
   session_context: { context: SessionContext };
   full_state: {
@@ -327,6 +329,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },
   room_skin_updated: {
+    audience: "room-ACL",
+    projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
+  },
+  room_decor_updated: {
     audience: "room-ACL",
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },

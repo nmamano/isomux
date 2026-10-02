@@ -11,6 +11,7 @@
 
 import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
+import type { RoomDecor, RoomDecorPatch } from "./room-decor.ts";
 import type {
   UserRecord,
   AgentInfo,
@@ -527,15 +528,19 @@ export interface RoomCreateReq {
 }
 
 export interface RoomRenameReq {
-  // All three fields are optional and independent: the picker sends only `pet`,
-  // the settings pane sends a name, a skin, or both. A body carrying none of
-  // them is malformed.
+  // All four fields are optional and independent: the picker sends only `pet`,
+  // the settings pane sends whichever of the others changed. A body carrying
+  // none of them is malformed.
   name?: string;
   // null clears the room's pet back to the default. Absent leaves it alone.
   pet?: RoomPet | null;
   // null clears the room's skin back to the office look. Absent leaves it
-  // alone. The lobby draws its own scene and takes no skin.
+  // alone. The lobby draws its own scene and takes no skin. Changing it keeps
+  // the decor choices; a preset reset sends `decor: null` with it.
   skin?: RoomSkin | null;
+  // Merged into the room's choices: a value sets that slot, null clears it back
+  // to the preset, an absent key leaves it. `decor: null` clears every choice.
+  decor?: RoomDecorPatch | null;
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings
@@ -551,6 +556,10 @@ export interface RoomSettingsReq {
 export interface RoomSettingsRes {
   prompt: string | null;
   version: string;
+  // The room's look, for reading before a PATCH. `version` does not cover it.
+  skin: RoomSkin | null;
+  pet: RoomPet | null;
+  decor: RoomDecor | null;
 }
 
 export interface ViewOrderReq {

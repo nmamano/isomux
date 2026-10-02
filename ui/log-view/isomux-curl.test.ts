@@ -1193,6 +1193,27 @@ describe("humanizeIsomuxRequest", () => {
     ).toBe("Read office memories");
   });
 
+  // A decor change is a change to the room's look, like a skin change.
+  test("a room decor PATCH reads as a look change", () => {
+    const req = parse(
+      `curl -s -X PATCH localhost:4000/api/rooms/abcd1234 -H 'Content-Type: application/json' -d '{"decor":{"curtains":"none"}}'`,
+    );
+    const skin = parse(
+      `curl -s -X PATCH localhost:4000/api/rooms/abcd1234 -H 'Content-Type: application/json' -d '{"skin":"hospital"}'`,
+    );
+    expect(humanizeIsomuxRequest(EN, req)).toBe(
+      humanizeIsomuxRequest(EN, skin),
+    );
+    expect(humanizeIsomuxRequest(EN, req)).not.toBe(
+      humanizeIsomuxRequest(
+        EN,
+        parse(
+          `curl -s -X PATCH localhost:4000/api/rooms/abcd1234 -H 'Content-Type: application/json' -d '{"pet":null}'`,
+        ),
+      ),
+    );
+  });
+
   test("memory append uses the body scope", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/memory -H 'Content-Type: application/json' -d '{"scope":"room","text":"x"}'`,

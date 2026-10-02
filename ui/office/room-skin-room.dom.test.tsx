@@ -25,7 +25,7 @@ it("draws a hospital room, and an ordinary room as it was before skins", async (
   const { floor, layers } = skinProbe(view.container, SCENE_W);
   expect(floor()).toBe(hospitalSceneVars("dark")["--floor-light"]);
   expect(
-    view.container.querySelector('[data-skin-layer="hospital-walls"]'),
+    view.container.querySelector('[data-skin-layer="decor-walls"]'),
   ).not.toBeNull();
   expect(
     view.container.querySelector('[data-skin-layer="hospital-props"]'),

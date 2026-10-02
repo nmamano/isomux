@@ -2,6 +2,7 @@ import type { ApiTokenLogEntry } from "./contract-shapes.ts";
 import { en } from "./i18n/en.ts";
 import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
+import type { RoomDecor } from "./room-decor.ts";
 
 import type { GhostVariant } from "./avatar.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
@@ -1227,6 +1228,10 @@ export interface RoomWire {
   // written before them has to be rewritten. Only office-type rooms take one -
   // the lobby has its own scene. Persisted with the room like `pet`.
   skin?: RoomSkin | null;
+  // The decorations members picked on top of the skin, which is the preset:
+  // only the slots somebody picked, so absent (or null) draws the preset
+  // exactly as before this field existed. Persisted with the room like `skin`.
+  decor?: RoomDecor | null;
 }
 
 // Per-user record stored server-side in ~/.isomux/users.json. Keyed by
@@ -1705,6 +1710,7 @@ export type ServerMessage =
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
+  | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event

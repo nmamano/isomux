@@ -1,6 +1,7 @@
 import { useTheme } from "../store.tsx";
-import { ROOM_SKIN_MODULES, useCurrentRoomSkin } from "./skins/index.tsx";
-import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { useCurrentRoomDecor } from "./skins/index.tsx";
+import { PET_SPOTS, petSpot } from "./RoomProps.tsx";
+import { FLOOR_CLIP, SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 
 // Contact shadows for the props that stand on the floor: the pet bed, the
 // potted plant.
@@ -22,10 +23,8 @@ import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 // only the falloff.
 const SHADOW_STYLE: "grounded" | "soft" = "grounded";
 
-// Floor diamond, from the tile grid in Floor.tsx: back (120,40),
-// left (-355,277.5), right (595,277.5), front (120,515). Everything is
-// clipped to it so no shadow runs off the slab.
-const FLOOR_CLIP = "M120 40 L-355 277.5 L120 515 L595 277.5 Z";
+// Everything is clipped to the floor diamond (FLOOR_CLIP in grid.ts), so no
+// shadow runs off the slab.
 
 // The cat bed in RoomProps.tsx sits at translate(120,460); its base ellipse is
 // cx 0 cy 10 rx 26 ry 14, so the bed meets the floor centred on (120,470).
@@ -65,7 +64,15 @@ function Blob({
 
 export function GroundShadows() {
   const { mode } = useTheme();
-  const { hidePet } = ROOM_SKIN_MODULES[useCurrentRoomSkin()];
+  const { pet, floorPlant, ward } = useCurrentRoomDecor();
+  // The bed's shadow stands where the bed does: CAT_BED is measured at the
+  // corner spot, so it moves by the same offset when the pet moves aside.
+  const spot = petSpot(ward);
+  const petShadow = {
+    ...CAT_BED,
+    cx: CAT_BED.cx + spot.x - PET_SPOTS.corner.x,
+    cy: CAT_BED.cy + spot.y - PET_SPOTS.corner.y,
+  };
 
   // A near-black floor swallows a shadow, so the dark theme carries the
   // stronger one; the light theme seats the props at less.
@@ -103,8 +110,8 @@ export function GroundShadows() {
         </clipPath>
       </defs>
       <g clipPath="url(#gs-floor)">
-        {!hidePet && <Blob {...CAT_BED} />}
-        <Blob {...PLANT} />
+        {pet === "shown" && <Blob {...petShadow} />}
+        {floorPlant === "plant" && <Blob {...PLANT} />}
       </g>
     </svg>
   );

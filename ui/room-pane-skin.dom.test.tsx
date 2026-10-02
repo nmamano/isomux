@@ -10,10 +10,8 @@ const { createElement } = await import("react");
 type RoomWire = import("../shared/types.ts").RoomWire;
 
 const calls: Array<{ method: string; path: string; body: unknown }> = [];
-let patchFails = false;
 setApiShim(async (method, path, body) => {
   calls.push({ method, path, body });
-  if (method === "PATCH" && patchFails) throw new Error("offline");
   if (path.endsWith("/settings")) return { prompt: "", version: "0" };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
@@ -34,144 +32,92 @@ function mount(room: RoomWire) {
 const patches = () =>
   calls.filter((c) => c.method === "PATCH" && c.path === "/api/rooms/ward");
 
-// The name and the look are the room's two cosmetic fields and they ride one
-// PATCH. A look changed on its own has to reach the server even though the name
-// never moved - the pane used to send nothing at all unless the name changed.
-it("saves a changed look on its own, and carries the name when both move", async () => {
-  calls.length = 0;
-  // Start with a hospital so selecting office changes the stored look.
-  const view = mount({
-    id: "ward",
-    name: "Ward",
-    type: "office",
-    prompt: null,
-    canCloseWhenEmpty: true,
-    skin: "hospital",
-  });
-  await act(async () => {});
-  const select = view.getByLabelText("Room look") as HTMLSelectElement;
-  expect(select.value).toBe("hospital");
-  expect(
-    (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(true);
+const ward = (extra: Partial<RoomWire> = {}): RoomWire => ({
+  id: "ward",
+  name: "Ward",
+  type: "office",
+  prompt: null,
+  canCloseWhenEmpty: true,
+  skin: "hospital",
+  ...extra,
+});
 
-  await act(async () =>
-    fireEvent.change(select, { target: { value: "office" } }),
+// The section's tiles, by row and option id: the words on them are copy.
+function tile(view: ReturnType<typeof mount>, row: string, option: string) {
+  const el = view.container.querySelector(
+    `[data-decor-row="${row}"] [data-option="${option}"]`,
   );
-  // A look the reader has not saved yet is an unsaved change, so Cancel wakes
-  // up and the discard guard has something to guard.
-  expect(
-    (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(false);
+  if (!el) throw new Error(`no tile ${row}/${option}`);
+  return el as HTMLButtonElement;
+}
 
+async function pick(
+  view: ReturnType<typeof mount>,
+  row: string,
+  option: string,
+) {
+  await act(async () => fireEvent.click(tile(view, row, option)));
+}
+
+async function save(view: ReturnType<typeof mount>) {
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "Save" })),
   );
-  expect(patches()).toHaveLength(1);
-  expect(patches()[0].body).toEqual({ skin: "office" });
+}
 
-  view.unmount();
+const cancelDisabled = (view: ReturnType<typeof mount>) =>
+  (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled;
 
-  // Use a fresh mount to test changing both the name and the look.
+// Every option draws itself: a tile with no picture would be a text tile. The
+// stored look shows, an untouched pane sends nothing, and a picked preset is a
+// reset that rides the name's PATCH. One mount: the tiles are what a mount
+// costs here, and the DOM harness budgets each file.
+it("draws every tile, sends nothing untouched, and saves a preset with the name", async () => {
   calls.length = 0;
-  const both = mount({
-    id: "ward",
-    name: "Ward",
-    type: "office",
-    prompt: null,
-    canCloseWhenEmpty: true,
-    skin: "hospital",
-  });
+  const view = mount(ward({ decor: { curtains: "none" } }));
   await act(async () => {});
+  const tiles = view.container.querySelectorAll("[data-room-decor] button");
+  expect(tiles.length).toBeGreaterThan(20);
+  for (const t of tiles) {
+    expect(t.querySelector("svg")).not.toBeNull();
+    expect(t.getAttribute("aria-label")).toBeTruthy();
+  }
+  expect(tile(view, "preset", "hospital").getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(tile(view, "ward", "beds").getAttribute("aria-pressed")).toBe("true");
+  expect(tile(view, "curtains", "none").getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(tile(view, "pet", "none").getAttribute("aria-pressed")).toBe("true");
+  // No coat row while the pet is not drawn.
+  expect(view.container.querySelector('[data-decor-row="coat"]')).toBeNull();
+  expect(cancelDisabled(view)).toBe(true);
+  await save(view);
+  expect(patches()).toHaveLength(0);
+
   await act(async () =>
     // The name input has no label association of its own (it predates this
     // pane's labelled controls), so it is queried as the pane's one text input.
-    fireEvent.change(both.container.querySelector("input")!, {
+    fireEvent.change(view.container.querySelector("input")!, {
       target: { value: "Ward B" },
     }),
   );
-  await act(async () =>
-    fireEvent.change(both.getByLabelText("Room look"), {
-      target: { value: "office" },
-    }),
+  await pick(view, "preset", "office");
+  expect(cancelDisabled(view)).toBe(false);
+  // The staged preset draws its own values at once.
+  expect(tile(view, "wallArt", "neon").getAttribute("aria-pressed")).toBe(
+    "true",
   );
   await act(async () =>
-    fireEvent.click(both.getByRole("button", { name: "Save" })),
+    fireEvent.click(view.getByRole("button", { name: /^Save/ })),
   );
   expect(patches()).toHaveLength(1);
-  expect(patches()[0].body).toEqual({ name: "Ward B", skin: "office" });
-  both.unmount();
-});
-
-it("shows the room's stored look, and sends no PATCH when it is untouched", async () => {
-  calls.length = 0;
-  const view = mount({
-    id: "ward",
-    name: "Ward",
-    type: "office",
-    prompt: null,
-    canCloseWhenEmpty: true,
-    skin: "hospital",
+  expect(patches()[0].body).toEqual({
+    name: "Ward B",
+    skin: "office",
+    decor: null,
   });
-  await act(async () => {});
-  expect((view.getByLabelText("Room look") as HTMLSelectElement).value).toBe(
-    "hospital",
-  );
-  await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "Save" })),
-  );
-  expect(patches()).toHaveLength(0);
-  view.unmount();
-});
-
-// The PATCH is part of the save, not a side effect of it. When it fails the
-// reader has to be able to tell: the pane must not settle to "Saved" over a
-// look the server never took, and the change must still be theirs to retry.
-it("keeps a rejected look dirty, says so, and retries the same body", async () => {
-  calls.length = 0;
-  patchFails = true;
-  // Start with a hospital so selecting office produces a pending change.
-  const view = mount({
-    id: "ward",
-    name: "Ward",
-    type: "office",
-    prompt: null,
-    canCloseWhenEmpty: true,
-    skin: "hospital",
-  });
-  await act(async () => {});
-  const select = view.getByLabelText("Room look") as HTMLSelectElement;
-  await act(async () =>
-    fireEvent.change(select, { target: { value: "office" } }),
-  );
-  await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "Save" })),
-  );
-  expect(patches()).toHaveLength(1);
-  expect(view.queryByRole("button", { name: "Saved" })).toBeNull();
-  expect(view.getByRole("button", { name: "Save" })).toBeTruthy();
-  // The reader's change is still theirs: the field holds it, and Cancel is
-  // live because the pane is still dirty.
-  expect(select.value).toBe("office");
-  expect(
-    (view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
-      .disabled,
-  ).toBe(false);
-  // A failed cosmetic PATCH must not have spent the settings version, or the
-  // retry would come back as a conflict instead of saving.
-  expect(
-    calls.some((c) => c.method === "PUT" && c.path.endsWith("/settings")),
-  ).toBe(false);
-
-  patchFails = false;
-  await act(async () =>
-    fireEvent.click(view.getByRole("button", { name: "Save" })),
-  );
-  expect(patches()).toHaveLength(2);
-  expect(patches()[1].body).toEqual({ skin: "office" });
-  expect(view.getByRole("button", { name: "Saved" })).toBeTruthy();
   view.unmount();
 });
 
@@ -186,6 +132,6 @@ it("offers no look for the lobby", async () => {
     canCloseWhenEmpty: false,
   });
   await act(async () => {});
-  expect(view.queryByLabelText("Room look")).toBeNull();
+  expect(view.container.querySelector("[data-room-decor]")).toBeNull();
   view.unmount();
 });

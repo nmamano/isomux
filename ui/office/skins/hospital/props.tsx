@@ -1,15 +1,10 @@
 import type { ReactElement } from "react";
-import { useAppState, useTheme } from "../../../store.tsx";
+import { useTheme } from "../../../store.tsx";
 import { hospitalColors, type HospitalColors } from "./palette.ts";
-import {
-  BedsideCabinet,
-  FramedLandscape,
-  MedicalChart,
-  WindowCurtains,
-} from "./decorations.tsx";
+import { BedsideCabinet } from "./decorations.tsx";
 
-// The hospital's own drawings. Two layers, because they sit at two depths in
-// the scene: HospitalWalls is mounted inside the Walls svg, which is drawn
+// The hospital's own drawings, at two depths in the scene: the wall pieces are
+// mounted inside the Walls svg (DecorWalls in ../index.tsx), which is drawn
 // before the doors, so a band along the wall cannot paint over an open door;
 // HospitalProps is mounted in the props svg, which is drawn before the desks,
 // so a desk in front of a prop occludes it.
@@ -28,7 +23,13 @@ const WALL_BOTTOM = {
 const WAINSCOT_H = 34;
 const RAIL_H = 7;
 
-function Wainscot({ side, c }: { side: "left" | "right"; c: HospitalColors }) {
+export function Wainscot({
+  side,
+  c,
+}: {
+  side: "left" | "right";
+  c: HospitalColors;
+}) {
   const e = WALL_BOTTOM[side];
   const band = `M${e.x1} ${e.y1} L${e.x2} ${e.y2} L${e.x2} ${e.y2 - WAINSCOT_H} L${e.x1} ${e.y1 - WAINSCOT_H} Z`;
   const rail = `M${e.x1} ${e.y1 - WAINSCOT_H + RAIL_H} L${e.x2} ${e.y2 - WAINSCOT_H + RAIL_H} L${e.x2} ${e.y2 - WAINSCOT_H} L${e.x1} ${e.y1 - WAINSCOT_H} Z`;
@@ -69,7 +70,7 @@ export function CrossSign({ c }: { c: HospitalColors }) {
 }
 
 /** The first-aid cabinet below the notice board, right of the window. */
-function FirstAidCabinet({ c }: { c: HospitalColors }) {
+export function FirstAidCabinet({ c }: { c: HospitalColors }) {
   const w = 20;
   const h = 14;
   return (
@@ -91,24 +92,6 @@ function FirstAidCabinet({ c }: { c: HospitalColors }) {
         d="M-15 -2 H-11 V-6 H-7 V-2 H-3 V2 H-7 V6 H-11 V2 H-15 Z"
         fill={c.cross}
       />
-    </g>
-  );
-}
-
-export function HospitalWalls() {
-  const { rooms, currentRoomId } = useAppState();
-  const hospitalIndex = rooms
-    .filter((room) => room.type !== "lobby" && room.skin === "hospital")
-    .findIndex((room) => room.id === currentRoomId);
-  const { mode } = useTheme();
-  const c = hospitalColors(mode);
-  return (
-    <g aria-hidden="true" data-skin-layer="hospital-walls">
-      <Wainscot side="left" c={c} />
-      <Wainscot side="right" c={c} />
-      <FirstAidCabinet c={c} />
-      <WindowCurtains />
-      {hospitalIndex % 2 === 1 ? <MedicalChart /> : <FramedLandscape />}
     </g>
   );
 }

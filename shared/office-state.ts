@@ -1,5 +1,10 @@
 import type { RoomPet } from "./pets.ts";
 import type { RoomSkin } from "./room-skins.ts";
+import {
+  applyRoomDecorPatch,
+  type RoomDecor,
+  type RoomDecorPatch,
+} from "./room-decor.ts";
 import type {
   AgentInfo,
   AgentOutfit,
@@ -42,6 +47,7 @@ export type OfficeEvent =
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "room_pet_updated"; roomId: string; pet: RoomPet | null }
   | { type: "room_skin_updated"; roomId: string; skin: RoomSkin | null }
+  | { type: "room_decor_updated"; roomId: string; decor: RoomDecor | null }
   | {
       type: "office_settings_updated";
       prompt: string | null;
@@ -621,6 +627,22 @@ export class OfficeState {
     if (this._rooms[idx].type === "lobby") return [];
     this._rooms[idx] = { ...this._rooms[idx], skin };
     const events: OfficeEvent[] = [{ type: "room_skin_updated", roomId, skin }];
+    this.emitEvents(events);
+    return events;
+  }
+
+  /** Applies a decor patch (null clears every choice) and emits the room's
+   *  whole resulting map, so a client that missed an earlier write still
+   *  converges. Shaped like setRoomSkin above it, lobby refusal included. */
+  setRoomDecor(roomId: string, patch: RoomDecorPatch | null): OfficeEvent[] {
+    const idx = this._rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) return [];
+    if (this._rooms[idx].type === "lobby") return [];
+    const decor = applyRoomDecorPatch(this._rooms[idx].decor, patch);
+    this._rooms[idx] = { ...this._rooms[idx], decor };
+    const events: OfficeEvent[] = [
+      { type: "room_decor_updated", roomId, decor },
+    ];
     this.emitEvents(events);
     return events;
   }

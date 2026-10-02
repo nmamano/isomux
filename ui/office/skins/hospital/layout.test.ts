@@ -12,6 +12,7 @@ import { expect, test } from "bun:test";
 import { DESK_SLOTS } from "../../../../shared/desks.ts";
 import { isoXY } from "../../grid.ts";
 import { BED_SPOTS, BED_U, BED_V, PLACEMENT, bedBox } from "./props.tsx";
+import { PET_SPOTS, petSpot } from "../../RoomProps.tsx";
 
 // What one occupied desk PAINTS, as an offset from its floor point, measured
 // off a real browser render of all eight desks (2026-09-16, headless Chrome,
@@ -113,4 +114,50 @@ test("every bed stands with all four castors on the floor", () => {
 test("the furniture is listed back to front", () => {
   const depths = Object.values(PLACEMENT).map((p) => p.y);
   expect(depths).toEqual([...depths].sort((a, b) => a - b));
+});
+
+// The pet bed with any animal in it, from its floor point: the widest bed and
+// the shadow under it across, and the tallest ears up.
+const PET_INK = { left: 31, right: 31, up: 30, down: 29 };
+
+function petBox(at: { x: number; y: number }): Box {
+  return {
+    minX: at.x - PET_INK.left,
+    maxX: at.x + PET_INK.right,
+    minY: at.y - PET_INK.up,
+    maxY: at.y + PET_INK.down,
+  };
+}
+
+// A room can show the ward and a pet together. The pet's own corner is where
+// the near bed's foot stands, so with beds the pet moves aside - to a spot
+// clear of both beds and every desk, and wholly on the floor.
+test("with the ward, the pet stands clear of the beds and the desks", () => {
+  expect(overlaps(petBox(PET_SPOTS.corner), bedBox(PLACEMENT.bedNear))).toBe(
+    true,
+  );
+  const at = petSpot("beds");
+  expect(at).not.toEqual(PET_SPOTS.corner);
+  expect(petSpot("none")).toEqual(PET_SPOTS.corner);
+  const pet = petBox(at);
+  for (const spot of BED_SPOTS) {
+    expect({ spot, hit: overlaps(pet, bedBox(PLACEMENT[spot])) }).toEqual({
+      spot,
+      hit: false,
+    });
+  }
+  for (const [i, slot] of DESK_SLOTS.entries()) {
+    expect({ desk: i + 1, hit: overlaps(pet, deskBox(slot)) }).toEqual({
+      desk: i + 1,
+      hit: false,
+    });
+  }
+  for (const corner of [
+    { x: pet.minX, y: at.y + PET_INK.down },
+    { x: pet.maxX, y: at.y + PET_INK.down },
+    { x: pet.minX, y: at.y },
+    { x: pet.maxX, y: at.y },
+  ]) {
+    expect({ corner, on: onFloor(corner) }).toEqual({ corner, on: true });
+  }
 });

@@ -1273,6 +1273,13 @@ function emitEvents(events: OfficeEvent[]) {
           skin: event.skin,
         });
         break;
+      case "room_decor_updated":
+        shimEmit({
+          type: "room_decor_updated",
+          roomId: event.roomId,
+          decor: event.decor,
+        });
+        break;
       case "room_closed":
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
@@ -2504,7 +2511,13 @@ export async function demoApi(
   if (roomSettingsMatch && method === "GET") {
     const id = decodeURIComponent(roomSettingsMatch[1]);
     const room = state.rooms.find((r) => r.id === id);
-    return { prompt: room?.prompt ?? null, version: "demo-version" };
+    return {
+      prompt: room?.prompt ?? null,
+      version: "demo-version",
+      skin: room?.skin ?? null,
+      pet: room?.pet ?? null,
+      decor: room?.decor ?? null,
+    };
   }
   if (roomSettingsMatch && method === "PUT") {
     const id = decodeURIComponent(roomSettingsMatch[1]);
@@ -2522,11 +2535,13 @@ export async function demoApi(
     const id = decodeURIComponent(roomIdMatch[1]);
     if (method === "PATCH") {
       const b = (body ?? {}) as RoomRenameReq;
-      // PATCH is a partial update: the settings pane sends a name, a skin or
-      // both, the pet picker sends a pet, and any of them may arrive alone.
+      // PATCH is a partial update: the settings pane sends whichever of name,
+      // pet, skin and decor changed, the pet picker sends a pet, and any of
+      // them may arrive alone.
       if (typeof b.name === "string") emitEvents(state.renameRoom(id, b.name));
       if (b.pet !== undefined) emitEvents(state.setRoomPet(id, b.pet));
       if (b.skin !== undefined) emitEvents(state.setRoomSkin(id, b.skin));
+      if (b.decor !== undefined) emitEvents(state.setRoomDecor(id, b.decor));
       return undefined;
     }
     emitEvents(state.closeRoom(id));

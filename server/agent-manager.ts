@@ -4,6 +4,7 @@ import {
 } from "./claude-session-root.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
+import type { RoomDecorPatch } from "../shared/room-decor.ts";
 import type {
   AgentBackendType,
   AgentChoiceInteraction,
@@ -1669,6 +1670,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return "ok";
   }
 
+  /** Applies a decor patch; null clears every choice. Answers like
+   *  setRoomSkin, because decor sits on top of the skin and the lobby takes
+   *  neither. */
+  function setRoomDecor(
+    roomId: string,
+    patch: RoomDecorPatch | null,
+  ): "ok" | "room_not_found" | "skin_not_supported" {
+    const room = officeState.rooms.find((r) => r.id === roomId);
+    if (!room) return "room_not_found";
+    if (room.type === "lobby") return "skin_not_supported";
+    const events = officeState.setRoomDecor(roomId, patch);
+    if (events.length === 0) return "room_not_found";
+    for (const event of events) eventHandler(event);
+    persistAll();
+    return "ok";
+  }
+
   function moveAgent(agentId: string, targetRoomId: string): boolean {
     const events = officeState.moveAgent(agentId, targetRoomId);
     if (events.length === 0) return false;
@@ -1827,6 +1845,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       prompt: r.prompt,
       pet: r.pet ?? null,
       skin: r.skin ?? null,
+      decor: r.decor ?? null,
       type: r.type,
       ...(r.id === LOBBY_ROOM_ID && lobbySeedPending
         ? { defaultAgentPending: true as const }
@@ -9584,6 +9603,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     renameRoom,
     setRoomPet,
     setRoomSkin,
+    setRoomDecor,
     moveAgent,
     getAllAgents,
     getUsageReportData,
@@ -9692,6 +9712,7 @@ export function createProductionAgentManager(overrides?: {
             prompt: r.prompt,
             pet: r.pet ?? null,
             skin: r.skin ?? null,
+            decor: r.decor ?? null,
             type: r.type,
           }))
         : [{ id: generateRoomId(), name: "Room 1", prompt: null }],

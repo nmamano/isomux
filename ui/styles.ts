@@ -263,6 +263,9 @@ ${emitThemesCss()}
   .outfit-tile-picture { height: 40px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   .outfit-tile-head svg { flex-shrink: 0; transform: translateY(1px); }
   .outfit-selected-label { font-weight: 400; color: var(--text-secondary); }
+  .outfit-tile.room-decor-tile { width: 58px; flex-basis: 58px; overflow: hidden; }
+  .outfit-tile.room-decor-preset { width: 102px; height: 80px; flex-basis: 102px; overflow: hidden; }
+  .room-decor-picture { display: flex; align-items: center; justify-content: center; height: 100%; border-radius: 6px; overflow: hidden; }
   .outfit-colors { display: flex; flex-wrap: wrap; gap: 4px; }
   .outfit-colors button { display: grid; place-items: center; width: 36px; height: 36px; padding: 3px; border: 2px solid transparent; border-radius: 7px; background: transparent; cursor: pointer; }
   .outfit-colors button span { display: block; width: 24px; height: 24px; border-radius: 4px; }

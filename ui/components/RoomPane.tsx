@@ -16,10 +16,12 @@ import {
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
 import {
-  SELECTABLE_ROOM_SKIN_IDS,
-  effectiveRoomSkin,
-  type RoomSkin,
-} from "../../shared/room-skins.ts";
+  initialRoomLook,
+  roomLookBody,
+  savedRoomLook,
+  type RoomLook,
+} from "../room-look.ts";
+import { RoomDecorPicker } from "./RoomDecorPicker.tsx";
 import {
   UnsavedChangesPrompt,
   useUnsavedChangesPrompt,
@@ -52,10 +54,11 @@ export function RoomPane({
     agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
-  // The look the room is drawn in. Captured at mount like `name`, and saved
-  // through the same PATCH - the two are the room's cosmetic fields and travel
-  // together. The lobby draws its own scene, so it has no control at all.
-  const [skin, setSkin] = useState<RoomSkin>(() => effectiveRoomSkin(room));
+  // The look the room is drawn in: preset, decor picks and pet. Captured at
+  // mount like `name`, and saved through the same PATCH - they are the room's
+  // cosmetic fields and travel together. The lobby draws its own scene, so it
+  // has no control at all.
+  const [look, setLook] = useState<RoomLook>(() => initialRoomLook(room));
   // What the fields held when they last agreed with the server - captured at
   // hydration, reset on save. Dirtiness is measured against THIS, never
   // against the store snapshot: the prompt comes from the version-guarded GET
@@ -65,8 +68,8 @@ export function RoomPane({
   // shape useMemoryEditor already uses for mem.dirty.
   const [baselineName, setBaselineName] = useState(room?.name ?? "");
   const [baselinePrompt, setBaselinePrompt] = useState("");
-  const [baselineSkin, setBaselineSkin] = useState<RoomSkin>(() =>
-    effectiveRoomSkin(room),
+  const [baselineLook, setBaselineLook] = useState<RoomLook>(() =>
+    initialRoomLook(room),
   );
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
@@ -110,7 +113,7 @@ export function RoomPane({
     if (!trimmedName || settingsVersion == null) return;
     setSaving(true);
     setError(null);
-    // One PATCH for whichever cosmetic fields moved: a skin change with an
+    // One PATCH for whichever cosmetic fields moved: a look change with an
     // untouched name has to reach the server too, and both can ride the same
     // partial update.
     //
@@ -120,12 +123,13 @@ export function RoomPane({
     // with nothing on screen to say so. Now a rejection reaches the same error
     // line as any other failure and the baselines stay where they were, so
     // Save tries the identical body again.
-    const skinChanged = room != null && skin !== baselineSkin;
+    const lookBody =
+      room && room.type !== "lobby" ? roomLookBody(look, baselineLook) : null;
     const renameBody: RoomRenameReq | null =
-      room && (trimmedName !== room.name || skinChanged)
+      room && (trimmedName !== room.name || lookBody)
         ? {
             ...(trimmedName !== room.name ? { name: trimmedName } : {}),
-            ...(skinChanged ? { skin } : {}),
+            ...lookBody,
           }
         : null;
     // The settings save drives the pane: success settles it to "Saved", an
@@ -177,7 +181,8 @@ export function RoomPane({
           setError(t("settings.room.reloadFailed"));
         }
         setBaselineName(trimmedName);
-        setBaselineSkin(skin);
+        setLook(savedRoomLook(look));
+        setBaselineLook(savedRoomLook(look));
         setSavedAt(Date.now());
         const m = await mem.save();
         if (!m.ok) {
@@ -212,12 +217,12 @@ export function RoomPane({
     (settingsLoaded &&
       (name.trim() !== baselineName ||
         prompt !== baselinePrompt ||
-        skin !== baselineSkin)) ||
+        roomLookBody(look, baselineLook) !== null)) ||
     mem.dirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setPrompt(baselinePrompt);
-    setSkin(baselineSkin);
+    setLook(baselineLook);
     mem.reset();
     setError(null);
   });
@@ -365,38 +370,12 @@ export function RoomPane({
             >
               {t("dialogs.agent.appearance")}
             </h4>
-            <label
-              htmlFor="room-skin"
-              style={{
-                display: "block",
-                fontSize: 11,
-                fontWeight: 600,
-                color: "var(--text-muted)",
-                marginTop: 14,
-                marginBottom: 5,
-              }}
-            >
-              {t("office.skin.label")}
-            </label>
-            <select
-              id="room-skin"
-              value={skin}
-              onChange={(e) => setSkin(e.target.value as RoomSkin)}
-              style={inputStyle}
-            >
-              {/* The offered list, plus whatever this room is already drawn in:
-                  a skin can be held back from the pickers while rooms still
-                  carry it, and a select whose value has no option renders
-                  blank. */}
-              {(SELECTABLE_ROOM_SKIN_IDS.includes(skin)
-                ? SELECTABLE_ROOM_SKIN_IDS
-                : [...SELECTABLE_ROOM_SKIN_IDS, skin]
-              ).map((id) => (
-                <option key={id} value={id}>
-                  {t(`office.skin.${id}`)}
-                </option>
-              ))}
-            </select>
+            <RoomDecorPicker
+              room={room}
+              rooms={rooms}
+              look={look}
+              onChange={setLook}
+            />
           </>
         )}
 
@@ -449,7 +428,7 @@ export function RoomPane({
               onClick={() => {
                 setName(baselineName);
                 setPrompt(baselinePrompt);
-                setSkin(baselineSkin);
+                setLook(baselineLook);
                 mem.reset();
                 setError(null);
               }}

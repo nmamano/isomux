@@ -1,77 +1,185 @@
-import type { ReactElement } from "react";
 import {
   DEFAULT_ROOM_SKIN,
   effectiveRoomSkin,
   type RoomSkin,
 } from "../../../shared/room-skins.ts";
+import {
+  storedRoomDecor,
+  type ResolvedRoomDecor,
+} from "../../../shared/room-decor.ts";
+import { ordinaryRooms, type RoomWire } from "../../../shared/types.ts";
 import { useAppState, useTheme } from "../../store.tsx";
 import type { ThemeMode } from "../../themes.ts";
-import { hospitalSceneVars } from "./hospital/palette.ts";
-import { HospitalProps, HospitalWalls } from "./hospital/props.tsx";
+import { roomPaletteIndex } from "../grid.ts";
+import { hospitalColors, hospitalSceneVars } from "./hospital/palette.ts";
+import { FirstAidCabinet, HospitalProps, Wainscot } from "./hospital/props.tsx";
+import {
+  FramedLandscape,
+  MedicalChart,
+  WindowCurtains,
+} from "./hospital/decorations.tsx";
 
-// A room skin is a LOOK: a set of theme variables the office scene already
-// paints itself from, plus whatever the skin hangs on the walls and stands on
-// the floor. The scene draws itself the same way under every skin - eight desks
-// in the same eight places, with the same characters and status lights.
-// Each skin can hide decor that does not fit its room.
+// A room skin is a PRESET: a value for every decor slot in
+// shared/room-decor.ts. A room draws its preset's value for each slot, replaced
+// by whatever its members picked (room.decor). The scene draws itself the same
+// way under every preset - eight desks in the same eight places, with the same
+// characters and status lights - and only the decorations change.
 //
-// Adding one is: a new module beside hospital/, one entry in ROOM_SKIN_MODULES,
-// one id in shared/room-skins.ts, and its name in the three languages.
-export interface RoomSkinModule {
-  hideNeon?: boolean;
-  hidePet?: boolean;
-  /** Theme variables to override on the scene container. Every key must be one
-   *  ui/themes.ts declares, because the scene reads them from the theme. */
-  vars(mode: ThemeMode): Record<string, string>;
-  /** Wall-plane decor, mounted inside the Walls svg (before the doors). */
-  Walls?: () => ReactElement;
-  /** Floor furniture, mounted in the props svg (before the desks). */
-  Props?: () => ReactElement;
+// Adding a preset is: one entry in ROOM_PRESETS, one id in
+// shared/room-skins.ts, its name in the four languages, and its tile drawing in
+// ui/components/RoomDecorPicker.tsx.
+
+/** The two room-dependent defaults: the sill alternates between the trailing
+ *  plant and the blossom jar from room to room, and hospital rooms alternate
+ *  their picture. Both keep the alternation every room had before the menu. */
+interface PresetContext {
+  blossom: boolean;
+  hospitalIndex: number;
 }
 
-export const ROOM_SKIN_MODULES: Record<RoomSkin, RoomSkinModule> = {
-  // The identity entry: the room every office has drawn since before skins
-  // existed. It overrides nothing and adds nothing, which is what makes an
-  // absent skin field cost a record nothing.
-  office: { vars: () => ({}) },
-  hospital: {
-    vars: hospitalSceneVars,
-    hideNeon: true,
-    hidePet: true,
-    Walls: HospitalWalls,
-    Props: HospitalProps,
-  },
+export const ROOM_PRESETS: Record<
+  RoomSkin,
+  (ctx: PresetContext) => ResolvedRoomDecor
+> = {
+  // The room every office has drawn since before skins existed.
+  office: (ctx) => ({
+    walls: "office",
+    curtains: "none",
+    sill: ctx.blossom ? "blossom" : "trailing",
+    wallArt: "neon",
+    trim: "none",
+    cabinet: "none",
+    floorPlant: "plant",
+    ward: "none",
+    pet: "shown",
+  }),
+  hospital: (ctx) => ({
+    walls: "clinic",
+    curtains: "tied",
+    sill: ctx.blossom ? "blossom" : "trailing",
+    wallArt: ctx.hospitalIndex % 2 === 1 ? "chart" : "landscape",
+    trim: "rail",
+    cabinet: "first-aid",
+    floorPlant: "plant",
+    ward: "beds",
+    pet: "none",
+  }),
 };
 
-/** The skin the scene is being drawn in right now. The lobby has its own scene
- *  and takes no skin, so it always answers with the office. */
-export function useCurrentRoomSkin(): RoomSkin {
+function presetContext(roomId: string, rooms: RoomWire[]): PresetContext {
+  return {
+    blossom:
+      roomPaletteIndex(
+        ordinaryRooms(rooms).findIndex((r) => r.id === roomId),
+        2,
+      ) === 0,
+    hospitalIndex: rooms
+      .filter((r) => r.type !== "lobby" && r.skin === "hospital")
+      .findIndex((r) => r.id === roomId),
+  };
+}
+
+/** What the preset alone draws in this room, before any choice. The room is
+ *  counted with `skin`, not with whatever it stores: the settings pane asks
+ *  for a preset the room does not have yet, and the hospital picture rotates
+ *  by the room's place among hospital rooms - which picking Hospital changes. */
+export function presetDecor(
+  skin: RoomSkin,
+  roomId: string,
+  rooms: RoomWire[],
+): ResolvedRoomDecor {
+  const withSkin = rooms.map((r) => (r.id === roomId ? { ...r, skin } : r));
+  return ROOM_PRESETS[skin](presetContext(roomId, withSkin));
+}
+
+/** What a room draws: its preset, with its members' choices on top. */
+export function resolveRoomDecor(
+  room: RoomWire,
+  rooms: RoomWire[],
+): ResolvedRoomDecor {
+  return {
+    ...presetDecor(effectiveRoomSkin(room), room.id, rooms),
+    ...storedRoomDecor(room.decor),
+  };
+}
+
+/** The decor the scene is being drawn in right now. The lobby has its own
+ *  scene and takes no decor, so it answers with the office preset. */
+export function useCurrentRoomDecor(): ResolvedRoomDecor {
   const { currentRoomId, rooms, lobbyOpen } = useAppState();
-  if (lobbyOpen) return DEFAULT_ROOM_SKIN;
   const room = rooms.find((r) => r.id === currentRoomId);
-  if (!room || room.type === "lobby") return DEFAULT_ROOM_SKIN;
-  return effectiveRoomSkin(room);
+  if (lobbyOpen || !room || room.type === "lobby") {
+    return ROOM_PRESETS[DEFAULT_ROOM_SKIN]({
+      blossom: false,
+      hospitalIndex: -1,
+    });
+  }
+  return resolveRoomDecor(room, rooms);
+}
+
+/** The scene palette's variable overrides for a `walls` choice. The office
+ *  palette is the theme's own, so it overrides nothing. */
+export function sceneVarsFor(
+  walls: ResolvedRoomDecor["walls"],
+  mode: ThemeMode,
+): Record<string, string> {
+  return walls === "clinic" ? hospitalSceneVars(mode) : {};
 }
 
 /** The scene container's variable overrides for the current room. Spread into
  *  its style: everything drawn inside inherits them, and nothing outside the
  *  scene - the tab bar, the HUD, the panels - is touched. */
 export function useRoomSkinVars(): Record<string, string> {
-  const skin = useCurrentRoomSkin();
+  const { walls } = useCurrentRoomDecor();
   const { mode } = useTheme();
-  return ROOM_SKIN_MODULES[skin].vars(mode);
+  return sceneVarsFor(walls, mode);
 }
 
-export function SkinWalls() {
-  const Layer = ROOM_SKIN_MODULES[useCurrentRoomSkin()].Walls;
-  return Layer ? <Layer /> : null;
+/** The wall pieces a room's decor hangs, in scene coordinates. Mounted last
+ *  inside the Walls svg; the settings tiles draw them small. */
+export function DecorWallPieces({
+  decor,
+}: {
+  decor: Pick<ResolvedRoomDecor, "trim" | "cabinet" | "curtains" | "wallArt">;
+}) {
+  const { mode } = useTheme();
+  const c = hospitalColors(mode);
+  return (
+    <>
+      {decor.trim === "rail" && (
+        <>
+          <Wainscot side="left" c={c} />
+          <Wainscot side="right" c={c} />
+        </>
+      )}
+      {decor.cabinet === "first-aid" && <FirstAidCabinet c={c} />}
+      {decor.curtains === "tied" && <WindowCurtains />}
+      {decor.wallArt === "landscape" && <FramedLandscape />}
+      {decor.wallArt === "chart" && <MedicalChart />}
+    </>
+  );
 }
 
-/** Takes the skin as a prop rather than reading it: this one is mounted inside
- *  the memoized props scene, whose whole point is not to re-reconcile the prop
- *  svg on every action, and a whole-state subscription in here would undo
- *  that. */
-export function SkinProps({ skin }: { skin: RoomSkin }) {
-  const Layer = ROOM_SKIN_MODULES[skin].Props;
-  return Layer ? <Layer /> : null;
+export function DecorWalls() {
+  const decor = useCurrentRoomDecor();
+  const empty =
+    decor.trim === "none" &&
+    decor.cabinet === "none" &&
+    decor.curtains === "none" &&
+    decor.wallArt !== "landscape" &&
+    decor.wallArt !== "chart";
+  if (empty) return null;
+  return (
+    <g aria-hidden="true" data-skin-layer="decor-walls">
+      <DecorWallPieces decor={decor} />
+    </g>
+  );
+}
+
+/** Takes the choice as a prop rather than reading it: this one is mounted
+ *  inside the memoized props scene, whose whole point is not to re-reconcile
+ *  the prop svg on every action, and a whole-state subscription in here would
+ *  undo that. */
+export function DecorProps({ ward }: { ward: ResolvedRoomDecor["ward"] }) {
+  return ward === "beds" ? <HospitalProps /> : null;
 }

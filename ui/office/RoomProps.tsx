@@ -4,6 +4,7 @@ import { CornerPlant } from "./plants.tsx";
 import {
   DEFAULT_ROOM_PET,
   PET_PALETTES,
+  isPetSpecies,
   type PetPalette,
   type PetSpecies,
   type RoomPet,
@@ -12,12 +13,8 @@ import { useAppState } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { RoomRenameReq } from "../../shared/contract-shapes.ts";
 import { PetPicker } from "./PetPicker.tsx";
-import {
-  SkinProps,
-  useCurrentRoomSkin,
-  ROOM_SKIN_MODULES,
-} from "./skins/index.tsx";
-import type { RoomSkin } from "../../shared/room-skins.ts";
+import { DecorProps, useCurrentRoomDecor } from "./skins/index.tsx";
+import type { ResolvedRoomDecor } from "../../shared/room-decor.ts";
 
 // Every sleeper is drawn curled on the cushion, centred on (0,0), facing left,
 // about 34 wide and 20 tall so the bed fits them all. Each one breathes on the
@@ -545,32 +542,59 @@ export const PETS: Record<PetSpecies, Pet> = {
  *  draw the animal with undefined fills. Out of range falls back to the first
  *  coat, which is the same thing an unset pet draws. */
 export function coatFor(pet: RoomPet): PetPalette {
+  const shown = drawnPet(pet);
+  return PET_PALETTES[shown.species][shown.coat];
+}
+
+/** The species and coat a room actually draws, by coatFor's fallback rules:
+ *  an unknown species draws the default animal, and a coat past the end of
+ *  its list draws the first coat. For display only - the stored pet is left
+ *  as it is until somebody picks another. */
+export function drawnPet(pet: RoomPet | null): RoomPet {
+  const chosen = pet ?? DEFAULT_ROOM_PET;
   // Both lookups fall back, not just the coat. An unknown species makes
-  // PET_PALETTES[species] undefined, and indexing THAT throws before the coat's
-  // ?? can run - so a species this build does not know is a render-time crash
-  // for everyone in the room, not a wrong-looking pet.
-  const palettes =
-    PET_PALETTES[pet.species] ?? PET_PALETTES[DEFAULT_ROOM_PET.species];
-  return palettes[pet.coat] ?? palettes[0];
+  // PET_PALETTES[species] undefined, and indexing that throws - so a species
+  // this build does not know is a render-time crash for everyone in the room,
+  // not a wrong-looking pet. isPetSpecies, not a lookup: "constructor" is a
+  // truthy property of every object.
+  const species = isPetSpecies(chosen.species)
+    ? chosen.species
+    : DEFAULT_ROOM_PET.species;
+  const coat = PET_PALETTES[species][chosen.coat] ? chosen.coat : 0;
+  return { species, coat };
+}
+
+/** Where the pet bed stands: the south corner, unless the ward's near bed
+ *  stands there too, when it moves to the clear floor in front of desk 7.
+ *  ui/office/skins/hospital/layout.test.ts holds both spots clear. */
+export const PET_SPOTS = {
+  corner: { x: 120, y: 460 },
+  besideWard: { x: -90, y: 360 },
+} as const;
+
+export function petSpot(ward: "none" | "beds"): { x: number; y: number } {
+  return ward === "beds" ? PET_SPOTS.besideWard : PET_SPOTS.corner;
 }
 
 /** The pet bed in the south corner, with whichever animal this room keeps. */
 export function PetCorner({
   pet,
+  at = PET_SPOTS.corner,
   onClick,
 }: {
   pet: RoomPet | null;
+  at?: { x: number; y: number };
   onClick?: (x: number, y: number) => void;
 }) {
-  const chosen = pet ?? DEFAULT_ROOM_PET;
-  const drawing = PETS[chosen.species] ?? PETS[DEFAULT_ROOM_PET.species];
-  const palette = coatFor(chosen);
+  const shown = drawnPet(pet);
+  const drawing = PETS[shown.species];
+  const palette = PET_PALETTES[shown.species][shown.coat];
   const Species = drawing.Species;
   const Bed = drawing.Bed ?? Basket;
   const snores = drawing.snores ?? true;
   return (
     <g
-      transform="translate(120, 460)"
+      transform={`translate(${at.x}, ${at.y})`}
       // The props svg sets pointerEvents none, so the pet opts back in on its
       // own. data-no-pan keeps the click off the viewport's pan handler, the
       // same marker the wall panels use; the desks never see it because they
@@ -660,7 +684,7 @@ export function RoomProps() {
   const room = rooms.find((r) => r.id === currentRoomId);
   const [picker, setPicker] = useState<{ x: number; y: number } | null>(null);
   const pet = room?.pet ?? null;
-  const skin = useCurrentRoomSkin();
+  const { ward, floorPlant, pet: petShown } = useCurrentRoomDecor();
 
   // No optimistic write: the room projection broadcasts room_pet_updated to
   // every client, so the scene repaints from the same event everyone else gets.
@@ -679,7 +703,9 @@ export function RoomProps() {
     <>
       <PropsScene
         pet={pet}
-        skin={skin}
+        ward={ward}
+        floorPlant={floorPlant}
+        petShown={petShown}
         onPetClick={(x, y) => setPicker({ x, y })}
       />
       {picker && (
@@ -696,16 +722,20 @@ export function RoomProps() {
 }
 
 // useAppState is the whole-state context, so RoomProps re-renders on every
-// action, log_entry included. Reducing to the two values the scene actually
+// action, log_entry included. Reducing to the few values the scene actually
 // depends on before the memo boundary keeps that traffic from re-reconciling
 // the prop SVG.
 const PropsScene = memo(function PropsScene({
   pet,
-  skin,
+  ward,
+  floorPlant,
+  petShown,
   onPetClick,
 }: {
   pet: RoomPet | null;
-  skin: RoomSkin;
+  ward: ResolvedRoomDecor["ward"];
+  floorPlant: ResolvedRoomDecor["floorPlant"];
+  petShown: ResolvedRoomDecor["pet"];
   onPetClick: (x: number, y: number) => void;
 }) {
   return (
@@ -716,19 +746,21 @@ const PropsScene = memo(function PropsScene({
       viewBox={`${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`}
       overflow="visible"
     >
-      {/* Whatever this room's skin stands on the floor. First in the props
-          layer, so the plant and the pet below stay in front of it. */}
-      <SkinProps skin={skin} />
+      {/* The ward furniture, when the room has it. First in the props layer,
+          so the plant and the pet below stay in front of it. */}
+      <DecorProps ward={ward} />
 
       {/* Potted plant - west corner of office. Drawn in ui/office/plants.tsx,
           which the window plant and the desk plants also draw from. */}
-      <g transform="translate(-245, 212) scale(1.5)">
-        <CornerPlant />
-      </g>
+      {floorPlant === "plant" && (
+        <g transform="translate(-245, 212) scale(1.5)">
+          <CornerPlant />
+        </g>
+      )}
 
       {/* Sleepy office pet - south corner of office */}
-      {!ROOM_SKIN_MODULES[skin].hidePet && (
-        <PetCorner pet={pet} onClick={onPetClick} />
+      {petShown === "shown" && (
+        <PetCorner pet={pet} at={petSpot(ward)} onClick={onPetClick} />
       )}
     </svg>
   );

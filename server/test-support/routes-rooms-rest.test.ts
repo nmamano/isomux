@@ -491,3 +491,127 @@ describe("rooms REST - the skin field", () => {
     expect(errCode(res.body)).toBe("invalid_request");
   });
 });
+
+// Decor sits on top of the skin (internal-docs/room-customization-design.md):
+// a sparse map merged slot by slot. The pairs that matter: it merges rather
+// than replaces, a skin alone keeps it, a skin with decor:null is the reset,
+// a bad body writes nothing at all, and the lobby refuses it like a skin.
+describe("rooms REST - the decor field", () => {
+  async function owned() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const id = srv.agentManager.getRooms()[0].id;
+    const patch = (body: unknown) =>
+      req(srv, "PATCH", `/api/rooms/${id}`, {
+        body,
+        rawSessionId: owner.rawSessionId,
+      });
+    const room = () => srv.agentManager.getRooms().find((r) => r.id === id)!;
+    return { srv, owner, id, patch, room };
+  }
+
+  it("decor alone -> 204; slots merge, null clears one, decor:null clears all", async () => {
+    const { patch, room } = await owned();
+    const name = room().name;
+    expect((await patch({ decor: { walls: "clinic" } })).status).toBe(204);
+    expect((await patch({ decor: { ward: "beds" } })).status).toBe(204);
+    expect(room().decor).toEqual({ walls: "clinic", ward: "beds" });
+    expect((await patch({ decor: { walls: null } })).status).toBe(204);
+    expect(room().decor).toEqual({ ward: "beds" });
+    expect((await patch({ decor: null })).status).toBe(204);
+    expect(room().decor ?? null).toBe(null);
+    expect(room().name).toBe(name);
+  });
+
+  it("a skin alone keeps the decor; skin with decor:null resets it", async () => {
+    const { patch, room } = await owned();
+    await patch({ decor: { pet: "none" } });
+    expect((await patch({ skin: "hospital" })).status).toBe(204);
+    expect((await patch({ skin: "hospital" })).status).toBe(204);
+    expect(room().decor).toEqual({ pet: "none" });
+    expect((await patch({ skin: "office", decor: null })).status).toBe(204);
+    expect(room().skin).toBe("office");
+    expect(room().decor ?? null).toBe(null);
+  });
+
+  it("a skin with a decor object applies the decor after the skin", async () => {
+    const { patch, room } = await owned();
+    await patch({ decor: { pet: "none", trim: "rail" } });
+    const res = await patch({
+      skin: "hospital",
+      decor: { pet: null, trim: null, curtains: "none" },
+    });
+    expect(res.status).toBe(204);
+    expect(room().skin).toBe("hospital");
+    expect(room().decor).toEqual({ curtains: "none" });
+  });
+
+  it("a bad decor -> 422 invalid_decor, and nothing else in the body is written", async () => {
+    const { patch, room } = await owned();
+    const before = room().name;
+    for (const decor of [
+      { lamp: "on" },
+      { walls: "pink" },
+      ["walls"],
+      "clinic",
+    ]) {
+      const res = await patch({
+        name: "Should not stick",
+        skin: "hospital",
+        pet: { species: "dog", coat: 0 },
+        decor,
+      });
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("invalid_decor");
+    }
+    expect(room().name).toBe(before);
+    expect(room().skin ?? null).toBe(null);
+    expect(room().pet ?? null).toBe(null);
+    expect(room().decor ?? null).toBe(null);
+  });
+
+  it("the lobby refuses decor before the value is validated", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    srv.agentManager.ensureLobby();
+    for (const decor of [{ walls: "clinic" }, { lamp: "on" }]) {
+      const res = await req(srv, "PATCH", "/api/rooms/lobby", {
+        body: { decor },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("skin_not_supported");
+    }
+    expect(
+      srv.agentManager.getRooms().find((r) => r.id === "lobby")?.decor ?? null,
+    ).toBe(null);
+  });
+
+  // An agent reads the look before it changes it; the version still guards
+  // the prompt alone, so a decor write does not move it.
+  it("the settings read carries the look, and decor does not move the version", async () => {
+    const { srv, owner, id, patch } = await owned();
+    const read = async () =>
+      (
+        await req(srv, "GET", `/api/rooms/${id}/settings`, {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).body as Record<string, unknown>;
+    const before = await read();
+    expect(before).toMatchObject({ skin: null, pet: null, decor: null });
+    await patch({
+      skin: "hospital",
+      pet: { species: "cat", coat: 1 },
+      decor: { pet: "shown" },
+    });
+    const after = await read();
+    expect(after).toMatchObject({
+      skin: "hospital",
+      pet: { species: "cat", coat: 1 },
+      decor: { pet: "shown" },
+    });
+    expect(after.version).toBe(before.version);
+  });
+});

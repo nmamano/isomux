@@ -179,14 +179,29 @@ needs no version.
 ## Update a room
 
 `PATCH /api/rooms/<roomId>` is a partial update over a room's cosmetic fields.
-Send `name`, `pet`, `skin`, or any mix; each is applied only when the body
-carries it.
+Send `name`, `pet`, `skin`, `decor`, or any mix; each is applied only when the
+body carries it.
 
-`skin` is the look the room is drawn in: `"office"` (the default) or
-`"hospital"`. `null` restores the office look. An unknown value returns 422
-`invalid_skin`. The lobby draws its own scene and takes no skin: it returns 422
+`skin` is the room's preset: `"office"` (the default) or `"hospital"`. `null`
+restores the office preset. An unknown value returns 422 `invalid_skin`. The
+lobby draws its own scene and takes no skin: it returns 422
 `skin_not_supported` whatever the value is. `POST /api/rooms` takes the same
 `skin` at creation.
+
+`decor` holds the choices on top of the preset, one value per slot:
+`walls` (`office`, `clinic`), `curtains` (`none`, `tied`), `sill`
+(`trailing`, `blossom`, `none`), `wallArt` (`neon`, `landscape`, `chart`,
+`none`), `trim` (`none`, `rail`), `cabinet` (`none`, `first-aid`),
+`floorPlant` (`plant`, `none`), `ward` (`none`, `beds`) and `pet` (`shown`,
+`none`). The body merges into the stored choices: a value sets that slot,
+`null` clears it back to the preset, and `"decor": null` clears all of them.
+`skin` alone keeps the choices; send `skin` with `"decor": null` to reset the
+room to the preset. An unknown slot or value returns 422 `invalid_decor`, and
+nothing in that body is written. The lobby returns 422 `skin_not_supported`.
+`pet` keeps the animal and its coat; the `pet` slot sets whether it is drawn.
+
+`GET /api/rooms/<roomId>/settings` returns the room's `skin`, `pet` and `decor`
+beside the prompt. Its `version` covers the prompt only.
 
 API failures use JSON with an `error` object:
 

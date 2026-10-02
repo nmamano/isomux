@@ -1,6 +1,7 @@
 import { redactLogEntry } from "./log-redaction.ts";
 import type { RoomPet } from "../shared/pets.ts";
 import type { RoomSkin } from "../shared/room-skins.ts";
+import type { RoomDecor } from "../shared/room-decor.ts";
 import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
@@ -779,6 +780,9 @@ export interface Room {
   // existed has no such key, and this repo has self-hosters whose files must
   // load unchanged.
   skin?: RoomSkin | null;
+  // The decor choices on top of the skin, or absent/null for none. Optional
+  // for the same reason as `skin`.
+  decor?: RoomDecor | null;
   agents: PersistedAgent[];
 }
 

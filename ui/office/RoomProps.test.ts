@@ -3,7 +3,7 @@
 // coat index on disk can outlive the coat list it was written against.
 
 import { expect, test } from "bun:test";
-import { PETS, coatFor } from "./RoomProps.tsx";
+import { PETS, coatFor, drawnPet } from "./RoomProps.tsx";
 import {
   DEFAULT_ROOM_PET,
   PET_PALETTES,
@@ -84,4 +84,26 @@ test("parseRoomPet rejects an unknown species and an out-of-range coat", () => {
   ]) {
     expect(parseRoomPet(bad).ok).toBe(false);
   }
+});
+
+// The species and coat the scene and the settings section both show: the same
+// fallbacks as coatFor, so the two can never disagree about an animal.
+test("drawnPet falls back the way coatFor does", () => {
+  expect(drawnPet(null)).toEqual(DEFAULT_ROOM_PET);
+  for (const species of ["duck", "constructor", "__proto__"]) {
+    const pet = { species, coat: 1 } as unknown as RoomPet;
+    expect(drawnPet(pet)).toEqual({
+      species: DEFAULT_ROOM_PET.species,
+      coat: 1,
+    });
+    expect(coatFor(pet)).toBe(PET_PALETTES[DEFAULT_ROOM_PET.species][1]);
+  }
+  expect(drawnPet({ species: "dog", coat: 42 })).toEqual({
+    species: "dog",
+    coat: 0,
+  });
+  expect(drawnPet({ species: "dog", coat: 1.5 })).toEqual({
+    species: "dog",
+    coat: 0,
+  });
 });

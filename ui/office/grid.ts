@@ -7,11 +7,41 @@ export const SCENE_W = 950,
 export const VB_X = -355,
   VB_Y = -100;
 
+// The floor tile grid: N x N tiles from the back corner, where the two walls
+// meet the floor. A row step goes down-left and a column step down-right, both
+// at the 2:1 isometric slope.
+export const FLOOR_BACK_X = 120,
+  FLOOR_BACK_Y = 40;
+export const FLOOR_ROW_DX = -47.5,
+  FLOOR_ROW_DY = 23.75;
+export const FLOOR_COL_DX = 47.5,
+  FLOOR_COL_DY = 23.75;
+export const FLOOR_N = 10;
+
+// The floor diamond's outline, from the back corner through the left, front
+// and right corners: M120 40 L-355 277.5 L120 515 L595 277.5 Z.
+export const FLOOR_CLIP = (() => {
+  const left = {
+    x: FLOOR_BACK_X + FLOOR_N * FLOOR_ROW_DX,
+    y: FLOOR_BACK_Y + FLOOR_N * FLOOR_ROW_DY,
+  };
+  const right = {
+    x: FLOOR_BACK_X + FLOOR_N * FLOOR_COL_DX,
+    y: FLOOR_BACK_Y + FLOOR_N * FLOOR_COL_DY,
+  };
+  const front = {
+    x: left.x + FLOOR_N * FLOOR_COL_DX,
+    y: left.y + FLOOR_N * FLOOR_COL_DY,
+  };
+  return `M${FLOOR_BACK_X} ${FLOOR_BACK_Y} L${left.x} ${left.y} L${front.x} ${front.y} L${right.x} ${right.y} Z`;
+})();
+
 // Returns the SVG-space floor coordinate for a desk slot
 export function isoXY(row: number, col: number) {
   // 2:1 isometric ratio matching walls and floor tiles.
-  // 3.5 floor tiles per desk step: (140, 70).
-  // Extra gap between the two columns so right-column desks aren't hidden behind left-column ones.
+  // The desk step is (120, 60) per row and per column.
+  // Extra gap of 60 on both axes between the two columns, so right-column
+  // desks aren't hidden behind left-column ones.
   const colGap = col >= 1 ? 60 : 0;
   return {
     x: (col - row) * 120 + 220 + colGap,

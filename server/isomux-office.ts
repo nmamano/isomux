@@ -3366,12 +3366,19 @@ function buildExecutorDeps(
         return room.type === "lobby" ? "no" : "yes";
       },
       setSkin: (roomId, skin) => agentManager.setRoomSkin(roomId, skin),
+      setDecor: (roomId, patch) => agentManager.setRoomDecor(roomId, patch),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
         // Version over the prompt bytes ("" for a never-set/cleared prompt),
-        // same versionOf as memory files.
+        // same versionOf as memory files. The look rides along unversioned.
         return room
-          ? { prompt: room.prompt, version: versionOf(room.prompt ?? "") }
+          ? {
+              prompt: room.prompt,
+              version: versionOf(room.prompt ?? ""),
+              skin: room.skin ?? null,
+              pet: room.pet ?? null,
+              decor: room.decor ?? null,
+            }
           : null;
       },
       setSettings: (roomId, prompt, expectedVersion) => {
@@ -5044,6 +5051,12 @@ function emitAgentEvent(event: AgentEvent): void {
       liveEmit("room_skin_updated", {
         roomId: event.roomId,
         skin: event.skin,
+      });
+      break;
+    case "room_decor_updated":
+      liveEmit("room_decor_updated", {
+        roomId: event.roomId,
+        decor: event.decor,
       });
       break;
     case "room_closed":

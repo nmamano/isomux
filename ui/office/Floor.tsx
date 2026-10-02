@@ -6,8 +6,14 @@ import {
   VB_Y,
   isoXY,
   roomPaletteIndex,
+  FLOOR_BACK_X,
+  FLOOR_BACK_Y,
+  FLOOR_ROW_DX,
+  FLOOR_ROW_DY,
+  FLOOR_COL_DX,
+  FLOOR_COL_DY,
+  FLOOR_N,
 } from "./grid.ts";
-import { ordinaryRooms } from "../../shared/types.ts";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import {
   Leaf,
@@ -17,13 +23,10 @@ import {
   BACK_LEAF_TONES,
   MARBLE_TONES,
   BLOSSOM_TONES,
+  PlantDefs,
 } from "./plants.tsx";
 import { useAppState } from "../store.tsx";
-import {
-  SkinWalls,
-  ROOM_SKIN_MODULES,
-  useCurrentRoomSkin,
-} from "./skins/index.tsx";
+import { DecorWalls, useCurrentRoomDecor } from "./skins/index.tsx";
 import { useI18n } from "../i18n.tsx";
 import { landingUrl } from "../../shared/i18n/site-url.ts";
 
@@ -48,14 +51,14 @@ const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
 // that desk shows no cable.
 export function Floor({ desk8Cable = true }: { desk8Cable?: boolean }) {
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
-  // back=(120,40), left=(-260,230), right=(500,230), front=(120,420)
-  const backX = 120,
-    backY = 40;
-  const rowDx = -47.5,
-    rowDy = 23.75;
-  const colDx = 47.5,
-    colDy = 23.75;
-  const N = 10;
+  // back=(120,40), left=(-355,277.5), right=(595,277.5), front=(120,515)
+  const backX = FLOOR_BACK_X,
+    backY = FLOOR_BACK_Y;
+  const rowDx = FLOOR_ROW_DX,
+    rowDy = FLOOR_ROW_DY;
+  const colDx = FLOOR_COL_DX,
+    colDy = FLOOR_COL_DY;
+  const N = FLOOR_N;
 
   // Slab thickness, and the outer corners where the slab passes under the
   // wall (the wall footprint is 9 x 4.5 wider than the tile grid on each side).
@@ -522,7 +525,7 @@ const CROWN_FLOWERS: Array<[number, number, number, number]> = [
   [6.5, -5.5, 3.4, 2],
 ];
 
-function WindowPlant() {
+export function WindowPlant() {
   return (
     <g aria-hidden="true">
       {/* Cast shadow: the plant lifts off the wall. Invisible on the dark
@@ -966,12 +969,7 @@ export function Walls({
   const { currentRoomId, rooms } = useAppState();
   const { t, language } = useI18n();
   const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
-  const blossomRoom =
-    roomPaletteIndex(
-      ordinaryRooms(rooms).findIndex((r) => r.id === currentRoomId),
-      2,
-    ) === 0;
-  const { hideNeon } = ROOM_SKIN_MODULES[useCurrentRoomSkin()];
+  const { sill, wallArt } = useCurrentRoomDecor();
   const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -1077,19 +1075,7 @@ export function Walls({
           <circle cx={-203} cy={-8} r={12} fill="#fff" />
           <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#000" />
         </mask>
-        <linearGradient id="pot-body" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#b9704e" />
-          <stop offset="0.34" stopColor="#a85e3e" />
-          <stop offset="1" stopColor="#7b4028" />
-        </linearGradient>
-        <linearGradient id="pot-lip" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#cd8a66" />
-          <stop offset="0.34" stopColor="#bb7550" />
-          <stop offset="1" stopColor="#8b4c30" />
-        </linearGradient>
-        <filter id="plant-soft">
-          <feGaussianBlur stdDeviation="1.6" />
-        </filter>
+        <PlantDefs />
       </defs>
 
       {/* Cut ends and narrow cap faces make the wall planes read as solid. */}
@@ -1254,7 +1240,7 @@ export function Walls({
       </g>
 
       {/* Clip the trailing plant's contact shadow to the sill. */}
-      {!blossomRoom && (
+      {sill === "trailing" && (
         <g clipPath="url(#sill-clip)" aria-hidden="true">
           <g filter="url(#sill-shadow)">
             {/* The pot base lies at y=70.5 in the sill plane. */}
@@ -1270,10 +1256,10 @@ export function Walls({
         </g>
       )}
 
-      {!blossomRoom && <WindowPlant />}
+      {sill === "trailing" && <WindowPlant />}
 
       {/* The jar base follows the sill plane at this position. */}
-      {blossomRoom && (
+      {sill === "blossom" && (
         <g transform="translate(-236 92.6)">
           <BlossomJar />
         </g>
@@ -1573,143 +1559,12 @@ export function Walls({
       </g>
       {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
-      {!hideNeon && (
-        <>
-          {/* On (dark mode) */}
-          <g
-            className="neon-sign-on"
-            transform="translate(370, -5) skewY(27)"
-            style={{
-              animation: "neonFlicker 5s ease-in-out infinite",
-              filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})`,
-            }}
-          >
-            <title>{t("office.openWebsite")}</title>
-            {/* Hit area */}
-            <rect
-              data-no-pan
-              x="-38"
-              y="-18"
-              width="92"
-              height="32"
-              fill="transparent"
-              style={{ cursor: "pointer", pointerEvents: "auto" }}
-              onClick={() => window.open(landingUrl(language), "_blank")}
-            />
-            {/* Letters as thick strokes */}
-            <g
-              fill="none"
-              stroke={neon}
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              {/* i - dot + stem */}
-              <circle cx="-32" cy="-12" r="1.2" fill={neon} stroke="none" />
-              <line x1="-32" y1="-8" x2="-32" y2="2" />
-              {/* s */}
-              <g transform="rotate(20, -22, -3.5)">
-                <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
-              </g>
-              {/* o */}
-              <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
-              {/* m */}
-              <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
-              {/* u */}
-              <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
-              {/* x */}
-              <line x1="38" y1="-11" x2="48" y2="4" />
-              <line x1="48" y1="-11" x2="38" y2="4" />
-            </g>
-            {/* Ligaments - thin connecting tubes between letters */}
-            <g
-              fill="none"
-              stroke={neon}
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              opacity="0.7"
-            >
-              {/* i→s: bottom of i stem to start of s */}
-              <path d="M-32 2 Q-28 8 -24 4" />
-              {/* s→o: end of s to top of o */}
-              <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
-              {/* o→m: right of o to start of m */}
-              <path d="M-2.5 -3.5 Q0 -1 3 4" />
-              {/* m→u: end of m to start of u */}
-              <path d="M19 4 Q21 6 24 -1" />
-              {/* u→x: end of u to start of x */}
-              <path d="M33 -11 Q35 -14 38 -11" />
-            </g>
-            {/* Underline */}
-            <line
-              x1="-34"
-              y1="9"
-              x2="52"
-              y2="9"
-              stroke={neon}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              opacity="0.6"
-            />
-          </g>
-          {/* Off (light mode) */}
-          <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
-            <title>{t("office.openWebsite")}</title>
-            {/* Hit area */}
-            <rect
-              data-no-pan
-              x="-38"
-              y="-18"
-              width="92"
-              height="32"
-              fill="transparent"
-              style={{ cursor: "pointer", pointerEvents: "auto" }}
-              onClick={() => window.open(landingUrl(language), "_blank")}
-            />
-            <g
-              fill="none"
-              stroke="#444"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.7"
-            >
-              <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
-              <line x1="-32" y1="-8" x2="-32" y2="2" />
-              <g transform="rotate(20, -22, -3.5)">
-                <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
-              </g>
-              <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
-              <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
-              <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
-              <line x1="38" y1="-11" x2="48" y2="4" />
-              <line x1="48" y1="-11" x2="38" y2="4" />
-            </g>
-            <g
-              fill="none"
-              stroke="#444"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              opacity="0.45"
-            >
-              <path d="M-32 2 Q-28 8 -24 4" />
-              <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
-              <path d="M-2.5 -3.5 Q0 -1 3 4" />
-              <path d="M19 4 Q21 6 24 -1" />
-              <path d="M33 -11 Q35 -14 38 -11" />
-            </g>
-            <line
-              x1="-34"
-              y1="9"
-              x2="52"
-              y2="9"
-              stroke="#444"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              opacity="0.35"
-            />
-          </g>
-        </>
+      {wallArt === "neon" && (
+        <NeonSign
+          color={neon}
+          title={t("office.openWebsite")}
+          onOpen={() => window.open(landingUrl(language), "_blank")}
+        />
       )}
 
       {/* Vent - upper-east area of right wall */}
@@ -1803,8 +1658,162 @@ export function Walls({
           so over the wall planes, but still before WallDoors, which is a later
           sibling - a band along the bottom of a wall must not paint over a door
           swinging out of it. */}
-      <SkinWalls />
+      <DecorWalls />
     </svg>
+  );
+}
+
+/** The neon sign on the right wall: lit in dark mode, unlit tubes in light
+ *  mode. With `onOpen` it is the link to the landing page; without, it is the
+ *  drawing alone, which is how the settings tiles show it. */
+export function NeonSign({
+  color,
+  title,
+  onOpen,
+}: {
+  color: string;
+  title?: string;
+  onOpen?: () => void;
+}) {
+  return (
+    <>
+      {/* On (dark mode) */}
+      <g
+        className="neon-sign-on"
+        transform="translate(370, -5) skewY(27)"
+        style={{
+          animation: "neonFlicker 5s ease-in-out infinite",
+          filter: `drop-shadow(0 0 4px ${color}) drop-shadow(0 0 12px ${color})`,
+        }}
+      >
+        {onOpen && <NeonHitArea title={title} onOpen={onOpen} />}
+        {/* Letters as thick strokes */}
+        <g
+          fill="none"
+          stroke={color}
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {/* i - dot + stem */}
+          <circle cx="-32" cy="-12" r="1.2" fill={color} stroke="none" />
+          <line x1="-32" y1="-8" x2="-32" y2="2" />
+          {/* s */}
+          <g transform="rotate(20, -22, -3.5)">
+            <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+          </g>
+          {/* o */}
+          <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
+          {/* m */}
+          <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
+          {/* u */}
+          <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
+          {/* x */}
+          <line x1="38" y1="-11" x2="48" y2="4" />
+          <line x1="48" y1="-11" x2="38" y2="4" />
+        </g>
+        {/* Ligaments - thin connecting tubes between letters */}
+        <g
+          fill="none"
+          stroke={color}
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          opacity="0.7"
+        >
+          {/* i→s: bottom of i stem to start of s */}
+          <path d="M-32 2 Q-28 8 -24 4" />
+          {/* s→o: end of s to top of o */}
+          <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
+          {/* o→m: right of o to start of m */}
+          <path d="M-2.5 -3.5 Q0 -1 3 4" />
+          {/* m→u: end of m to start of u */}
+          <path d="M19 4 Q21 6 24 -1" />
+          {/* u→x: end of u to start of x */}
+          <path d="M33 -11 Q35 -14 38 -11" />
+        </g>
+        {/* Underline */}
+        <line
+          x1="-34"
+          y1="9"
+          x2="52"
+          y2="9"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.6"
+        />
+      </g>
+      {/* Off (light mode) */}
+      <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
+        {onOpen && <NeonHitArea title={title} onOpen={onOpen} />}
+        <g
+          fill="none"
+          stroke="#444"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity="0.7"
+        >
+          <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
+          <line x1="-32" y1="-8" x2="-32" y2="2" />
+          <g transform="rotate(20, -22, -3.5)">
+            <path d="M-20 -11 Q-27 -11 -27 -7 Q-27 -3 -22 -3 Q-17 -3 -17 1 Q-17 4 -24 4" />
+          </g>
+          <ellipse cx="-8" cy="-3.5" rx="5.5" ry="7" />
+          <path d="M3 4 L3 -6 Q3 -11 7 -11 Q11 -11 11 -6 L11 -2 Q11 -11 15 -11 Q19 -11 19 -6 L19 4" />
+          <path d="M24 -11 L24 -1 Q24 4 28.5 4 Q33 4 33 -1 L33 -11" />
+          <line x1="38" y1="-11" x2="48" y2="4" />
+          <line x1="48" y1="-11" x2="38" y2="4" />
+        </g>
+        <g
+          fill="none"
+          stroke="#444"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          opacity="0.45"
+        >
+          <path d="M-32 2 Q-28 8 -24 4" />
+          <path d="M-20 -11 Q-17 -14 -13.5 -10.5" />
+          <path d="M-2.5 -3.5 Q0 -1 3 4" />
+          <path d="M19 4 Q21 6 24 -1" />
+          <path d="M33 -11 Q35 -14 38 -11" />
+        </g>
+        <line
+          x1="-34"
+          y1="9"
+          x2="52"
+          y2="9"
+          stroke="#444"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.35"
+        />
+      </g>
+    </>
+  );
+}
+
+function NeonHitArea({
+  title,
+  onOpen,
+}: {
+  title?: string;
+  onOpen: () => void;
+}) {
+  return (
+    <>
+      <title>{title}</title>
+      <rect
+        data-no-pan
+        x="-38"
+        y="-18"
+        width="92"
+        height="32"
+        fill="transparent"
+        style={{ cursor: "pointer", pointerEvents: "auto" }}
+        onClick={onOpen}
+      />
+    </>
   );
 }
 

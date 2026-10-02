@@ -37,6 +37,11 @@ import {
 import type { RoomWire } from "../../../shared/types.ts";
 import { parseRoomPet, type RoomPet } from "../../../shared/pets.ts";
 import { parseRoomSkin, type RoomSkin } from "../../../shared/room-skins.ts";
+import {
+  parseRoomDecorPatch,
+  type RoomDecor,
+  type RoomDecorPatch,
+} from "../../../shared/room-decor.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
@@ -72,12 +77,23 @@ export interface RoomsDeps {
     roomId: string,
     skin: RoomSkin | null,
   ): "ok" | "room_not_found" | "skin_not_supported";
-  // Reads a room's settings (the prompt; null means no prompt set) plus the
-  // prompt's optimistic-concurrency version. Returns null if the room does not
-  // exist (→ 404).
-  getSettings(
+  // Applies a decor patch (null clears every choice). Same answers as setSkin:
+  // decor sits on top of the skin, so the lobby takes neither.
+  setDecor(
     roomId: string,
-  ): { prompt: string | null; version: string } | null;
+    patch: RoomDecorPatch | null,
+  ): "ok" | "room_not_found" | "skin_not_supported";
+  // Reads a room's settings (the prompt; null means no prompt set) plus the
+  // prompt's optimistic-concurrency version, and the room's look so an agent
+  // can read it before changing it. The version covers the prompt only.
+  // Returns null if the room does not exist (→ 404).
+  getSettings(roomId: string): {
+    prompt: string | null;
+    version: string;
+    skin: RoomSkin | null;
+    pet: RoomPet | null;
+    decor: RoomDecor | null;
+  } | null;
   // Sets a room's prompt (null clears), guarded by the version from a preceding
   // getSettings - a mismatch writes nothing and reports the current version
   // (→ 409), mirroring the memory read-before-replace contract.
@@ -124,6 +140,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         name?: unknown;
         pet?: unknown;
         skin?: unknown;
+        decor?: unknown;
       };
       // The tests differ on purpose and all are right over JSON: a name is
       // absent or a string, but `pet` and `skin` carry meaning when they are
@@ -132,20 +149,27 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       const hasName = b.name !== undefined;
       const hasPet = "pet" in b;
       const hasSkin = "skin" in b;
+      const hasDecor = "decor" in b;
       // Shape checks only (never an existence oracle): a malformed body is not
       // a comment on whether the room exists.
-      if (!hasName && !hasPet && !hasSkin) {
-        return fail(422, "invalid_request", "name, pet or skin is required");
+      if (!hasName && !hasPet && !hasSkin && !hasDecor) {
+        return fail(
+          422,
+          "invalid_request",
+          "name, pet, skin or decor is required",
+        );
       }
       // The lobby's refusal is decided before any value is looked at (Nil via
       // Isomux PM, 2026-09-12), so PATCHing the lobby answers the same way
       // whatever is in the body. An unknown room falls through to the normal
       // flow and still ends at the 404 below.
-      if (hasSkin && deps.takesSkin(ctx.params.roomId) === "no") {
+      if ((hasSkin || hasDecor) && deps.takesSkin(ctx.params.roomId) === "no") {
         return fail(
           422,
           "skin_not_supported",
-          "the lobby does not take a skin",
+          hasSkin
+            ? "the lobby does not take a skin"
+            : "the lobby does not take decor",
         );
       }
       let name = "";
@@ -165,6 +189,12 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
         if (!parsed.ok) return fail(422, "invalid_skin", parsed.reason);
         skin = parsed.skin;
       }
+      let decor: RoomDecorPatch | null = null;
+      if (hasDecor) {
+        const parsed = parseRoomDecorPatch(b.decor);
+        if (!parsed.ok) return fail(422, "invalid_decor", parsed.reason);
+        decor = parsed.patch;
+      }
       // One 404 for the whole request: every write hits the same room, so the
       // first miss answers for all of them and none has run.
       if (hasName && !deps.rename(ctx.params.roomId, name)) {
@@ -183,6 +213,21 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
             422,
             "skin_not_supported",
             "the lobby does not take a skin",
+          );
+        }
+        if (result !== "ok") {
+          return fail(404, "room_not_found", "Room not found");
+        }
+      }
+      // After the skin: a body that picks a preset and clears or sets slots in
+      // the same request means "this preset, with these choices".
+      if (hasDecor) {
+        const result = deps.setDecor(ctx.params.roomId, decor);
+        if (result === "skin_not_supported") {
+          return fail(
+            422,
+            "skin_not_supported",
+            "the lobby does not take decor",
           );
         }
         if (result !== "ok") {

@@ -271,6 +271,29 @@ function archStemLeaves(
   return out;
 }
 
+/** The pot gradients and the leaf blur every potted plant here paints with.
+ *  Mounted once in the Walls svg's defs; ids are document-wide, so the props
+ *  layer's plants read them from there. */
+export function PlantDefs() {
+  return (
+    <>
+      <linearGradient id="pot-body" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stopColor="#b9704e" />
+        <stop offset="0.34" stopColor="#a85e3e" />
+        <stop offset="1" stopColor="#7b4028" />
+      </linearGradient>
+      <linearGradient id="pot-lip" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stopColor="#cd8a66" />
+        <stop offset="0.34" stopColor="#bb7550" />
+        <stop offset="1" stopColor="#8b4c30" />
+      </linearGradient>
+      <filter id="plant-soft">
+        <feGaussianBlur stdDeviation="1.6" />
+      </filter>
+    </>
+  );
+}
+
 export function CornerPlant() {
   return (
     <g aria-hidden="true">

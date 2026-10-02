@@ -7,7 +7,7 @@
 // sentinel -1 must fall back to slot 0 rather than index out of bounds.
 
 import { describe, it, expect } from "bun:test";
-import { roomPaletteIndex } from "./grid.ts";
+import { FLOOR_CLIP, roomPaletteIndex } from "./grid.ts";
 
 describe("roomPaletteIndex", () => {
   it("cycles all palettes in order before repeating", () => {
@@ -43,5 +43,13 @@ describe("roomPaletteIndex", () => {
   it("returns 0 for a non-positive length", () => {
     expect(roomPaletteIndex(3, 0)).toBe(0);
     expect(roomPaletteIndex(3, -1)).toBe(0);
+  });
+});
+
+describe("FLOOR_CLIP", () => {
+  // The outline GroundShadows clips to, computed from the tile grid Floor.tsx
+  // lays: it has to land on the four corners the hand-written path had.
+  it("traces the floor grid's four corners", () => {
+    expect(FLOOR_CLIP).toBe("M120 40 L-355 277.5 L120 515 L595 277.5 Z");
   });
 });
