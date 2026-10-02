@@ -72,11 +72,13 @@ function codexLimits(
       spendControlReached: null,
       planType: "pro",
       rateLimitReachedType: null,
+      normalModelSlug: null,
     },
     rateLimitsByLimitId: null,
     rateLimitResetCredits: null,
     accountId: null,
     rateLimitUpsell: null,
+    ordinaryUsageAllowed: null,
   };
 }
 
