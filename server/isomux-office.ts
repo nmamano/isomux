@@ -41,7 +41,11 @@ import {
   setPresence,
   _testClearPresence,
 } from "./presence.ts";
-import type { AgentEvent, UserSendAcceptance } from "./internal-types.ts";
+import type {
+  AgentEvent,
+  EnqueueResult,
+  UserSendAcceptance,
+} from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
@@ -277,6 +281,11 @@ import {
   migrateManagedEnvAtBoot,
 } from "./managed-env-migration.ts";
 import { readEnvFile } from "./persistence.ts";
+import {
+  memberUsageCap,
+  resetMemberUsageCap,
+  usageCapText,
+} from "./member-usage-cap.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
@@ -1423,7 +1432,14 @@ async function applyAccessSettings(
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
-  return versionOf(JSON.stringify([s.prompt, s.envFile, s.name]));
+  return versionOf(
+    JSON.stringify([
+      s.prompt,
+      s.envFile,
+      s.name,
+      memberUsageCap().isEnabled(),
+    ]),
+  );
 }
 
 // office.setSettings core. The version guard runs FIRST (a stale writer is told
@@ -1434,6 +1450,7 @@ function officeSettingsVersion(): string {
 function applyOfficeSettings(input: {
   prompt: string | null;
   name?: string | null;
+  memberUsageCap?: boolean;
   expectedVersion: string;
 }):
   | { ok: true }
@@ -1461,6 +1478,11 @@ function applyOfficeSettings(input: {
     agentManager.getOfficeSettings().envFile,
     rawName,
   );
+  if (
+    input.memberUsageCap !== undefined &&
+    input.memberUsageCap !== memberUsageCap().isEnabled()
+  )
+    memberUsageCap().setEnabled(input.memberUsageCap);
   return { ok: true };
 }
 
@@ -1984,6 +2006,29 @@ function emitUsersList(): void {
   liveEmit("users_admin_list", { users: all });
 }
 
+// An enqueue failure as an HTTP error. The code doubles as the message, the
+// legacy endpoint's contract, except for a usage cap refusal, which says why
+// and carries retryAtMs.
+function enqueueFailure(result: Extract<EnqueueResult, { ok: false }>): {
+  ok: false;
+  status: 400 | 404 | 409 | 429 | 500;
+  code: string;
+  message: string;
+  detail?: Record<string, unknown>;
+} {
+  return {
+    ok: false,
+    status: result.status as 400 | 404 | 409 | 429 | 500,
+    code: result.error,
+    message: result.usageCap
+      ? usageCapText(english, result.usageCap)
+      : result.error,
+    ...(result.usageCap
+      ? { detail: { retryAtMs: result.usageCap.retryAtMs } }
+      : {}),
+  };
+}
+
 // Token-derived task/cron attribution. createdBy is the caller's
 // display identity (agent name, or the human's name on a user token); username
 // is the token's owning user. Never sourced from a request body.
@@ -2326,7 +2371,8 @@ function buildExecutorDeps(
       // follows above, and for the same reason: a body-trusted sender is an
       // identity spoof and a prefix-injection vector into the receiver's prompt.
       // No steer option is passed or accepted; an app cannot interrupt a turn.
-      sendAsApp: (appName, targetAgentId, text) => {
+      sendAsApp: async (appName, targetAgentId, text) => {
+        await agentManager.prepareEnqueue(targetAgentId);
         const result = agentManager.enqueueMessage(targetAgentId, {
           sender: { kind: "app", appName },
           text,
@@ -2337,12 +2383,7 @@ function buildExecutorDeps(
             messageId: result.messageId,
             ...(result.deduped ? {} : { queued: result.queued }),
           };
-        return {
-          ok: false,
-          status: result.status as 400 | 404 | 409 | 429 | 500,
-          code: result.error,
-          message: result.error,
-        };
+        return enqueueFailure(result);
       },
       limiter: appMessageLimiter,
       publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
@@ -2867,6 +2908,10 @@ function buildExecutorDeps(
       }),
       replaceOffice: (values) => {
         writeManagedOfficeEnv(values);
+        // The office variables can change which account (or billing) the
+        // office sign-in is: drop the usage cap's readings for both.
+        memberUsageCap().invalidate("claude");
+        memberUsageCap().invalidate("codex");
         return { ok: true };
       },
     }),
@@ -3187,11 +3232,23 @@ function buildExecutorDeps(
   // agentManager.validateCwd directly; validate.env/backends share the cores.
   register(
     officeSettingsHandlers({
-      getSettings: () => ({
-        prompt: agentManager.getOfficeSettings().prompt,
-        name: agentManager.getOfficeSettings().name,
-        version: officeSettingsVersion(),
-      }),
+      getSettings: async () => {
+        // The editable fields and their version are read together, before
+        // the status read awaits a provider.
+        const settings = {
+          prompt: agentManager.getOfficeSettings().prompt,
+          name: agentManager.getOfficeSettings().name,
+          version: officeSettingsVersion(),
+          memberUsageCap: memberUsageCap().isEnabled(),
+        };
+        // Status reads the providers, so only while the cap is on.
+        return {
+          ...settings,
+          memberUsageStatus: settings.memberUsageCap
+            ? await memberUsageCap().status()
+            : [],
+        };
+      },
       applySettings: (input) => applyOfficeSettings(input),
     }),
   );
@@ -3726,7 +3783,7 @@ function buildExecutorDeps(
                 });
             }),
         ),
-      sendAsAgent: (
+      sendAsAgent: async (
         receiverId,
         senderAgentId,
         text,
@@ -3750,6 +3807,7 @@ function buildExecutorDeps(
             code: "unknown_sender",
             message: "Sender is not a known agent.",
           };
+        await agentManager.prepareEnqueue(receiverId);
         const result = agentManager.enqueueMessage(
           receiverId,
           {
@@ -3790,14 +3848,9 @@ function buildExecutorDeps(
         // when the durable-queue write failed and the message was rolled back -
         // the sender should retry), preserving the legacy endpoint's
         // status + code contract.
-        return {
-          ok: false,
-          status: result.status as 400 | 404 | 409 | 429 | 500,
-          code: result.error,
-          message: result.error,
-        };
+        return enqueueFailure(result);
       },
-      sendAsCron: (receiverId, cronjobId, text, clientMessageId) => {
+      sendAsCron: async (receiverId, cronjobId, text, clientMessageId) => {
         const job = cronjobManager
           .listCronjobs()
           .find((candidate) => candidate.id === cronjobId);
@@ -3808,6 +3861,7 @@ function buildExecutorDeps(
             code: "unknown_sender",
             message: "Sender is not a known cron job.",
           };
+        await agentManager.prepareEnqueue(receiverId);
         const result = agentManager.enqueueMessage(receiverId, {
           sender: {
             kind: "cronjob",
@@ -3823,12 +3877,7 @@ function buildExecutorDeps(
             messageId: result.messageId,
             ...(result.deduped ? {} : { queued: result.queued }),
           };
-        return {
-          ok: false,
-          status: result.status as 400 | 404 | 409 | 429 | 500,
-          code: result.error,
-          message: result.error,
-        };
+        return enqueueFailure(result);
       },
       // Scheduled messages. Thin pass-throughs: the manager
       // owns validation (future/horizon/quota/idempotency) and returns the
@@ -3885,12 +3934,7 @@ function buildExecutorDeps(
         // Same status+code passthrough as sendAsAgent.
         const r = await agentManager.handoff(agentId, text);
         if (r.ok) return { ok: true };
-        return {
-          ok: false,
-          status: r.status as 400 | 404 | 409 | 429 | 500,
-          code: r.error,
-          message: r.error,
-        };
+        return enqueueFailure(r);
       },
       resume: (agentId, sessionId) => {
         void agentManager.resume(agentId, sessionId).catch(() => {});
@@ -6618,6 +6662,7 @@ export interface ServerHandle {
 // Reset this module's own module-level collections so a repeated in-process boot
 // doesn't inherit a prior server's sockets / id counter.
 function resetServerModuleState(): void {
+  resetMemberUsageCap();
   browsers.clear();
   apiTokenSockets.clear();
   connectionIdCounter = 0;

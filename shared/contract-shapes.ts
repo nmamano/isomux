@@ -719,6 +719,8 @@ export interface OfficeSettingsReq {
   // clobber surface - a mismatch is a 409 version_conflict, mirroring memory
   // REPLACE.
   version: string;
+  // The member usage cap switch. Omitted preserves it (a stale client tab).
+  memberUsageCap?: boolean;
 }
 
 export type UserEnvRes = { mode: "managed"; values: Record<string, string> };
@@ -738,12 +740,26 @@ export interface UserEnvReplaceReq {
   values: Record<string, string>;
 }
 
+// One line of the member usage cap status: the office sign-in's weekly
+// reading for one provider. A provider with no office sign-in has no line.
+export type OfficeUsageStatusWire =
+  | {
+      provider: "claude" | "codex";
+      state: "weekly";
+      usedPercent: number;
+      pacePercent: number;
+    }
+  | { provider: "claude" | "codex"; state: "no_limit" | "failed" };
+
 // office.getSettings response: the editable settings plus their
 // optimistic-concurrency version.
 export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
   // Optional only while a new UI bundle can talk to the old server before the
   // server-side half of an update restarts.
   version: string;
+  // Optional for the same reason as `version`.
+  memberUsageCap?: boolean;
+  memberUsageStatus?: OfficeUsageStatusWire[];
 };
 
 export interface ValidateCwdReq {

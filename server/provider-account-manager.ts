@@ -31,6 +31,7 @@ import {
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
+import { memberUsageCap } from "./member-usage-cap.ts";
 
 export const CLAUDE_CONFIG_INVALID =
   "CLAUDE_CONFIG_DIR must be an absolute directory.";
@@ -784,6 +785,9 @@ export class ProviderAccountManager {
         checkedAt: Date.now(),
         wire: active.wire,
       });
+      // The office may now be a different account: drop the cap's reading.
+      if (active.target.scope === "office")
+        memberUsageCap().invalidate(active.target.provider);
       this.emit(active.userId, await this.list(active.userId));
     } catch (err) {
       if (this.active.get(key) === active) {
@@ -896,6 +900,7 @@ export class ProviderAccountManager {
 
     if (scope === "personal" && target.autoPersonal)
       this.deactivatePersonal(userId, provider);
+    if (scope === "office") memberUsageCap().invalidate(provider);
 
     const affectedUsers = scope === "office" ? this.users() : [{ id: userId }];
     const prefix = `${target.key}:${scope}:`;

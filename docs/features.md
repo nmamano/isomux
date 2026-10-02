@@ -44,6 +44,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Members chat** - a humans-only chat on the Lobby.
 - **The receptionist** - an always-available agent in the office lobby for general Isomux questions, on a free OpenCode model. The receptionist helps new members settle into the office.
 - **Member roster** - office owners can see each member's signed-in sessions, with device name and last-active time, from the Members page.
+- **Member usage pacing** - with Pace member usage on (Settings → Office), members' turns on the office's Claude or Codex sign-in stop while the office account's weekly usage is ahead of the share of the week that has passed, so the owner keeps the rest of the week. Off by default. A turn already running finishes.
 - **Customizable ghosts** - each member picks a color and one of 8 ghost styles from `Settings` → `You` → `Profile`.
 
 ## Multi-device

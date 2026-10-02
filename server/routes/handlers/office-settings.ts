@@ -11,7 +11,8 @@
 // office_settings_updated). setSettings emits office_settings_updated via the
 // existing AgentManager event sink - the handler never emits.
 //
-// office.getSettings returns the editable prompt and display name.
+// office.getSettings returns the editable prompt and display name, the member
+// usage cap switch and its status lines.
 // The legacy envFile field remains persistence-only until
 // the boot migration clears it.
 //
@@ -41,13 +42,15 @@ export type ApplyOfficeSettingsResult =
   | { ok: false; conflict: true; version: string };
 
 export interface OfficeSettingsDeps {
-  getSettings(): OfficeSettingsRes;
+  getSettings(): Promise<OfficeSettingsRes>;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
+  // `memberUsageCap === undefined` preserves the switch.
   // Throws nothing - invalid input returns { ok: false }.
   applySettings(input: {
     prompt: string | null;
     name?: string | null;
+    memberUsageCap?: boolean;
     expectedVersion: string;
   }): ApplyOfficeSettingsResult;
 }
@@ -56,13 +59,14 @@ export function officeSettingsHandlers(
   deps: OfficeSettingsDeps,
 ): Record<string, RouteHandler> {
   return {
-    "office.getSettings": () => ok(deps.getSettings()),
+    "office.getSettings": async () => ok(await deps.getSettings()),
 
     "office.setSettings": (ctx) => {
       const b = (ctx.body ?? {}) as {
         prompt?: unknown;
         name?: unknown;
         version?: unknown;
+        memberUsageCap?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
       // Distinguish "name omitted" (undefined → preserve) from "name set to
@@ -83,9 +87,16 @@ export function officeSettingsHandlers(
           "version is required (from a preceding GET of the settings)",
         );
       }
+      if (
+        b.memberUsageCap !== undefined &&
+        typeof b.memberUsageCap !== "boolean"
+      ) {
+        return fail(400, "invalid_request", "memberUsageCap must be a boolean");
+      }
       const r = deps.applySettings({
         prompt,
         name,
+        memberUsageCap: b.memberUsageCap,
         expectedVersion: b.version,
       });
       if (!r.ok) {

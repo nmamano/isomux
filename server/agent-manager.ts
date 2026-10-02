@@ -236,6 +236,15 @@ import {
   CONTEXT_NOTICE_SAMPLE_WAIT_MS,
   formatMemoryNotice,
 } from "./agent-turn.ts";
+import {
+  billingAccountFor,
+  directInputCapped,
+  managerCapped,
+  memberUsageCap,
+  UsageCapError,
+  usageCapText,
+  type BillingAccount,
+} from "./member-usage-cap.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
 import {
   formatAttachmentLines,
@@ -2963,6 +2972,93 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return logI18n(agentId, username).t;
   }
 
+  // Whether the member usage cap covers a queued item (Isomux PM ruling,
+  // 2026-10-02): a human's own input by that human's role, anything else by
+  // the receiving agent's manager.
+  function queuedItemCapped(managed: ManagedAgent, m: QueuedMessage): boolean {
+    return m.sender.kind === "user"
+      ? directInputCapped(m.sender.username)
+      : managerCapped(managed.info.userId);
+  }
+
+  // The account an agent's next turn bills: the installed session's, or the
+  // last launch's for a dormant agent (its next session resumes on the same
+  // root). Advisory only - turn start reads the installed session.
+  function nextBillingAccount(managed: ManagedAgent): BillingAccount {
+    if (managed.billingAccount !== undefined) return managed.billingAccount;
+    try {
+      return billingAccountFor(
+        managed.info.agentType,
+        buildEnvForUserId(managed.info.userId),
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  // Input from no human (agent, scheduled, cron-run, app, handoff) to an agent
+  // the cap covers gets its refusal at send time, so the sender hears it.
+  // enqueueMessage is synchronous, so this answers from the cap's last reading
+  // for the account (prepareEnqueue takes one first). With none, it starts a
+  // read and refuses as retryable: the scheduled-message tick tries again.
+  // Turn start remains the authoritative check.
+  function enqueueCapRefusal(
+    managed: ManagedAgent,
+    sender: QueuedMessage["sender"],
+  ): EnqueueResult | null {
+    if (sender.kind === "user") return null;
+    if (!memberUsageCap().isEnabled() || !managerCapped(managed.info.userId))
+      return null;
+    const billing = nextBillingAccount(managed);
+    const admission = memberUsageCap().peek(billing);
+    if (admission === null) {
+      void memberUsageCap()
+        .admit(billing)
+        .catch(() => {});
+      return usageCapResult("read_failed", Date.now() + 60_000);
+    }
+    return admission.kind === "refused"
+      ? usageCapResult(admission.reason, admission.retryAtMs)
+      : null;
+  }
+
+  function usageCapResult(
+    reason: "pace" | "read_failed",
+    retryAtMs: number,
+  ): EnqueueResult {
+    return {
+      ok: false,
+      error: "usage_cap",
+      status: 429,
+      usageCap: { reason, retryAtMs },
+    };
+  }
+
+  // Take a reading for the cap's early refusal before a synchronous enqueue.
+  async function prepareEnqueue(agentId: string): Promise<void> {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    if (!memberUsageCap().isEnabled() || !managerCapped(managed.info.userId))
+      return;
+    await memberUsageCap().admit(nextBillingAccount(managed));
+  }
+
+  // A turn the member usage cap refused before send: say why in the chat and
+  // put the agent back at rest. The input is not run later.
+  function refuseForUsageCap(
+    agentId: string,
+    managed: ManagedAgent,
+    err: UsageCapError,
+    username?: string,
+  ): void {
+    addLogEntry(
+      agentId,
+      "error",
+      usageCapText(logTranslator(managed, username), err),
+    );
+    updateState(agentId, "waiting_for_response");
+  }
+
   /**
    * The two "too large" system entries. The size is a number in the reader's
    * language (ruling 12), so both need the translator and not only its `t`;
@@ -5342,6 +5438,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const backend = getBackend(managed.info.agentType);
     managed.launchedClaudeConfigDir =
       managed.info.agentType === "claude" ? claudeConfigRoot(env) : undefined;
+    managed.billingAccount = billingAccountFor(managed.info.agentType, env);
     // The boundary callback is bound to the session it is created with, so a
     // hook still firing in a closed or replaced session cannot claim the queue
     // of the session that replaced it.
@@ -6156,6 +6253,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: false, error: "queue_full", status: 429 };
     }
 
+    const capRefusal = enqueueCapRefusal(managed, msg.sender);
+    if (capRefusal) return capRefusal;
+
     const id = generateQueuedId(managed.messageQueue);
     const queuedDuringBusyTurn = state !== "error" && !isQueueIdleState(state);
     // A steer at a busy receiver whose backend delivers at tool boundaries
@@ -6413,8 +6513,51 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // the items remain in the queue and the post-swap idle trigger re-flushes.
       // Items a live boundary claim already delivered are excluded; a stale
       // claim's items are included again (at-least-once).
-      const items = unclaimedQueue(managed);
+      let items = unclaimedQueue(managed);
       if (items.length === 0) return;
+
+      // Member usage cap, decided per item. The claim is flushInProgress; the
+      // token and session are captured before the provider read and checked
+      // again after it, so a Stop or swap during the read abandons this flush
+      // with the items still queued. Refused items are drained, not kept: a
+      // kept item in an idle state would re-fire the flush in a loop.
+      const capped = memberUsageCap().isEnabled()
+        ? items.filter((m) => queuedItemCapped(managed, m))
+        : [];
+      if (capped.length > 0) {
+        const tokenAtGate = managed.sessionManager.turnCancelToken;
+        const sessionAtGate = managed.sessionManager.session;
+        const admission = await memberUsageCap().admit(
+          managed.billingAccount ?? null,
+        );
+        if (
+          !agents.has(agentId) ||
+          managed.sessionManager.turnCancelToken !== tokenAtGate ||
+          managed.sessionManager.session !== sessionAtGate ||
+          !isQueueIdleState(managed.info.state) ||
+          inMultiStepFlow(managed)
+        )
+          return;
+        const refused = new Set<QueuedMessage>(
+          admission.kind === "refused" ? capped : [],
+        );
+        if (admission.kind === "refused") {
+          drainQueueItems(agentId, managed, refused);
+          addLogEntry(
+            agentId,
+            "error",
+            usageCapText(
+              logTranslator(managed),
+              new UsageCapError(admission.reason, admission.retryAtMs),
+            ),
+          );
+        }
+        // Items cancelled during the read are gone from the queue.
+        items = items.filter(
+          (m) => !refused.has(m) && managed.messageQueue.includes(m),
+        );
+        if (items.length === 0) return;
+      }
 
       const promptParts: string[] = [];
       const allAttachments: Attachment[] = [];
@@ -7520,6 +7663,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         sdkText: prefixedText,
         attachments,
         humanInput: true,
+        usageCapped: directInputCapped(username),
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw; it also
@@ -7527,6 +7671,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // if session.send threw before await turn ran). The per-call-site catch
       // remains responsible for the distinct error semantics each path needs.
       if (err instanceof SessionSwappedError) return;
+      if (err instanceof UsageCapError) {
+        refuseForUsageCap(agentId, managed, err, username);
+        return;
+      }
       if (err instanceof BackendNotConfiguredError) {
         // Backend isn't usable (CLI missing, auth missing, etc.).
         // surfaceBackendNotConfigured emits the hint+card, drains any queued
@@ -8415,6 +8563,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: false, error: "handoff_in_progress", status: 409 };
     handoffInProgress.add(agentId);
     try {
+      // A refused handoff must not wipe the session it would replace.
+      await prepareEnqueue(agentId);
+      const managed = agents.get(agentId);
+      if (!managed) return { ok: false, error: "agent not found", status: 404 };
+      const capRefusal = enqueueCapRefusal(managed, {
+        kind: "agent",
+        agentId,
+        agentName: managed.info.name,
+        roomName: "",
+      });
+      if (capRefusal) return capRefusal;
       await newConversation(agentId);
       // Re-resolve AFTER the reset: the agent may have been killed during the
       // drain. getAgentDisplay also gives the spoof-proof server-side sender.
@@ -9095,6 +9254,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           sdkText: prefixedNew,
           attachments: targetEntry.attachments,
           humanInput: true,
+          usageCapped: directInputCapped(username),
         });
       } finally {
         delete managed.editTurnText;
@@ -9163,6 +9323,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
       }
 
+      if (err instanceof UsageCapError) {
+        // The rollback above restored the pre-edit conversation.
+        failEdit(usageCapText(logTranslator(managed, username), err));
+        updateState(agentId, "waiting_for_response");
+        return;
+      }
       const branchFailed = logWords(agentId, username)(
         "systemEntries.branchFailed",
         { error: errMessage(err) },
@@ -9427,6 +9593,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getAgentSubscriptionUsage,
     spawn,
     enqueueMessage,
+    prepareEnqueue,
     addSystemNote,
     addApiTokenOutbound,
     cancelQueued,

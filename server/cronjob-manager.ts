@@ -2,7 +2,15 @@ import {
   claudeConfigRoot,
   resolveClaudeSessionRoot,
 } from "./claude-session-root.ts";
-import { translatorForUserId } from "./i18n.ts";
+import { translatorForUserId, translatorForUsername } from "./i18n.ts";
+import {
+  billingAccountFor,
+  directInputCapped,
+  managerCapped,
+  memberUsageCap,
+  usageCapText,
+  type BillingAccount,
+} from "./member-usage-cap.ts";
 // Cronjob scheduler + per-run backend session lifecycle.
 //
 // Scheduler tick: every 60s, looks at every enabled cronjob and fires those
@@ -891,6 +899,40 @@ How to answer questions about Isomux itself: the source lives at https://github.
     };
   }
 
+  // Member usage cap for a follow-up or edited turn in a run: input a human
+  // sends directly, capped unless that human is an owner. Runs after the
+  // startingRuns claim; the run's leaf session is captured before the provider
+  // read and checked after it, and a change abandons the turn. A run whose
+  // session access cannot be built is left to the resume path's own error.
+  async function runTurnCap(
+    run: CronjobRun,
+    username: string | undefined,
+  ): Promise<
+    { kind: "proceed" } | { kind: "abandon" } | { kind: "refused"; text: string }
+  > {
+    if (!memberUsageCap().isEnabled() || !directInputCapped(username))
+      return { kind: "proceed" };
+    let billing: BillingAccount;
+    try {
+      billing = billingAccountFor(
+        run.agentTypeSnapshot,
+        sessionAccessForRun(run).env,
+      );
+    } catch {
+      return { kind: "proceed" };
+    }
+    const leafAtGate = run.currentSessionId ?? run.rootSessionId;
+    const admission = await memberUsageCap().admit(billing);
+    const current = findRun(run.cronjobId, run.id);
+    if (!current || (current.currentSessionId ?? current.rootSessionId) !== leafAtGate)
+      return { kind: "abandon" };
+    if (admission.kind !== "refused") return { kind: "proceed" };
+    return {
+      kind: "refused",
+      text: usageCapText(translatorForUsername(username), admission),
+    };
+  }
+
   function writeLog(
     active: ActiveRun,
     kind: LogEntry["kind"],
@@ -1236,6 +1278,27 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // bootstrap errors finalize the run instead of crashing the tick.
     void (async () => {
       try {
+        // Member usage cap: a run of a member's cronjob. The run is claimed
+        // (activeRuns) above; the same active run must still hold the slot
+        // after the provider read.
+        if (memberUsageCap().isEnabled() && managerCapped(job.userId)) {
+          const admission = await memberUsageCap().admit(
+            billingAccountFor(job.agentType, opts.env),
+          );
+          if (activeRuns.get(runId) !== active || active.killed) return;
+          if (admission.kind === "refused") {
+            const text = usageCapText(
+              translatorForUserId(job.userId ?? null),
+              admission,
+            );
+            writeLog(active, "error", text);
+            try {
+              session.close();
+            } catch {}
+            finalizeRun(active, "failed", text);
+            return;
+          }
+        }
         await session.send(job.prompt);
       } catch (err) {
         if (active.killed) return;
@@ -1680,6 +1743,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     startingRuns.add(runId);
     try {
+      const cap = await runTurnCap(run, username);
+      if (cap.kind === "abandon") return;
+      if (cap.kind === "refused") {
+        emitRunErrorEntry(jobId, runId, cap.text);
+        return;
+      }
       let session: BackendSession;
       try {
         session = getBackend(run.agentTypeSnapshot).resumeSession(
@@ -1835,6 +1904,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     startingRuns.add(runId);
     try {
+      const cap = await runTurnCap(run, username);
+      if (cap.kind === "abandon") return;
+      if (cap.kind === "refused") {
+        failEdit(cap.text);
+        return;
+      }
       await editRunMessageImpl(
         run,
         logEntryId,

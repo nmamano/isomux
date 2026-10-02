@@ -15,6 +15,10 @@
 //     stopped, missing or queue-full receiver burned no model tokens, so it must
 //     not burn the app's day - otherwise one app whose agent is down for an hour
 //     comes back to a spent budget it never used.
+//   - holdDaily() reserves a daily slot while a delivery is in flight, because
+//     delivery can await (the member usage cap reads the provider), and two
+//     concurrent sends must not both pass the last slot. commitDaily() turns
+//     the hold into a spent slot; releaseDaily() drops it on a refusal.
 //
 // IN MEMORY, AND THAT IS STATED RATHER THAN HIDDEN. The counters reset when
 // isomux restarts. A restart is a human act (or a crash) that an app in a loop
@@ -53,9 +57,14 @@ export interface AppMessageLimiter {
   // Check both limits and, when the message may go, spend the burst slot in the
   // same synchronous step (no window between deciding and recording).
   takeBurst(appName: string): AppMessageLimitOutcome;
-  // Spend one of the app's daily messages. Called after a delivery the receiver
-  // accepted, never before.
+  // Hold one daily slot for a delivery in flight. It counts against the cap
+  // until commitDaily or releaseDaily settles it.
+  holdDaily(appName: string): void;
+  // Spend one of the app's daily messages, settling a hold if there is one.
+  // Called after a delivery the receiver accepted, never before.
   commitDaily(appName: string): void;
+  // Drop a hold: the delivery was refused and burned no model tokens.
+  releaseDaily(appName: string): void;
   // Drop everything recorded against a name, because the app that spent it is
   // gone. Called by the delete route once the record is removed. NEVER throws:
   // it runs after the delete has committed, and a rate-limit counter is not
@@ -71,6 +80,8 @@ interface AppCounters {
   // Timestamps, oldest first (pushes are monotonic in `now`).
   burst: number[];
   daily: number[];
+  // Daily slots held by deliveries in flight.
+  held: number;
 }
 
 // Drop everything that has aged out of `windowMs`. Called on every access, so
@@ -109,7 +120,7 @@ function buildLimiter(options: AppMessageLimiterOptions): {
   const countersFor = (appName: string): AppCounters => {
     let c = counters.get(appName);
     if (!c) {
-      c = { burst: [], daily: [] };
+      c = { burst: [], daily: [], held: 0 };
       counters.set(appName, c);
     }
     return c;
@@ -123,7 +134,7 @@ function buildLimiter(options: AppMessageLimiterOptions): {
       prune(c.daily, t, APP_MESSAGE_DAILY_WINDOW_MS);
 
       const burstBlocked = c.burst.length >= APP_MESSAGE_BURST_LIMIT;
-      const dailyBlocked = c.daily.length >= APP_MESSAGE_DAILY_CAP;
+      const dailyBlocked = c.daily.length + c.held >= APP_MESSAGE_DAILY_CAP;
 
       if (burstBlocked || dailyBlocked) {
         // BOTH waits are computed when both block, and the longer one is what
@@ -134,8 +145,12 @@ function buildLimiter(options: AppMessageLimiterOptions): {
         const burstWait = burstBlocked
           ? waitSecs(c.burst[0], t, APP_MESSAGE_BURST_WINDOW_MS)
           : 0;
+        // A cap reached only through holds frees up when a delivery in flight
+        // settles, so the shortest wait is the honest one.
         const dailyWait = dailyBlocked
-          ? waitSecs(c.daily[0], t, APP_MESSAGE_DAILY_WINDOW_MS)
+          ? c.daily.length >= APP_MESSAGE_DAILY_CAP
+            ? waitSecs(c.daily[0], t, APP_MESSAGE_DAILY_WINDOW_MS)
+            : 1
           : 0;
         return dailyWait > burstWait
           ? { ok: false, kind: "daily", retryAfterSec: dailyWait }
@@ -146,11 +161,21 @@ function buildLimiter(options: AppMessageLimiterOptions): {
       return { ok: true };
     },
 
+    holdDaily(appName) {
+      countersFor(appName).held++;
+    },
+
     commitDaily(appName) {
       const c = countersFor(appName);
       const t = now();
       prune(c.daily, t, APP_MESSAGE_DAILY_WINDOW_MS);
       c.daily.push(t);
+      if (c.held > 0) c.held--;
+    },
+
+    releaseDaily(appName) {
+      const c = counters.get(appName);
+      if (c && c.held > 0) c.held--;
     },
 
     // Deliberately not countersFor(): forgetting an unknown name must not

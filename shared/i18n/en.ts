@@ -468,6 +468,15 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Office settings changed somewhere else since this page loaded. Select another row and come back to load the latest.",
   "settings.office.loadedVariables.one": "Loaded {count} variable.",
   "settings.office.loadedVariables.other": "Loaded {count} variables.",
+  "settings.office.memberUsageCap": "Pace member usage",
+  "settings.office.memberUsageCapHint":
+    "Members' turns on the office sign-in stop while this week's usage is ahead of the week's elapsed time.",
+  "settings.office.memberUsageWeekly":
+    "{provider}: {used}% used, {pace}% of the week elapsed.",
+  "settings.office.memberUsageNoLimit":
+    "{provider}: no weekly limit on the office sign-in. Members are not capped.",
+  "settings.office.memberUsageFailed":
+    "{provider}: weekly usage could not be read. Members are stopped.",
 
   "settings.room.title": "{room} · Settings",
   "settings.room.intro":
@@ -1992,6 +2001,10 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   // for the agent's owner (internal-docs/i18n-loop.md, S7).
   "systemEntries.conversationCleared": "Conversation cleared.",
   "systemEntries.newConversation": "New conversation started.",
+  "systemEntries.usageCap.pace":
+    "Member turns are paused: this week's office usage is ahead of the week's pace. They resume {when}.",
+  "systemEntries.usageCap.readFailed":
+    "Member turns are paused: Isomux could not read the office owner's weekly usage. Try again in a minute.",
   "systemEntries.agentStopped": "Agent stopped: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "The agent backend stopped during the turn. The conversation is saved and can be resumed.",

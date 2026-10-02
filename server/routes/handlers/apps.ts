@@ -70,6 +70,21 @@ import type {
   AppWire,
 } from "../../../shared/contract-shapes.ts";
 
+// The app-to-agent send outcome. messageId is optional for the same reason it
+// is on the inter-agent send: the manager's dedupe branch acks an EARLIER send
+// whose id this call never learned. Unreachable here (no clientMessageId is
+// ever passed), but the shape follows the manager rather than the call site.
+type AppSendResult =
+  | { ok: true; messageId?: string; queued?: boolean }
+  | {
+      ok: false;
+      status: HandlerErrorStatus;
+      code: string;
+      message: string;
+      // Machine-readable extras for the error body (usage_cap: retryAtMs).
+      detail?: Record<string, unknown>;
+    };
+
 export interface AppsDeps {
   // Why this host cannot run apps, or null when it can (server/app-hosting.ts).
   appHostingUnsupportedReason(): string | null;
@@ -186,17 +201,7 @@ export interface AppsDeps {
     appName: string,
     targetAgentId: string,
     text: string,
-  ): // messageId is optional for the same reason it is on the inter-agent send:
-    // the manager's dedupe branch acks an EARLIER send whose id this call never
-    // learned. Unreachable here (no clientMessageId is ever passed), but the
-    // shape follows the manager rather than the current call site.
-    | { ok: true; messageId?: string; queued?: boolean }
-    | {
-        ok: false;
-        status: HandlerErrorStatus;
-        code: string;
-        message: string;
-      };
+  ): AppSendResult | Promise<AppSendResult>;
   // Rate limits (server/app-message-limits.ts). Two calls rather than one
   // because the two limits are spent at different moments - see the module
   // header and the handler.
@@ -611,7 +616,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // app is speaking comes from the token, who hears it comes from the registry,
     // and how it is labelled comes from the app's registered name. A body field
     // for any of those would be a field to lie in.
-    "apps.sendMessage": (ctx) => {
+    "apps.sendMessage": async (ctx) => {
       const appName = ctx.identity.appName ?? "";
       const body = (ctx.body ?? {}) as { text?: unknown };
       if (typeof body.text !== "string" || body.text.trim() === "") {
@@ -652,6 +657,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         );
       }
 
+      // Hold a daily slot across the delivery, which awaits: settled below by
+      // commitDaily on acceptance, else released in the finally.
+      deps.limiter.holdDaily(appName);
+      let committed = false;
       try {
         // Token resolution already refused a token whose app is gone, so this is
         // the narrow race where the app was deleted between the two.
@@ -670,7 +679,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             "this app was not registered by an agent, so there is no agent to message",
           );
         }
-        const sent = deps.sendAsApp(appName, targetAgentId, body.text);
+        const sent = await deps.sendAsApp(appName, targetAgentId, body.text);
         if (!sent.ok) {
           // The configured agent is gone. Reported as its own code with
           // an answer to "so what do I do", because the raw delivery error
@@ -683,18 +692,21 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
               "this app's message target no longer exists; its owner must point it at a live agent",
             );
           }
-          return fail(sent.status, sent.code, sent.message);
+          return fail(sent.status, sent.code, sent.message, sent.detail);
         }
         // ACCEPTED, so the day's budget moves. A stopped, missing or full
         // receiver never reaches this line: it woke nobody, so it costs the app
         // nothing but its burst slot.
         deps.limiter.commitDaily(appName);
+        committed = true;
         return ok({
           messageId: sent.messageId ?? "",
           ...(sent.queued === undefined ? {} : { queued: sent.queued }),
         });
       } catch (err) {
         return renderRegistryError(err);
+      } finally {
+        if (!committed) deps.limiter.releaseDaily(appName);
       }
     },
 

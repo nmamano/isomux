@@ -454,6 +454,15 @@ Cosas que puedes hacer por él:
     "Los ajustes de la oficina cambiaron en otro sitio desde que se cargó esta página. Elige otra fila y vuelve para cargar la última versión.",
   "settings.office.loadedVariables.one": "Se cargó {count} variable.",
   "settings.office.loadedVariables.other": "Se cargaron {count} variables.",
+  "settings.office.memberUsageCap": "Marcar el ritmo de uso de los miembros",
+  "settings.office.memberUsageCapHint":
+    "Los turnos de los miembros con la sesión de toda la oficina se detienen mientras el uso de esta semana vaya por delante del tiempo transcurrido de la semana.",
+  "settings.office.memberUsageWeekly":
+    "{provider}: {used} % usado, {pace} % de la semana transcurrido.",
+  "settings.office.memberUsageNoLimit":
+    "{provider}: la sesión de toda la oficina no tiene límite semanal. Los miembros no tienen tope.",
+  "settings.office.memberUsageFailed":
+    "{provider}: no se pudo leer el uso semanal. Los miembros están detenidos.",
 
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
@@ -1999,6 +2008,10 @@ Cosas que puedes hacer por él:
     "O escribe cualquier otro mensaje para denegar con ese motivo.",
   "systemEntries.conversationCleared": "Conversación borrada.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
+  "systemEntries.usageCap.pace":
+    "Los turnos de los miembros están en pausa: el uso de la oficina de esta semana va por delante del ritmo de la semana. Se reanudan {when}.",
+  "systemEntries.usageCap.readFailed":
+    "Los turnos de los miembros están en pausa: Isomux no pudo leer el uso semanal del propietario de la oficina. Vuelve a intentarlo en un minuto.",
   "systemEntries.agentStopped": "El agente se detuvo: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend del agente se detuvo durante el turno. La conversación está guardada y se puede retomar.",

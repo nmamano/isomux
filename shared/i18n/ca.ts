@@ -454,6 +454,15 @@ Coses que pots fer per ell:
     "La configuració de l'oficina ha canviat en un altre lloc des que es va carregar aquesta pàgina. Tria una altra fila i torna per carregar l'última versió.",
   "settings.office.loadedVariables.one": "S'ha carregat {count} variable.",
   "settings.office.loadedVariables.other": "S'han carregat {count} variables.",
+  "settings.office.memberUsageCap": "Marcar el ritme d'ús dels membres",
+  "settings.office.memberUsageCapHint":
+    "Els torns dels membres amb la sessió de tota l'oficina s'aturen mentre l'ús d'aquesta setmana vagi per davant del temps transcorregut de la setmana.",
+  "settings.office.memberUsageWeekly":
+    "{provider}: {used} % utilitzat, {pace} % de la setmana transcorregut.",
+  "settings.office.memberUsageNoLimit":
+    "{provider}: la sessió de tota l'oficina no té límit setmanal. Els membres no tenen topall.",
+  "settings.office.memberUsageFailed":
+    "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres estan aturats.",
 
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
@@ -1992,6 +2001,10 @@ Coses que pots fer per ell:
     "O escriu qualsevol altre missatge per denegar-ho amb aquest motiu.",
   "systemEntries.conversationCleared": "Conversa esborrada.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
+  "systemEntries.usageCap.pace":
+    "Els torns dels membres estan en pausa: l'ús de l'oficina d'aquesta setmana va per davant del ritme de la setmana. Es reprenen {when}.",
+  "systemEntries.usageCap.readFailed":
+    "Els torns dels membres estan en pausa: Isomux no ha pogut llegir l'ús setmanal del propietari de l'oficina. Torna-ho a provar d'aquí a un minut.",
   "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend de l'agent s'ha aturat durant el torn. La conversa està desada i es pot reprendre.",

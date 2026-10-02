@@ -1065,6 +1065,27 @@ export function saveOfficeConfig(config: OfficeSettings) {
   }
 }
 
+// The member usage cap switch (server/member-usage-cap.ts). Kept in
+// office-config.json beside OfficeSettings; absent reads as off.
+export function loadMemberUsageCap(): boolean {
+  return readOfficeConfigRaw().memberUsageCap === true;
+}
+
+export function saveMemberUsageCap(enabled: boolean): void {
+  try {
+    atomicWriteFileSync(
+      OFFICE_CONFIG_FILE,
+      JSON.stringify(
+        { ...readOfficeConfigRaw(), memberUsageCap: enabled },
+        null,
+        2,
+      ),
+    );
+  } catch (err) {
+    console.error("Failed to save the member usage cap:", err);
+  }
+}
+
 // Server/deployment config that shares office-config.json but isn't part of
 // the UI-mutated OfficeSettings. Currently just `publicOrigin`, used as a
 // fallback when `ISOMUX_PUBLIC_ORIGIN` is unset in the environment. Server

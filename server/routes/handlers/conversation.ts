@@ -78,6 +78,8 @@ export type SendAsAgentResult =
       status: 400 | 403 | 404 | 409 | 429 | 500;
       code: string;
       message: string;
+      // Machine-readable extras for the error body (usage_cap: retryAtMs).
+      detail?: Record<string, unknown>;
     };
 
 // The self-handoff outcome. Mirrors SendAsAgentResult's failure
@@ -91,6 +93,7 @@ export type HandoffResult =
       status: 400 | 404 | 409 | 429 | 500;
       code: string;
       message: string;
+      detail?: Record<string, unknown>;
     };
 
 export interface ConversationDeps {
@@ -134,7 +137,7 @@ export interface ConversationDeps {
     // Interrupt the receiver's in-flight turn so this message lands now.
     // Enqueue + interrupt happen inside one manager call.
     steer: boolean,
-  ): SendAsAgentResult;
+  ): SendAsAgentResult | Promise<SendAsAgentResult>;
   // CRON-RUN send. The dependency resolves the live job and constructs its
   // sender attribution; the request body cannot name or impersonate a sender.
   sendAsCron(
@@ -142,7 +145,7 @@ export interface ConversationDeps {
     cronjobId: string,
     text: string,
     clientMessageId: string | undefined,
-  ): SendAsAgentResult;
+  ): SendAsAgentResult | Promise<SendAsAgentResult>;
   // AGENT send with deliverAt: store a durable scheduled entry instead of
   // enqueueing now (fired later by scheduled-messages.ts). Self-send IS
   // allowed here - a future self-message is the reminder/wake-up use case the
@@ -404,7 +407,7 @@ export function conversationHandlers(
             deliverAt: new Date(r.entry.deliverAt).toISOString(),
           });
         }
-        const r = deps.sendAsAgent(
+        const r = await deps.sendAsAgent(
           ctx.params.id,
           senderAgentId,
           b.text,
@@ -420,13 +423,13 @@ export function conversationHandlers(
               ? {}
               : { steerDeclined: r.steerDeclined }),
           });
-        return fail(r.status, r.code, r.message);
+        return fail(r.status, r.code, r.message, r.detail);
       }
       if (ctx.identity.scope === "cron-run") {
         if (b.text.length === 0) {
           return fail(400, "invalid_text", "text is required");
         }
-        const r = deps.sendAsCron(
+        const r = await deps.sendAsCron(
           ctx.params.id,
           ctx.identity.cronjobId ?? "",
           b.text,
@@ -437,7 +440,7 @@ export function conversationHandlers(
             messageId: r.messageId ?? "",
             ...(r.queued === undefined ? {} : { queued: r.queued }),
           });
-        return fail(r.status, r.code, r.message);
+        return fail(r.status, r.code, r.message, r.detail);
       }
       if (ctx.identity.scope === "api") {
         if (b.text.length === 0) {
@@ -557,7 +560,7 @@ export function conversationHandlers(
         return fail(422, "invalid_text", "text is required");
       }
       const r = await deps.handoff(ctx.params.id, b.text);
-      if (!r.ok) return fail(r.status, r.code, r.message);
+      if (!r.ok) return fail(r.status, r.code, r.message, r.detail);
       return ok({ ok: true });
     },
 

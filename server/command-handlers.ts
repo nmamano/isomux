@@ -57,6 +57,11 @@ import {
 } from "./internal-types.ts";
 import type { BackendSession } from "./backends/types.ts";
 import { runAgentTurn } from "./agent-turn.ts";
+import {
+  directInputCapped,
+  UsageCapError,
+  usageCapText,
+} from "./member-usage-cap.ts";
 import { modelListingLabel } from "./model-listing-label.ts";
 
 export const DOCS_URL = "https://isomux.com/docs";
@@ -1238,12 +1243,22 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed,
         sdkText: prefixedSkillPrompt,
         humanInput: true,
+        usageCapped: directInputCapped(username),
       });
     } catch (err) {
       // runAgentTurn re-throws whatever the underlying turn threw and has
       // already cleaned up the pendingTurn deferred if session.send fell
       // before await turn. Per-site error semantics remain here.
       if (err instanceof SessionSwappedError) return true;
+      if (err instanceof UsageCapError) {
+        deps.addLogEntry(
+          agentId,
+          "error",
+          usageCapText(translatorForUsername(username), err),
+        );
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
       deps.addLogEntry(
         agentId,
         "error",

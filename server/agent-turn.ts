@@ -22,6 +22,7 @@
 
 import type { Attachment } from "../shared/types.ts";
 import { SessionSwappedError, type ManagedAgent } from "./internal-types.ts";
+import { memberUsageCap, UsageCapError } from "./member-usage-cap.ts";
 
 export interface RunAgentTurnOpts {
   managed: ManagedAgent;
@@ -33,6 +34,11 @@ export interface RunAgentTurnOpts {
    *  on send-accepted" patterns - flushQueue uses it to write user_message
    *  entries and drain its queue once the backend accepts the prompt. */
   onSendAccepted?: () => void;
+  /** The input is one the member usage cap covers (server/member-usage-cap.ts).
+   *  When the cap is on, the turn first asks it for admission and throws
+   *  UsageCapError on a refusal. flushQueue decides per item itself and
+   *  leaves this unset. */
+  usageCapped?: boolean;
 }
 
 // Dependency injection: agent-manager owns beginTurn and createTurnDeferred as
@@ -83,6 +89,23 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       throw new SessionSwappedError("Turn cancelled before send.");
     }
   };
+
+  // Member usage cap. The session and the account it bills are captured with
+  // the token above, before the await, so a Stop or swap during the provider
+  // read fails the recheck instead of passing on the replacement session.
+  const sessionAtEntry = managed.sessionManager.session;
+  if (opts.usageCapped && sessionAtEntry && memberUsageCap().isEnabled()) {
+    const admission = await memberUsageCap().admit(
+      managed.billingAccount ?? null,
+    );
+    checkCancelled();
+    if (managed.sessionManager.session !== sessionAtEntry) {
+      throw new SessionSwappedError("Session replaced before send.");
+    }
+    if (admission.kind === "refused") {
+      throw new UsageCapError(admission.reason, admission.retryAtMs);
+    }
+  }
 
   // The bounded await inside buildContextNoticeBlock caps the added latency
   // (~500ms worst case, and only when a sample is still in flight).

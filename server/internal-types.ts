@@ -11,6 +11,7 @@ import type {
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import type { DormantReason, SessionManager } from "./session-manager.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
+import type { BillingAccount } from "./member-usage-cap.ts";
 
 // A committed context-fullness sample (design: internal-docs/
 // context-fullness-visibility.md). Window occupancy of the CURRENT
@@ -44,6 +45,9 @@ export interface ManagedAgent {
   readonly sessionManager: SessionManager<ManagedAgent>;
   // Root captured from the actual Claude launch, before system_init assigns an id.
   launchedClaudeConfigDir?: string;
+  // The account the installed session bills, captured at its launch. The
+  // member usage cap compares it with the office sign-in.
+  billingAccount?: BillingAccount;
   slashCommands: {
     name: string;
     description?: string;
@@ -459,7 +463,14 @@ export type EnqueueResult =
       steered?: boolean;
       steerDeclined?: SteerDeclineReason;
     }
-  | { ok: false; error: string; status: number };
+  | {
+      ok: false;
+      error: string;
+      status: number;
+      // Set with error "usage_cap": why the member usage cap refused, and when
+      // to try again.
+      usageCap?: { reason: "pace" | "read_failed"; retryAtMs: number };
+    };
 
 // Immediate acceptance result for a human-attributed message. This resolves
 // when the manager accepts or rejects the message, not when the turn finishes.

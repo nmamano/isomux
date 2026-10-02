@@ -26,6 +26,7 @@ import { getUserByName } from "../users.ts";
 import { formatAppSenderPrefix } from "../../shared/identity.ts";
 import {
   APP_MESSAGE_BURST_LIMIT,
+  APP_MESSAGE_DAILY_CAP,
   APP_MESSAGE_MAX_CHARS,
   createAppMessageLimiter,
   type AppMessageLimiter,
@@ -520,9 +521,17 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
           calls.push(`burst:${name}`);
           return inner.takeBurst(name);
         },
+        holdDaily: (name) => {
+          calls.push(`hold:${name}`);
+          inner.holdDaily(name);
+        },
         commitDaily: (name) => {
           calls.push(`daily:${name}`);
           inner.commitDaily(name);
+        },
+        releaseDaily: (name) => {
+          calls.push(`release:${name}`);
+          inner.releaseDaily(name);
         },
         forget: (name) => {
           calls.push(`forget:${name}`);
@@ -586,15 +595,15 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     req: new Request("http://localhost/"),
   });
 
-  it("spends both when the receiver accepts", () => {
+  it("spends both when the receiver accepts", async () => {
     const rec = recordingLimiter();
     const h = appsHandlers(deps({ limiter: rec.limiter }));
-    const out = h["apps.sendMessage"](appCtx({ text: "hi" }));
+    const out = await h["apps.sendMessage"](appCtx({ text: "hi" }));
     expect((out as { kind: string }).kind).toBe("json");
-    expect(rec.calls).toEqual(["burst:habits", "daily:habits"]);
+    expect(rec.calls).toEqual(["burst:habits", "hold:habits", "daily:habits"]);
   });
 
-  it("spends the burst but NOT the day when the receiver refuses", () => {
+  it("spends the burst but NOT the day when the receiver refuses", async () => {
     const rec = recordingLimiter();
     const h = appsHandlers(
       deps({
@@ -607,24 +616,24 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
         }),
       }),
     );
-    const out = h["apps.sendMessage"](appCtx({ text: "hi" }));
+    const out = await h["apps.sendMessage"](appCtx({ text: "hi" }));
     expect(out).toMatchObject({ kind: "error", status: 409 });
     // The loop is still arrested (burst spent), but a stopped agent has not
     // eaten the app's day - it woke nobody and burned no model tokens.
-    expect(rec.calls).toEqual(["burst:habits"]);
+    expect(rec.calls).toEqual(["burst:habits", "hold:habits", "release:habits"]);
   });
 
-  it("spends NEITHER on a request that was never valid", () => {
+  it("spends NEITHER on a request that was never valid", async () => {
     const rec = recordingLimiter();
     const h = appsHandlers(deps({ limiter: rec.limiter }));
-    expect(h["apps.sendMessage"](appCtx({ text: "  " }))).toMatchObject({
+    expect(await h["apps.sendMessage"](appCtx({ text: "  " }))).toMatchObject({
       kind: "error",
       status: 400,
     });
     expect(rec.calls).toEqual([]);
   });
 
-  it("takes the burst slot BEFORE reading the registry, so a doomed loop still pays", () => {
+  it("takes the burst slot BEFORE reading the registry, so a doomed loop still pays", async () => {
     const rec = recordingLimiter();
     let reads = 0;
     const h = appsHandlers(
@@ -636,9 +645,76 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
         },
       }),
     );
-    const out = h["apps.sendMessage"](appCtx({ text: "hi" }));
+    const out = await h["apps.sendMessage"](appCtx({ text: "hi" }));
     expect(out).toMatchObject({ kind: "error", status: 404 });
-    expect(rec.calls).toEqual(["burst:habits"]);
+    expect(rec.calls).toEqual(["burst:habits", "hold:habits", "release:habits"]);
     expect(reads).toBe(1);
+  });
+
+  // Delivery awaits (the member usage cap reads the provider), so the last
+  // daily slot is held while a send is in flight.
+  function oneSlotLeft(): AppMessageLimiter {
+    let t = 0;
+    const limiter = createAppMessageLimiter({ now: () => (t += 1) });
+    for (let i = 0; i < APP_MESSAGE_DAILY_CAP - 1; i++)
+      limiter.commitDaily("habits");
+    return limiter;
+  }
+
+  it("lets only one of two concurrent sends take the last daily slot", async () => {
+    const deliveries: (() => void)[] = [];
+    const h = appsHandlers(
+      deps({
+        limiter: oneSlotLeft(),
+        sendAsApp: () =>
+          new Promise((resolve) => {
+            deliveries.push(() =>
+              resolve({ ok: true as const, messageId: "m-1" }),
+            );
+          }),
+      }),
+    );
+    const first = h["apps.sendMessage"](appCtx({ text: "hi" }));
+    const second = h["apps.sendMessage"](appCtx({ text: "hi" }));
+    // A refused second call settles at once; an admitted one would wait on
+    // its own delivery, so the race reads "pending" instead of hanging.
+    const secondOutcome = await Promise.race([
+      second,
+      new Promise((r) => setTimeout(() => r("pending"), 200)),
+    ]);
+    expect(deliveries).toHaveLength(1);
+    expect(secondOutcome).toMatchObject({
+      kind: "error",
+      status: 429,
+      code: "daily_cap_reached",
+    });
+    deliveries.forEach((deliver) => deliver());
+    expect(await first).toMatchObject({ kind: "json" });
+  });
+
+  it("gives the held slot back when the receiver refuses", async () => {
+    let refuse = true;
+    const h = appsHandlers(
+      deps({
+        limiter: oneSlotLeft(),
+        sendAsApp: async () =>
+          refuse
+            ? {
+                ok: false as const,
+                status: 429 as const,
+                code: "usage_cap",
+                message: "usage_cap",
+              }
+            : { ok: true as const, messageId: "m-2" },
+      }),
+    );
+    expect(await h["apps.sendMessage"](appCtx({ text: "hi" }))).toMatchObject({
+      kind: "error",
+      code: "usage_cap",
+    });
+    refuse = false;
+    expect(await h["apps.sendMessage"](appCtx({ text: "hi" }))).toMatchObject({
+      kind: "json",
+    });
   });
 });

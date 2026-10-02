@@ -5,7 +5,9 @@ import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
   OfficeSettingsReq,
   OfficeSettingsRes,
+  OfficeUsageStatusWire,
 } from "../../shared/contract-shapes.ts";
+import { formatNumber } from "../../shared/i18n/number.ts";
 import {
   dialogInput,
   dialogCancelBtn,
@@ -33,7 +35,7 @@ export function OfficePane({
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { office, sessionContext } = useAppState();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   // Members can open this modal but can't edit it. Read-only state grays
   // inputs and hides the Save button; the server also rejects the save from
   // non-owner sessions (office.setSettings is gated by the officeOwner guard).
@@ -66,6 +68,13 @@ export function OfficePane({
   // and their pane can never be dirty.
   const [baselineName, setBaselineName] = useState("");
   const [baselinePrompt, setBaselinePrompt] = useState("");
+  // The member usage cap switch, under the same version as name and prompt,
+  // and the status lines the GET reads while it is on.
+  const [usageCap, setUsageCap] = useState(false);
+  const [baselineUsageCap, setBaselineUsageCap] = useState(false);
+  const [usageStatus, setUsageStatus] = useState<OfficeUsageStatusWire[]>([]);
+  // A server from before the switch existed omits it: no switch, no field.
+  const [usageCapKnown, setUsageCapKnown] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
 
@@ -79,6 +88,10 @@ export function OfficePane({
         setName(r.name ?? "");
         setBaselinePrompt(r.prompt ?? "");
         setBaselineName(r.name ?? "");
+        setUsageCapKnown(r.memberUsageCap !== undefined);
+        setUsageCap(r.memberUsageCap ?? false);
+        setBaselineUsageCap(r.memberUsageCap ?? false);
+        setUsageStatus(r.memberUsageStatus ?? []);
         setSettingsVersion(r.version);
       })
       .catch(() => {
@@ -101,6 +114,7 @@ export function OfficePane({
       prompt: text.trim() ? text : null,
       name: name.trim() || null,
       version: settingsVersion,
+      ...(usageCapKnown ? { memberUsageCap: usageCap } : {}),
     };
     try {
       await apiFetch<void>("PUT", "/api/office/settings", body);
@@ -120,6 +134,10 @@ export function OfficePane({
         setName(next.name ?? "");
         setBaselinePrompt(next.prompt ?? "");
         setBaselineName(next.name ?? "");
+        setUsageCapKnown(next.memberUsageCap !== undefined);
+        setUsageCap(next.memberUsageCap ?? false);
+        setBaselineUsageCap(next.memberUsageCap ?? false);
+        setUsageStatus(next.memberUsageStatus ?? []);
         setSettingsVersion(next.version);
       } catch {
         // No safe token to write with: null disables Save rather than leaving
@@ -171,11 +189,15 @@ export function OfficePane({
   // all dirty-capable. A read-only member never loads, so dirty is false for
   // them and they are never asked about discarding anything.
   const dirty =
-    (settingsLoaded && (name !== baselineName || text !== baselinePrompt)) ||
+    (settingsLoaded &&
+      (name !== baselineName ||
+        text !== baselinePrompt ||
+        usageCap !== baselineUsageCap)) ||
     mem.dirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setText(baselinePrompt);
+    setUsageCap(baselineUsageCap);
     mem.reset();
     setStatus({ kind: "idle" });
   });
@@ -243,6 +265,54 @@ export function OfficePane({
           readOnly={readOnly || !settingsLoaded}
           style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
         />
+
+        {!readOnly && usageCapKnown && (
+          <>
+            <label
+              style={{
+                display: "flex",
+                gap: 6,
+                marginTop: 18,
+                fontSize: 12,
+                color: "var(--text-primary)",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={usageCap}
+                disabled={!settingsLoaded}
+                onChange={(e) => setUsageCap(e.target.checked)}
+              />
+              <span>{t("settings.office.memberUsageCap")}</span>
+            </label>
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+                lineHeight: 1.4,
+              }}
+            >
+              {t("settings.office.memberUsageCapHint")}
+            </p>
+            {baselineUsageCap &&
+              usageStatus.map((row) => (
+                <p
+                  key={row.provider}
+                  style={{
+                    fontSize: 10,
+                    color:
+                      row.state === "failed"
+                        ? "#ff6b6b"
+                        : "var(--text-muted)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  {usageStatusLine(row, t, language)}
+                </p>
+              ))}
+          </>
+        )}
 
         <h4 className="agent-settings-group-title" style={{ marginTop: 24 }}>
           {t("common.instructionsAndMemory")}
@@ -358,6 +428,7 @@ export function OfficePane({
                 onClick={() => {
                   setName(baselineName);
                   setText(baselinePrompt);
+                  setUsageCap(baselineUsageCap);
                   mem.reset();
                   setStatus({ kind: "idle" });
                 }}
@@ -383,6 +454,24 @@ export function OfficePane({
       </div>
     </div>
   );
+}
+
+// One status line of the member usage cap. Provider names are proper nouns.
+function usageStatusLine(
+  row: OfficeUsageStatusWire,
+  t: ReturnType<typeof useI18n>["t"],
+  language: ReturnType<typeof useI18n>["language"],
+): string {
+  const provider = row.provider === "claude" ? "Claude" : "Codex";
+  if (row.state !== "weekly")
+    return row.state === "no_limit"
+      ? t("settings.office.memberUsageNoLimit", { provider })
+      : t("settings.office.memberUsageFailed", { provider });
+  return t("settings.office.memberUsageWeekly", {
+    provider,
+    used: formatNumber(language, Math.round(row.usedPercent)),
+    pace: formatNumber(language, Math.round(row.pacePercent)),
+  });
 }
 
 function ValidationLine({ status }: { status: ValidationStatus }) {
