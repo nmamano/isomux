@@ -47,6 +47,10 @@ declare const chrome: {
         accessLevel: "TRUSTED_CONTEXTS";
       }): Promise<void>;
     };
+    session: {
+      set(value: Record<string, unknown>): Promise<void>;
+      get(key: string): Promise<Record<string, unknown>>;
+    };
     onChanged: {
       addListener(callback: (_changes: unknown, area: string) => void): void;
     };

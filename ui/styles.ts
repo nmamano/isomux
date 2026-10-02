@@ -73,6 +73,12 @@ ${emitThemesCss()}
   .code-block-wrapper {
     position: relative; margin: 8px 0;
   }
+  /* A chat bubble floats its date and buttons top right (BubbleCorner in
+     ui/log-view/LogEntryCard.tsx). A box that scrolls is a block formatting
+     context, and a browser narrows one beside a float, so these blocks start
+     below the float and keep the full width. */
+  .code-block-wrapper, .md-content .table-wrapper, .md-content .mermaid-wrapper,
+  .md-content .katex-math[data-katex-display="true"] { clear: both; }
   .md-content pre {
     background: var(--bg-code-block); border-radius: 8px; padding: 10px 14px;
     margin: 0; overflow-x: auto; border: 1px solid var(--border-subtle);

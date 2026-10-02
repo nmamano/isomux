@@ -1662,6 +1662,9 @@ Cosas que puedes hacer por él:
   "apps.previewsOn": "vistas previas activadas",
   "apps.previewsOff": "vistas previas desactivadas",
   "apps.empty": "Aún no hay apps.",
+  "apps.filter.hideStopped": "Ocultar las paradas",
+  "apps.filter.onlyMine": "Solo las mías",
+  "apps.filter.noMatch": "Ninguna app coincide con estos filtros.",
   "apps.unavailable.needsLinux":
     "El alojamiento de apps necesita Linux con systemd, así que no está disponible en este ordenador.",
   "apps.loadFailed": "No se pudieron cargar las apps.",

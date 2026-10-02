@@ -1489,6 +1489,9 @@ App 的一些原则：
   "apps.previewsOn": "预览已开启",
   "apps.previewsOff": "预览已关闭",
   "apps.empty": "还没有 App。",
+  "apps.filter.hideStopped": "隐藏已停止的",
+  "apps.filter.onlyMine": "只看我的",
+  "apps.filter.noMatch": "没有符合筛选条件的 App。",
   "apps.unavailable.needsLinux":
     "App 托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
   "apps.loadFailed": "无法加载 App。",

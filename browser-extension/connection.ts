@@ -1,6 +1,11 @@
 import { translatorFor } from "../shared/i18n/translate";
 import type { PlainMessageKey } from "../shared/i18n/translate";
 import type { ExtensionUIState } from "../shared/browser-extension-protocol";
+import {
+  pairedCode,
+  readPairingDraft,
+  savePairingDraft,
+} from "./pairing-draft";
 const language = navigator.language.split("-")[0];
 const { t } = translatorFor(
   language === "es" || language === "ca" || language === "zh" ? language : "en",
@@ -19,6 +24,16 @@ revealCode(false);
 codeVisibility.addEventListener("click", () =>
   revealCode(code.type === "password"),
 );
+// Fill the pairing form back in before the first render, which would
+// otherwise put the paired office in an empty office field.
+const draft = await readPairingDraft();
+office.value = draft.office;
+code.value = draft.code;
+for (const field of [office, code])
+  field.addEventListener(
+    "input",
+    () => void savePairingDraft({ office: office.value, code: code.value }),
+  );
 const [invocationTab] = await chrome.tabs.query({
   active: true,
   currentWindow: true,
@@ -71,10 +86,12 @@ async function command(action: string, extra: Record<string, unknown> = {}) {
       ...extra,
     })) as typeof state & { error?: string };
     if (!result || result.error) throw new Error();
-    if (action === "pair") {
-      code.value = "";
-      showPair = false;
-    }
+    // A returned pair command is not pairing: the code stays in the form until
+    // the office confirms it, so a refused or mistyped attempt can be fixed.
+    if (action === "pair") showPair = false;
+    // Read the field only after the await: a code typed during it is newer.
+    const paired = await pairedCode();
+    if (code.value && code.value.trim() === paired) code.value = "";
     render(result);
   } catch {
     element("error").textContent = t("browser.failed");

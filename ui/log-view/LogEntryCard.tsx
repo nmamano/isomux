@@ -820,6 +820,8 @@ function EntryTimestamp({ timestamp }: { timestamp: number }) {
  * row inside the cluster, so the gap that separates the date from the buttons
  * never reaches the gap between the buttons themselves. The bubble around it
  * needs `display: flow-root`, which makes the bubble contain the float.
+ * Markdown blocks that scroll (code, tables, diagrams, display math) clear
+ * the float in ui/styles.ts, so the date never narrows them.
  */
 function BubbleCorner({
   timestamp,

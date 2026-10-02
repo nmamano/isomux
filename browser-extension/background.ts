@@ -15,6 +15,7 @@ import {
   pageCommandAllowed,
   type Fields,
 } from "../shared/browser-extension-protocol";
+import { confirmPairedCode } from "./pairing-draft";
 
 type OwnedTab = {
   tabId: number;
@@ -652,6 +653,8 @@ async function configure(reset = true): Promise<void> {
           void chrome.storage.local.set({
             connection: { url: config.url, credential: msg.credential },
           });
+          if (typeof config.code === "string")
+            void confirmPairedCode(config.code);
           return;
         }
         if (

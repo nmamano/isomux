@@ -107,6 +107,28 @@ export function setAppPreviews(enabled: boolean): void {
   localStorage.setItem(KEY_APP_PREVIEWS, enabled ? "on" : "off");
 }
 
+// The Apps page filters, each remembered on this device. Both start off.
+export type AppFilter = "hideStopped" | "onlyMine";
+const APP_FILTER_KEYS: Record<AppFilter, string> = {
+  hideStopped: "isomux-apps-hide-stopped",
+  onlyMine: "isomux-apps-only-mine",
+};
+
+export function getAppFilter(filter: AppFilter): boolean {
+  try {
+    return localStorage.getItem(APP_FILTER_KEYS[filter]) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function setAppFilter(filter: AppFilter, on: boolean): void {
+  try {
+    if (on) localStorage.setItem(APP_FILTER_KEYS[filter], "true");
+    else localStorage.removeItem(APP_FILTER_KEYS[filter]);
+  } catch {}
+}
+
 function readAppPreviewOpens(): Record<string, number> {
   if (typeof localStorage === "undefined") return {};
   try {

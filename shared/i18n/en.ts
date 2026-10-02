@@ -1632,6 +1632,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apps.previewsOn": "previews on",
   "apps.previewsOff": "previews off",
   "apps.empty": "No apps yet.",
+  "apps.filter.hideStopped": "Hide stopped",
+  "apps.filter.onlyMine": "Only mine",
+  "apps.filter.noMatch": "No apps match these filters.",
   "apps.unavailable.needsLinux":
     "App hosting needs Linux with systemd, so it is not available on this computer.",
   "apps.loadFailed": "Could not load apps.",

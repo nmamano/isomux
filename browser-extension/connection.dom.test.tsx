@@ -5,6 +5,22 @@ setUpDomTestFile();
 const { runInNewContext } = await import("node:vm");
 const { readFile } = await import("node:fs/promises");
 
+// Session storage with no pairing draft in it.
+const noDraft = {
+  get: async () => ({}),
+  set: async () => {},
+};
+
+// Session storage backed by `map`, shared across popup opens.
+const sessionOn = (map: Map<string, unknown>) => ({
+  get: async (key: string) =>
+    map.has(key) ? { [key]: structuredClone(map.get(key)) } : {},
+  set: async (value: Record<string, unknown>) => {
+    for (const [key, item] of Object.entries(value))
+      map.set(key, structuredClone(item));
+  },
+});
+
 test("popup defaults to Never, freezes the chosen duration and renders the server deadline", async () => {
   document.body.innerHTML = (
     await readFile("browser-extension/connection.html", "utf8")
@@ -49,6 +65,7 @@ test("popup defaults to Never, freezes the chosen duration and renders the serve
     navigator: { language: "en" },
     Date,
     chrome: {
+      storage: { session: noDraft },
       tabs: { query: async () => [{ id: 7, windowId: 1 }] },
       runtime: {
         sendMessage: async (message: Record<string, unknown>) => {
@@ -218,12 +235,14 @@ for (const language of ["en", "es", "ca", "zh"]) {
       };
       let finish!: (value: typeof state & { error?: string }) => void;
       const sent: Record<string, unknown>[] = [];
+      const session = new Map<string, unknown>();
       await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
         document,
         window,
         navigator: { language },
         Date,
         chrome: {
+          storage: { session: sessionOn(session) },
           tabs: { query: async () => [{ id: 7, windowId: 1 }] },
           runtime: {
             sendMessage: (message: Record<string, unknown>) => {
@@ -277,6 +296,8 @@ for (const language of ["en", "es", "ca", "zh"]) {
       );
       expect(code.type).toBe("password");
       state = { ...state, state: "connected", office: "https://example.com" };
+      // The worker records the office's confirmation before the popup hears.
+      session.set("pairedCode", "fixture-only-pairing-code");
       finish(state);
       await settle();
       expect(code.value).toBe("");
@@ -293,6 +314,7 @@ for (const language of ["en", "es", "ca", "zh"]) {
         new Event("submit", { bubbles: true, cancelable: true }),
       );
       expect(code.type).toBe("password");
+      session.set("pairedCode", "replacement-fixture");
       finish(state);
       await settle();
       replace.click();
@@ -304,3 +326,187 @@ for (const language of ["en", "es", "ca", "zh"]) {
     },
   );
 }
+
+test("pairing fields survive closing and reopening the popup", async () => {
+  const build = Bun.spawnSync([
+    "bun",
+    "build",
+    "browser-extension/connection.ts",
+    "--target=browser",
+  ]);
+  expect(build.exitCode).toBe(0);
+  const session = new Map<string, unknown>();
+  let state = { state: "unpaired", office: "", agents: [], assignments: [] };
+  const sent: Record<string, unknown>[] = [];
+  const open = async () => {
+    document.body.innerHTML = (
+      await readFile("browser-extension/connection.html", "utf8")
+    )
+      .split("<body>")[1]
+      .split("</body>")[0];
+    await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+      document,
+      window,
+      navigator: { language: "en" },
+      Date,
+      chrome: {
+        storage: { session: sessionOn(session) },
+        tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+        runtime: {
+          sendMessage: async (message: Record<string, unknown>) => {
+            sent.push(message);
+            return structuredClone(state);
+          },
+        },
+      },
+      setInterval: () => 1,
+      clearInterval() {},
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return {
+      office: document.getElementById("office") as HTMLInputElement,
+      code: document.getElementById("code") as HTMLInputElement,
+      form: document.getElementById("pair-form") as HTMLFormElement,
+      replace: document.getElementById("replace") as HTMLButtonElement,
+    };
+  };
+  const type = (field: HTMLInputElement, value: string) => {
+    field.value = value;
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  const close = async () => {
+    window.dispatchEvent(new Event("pagehide"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  const first = await open();
+  expect(first.office.value).toBe("");
+  expect(first.code.value).toBe("");
+  type(first.office, "https://office.example.com");
+  await close();
+
+  // The member closed the popup to copy the code, and pastes it on return.
+  const second = await open();
+  expect(second.office.value).toBe("https://office.example.com");
+  type(second.code, "pasted-pairing-code");
+  await close();
+
+  const third = await open();
+  expect(third.office.value).toBe("https://office.example.com");
+  expect(third.code.value).toBe("pasted-pairing-code");
+  // Submitting is not pairing: until the office confirms the code, both
+  // fields stay to fix, here an office address typed wrong.
+  third.form.dispatchEvent(
+    new Event("submit", { bubbles: true, cancelable: true }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(sent.at(-1)).toMatchObject({
+    action: "pair",
+    office: "https://office.example.com",
+    code: "pasted-pairing-code",
+  });
+  expect(third.code.value).toBe("pasted-pairing-code");
+  type(third.office, "https://corrected.example.com");
+  await close();
+  const fourth = await open();
+  expect(fourth.office.value).toBe("https://corrected.example.com");
+  expect(fourth.code.value).toBe("pasted-pairing-code");
+  await close();
+
+  // The worker records the confirmed code; that draft is done on reopen.
+  session.set("pairedCode", "pasted-pairing-code");
+  const confirmed = await open();
+  expect(confirmed.office.value).toBe("");
+  expect(confirmed.code.value).toBe("");
+  // A code typed after the confirmation is a new draft and stays.
+  type(confirmed.code, "next-pairing-code");
+  await close();
+  const next = await open();
+  expect(next.code.value).toBe("next-pairing-code");
+  await close();
+
+  // A replacement office typed while paired to another one is not overwritten
+  // by the paired office on the next open.
+  session.clear();
+  state = { ...state, state: "connected", office: "https://paired.example.com" };
+  const paired = await open();
+  expect(paired.office.value).toBe("https://paired.example.com");
+  paired.replace.click();
+  type(paired.office, "https://next.example.com");
+  await close();
+  const reopened = await open();
+  expect(reopened.form.hidden).toBe(true);
+  reopened.replace.click();
+  expect(reopened.office.value).toBe("https://next.example.com");
+  await close();
+});
+
+test("a code typed while the popup checks the confirmation is kept", async () => {
+  document.body.innerHTML = (
+    await readFile("browser-extension/connection.html", "utf8")
+  )
+    .split("<body>")[1]
+    .split("</body>")[0];
+  const build = Bun.spawnSync([
+    "bun",
+    "build",
+    "browser-extension/connection.ts",
+    "--target=browser",
+  ]);
+  expect(build.exitCode).toBe(0);
+  const session = new Map<string, unknown>();
+  const stored = sessionOn(session);
+  let release!: () => void;
+  let notify!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    notify = resolve;
+  });
+  const state = { state: "unpaired", office: "", agents: [], assignments: [] };
+  await runInNewContext(`(async () => { ${build.stdout.toString()} })()`, {
+    document,
+    window,
+    navigator: { language: "en" },
+    Date,
+    chrome: {
+      storage: {
+        session: {
+          ...stored,
+          // Hold the confirmation read, which answers with the old code.
+          get: async (key: string) => {
+            if (key !== "pairedCode") return stored.get(key);
+            notify();
+            return new Promise((resolve) => {
+              release = () => resolve({ pairedCode: "old-code" });
+            });
+          },
+        },
+      },
+      tabs: { query: async () => [{ id: 7, windowId: 1 }] },
+      runtime: { sendMessage: async () => structuredClone(state) },
+    },
+    setInterval: () => 1,
+    clearInterval() {},
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const code = document.getElementById("code") as HTMLInputElement;
+  const form = document.getElementById("pair-form") as HTMLFormElement;
+  const type = (value: string) => {
+    code.value = value;
+    code.dispatchEvent(new Event("input", { bubbles: true }));
+  };
+  try {
+    type("old-code");
+    form.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await reading;
+    expect(code.value).toBe("old-code");
+    type("new-code");
+    expect(session.get("pairingDraft")).toMatchObject({ code: "new-code" });
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(code.value).toBe("new-code");
+  } finally {
+    window.dispatchEvent(new Event("pagehide"));
+  }
+});

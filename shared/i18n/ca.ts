@@ -1659,6 +1659,9 @@ Coses que pots fer per ell:
   "apps.previewsOn": "vistes prèvies activades",
   "apps.previewsOff": "vistes prèvies desactivades",
   "apps.empty": "Encara no hi ha apps.",
+  "apps.filter.hideStopped": "Amaga les aturades",
+  "apps.filter.onlyMine": "Només les meves",
+  "apps.filter.noMatch": "Cap app no coincideix amb aquests filtres.",
   "apps.unavailable.needsLinux":
     "L'allotjament d'apps necessita Linux amb systemd, així que no està disponible en aquest ordinador.",
   "apps.loadFailed": "No s'han pogut carregar les apps.",

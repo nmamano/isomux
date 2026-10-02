@@ -88,6 +88,7 @@ async function harness(autoAck = true) {
     credential: "fixture",
   };
   const badges: { text: string | null; tabId?: number }[] = [];
+  const session = new Map<string, unknown>();
   const chrome = {
     action: {
       setBadgeText: async (value: { text: string | null; tabId?: number }) => {
@@ -111,6 +112,13 @@ async function harness(autoAck = true) {
         },
         setAccessLevel: () => Promise.resolve(),
         get: async () => ({ connection: config }),
+      },
+      session: {
+        get: async (key: string) =>
+          session.has(key) ? { [key]: session.get(key) } : {},
+        set: async (value: Record<string, unknown>) => {
+          for (const [key, item] of Object.entries(value)) session.set(key, item);
+        },
       },
       onChanged: {
         addListener: (callback: typeof changed) => {
@@ -276,6 +284,7 @@ async function harness(autoAck = true) {
       badgeDelay = fn;
     },
     config: () => config,
+    session,
     ui: (message: unknown) =>
       new Promise<Record<string, unknown>>((resolve) =>
         runtimeMessage(
@@ -1255,4 +1264,24 @@ test("Off during chooser setup does not publish root control", async () => {
   expect(h.calls).not.toContain("Target.getTargetInfo");
   expect(h.calls).toContain("detach");
   h.socket.close();
+});
+
+test("confirmed pairing records its code and never writes the popup's draft", async () => {
+  const code = "a".repeat(43);
+  const h = await harness();
+  const draft = { office: "http://127.0.0.1", code: "typed-since" };
+  h.session.set("pairingDraft", draft);
+  await h.ui({ action: "pair", office: "http://127.0.0.1", code });
+  await settle();
+  const socket = h.sockets.at(-1)!;
+  socket.onopen?.();
+  expect(socket.sent.at(-1)).toMatchObject({ kind: "hello", code });
+  // Submitting is not pairing: nothing is confirmed before the office answers.
+  expect(h.session.has("pairedCode")).toBe(false);
+  socket.receive({ kind: "paired", version: 4, credential: "issued" });
+  await settle();
+  expect(h.config()?.credential).toBe("issued");
+  expect(h.session.get("pairedCode")).toBe(code);
+  expect(h.session.get("pairingDraft")).toBe(draft);
+  socket.close();
 });

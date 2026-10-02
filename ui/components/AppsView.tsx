@@ -20,7 +20,13 @@ import {
   appPreviewQueue,
   type PreviewQueueCancel,
 } from "../app-preview-queue.ts";
-import { getAppPreviews, setAppPreviews } from "../device-settings.ts";
+import {
+  getAppFilter,
+  getAppPreviews,
+  setAppFilter,
+  setAppPreviews,
+  type AppFilter,
+} from "../device-settings.ts";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
 import type {
@@ -543,6 +549,24 @@ export function resolveCreatorAgentId(
   return byName ? byName.id : null;
 }
 
+/**
+ * The apps the page's filters let through. "Stopped" is that one state: a
+ * failed or unknown app is a fault the member still has to see. "Mine" is the
+ * owner, the member an app belongs to, not the agent that registered it. With
+ * no session there is no "me", so that filter lets everything through.
+ */
+export function filterApps<T extends Pick<AppListWire, "state" | "userId">>(
+  apps: readonly T[],
+  filters: Record<AppFilter, boolean>,
+  selfUserId: string | null,
+): T[] {
+  return apps.filter(
+    (app) =>
+      !(filters.hideStopped && app.state === "stopped") &&
+      !(filters.onlyMine && selfUserId !== null && app.userId !== selfUserId),
+  );
+}
+
 export function initialAppPreviews(
   liveAppPreviews: boolean,
   storedPreference: boolean,
@@ -582,6 +606,11 @@ function pageError(err: unknown, key: ErrorKey): PageError {
     : { kind: "key", key };
 }
 
+const FILTER_LABELS: Record<AppFilter, PlainMessageKey> = {
+  hideStopped: "apps.filter.hideStopped",
+  onlyMine: "apps.filter.onlyMine",
+};
+
 const ACTION_FAILED: Record<"start" | "stop" | "restart", ErrorKey> = {
   start: "apps.actionFailed.start",
   stop: "apps.actionFailed.stop",
@@ -612,6 +641,7 @@ export function AppsView({
     hydrationEpoch,
     agents,
     unavailableFeatures,
+    sessionContext,
   } = useAppState();
   const { t } = useI18n();
   const dispatch = useDispatch();
@@ -622,6 +652,15 @@ export function AppsView({
   const [previewsEnabled, setPreviewsEnabled] = useState(() =>
     initialAppPreviews(features.liveAppPreviews, getAppPreviews()),
   );
+  const [filters, setFilters] = useState<Record<AppFilter, boolean>>(() => ({
+    hideStopped: getAppFilter("hideStopped"),
+    onlyMine: getAppFilter("onlyMine"),
+  }));
+  const selfUserId = sessionContext?.userId ?? null;
+  const setFilter = (filter: AppFilter, on: boolean) => {
+    setFilters((prev) => ({ ...prev, [filter]: on }));
+    setAppFilter(filter, on);
+  };
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   // Moves when the USER changes what the log pane is showing - opening a row,
   // closing one, deleting the open one - so a request in flight can tell that it
@@ -790,6 +829,7 @@ export function AppsView({
   }, [confirmDelete]);
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
+  const shown = filterApps(sorted, filters, selfUserId);
 
   useEffect(() => {
     if (appsLoaded) evictDeletedAppPreviews(apps);
@@ -871,7 +911,11 @@ export function AppsView({
             color: "var(--text-muted)",
           }}
         >
-          {appsLoaded ? `${sorted.length}` : ""}
+          {!appsLoaded
+            ? ""
+            : shown.length < sorted.length
+              ? `${shown.length}/${sorted.length}`
+              : `${sorted.length}`}
         </div>
       </div>
 
@@ -905,6 +949,45 @@ export function AppsView({
         </div>
       )}
 
+      {appsLoaded && sorted.length > 0 && (
+        <div
+          data-app-filters=""
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "6px 16px",
+            padding: isMobile ? "8px 12px" : "8px 20px",
+            borderBottom: "1px solid var(--border-subtle)",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            flexShrink: 0,
+          }}
+        >
+          {(["hideStopped", "onlyMine"] as const)
+            .filter((filter) => filter !== "onlyMine" || selfUserId !== null)
+            .map((filter) => (
+              <label
+                key={filter}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  data-app-filter={filter}
+                  checked={filters[filter]}
+                  onChange={(e) => setFilter(filter, e.currentTarget.checked)}
+                  style={{ margin: 0, accentColor: "var(--accent)" }}
+                />
+                {t(FILTER_LABELS[filter])}
+              </label>
+            ))}
+        </div>
+      )}
+
       <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 12 : 20 }}>
         {!appsLoaded ? null : sorted.length === 0 ? (
           <div
@@ -916,9 +999,19 @@ export function AppsView({
           >
             {t("apps.empty")}
           </div>
+        ) : shown.length === 0 ? (
+          <div
+            style={{
+              color: "var(--text-muted)",
+              fontSize: 13,
+              padding: "24px 4px",
+            }}
+          >
+            {t("apps.filter.noMatch")}
+          </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {sorted.map((app) => {
+            {shown.map((app) => {
               const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
               const linkHref = appLinkHref(
                 app,

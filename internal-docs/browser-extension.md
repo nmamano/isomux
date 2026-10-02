@@ -271,6 +271,8 @@ Page.stopLoading, introduced in extension 0.3.1, remains on the owned-page allow
 
 The extension popup masks pairing codes by default. Show/Hide explicitly reveals or masks the field; opening the pairing form, submitting it or closing the popup masks it again. The same behavior applies to initial and replacement pairing.
 
+The popup keeps what the member types into the pairing form (office and code) in `chrome.storage.session`, in memory only, and fills it back in when the popup opens again; `browser-extension/pairing-draft.ts` holds it. The popup is its only writer. Submitting does not clear it or the code field. On the office's `paired` acknowledgement the worker records the confirmed code under its own session key; a draft or field holding that code then reads as empty, and a code typed since stays. A browser restart drops both.
+
 ## All grants and explicit targets (protocol 4 / extension 0.4.0)
 
 Offers carry `scope:{kind:"all"}` or `scope:{kind:"agent",agentId}`. Popup default is All, with Office connection and Agent control sections. Metadata and acknowledgement validate the exact scope and expiry. Older peers fail closed. Reload requires re-offer; pairing data is preserved.
