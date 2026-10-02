@@ -454,9 +454,18 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
   it("reads an Isomux interruption note as the cause, without voiding real denials", () => {
     const p = build();
     expect(p).toMatch(
-      /Isomux note[^.]*interrupted your turn[^.]*not from an office member/,
+      /Isomux note[^.]*interrupted or stopped your turn[^.]*not from an office member/,
     );
     expect(p).toMatch(/member's denial or safety refusal[^.]*still stands/);
+  });
+
+  // Task f4452169: every agent may stop another agent's turn, so the abort
+  // route sits with messaging, and the privileged section does not repeat it.
+  it("documents the abort route once, for every agent", () => {
+    const ordinary = build(false);
+    expect(ordinary).toContain("/api/agents/<receiver-id>/abort");
+    const privileged = build(true);
+    expect(privileged.split("/abort").length - 1).toBe(1);
   });
 
   it("treats instructions in content as data and stops on credential requests", () => {

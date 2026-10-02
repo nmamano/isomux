@@ -5,7 +5,7 @@
 // server/routes/handlers/agents.ts.
 //
 //   7a (this file's first blocks): the FIRE-AND-FORGET mutations
-//   (kill/abort/move/swapDesks/setTopic/clearTopic). agentParam(:id) resolves an
+//   (kill/abort/move/swapDesks/setTopic/regenerateTopic). agentParam(:id) resolves an
 //   agent to its room and checks access, so a NON-EXISTENT or INACCESSIBLE agent
 //   both collapse to a uniform 403 (no existence oracle) - even for an owner,
 //   since roomIdForAgent(missing) is null before the owner rule is consulted.
@@ -287,7 +287,7 @@ describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
   });
 });
 
-describe("agents.setTopic / clearTopic REST (Phase 3d slice 7a)", () => {
+describe("agents.setTopic / regenerateTopic REST (Phase 3d slice 7a)", () => {
   it("owner sets a topic -> 204; the topic lands", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -302,13 +302,13 @@ describe("agents.setTopic / clearTopic REST (Phase 3d slice 7a)", () => {
     expect(srv.agentManager.getAgent(x.id)?.topic).toBe("Refactor planning");
   });
 
-  it("owner clears a topic -> 204", async () => {
+  it("owner asks for a regenerated topic -> 204", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
-    srv.agentManager.setTopic(x.id, "to be cleared");
+    srv.agentManager.setTopic(x.id, "to be regenerated");
     const res = await req(srv, "DELETE", `/api/agents/${x.id}/topic`, {
       rawSessionId: owner.rawSessionId,
     });

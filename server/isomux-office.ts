@@ -3412,7 +3412,10 @@ function buildExecutorDeps(
         announceAppAudienceChanges(before);
         return { ok: true };
       },
-      abort: (agentId) => agentManager.abort(agentId),
+      abort: (agentId, { byAgent }) =>
+        byAgent
+          ? agentManager.abortByAgent(agentId)
+          : agentManager.abort(agentId),
       getAgent: (agentId) => agentManager.getAgent(agentId),
       systemPrompt: (agentId) => {
         const agent = agentManager.getAgent(agentId);
@@ -3485,7 +3488,7 @@ function buildExecutorDeps(
       swapDesks: (roomId, deskA, deskB) =>
         agentManager.swapDesks(deskA, deskB, roomId),
       setTopic: (agentId, topic) => agentManager.setTopic(agentId, topic),
-      clearTopic: (agentId) => agentManager.resetTopic(agentId),
+      regenerateTopic: (agentId) => agentManager.resetTopic(agentId),
       // 7b response-driven trio. attributionFor derives the spawning user from
       // the token (never the body). spawn/edit do validateCwd + saveRecentCwd;
       // spawn disambiguates a null return; revive delegates to the core.

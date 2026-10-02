@@ -126,6 +126,10 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const wakeNotice = managed.wakeNotice
     ? { block: managed.wakeNotice, gen: managed.contextGen }
     : null;
+  // Armed by an agent's abort; read here for the same reason.
+  const stopNotice = managed.stopNotice
+    ? { arm: managed.stopNotice, gen: managed.contextGen }
+    : null;
 
   // 3. Assemble the outbound envelope, then the user payload. The reserved
   // `isomux:` delimiter lets stripOutboundEnvelope round-trip the notices for
@@ -136,6 +140,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (wakeNotice) {
     envelopeBlocks.push(
       `--- begin isomux: wake-notice ---\n${wakeNotice.block}\n--- end isomux: wake-notice ---`,
+    );
+  }
+  if (stopNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: stop-notice ---\n${stopNotice.arm.text}\n--- end isomux: stop-notice ---`,
     );
   }
   if (contextNotice) {
@@ -209,6 +218,15 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // slot we would clear may already hold the NEW conversation's wake note.
     if (wakeNotice && managed.contextGen === wakeNotice.gen) {
       managed.wakeNotice = null;
+    }
+    // Compared by identity as well: an agent's abort during the send re-arms
+    // the slot for a stop this turn never explained.
+    if (
+      stopNotice &&
+      managed.contextGen === stopNotice.gen &&
+      managed.stopNotice === stopNotice.arm
+    ) {
+      managed.stopNotice = null;
     }
     if (onSendAccepted) {
       try {

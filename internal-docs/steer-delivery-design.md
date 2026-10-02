@@ -164,7 +164,7 @@ same turn stays a denial even when a steer follows it.
 | Ack `queued:false` on a steer | "does not wait for the current turn" | Claude receiver: can wait for the rest of the turn (long tool call, no further boundary, ineligible batch) |
 | Rate limit (3/min/receiver) | counts steers that interrupted | unchanged meaning: boundary steers interrupt nothing, so they are neither counted nor refused |
 | Long tool call at the receiver (for example a 15-minute suite) | steer cuts it | steer waits for it |
-| Ordinary agent that must stop a Claude agent now | steer | no path; privileged agents and members keep `/abort` and Send now |
+| Ordinary agent that must stop a Claude agent now | steer | no path; privileged agents and members keep `/abort` and Send now. Since task f4452169 (Nil, 2026-10-02) every agent may `/abort` any agent it may message; agent stops share the steer window and leave the target a stop notice |
 | Chat log | "Agent interrupted." then the message | the message appears after the tool result, no interruption line |
 | Curl card label for a steer | "Interrupt {who} with a message" | "Message {who} mid-turn" (en; es, ca, zh follow) |
 

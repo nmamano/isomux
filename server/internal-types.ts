@@ -148,6 +148,11 @@ export interface ManagedAgent {
   // No companion "fired" flag: every wake re-arms it, and there is nothing to
   // suppress across a conversation.
   wakeNotice: string | null;
+  // Set while an agent's abort waits to be explained on the next turn, else
+  // null. Armed by abortByAgent with a fresh object each time, so runAgentTurn
+  // can tell the arm it sent from a later one; consumed on the same
+  // never-before-send rule, and dropped at a conversation boundary.
+  stopNotice: StopNoticeArm | null;
   // Recovery copy held until the first event proves whether this wake failed
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
@@ -435,9 +440,19 @@ export type SendNowResult =
   | { ok: true }
   | { ok: false; status: 404 | 409; code: string; message: string };
 
+// One agent stop's claim on ManagedAgent.stopNotice (server/stop-notice-arms.ts).
+// An arm goes in before its abort runs, so it is "pending" until the abort
+// answers. `backing` links the live arms it replaced: a failed head stands for
+// those (a pending one, or a confirmed stop not yet explained), and only those.
+export type StopNoticeArm = {
+  text: string;
+  state: "pending" | "confirmed" | "failed";
+  backing: StopNoticeArm | null;
+};
+
 export type AbortResult =
   | { ok: true }
-  | { ok: false; status: 404 | 409 | 500; code: string; message: string };
+  | { ok: false; status: 404 | 409 | 429 | 500; code: string; message: string };
 
 // Why a requested steer did not interrupt the receiver. Both
 // reasons degrade to a plain queue rather than failing the send: the message is

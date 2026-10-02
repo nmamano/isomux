@@ -33,6 +33,7 @@ import {
   agentParamMustEqualTokenAgent,
   agentManagerMatch,
   messageSend,
+  agentAbort,
   scheduledMessagesOwner,
   conversationReset,
   logSearchAccess,
@@ -340,7 +341,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "agents.abort",
     method: "POST",
     path: "/api/agents/:id/abort",
-    auth: cap("agent:manage", agentParam("id")),
+    // An operator stops any agent it can reach; every agent stops any agent it
+    // may message (see agentAbort).
+    auth: cap(["agent:manage", "agent:send-as-self"], agentAbort),
     emits: [],
   }),
   defineRoute<EditAgentReq, AgentEnvelope>({
@@ -415,8 +418,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:manage", agentParam("id")),
     emits: ["agent_updated"],
   }),
+  // DELETE drops the current topic and regenerates it from the conversation
+  // (the LogView refresh button). Nothing clears a topic except a new
+  // conversation.
   defineRoute<void, NoContent>({
-    opId: "agents.clearTopic",
+    opId: "agents.regenerateTopic",
     method: "DELETE",
     path: "/api/agents/:id/topic",
     auth: cap("agent:manage", agentParam("id")),

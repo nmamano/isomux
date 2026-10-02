@@ -594,7 +594,12 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:manage"],
     emits: ["agent_added", "killed_agent_removed"],
   },
-  "agents.abort": { caps: ["agent:manage"], emits: [] },
+  // Any-of: an operator stops agents it can reach, and every agent stops any
+  // agent it may message (task f4452169).
+  "agents.abort": {
+    caps: ["agent:manage", "agent:send-as-self"],
+    emits: [],
+  },
   "agents.update": { caps: ["agent:manage"], emits: ["agent_updated"] },
   // caps: [] = `authenticated`-kind (task 68891fa1): every agent may READ the
   // blob + version; only the WRITE (agents.update) is capability-gated.
@@ -609,7 +614,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.move": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.setTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
-  "agents.clearTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
+  "agents.regenerateTopic": {
+    caps: ["agent:manage"],
+    emits: ["agent_updated"],
+  },
   "rooms.swapDesks": { caps: ["agent:manage"], emits: ["agent_updated"] },
   // Agents - conversation
   "agents.sendMessage": {
@@ -1145,7 +1153,7 @@ const API_REACHABLE_OPIDS = [
   "agents.previewSystemPrompt",
   "agents.move",
   "agents.setTopic",
-  "agents.clearTopic",
+  "agents.regenerateTopic",
   "rooms.swapDesks",
   "agents.sendMessage",
   "agents.respondInteraction",

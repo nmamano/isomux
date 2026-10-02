@@ -2566,7 +2566,8 @@ export async function demoApi(
     });
     return undefined;
   }
-  // agents.setTopic (PUT .../topic) / agents.clearTopic (DELETE .../topic).
+  // agents.setTopic (PUT .../topic) / agents.regenerateTopic (DELETE .../topic).
+  // The demo has no conversation to regenerate from, so DELETE clears.
   const agentTopicMatch = pathname.match(/^\/api\/agents\/([^/]+)\/topic$/);
   if (agentTopicMatch && (method === "PUT" || method === "DELETE")) {
     const id = decodeURIComponent(agentTopicMatch[1]);

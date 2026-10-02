@@ -142,7 +142,6 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
   it("reads sessions / lifecycle / editor / uploads on a reachable agent", () => {
     for (const op of [
       "agents.kill",
-      "agents.abort",
       "agents.update",
       "agents.openFile",
       "agents.upload",
@@ -170,6 +169,22 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
         noRoom,
       ),
     ).toBe(false);
+  });
+  // Task f4452169: abort left the operator set. Every agent, privileged or
+  // not, stops any agent it may message - message reach is not room-scoped.
+  it("lets every agent abort any agent, in a reachable room or not", () => {
+    const noAccess = deps({ hasRoomAccess: () => false });
+    for (const agent of [privilegedAgent, normalAgent]) {
+      expect(can("agents.abort", agent, { id: "a-other" })).toBe(true);
+      expect(
+        can("agents.abort", agent, { id: "a-other" }, undefined, noAccess),
+      ).toBe(true);
+    }
+    // A member keeps the operator reach: room access to the target.
+    expect(can("agents.abort", member, AGENT_PARAMS)).toBe(true);
+    expect(can("agents.abort", member, AGENT_PARAMS, undefined, noAccess)).toBe(
+      false,
+    );
   });
   it("is still room-scoped: NO access to an agent in an unreachable room", () => {
     const noAccess = deps({ hasRoomAccess: () => false });

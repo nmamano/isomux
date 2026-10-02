@@ -7,7 +7,7 @@ import type { AgentSystemPromptPreviewReq } from "../../../shared/contract-shape
 // handler - the agent lifecycle stayed WS-only. These handlers replace the
 // deleted WS cases.
 //   - 7a: the FIRE-AND-FORGET mutations
-//     (kill/abort/move/swapDesks/setTopic/clearTopic).
+//     (kill/abort/move/swapDesks/setTopic/regenerateTopic).
 //   - 7b: the RESPONSE-DRIVEN trio (spawn/revive/update) + the
 //     reviveLastRoomAccess precondition (enforced in the index seam).
 //
@@ -105,7 +105,9 @@ export interface AgentsDeps {
   // a permission prompt it is parked on. Returns the outcome rather than void:
   // an agent with no turn and no prompt has nothing to stop,
   // and reporting that as success told operators the opposite of the truth.
-  abort(agentId: string): Promise<AbortResult>;
+  // byAgent: an agent token asked, so the steer rate limit and the target's
+  // stop notice apply.
+  abort(agentId: string, opts: { byAgent: boolean }): Promise<AbortResult>;
   // Moves an agent to targetRoomId. Returns the moved AgentInfo (or, for a
   // same-room request, the unchanged agent - an idempotent no-op). A failure is
   // DISCRIMINATED so the handler maps it to the right status, never a false
@@ -125,7 +127,8 @@ export interface AgentsDeps {
       };
   swapDesks(roomId: string, deskA: number, deskB: number): void;
   setTopic(agentId: string, topic: string): void;
-  clearTopic(agentId: string): void;
+  // Fire-and-forget: regenerates the topic from the conversation.
+  regenerateTopic(agentId: string): void;
 
   // Token-derived attribution (createdBy/username from identity, NEVER the body),
   // so a spawning user can't be spoofed; spawn reads userId off the identity too.
@@ -229,7 +232,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.abort": async (ctx) => {
-      const r = await deps.abort(ctx.params.id);
+      const r = await deps.abort(ctx.params.id, {
+        byAgent: ctx.identity.scope === "agent",
+      });
       if (!r.ok) return fail(r.status, r.code, r.message);
       return noContent();
     },
@@ -326,8 +331,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
 
     "agents.setTopic": (ctx) => {
       // A missing / non-string topic is a malformed body, NOT an empty-topic
-      // mutation -> reject it. An empty string is a valid, deliberate topic;
-      // DELETE /topic is the clear operation.
+      // mutation -> reject it. An empty string is a valid, deliberate topic.
       const b = (ctx.body ?? {}) as { topic?: unknown };
       if (typeof b.topic !== "string") {
         return fail(422, "invalid_topic", "topic is required");
@@ -336,8 +340,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       return noContent();
     },
 
-    "agents.clearTopic": (ctx) => {
-      deps.clearTopic(ctx.params.id);
+    "agents.regenerateTopic": (ctx) => {
+      deps.regenerateTopic(ctx.params.id);
       return noContent();
     },
 

@@ -158,7 +158,7 @@ Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthog
 | `terminal:use` | yes | no | interactive terminal (WS) |
 | `task:read` | yes | yes | list/get tasks |
 | `task:write` | yes | yes | create/update/claim/done/delete tasks (attribution from token) |
-| `agent:send-as-self` | no | yes | POST an inter-agent message naming itself as sender |
+| `agent:send-as-self` | no | yes | POST an inter-agent message naming itself as sender; stop another agent's turn (`agents.abort`) |
 | `agent:send-as-cron` | no | no | RUN-only POST attributed to the live cron job, limited to its creator's visible agents |
 | `api:discover-agents` | no | no | API-only `GET /agents`; killed-agent discovery is denied |
 | `api:send-message` | no | no | API-only POST attributed to the issuing user with a server-derived token-name label |
@@ -203,11 +203,11 @@ Grouped by resource. `Cap` = `requiredCapability`; `Guard` = `resourceGuard`. A 
 | `agents.spawn` | POST `/api/agents` | `agent:manage` | `requiresRoomAccess(body.roomId)` | `SpawnReq` | `{ agent: AgentInfo }` | `agent_added` | WS:spawn `[strangle]`, `[delete]` agent_save_response |
 | `agents.kill` | DELETE `/api/agents/:id` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | `agent_removed`, `killed_agent_added` | WS:kill `[strangle]` |
 | `agents.revive` | POST `/api/agents/:id/revive` | `agent:manage` | `requiresRoomAccess(body.roomId)` ∧ `requiresRoomAccess(lastRoomId)` | `ReviveReq` | `{ agent: AgentInfo }` | `agent_added`, `killed_agent_removed` | WS:revive `[strangle]` |
-| `agents.abort` | POST `/api/agents/:id/abort` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | - | WS:abort `[strangle]` |
+| `agents.abort` | POST `/api/agents/:id/abort` | `agent:manage` \| `agent:send-as-self` | `agentAbort`: USER/API `requiresRoomAccess(:id)`; AGENT any agent, the message reach | - | `204`; `404` absent, `409` `nothing_to_abort`, `429` `rate_limited` (agent callers share the steer window) | - | WS:abort `[strangle]`. An agent's stop leaves the target a one-time stop notice on its next turn |
 | `agents.update` | PATCH `/api/agents/:id` | `agent:manage` | `requiresRoomAccess(:id)` | `EditAgentReq` | `{ agent: AgentInfo }` | `agent_updated` | WS:edit_agent `[strangle]`, `[delete]` agent_save_response |
 | `agents.setPrivileged` | PUT `/api/agents/:id/privileged` | `agent:privilege` | `userScope` ∧ (`officeOwner` ∨ `agentManagerMatch(:id)`) | `SetPrivilegedReq` | `{ agent: AgentInfo }` | `agent_updated` | re-mints token + session-swap; double-gated (cap not in any agent set ∧ scope guard) so no agent can flip the flag. Conferral is (i-b): owner toggles any agent, a member only agents they manage - NOT room co-membership (which would let a member elevate another's agent) |
 | `agents.setTopic` | PUT `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | `TopicReq` | `204` | `agent_updated` | WS:set_topic `[strangle]` |
-| `agents.clearTopic` | DELETE `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | `agent_updated` | WS:reset_topic `[strangle]` |
+| `agents.regenerateTopic` | DELETE `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | - | `204` | `agent_updated` | WS:reset_topic `[strangle]`. Regenerates the topic from the conversation; nothing clears it |
 | `rooms.swapDesks` | POST `/api/rooms/:roomId/swap-desks` | `agent:manage` | `requiresRoomAccess(:roomId)` | `SwapDesksReq` | `204` | `agent_updated` ×2 | WS:swap_desks `[strangle]` |
 
 **Agents - conversation**

@@ -490,6 +490,26 @@ export const messageSend: Guard = (ctx) => {
   }
 };
 
+// Turn abort (agents.abort). A stop is an interruption, so every agent gets the
+// reach it has to message and steer, not the operator reach:
+//   USER / API → room access to the target, as on every operator route.
+//   AGENT      → any agent, privileged or not, as messageSend's agent branch
+//                (an absent target is the core's 404). The core applies the
+//                steer rate limit and tells the target an agent stopped it.
+//   CRON-RUN / APP → deny.
+export const agentAbort: Guard = (ctx) => {
+  switch (ctx.identity.scope) {
+    case "user":
+    case "api":
+      return messageSendUserGuard(ctx);
+    case "agent":
+      return agentTokenSender(ctx);
+    case "cron-run":
+    case "app":
+      return FORBIDDEN;
+  }
+};
+
 // Task DELETE: USER or AGENT only.
 //
 // A cron run holds task:read + task:write so it can file and complete tasks the

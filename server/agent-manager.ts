@@ -158,6 +158,7 @@ import {
 import { createCommandHandling } from "./command-handlers.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
+import { pushStopArm, settleStopArm } from "./stop-notice-arms.ts";
 import {
   BackendNotConfiguredError,
   ProviderCapacityError,
@@ -451,6 +452,10 @@ export function permissionPromptLines(
 // must not read that as a human decision.
 export const AGENT_INTERRUPT_NOTE =
   "[Isomux: another agent interrupted your turn to deliver this. Any rejection or interruption text just before it came from that interruption, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
+// An agent's abort delivers no message to carry the note above, so the
+// target's next turn carries this one instead (runAgentTurn's stop-notice).
+export const AGENT_STOP_NOTE =
+  "[Isomux: another agent stopped your previous turn. Any rejection or interruption text at the end of that turn came from that stop, not from an office member. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const MEMBER_INTERRUPT_NOTE =
   "[Isomux: a member interrupted your turn to deliver this. A tool call cut short may have done partial work: check its effects before you continue.]";
 export const TOOL_BOUNDARY_NOTE =
@@ -2177,6 +2182,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      stopNotice: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -3675,6 +3681,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // conversation. Unconditional, including the edit-fork rollback path: at
     // worst an agent loses a warning, which beats being handed a false one.
     managed.wakeNotice = null;
+    // Same for the stop notice: the stop it explains is in the old transcript.
+    managed.stopNotice = null;
     managed.pendingFreshRecoveryNotice = false;
     managed.authNoticeEmittedThisWake = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
@@ -5562,6 +5570,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      stopNotice: null,
       pendingFreshRecoveryNotice: false,
       authNoticeEmittedThisWake: false,
       subscriptionUsage: null,
@@ -8099,6 +8108,44 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // An abort an agent asked for (agents.abort with an agent token). It shares
+  // the steer window, because the limit protects the receiver's ability to
+  // finish a turn whatever the interruption is called. Only a stop that
+  // stopped something counts.
+  //
+  // The note is armed BEFORE the abort. Today a late arm would also land: every
+  // turn starter (flushQueue, sendMessage) awaits abortPromise, which settles
+  // in abort()'s finally one microtask before abort() returns, and then reads
+  // the slot only after a further await in runAgentTurn. Arming first keeps the
+  // note independent of that microtask order.
+  async function abortByAgent(agentId: string): Promise<AbortResult> {
+    const managed = agents.get(agentId);
+    if (!managed) return abort(agentId);
+    // A stop is already in flight (abort() sets this synchronously): join it.
+    // The call stops nothing new, so it spends no slot, and the notice stays as
+    // the caller who started that stop left it - none after a member's stop.
+    if (managed.sessionManager.aborting && managed.sessionManager.abortPromise)
+      return abort(agentId);
+    if (steerRateLimited(managed))
+      return {
+        ok: false,
+        status: 429,
+        code: "rate_limited",
+        message:
+          "This agent was interrupted too often in the last minute. Try again later.",
+      };
+    const stamp = Date.now();
+    managed.recentSteers.push(stamp);
+    const arm = pushStopArm(managed, AGENT_STOP_NOTE);
+    const result = await abort(agentId);
+    settleStopArm(managed, arm, result.ok);
+    if (!result.ok) {
+      const i = managed.recentSteers.indexOf(stamp);
+      if (i >= 0) managed.recentSteers.splice(i, 1);
+    }
+    return result;
+  }
+
   // Returns "ok" if codex acked turn/interrupt and emitted turn_completed
   // (status="interrupted") within the timeout; "timeout" if the wait expired;
   // "session_died" if the subprocess exited mid-interrupt (synthetic
@@ -9582,6 +9629,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     sendMessage,
     respondToChoiceInteraction,
     abort,
+    abortByAgent,
     kill,
     revive,
     newConversation,
