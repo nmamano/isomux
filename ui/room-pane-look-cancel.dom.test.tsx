@@ -1,6 +1,6 @@
-// The room settings pane's save path for the look: a rejected PATCH. Cancel
-// and the pet tiles are in room-pane-look-cancel.dom.test.tsx, because the DOM
-// harness budgets wall clock per file and the tiles are what a mount costs.
+// The room settings pane's look section: Cancel, and the pet tiles. Split from
+// room-pane-look.dom.test.tsx because the DOM harness budgets wall clock per
+// file and each mount of the tile section costs about two seconds.
 
 import { afterAll, expect, it } from "bun:test";
 import { setUpDomTestFile } from "./test-support/dom.ts";
@@ -14,10 +14,8 @@ const { createElement } = await import("react");
 type RoomWire = import("../shared/types.ts").RoomWire;
 
 const calls: Array<{ method: string; path: string; body: unknown }> = [];
-let patchFails = false;
 setApiShim(async (method, path, body) => {
   calls.push({ method, path, body });
-  if (method === "PATCH" && patchFails) throw new Error("offline");
   if (path.endsWith("/settings")) return { prompt: "", version: "0" };
   if (path.startsWith("/api/memory"))
     return { text: "", version: "0", size: 0, cap: 4000 };
@@ -76,33 +74,29 @@ const cancelDisabled = (view: ReturnType<typeof mount>) =>
 
 // The PATCH is part of the save, not a side effect of it. When it fails the
 // reader has to be able to tell: the pane must not settle to "Saved" over a
-// look the server never took, and the change must still be theirs to retry.
-it("keeps a rejected look dirty, says so, and retries the same body", async () => {
+// Cancel puts every staged choice back. A species tile shows the pet and
+// opens its coat row, and the coat tiles set the coat.
+it("puts staged choices back on Cancel, and saves a pet with its coat", async () => {
   calls.length = 0;
-  patchFails = true;
   const view = mount(ward());
   await act(async () => {});
   await pick(view, "preset", "office");
-  await save(view);
-  expect(patches()).toHaveLength(1);
-  expect(view.queryByRole("button", { name: "Saved" })).toBeNull();
-  expect(view.getByRole("button", { name: "Save" })).toBeTruthy();
-  // The reader's change is still theirs: the tile holds it, and Cancel is
-  // live because the pane is still dirty.
-  expect(tile(view, "preset", "office").getAttribute("aria-pressed")).toBe(
+  await pick(view, "ward", "beds");
+  await act(async () =>
+    fireEvent.click(view.getByRole("button", { name: "Cancel" })),
+  );
+  expect(tile(view, "preset", "hospital").getAttribute("aria-pressed")).toBe(
     "true",
   );
-  expect(cancelDisabled(view)).toBe(false);
-  // A failed cosmetic PATCH must not have spent the settings version, or the
-  // retry would come back as a conflict instead of saving.
-  expect(
-    calls.some((c) => c.method === "PUT" && c.path.endsWith("/settings")),
-  ).toBe(false);
+  expect(cancelDisabled(view)).toBe(true);
 
-  patchFails = false;
+  await pick(view, "pet", "dog");
+  await pick(view, "coat", "2");
+  expect(tile(view, "pet", "dog").getAttribute("aria-pressed")).toBe("true");
   await save(view);
-  expect(patches()).toHaveLength(2);
-  expect(patches()[1].body).toEqual({ skin: "office", decor: null });
-  expect(view.getByRole("button", { name: "Saved" })).toBeTruthy();
+  expect(patches()[0].body).toEqual({
+    pet: { species: "dog", coat: 2 },
+    decor: { pet: "shown" },
+  });
   view.unmount();
 });
