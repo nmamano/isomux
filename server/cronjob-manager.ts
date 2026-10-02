@@ -541,8 +541,8 @@ The Isomux office consists of agents that have persistent identity and sit at de
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your creator. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
 How to use the task board (localhost:${PORT}/api/tasks): only touch it if your prompt directs you to. Use your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN) on every call; tasks you create are attributed to you. You have no room, so this is the office-GLOBAL board - you see and create office-wide tasks only (room-scoped tasks belong to agents in a room). When you do:
-  curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active global tasks (excludes done and backlog)
-  curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done and backlog
+  curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active global tasks (excludes done and open P4)
+  curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done and P4
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"title":"..."}'                                                                                      # create (office-global)
   curl -s -X POST localhost:${PORT}/api/tasks/ID/done -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'   # mark done

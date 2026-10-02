@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
-import { apiFetch } from "../api.ts";
+import { apiFetch, ApiError } from "../api.ts";
 import type {
   TaskItem,
   TaskStatus,
@@ -11,6 +11,7 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
 } from "../../shared/contract-shapes.ts";
+import { inDefaultTaskList } from "../../shared/task-board.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 import { noTranslate } from "../no-translate.ts";
@@ -47,10 +48,15 @@ import type { SupportedLanguageCode } from "../../shared/languages.ts";
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
   open: 1,
-  backlog: 2,
-  done: 3,
+  done: 2,
 };
-const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
+const PRIORITY_ORDER: Record<string, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+  P4: 4,
+};
 
 // Cap the assignee suggestion chips. The office can hold many agents, and the
 // `agents` array arrives in Map insertion order (oldest-first, and unreliable
@@ -68,7 +74,6 @@ function agentSpawnMs(id: string): number {
 const STATUS_COLORS: Record<TaskStatus, string> = {
   open: "var(--blue, #58a6ff)",
   in_progress: "var(--green)",
-  backlog: "var(--purple)",
   done: "var(--text-muted)",
 };
 
@@ -80,7 +85,6 @@ const STATUS_LABELS: Record<
 > = {
   open: "tasks.status.open",
   in_progress: "tasks.status.inProgress",
-  backlog: "tasks.status.backlog",
   done: "tasks.status.done",
 };
 
@@ -89,6 +93,8 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   P1: "var(--orange, #d29922)",
   P2: "var(--blue, #58a6ff)",
   P3: "var(--text-muted)",
+  // P4 is the old backlog, and keeps its color.
+  P4: "var(--purple)",
 };
 
 // Not a component, so the language and the translator arrive as arguments
@@ -179,6 +185,21 @@ function TaskDetailPanel({
 
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // An edit save waits for the PATCH, so a stale version (409) can keep the
+  // panel open and say the save did not land. The pending save belongs to one
+  // task id: the user can select another task before the response arrives.
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const saving = savingId !== null && savingId === task?.id;
+  const [saveConflict, setSaveConflict] = useState(false);
+  // The task this panel shows now, or null once it unmounts. A save that
+  // finishes after the user moved on must not close or flag what they see.
+  const shownIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    shownIdRef.current = task?.id ?? null;
+    return () => {
+      shownIdRef.current = null;
+    };
+  }, [task?.id]);
   // Copy-to-clipboard for the task id in the header - the shared hook gives the
   // same modern-API + textarea fallback the rest of the app's copy controls use.
   const { copied: idCopied, copy: copyId } = useClipboardCopy();
@@ -206,6 +227,11 @@ function TaskDetailPanel({
     setConfirmDiscard(false);
     setShowAllAgents(false);
   }, [task, initialTitle]);
+  // Keyed on the id, not the task: the live refresh that follows a 409 must
+  // not hide the conflict line, but selecting another task must.
+  useEffect(() => {
+    setSaveConflict(false);
+  }, [task?.id]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function isDirty(): boolean {
@@ -245,8 +271,8 @@ function TaskDetailPanel({
     };
   });
 
-  function handleSave() {
-    if (!title.trim()) return;
+  async function handleSave() {
+    if (!title.trim() || saving) return;
     if (mode === "create") {
       // Fire-and-forget (parity with the old WS arm): the server's task delta
       // applies the change echo-first, so the optimistic onClose() below stays.
@@ -268,7 +294,10 @@ function TaskDetailPanel({
       // JSON.stringify drops them, so the server leaves those fields untouched.
       // priority is the exception: the API accepts null to clear it, so a blank
       // selection clears an existing priority rather than silently keeping it.
+      // The version of the task this form shows: the live task_upserted
+      // refresh resets the fields and this prop together.
       const body: TaskUpdateReq = {
+        version: task.version,
         title: title.trim(),
         description: description.trim() || undefined,
         priority: priority === "" ? null : priority,
@@ -281,9 +310,21 @@ function TaskDetailPanel({
       if (roomId !== (task.roomId ?? "")) {
         body.roomId = roomId;
       }
-      apiFetch<TaskItem>("PATCH", `/api/tasks/${task.id}`, body).catch(
-        () => {},
-      );
+      const id = task.id;
+      setSavingId(id);
+      setSaveConflict(false);
+      let conflict = false;
+      try {
+        await apiFetch<TaskItem>("PATCH", `/api/tasks/${id}`, body);
+      } catch (err) {
+        conflict = err instanceof ApiError && err.status === 409;
+      }
+      setSavingId((current) => (current === id ? null : current));
+      if (shownIdRef.current !== id) return;
+      if (conflict) {
+        setSaveConflict(true);
+        return;
+      }
     }
     onClose();
   }
@@ -337,7 +378,7 @@ function TaskDetailPanel({
         // phase so it fires before the field's own key handler.
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.repeat) {
           e.preventDefault();
-          handleSave();
+          void handleSave();
         }
       }}
     >
@@ -414,8 +455,10 @@ function TaskDetailPanel({
         </button>
       </div>
 
-      {/* Scrollable body */}
+      {/* Scrollable body. Inert while saving: the success path closes the
+          panel, so an edit typed meanwhile would be lost. */}
       <div
+        inert={saving}
         style={{
           flex: 1,
           minHeight: 0,
@@ -437,7 +480,7 @@ function TaskDetailPanel({
             onKeyDown={(e) => {
               // Plain Enter saves; Ctrl/Cmd+Enter is handled by the panel's
               // capture handler (avoid double-submitting here).
-              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) handleSave();
+              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) void handleSave();
               e.stopPropagation();
             }}
           />
@@ -509,6 +552,7 @@ function TaskDetailPanel({
               <option value="P1">P1</option>
               <option value="P2">P2</option>
               <option value="P3">P3</option>
+              <option value="P4">P4</option>
             </select>
           </div>
           <div style={{ flex: 1 }}>
@@ -522,7 +566,6 @@ function TaskDetailPanel({
               <option value="in_progress">
                 {t("tasks.status.inProgress")}
               </option>
-              <option value="backlog">{t("tasks.status.backlog")}</option>
               <option value="done">{t("tasks.status.done")}</option>
             </select>
           </div>
@@ -635,6 +678,11 @@ function TaskDetailPanel({
           gap: 8,
         }}
       >
+        {saveConflict && (
+          <div role="alert" style={{ fontSize: 11, color: "var(--red)" }}>
+            {t("tasks.saveConflict")}
+          </div>
+        )}
         {confirmDiscard && (
           <div
             style={{
@@ -684,8 +732,8 @@ function TaskDetailPanel({
 
         <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={handleSave}
-            disabled={!title.trim()}
+            onClick={() => void handleSave()}
+            disabled={!title.trim() || saving}
             style={{
               flex: 1,
               padding: "9px 0",
@@ -751,8 +799,9 @@ export function TaskView({
   } = useAppState();
   const { t, language, rich } = useI18n();
   const [search, setSearch] = useState("");
+  // "P4" lists the not-done P4 tasks, like GET /api/tasks?priority=P4.
   const [filterStatus, setFilterStatus] = useState<
-    TaskStatus | "all" | "active"
+    TaskStatus | "all" | "active" | "P4"
   >("active");
   // Room scope is captured ONCE from the office's current room and held stable
   // while the Tasks view is open - it does NOT silently follow the office room
@@ -949,7 +998,9 @@ export function TaskView({
       list = list.filter((t) => t.roomId === roomScope);
     }
     if (filterStatus === "active") {
-      list = list.filter((t) => t.status !== "done" && t.status !== "backlog");
+      list = list.filter(inDefaultTaskList);
+    } else if (filterStatus === "P4") {
+      list = list.filter((t) => t.priority === "P4" && t.status !== "done");
     } else if (filterStatus !== "all") {
       list = list.filter((t) => t.status === filterStatus);
     }
@@ -1279,7 +1330,7 @@ export function TaskView({
                 value={filterStatus}
                 onChange={(e) =>
                   setFilterStatus(
-                    e.target.value as TaskStatus | "all" | "active",
+                    e.target.value as TaskStatus | "all" | "active" | "P4",
                   )
                 }
                 style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
@@ -1289,7 +1340,7 @@ export function TaskView({
                 <option value="in_progress">
                   {t("tasks.status.inProgress")}
                 </option>
-                <option value="backlog">{t("tasks.status.backlog")}</option>
+                <option value="P4">P4</option>
                 <option value="done">{t("tasks.status.done")}</option>
                 <option value="all">{t("tasks.filterAll")}</option>
               </select>

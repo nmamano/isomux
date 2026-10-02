@@ -53,6 +53,14 @@ const deletedIdsOf = (s: TestSocket): string[] =>
     .filter((m) => (m as { type?: string }).type === "task_deleted")
     .map((m) => (m as { taskId: string }).taskId);
 
+// Every PATCH must carry the version the caller read (task 4243ecc0). Tests
+// that are not about the version read it straight off the board.
+function currentVersion(srv: TestServer, id: string): string {
+  const task = srv.agentManager.getTasks().find((t) => t.id === id);
+  if (!task) throw new Error(`no task ${id}`);
+  return task.version;
+}
+
 interface Res {
   status: number;
   body: unknown;
@@ -176,7 +184,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const patched = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { priority: "P1", description: "d" },
+      body: { version: currentVersion(srv, created.id), priority: "P1", description: "d" },
     });
     expect(patched.status).toBe(200);
     expect((patched.body as TaskItem).priority).toBe("P1");
@@ -208,7 +216,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const missing = await api(srv, `/api/tasks/nope`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { title: "x" },
+      body: { version: "any", title: "x" },
     });
     expect(missing.status).toBe(404);
   });
@@ -232,7 +240,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const other = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { title: "T2" },
+      body: { version: currentVersion(srv, created.id), title: "T2" },
     });
     expect(other.status).toBe(200);
     expect((other.body as TaskItem).priority).toBe("P1");
@@ -241,7 +249,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const empty = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { priority: "" },
+      body: { version: currentVersion(srv, created.id), priority: "" },
     });
     expect(empty.status).toBe(400);
     expect(
@@ -252,14 +260,14 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const bogus = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { priority: "P9" },
+      body: { version: currentVersion(srv, created.id), priority: "P9" },
     });
     expect(bogus.status).toBe(400);
 
     const cleared = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { priority: null },
+      body: { version: currentVersion(srv, created.id), priority: null },
     });
     expect(cleared.status).toBe(200);
     expect((cleared.body as TaskItem).priority).toBeUndefined();
@@ -272,7 +280,7 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     const again = await api(srv, `/api/tasks/${created.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { priority: null },
+      body: { version: currentVersion(srv, created.id), priority: null },
     });
     expect(again.status).toBe(200);
     expect((again.body as TaskItem).priority).toBeUndefined();
@@ -493,7 +501,11 @@ describe("routes/tasks REST: room scoping", () => {
     // the task is untouched.
     for (const [method, path, body] of [
       ["GET", `/api/tasks/${inA.id}`, undefined],
-      ["PATCH", `/api/tasks/${inA.id}`, { status: "done" }],
+      [
+        "PATCH",
+        `/api/tasks/${inA.id}`,
+        { version: currentVersion(srv, inA.id), status: "done" },
+      ],
       ["POST", `/api/tasks/${inA.id}/claim`, { assignee: "Mia" }],
       ["POST", `/api/tasks/${inA.id}/done`, {}],
       ["DELETE", `/api/tasks/${inA.id}`, undefined],
@@ -578,7 +590,7 @@ describe("routes/tasks REST: room scoping", () => {
     const untouched = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { title: "renamed" },
+      body: { version: currentVersion(srv, t.id), title: "renamed" },
     });
     expect(untouched.status).toBe(200);
     expect((untouched.body as TaskItem).title).toBe("renamed");
@@ -588,7 +600,7 @@ describe("routes/tasks REST: room scoping", () => {
     const moved = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: roomB },
+      body: { version: currentVersion(srv, t.id), roomId: roomB },
     });
     expect(moved.status).toBe(200);
     expect((moved.body as TaskItem).roomId).toBe(roomB);
@@ -598,7 +610,7 @@ describe("routes/tasks REST: room scoping", () => {
     const cleared = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: "" },
+      body: { version: currentVersion(srv, t.id), roomId: "" },
     });
     expect(cleared.status).toBe(200);
     expect((cleared.body as TaskItem).roomId).toBeUndefined();
@@ -610,7 +622,7 @@ describe("routes/tasks REST: room scoping", () => {
     const stillGlobal = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { status: "in_progress" },
+      body: { version: currentVersion(srv, t.id), status: "in_progress" },
     });
     expect(stillGlobal.status).toBe(200);
     expect((stillGlobal.body as TaskItem).roomId).toBeUndefined();
@@ -619,7 +631,7 @@ describe("routes/tasks REST: room scoping", () => {
     const badShape = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: 7 },
+      body: { version: currentVersion(srv, t.id), roomId: 7 },
     });
     expect(badShape.status).toBe(400);
 
@@ -628,7 +640,7 @@ describe("routes/tasks REST: room scoping", () => {
     const unknown = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: "deadbeef" },
+      body: { version: currentVersion(srv, t.id), roomId: "deadbeef" },
     });
     expect(unknown.status).toBe(404);
   });
@@ -650,7 +662,7 @@ describe("routes/tasks REST: room scoping", () => {
     const okMove = await api(srv, `/api/tasks/${glob.id}`, {
       method: "PATCH",
       rawSessionId: member.rawSessionId,
-      body: { roomId: roomB },
+      body: { version: currentVersion(srv, glob.id), roomId: roomB },
     });
     expect(okMove.status).toBe(200);
     expect((okMove.body as TaskItem).roomId).toBe(roomB);
@@ -660,7 +672,7 @@ describe("routes/tasks REST: room scoping", () => {
       const r = await api(srv, `/api/tasks/${glob.id}`, {
         method: "PATCH",
         rawSessionId: member.rawSessionId,
-        body: { roomId: target },
+        body: { version: currentVersion(srv, glob.id), roomId: target },
       });
       expect(r.status).toBe(404);
     }
@@ -692,7 +704,7 @@ describe("routes/tasks REST: room scoping", () => {
     const homed = await api(srv, `/api/tasks/${glob.id}`, {
       method: "PATCH",
       bearer: token,
-      body: { roomId: roomA },
+      body: { version: currentVersion(srv, glob.id), roomId: roomA },
     });
     expect(homed.status).toBe(200);
     expect((homed.body as TaskItem).roomId).toBe(roomA);
@@ -726,7 +738,7 @@ describe("routes/tasks REST: room scoping", () => {
         await api(srv, `/api/tasks/${inB.id}`, {
           method: "PATCH",
           bearer: runToken,
-          body: { status: "done" },
+          body: { version: currentVersion(srv, inB.id), status: "done" },
         })
       ).status,
     ).toBe(404);
@@ -800,7 +812,7 @@ describe("routes/tasks REST: room scoping", () => {
     await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: roomB },
+      body: { version: currentVersion(srv, t.id), roomId: roomB },
     });
     await waitUntil(
       () => deletedIdsOf(memberSock).includes(t.id),
@@ -837,7 +849,7 @@ describe("routes/tasks REST: room scoping", () => {
     await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { roomId: roomA },
+      body: { version: currentVersion(srv, t.id), roomId: roomA },
     });
     // An upsert, even though this is an UPDATE: it's the first time she can see
     // the task, so her board has no row to update - it appends.
@@ -893,7 +905,7 @@ describe("routes/tasks REST: room scoping", () => {
     await api(srv, `/api/tasks/${survivor.id}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
-      body: { title: "global, edited" },
+      body: { version: currentVersion(srv, survivor.id), title: "global, edited" },
     });
     await waitUntil(
       () => upsertsOf(sock).some((t) => t.title === "global, edited"),
@@ -1180,5 +1192,253 @@ describe("routes/tasks REST: ?roomId= list filter", () => {
     expect(r.status).toBe(200);
     expect([...idsOf(r)]).toEqual([mine.id]);
     expect(idsOf(r).has(theirs.id)).toBe(false);
+  });
+});
+
+// --- Lost-update guard (task 4243ecc0) --------------------------------------
+// Every PATCH carries the version the caller read; a claim refuses a task that
+// someone else holds; done needs no version.
+
+describe("routes/tasks REST: version guard + claim", () => {
+  type ErrBody = {
+    error: { code: string; message?: string; version?: string; task?: TaskItem };
+  };
+  const err = (r: Res) => (r.body as ErrBody).error;
+
+  async function setup() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const t = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: sid,
+        body: { title: "T" },
+      })
+    ).body as TaskItem;
+    const stored = () => srv.agentManager.getTasks().find((x) => x.id === t.id)!;
+    return { srv, sid, t, stored };
+  }
+
+  it("a task carries a version, and a write that changes it gives a new one", async () => {
+    const { srv, sid, t } = await setup();
+    expect(typeof t.version).toBe("string");
+    expect(t.version.length).toBeGreaterThan(0);
+    const r = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: t.version, title: "T2" },
+    });
+    expect(r.status).toBe(200);
+    const after = r.body as TaskItem;
+    expect(after.version).not.toBe(t.version);
+    // GET serves the same token the write returned.
+    const got = await api(srv, `/api/tasks/${t.id}`, { rawSessionId: sid });
+    expect((got.body as TaskItem).version).toBe(after.version);
+  });
+
+  it("a PATCH with no version is a 400 invalid_version and writes nothing", async () => {
+    const { srv, sid, t, stored } = await setup();
+    for (const body of [{ title: "x" }, { title: "x", version: "" }]) {
+      const r = await api(srv, `/api/tasks/${t.id}`, {
+        method: "PATCH",
+        rawSessionId: sid,
+        body,
+      });
+      expect(r.status).toBe(400);
+      expect(err(r).code).toBe("invalid_version");
+    }
+    expect(stored().title).toBe("T");
+  });
+
+  it("a stale version is a 409 that carries the current task, and writes nothing", async () => {
+    const { srv, sid, t, stored } = await setup();
+    // Another writer lands first.
+    await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: t.version, title: "theirs" },
+    });
+    const r = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: t.version, title: "mine" },
+    });
+    expect(r.status).toBe(409);
+    expect(err(r).code).toBe("version_conflict");
+    expect(err(r).task).toEqual(stored());
+    expect(err(r).version).toBe(stored().version);
+    expect(stored().title).toBe("theirs");
+    // Retrying with the version from the 409 lands.
+    const retry = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: err(r).version, title: "mine" },
+    });
+    expect(retry.status).toBe(200);
+    expect(stored().title).toBe("mine");
+  });
+
+  it("claim takes an unheld task, and re-claiming by the same holder is fine", async () => {
+    const { srv, sid, t, stored } = await setup();
+    for (let i = 0; i < 2; i++) {
+      const r = await api(srv, `/api/tasks/${t.id}/claim`, {
+        method: "POST",
+        rawSessionId: sid,
+        body: { assignee: "Worker A" },
+      });
+      expect(r.status).toBe(200);
+    }
+    expect(stored()).toMatchObject({
+      status: "in_progress",
+      assignee: "Worker A",
+    });
+  });
+
+  it("claim of a task someone else holds is a 409 naming the holder; a versioned PATCH reassigns", async () => {
+    const { srv, sid, t, stored } = await setup();
+    await api(srv, `/api/tasks/${t.id}/claim`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: { assignee: "Worker A" },
+    });
+    // A claim naming someone else, and a claim naming no one, both refuse.
+    for (const body of [{ assignee: "Worker B" }, {}]) {
+      const r = await api(srv, `/api/tasks/${t.id}/claim`, {
+        method: "POST",
+        rawSessionId: sid,
+        body,
+      });
+      expect(r.status).toBe(409);
+      expect(err(r).code).toBe("task_held");
+      expect((err(r) as { assignee?: string }).assignee).toBe("Worker A");
+      expect(stored().assignee).toBe("Worker A");
+    }
+    const moved = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: stored().version, assignee: "Worker B" },
+    });
+    expect(moved.status).toBe(200);
+    expect(stored().assignee).toBe("Worker B");
+  });
+
+  it("done needs no version and gives the same result from any state", async () => {
+    const { srv, sid, t, stored } = await setup();
+    const doneOnce = async () => {
+      const r = await api(srv, `/api/tasks/${t.id}/done`, {
+        method: "POST",
+        rawSessionId: sid,
+        body: {},
+      });
+      expect(r.status).toBe(200);
+      expect(stored().status).toBe("done");
+    };
+    await doneOnce(); // from open
+    await doneOnce(); // from done
+    await api(srv, `/api/tasks/${t.id}/claim`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: { assignee: "Worker A" },
+    });
+    expect(stored().status).toBe("in_progress");
+    await doneOnce(); // from in_progress, held
+  });
+});
+
+// --- Backlog is priority P4 (task 77460aea) ---------------------------------
+
+describe("routes/tasks REST: P4 replaces the backlog status", () => {
+  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
+
+  it("the default list hides done and open P4 tasks; filters reach them", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const make = async (title: string, priority?: string) =>
+      (
+        await api(srv, "/api/tasks", {
+          method: "POST",
+          rawSessionId: sid,
+          body: { title, ...(priority ? { priority } : {}) },
+        })
+      ).body as TaskItem;
+    const live = await make("live", "P1");
+    const shelved = await make("shelved", "P4");
+    const startedP4 = await make("started P4", "P4");
+    const doneP4 = await make("done P4", "P4");
+    expect(shelved.priority).toBe("P4");
+    await api(srv, `/api/tasks/${startedP4.id}/claim`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: { assignee: "Worker A" },
+    });
+    await api(srv, `/api/tasks/${doneP4.id}/done`, {
+      method: "POST",
+      rawSessionId: sid,
+      body: {},
+    });
+
+    const list = async (q: string) => {
+      const r = await api(srv, `/api/tasks${q}`, { rawSessionId: sid });
+      expect(r.status).toBe(200);
+      return idsOf(r);
+    };
+    // Default: an in-progress P4 task shows, as a claimed backlog task did.
+    expect(await list("")).toEqual(new Set([live.id, startedP4.id]));
+    expect(await list("?priority=P4")).toEqual(
+      new Set([shelved.id, startedP4.id]),
+    );
+    expect(await list("?priority=P4&status=all")).toEqual(
+      new Set([shelved.id, startedP4.id, doneP4.id]),
+    );
+    expect(await list("?status=all")).toEqual(
+      new Set([live.id, shelved.id, startedP4.id, doneP4.id]),
+    );
+    // An explicit status filter is literal: it includes P4 tasks.
+    expect(await list("?status=open")).toEqual(new Set([live.id, shelved.id]));
+
+    const bad = await api(srv, "/api/tasks?priority=P9", { rawSessionId: sid });
+    expect(bad.status).toBe(400);
+  });
+
+  it('status "backlog" is a 400 that points at priority P4, on a PATCH, a list and a create', async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sid = owner.rawSessionId;
+    const t = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: sid,
+        body: { title: "T" },
+      })
+    ).body as TaskItem;
+    const patch = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: sid,
+      body: { version: t.version, status: "backlog" },
+    });
+    const list = await api(srv, "/api/tasks?status=backlog", {
+      rawSessionId: sid,
+    });
+    const create = await api(srv, "/api/tasks", {
+      method: "POST",
+      rawSessionId: sid,
+      body: { title: "shelve me", status: "backlog" },
+    });
+    for (const r of [patch, list, create]) {
+      expect(r.status).toBe(400);
+      const e = (r.body as { error: { code: string; message: string } }).error;
+      expect(e.code).toBe("invalid_request");
+      // The way forward is the priority level, so the error names it.
+      expect(e.message).toContain("P4");
+    }
+    expect(
+      srv.agentManager.getTasks().find((x) => x.id === t.id)?.status,
+    ).toBe("open");
+    expect(srv.agentManager.getTasks()).toHaveLength(1);
   });
 });

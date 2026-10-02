@@ -1307,11 +1307,16 @@ export function saveAgentHistory(history: AgentHistory) {
   }
 }
 
-export function loadTasks(): TaskItem[] {
+// Returned without versions: OfficeState.setTasksDirect stamps them.
+export function loadTasks(): Omit<TaskItem, "version">[] {
   try {
     if (!existsSync(TASKS_FILE)) return [];
     const records = JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as Array<
-      TaskItem & { device?: string }
+      Omit<TaskItem, "status" | "version"> & {
+        status: TaskItem["status"] | "backlog";
+        device?: string;
+        version?: string;
+      }
     >;
     // Migrate legacy `device` field → `username` (the field's actual semantics
     // has always been "the member's name").
@@ -1328,13 +1333,32 @@ export function loadTasks(): TaskItem[] {
         `[migration] migrated ${migrated} task(s) from device → username`,
       );
     }
-    return records;
+    // "backlog" stopped being a status in 2026-10 (task 77460aea): a backlog
+    // task becomes an open P4 task. Written back at once, so the file holds
+    // the new shape; a rerun finds nothing to change.
+    let backlog = 0;
+    for (const r of records) {
+      delete r.version;
+      if (r.status === "backlog") {
+        r.status = "open";
+        r.priority = "P4";
+        backlog++;
+      }
+    }
+    const tasks = records as Omit<TaskItem, "version">[];
+    if (backlog > 0) {
+      saveTasks(tasks);
+      console.log(
+        `[migration] migrated ${backlog} backlog task(s) to open + P4`,
+      );
+    }
+    return tasks;
   } catch {
     return [];
   }
 }
 
-export function saveTasks(tasks: TaskItem[]) {
+export function saveTasks(tasks: Omit<TaskItem, "version">[]) {
   try {
     atomicWriteFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
   } catch (err) {

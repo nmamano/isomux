@@ -18,6 +18,7 @@ import {
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
 import { roomSlotCount, isValidDesk } from "./desks.ts";
+import { taskVersion } from "./task-board.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -200,8 +201,10 @@ export class OfficeState {
     this._office = { ...office };
   }
 
-  setTasksDirect(tasks: TaskItem[]) {
-    this._tasks = tasks;
+  // Stamps every version: the field is derived, so a stored value is never
+  // trusted (an older tasks.json has none; a hand edit leaves it stale).
+  setTasksDirect(tasks: Omit<TaskItem, "version">[]) {
+    this._tasks = tasks.map((t) => ({ ...t, version: taskVersion(t) }));
   }
 
   setRecentCwds(cwds: string[]) {
@@ -683,7 +686,9 @@ export class OfficeState {
       username: opts?.username,
       createdAt: Date.now(),
       ...(roomId ? { roomId } : {}),
+      version: "",
     };
+    task.version = taskVersion(task);
     this._tasks.push(task);
     const events: OfficeEvent[] = [
       {
@@ -721,6 +726,7 @@ export class OfficeState {
     // Same for a cleared priority: `priority: undefined` in
     // `changes` must leave a task shaped like one that never had a priority.
     if ("priority" in changes && !task.priority) delete task.priority;
+    task.version = taskVersion(task);
     const events: OfficeEvent[] = [
       {
         type: "tasks_changed",

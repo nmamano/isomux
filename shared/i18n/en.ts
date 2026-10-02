@@ -1656,7 +1656,6 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "Delete {name}? Its data is not erased: it moves to {path} on the office's disk.",
   "tasks.status.open": "Open",
   "tasks.status.inProgress": "In Progress",
-  "tasks.status.backlog": "Backlog",
   "tasks.status.done": "Done",
   "tasks.unknownRoom": "Unknown room",
   "tasks.newTask": "New Task",
@@ -1678,6 +1677,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "tasks.showLess": "show less",
   "tasks.moreAgents": "+{count} more",
   "tasks.discardPrompt": "Discard unsaved changes?",
+  "tasks.saveConflict":
+    "This task changed while you were editing, so your changes were not saved.",
   "tasks.discard": "Discard",
   "tasks.create": "Create",
   "tasks.confirmDelete": "Confirm?",

@@ -361,6 +361,7 @@ function boardTask(id: string, title: string, roomId?: string): TaskItem {
     createdBy: "Boss",
     createdAt: 1,
     ...(roomId ? { roomId } : {}),
+    version: "v1",
   };
 }
 

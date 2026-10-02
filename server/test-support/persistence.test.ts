@@ -209,7 +209,8 @@ describe("users persistence round-trip (Phase 1.3)", () => {
 
 describe("tasks persistence round-trip (Phase 1.3)", () => {
   it("preserves TaskItem[] (all fields) through saveTasks -> loadTasks", () => {
-    const tasks: TaskItem[] = [
+    // Without version: it is derived, and OfficeState stamps it after a load.
+    const tasks: Omit<TaskItem, "version">[] = [
       {
         id: "task0001",
         title: "Ship 1.3",
@@ -244,6 +245,80 @@ describe("tasks persistence round-trip (Phase 1.3)", () => {
       "status",
       "title",
     ]);
+  });
+});
+
+describe("backlog -> P4 boot migration (task 77460aea)", () => {
+  const tasksFile = () => join(STATE_ROOT, "tasks.json");
+  // The on-disk shape an older isomux wrote: "backlog" was a status, and
+  // there was no version field.
+  const seed = () =>
+    writeFileSync(
+      tasksFile(),
+      JSON.stringify([
+        {
+          id: "b0000001",
+          title: "shelved",
+          priority: "P1",
+          status: "backlog",
+          createdBy: "Nil",
+          createdAt: 1,
+        },
+        {
+          id: "b0000002",
+          title: "shelved, no priority",
+          status: "backlog",
+          createdBy: "Nil",
+          createdAt: 2,
+        },
+        {
+          id: "o0000001",
+          title: "live",
+          priority: "P2",
+          status: "open",
+          createdBy: "Nil",
+          createdAt: 3,
+        },
+      ]),
+    );
+
+  it("turns every backlog task into an open P4 task and leaves the rest", () => {
+    seed();
+    const byId = new Map(loadTasks().map((t) => [t.id, t]));
+    for (const id of ["b0000001", "b0000002"]) {
+      expect(byId.get(id)?.status).toBe("open");
+      expect(byId.get(id)?.priority).toBe("P4");
+    }
+    expect(byId.get("o0000001")).toMatchObject({
+      status: "open",
+      priority: "P2",
+    });
+  });
+
+  it("writes the new shape back, so a second load changes nothing", () => {
+    seed();
+    const first = loadTasks();
+    const onDisk = readFileSync(tasksFile(), "utf-8");
+    expect(JSON.parse(onDisk).some((t: { status: string }) => t.status === "backlog")).toBe(false);
+    expect(loadTasks()).toEqual(first);
+    expect(readFileSync(tasksFile(), "utf-8")).toBe(onDisk);
+  });
+
+  it("drops a stored version, which OfficeState recomputes", () => {
+    writeFileSync(
+      tasksFile(),
+      JSON.stringify([
+        {
+          id: "v0000001",
+          title: "t",
+          status: "open",
+          createdBy: "Nil",
+          createdAt: 1,
+          version: "stale",
+        },
+      ]),
+    );
+    expect(loadTasks()[0]).not.toHaveProperty("version");
   });
 });
 

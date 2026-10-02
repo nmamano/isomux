@@ -775,11 +775,13 @@ export interface TaskCreateReq {
   roomId?: string;
 }
 
-export type TaskUpdateReq = Partial<{
+// `version` is mandatory: the TaskItem.version the caller read. A stale one is
+// a 409 version_conflict carrying the current task.
+export type TaskUpdateReq = { version: string } & Partial<{
   title: string;
   description: string;
   // Absent === leave the priority unchanged; an explicit null clears it back to
-  // no-priority. Any other value must be a real level (P0-P3).
+  // no-priority. Any other value must be a real level (P0-P4).
   priority: TaskItem["priority"] | null;
   status: TaskItem["status"];
   assignee: string;

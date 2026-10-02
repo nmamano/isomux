@@ -1515,7 +1515,6 @@ App 的一些原则：
     "删除 {name}？数据不会被擦除，而会移至办公室磁盘上的 {path}。",
   "tasks.status.open": "未开始",
   "tasks.status.inProgress": "进行中",
-  "tasks.status.backlog": "待办",
   "tasks.status.done": "已完成",
   "tasks.unknownRoom": "未知房间",
   "tasks.newTask": "新任务",
@@ -1537,6 +1536,8 @@ App 的一些原则：
   "tasks.showLess": "显示更少",
   "tasks.moreAgents": "另有 {count} 个",
   "tasks.discardPrompt": "放弃未保存的更改？",
+  "tasks.saveConflict":
+    "此任务在你编辑时已被更改，因此你的更改未保存。",
   "tasks.discard": "放弃",
   "tasks.create": "创建",
   "tasks.confirmDelete": "确认？",

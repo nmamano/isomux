@@ -1686,7 +1686,6 @@ Cosas que puedes hacer por él:
     "¿Eliminar {name}? Sus datos no se borran: se mueven a {path} en el disco de la oficina.",
   "tasks.status.open": "Abierta",
   "tasks.status.inProgress": "En curso",
-  "tasks.status.backlog": "Pendiente",
   "tasks.status.done": "Hecha",
   "tasks.unknownRoom": "Sala desconocida",
   "tasks.newTask": "Tarea nueva",
@@ -1708,6 +1707,8 @@ Cosas que puedes hacer por él:
   "tasks.showLess": "mostrar menos",
   "tasks.moreAgents": "+{count} más",
   "tasks.discardPrompt": "¿Descartar los cambios sin guardar?",
+  "tasks.saveConflict":
+    "Esta tarea cambió mientras la editabas, así que tus cambios no se guardaron.",
   "tasks.discard": "Descartar",
   "tasks.create": "Crear",
   "tasks.confirmDelete": "¿Confirmar?",

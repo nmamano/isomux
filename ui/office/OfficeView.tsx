@@ -56,6 +56,7 @@ import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
+import { inDefaultTaskList } from "../../shared/task-board.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -665,11 +666,7 @@ export function OfficeView({
                     onOpenApps={embed ? undefined : onOpenApps}
                     onOpenTasks={onOpenTasks}
                     onOpenCronjobs={onOpenCronjobs}
-                    taskCount={
-                      tasks.filter(
-                        (t) => t.status !== "done" && t.status !== "backlog",
-                      ).length
-                    }
+                    taskCount={tasks.filter(inDefaultTaskList).length}
                   />
                   {decorateScene && (
                     <Floor desk8Cable={roomAgents.some((a) => a.desk === 7)} />

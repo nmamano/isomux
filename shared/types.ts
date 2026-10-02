@@ -794,8 +794,10 @@ export interface LogEntry {
 }
 
 // Task item (replaces todos)
-export type TaskStatus = "open" | "in_progress" | "done" | "backlog";
-export type TaskPriority = "P0" | "P1" | "P2" | "P3";
+// "backlog" was a status until 2026-10; loadTasks migrates it to open + P4.
+export type TaskStatus = "open" | "in_progress" | "done";
+// P4 is the old backlog: the default task list leaves it out.
+export type TaskPriority = "P0" | "P1" | "P2" | "P3" | "P4";
 
 export interface TaskItem {
   id: string; // 8-char hex hash
@@ -813,6 +815,10 @@ export interface TaskItem {
   // (persisted before room-scoping) have no roomId and so are global - no
   // migration.
   roomId?: string;
+  // Optimistic-concurrency token: taskVersion() of the other fields, restamped
+  // by OfficeState on every write. A PATCH must echo the value it read; a
+  // mismatch is a 409 version_conflict. Derived, so a load recomputes it.
+  version: string;
 }
 
 // isomux-memory - one durable, attributed fact line. Persisted as a single raw
@@ -1097,13 +1103,8 @@ export function humanizeSchedule(s: Schedule): string {
   return `Every ${Math.floor(s.minutes / 60)}h${s.minutes % 60}m`;
 }
 
-const VALID_STATUSES = new Set<TaskStatus>([
-  "open",
-  "in_progress",
-  "done",
-  "backlog",
-]);
-const VALID_PRIORITIES = new Set<TaskPriority>(["P0", "P1", "P2", "P3"]);
+const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done"]);
+const VALID_PRIORITIES = new Set<TaskPriority>(["P0", "P1", "P2", "P3", "P4"]);
 
 export function isValidStatus(s: unknown): s is TaskStatus {
   return typeof s === "string" && VALID_STATUSES.has(s as TaskStatus);

@@ -1683,7 +1683,6 @@ Coses que pots fer per ell:
     "Vols eliminar {name}? Les seves dades no s'esborren: es mouen a {path} al disc de l'oficina.",
   "tasks.status.open": "Oberta",
   "tasks.status.inProgress": "En curs",
-  "tasks.status.backlog": "Pendent",
   "tasks.status.done": "Feta",
   "tasks.unknownRoom": "Sala desconeguda",
   "tasks.newTask": "Tasca nova",
@@ -1705,6 +1704,8 @@ Coses que pots fer per ell:
   "tasks.showLess": "mostra'n menys",
   "tasks.moreAgents": "+{count} més",
   "tasks.discardPrompt": "Vols descartar els canvis sense desar?",
+  "tasks.saveConflict":
+    "Aquesta tasca ha canviat mentre l'editaves, així que els canvis no s'han desat.",
   "tasks.discard": "Descarta",
   "tasks.create": "Crea",
   "tasks.confirmDelete": "Ho confirmes?",

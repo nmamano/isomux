@@ -29,6 +29,7 @@ import {
 import type { Identity } from "../../identity/index.ts";
 import type { TaskItem } from "../../../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../../../shared/types.ts";
+import { inDefaultTaskList } from "../../../shared/task-board.ts";
 import type {
   TaskCreateReq,
   TaskUpdateReq,
@@ -82,6 +83,11 @@ function taskVisible(task: TaskItem, accessible: Set<string>): boolean {
   return !task.roomId || accessible.has(task.roomId);
 }
 
+// "backlog" was a status until task 77460aea folded it into priority P4.
+// Callers that still send it get told where it went.
+const BACKLOG_GONE =
+  'status "backlog" no longer exists; backlog tasks are open tasks with priority P4';
+
 export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
   // Pre-mutation object-visibility gate: resolve the task and confirm the caller
   // can see it (accessible room ∪ global). A missing task and a task the caller
@@ -98,6 +104,13 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const assignee = ctx.query.get("assignee");
       const titleFilter = ctx.query.get("title");
       const roomFilter = ctx.query.get("roomId");
+      const priorityFilter = ctx.query.get("priority");
+      if (status === "backlog") {
+        return fail(400, "invalid_request", BACKLOG_GONE);
+      }
+      if (priorityFilter !== null && !isValidPriority(priorityFilter)) {
+        return fail(400, "invalid_request", "invalid priority, must be P0-P4");
+      }
       // Room scope FIRST: a caller only ever sees their accessible rooms UNION
       // office-global tasks; the status/assignee/title filters narrow within that.
       const accessible = deps.accessibleRoomIds(ctx.identity);
@@ -119,12 +132,17 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
           return fail(404, "not_found");
         }
       }
+      // A named priority lifts the P4 exclusion: ?priority=P4 lists the
+      // not-done P4 tasks. Explicit status filters are literal.
       if (!status) {
-        filtered = filtered.filter(
-          (t) => t.status !== "done" && t.status !== "backlog",
+        filtered = filtered.filter((t) =>
+          priorityFilter ? t.status !== "done" : inDefaultTaskList(t),
         );
       } else if (status !== "all") {
         filtered = filtered.filter((t) => t.status === status);
+      }
+      if (priorityFilter) {
+        filtered = filtered.filter((t) => t.priority === priorityFilter);
       }
       if (assignee) filtered = filtered.filter((t) => t.assignee === assignee);
       if (titleFilter) {
@@ -149,8 +167,13 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (typeof body.title !== "string" || body.title.length === 0) {
         return fail(400, "invalid_request", "title is required");
       }
+      // A create takes no status (every task starts open), except that a
+      // caller still sending the old backlog status is told where it went.
+      if ((body as { status?: unknown }).status === "backlog") {
+        return fail(400, "invalid_request", BACKLOG_GONE);
+      }
       if (body.priority !== undefined && !isValidPriority(body.priority)) {
-        return fail(400, "invalid_request", "invalid priority, must be P0-P3");
+        return fail(400, "invalid_request", "invalid priority, must be P0-P4");
       }
       // Resolve which room the task is filed under:
       //   - body omits roomId       → scope default (agent's room / global)
@@ -189,12 +212,15 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     },
 
     "tasks.update": (ctx) => {
-      const body = (ctx.body ?? {}) as TaskUpdateReq;
+      const body = (ctx.body ?? {}) as Partial<TaskUpdateReq>;
+      if ((body.status as string | undefined) === "backlog") {
+        return fail(400, "invalid_request", BACKLOG_GONE);
+      }
       if (body.status !== undefined && !isValidStatus(body.status)) {
         return fail(
           400,
           "invalid_request",
-          "invalid status, must be open|in_progress|backlog|done",
+          "invalid status, must be open|in_progress|done",
         );
       }
       // `priority: null` CLEARS the priority; anything else
@@ -208,7 +234,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         return fail(
           400,
           "invalid_request",
-          "invalid priority, must be P0-P3 or null to clear",
+          "invalid priority, must be P0-P4 or null to clear",
         );
       }
       // Re-room validation is SPLIT across the visibility gate (full behavior
@@ -220,11 +246,31 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (reRooming && typeof body.roomId !== "string") {
         return fail(400, "invalid_request", "roomId must be a string");
       }
+      // Every PATCH carries the version the caller read (task 4243ecc0, Nil's
+      // ruling: mandatory). Same rail as rooms.setSettings: a missing version
+      // is a shape 400, a stale one a 409 after the visibility gate.
+      if (typeof body.version !== "string" || body.version.length === 0) {
+        return fail(
+          400,
+          "invalid_version",
+          "version is required (from a preceding read of the task)",
+        );
+      }
       // Object-visibility gate AFTER body-shape validation (a malformed body is
       // the caller's own 400 regardless of the task; a well-formed write to a
       // task the caller can't see is the same 404 as an unknown id).
-      if (!visibleTask(ctx.params.id, ctx.identity))
-        return fail(404, "not_found");
+      const current = visibleTask(ctx.params.id, ctx.identity);
+      if (!current) return fail(404, "not_found");
+      // The check and the write below run in one synchronous step, so no
+      // other write can land between them.
+      if (body.version !== current.version) {
+        return fail(
+          409,
+          "version_conflict",
+          "the task changed since your read; re-read and retry",
+          { version: current.version, task: { ...current } },
+        );
+      }
       const changes: TaskChanges = {};
       if (typeof body.title === "string") changes.title = body.title;
       if (body.description !== undefined) {
@@ -264,8 +310,23 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
 
     "tasks.claim": (ctx) => {
       const body = (ctx.body ?? {}) as TaskClaimReq;
-      if (!visibleTask(ctx.params.id, ctx.identity))
-        return fail(404, "not_found");
+      const current = visibleTask(ctx.params.id, ctx.identity);
+      if (!current) return fail(404, "not_found");
+      // A claim takes an unheld task, or one the named assignee already holds.
+      // Taking a task from its holder is an explicit PATCH of assignee, which
+      // carries the version (task 4243ecc0).
+      const claimant =
+        typeof body.assignee === "string" && body.assignee.length > 0
+          ? body.assignee
+          : undefined;
+      if (current.assignee && current.assignee !== claimant) {
+        return fail(
+          409,
+          "task_held",
+          `the task is held by ${current.assignee}; to reassign it, PATCH assignee with the task's version`,
+          { assignee: current.assignee },
+        );
+      }
       const changes: TaskChanges = { status: "in_progress" };
       if (typeof body.assignee === "string") changes.assignee = body.assignee;
       const task = deps.updateTask(ctx.params.id, changes);
