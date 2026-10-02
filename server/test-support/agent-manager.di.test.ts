@@ -329,7 +329,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(interaction.choices.map((choice) => choice.value)).not.toContain(
       "opus",
     );
-    await mgr.sendMessage(info!.id, "3", "tester");
+    const terra = interaction.choices.findIndex(
+      (choice) => choice.value === "gpt-5.6-terra",
+    );
+    await mgr.sendMessage(info!.id, String(terra + 1), "tester");
     expect(mgr.getAgent(info!.id)?.modelFamily).toBe("gpt-5.6-terra");
   });
 

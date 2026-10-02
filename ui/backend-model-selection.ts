@@ -76,11 +76,17 @@ export function defaultBackendModel(
   isCodex: boolean,
 ): BackendModelWire | undefined {
   const visibleModels = models.filter((model) => !model.hidden);
-  const preferredModelId = isCodex ? CODEX_MODELS[0].value : undefined;
+  // Codex: follow the default Codex reports for this account, then our
+  // static fallback default.
+  if (isCodex) {
+    return (
+      visibleModels.find((model) => model.isDefault) ??
+      visibleModels.find((model) => model.id === CODEX_MODELS[0].value) ??
+      visibleModels[0]
+    );
+  }
   return (
-    (preferredModelId
-      ? visibleModels.find((model) => model.id === preferredModelId)
-      : preferredFreeOpenCodeModel(visibleModels, OPENCODE_DEFAULT_MODEL)) ??
+    preferredFreeOpenCodeModel(visibleModels, OPENCODE_DEFAULT_MODEL) ??
     visibleModels.find((model) => model.isDefault) ??
     visibleModels[0]
   );

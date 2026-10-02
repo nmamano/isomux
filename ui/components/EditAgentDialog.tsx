@@ -664,10 +664,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           baselineRef.current!.permissionMode = values.permissionMode;
           return;
         }
-        // Pick the spawn default. Invariant: prefer Isomux's canonical
-        // default (CODEX_MODELS[0], currently gpt-5.6-sol) when this auth tier
-        // offers it; otherwise fall back to Codex's per-auth isDefault, then
-        // the first listed model. We choose from the visible (non-hidden)
+        // Pick the spawn default. Codex: the model Codex reports as default
+        // for this auth tier, then CODEX_MODELS[0], then the first listed
+        // model. We choose from the visible (non-hidden)
         // models so the value always matches a rendered <option>. The model
         // select is disabled during loading, so the user can't have made a
         // choice we'd be overriding.

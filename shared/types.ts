@@ -266,11 +266,12 @@ export function effortDisplayLabel(
 // the UI's display helpers and the server can reference the canonical set.
 // Every slug is listed by `codex debug models` on codex-cli 0.160.0
 // (2026-10-02), which dropped gpt-5.4 and gpt-5.4-mini.
-// Default first (CODEX_MODELS[0]): gpt-5.6-sol, the frontier agentic coding
-// model; gpt-6-astra is the newer flagship (Codex 0.153 lists it first) and
-// is not the default here until Nil rules on it. New-agent defaults, the welcome agent, and the dialogs'
-// auth-error preferred-default branch all key off CODEX_MODELS[0].
+// Default first (CODEX_MODELS[0]): gpt-6.1-sol, the model Codex 0.160 marks
+// isDefault. Isomux follows Codex's own default (Nil, 2026-10-02): pickers
+// take the discovered isDefault model first, and this order is the fallback
+// when discovery is unavailable (welcome agent, validators, offline dialogs).
 export const CODEX_MODELS: { value: string; label: string }[] = [
+  { value: "gpt-6.1-sol", label: "GPT-6.1 Sol" },
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-6-astra", label: "GPT-6 Astra" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },

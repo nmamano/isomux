@@ -22,6 +22,7 @@ import {
   selectSupportedEffort,
 } from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
+import { CODEX_MODELS } from "../../shared/types.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
 const BASE: AgentFormSnapshot = {
@@ -322,6 +323,23 @@ describe("template values after an engine switch", () => {
     );
     expect(defaultBackendModel([first, reported], false)?.id).toBe(reported.id);
     expect(defaultBackendModel([first], false)?.id).toBe(first.id);
+  });
+
+  it("follows the Codex-reported default, then the static default, then the first model", () => {
+    const model = (id: string, isDefault = false): BackendModelWire => ({
+      id,
+      label: id,
+      isDefault,
+      supportedEfforts: [],
+    });
+    const fallback = model(CODEX_MODELS[0].value);
+    const other = model("gpt-other");
+    const reported = model("gpt-reported", true);
+    expect(defaultBackendModel([other, fallback, reported], true)?.id).toBe(
+      reported.id,
+    );
+    expect(defaultBackendModel([other, fallback], true)?.id).toBe(fallback.id);
+    expect(defaultBackendModel([other], true)?.id).toBe(other.id);
   });
 
   it("blocks an empty OpenCode seed from reaching save", () => {

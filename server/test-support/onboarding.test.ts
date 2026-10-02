@@ -216,7 +216,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(claude!.modelFamily).toBe("opus");
     expect(claude!.permissionMode).toBe("auto");
     expect(codex!.agentType).toBe("codex");
-    expect(codex!.modelFamily).toBe("gpt-5.6-sol");
+    expect(codex!.modelFamily).toBe("gpt-6.1-sol");
     expect(codex!.permissionMode).toBe("never");
     expect(codex!.codexSandbox).toBe("danger-full-access");
     expect(opencode!.agentType).toBe("opencode");
