@@ -78,7 +78,11 @@ export class CertificateService {
     token: string,
     status: "ok" | "failed",
   ): Promise<"ok" | "unauthorized"> {
-    const identity = await authenticateCertificateCredential(this.store, token);
+    const identity = await authenticateCertificateCredential(
+      this.store,
+      token,
+      { contact: true },
+    );
     if (!identity) return "unauthorized";
     const open = (
       await this.store.openReasons(identity.row.instance_id)

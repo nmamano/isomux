@@ -21,8 +21,13 @@ bytes if the packaged Caddy restart fails.
 
 Renewal failures raise operator attention for manual customer contact. The box
 reports certificate validation and Caddy restart failures through its
-one-office credential. The liveness watch also raises attention after three
-missed daily renewal contacts, which covers a stopped box, timer, or unit. There is
+one-office credential. When the box cannot reach the control plane, it sends no
+report and the next daily run retries. Every completed run ends in a status
+report, ok or failed, and only a status report counts as contact: a renew call
+can authenticate and still lose its answer. The liveness watch also raises
+attention after three days with no status report, which covers a stopped box,
+timer, or unit, and a box that cannot reach the control plane. Updates rewrite an enrolled
+box's renewal helper and units, so a helper fix reaches installed offices. There is
 no new customer-email system. Ordinary office backups do not include the
 root-owned renewal identity or TLS key. A restored hosted office therefore
 cannot renew until the separate re-enrollment work in task 77cb46ff ships.

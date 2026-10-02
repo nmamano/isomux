@@ -12,6 +12,7 @@ export interface CertificateCredentialRow {
   token_hash: string;
   status: "active" | "revoked";
   created_at: number;
+  /** The last status report from the box, not the last renew call. */
   last_used_at: number | null;
   revoked_at: number | null;
   version: number;
@@ -54,9 +55,15 @@ export async function issueCertificateCredential(
   return { id, token };
 }
 
+/**
+ * `contact` marks a status report. Only a status report stamps last_used_at,
+ * which is what the contact watch reads: a renew call can authenticate and
+ * still never deliver its answer to the box.
+ */
 export async function authenticateCertificateCredential(
   store: Store,
   token: string,
+  opts: { contact?: boolean } = {},
 ): Promise<{ row: CertificateCredentialRow; names: [string, string] } | null> {
   if (token.length < 32 || token.length > 256) return null;
   const wanted = digest(token);
@@ -72,11 +79,11 @@ export async function authenticateCertificateCredential(
     [row.instance_id],
   );
   if (!reservation) return null;
-  const usedAt = store.now();
+  const contactAt = opts.contact ? store.now() : null;
   const updated = await store.sqlGet<CertificateCredentialRow>(
-    "update certificate_credentials set last_used_at = $1, version = version + 1 " +
+    "update certificate_credentials set last_used_at = coalesce($1, last_used_at), version = version + 1 " +
       "where id = $2 and version = $3 and status = 'active' returning *",
-    [usedAt, row.id, row.version],
+    [contactAt, row.id, row.version],
   );
   if (!updated) return null;
   return { row: updated, names: [instance.name, `*.${instance.name}`] };

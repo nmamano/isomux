@@ -100,13 +100,46 @@ describe("one-office certificate credentials", () => {
     expect(
       (await store.openReasons("inst-cert")).map((row) => row.reason),
     ).toContain(CERTIFICATE_CONTACT_REASON);
+    const service = new CertificateService(store, {
+      issue: async () => ({ certificatePem: "public chain" }),
+    });
+    // A renew call that authenticates is not contact: its answer may never
+    // reach the box, which then sends no status report.
     expect(
-      await authenticateCertificateCredential(store, issued.token),
-    ).not.toBeNull();
+      await service.renew(
+        issued.token,
+        "-----BEGIN CERTIFICATE REQUEST-----\nfake\n-----END CERTIFICATE REQUEST-----\n",
+      ),
+    ).toMatchObject({ status: "ok" });
+    await applyCertificateContactAttention(store, "inst-cert");
+    expect(
+      (await store.openReasons("inst-cert")).map((row) => row.reason),
+    ).toContain(CERTIFICATE_CONTACT_REASON);
+    expect(await service.reportStatus(issued.token, "ok")).toBe("ok");
     await applyCertificateContactAttention(store, "inst-cert");
     expect(
       (await store.openReasons("inst-cert")).map((row) => row.reason),
     ).not.toContain(CERTIFICATE_CONTACT_REASON);
+  });
+
+  test("a failed status report is contact too", async () => {
+    const issued = await issueCertificateCredential(store, "inst-cert");
+    const service = new CertificateService(store, {
+      issue: async () => ({ certificatePem: "unused" }),
+    });
+    const lastContact = async () =>
+      (
+        await store.sqlGet<{ last_used_at: number | null }>(
+          "select last_used_at from certificate_credentials where id = $1",
+          [issued.id],
+        )
+      )?.last_used_at ?? null;
+    expect(await authenticateCertificateCredential(store, issued.token)).not
+      .toBeNull();
+    expect(await lastContact()).toBeNull();
+    expect(await service.reportStatus(issued.token, "failed")).toBe("ok");
+    expect(await lastContact()).not.toBeNull();
+    expect(await service.reportStatus(issued.token, "ok")).toBe("ok");
   });
 
   test("a box reports a local install failure and its later recovery", async () => {

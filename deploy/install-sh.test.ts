@@ -559,10 +559,10 @@ describe("install.sh: the managed Caddyfile", () => {
 
   it("reports box-side certificate failure and recovery with its one-office credential", () => {
     const helper = SRC.slice(
-      SRC.indexOf("install_hosted_tls_renewal() {"),
+      SRC.indexOf("write_hosted_tls_renewal() {"),
       SRC.indexOf(
         "\nRENEW_HELPER",
-        SRC.indexOf("install_hosted_tls_renewal() {"),
+        SRC.indexOf("write_hosted_tls_renewal() {"),
       ),
     );
     expect(helper).toContain("status_endpoint=${endpoint%/renew}/status");

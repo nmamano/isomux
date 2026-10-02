@@ -189,7 +189,8 @@ updater copy the same way.
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
    (packages, the browser, the codex sandbox, the user-manager setup
-   agents' apps run on, and the installed memory-pressure policy - not SSH
+   agents' apps run on, the installed memory-pressure policy, and on a
+   hosted office the certificate renewal helper and its units - not SSH
    mutation, unattended upgrades,
    bun, or anything that decides the box's identity). It refreshes and runs a
    hardening verifier on installer-managed VPSes. The installer records the

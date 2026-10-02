@@ -432,6 +432,7 @@ create table if not exists certificate_credentials (
   token_hash text not null unique,
   status text not null check (status in ('active', 'revoked')),
   created_at bigint not null,
+  -- The last status report from the box. A renew call does not stamp it.
   last_used_at bigint,
   revoked_at bigint,
   version integer not null

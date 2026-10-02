@@ -3584,8 +3584,13 @@ mint_invite() {
   printf '%s\n' "$INVITE_URL" | write_file "$INVITE_FILE" 600
 }
 
-install_hosted_tls_renewal() {
-  [[ -f /etc/isomux/renewal/enrollment.json ]] || return 0
+# The helper reports "failed" only for a step on this box: checking the
+# returned certificate, writing it, restarting Caddy, restoring the previous
+# one. A failure to reach the control plane exits with no report. The next
+# daily run retries, and the control plane raises attention after three
+# missed daily contacts.
+write_hosted_tls_renewal() {
+  local domain=$1
   install -d -m 0750 -o root -g caddy /etc/isomux/tls
   write_file /usr/local/sbin/isomux-renew-certificate 700 <<'RENEW_HELPER'
 #!/usr/bin/env bash
@@ -3614,29 +3619,35 @@ trap 'rm -f "$csr" "$answer" "$cert_tmp" "$curl_config"' EXIT
 printf 'header = "Authorization: Bearer %s"\n' "$token" > "$curl_config"
 chmod 0600 "$curl_config"
 report_status() {
-  curl --fail --silent --show-error --config "$curl_config" \
+  curl --fail --silent --show-error --max-time 60 \
+    --retry 3 --retry-all-errors --config "$curl_config" \
     -H 'Content-Type: application/json' --data "{\"status\":\"$1\"}" \
     "$status_endpoint" >/dev/null
 }
-trap 'rc=$?; trap - ERR; report_status failed || true; exit "$rc"' ERR
 openssl req -new -key "$key" -subj "/CN=$domain" \
   -addext "subjectAltName=DNS:$domain,DNS:*.$domain" -out "$csr"
+# Issuance can wait on DNS propagation, and the control plane answers 409
+# while another office renews. curl owns the output file, so a retry starts it
+# again instead of appending to a partial answer.
 jq -n --rawfile csr "$csr" '{csr:$csr}' | \
-  curl --fail --silent --show-error --retry 3 \
+  curl --fail --silent --show-error --max-time 600 \
+    --retry 3 --retry-delay 30 --retry-all-errors \
     --config "$curl_config" -H 'Content-Type: application/json' \
-    --data-binary @- "$endpoint" > "$answer"
+    --data-binary @- --output "$answer" "$endpoint"
+trap 'rc=$?; trap - ERR; report_status failed || true; exit "$rc"' ERR
 jq -er .certificate "$answer" > "$cert_tmp"
 cert_names=$(openssl x509 -in "$cert_tmp" -noout -ext subjectAltName)
 grep -Fq "DNS:$domain" <<<"$cert_names"
 grep -Fq "DNS:*.$domain" <<<"$cert_names"
 [[ $(openssl x509 -in "$cert_tmp" -pubkey -noout | sha256sum) == \
    $(openssl pkey -in "$key" -pubout | sha256sum) ]]
-  chown root:caddy "$cert_tmp"
-  chmod 0640 "$cert_tmp"
+chown root:caddy "$cert_tmp"
+chmod 0640 "$cert_tmp"
 # Test through Caddy's account. A root read would hide a root-only key.
 runuser -u caddy -- openssl x509 -in "$cert_tmp" -noout >/dev/null
 runuser -u caddy -- openssl pkey -in "$key" -noout >/dev/null
 if [[ -f $tls_dir/cert.pem ]] && cmp -s "$cert_tmp" "$tls_dir/cert.pem"; then
+  trap - ERR
   report_status ok
   exit 0
 fi
@@ -3651,10 +3662,12 @@ if systemctl is-active --quiet caddy && ! systemctl restart caddy; then
     sync -f "$tls_dir"
     systemctl restart caddy || true
   fi
+  trap - ERR
   report_status failed || true
   exit 1
 fi
 rm -f "$old_cert"
+trap - ERR
 report_status ok
 RENEW_HELPER
   write_file /etc/systemd/system/isomux-certificate-renew.service 644 <<EOF
@@ -3665,7 +3678,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-Environment=DOMAIN=$DOMAIN
+Environment=DOMAIN=$domain
 ExecStart=/usr/local/sbin/isomux-renew-certificate
 EOF
   write_file /etc/systemd/system/isomux-certificate-renew.timer 644 <<'EOF'
@@ -3681,7 +3694,29 @@ Persistent=true
 WantedBy=timers.target
 EOF
   run systemctl daemon-reload
+}
+
+install_hosted_tls_renewal() {
+  [[ -f /etc/isomux/renewal/enrollment.json ]] || return 0
+  write_hosted_tls_renewal "$DOMAIN"
   run env DOMAIN="$DOMAIN" /usr/local/sbin/isomux-renew-certificate
+  run systemctl enable --now isomux-certificate-renew.timer
+}
+
+# Update path. A fresh install is the only other writer of the helper, so
+# without this an installed box would keep the helper it was installed with.
+# The domain comes from the unit the installer wrote. No renewal runs here;
+# the timer runs the new helper.
+refresh_hosted_tls_renewal() {
+  [[ -f /etc/isomux/renewal/enrollment.json ]] || return 0
+  local unit=/etc/systemd/system/isomux-certificate-renew.service domain
+  domain=$(sed -n 's/^Environment=DOMAIN=//p' "$unit" 2>/dev/null | head -n 1) || true
+  if [[ ! $domain =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]]; then
+    log "warning: no office domain in $unit; the certificate renewal helper was not refreshed"
+    log "ISOMUX_UPDATE_WARNING=the certificate renewal helper was not refreshed; inspect $unit"
+    return 0
+  fi
+  write_hosted_tls_renewal "$domain"
   run systemctl enable --now isomux-certificate-renew.timer
 }
 
@@ -5675,6 +5710,8 @@ ISOMUX_CONTAINER_SECCOMP_LICENSE
 #     without rewriting the unit or restarting anything, and the updater's own
 #     restart is what picks it up. Without it that convergence would be a
 #     manual step on every existing install.
+#   - The hosted certificate renewal helper and its units, on an enrolled box
+#     only. They change no identity: the domain is read back from the unit.
 deps_only() {
   step preflight-deps
   [[ $EUID -eq 0 ]] || die "ISOMUX_DEPS_ONLY needs root (it installs system packages)"
@@ -5726,6 +5763,15 @@ deps_only() {
   install_browser
   configure_codex_sandbox
   configure_user_manager
+  local renewal_rc=0
+  set +e
+  (set -Ee; refresh_hosted_tls_renewal)
+  renewal_rc=$?
+  set -e
+  if ((renewal_rc != 0)); then
+    log "warning: could not refresh the certificate renewal helper"
+    log "ISOMUX_UPDATE_WARNING=the certificate renewal helper was not refreshed"
+  fi
   local migration_rc=0
   set +e
   (set -Ee; migrate_caddy_access_log)
