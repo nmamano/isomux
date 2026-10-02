@@ -159,9 +159,9 @@ Invite acceptance persists the invite-consumed flag **before** the session (`acc
 
 ### 5.8 WebSocket upgrade gating
 
-`/ws` (`server/index.ts`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
+`/ws` (`server/isomux-office.ts`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
 
-A personal API bearer cannot open a WebSocket. The upgrade accepts a browser session cookie only, before the legacy HTTP surface is considered.
+A request that carries an `Authorization` header never falls back to cookies. It upgrades only with a personal API token that holds `api:drain-inbox`, and that socket is receive-only: commands stay on the authenticated REST surface. Browsers cannot set that header on a WebSocket.
 
 ### 5.8a Personal API token boundary
 
