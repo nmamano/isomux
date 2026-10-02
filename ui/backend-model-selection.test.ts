@@ -183,7 +183,9 @@ describe("effortPickerOptions", () => {
       "ultra",
     ]);
     const fallback = levels(effortPickerOptions("codex", "gpt-y", models));
-    expect(fallback).toEqual(levels(effortPickerOptions("codex", "gpt-y", null)));
+    expect(fallback).toEqual(
+      levels(effortPickerOptions("codex", "gpt-y", null)),
+    );
     expect(fallback).toContain("minimal");
     expect(fallback).not.toContain("max");
     expect(fallback).not.toContain("ultra");

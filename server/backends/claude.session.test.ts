@@ -773,7 +773,13 @@ describe("createClaudeBackend.listModels", () => {
         .find((model) => model.id === id)
         ?.supportedEfforts.map((option) => option.level);
     expect(efforts("haiku")).toEqual([]);
-    expect(efforts("sonnet")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(efforts("sonnet")).toEqual([
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
   });
 });
 
