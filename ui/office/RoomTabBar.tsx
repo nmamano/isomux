@@ -379,7 +379,7 @@ export function RoomTabBar({
                 ? "1px solid var(--accent)"
                 : "1px solid transparent",
               background: lobbyOpen ? "var(--accent-bg)" : "transparent",
-              color: lobbyOpen ? "var(--accent)" : "var(--text-dim)",
+              color: lobbyOpen ? "var(--accent-text)" : "var(--text-dim)",
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",
@@ -468,7 +468,7 @@ export function RoomTabBar({
                     ? "1px solid var(--accent)"
                     : "1px solid transparent",
                   background: isActive ? "var(--accent-bg)" : "transparent",
-                  color: isActive ? "var(--accent)" : "var(--text-dim)",
+                  color: isActive ? "var(--accent-text)" : "var(--text-dim)",
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: "grab",

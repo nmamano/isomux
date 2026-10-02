@@ -30,7 +30,7 @@ export function ReplyQuote({
         cursor: onJump ? "pointer" : "default",
       }}
     >
-      <strong style={{ display: "block", color: "var(--accent)" }}>
+      <strong style={{ display: "block", color: "var(--accent-text)" }}>
         {reply.userName}
       </strong>
       <span

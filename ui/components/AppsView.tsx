@@ -183,6 +183,15 @@ const STATE_COLOR: Record<AppState, string> = {
   unknown: "var(--text-muted)",
 };
 
+// The state word beside the dot, at text strength.
+const STATE_TEXT_COLOR: Record<AppState, string> = {
+  running: "var(--green-text)",
+  starting: "var(--orange-text)",
+  stopped: "var(--text-muted)",
+  failed: "var(--red-text)",
+  unknown: "var(--text-muted)",
+};
+
 // A drawn dot, not a glyph: iOS Safari emoji-renders characters like ● and ▶
 // and then ignores the CSS color, which would make `failed` and `running` look
 // identical on a phone.
@@ -582,7 +591,7 @@ const agentLinkStyle: React.CSSProperties = {
   border: "none",
   padding: 0,
   font: "inherit",
-  color: "var(--accent)",
+  color: "var(--accent-text)",
   cursor: "pointer",
   textDecoration: "none",
 };
@@ -940,7 +949,7 @@ export function AppsView({
             padding: "8px 16px",
             background: "var(--bg-subtle)",
             borderBottom: "1px solid var(--border-subtle)",
-            color: "var(--red)",
+            color: "var(--red-text)",
             fontSize: 12,
             flexShrink: 0,
           }}
@@ -1060,13 +1069,13 @@ export function AppsView({
                     {appLink(app.name, {
                       fontSize: 14,
                       fontWeight: 600,
-                      color: "var(--accent)",
+                      color: "var(--accent-text)",
                       textDecoration: "none",
                     })}
                     <span
                       style={{
                         fontSize: 11,
-                        color: STATE_COLOR[app.state],
+                        color: STATE_TEXT_COLOR[app.state],
                         textTransform: "lowercase",
                       }}
                     >
@@ -1081,7 +1090,7 @@ export function AppsView({
                         marginLeft: "auto",
                         fontSize: 12,
                         fontWeight: 600,
-                        color: "var(--accent)",
+                        color: "var(--accent-text)",
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
@@ -1160,7 +1169,7 @@ export function AppsView({
                       }}
                     >
                       {app.command}
-                      <span style={{ opacity: 0.7 }}>
+                      <span style={{ color: "var(--text-hint)" }}>
                         {" "}
                         {t("apps.commandIn", { cwd: app.cwd })}
                       </span>
@@ -1177,7 +1186,7 @@ export function AppsView({
                         padding: "6px 8px",
                         borderRadius: 6,
                         background: "var(--bg-code, var(--bg-base))",
-                        color: "var(--red)",
+                        color: "var(--red-text)",
                         fontSize: 11,
                         fontFamily: "var(--font-mono, monospace)",
                         overflowWrap: "anywhere",
@@ -1379,9 +1388,12 @@ function btnStyle(danger: boolean, disabled: boolean): React.CSSProperties {
     borderRadius: 6,
     border: `1px solid ${danger ? "var(--red)" : "var(--border)"}`,
     background: "transparent",
-    color: danger ? "var(--red)" : "var(--text-secondary)",
+    color: disabled
+      ? "var(--text-hint)"
+      : danger
+        ? "var(--red-text)"
+        : "var(--text-secondary)",
     fontSize: 11,
     cursor: disabled ? "default" : "pointer",
-    opacity: disabled ? 0.5 : 1,
   };
 }

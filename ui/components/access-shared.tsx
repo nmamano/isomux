@@ -156,7 +156,7 @@ export function MintedUrlBox({ url }: { url: string }) {
           : t("common.copy")}
       </button>
       {copyState === "fail" && (
-        <p style={{ ...hint, color: "#ff6b6b", marginTop: 4 }}>
+        <p style={{ ...hint, color: "var(--red-text)", marginTop: 4 }}>
           {t("settings.access.clipboardBlocked")}
         </p>
       )}
@@ -353,7 +353,7 @@ export function BlockedNoteBanner({
         borderRadius: 6,
         background: "rgba(255,107,107,0.08)",
         fontSize: 12,
-        color: "#ff6b6b",
+        color: "var(--red-text)",
         display: "flex",
         gap: 8,
         alignItems: "flex-start",
@@ -365,7 +365,7 @@ export function BlockedNoteBanner({
         style={{
           background: "transparent",
           border: "none",
-          color: "#ff6b6b",
+          color: "var(--red-text)",
           cursor: "pointer",
           fontSize: 14,
           padding: 0,
@@ -476,7 +476,7 @@ export function SettingsLink({
         background: "none",
         border: "none",
         padding: 0,
-        color: "var(--accent)",
+        color: "var(--accent-text)",
         cursor: "pointer",
         textDecoration: "underline",
       }}

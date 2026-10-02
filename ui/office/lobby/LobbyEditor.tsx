@@ -577,8 +577,8 @@ export function LobbyEditor({
                   }}
                   onClick={() => setSelected(it.key)}
                   style={{
-                    background: sel ? "var(--accent)" : undefined,
-                    color: sel ? "#fff" : undefined,
+                    background: sel ? "var(--accent-text)" : undefined,
+                    color: sel ? "var(--bg-base)" : undefined,
                     outline: sel ? "2px solid #ff4d4d" : undefined,
                     cursor: "pointer",
                   }}

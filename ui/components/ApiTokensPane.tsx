@@ -5,7 +5,12 @@ import type {
   ApiTokenListRes,
   ApiTokenWire,
 } from "../../shared/contract-shapes.ts";
-import { dialogInput, dialogLabel, dialogSaveBtn } from "./dialog-styles.ts";
+import {
+  dialogInput,
+  dialogLabel,
+  dialogSaveBtn,
+  disabledLook,
+} from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { useI18n } from "../i18n.tsx";
 import { formatDateTime } from "../../shared/i18n/time.ts";
@@ -94,7 +99,7 @@ export function ApiTokensPane() {
               href={DEVELOPER_API_GUIDE}
               target="_blank"
               rel="noreferrer"
-              style={{ color: "var(--accent)" }}
+              style={{ color: "var(--accent-text)" }}
             >
               {chunk}
             </a>
@@ -181,7 +186,7 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
           style={{
             ...dialogSaveBtn,
             marginTop: 12,
-            opacity: pending ? 0.5 : 1,
+            ...(pending ? disabledLook : null),
           }}
         >
           {pending
@@ -225,7 +230,9 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         </div>
       )}
 
-      {error && <p style={{ color: "#ff6b6b", fontSize: 12 }}>{error}</p>}
+      {error && (
+        <p style={{ color: "var(--red-text)", fontSize: 12 }}>{error}</p>
+      )}
 
       <div style={{ marginTop: 18 }}>
         {!loaded ? (

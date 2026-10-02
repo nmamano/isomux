@@ -55,7 +55,7 @@ function DemoBanner() {
       <a
         href="https://isomux.com"
         style={{
-          color: "var(--green)",
+          color: "var(--green-text)",
           textDecoration: "none",
           fontWeight: 600,
         }}

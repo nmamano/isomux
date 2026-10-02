@@ -52,6 +52,8 @@ ${emitThemesCss()}
      select and button share this rule harmlessly so typography stays centralized. */
   input, select, textarea, button { font-family: inherit; font-variant-ligatures: none; }
   select option, select optgroup { background: var(--bg-base); color: var(--text-primary); }
+  /* The browser default is a fixed grey; the floor text colour holds 4.5:1 in every theme. */
+  ::placeholder { color: var(--text-hint); opacity: 1; }
 
   /* Markdown content styles */
   .md-content { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
@@ -105,12 +107,12 @@ ${emitThemesCss()}
   .hljs-params { color: var(--text-dim); }
   .md-content ul, .md-content ol { margin: 4px 0 8px 20px; }
   .md-content li { margin: 2px 0; }
-  .md-content a { color: var(--accent); text-decoration: none; }
+  .md-content a { color: var(--accent-text); text-decoration: none; }
   .md-content a:hover { text-decoration: underline; }
   .task-id-chip {
     display: inline-flex; align-items: center; max-width: 100%;
     padding: 1px 6px; border: 1px solid var(--border-medium); border-radius: 5px;
-    background: var(--bg-subtle); color: var(--accent); cursor: pointer;
+    background: var(--bg-subtle); color: var(--accent-text); cursor: pointer;
     font: inherit; font-size: 0.9em; line-height: 1.35; vertical-align: baseline;
   }
   .task-id-chip::after { content: attr(data-task-label); white-space: pre; }
@@ -180,7 +182,7 @@ ${emitThemesCss()}
   .md-content .mermaid-wrapper[data-mermaid-error="true"] {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    color: var(--red);
+    color: var(--red-text);
     background: var(--red-bg);
     border: 1px dashed var(--red);
     border-radius: 4px;

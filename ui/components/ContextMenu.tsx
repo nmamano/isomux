@@ -285,13 +285,17 @@ function MenuItem({
         padding: small ? "5px 10px" : "7px 10px",
         border: "none",
         background: "transparent",
-        color: danger ? "var(--red)" : "var(--text-dim)",
+        color:
+          disabled || dimmed
+            ? "var(--text-hint)"
+            : danger
+              ? "var(--red-text)"
+              : "var(--text-dim)",
         fontFamily: small ? "'JetBrains Mono',monospace" : undefined,
         fontSize: small ? 11 : 13,
         borderRadius: 6,
         cursor: disabled ? "default" : "pointer",
         textAlign: "left",
-        opacity: disabled ? 0.5 : dimmed ? 0.45 : 1,
         fontStyle: dimmed ? "italic" : undefined,
       }}
     >

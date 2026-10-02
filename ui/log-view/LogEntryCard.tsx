@@ -920,7 +920,7 @@ export function RawToolCallGroupCard({
           border: "1px solid var(--green-border)",
           borderRadius: 6,
           background: "var(--tool-call-bg)",
-          color: "var(--green)",
+          color: "var(--green-text)",
           fontSize: isMobile ? 14 : 12,
           cursor: "pointer",
           fontFamily: "'JetBrains Mono',monospace",
@@ -1056,7 +1056,9 @@ export function UserMessage({
             justifyContent: "center",
             transition: "color 0.15s",
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.color = "var(--accent-text)")
+          }
           onMouseLeave={(e) =>
             (e.currentTarget.style.color = "var(--text-ghost)")
           }
@@ -1101,7 +1103,7 @@ export function UserMessage({
           style={{
             fontSize: compact ? 12 : isMobile ? 12 : 10,
             fontWeight: 600,
-            color: accentColor,
+            color: fromNonHuman ? "var(--text-muted)" : "var(--accent-text)",
             marginBottom: 4,
             textTransform: compact ? "none" : "uppercase",
             letterSpacing: compact ? "normal" : "0.05em",
@@ -1177,7 +1179,7 @@ export function UserMessage({
             padding: isMobile ? "8px 0" : "4px 0",
             border: "none",
             background: "transparent",
-            color: "var(--accent)",
+            color: "var(--accent-text)",
             fontSize: isMobile ? 14 : 12,
             cursor: "pointer",
           }}
@@ -1279,7 +1281,7 @@ export function EditableUserMessage({
         style={{
           fontSize: isMobile ? 12 : 10,
           fontWeight: 600,
-          color: "var(--accent)",
+          color: "var(--accent-text)",
           marginBottom: 4,
           fontFamily: "'DM Sans',sans-serif",
           textTransform: "uppercase",
@@ -1345,8 +1347,8 @@ export function EditableUserMessage({
             padding: "4px 14px",
             borderRadius: 6,
             border: "none",
-            background: "var(--accent)",
-            color: "#fff",
+            background: "var(--accent-text)",
+            color: "var(--bg-base)",
             fontSize: isMobile ? 14 : 12,
             fontFamily: "'DM Sans',sans-serif",
             cursor: "pointer",
@@ -1527,10 +1529,10 @@ function ToolCall({
       ? "var(--isomux-card-bg)"
       : "var(--tool-call-bg)";
   const textColor = resultIsError
-    ? "var(--red)"
+    ? "var(--red-text)"
     : curlReq
       ? "var(--text-secondary)"
-      : "var(--green)";
+      : "var(--green-text)";
   // Errored results are folded (see isFoldedToolResult), so surface the
   // failure inline: first line of the result, attached to the card it
   // belongs to rather than floating at its stream position.
@@ -1616,7 +1618,7 @@ function ToolCall({
               flexBasis: "100%",
               paddingLeft: 20,
               marginTop: 2,
-              color: "var(--red)",
+              color: "var(--red-text)",
               fontSize: isMobile ? 12 : 10,
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -1690,7 +1692,7 @@ function SectionLabel({
         fontWeight: 600,
         textTransform: "uppercase",
         letterSpacing: "0.05em",
-        color: isError ? "var(--red)" : "var(--text-faint)",
+        color: isError ? "var(--red-text)" : "var(--text-faint)",
         marginBottom: 4,
         marginTop: marginTop ?? 0,
       }}
@@ -1748,7 +1750,7 @@ function ToolResult({
       calledPathRaw.includes(`/logs/${entry.agentId}/images/`));
   const showText = !hasMatchingToolCall || isError;
   const borderColor = isError ? "var(--red)" : "var(--green-border)";
-  const textColor = isError ? "var(--red)" : "var(--text-dim)";
+  const textColor = isError ? "var(--red-text)" : "var(--text-dim)";
   // Only unpaired or errored results reach this branch; the rest fold into
   // their tool_call card, which carries the pill itself.
   const subagent = subagentOf(entry);
@@ -1873,7 +1875,7 @@ function ErrorBlock({
         borderRadius: 8,
         background: "var(--red-bg)",
         borderLeft: "3px solid var(--red)",
-        color: "var(--red)",
+        color: "var(--red-text)",
         fontSize: isMobile ? 14 : 12,
         fontFamily: "'JetBrains Mono',monospace",
         lineHeight: 1.5,
@@ -2073,7 +2075,9 @@ function PermissionDeniedCard({
       }}
       title={denial.message}
     >
-      <span style={{ color: "var(--red)", fontWeight: 600, flexShrink: 0 }}>
+      <span
+        style={{ color: "var(--red-text)", fontWeight: 600, flexShrink: 0 }}
+      >
         {t("cards.toolCall.denied")}
       </span>
       {denial.toolName && (
@@ -2102,7 +2106,7 @@ function PermissionDeniedCard({
             borderRadius: 6,
             border: "1px solid var(--green-border)",
             background: "var(--green-bg)",
-            color: "var(--green)",
+            color: "var(--green-text)",
             fontSize: 12,
             fontFamily: "'JetBrains Mono',monospace",
             cursor: "pointer",

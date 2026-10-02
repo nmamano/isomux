@@ -13,12 +13,12 @@ import type { ContextUsageWire } from "../../shared/types.ts";
 // comes from the RAW fullness percentage so it agrees with the server-injected
 // [context check] notices (thresholds 50/75): a nearly
 // drained battery goes red. bandColor: < 50 -> dim (--text-muted), 50-74 ->
-// --orange, >= 75 -> --red. Never feed the remaining value into bandColor.
+// --orange-text, >= 75 -> --red-text. Never feed the remaining value into bandColor.
 // When there is NO reading, the shell would be empty and unlabeled, so it shows
 // "CTX" inside instead (the only state that gets the label).
 export function bandColor(pct: number): string {
-  if (pct >= 75) return "var(--red)";
-  if (pct >= 50) return "var(--orange)";
+  if (pct >= 75) return "var(--red-text)";
+  if (pct >= 50) return "var(--orange-text)";
   return "var(--text-muted)";
 }
 

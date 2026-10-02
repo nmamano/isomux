@@ -6,6 +6,7 @@ import {
   cardActionBtn,
   dialogCancelBtn,
   dialogSaveBtn,
+  disabledLook,
 } from "./dialog-styles.ts";
 import { useClipboardCopy } from "./CopyButton.tsx";
 import { claimExpandedEditor } from "./ExpandableTextarea.tsx";
@@ -211,7 +212,7 @@ function SystemPromptModal({
                 border: "1px solid var(--border)",
                 borderRadius: 8,
                 background: "var(--bg-code)",
-                color: error ? "var(--red)" : "var(--text-primary)",
+                color: error ? "var(--red-text)" : "var(--text-primary)",
                 fontFamily: "'JetBrains Mono',monospace",
                 fontSize: 12,
                 lineHeight: 1.5,
@@ -229,7 +230,7 @@ function SystemPromptModal({
               onClick={onCopy}
               style={{
                 ...dialogSaveBtn,
-                opacity: prompt === null || error ? 0.5 : 1,
+                ...(prompt === null || error ? disabledLook : null),
               }}
             >
               {copied ? t("common.copiedNotice") : t("common.copy")}

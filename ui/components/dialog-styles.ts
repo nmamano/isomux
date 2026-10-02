@@ -48,7 +48,7 @@ export const cardActionBtn: Readonly<CSSProperties> = Object.freeze({
   borderRadius: 8,
   border: "1px solid var(--accent)",
   background: "var(--accent-bg)",
-  color: "var(--accent)",
+  color: "var(--accent-text)",
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
@@ -58,11 +58,21 @@ export const dialogSaveBtn: Readonly<CSSProperties> = Object.freeze({
   padding: "7px 16px",
   borderRadius: 8,
   border: "none",
-  background: "var(--accent)",
+  background: "var(--accent-text)",
   color: "var(--bg-base)",
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
+});
+
+// A disabled button. Fading it with opacity takes its label below 4.5:1, so
+// the fill goes neutral and the label takes the floor text colour. The inset
+// line keeps the button's size whether or not it has a border.
+export const disabledLook: Readonly<CSSProperties> = Object.freeze({
+  background: "var(--btn-surface)",
+  boxShadow: "inset 0 0 0 1px var(--border)",
+  color: "var(--text-hint)",
+  cursor: "not-allowed",
 });
 
 export const dialogChip: Readonly<CSSProperties> = Object.freeze({

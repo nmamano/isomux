@@ -98,9 +98,9 @@ describe("pill color band boundary", () => {
   it("bands 49.6% as dim even though its label rounds to 50%", () => {
     expect(bandColor(49.6)).toBe("var(--text-muted)");
     expect(Math.round(49.6)).toBe(50);
-    expect(bandColor(50)).toBe("var(--orange)");
-    expect(bandColor(74.6)).toBe("var(--orange)");
-    expect(bandColor(75)).toBe("var(--red)");
+    expect(bandColor(50)).toBe("var(--orange-text)");
+    expect(bandColor(74.6)).toBe("var(--orange-text)");
+    expect(bandColor(75)).toBe("var(--red-text)");
   });
 });
 

@@ -191,7 +191,7 @@ export function DeskUnit({
               style={{
                 padding: "5px 10px",
                 borderRadius: 14,
-                background: "var(--accent)",
+                background: "var(--accent-text)",
                 color: "var(--bg-base)",
                 fontSize: 11,
                 fontWeight: 800,
@@ -261,8 +261,7 @@ export function DeskUnit({
             backdropFilter: "blur(10px)",
             borderRadius: 20,
             border: `1px solid ${modelStyle.border}`,
-            opacity: hov ? 1 : 0.8,
-            transition: "opacity 0.2s, background 0.3s, border 0.3s",
+            transition: "background 0.3s, border 0.3s",
             animation: needsAttention
               ? "dotPulse 2s ease-in-out infinite"
               : undefined,
@@ -279,7 +278,7 @@ export function DeskUnit({
               letterSpacing: "-0.01em",
             }}
           >
-            <span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span>{" "}
+            <span style={{ fontWeight: 400 }}>{agent.desk + 1} ·</span>{" "}
             {agent.name}
           </span>
           {needsAttention && (
@@ -287,8 +286,8 @@ export function DeskUnit({
               style={{
                 fontSize: 10,
                 fontWeight: 700,
-                color: "white",
-                background: "var(--purple)",
+                color: "var(--bg-base)",
+                background: "var(--purple-text)",
                 padding: "1px 6px",
                 borderRadius: 8,
                 letterSpacing: "0.02em",
@@ -308,8 +307,8 @@ export function DeskUnit({
               style={{
                 fontSize: 10,
                 fontWeight: 700,
-                color: "white",
-                background: "var(--orange)",
+                color: "var(--bg-base)",
+                background: "var(--orange-text)",
                 padding: "1px 6px",
                 borderRadius: 8,
                 letterSpacing: "0.02em",
@@ -325,15 +324,14 @@ export function DeskUnit({
             {...noTranslate()}
             style={{
               fontSize: 11,
-              color: "var(--text-secondary)",
+              color: hov ? "var(--text-secondary)" : "var(--text-dim)",
               textAlign: "center",
               marginTop: 2,
               maxWidth: 160,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
-              opacity: hov ? 0.9 : 0.7,
-              transition: "opacity 0.2s",
+              transition: "color 0.2s",
             }}
           >
             {agent.topic}

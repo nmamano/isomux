@@ -117,7 +117,7 @@
 
       /* Light mode - honored when the OS / browser asks for it.
          Same variable shape as the dark default above; the accent green is
-         darkened so links and the primary CTA hit AA contrast on white. */
+         darkened so links reach AA on white (5.01:1). */
       @media (prefers-color-scheme: light) {
         :root {
           --bg: #f4f6f9;
@@ -125,8 +125,8 @@
           --bg-card: #eef1f5;
           --text: #1a2030;
           --text-dim: #5a6a80;
-          --accent: #1f9550;
-          --accent-hover: #16803f;
+          --accent: #16803f;
+          --accent-hover: #116932;
           --border: #d8dde6;
           color-scheme: light;
         }
@@ -157,8 +157,8 @@
         --bg-card: #eef1f5;
         --text: #1a2030;
         --text-dim: #5a6a80;
-        --accent: #1f9550;
-        --accent-hover: #16803f;
+        --accent: #16803f;
+        --accent-hover: #116932;
         --border: #d8dde6;
         color-scheme: light;
       }
@@ -375,14 +375,16 @@
         transition: background 0.15s;
       }
 
+      /* A fill of its own in both modes: white on #16803f is 5.01:1, and on
+         the dark-mode accent green it fails AA (2.50:1). */
       .btn-primary {
         height: 36px;
         padding: 0 20px;
-        background: var(--accent);
+        background: #16803f;
         color: #fff;
       }
       .btn-primary:hover {
-        background: var(--accent-hover);
+        background: #116932;
         text-decoration: none;
       }
 

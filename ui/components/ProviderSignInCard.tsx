@@ -359,17 +359,17 @@ function ProviderScopeConnection({
         <strong>{t("settings.signIn.status")}</strong> {status}
       </p>
       {account?.error && (
-        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+        <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {account.error}
         </p>
       )}
       {signInError && !connected && (
-        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+        <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {signInError}
         </p>
       )}
       {error && (
-        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+        <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {error}
         </p>
       )}
@@ -482,7 +482,7 @@ function ProviderScopeConnection({
                 fontSize: 16,
                 fontWeight: 700,
                 letterSpacing: 2,
-                color: "var(--accent)",
+                color: "var(--accent-text)",
                 background: "var(--bg-code)",
                 border: "1px solid var(--accent)",
                 borderRadius: 8,
@@ -516,7 +516,11 @@ function ProviderScopeConnection({
         >
           {!confirmingSignOut ? (
             <button
-              style={{ ...dialogCancelBtn, color: "var(--red)", flexShrink: 0 }}
+              style={{
+                ...dialogCancelBtn,
+                color: "var(--red-text)",
+                flexShrink: 0,
+              }}
               onClick={() => setConfirmingSignOut(true)}
               disabled={pending}
             >
@@ -539,7 +543,7 @@ function ProviderScopeConnection({
                 {t("common.cancel")}
               </button>
               <button
-                style={{ ...dialogCancelBtn, color: "var(--red)" }}
+                style={{ ...dialogCancelBtn, color: "var(--red-text)" }}
                 onClick={() => void disconnect()}
                 disabled={pending}
               >
@@ -551,7 +555,7 @@ function ProviderScopeConnection({
             <p
               style={{
                 ...hint,
-                color: "var(--red)",
+                color: "var(--red-text)",
                 margin: 0,
                 flex: 1,
                 minWidth: 180,

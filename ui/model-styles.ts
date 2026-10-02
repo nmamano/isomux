@@ -26,7 +26,9 @@ export interface ModelStyle {
 
 // Explicit entries for every known model. Colors are seeded verbatim from the
 // former MODEL_TINT tables (previously duplicated in DeskUnit.tsx and
-// LogView.tsx) so known models keep their exact tints.
+// LogView.tsx). Every bg holds --text-primary at 4.5:1 or more over the floor
+// and walls of every theme; the three brightest greens were darkened (same
+// hue) to get there.
 //
 // Desk props encode capability TIER, not identity: frontier
 // models get the book (opus, fable, gpt-6-astra, gpt-5.6-sol), small/fast
@@ -50,15 +52,15 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
     bg: "rgba(230,130,180,0.32)",
     deskProp: "crayons",
   },
-  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
+  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(88,212,137,0.36)" },
   "gpt-5.6-sol": {
     border: "rgba(80,220,150,0.95)",
-    bg: "rgba(80,220,150,0.40)",
+    bg: "rgba(41,203,122,0.40)",
     deskProp: "book",
   },
   "gpt-6-astra": {
     border: "rgba(60,230,190,0.95)",
-    bg: "rgba(60,230,190,0.40)",
+    bg: "rgba(26,201,159,0.40)",
     deskProp: "book",
   },
   "gpt-5.6-terra": {

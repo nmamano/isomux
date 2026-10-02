@@ -6,7 +6,7 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogInput, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
 import {
   InvitesTable,
   MintedUrlBox,
@@ -100,7 +100,9 @@ function SignInLinkForm() {
         ))}
       </select>
       {error && (
-        <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
+        <p
+          style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}
+        >
           {error}
         </p>
       )}
@@ -110,7 +112,7 @@ function SignInLinkForm() {
           disabled={pending || !userId}
           style={{
             ...dialogSaveBtn,
-            opacity: pending || !userId ? 0.5 : 1,
+            ...(pending || !userId ? disabledLook : null),
           }}
         >
           {pending

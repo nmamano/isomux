@@ -89,12 +89,12 @@ const STATUS_LABELS: Record<
 };
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
-  P0: "var(--red)",
-  P1: "var(--orange, #d29922)",
-  P2: "var(--blue, #58a6ff)",
+  P0: "var(--red-text)",
+  P1: "var(--orange-text)",
+  P2: "var(--accent-text)",
   P3: "var(--text-muted)",
   // P4 is the old backlog, and keeps its color.
-  P4: "var(--purple)",
+  P4: "var(--purple-text)",
 };
 
 // Not a component, so the language and the translator arrive as arguments
@@ -425,14 +425,14 @@ function TaskDetailPanel({
               fontSize: 13,
               fontWeight: 600,
               fontFamily: "'JetBrains Mono',monospace",
-              color: idCopied ? "var(--green)" : "var(--text-primary)",
+              color: idCopied ? "var(--green-text)" : "var(--text-primary)",
             }}
           >
             #{task!.id}
             <span
               style={{
                 display: "inline-flex",
-                color: idCopied ? "var(--green)" : "var(--text-dim)",
+                color: idCopied ? "var(--green-text)" : "var(--text-dim)",
               }}
             >
               {idCopied ? CHECK_ICON : COPY_ICON}
@@ -606,7 +606,7 @@ function TaskDetailPanel({
                         : "var(--btn-surface)",
                     color:
                       assignee === a.name
-                        ? "var(--accent)"
+                        ? "var(--accent-text)"
                         : "var(--text-muted)",
                     fontSize: 10,
                     cursor: "pointer",
@@ -680,7 +680,7 @@ function TaskDetailPanel({
         }}
       >
         {saveConflict && (
-          <div role="alert" style={{ fontSize: 11, color: "var(--red)" }}>
+          <div role="alert" style={{ fontSize: 11, color: "var(--red-text)" }}>
             {t("tasks.saveConflict")}
           </div>
         )}
@@ -701,7 +701,7 @@ function TaskDetailPanel({
                 padding: "6px 12px",
                 borderRadius: 6,
                 border: "1px solid var(--red)",
-                background: "var(--red)",
+                background: "var(--red-text)",
                 color: "var(--bg-base)",
                 fontSize: 11,
                 fontWeight: 600,
@@ -740,7 +740,9 @@ function TaskDetailPanel({
               padding: "9px 0",
               borderRadius: 8,
               border: "none",
-              background: title.trim() ? "var(--accent)" : "var(--bg-subtle)",
+              background: title.trim()
+                ? "var(--accent-text)"
+                : "var(--bg-subtle)",
               color: title.trim() ? "var(--bg-base)" : "var(--text-muted)",
               fontSize: 12,
               fontWeight: 600,
@@ -748,7 +750,7 @@ function TaskDetailPanel({
             }}
           >
             {t(mode === "create" ? "tasks.create" : "common.save")}
-            <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 400 }}>
+            <span style={{ marginLeft: 6, fontWeight: 400 }}>
               {(navigator.platform || "").includes("Mac")
                 ? "⌘+Enter"
                 : "Ctrl+Enter"}
@@ -762,8 +764,8 @@ function TaskDetailPanel({
                 padding: "9px 14px",
                 borderRadius: 8,
                 border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                background: confirmDelete ? "var(--red)" : "transparent",
-                color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                background: confirmDelete ? "var(--red-text)" : "transparent",
+                color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: "pointer",
@@ -1069,7 +1071,7 @@ export function TaskView({
           }}
           style={{
             cursor: "pointer",
-            color: "var(--accent)",
+            color: "var(--accent-text)",
             textDecoration: "none",
           }}
           onMouseEnter={(e) =>
@@ -1505,7 +1507,10 @@ export function TaskView({
                             ? "var(--bg-hover)"
                             : "transparent",
                         borderBottom: "1px solid var(--border-subtle)",
-                        opacity: task.status === "done" ? 0.5 : 1,
+                        color:
+                          task.status === "done"
+                            ? "var(--text-hint)"
+                            : undefined,
                       }}
                       onMouseEnter={(e) => {
                         if (task.id !== selectedId)

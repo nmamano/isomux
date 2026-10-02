@@ -31,10 +31,10 @@ const STATUS_LABEL: Record<
 };
 
 const STATUS_COLOR: Record<CronjobRun["status"], string> = {
-  running: "var(--green)",
+  running: "var(--green-text)",
   completed: "var(--text-secondary)",
-  failed: "var(--red)",
-  timed_out: "var(--orange, #d29922)",
+  failed: "var(--red-text)",
+  timed_out: "var(--orange-text)",
   skipped: "var(--text-muted)",
 };
 
@@ -524,7 +524,9 @@ export function CronjobRunView({
               })}
             </div>
             {run.errorReason && (
-              <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>
+              <div
+                style={{ marginTop: 8, fontSize: 11, color: "var(--red-text)" }}
+              >
                 {t("schedules.errorLine", { reason: run.errorReason })}
               </div>
             )}
@@ -574,7 +576,7 @@ export function CronjobRunView({
               gap: 8,
               padding: "12px 14px",
               margin: "8px 0",
-              color: "var(--green)",
+              color: "var(--green-text)",
               fontSize: 12,
             }}
           >
@@ -637,7 +639,7 @@ export function CronjobRunView({
                 borderRadius: 6,
                 background: "var(--red-bg, rgba(192,57,43,0.12))",
                 border: "1px solid var(--red, #c0392b)",
-                color: "var(--red, #c0392b)",
+                color: "var(--red-text)",
                 fontSize: isMobile ? 12 : 11,
                 fontWeight: 600,
               }}
@@ -648,7 +650,7 @@ export function CronjobRunView({
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span
               style={{
-                color: "var(--green)",
+                color: "var(--green-text)",
                 fontWeight: 600,
                 lineHeight: "20px",
                 position: "relative",
@@ -716,7 +718,7 @@ export function CronjobRunView({
                   border: "none",
                   background:
                     input.trim() && !editingLogEntryId
-                      ? "var(--green)"
+                      ? "var(--green-text)"
                       : "var(--bg-hover)",
                   color:
                     input.trim() && !editingLogEntryId

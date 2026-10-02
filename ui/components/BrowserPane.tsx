@@ -99,7 +99,7 @@ export function BrowserPane() {
             <ol style={{ margin: 0, paddingLeft: 22, display: "grid", gap: 8 }}>
               <li>
                 <a
-                  style={{ color: "var(--accent)" }}
+                  style={{ color: "var(--accent-text)" }}
                   href="/api/me/browser/extension.zip"
                   download="isomux-browser.zip"
                 >

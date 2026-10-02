@@ -213,7 +213,7 @@ export function SpeakButton({
           background: speaking
             ? "var(--accent-bg, var(--green-bg))"
             : "var(--btn-surface)",
-          color: speaking ? "var(--accent)" : "var(--text-dim)",
+          color: speaking ? "var(--accent-text)" : "var(--text-dim)",
           cursor: disabled ? "not-allowed" : "pointer",
           padding: 0,
           flexShrink: 0,

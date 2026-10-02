@@ -187,12 +187,12 @@ export function ManagedEnvEditor({ path }: { path: string }) {
         </button>
       </div>
       {duplicate && (
-        <div style={{ color: "var(--red)", marginTop: 6 }}>
+        <div style={{ color: "var(--red-text)", marginTop: 6 }}>
           {t("settings.env.duplicate")}
         </div>
       )}
       {error && (
-        <div style={{ color: "var(--red)", marginTop: 6 }}>{error}</div>
+        <div style={{ color: "var(--red-text)", marginTop: 6 }}>{error}</div>
       )}
     </div>
   );

@@ -22,7 +22,12 @@ import {
   resolvePreferenceForm,
   type PreferenceEdits,
 } from "../preference-form.ts";
-import { dialogLabel, dialogHint, dialogSaveBtn } from "./dialog-styles.ts";
+import {
+  dialogLabel,
+  dialogHint,
+  dialogSaveBtn,
+  disabledLook,
+} from "./dialog-styles.ts";
 import { sectionHeader, hint, cardStyle } from "./access-shared.tsx";
 
 export function PreferencesPane() {
@@ -117,8 +122,7 @@ export function PreferencesPane() {
           disabled={saving || !canSave}
           style={{
             ...dialogSaveBtn,
-            opacity: saving || !canSave ? 0.45 : 1,
-            cursor: saving || !canSave ? "not-allowed" : "pointer",
+            ...(saving || !canSave ? disabledLook : null),
           }}
         >
           {saving ? t("common.saving") : t("common.save")}
@@ -129,7 +133,9 @@ export function PreferencesPane() {
           </span>
         )}
         {error && (
-          <span style={{ fontSize: 11, color: "#ff6b6b" }}>{error}</span>
+          <span style={{ fontSize: 11, color: "var(--red-text)" }}>
+            {error}
+          </span>
         )}
       </div>
     </div>

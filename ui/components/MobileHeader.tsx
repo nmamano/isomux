@@ -93,17 +93,17 @@ export function MobileHeader({
           [
             {
               n: counts.working,
-              c: "var(--green)",
+              c: "var(--green-text)",
               label: "office.status.working",
             },
             {
               n: counts.waiting,
-              c: "var(--purple)",
+              c: "var(--purple-text)",
               label: "office.status.waiting",
             },
             {
               n: counts.error,
-              c: "var(--red)",
+              c: "var(--red-text)",
               label: "office.status.errShort",
             },
           ] as const

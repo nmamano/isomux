@@ -1149,7 +1149,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <p
                     style={{
                       fontSize: 12,
-                      color: "#ff6b6b",
+                      color: "var(--red-text)",
                       margin: "3px 0 0",
                     }}
                   >
@@ -1169,7 +1169,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--orange)",
+              color: "var(--orange-text)",
               margin: "3px 0 0",
             }}
           >
@@ -1182,7 +1182,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           <p
             style={{
               fontSize: 12,
-              color: "#ff6b6b",
+              color: "var(--red-text)",
               margin: "3px 0 0",
             }}
           >
@@ -1198,7 +1198,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             <p
               style={{
                 fontSize: 12,
-                color: "#ff6b6b",
+                color: "var(--red-text)",
                 margin: "3px 0 0",
               }}
             >
@@ -1209,7 +1209,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           <p
             style={{
               fontSize: 12,
-              color: "#ff6b6b",
+              color: "var(--red-text)",
               margin: "3px 0 0",
             }}
           >
@@ -1360,11 +1360,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 borderRadius: 6,
                 border: "1px solid var(--border)",
                 background: isFull ? "var(--bg-input)" : "var(--btn-surface)",
-                color: isFull ? "var(--text-ghost)" : "var(--text-dim)",
+                color: isFull ? "var(--text-hint)" : "var(--text-dim)",
                 fontSize: 12,
                 cursor: isFull ? "not-allowed" : "pointer",
                 fontFamily: "'JetBrains Mono',monospace",
-                opacity: isFull ? 0.5 : 1,
               }}
             >
               {rooms[i]?.name ?? t("common.roomFallback", { number: i + 1 })} (
@@ -1602,7 +1601,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <p
                   style={{
                     fontSize: 12,
-                    color: "#ff6b6b",
+                    color: "var(--red-text)",
                     margin: "4px 0 0",
                   }}
                 >
@@ -1630,7 +1629,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           disabled={unavailable}
                           onClick={() => setTargetEngine(option.agentType)}
                           style={{
-                            opacity: unavailable ? 0.5 : 1,
                             background: selected
                               ? "var(--bg-hover)"
                               : "var(--bg-surface)",
@@ -1639,7 +1637,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             padding: "12px 14px",
                             textAlign: "left",
                             cursor: unavailable ? "not-allowed" : "pointer",
-                            color: "var(--text-primary)",
+                            color: unavailable
+                              ? "var(--text-hint)"
+                              : "var(--text-primary)",
                             boxShadow: selected
                               ? `0 0 0 1px ${option.accent}`
                               : "none",
@@ -1814,7 +1814,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     <p
                       style={{
                         fontSize: 12,
-                        color: "#ff6b6b",
+                        color: "var(--red-text)",
                         margin: "4px 0 0",
                       }}
                     >
@@ -2015,9 +2015,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         borderRadius: 999,
                         padding: "5px 10px",
                         fontSize: 12,
-                        color: "var(--text-primary)",
+                        color: disabled
+                          ? "var(--text-hint)"
+                          : "var(--text-primary)",
                         cursor: disabled ? "not-allowed" : "pointer",
-                        opacity: disabled ? 0.4 : 1,
                       }}
                     >
                       {isThisReviving
@@ -2029,7 +2030,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </div>
               {reviveError && (
                 <p
-                  style={{ margin: "8px 0 0", fontSize: 12, color: "#ff6b6b" }}
+                  style={{
+                    margin: "8px 0 0",
+                    fontSize: 12,
+                    color: "var(--red-text)",
+                  }}
                 >
                   {reviveError}
                 </p>
@@ -2073,7 +2078,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   padding: "6px 12px",
                   borderRadius: 6,
                   border: "1px solid var(--red)",
-                  background: "var(--red)",
+                  background: "var(--red-text)",
                   color: "var(--bg-base)",
                   fontSize: 12,
                   fontWeight: 600,
@@ -2147,10 +2152,9 @@ function templateCardStyle(
       : groupColor
         ? `color-mix(in srgb, ${groupColor} 8%, var(--bg-input))`
         : "var(--bg-input)",
-    color: "var(--text-primary)",
+    color: disabled ? "var(--text-hint)" : "var(--text-primary)",
     textAlign: "left",
     cursor: disabled ? "not-allowed" : "pointer",
-    opacity: disabled ? 0.5 : 1,
     display: "flex",
     alignItems: "center",
     gap: 7,

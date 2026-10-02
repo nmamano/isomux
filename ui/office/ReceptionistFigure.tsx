@@ -114,10 +114,10 @@ export function ReceptionistFigure({
                 style={{
                   padding: "1px 4px",
                   borderRadius: 7,
-                  background: "var(--purple)",
+                  background: "var(--purple-text)",
                   fontSize: 9,
                   fontWeight: 700,
-                  color: "#fff",
+                  color: "var(--bg-base)",
                 }}
               >
                 {t("common.unread")}

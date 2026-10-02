@@ -144,8 +144,8 @@ User message:
 | fullness | color | meaning |
 |---|---|---|
 | < 50% | `--text-muted` (dim) | fine, informational |
-| 50–74% | `--orange` | plan around it |
-| ≥ 75% | `--red` | wrap up / clear soon |
+| 50–74% | `--orange-text` | plan around it |
+| ≥ 75% | `--red-text` | wrap up / clear soon |
 
 **Suggest actions, concretely:**
 
@@ -207,7 +207,7 @@ NOTE: SHIPPED (revised) - see the Status section for what actually landed (phone
 ### Fixed decisions (independent of placement)
 
 - **Render the battery as inline SVG, never a Unicode glyph.** iOS Safari emoji-renders certain Unicode symbols (🔋 and the battery/▶/★ family) and overrides CSS color - which would defeat the whole "color shifts as it fills" point. A hand-drawn SVG (rounded-rect shell + a proportional fill rect + a small terminal nub) is ~15 lines and fully color-controllable. (Same class of gotcha recorded in Nil's memory about iOS auto-emoji rendering.)
-- **Color bands = the notice thresholds**, computed from the raw float percentage so the icon and the injected notices agree: `< 50%` → `--text-muted` (dim, informational), `50–74%` → `--orange`, `≥ 75%` → `--red`. Vars live in `ui/themes.ts`.
+- **Color bands = the notice thresholds**, computed from the raw float percentage so the icon and the injected notices agree: `< 50%` → `--text-muted` (dim, informational), `50–74%` → `--orange-text`, `≥ 75%` → `--red-text`. Vars live in `ui/themes.ts`.
 - **Label + hover.** Percentage shown as text next to the fill (rounded integer). Hover/tap tooltip: `132,400 / 200,000 tokens (66%) - as of last turn.` Touch has no hover, so the tooltip must also open on tap (a tiny popover), not hover-only.
 - **Hidden while unavailable** (snapshot null / `available:false`): no icon at all, not an empty shell.
 

@@ -48,8 +48,11 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
             borderRadius: 6,
             border: `1px solid ${a.active ? "var(--green-border)" : "var(--border-medium)"}`,
             background: a.active ? "var(--green-bg)" : "var(--btn-surface)",
-            color: a.active ? "var(--green)" : "var(--text-dim)",
-            opacity: a.disabled ? 0.45 : 1,
+            color: a.disabled
+              ? "var(--text-hint)"
+              : a.active
+                ? "var(--green-text)"
+                : "var(--text-dim)",
             fontSize: 11,
             cursor: a.disabled ? "not-allowed" : "pointer",
             transition: "color 0.15s, background 0.15s, border-color 0.15s",
@@ -154,8 +157,11 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   padding: "12px 16px",
                   background: a.active ? "var(--green-bg)" : "transparent",
                   border: "none",
-                  color: a.active ? "var(--green)" : "var(--text-primary)",
-                  opacity: a.disabled ? 0.45 : 1,
+                  color: a.disabled
+                    ? "var(--text-hint)"
+                    : a.active
+                      ? "var(--green-text)"
+                      : "var(--text-primary)",
                   fontSize: 14,
                   cursor: a.disabled ? "not-allowed" : "pointer",
                   textAlign: "left",

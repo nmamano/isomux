@@ -13,6 +13,7 @@ import {
   type SupportedLanguageCode,
 } from "../../shared/languages.ts";
 import { CopyButton } from "./CopyButton.tsx";
+import { disabledLook } from "./dialog-styles.ts";
 import { apiFetch } from "../api.ts";
 import { reloadBrowser } from "../reload-browser.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
@@ -117,7 +118,7 @@ const buttonStyle: React.CSSProperties = {
   padding: "7px 16px",
   borderRadius: 8,
   border: "none",
-  background: "var(--accent)",
+  background: "var(--accent-text)",
   color: "var(--bg-base)",
   fontSize: 12,
   fontWeight: 600,
@@ -154,7 +155,7 @@ function CommitBody({
             href={status.latest.url}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
+            style={{ color: "var(--accent-text)", textDecoration: "none" }}
           >
             {t("settings.update.releaseNotesParen")}
           </a>
@@ -163,7 +164,7 @@ function CommitBody({
             href={`https://github.com/${REPO}`}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
+            style={{ color: "var(--accent-text)", textDecoration: "none" }}
           >
             {t("settings.update.githubParen")}
           </a>
@@ -300,7 +301,7 @@ function ReleaseBody({
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{
-                    color: "var(--blue, #58a6ff)",
+                    color: "var(--accent-text)",
                     textDecoration: "none",
                   }}
                 >
@@ -321,7 +322,7 @@ function ReleaseBody({
             href={IMAGE_GUIDES[image.guide]}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
+            style={{ color: "var(--accent-text)", textDecoration: "none" }}
           >
             {t("settings.update.updateGuide")}
           </a>
@@ -354,7 +355,7 @@ function ReleaseBody({
           style={{
             ...textStyle,
             margin: "12px 0 0",
-            color: "var(--red, #f85149)",
+            color: "var(--red-text)",
           }}
         >
           {error}
@@ -402,8 +403,7 @@ function ReleaseBody({
               disabled={phase === "starting"}
               style={{
                 ...buttonStyle,
-                opacity: phase === "starting" ? 0.6 : 1,
-                cursor: phase === "starting" ? "default" : "pointer",
+                ...(phase === "starting" ? disabledLook : null),
               }}
             >
               {phase === "starting"

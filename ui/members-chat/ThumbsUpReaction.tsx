@@ -44,7 +44,7 @@ export function ThumbsUpReaction({
     background: "transparent",
     display: "inline-flex",
     alignItems: "center",
-    color: active ? "var(--accent)" : "var(--text-muted)",
+    color: active ? "var(--accent-text)" : "var(--text-muted)",
     padding: isMobile ? "6px 9px" : "2px 6px",
     cursor: "pointer",
     fontFamily: "inherit",

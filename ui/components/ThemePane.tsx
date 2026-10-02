@@ -68,7 +68,7 @@ function ThemeRow({
         padding: "9px 12px",
         border: "none",
         background: selected ? "var(--accent-bg)" : "transparent",
-        color: selected ? "var(--accent)" : "var(--text-primary)",
+        color: selected ? "var(--accent-text)" : "var(--text-primary)",
         fontSize: 13,
         borderRadius: 8,
         cursor: "pointer",

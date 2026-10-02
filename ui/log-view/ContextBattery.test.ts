@@ -10,9 +10,9 @@ describe("ContextBattery bandColor", () => {
   it("dim below 50, orange in [50,75), red at/above 75 (boundaries on the raw float)", () => {
     expect(bandColor(0)).toBe("var(--text-muted)");
     expect(bandColor(49.9)).toBe("var(--text-muted)");
-    expect(bandColor(50)).toBe("var(--orange)");
-    expect(bandColor(74.9)).toBe("var(--orange)");
-    expect(bandColor(75)).toBe("var(--red)");
-    expect(bandColor(100)).toBe("var(--red)");
+    expect(bandColor(50)).toBe("var(--orange-text)");
+    expect(bandColor(74.9)).toBe("var(--orange-text)");
+    expect(bandColor(75)).toBe("var(--red-text)");
+    expect(bandColor(100)).toBe("var(--red-text)");
   });
 });

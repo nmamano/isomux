@@ -121,7 +121,7 @@ export function NewRoomDialog({ onClose }: { onClose: () => void }) {
           {t("office.newRoom.title")}
         </h3>
         {failed && (
-          <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+          <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
             {t("office.newRoom.failed")}
           </p>
         )}

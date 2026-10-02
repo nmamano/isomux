@@ -59,7 +59,7 @@ import type {
   StoragePruneRes,
 } from "../../shared/contract-shapes.ts";
 import type { BackupStatusWire } from "../../shared/contract-shapes.ts";
-import { dialogInput, dialogCancelBtn } from "./dialog-styles.ts";
+import { dialogInput, dialogCancelBtn, disabledLook } from "./dialog-styles.ts";
 
 // The category's words, by wire id. Own-property lookup like every other key
 // table (shared/i18n/translate.ts keyFrom), so an id that is not a category
@@ -352,7 +352,7 @@ export function StoragePane({
           color: "var(--text-secondary)",
         }}
       >
-        <strong style={{ color: "#ff6b6b" }}>
+        <strong style={{ color: "var(--red-text)" }}>
           {t("settings.storage.deleteWarningLead")}
         </strong>{" "}
         {t("settings.storage.deleteWarningBody")}
@@ -370,10 +370,12 @@ export function StoragePane({
               flex: 1,
               borderColor:
                 target === choice ? "var(--accent)" : "var(--border)",
-              color:
-                target === choice ? "var(--text-primary)" : "var(--text-dim)",
+              color: busy
+                ? "var(--text-hint)"
+                : target === choice
+                  ? "var(--text-primary)"
+                  : "var(--text-dim)",
               background: target === choice ? "var(--bg-input)" : "transparent",
-              opacity: busy ? 0.5 : 1,
               cursor: busy ? "not-allowed" : "pointer",
             }}
           >
@@ -390,7 +392,11 @@ export function StoragePane({
           value={olderThanDays}
           disabled={busy}
           onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
-          style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
+          style={{
+            ...dialogInput,
+            width: 90,
+            ...(busy ? { color: "var(--text-hint)" } : null),
+          }}
         />
         <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
           {t("settings.storage.daysHint")}
@@ -407,7 +413,11 @@ export function StoragePane({
               value={keepPerAgent}
               disabled={busy}
               onChange={(e) => editForm(() => setKeepPerAgent(e.target.value))}
-              style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
+              style={{
+                ...dialogInput,
+                width: 90,
+                ...(busy ? { color: "var(--text-hint)" } : null),
+              }}
             />
             <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
               {t("settings.storage.keepHint")}
@@ -426,8 +436,7 @@ export function StoragePane({
           ...dialogCancelBtn,
           marginTop: 14,
           width: "100%",
-          opacity: formValid && !busy ? 1 : 0.5,
-          cursor: formValid && !busy ? "pointer" : "not-allowed",
+          ...(formValid && !busy ? null : disabledLook),
         }}
       >
         {phase.kind === "previewing"
@@ -626,7 +635,7 @@ function BackupBlock({
             when: age(backup.lastRunAt),
           })
         ) : (
-          <span style={{ color: "#ff6b6b" }}>
+          <span style={{ color: "var(--red-text)" }}>
             {backup.error
               ? t("settings.storage.lastBackupFailedWith", {
                   when: age(backup.lastRunAt),
@@ -781,7 +790,7 @@ function PlanBlock({
               color: "var(--text-secondary)",
             }}
           >
-            <strong style={{ color: "#ff6b6b" }}>
+            <strong style={{ color: "var(--red-text)" }}>
               {t("settings.storage.cannotUndo")}
             </strong>{" "}
             {t("settings.storage.confirmBody", {
@@ -811,8 +820,7 @@ function PlanBlock({
                 ...dangerBtn,
                 marginTop: 0,
                 flex: 1,
-                opacity: confirmText === "DELETE" ? 1 : 0.5,
-                cursor: confirmText === "DELETE" ? "pointer" : "not-allowed",
+                ...(confirmText === "DELETE" ? null : disabledLook),
               }}
             >
               {phase.kind === "applying"
@@ -840,7 +848,7 @@ function ResultBlock({ result }: { result: PruneResultWire }) {
       }}
     >
       {result.aborted ? (
-        <p style={{ margin: 0, fontSize: 12, color: "#ff6b6b" }}>
+        <p style={{ margin: 0, fontSize: 12, color: "var(--red-text)" }}>
           {t("settings.storage.aborted", { reason: result.aborted })}
         </p>
       ) : (
@@ -902,7 +910,7 @@ function ErrorLine({ children }: { children: React.ReactNode }) {
     <p
       style={{
         fontSize: 11,
-        color: "#ff6b6b",
+        color: "var(--red-text)",
         margin: "8px 0 0",
         lineHeight: 1.5,
       }}
@@ -929,7 +937,7 @@ const dangerBtn: React.CSSProperties = {
   borderRadius: 8,
   border: "1px solid #ff6b6b",
   background: "rgba(255,107,107,0.15)",
-  color: "#ff6b6b",
+  color: "var(--red-text)",
   fontSize: 12,
   fontWeight: 700,
   cursor: "pointer",

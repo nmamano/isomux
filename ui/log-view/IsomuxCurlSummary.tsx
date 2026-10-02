@@ -50,7 +50,7 @@ export function IsomuxCurlHeader({
           isomux cards apart. */}
       <span
         style={{
-          color: "var(--accent)",
+          color: "var(--accent-text)",
           fontWeight: 600,
           flexShrink: 0,
         }}

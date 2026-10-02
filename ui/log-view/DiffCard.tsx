@@ -71,32 +71,32 @@ function StatusBadge({ status }: { status: DiffFileSummary["status"] }) {
     { fg: string; bg: string; labelKey: PlainMessageKey }
   > = {
     added: {
-      fg: "var(--green)",
+      fg: "var(--green-text)",
       bg: "var(--green-bg)",
       labelKey: "cards.diff.status.added",
     },
     modified: {
-      fg: "var(--accent)",
+      fg: "var(--accent-text)",
       bg: "var(--accent-bg)",
       labelKey: "common.modified",
     },
     deleted: {
-      fg: "var(--red)",
+      fg: "var(--red-text)",
       bg: "var(--red-bg)",
       labelKey: "cards.diff.status.deleted",
     },
     renamed: {
-      fg: "var(--purple)",
+      fg: "var(--purple-text)",
       bg: "rgba(155,109,255,0.10)",
       labelKey: "cards.diff.status.renamed",
     },
     copied: {
-      fg: "var(--purple)",
+      fg: "var(--purple-text)",
       bg: "rgba(155,109,255,0.10)",
       labelKey: "cards.diff.status.copied",
     },
     untracked: {
-      fg: "var(--orange)",
+      fg: "var(--orange-text)",
       bg: "var(--orange-bg)",
       labelKey: "cards.diff.status.untracked",
     },
@@ -145,10 +145,10 @@ function PlusMinus({
       }}
     >
       {additions > 0 && (
-        <span style={{ color: "var(--green)" }}>+{additions}</span>
+        <span style={{ color: "var(--green-text)" }}>+{additions}</span>
       )}
       {deletions > 0 && (
-        <span style={{ color: "var(--red)" }}>-{deletions}</span>
+        <span style={{ color: "var(--red-text)" }}>-{deletions}</span>
       )}
     </span>
   );
@@ -558,7 +558,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
                   border: "none",
                   cursor: "pointer",
                   background: active ? "var(--accent-bg)" : "transparent",
-                  color: active ? "var(--accent)" : "var(--text-muted)",
+                  color: active ? "var(--accent-text)" : "var(--text-muted)",
                   fontSize: 11,
                   fontFamily: "'DM Sans',sans-serif",
                   fontWeight: 600,
@@ -601,7 +601,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
         >
           <span {...noTranslate()}>{payload.cwd}</span>
           {payload.truncated && (
-            <span style={{ color: "var(--orange)", marginLeft: 8 }}>
+            <span style={{ color: "var(--orange-text)", marginLeft: 8 }}>
               {t("cards.diff.summaryOnly")}
             </span>
           )}

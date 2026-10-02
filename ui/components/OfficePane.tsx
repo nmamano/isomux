@@ -353,7 +353,9 @@ export function OfficePane({
                   style={{
                     fontSize: 10,
                     color:
-                      row.state === "failed" ? "#ff6b6b" : "var(--text-muted)",
+                      row.state === "failed"
+                        ? "var(--red-text)"
+                        : "var(--text-muted)",
                     margin: "3px 0 0",
                   }}
                 >
@@ -540,27 +542,28 @@ function ValidationLine({ status }: { status: ValidationStatus }) {
   }
   if (status.kind === "ok") {
     return (
-      <p style={{ fontSize: 10, color: "var(--accent)", margin: "4px 0 0" }}>
+      <p
+        style={{ fontSize: 10, color: "var(--accent-text)", margin: "4px 0 0" }}
+      >
         {tn("settings.office.loadedVariables", status.keyCount ?? 0)}
       </p>
     );
   }
   return (
-    <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
+    <p style={{ fontSize: 10, color: "var(--red-text)", margin: "4px 0 0" }}>
       {status.message}
     </p>
   );
 }
 
 const inputStyle: React.CSSProperties = dialogInput;
-// Visually-distinct read-only variant: grayed text + opacity, matches the
+// Visually-distinct read-only variant: the floor text colour matches the
 // "view only" framing for member sessions opening the office settings.
 const readOnlyInputStyle: React.CSSProperties = {
   ...dialogInput,
-  color: "var(--text-ghost)",
+  color: "var(--text-hint)",
   background: "var(--bg-input)",
   cursor: "default",
-  opacity: 0.75,
 };
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

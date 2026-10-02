@@ -38,10 +38,10 @@ const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
 };
 
 const STATUS_COLOR: Record<CronjobRunStatus, string> = {
-  running: "var(--green)",
+  running: "var(--green-text)",
   completed: "var(--text-secondary)",
-  failed: "var(--red)",
-  timed_out: "var(--orange, #d29922)",
+  failed: "var(--red-text)",
+  timed_out: "var(--orange-text)",
   skipped: "var(--text-muted)",
 };
 
@@ -253,7 +253,8 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
                 style={{
                   padding: "5px 12px",
                   border: "none",
-                  background: tab === name ? "var(--accent)" : "transparent",
+                  background:
+                    tab === name ? "var(--accent-text)" : "transparent",
                   color: tab === name ? "var(--bg-base)" : "var(--text-muted)",
                   fontSize: 11,
                   fontWeight: 600,
@@ -287,7 +288,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               padding: "4px 10px",
               borderRadius: 6,
               border: "none",
-              background: "var(--accent)",
+              background: "var(--accent-text)",
               color: "var(--bg-base)",
               fontSize: 11,
               fontWeight: 600,
@@ -320,7 +321,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
               borderRadius: 12,
               border: "1px solid var(--accent)",
               background: "var(--accent-muted, rgba(88,166,255,0.15))",
-              color: "var(--accent)",
+              color: "var(--accent-text)",
               fontSize: 11,
               cursor: "pointer",
               display: "inline-flex",
@@ -474,7 +475,7 @@ function CronjobsTable({
               style={{
                 cursor: "pointer",
                 borderBottom: "1px solid var(--border-subtle)",
-                opacity: c.enabled ? 1 : 0.55,
+                color: c.enabled ? undefined : "var(--text-hint)",
               }}
               onMouseEnter={(e) =>
                 (e.currentTarget.style.background = "var(--bg-hover)")
@@ -523,7 +524,7 @@ function CronjobsTable({
                         borderRadius: 10,
                         background: "rgba(80,200,120,0.15)",
                         border: "1px solid var(--green)",
-                        color: "var(--green)",
+                        color: "var(--green-text)",
                         fontSize: 10,
                         fontWeight: 600,
                         fontFamily: "'JetBrains Mono',monospace",
@@ -623,7 +624,7 @@ function CronjobsTable({
                         ? "rgba(80,200,120,0.15)"
                         : "transparent",
                       color: justStarted.has(c.id)
-                        ? "var(--green)"
+                        ? "var(--green-text)"
                         : "var(--text-dim)",
                       fontSize: 11,
                       cursor: "pointer",
@@ -796,7 +797,9 @@ function RunsTable({
                 style={{
                   padding: cellPad,
                   fontSize: 11,
-                  color: r.errorReason ? "var(--red)" : "var(--text-secondary)",
+                  color: r.errorReason
+                    ? "var(--red-text)"
+                    : "var(--text-secondary)",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",

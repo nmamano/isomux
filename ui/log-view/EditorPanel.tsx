@@ -1063,7 +1063,7 @@ export function EditorPanel({
                 borderRadius: 6,
                 border: "1px solid var(--green-border)",
                 background: "var(--green-bg)",
-                color: "var(--green)",
+                color: "var(--green-text)",
                 fontFamily: "'JetBrains Mono', monospace",
                 fontSize: 13,
                 fontWeight: 500,
@@ -1312,8 +1312,8 @@ export function EditorPanel({
             fontSize: 12,
             color:
               activeTab.banner.kind === "save_error"
-                ? "var(--red)"
-                : "var(--orange)",
+                ? "var(--red-text)"
+                : "var(--orange-text)",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -1325,7 +1325,10 @@ export function EditorPanel({
               <span style={{ flex: 1 }}>
                 {i18n.t("panels.editor.staleBanner")}
               </span>
-              <button onClick={overwrite} style={bannerBtn("var(--orange)")}>
+              <button
+                onClick={overwrite}
+                style={bannerBtn("var(--orange-text)")}
+              >
                 {i18n.t("panels.editor.overwrite")}
               </button>
               <button
@@ -1343,7 +1346,7 @@ export function EditorPanel({
               </span>
               <button
                 onClick={reloadFromDisk}
-                style={bannerBtn("var(--orange)")}
+                style={bannerBtn("var(--orange-text)")}
               >
                 {i18n.t("panels.editor.reload")}
               </button>
@@ -1362,7 +1365,7 @@ export function EditorPanel({
               </span>
               <button
                 onClick={recreateFromBuffer}
-                style={bannerBtn("var(--orange)")}
+                style={bannerBtn("var(--orange-text)")}
               >
                 {i18n.t("panels.editor.saveToRecreate")}
               </button>
@@ -1381,7 +1384,10 @@ export function EditorPanel({
                   reason: activeTab.banner.message,
                 })}
               </span>
-              <button onClick={dismissBanner} style={bannerBtn("var(--red)")}>
+              <button
+                onClick={dismissBanner}
+                style={bannerBtn("var(--red-text)")}
+              >
                 {i18n.t("common.dismiss")}
               </button>
             </>
@@ -1396,7 +1402,7 @@ export function EditorPanel({
             background: "var(--red-bg)",
             borderBottom: "1px solid var(--border)",
             fontSize: 12,
-            color: "var(--red)",
+            color: "var(--red-text)",
             display: "flex",
             alignItems: "center",
             gap: 8,
@@ -1405,7 +1411,7 @@ export function EditorPanel({
           <span style={{ flex: 1 }}>{pendingError}</span>
           <button
             onClick={() => setPendingError(null)}
-            style={bannerBtn("var(--red)")}
+            style={bannerBtn("var(--red-text)")}
           >
             {i18n.t("common.dismiss")}
           </button>

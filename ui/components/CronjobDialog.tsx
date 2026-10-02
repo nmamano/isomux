@@ -870,7 +870,7 @@ export function CronjobDialog({
                     <p
                       style={{
                         fontSize: 10,
-                        color: "#ff6b6b",
+                        color: "var(--red-text)",
                         margin: "3px 0 0",
                       }}
                     >
@@ -902,7 +902,7 @@ export function CronjobDialog({
             <p
               style={{
                 fontSize: 10,
-                color: "#ff6b6b",
+                color: "var(--red-text)",
                 margin: "3px 0 0",
               }}
             >
@@ -918,7 +918,7 @@ export function CronjobDialog({
               <p
                 style={{
                   fontSize: 10,
-                  color: "#ff6b6b",
+                  color: "var(--red-text)",
                   margin: "3px 0 0",
                 }}
               >
@@ -929,7 +929,7 @@ export function CronjobDialog({
             <p
               style={{
                 fontSize: 10,
-                color: "#ff6b6b",
+                color: "var(--red-text)",
                 margin: "3px 0 0",
               }}
             >
@@ -1051,7 +1051,13 @@ export function CronjobDialog({
           )}
 
           {error && (
-            <p style={{ fontSize: 11, color: "#ff6b6b", margin: "10px 0 0" }}>
+            <p
+              style={{
+                fontSize: 11,
+                color: "var(--red-text)",
+                margin: "10px 0 0",
+              }}
+            >
               {error}
             </p>
           )}
@@ -1107,8 +1113,8 @@ export function CronjobDialog({
                   padding: "7px 16px",
                   borderRadius: 8,
                   border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                  background: confirmDelete ? "var(--red)" : "transparent",
-                  color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                  background: confirmDelete ? "var(--red-text)" : "transparent",
+                  color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
                   fontSize: 12,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -1156,7 +1162,7 @@ const discardBtnStyle: React.CSSProperties = {
   padding: "6px 12px",
   borderRadius: 6,
   border: "1px solid var(--red)",
-  background: "var(--red)",
+  background: "var(--red-text)",
   color: "var(--bg-base)",
   fontSize: 11,
   fontWeight: 600,

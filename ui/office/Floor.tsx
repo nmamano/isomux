@@ -888,9 +888,9 @@ function WallDoor({ side, door }: { side: DoorSide; door: DoorProps }) {
             textAnchor="middle"
             fill={
               door.reject
-                ? "var(--red, #f85149)"
+                ? "var(--red-text)"
                 : door.dragOver
-                  ? "var(--accent, #58a6ff)"
+                  ? "var(--accent-text)"
                   : "var(--text-dim)"
             }
             fontSize="12"

@@ -70,13 +70,8 @@
     --bg-card: #eef1f5;
     --text: #1a2030;
     --text-dim: #5a6a80;
-    /* The landing's light accent, MOVED ONE STEP DOWN its own ramp: its
-       #1f9550 becomes the hover, and its #16803f becomes the resting colour.
-       site/index.html says this green was darkened "so links and the primary
-       CTA hit AA contrast on white"; measured, #1f9550 reaches 3.84:1 on white
-       and 3.54:1 on the page, so it misses what it was chosen for. Promoting
-       the shade the landing already carries delivers the stated intent (5.01
-       and 4.63) without inventing a colour. Only the hover below is new. */
+    /* The landing's light accent: #16803f reaches 5.01:1 on white and 4.63:1
+       on the page. The landing's old #1f9550 (3.84 and 3.54) missed AA. */
     --accent: #16803f;
     --accent-hover: #116932;
     --border: #d8dde6;

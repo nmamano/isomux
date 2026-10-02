@@ -56,6 +56,6 @@ describe("ReceptionistFigure", () => {
       </svg>,
     );
     expect(markup).toContain(">unread</span>");
-    expect(markup).toContain("var(--purple)");
+    expect(markup).toContain("var(--purple-text)");
   });
 });

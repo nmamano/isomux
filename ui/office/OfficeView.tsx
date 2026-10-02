@@ -451,7 +451,7 @@ export function OfficeView({
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  color: "var(--blue, #58a6ff)",
+                  color: "var(--accent-text)",
                   fontFamily: "'JetBrains Mono',monospace",
                   letterSpacing: "0.02em",
                   cursor: "pointer",
@@ -481,15 +481,19 @@ export function OfficeView({
               [
                 {
                   n: counts.working,
-                  c: "var(--green)",
+                  c: "var(--green-text)",
                   l: "office.status.working",
                 },
                 {
                   n: counts.waiting,
-                  c: "var(--purple)",
+                  c: "var(--purple-text)",
                   l: "office.status.waiting",
                 },
-                { n: counts.error, c: "var(--red)", l: "office.status.error" },
+                {
+                  n: counts.error,
+                  c: "var(--red-text)",
+                  l: "office.status.error",
+                },
                 {
                   n: counts.idle,
                   c: "var(--text-muted)",

@@ -418,7 +418,7 @@ export function Markdown({
         document.body.removeChild(ta);
       }
       btn.innerHTML = CHECK_SVG;
-      (btn as HTMLElement).style.color = "var(--green)";
+      (btn as HTMLElement).style.color = "var(--green-text)";
       (btn as HTMLElement).style.background = "var(--green-bg)";
       setTimeout(() => {
         btn.innerHTML = COPY_SVG;

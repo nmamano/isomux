@@ -314,7 +314,7 @@ export function SkillsPopover({
               >
                 <span
                   style={{
-                    color: "var(--green)",
+                    color: "var(--green-text)",
                     fontFamily: "'JetBrains Mono',monospace",
                     fontSize: 13,
                     fontWeight: 600,

@@ -18,7 +18,7 @@ import { apiFetch, ApiError } from "../api.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { normalizePublicOrigin } from "../../shared/public-origin.ts";
 import { useI18n } from "../i18n.tsx";
-import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogInput, dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
 import {
   MintedUrlBox,
   sectionHeader,
@@ -288,7 +288,9 @@ function ExternalAccessSection({
           </p>
         )}
       {error && (
-        <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
+        <p
+          style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}
+        >
           {error}
         </p>
       )}
@@ -315,7 +317,7 @@ function ExternalAccessSection({
               padding: "6px 12px",
               borderRadius: 6,
               border: "1px solid var(--red)",
-              background: "var(--red)",
+              background: "var(--red-text)",
               color: "var(--bg-base)",
               fontSize: 11,
               fontWeight: 600,
@@ -347,7 +349,7 @@ function ExternalAccessSection({
           disabled={pending || !dirty}
           style={{
             ...dialogSaveBtn,
-            opacity: pending || !dirty ? 0.5 : 1,
+            ...(pending || !dirty ? disabledLook : null),
           }}
         >
           {pending

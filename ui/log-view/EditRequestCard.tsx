@@ -61,7 +61,7 @@ export function EditRequestCard({
             borderRadius: 6,
             border: "1px solid var(--green-border)",
             background: "var(--green-bg)",
-            color: "var(--green)",
+            color: "var(--green-text)",
             fontSize: 12,
             fontFamily: "'JetBrains Mono',monospace",
             cursor: "pointer",

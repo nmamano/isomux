@@ -391,9 +391,9 @@ export function GhostTag({
   username,
   device,
   userId,
-  dimmed,
   onClick,
 }: SharedGhostProps) {
+  // Never dimmed: an away member's figure fades, and the name stays readable.
   // Tag floats just above the SVG head-top with a small gap. Centered
   // horizontally on the body's midline via translateX(-50%) - the
   // ghostFadeIn keyframe intentionally animates opacity only so this
@@ -411,7 +411,7 @@ export function GhostTag({
         top: tagTop,
         transform: "translateX(-50%)",
         zIndex: GHOST_TAG_Z,
-        ...motionStyle(dimmed, onClick, "auto"),
+        ...motionStyle(false, onClick, "auto"),
       }}
       onClick={makeClickHandler(userId, onClick)}
       data-no-pan

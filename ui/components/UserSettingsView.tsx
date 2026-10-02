@@ -45,6 +45,7 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
   dialogHint,
+  disabledLook,
 } from "./dialog-styles.ts";
 import { DevicePane } from "./DevicePane.tsx";
 import { OfficePane } from "./OfficePane.tsx";
@@ -609,7 +610,6 @@ export function UserSettingsView({
                     width: "100%",
                     textAlign: "left",
                     font: "inherit",
-                    color: "inherit",
                     padding: "8px 14px",
                     border: "none",
                     cursor: editable ? "pointer" : "default",
@@ -617,7 +617,7 @@ export function UserSettingsView({
                     borderLeft: selected
                       ? "2px solid var(--accent)"
                       : "2px solid transparent",
-                    opacity: editable ? 1 : 0.55,
+                    color: editable ? "inherit" : "var(--text-hint)",
                   }}
                 >
                   <span
@@ -644,7 +644,9 @@ export function UserSettingsView({
                       style={{
                         fontSize: 13,
                         fontWeight: 600,
-                        color: "var(--text-primary)",
+                        color: editable
+                          ? "var(--text-primary)"
+                          : "var(--text-hint)",
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
@@ -763,7 +765,7 @@ export function UserSettingsView({
                     borderRadius: 6,
                     border: "1px solid #ff6b6b",
                     background: "transparent",
-                    color: "#ff6b6b",
+                    color: "var(--red-text)",
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: "pointer",
@@ -781,7 +783,7 @@ export function UserSettingsView({
                       borderRadius: 6,
                       background: "rgba(255,107,107,0.08)",
                       fontSize: 11,
-                      color: "#ff6b6b",
+                      color: "var(--red-text)",
                     }}
                   >
                     {logoutBlockedReason}
@@ -1888,7 +1890,13 @@ function UserEditPanel({
       >
         <div style={{ maxWidth: 720 - 48 }}>
           {error && (
-            <p style={{ fontSize: 10, color: "#ff6b6b", margin: "0 0 8px" }}>
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--red-text)",
+                margin: "0 0 8px",
+              }}
+            >
               {error}
             </p>
           )}
@@ -1902,7 +1910,7 @@ function UserEditPanel({
                 borderRadius: 6,
                 background: "rgba(255,107,107,0.08)",
                 fontSize: 11,
-                color: "#ff6b6b",
+                color: "var(--red-text)",
               }}
             >
               {deleteBlockedReason}
@@ -1933,7 +1941,7 @@ function UserEditPanel({
                   padding: "6px 12px",
                   borderRadius: 6,
                   border: "1px solid var(--red)",
-                  background: "var(--red)",
+                  background: "var(--red-text)",
                   color: "var(--bg-base)",
                   fontSize: 11,
                   fontWeight: 600,
@@ -1978,8 +1986,8 @@ function UserEditPanel({
                   padding: "7px 14px",
                   borderRadius: 6,
                   border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                  background: confirmDelete ? "var(--red)" : "transparent",
-                  color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                  background: confirmDelete ? "var(--red-text)" : "transparent",
+                  color: confirmDelete ? "var(--bg-base)" : "var(--red-text)",
                   fontSize: 11,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -2004,9 +2012,7 @@ function UserEditPanel({
                 disabled={saving || !dirty || !name.trim()}
                 style={{
                   ...saveBtnStyle,
-                  opacity: saving || !dirty || !name.trim() ? 0.5 : 1,
-                  cursor:
-                    saving || !dirty || !name.trim() ? "default" : "pointer",
+                  ...(saving || !dirty || !name.trim() ? disabledLook : null),
                 }}
               >
                 {saving
@@ -2148,7 +2154,7 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
         padding: "1px 6px",
         borderRadius: 4,
         border: `1px solid ${isOwner ? "var(--accent)" : "var(--border)"}`,
-        color: isOwner ? "var(--accent)" : "var(--text-ghost)",
+        color: isOwner ? "var(--accent-text)" : "var(--text-ghost)",
         background: "transparent",
         flexShrink: 0,
       }}

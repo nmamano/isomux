@@ -470,6 +470,8 @@ export function TerminalPanel({
       lineHeight: 1.4,
       cursorBlink: true,
       theme: mode === "dark" ? DARK_THEME : LIGHT_THEME,
+      // xterm adjusts any cell below this ratio, whatever colour the program asks for.
+      minimumContrastRatio: 4.5,
       allowProposedApi: true,
     });
 
@@ -837,12 +839,14 @@ export function TerminalPanel({
               like an out-of-place colored emoji. Desktop renders it as a
               proper CSS-colored glyph, which is the intended brand mark. */}
           {!mobile && (
-            <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>
+            <span style={{ color: "var(--green-text)", fontSize: 13 }}>
+              &#9654;
+            </span>
           )}
           {t("common.terminal")}
           <span
             style={{
-              color: owner?.shell ? "var(--green)" : "var(--text-muted)",
+              color: owner?.shell ? "var(--green-text)" : "var(--text-muted)",
             }}
           >
             {owner
@@ -1026,7 +1030,7 @@ export function TerminalPanel({
                 borderRadius: 6,
                 border: "1px solid var(--green-border)",
                 background: "var(--green-bg)",
-                color: "var(--green)",
+                color: "var(--green-text)",
                 fontSize: 12,
                 cursor: "pointer",
               }}
@@ -1082,7 +1086,7 @@ export function TerminalPanel({
                   borderRadius: 6,
                   border: `1px solid ${active ? "var(--green-border)" : "var(--border-medium)"}`,
                   background: active ? "var(--green-bg)" : "var(--btn-surface)",
-                  color: active ? "var(--green)" : "var(--text-primary)",
+                  color: active ? "var(--green-text)" : "var(--text-primary)",
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 14,
                   fontWeight: 500,

@@ -87,7 +87,7 @@ export function CopyButton({
         border: "1px solid var(--border-medium)",
         borderRadius: 6,
         background: copied ? "var(--green-bg)" : "var(--btn-surface)",
-        color: copied ? "var(--green)" : "var(--text-dim)",
+        color: copied ? "var(--green-text)" : "var(--text-dim)",
         cursor: "pointer",
         padding: 0,
         flexShrink: 0,

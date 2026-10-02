@@ -14,7 +14,7 @@ import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
-import { dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogSaveBtn, disabledLook } from "./dialog-styles.ts";
 import { useI18n } from "../i18n.tsx";
 import {
   InvitesTable,
@@ -121,14 +121,20 @@ function GenerateDeviceLinkForm() {
       <button
         onClick={generate}
         disabled={pending}
-        style={{ ...dialogSaveBtn, marginTop: 10, opacity: pending ? 0.5 : 1 }}
+        style={{
+          ...dialogSaveBtn,
+          marginTop: 10,
+          ...(pending ? disabledLook : null),
+        }}
       >
         {pending
           ? t("settings.devices.generating")
           : t("settings.devices.generate")}
       </button>
       {error && (
-        <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
+        <p
+          style={{ fontSize: 11, color: "var(--red-text)", margin: "6px 0 0" }}
+        >
           {error}
         </p>
       )}

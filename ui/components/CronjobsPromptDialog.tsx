@@ -132,7 +132,13 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
         </p>
 
         {error && (
-          <p style={{ fontSize: 11, color: "#ff6b6b", margin: "10px 0 0" }}>
+          <p
+            style={{
+              fontSize: 11,
+              color: "var(--red-text)",
+              margin: "10px 0 0",
+            }}
+          >
             {error}
           </p>
         )}
@@ -167,7 +173,7 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
               padding: "7px 16px",
               borderRadius: 8,
               border: "none",
-              background: "var(--accent)",
+              background: "var(--accent-text)",
               color: "var(--bg-base)",
               fontSize: 12,
               fontWeight: 600,

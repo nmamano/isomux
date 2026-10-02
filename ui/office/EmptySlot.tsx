@@ -106,9 +106,8 @@ export function EmptySlot({
           style={{
             fontSize: 11,
             fontWeight: 600,
-            color: "var(--text-muted)",
-            opacity: hov ? 0.75 : 0.6,
-            transition: "opacity 0.3s",
+            color: hov ? "var(--text-dim)" : "var(--text-muted)",
+            transition: "color 0.3s",
             fontFamily: "'JetBrains Mono',monospace",
           }}
         >
@@ -139,7 +138,7 @@ export function EmptySlot({
               alignItems: "center",
               justifyContent: "center",
               fontSize: 18,
-              color: "var(--accent)",
+              color: "var(--accent-text)",
               margin: "0 auto 5px",
               background: "rgba(126,184,255,0.06)",
             }}
@@ -147,7 +146,11 @@ export function EmptySlot({
             +
           </div>
           <div
-            style={{ fontSize: 10, color: "var(--accent)", fontWeight: 500 }}
+            style={{
+              fontSize: 10,
+              color: "var(--accent-text)",
+              fontWeight: 500,
+            }}
           >
             {t("office.newAgent")}
           </div>

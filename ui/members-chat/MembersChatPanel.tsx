@@ -160,7 +160,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
         background: "transparent",
         border: "none",
         cursor: "pointer",
-        color: armed ? "var(--red)" : "var(--text-ghost)",
+        color: armed ? "var(--red-text)" : "var(--text-ghost)",
         padding: 2,
         borderRadius: 4,
         display: "flex",
@@ -172,7 +172,7 @@ function DeleteControl({ onConfirm }: { onConfirm: () => void }) {
         transition: "color 0.15s",
       }}
       onMouseEnter={(e) => {
-        if (!armed) e.currentTarget.style.color = "var(--accent)";
+        if (!armed) e.currentTarget.style.color = "var(--accent-text)";
       }}
       onMouseLeave={(e) => {
         if (!armed) e.currentTarget.style.color = "var(--text-ghost)";
@@ -907,7 +907,7 @@ export function MembersChatPanel({
             role="alert"
             style={{
               marginBottom: 8,
-              color: "var(--red)",
+              color: "var(--red-text)",
               fontSize: isMobile ? 12 : 11,
             }}
           >
@@ -952,7 +952,9 @@ export function MembersChatPanel({
                   border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
                   fontSize: isMobile ? 13 : 11,
                   fontFamily: "'DM Sans',sans-serif",
-                  color: att.error ? "var(--red)" : "var(--text-secondary)",
+                  color: att.error
+                    ? "var(--red-text)"
+                    : "var(--text-secondary)",
                   maxWidth: "100%",
                 }}
               >
@@ -988,7 +990,7 @@ export function MembersChatPanel({
                   style={{
                     background: "none",
                     border: "none",
-                    color: att.error ? "var(--red)" : "var(--text-ghost)",
+                    color: att.error ? "var(--red-text)" : "var(--text-ghost)",
                     cursor: "pointer",
                     padding: "0 2px",
                     fontSize: 14,
@@ -1081,7 +1083,7 @@ export function MembersChatPanel({
                   fontSize: 10,
                   color:
                     input.length > MEMBERS_CHAT_MAX_CHARS
-                      ? "var(--red)"
+                      ? "var(--red-text)"
                       : "var(--text-ghost)",
                 }}
               >
@@ -1102,7 +1104,7 @@ export function MembersChatPanel({
                 borderRadius: 6,
                 border: "1px solid var(--border)",
                 background: canSend ? "var(--accent-bg)" : "transparent",
-                color: canSend ? "var(--accent)" : "var(--text-ghost)",
+                color: canSend ? "var(--accent-text)" : "var(--text-ghost)",
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: canSend ? "pointer" : "default",

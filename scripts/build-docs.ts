@@ -288,8 +288,8 @@ const STYLES = `
     --bg-card: #eef1f5;
     --text: #1a2030;
     --text-dim: #5a6a80;
-    --accent: #1f9550;
-    --accent-hover: #16803f;
+    --accent: #16803f;
+    --accent-hover: #116932;
     --border: #d8dde6;
     --topbar-bg: rgba(244, 246, 249, 0.92);
     color-scheme: light;
@@ -319,8 +319,8 @@ const STYLES = `
   --bg-card: #eef1f5;
   --text: #1a2030;
   --text-dim: #5a6a80;
-  --accent: #1f9550;
-  --accent-hover: #16803f;
+  --accent: #16803f;
+  --accent-hover: #116932;
   --border: #d8dde6;
   --topbar-bg: rgba(244, 246, 249, 0.92);
   color-scheme: light;

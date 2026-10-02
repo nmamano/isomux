@@ -11,6 +11,7 @@ import {
   dialogInput,
   dialogCancelBtn,
   dialogSaveBtn,
+  disabledLook,
 } from "./dialog-styles.ts";
 import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import { useI18n } from "../i18n.tsx";
@@ -400,7 +401,13 @@ export function RoomPane({
         )}
 
         {error && (
-          <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--red-text)",
+              margin: "6px 0 0",
+            }}
+          >
             {error}
           </p>
         )}
@@ -460,8 +467,7 @@ export function RoomPane({
                   disabled={disabled}
                   style={{
                     ...saveBtnStyle,
-                    opacity: disabled ? 0.45 : 1,
-                    cursor: disabled ? "not-allowed" : "pointer",
+                    ...(disabled ? disabledLook : null),
                   }}
                 >
                   {saving
@@ -491,6 +497,6 @@ const saveBtnStyle: React.CSSProperties = {
 const deleteBtnStyle: React.CSSProperties = {
   ...dialogCancelBtn,
   borderColor: "rgba(255, 107, 107, 0.45)",
-  color: "#ff8a8a",
+  color: "var(--red-text)",
   fontFamily: "'DM Sans',sans-serif",
 };

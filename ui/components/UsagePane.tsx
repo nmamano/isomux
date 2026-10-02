@@ -90,7 +90,7 @@ export function UsagePane() {
         </p>
       )}
       {error ? (
-        <p style={{ color: "#ff6b6b", fontSize: 11 }}>{error}</p>
+        <p style={{ color: "var(--red-text)", fontSize: 11 }}>{error}</p>
       ) : !usage ? (
         <p
           style={{

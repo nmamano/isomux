@@ -3,11 +3,15 @@
 // that must branch on mode rather than on a specific theme (lamp glow,
 // window day/night, neon sign, diff2html palette).
 //
-// All ~73 CSS variables are defined per theme. Existing Dark and Light
-// values are byte-for-byte preserved from the original styles.ts. New
-// themes (Nord, Dracula, Solarized Dark/Light) supply the same shape;
-// office-scene props are picked to fit each palette rather than hand-tuned
-// pixel-by-pixel.
+// All CSS variables are defined per theme. Nord, Dracula and Solarized
+// supply the same shape as Dark; office-scene props are picked to fit each
+// palette rather than hand-tuned pixel-by-pixel.
+//
+// Every colour drawn as text (--text-*, --<hue>-text, --hljs-*) measures at
+// least 4.5:1 against the lightest (dark themes) or darkest (light themes)
+// panel, input, code or tint background it can sit on. --text-faint, -ghost
+// and -hint share that floor; the lower tiers keep their order but no longer
+// fade below it.
 
 import type { MessageKey } from "../shared/i18n/translate.ts";
 
@@ -33,11 +37,11 @@ const DARK_VARS = {
 
   "--text-primary": "#e0e8f5",
   "--text-secondary": "#c0c8d8",
-  "--text-dim": "#8a9ab8",
-  "--text-muted": "#5a6f8f",
-  "--text-faint": "#4a5a7a",
-  "--text-ghost": "#3a4a6a",
-  "--text-hint": "#3a4a68",
+  "--text-dim": "#a3afc7",
+  "--text-muted": "#8e9fb8",
+  "--text-faint": "#7c8db0",
+  "--text-ghost": "#768bb4",
+  "--text-hint": "#7489b2",
 
   "--border": "rgba(255,255,255,0.06)",
   "--border-subtle": "rgba(255,255,255,0.03)",
@@ -58,6 +62,14 @@ const DARK_VARS = {
   "--red": "#E85D75",
   "--red-bg": "rgba(232,93,117,0.08)",
   "--purple": "#9B6DFF",
+  // Each status hue at text strength: at least 4.5:1 as text on every panel
+  // and tint, and as a fill under a --bg-base label. The plain hue stays for
+  // dots, borders and unlabelled fills.
+  "--accent-text": "#7eb8ff",
+  "--green-text": "#50b86c",
+  "--orange-text": "#f5a623",
+  "--red-text": "#ea6980",
+  "--purple-text": "#a47bff",
 
   "--user-msg-bg": "rgba(126,184,255,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -121,7 +133,7 @@ const DARK_VARS = {
 
   "--hljs-keyword": "#c678dd",
   "--hljs-string": "#98c379",
-  "--hljs-comment": "#5c6370",
+  "--hljs-comment": "#838b99",
   "--hljs-number": "#d19a66",
   "--hljs-function": "#61afef",
   "--hljs-type": "#e5c07b",
@@ -151,12 +163,12 @@ const LIGHT_VARS: ThemeVars = {
   "--bg-tooltip": "rgba(255,255,255,0.96)",
 
   "--text-primary": "#1a2030",
-  "--text-secondary": "#3a4a60",
-  "--text-dim": "#5a6a80",
-  "--text-muted": "#7a8a9a",
-  "--text-faint": "#8a95a8",
-  "--text-ghost": "#a0aab8",
-  "--text-hint": "#b0b8c5",
+  "--text-secondary": "#2c394a",
+  "--text-dim": "#3f4a5a",
+  "--text-muted": "#4b5763",
+  "--text-faint": "#586377",
+  "--text-ghost": "#596577",
+  "--text-hint": "#5a677b",
 
   "--border": "rgba(0,0,0,0.08)",
   "--border-subtle": "rgba(0,0,0,0.04)",
@@ -177,6 +189,11 @@ const LIGHT_VARS: ThemeVars = {
   "--red": "#dc2626",
   "--red-bg": "rgba(220,38,38,0.06)",
   "--purple": "#7c3aed",
+  "--accent-text": "#0a5bdf",
+  "--green-text": "#107435",
+  "--orange-text": "#985304",
+  "--red-text": "#c42020",
+  "--purple-text": "#7a36ed",
 
   "--user-msg-bg": "rgba(59,130,246,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",
@@ -228,16 +245,16 @@ const LIGHT_VARS: ThemeVars = {
   "--expand-btn": "rgba(0,0,0,0.04)",
 
   "--hljs-keyword": "#a626a4",
-  "--hljs-string": "#50a14f",
-  "--hljs-comment": "#a0a1a7",
-  "--hljs-number": "#986801",
-  "--hljs-function": "#4078f2",
-  "--hljs-type": "#c18401",
-  "--hljs-variable": "#e45649",
-  "--hljs-regexp": "#0184bc",
-  "--hljs-symbol": "#0184bc",
-  "--hljs-meta": "#696c77",
-  "--hljs-deletion": "#e45649",
+  "--hljs-string": "#387037",
+  "--hljs-comment": "#63646b",
+  "--hljs-number": "#875c01",
+  "--hljs-function": "#1056ed",
+  "--hljs-type": "#875c01",
+  "--hljs-variable": "#bf2a1c",
+  "--hljs-regexp": "#016b99",
+  "--hljs-symbol": "#016b99",
+  "--hljs-meta": "#62646f",
+  "--hljs-deletion": "#bf2a1c",
 };
 
 // Nord - Polar Night background, Frost accents.
@@ -259,12 +276,12 @@ const NORD_VARS: ThemeVars = {
   "--bg-tooltip": "rgba(46,52,64,0.94)",
 
   "--text-primary": "#eceff4",
-  "--text-secondary": "#d8dee9",
-  "--text-dim": "#b8c2d2",
-  "--text-muted": "#9aa3b5",
-  "--text-faint": "#828c9e",
-  "--text-ghost": "#6b748a",
-  "--text-hint": "#5e6776",
+  "--text-secondary": "#d9dfe9",
+  "--text-dim": "#ccd4df",
+  "--text-muted": "#c6ccd6",
+  "--text-faint": "#bec3cc",
+  "--text-ghost": "#bbc0ca",
+  "--text-hint": "#b8bec7",
 
   "--border": "rgba(255,255,255,0.06)",
   "--border-subtle": "rgba(255,255,255,0.03)",
@@ -285,6 +302,11 @@ const NORD_VARS: ThemeVars = {
   "--red": "#bf616a",
   "--red-bg": "rgba(191,97,106,0.08)",
   "--purple": "#b48ead",
+  "--accent-text": "#98c9d6",
+  "--green-text": "#b2c89f",
+  "--orange-text": "#e3b8aa",
+  "--red-text": "#e2b7bb",
+  "--purple-text": "#d2bbcd",
 
   "--user-msg-bg": "rgba(136,192,208,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -333,17 +355,17 @@ const NORD_VARS: ThemeVars = {
   "--btn-surface": "rgba(255,255,255,0.03)",
   "--expand-btn": "rgba(255,255,255,0.04)",
 
-  "--hljs-keyword": "#81a1c1",
-  "--hljs-string": "#a3be8c",
-  "--hljs-comment": "#4c566a",
-  "--hljs-number": "#b48ead",
-  "--hljs-function": "#88c0d0",
+  "--hljs-keyword": "#adc2d7",
+  "--hljs-string": "#afc79c",
+  "--hljs-comment": "#b9c0cd",
+  "--hljs-number": "#d0b9cc",
+  "--hljs-function": "#96c8d6",
   "--hljs-type": "#ebcb8b",
-  "--hljs-variable": "#d08770",
+  "--hljs-variable": "#e2b6a7",
   "--hljs-regexp": "#ebcb8b",
   "--hljs-symbol": "#ebcb8b",
   "--hljs-meta": "#d8dee9",
-  "--hljs-deletion": "#bf616a",
+  "--hljs-deletion": "#e1b5b9",
 };
 
 // Dracula - purple/pink accents on a near-black background.
@@ -366,11 +388,11 @@ const DRACULA_VARS: ThemeVars = {
 
   "--text-primary": "#f8f8f2",
   "--text-secondary": "#dcdcd6",
-  "--text-dim": "#a3a3a8",
-  "--text-muted": "#757585",
-  "--text-faint": "#6272a4",
-  "--text-ghost": "#4d5878",
-  "--text-hint": "#404a65",
+  "--text-dim": "#c6c6c9",
+  "--text-muted": "#b8b8c0",
+  "--text-faint": "#9fa9c7",
+  "--text-ghost": "#9da6c0",
+  "--text-hint": "#9ba4bf",
 
   "--border": "rgba(255,255,255,0.06)",
   "--border-subtle": "rgba(255,255,255,0.03)",
@@ -391,6 +413,11 @@ const DRACULA_VARS: ThemeVars = {
   "--red": "#ff5555",
   "--red-bg": "rgba(255,85,85,0.08)",
   "--purple": "#ff79c6",
+  "--accent-text": "#c6a3fa",
+  "--green-text": "#50fa7b",
+  "--orange-text": "#ffb86c",
+  "--red-text": "#ff9696",
+  "--purple-text": "#ff8ecf",
 
   "--user-msg-bg": "rgba(189,147,249,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -441,15 +468,15 @@ const DRACULA_VARS: ThemeVars = {
 
   "--hljs-keyword": "#ff79c6",
   "--hljs-string": "#f1fa8c",
-  "--hljs-comment": "#6272a4",
+  "--hljs-comment": "#9ba6c5",
   "--hljs-number": "#bd93f9",
   "--hljs-function": "#50fa7b",
   "--hljs-type": "#8be9fd",
   "--hljs-variable": "#ffb86c",
-  "--hljs-regexp": "#ff5555",
+  "--hljs-regexp": "#ff8080",
   "--hljs-symbol": "#8be9fd",
   "--hljs-meta": "#f8f8f2",
-  "--hljs-deletion": "#ff5555",
+  "--hljs-deletion": "#ff8080",
 };
 
 // Solarized Dark - Ethan Schoonover's palette.
@@ -472,11 +499,11 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
 
   "--text-primary": "#fdf6e3",
   "--text-secondary": "#eee8d5",
-  "--text-dim": "#93a1a1",
-  "--text-muted": "#839496",
-  "--text-faint": "#657b83",
-  "--text-ghost": "#586e75",
-  "--text-hint": "#4a6066",
+  "--text-dim": "#c8d0d0",
+  "--text-muted": "#b4bfc0",
+  "--text-faint": "#9daeb3",
+  "--text-ghost": "#98acb2",
+  "--text-hint": "#93abb1",
 
   "--border": "rgba(255,255,255,0.06)",
   "--border-subtle": "rgba(255,255,255,0.03)",
@@ -497,6 +524,11 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--red": "#dc322f",
   "--red-bg": "rgba(220,50,47,0.08)",
   "--purple": "#6c71c4",
+  "--accent-text": "#66b0e3",
+  "--green-text": "#9cb300",
+  "--orange-text": "#ef9068",
+  "--red-text": "#ec8f8d",
+  "--purple-text": "#a1a5d9",
 
   "--user-msg-bg": "rgba(38,139,210,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
@@ -545,17 +577,17 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--btn-surface": "rgba(255,255,255,0.03)",
   "--expand-btn": "rgba(255,255,255,0.04)",
 
-  "--hljs-keyword": "#859900",
-  "--hljs-string": "#2aa198",
-  "--hljs-comment": "#586e75",
-  "--hljs-number": "#d33682",
-  "--hljs-function": "#268bd2",
-  "--hljs-type": "#b58900",
-  "--hljs-variable": "#cb4b16",
-  "--hljs-regexp": "#2aa198",
-  "--hljs-symbol": "#d33682",
-  "--hljs-meta": "#93a1a1",
-  "--hljs-deletion": "#dc322f",
+  "--hljs-keyword": "#9cb300",
+  "--hljs-string": "#31bbb0",
+  "--hljs-comment": "#98acb2",
+  "--hljs-number": "#e68db8",
+  "--hljs-function": "#66b0e3",
+  "--hljs-type": "#d4a100",
+  "--hljs-variable": "#ef9068",
+  "--hljs-regexp": "#31bbb0",
+  "--hljs-symbol": "#e68db8",
+  "--hljs-meta": "#9eabab",
+  "--hljs-deletion": "#ec8f8d",
 };
 
 // Solarized Light - same accent palette as Solarized Dark, light base.
@@ -576,12 +608,12 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--bg-tooltip": "rgba(253,246,227,0.96)",
 
   "--text-primary": "#073642",
-  "--text-secondary": "#586e75",
-  "--text-dim": "#657b83",
-  "--text-muted": "#839496",
-  "--text-faint": "#93a1a1",
-  "--text-ghost": "#a8b3b3",
-  "--text-hint": "#b8c2c2",
+  "--text-secondary": "#364348",
+  "--text-dim": "#404e54",
+  "--text-muted": "#4a5658",
+  "--text-faint": "#535f5f",
+  "--text-ghost": "#556161",
+  "--text-hint": "#556363",
 
   "--border": "rgba(0,0,0,0.08)",
   "--border-subtle": "rgba(0,0,0,0.04)",
@@ -602,6 +634,11 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--red": "#dc322f",
   "--red-bg": "rgba(220,50,47,0.06)",
   "--purple": "#6c71c4",
+  "--accent-text": "#1b6396",
+  "--green-text": "#586500",
+  "--orange-text": "#a53d12",
+  "--red-text": "#b8221f",
+  "--purple-text": "#4e54b8",
 
   "--user-msg-bg": "rgba(38,139,210,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",
@@ -651,17 +688,17 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--btn-surface": "rgba(0,0,0,0.03)",
   "--expand-btn": "rgba(0,0,0,0.04)",
 
-  "--hljs-keyword": "#859900",
-  "--hljs-string": "#2aa198",
-  "--hljs-comment": "#93a1a1",
-  "--hljs-number": "#d33682",
-  "--hljs-function": "#268bd2",
-  "--hljs-type": "#b58900",
-  "--hljs-variable": "#cb4b16",
-  "--hljs-regexp": "#2aa198",
-  "--hljs-symbol": "#d33682",
-  "--hljs-meta": "#586e75",
-  "--hljs-deletion": "#dc322f",
+  "--hljs-keyword": "#586500",
+  "--hljs-string": "#1c6964",
+  "--hljs-comment": "#556161",
+  "--hljs-number": "#ae2668",
+  "--hljs-function": "#1b6396",
+  "--hljs-type": "#785a00",
+  "--hljs-variable": "#a53d12",
+  "--hljs-regexp": "#1c6964",
+  "--hljs-symbol": "#ae2668",
+  "--hljs-meta": "#4f6269",
+  "--hljs-deletion": "#b8221f",
 };
 
 export interface Theme {

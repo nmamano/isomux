@@ -105,7 +105,7 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
       style={{
         fontSize: 11,
         fontWeight: 600,
-        color: "var(--orange)",
+        color: "var(--orange-text)",
         whiteSpace: "nowrap",
       }}
     >
@@ -169,8 +169,8 @@ function formatElapsed(ms: number): string {
 }
 
 function escalationColor(elapsedMs: number, baseColor: string): string {
-  if (elapsedMs >= ESCALATION_RED_MS) return "var(--red)";
-  if (elapsedMs >= ESCALATION_AMBER_MS) return "var(--orange)";
+  if (elapsedMs >= ESCALATION_RED_MS) return "var(--red-text)";
+  if (elapsedMs >= ESCALATION_AMBER_MS) return "var(--orange-text)";
   return baseColor;
 }
 
@@ -210,7 +210,9 @@ function ActivityIndicator({
 
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
   const baseColor =
-    state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
+    state === "waiting_for_response"
+      ? "var(--purple-text)"
+      : "var(--green-text)";
   const color = escalationColor(elapsedMs, baseColor);
   const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
 
@@ -264,7 +266,6 @@ function ActivityIndicator({
         style={{
           fontFamily: "'JetBrains Mono',monospace",
           fontSize: 11,
-          opacity: 0.7,
         }}
       >
         {formatElapsed(elapsedMs)}
@@ -282,7 +283,6 @@ function ActivityIndicator({
             color,
             fontSize: 11,
             cursor: "pointer",
-            opacity: 0.8,
           }}
         >
           {t("logView.abort")}
@@ -391,7 +391,7 @@ function QueueChips({
             padding: "2px 10px",
             borderRadius: 4,
             border: "1px solid var(--green)",
-            background: "var(--green)",
+            background: "var(--green-text)",
             color: "var(--bg-base)",
             fontSize: 11,
             fontWeight: 600,
@@ -458,7 +458,7 @@ function QueueChips({
                   style={{
                     fontSize: isMobile ? 11 : 10,
                     fontWeight: 600,
-                    color: isAgent ? "var(--text-muted)" : "var(--accent)",
+                    color: isAgent ? "var(--text-muted)" : "var(--accent-text)",
                     marginBottom: 2,
                     textTransform: "uppercase",
                     letterSpacing: "0.05em",
@@ -478,7 +478,6 @@ function QueueChips({
                       lineHeight: 1.4,
                       maxHeight: isMobile ? "4.2em" : "3.5em",
                       overflow: "hidden",
-                      opacity: 0.9,
                     }}
                   >
                     {msg.text}
@@ -542,7 +541,9 @@ function HeaderTimer({
   }, []);
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
   const baseColor =
-    state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
+    state === "waiting_for_response"
+      ? "var(--purple-text)"
+      : "var(--green-text)";
   const color = escalationColor(elapsedMs, baseColor);
   return (
     <>
@@ -639,11 +640,13 @@ export function ChoiceInteractionCard({
                 ? "1px solid var(--accent)"
                 : "1px solid var(--border)",
               borderRadius: 9,
-              color: "var(--text-primary)",
+              color:
+                submitting && submitting !== choice.value
+                  ? "var(--text-hint)"
+                  : "var(--text-primary)",
               background: choice.current ? "var(--bg-hover)" : "var(--bg-code)",
               cursor: submitting ? "wait" : "pointer",
               textAlign: "left",
-              opacity: submitting && submitting !== choice.value ? 0.55 : 1,
             }}
           >
             <span>
@@ -665,7 +668,11 @@ export function ChoiceInteractionCard({
             </span>
             {choice.current && (
               <span
-                style={{ color: "var(--accent)", fontSize: 11, flexShrink: 0 }}
+                style={{
+                  color: "var(--accent-text)",
+                  fontSize: 11,
+                  flexShrink: 0,
+                }}
               >
                 {i18n.t("logView.interaction.current")}
               </span>
@@ -685,7 +692,7 @@ export function ChoiceInteractionCard({
       {error && (
         <div
           role="alert"
-          style={{ color: "var(--red)", fontSize: 12, marginTop: 8 }}
+          style={{ color: "var(--red-text)", fontSize: 12, marginTop: 8 }}
         >
           {error}
         </div>
@@ -2085,7 +2092,7 @@ export function LogView({
                           fontWeight: 600,
                           letterSpacing: 0.5,
                           textTransform: "uppercase",
-                          color: "var(--accent-blue, #5eafff)",
+                          color: "var(--accent-text)",
                           whiteSpace: "nowrap",
                         }}
                         title={i18n.t("logView.backendTitle", {
@@ -2564,7 +2571,7 @@ export function LogView({
                           padding: 0,
                           border: "none",
                           background: "none",
-                          color: "var(--accent)",
+                          color: "var(--accent-text)",
                           cursor: "pointer",
                           font: "inherit",
                           textDecoration: "underline",
@@ -2740,7 +2747,7 @@ export function LogView({
                   borderRadius: 6,
                   background: "var(--red-bg, rgba(192,57,43,0.12))",
                   border: "1px solid var(--red, #c0392b)",
-                  color: "var(--red, #c0392b)",
+                  color: "var(--red-text)",
                   fontSize: isMobile ? 12 : 11,
                   fontWeight: 600,
                 }}
@@ -2762,7 +2769,7 @@ export function LogView({
                   borderRadius: 6,
                   background: "var(--red-bg, rgba(192,57,43,0.12))",
                   border: "1px solid var(--red, #c0392b)",
-                  color: "var(--red, #c0392b)",
+                  color: "var(--red-text)",
                   fontSize: isMobile ? 12 : 11,
                   fontWeight: 600,
                 }}
@@ -2776,7 +2783,7 @@ export function LogView({
                 role="alert"
                 style={{
                   marginBottom: 8,
-                  color: "var(--red)",
+                  color: "var(--red-text)",
                   fontSize: isMobile ? 12 : 11,
                 }}
               >
@@ -2812,7 +2819,9 @@ export function LogView({
                       border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
                       fontSize: isMobile ? 13 : 11,
                       fontFamily: "'JetBrains Mono',monospace",
-                      color: att.error ? "var(--red)" : "var(--text-secondary)",
+                      color: att.error
+                        ? "var(--red-text)"
+                        : "var(--text-secondary)",
                       maxWidth: "100%",
                     }}
                   >
@@ -2852,7 +2861,9 @@ export function LogView({
                       style={{
                         background: "none",
                         border: "none",
-                        color: att.error ? "var(--red)" : "var(--text-ghost)",
+                        color: att.error
+                          ? "var(--red-text)"
+                          : "var(--text-ghost)",
                         cursor: "pointer",
                         padding: "0 2px",
                         fontSize: 14,
@@ -2930,7 +2941,9 @@ export function LogView({
                       background: "none",
                       border: "none",
                       padding: 0,
-                      color: skillsOpen ? "var(--green)" : "var(--text-muted)",
+                      color: skillsOpen
+                        ? "var(--green-text)"
+                        : "var(--text-muted)",
                       cursor: "pointer",
                       // Flex-center the glyph in the same 20px box the paperclip
                       // occupies, then nudge up to optically match the svg's
@@ -2954,7 +2967,7 @@ export function LogView({
                 )}
               <span
                 style={{
-                  color: isBusy ? "var(--text-ghost)" : "var(--green)",
+                  color: isBusy ? "var(--text-ghost)" : "var(--green-text)",
                   fontWeight: 600,
                   lineHeight: "20px",
                   position: "relative",
@@ -3082,7 +3095,9 @@ export function LogView({
                     background: isListening
                       ? "rgba(255,50,50,0.15)"
                       : "transparent",
-                    color: isListening ? "var(--red)" : "var(--text-muted)",
+                    color: isListening
+                      ? "var(--red-text)"
+                      : "var(--text-muted)",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
@@ -3271,7 +3286,7 @@ export function LogView({
                       borderRadius: 8,
                       border: "1px solid var(--red)",
                       background: "transparent",
-                      color: "var(--red)",
+                      color: "var(--red-text)",
                       fontSize: 16,
                       cursor: "pointer",
                       display: "flex",
@@ -3304,7 +3319,7 @@ export function LogView({
                         (input.trim() || validAttachments.length > 0) &&
                         !hasUploading &&
                         !editingLogEntryId
-                          ? "var(--green)"
+                          ? "var(--green-text)"
                           : "var(--bg-hover)",
                       color:
                         (input.trim() || validAttachments.length > 0) &&

@@ -133,7 +133,7 @@ export function ConnectionsPane({
           : t("settings.connections.personalIntro")}
       </p>
       {error && (
-        <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
+        <p role="alert" style={{ color: "var(--red-text)", fontSize: 12 }}>
           {error}
         </p>
       )}
@@ -255,7 +255,7 @@ function BedrockHint() {
             href={BEDROCK_GUIDE}
             target="_blank"
             rel="noreferrer"
-            style={{ color: "var(--accent)" }}
+            style={{ color: "var(--accent-text)" }}
           >
             {chunk}
           </a>

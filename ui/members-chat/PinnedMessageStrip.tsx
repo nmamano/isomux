@@ -67,7 +67,7 @@ export function PinnedMessageStrip({
         <span
           style={{
             display: "block",
-            color: "var(--accent)",
+            color: "var(--accent-text)",
             fontSize: 11,
             fontWeight: 600,
           }}

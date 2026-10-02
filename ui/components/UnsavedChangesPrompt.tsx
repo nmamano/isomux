@@ -89,7 +89,7 @@ export function UnsavedChangesPrompt({
           padding: "6px 12px",
           borderRadius: 6,
           border: "1px solid var(--red)",
-          background: "var(--red)",
+          background: "var(--red-text)",
           color: "var(--bg-base)",
           fontSize: 11,
           fontWeight: 600,
