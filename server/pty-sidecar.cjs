@@ -58,7 +58,13 @@ function reportOwner(force = false) {
   // after spawn. The sidecar created the shell, so keep the seeded shell owner
   // until node-pty confirms a meaningful reading. After that, a real `node`
   // foreground job is reported normally.
-  if (!shellOwnerConfirmed && next === sidecarName) return;
+  // A requested status must still be answered: the panel waits on it before
+  // it types a card's command.
+  if (!shellOwnerConfirmed && next === sidecarName) {
+    if (force && owner)
+      sendMsg({ type: "status", process: owner, shell: owner === shellName });
+    return;
+  }
   if (next === shellName) shellOwnerConfirmed = true;
   if (!next || (!force && next === owner)) return;
   owner = next;

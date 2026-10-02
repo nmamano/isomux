@@ -33,7 +33,7 @@ export const ca: Catalog = {
   "browser.setup": "Configura Chrome",
   "browser.extract": "Extreu el ZIP.",
   "browser.extensions":
-    "Obre chrome://extensions a Chrome i activa el mode de desenvolupador.",
+    "Obre {address} a Chrome i activa el mode de desenvolupador.",
   "browser.load":
     "Selecciona Carrega sense comprimir i tria la carpeta extreta.",
   "browser.pin": "Fixa Isomux Browser a la barra d’eines.",

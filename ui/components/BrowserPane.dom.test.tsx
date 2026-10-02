@@ -59,3 +59,34 @@ test("Chrome pairing is direct; replacement and revoke use self routes", async (
   expect(translated.container.textContent).not.toBe(english);
   translated.unmount();
 });
+
+test("the extensions step copies the Chrome address it names", async () => {
+  setApiShim(async () => ({
+    paired: false,
+    online: false,
+    member: { id: "self", name: "Fixture member" },
+    version: "0.1.0",
+  }));
+  const copied: string[] = [];
+  const original = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: async (text: string) => void copied.push(text) },
+  });
+  try {
+    const view = render(<BrowserPane />);
+    await act(async () => {});
+    const button = view.getByTestId("browser-extensions-copy");
+    const step = button.closest("li")!;
+    const address = step.querySelector("code")!.textContent;
+    expect(address.startsWith("chrome://")).toBe(true);
+    const before = button.textContent;
+    await act(async () => fireEvent.click(button));
+    expect(copied).toEqual([address]);
+    expect(button.textContent).not.toBe(before);
+    view.unmount();
+  } finally {
+    if (original) Object.defineProperty(navigator, "clipboard", original);
+    else delete (navigator as { clipboard?: unknown }).clipboard;
+  }
+});

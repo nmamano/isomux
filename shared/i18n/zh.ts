@@ -28,7 +28,7 @@ export const zh: Catalog = {
   "browser.setup": "设置 Chrome",
   "browser.extract": "解压 ZIP 文件。",
   "browser.extensions":
-    "在 Chrome 中打开 chrome://extensions 并启用开发者模式。",
+    "在 Chrome 中打开 {address} 并启用开发者模式。",
   "browser.load": "选择“加载已解压的扩展程序”，然后选择解压后的文件夹。",
   "browser.pin": "将 Isomux Browser 固定到工具栏。",
   "browser.finish":

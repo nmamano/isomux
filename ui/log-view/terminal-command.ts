@@ -8,15 +8,23 @@ export function commandInputBytes(command: string): string {
 
 export const INTERRUPT_INPUT_BYTES = "\x03";
 
+// Ctrl+E Ctrl+U clears only the current line, so at a continuation prompt the
+// earlier lines would stay in the shell's parser and join the typed command.
+// Only an interrupt abandons them, and bash echoes it as ^C. Default PS2 is
+// "> " in bash and "%_> " in zsh ("quote> ", "for> "), so only a line that
+// starts like that gets the interrupt. A custom PS2 is not recognized.
+export function looksLikeContinuationPrompt(line: string): boolean {
+  return /^(?:[a-z]+ )*[a-z]*> /u.test(line);
+}
+
 export type CommandDeliveryState = {
   command: string;
-  phase: "interrupt_ack" | "fresh_owner";
-  interruptOutput: string;
+  phase: "owner" | "interrupt_ack" | "fresh_owner";
 };
 
 export type CommandDeliveryEvent =
   | { type: "output"; data: string }
-  | { type: "status"; shell: boolean; process: string }
+  | { type: "status"; shell: boolean; process: string; line: string }
   | { type: "exit" }
   | { type: "timeout" };
 
@@ -37,15 +45,14 @@ export type CommandDeliveryResult = {
   handled?: true;
 };
 
+// A card first asks for a fresh owner, because a pushed status can lag a
+// foreground change by up to the 500 ms sidecar poll. Nothing is written yet.
 export function queueCommand(
   state: CommandDeliveryState | null,
   command: string,
-): { state: CommandDeliveryState; write?: string } {
+): { state: CommandDeliveryState; requestStatus?: true } {
   if (state) return { state: { ...state, command } };
-  return {
-    state: { command, phase: "interrupt_ack", interruptOutput: "" },
-    write: INTERRUPT_INPUT_BYTES,
-  };
+  return { state: { command, phase: "owner" }, requestStatus: true };
 }
 
 export function advanceCommandDelivery(
@@ -61,16 +68,10 @@ export function advanceCommandDelivery(
     return { state: null, issue: { kind: "unavailable" }, handled: true };
   }
   if (state.phase === "interrupt_ack") {
+    // zsh prints no ^C, so any output after the interrupt is the
+    // acknowledgement. The fresh status after it decides what happens next.
     if (event.type !== "output") return { state };
-    const interruptOutput = `${state.interruptOutput}${event.data}`.slice(-256);
-    return {
-      state: {
-        ...state,
-        interruptOutput,
-        phase: interruptOutput.includes("^C") ? "fresh_owner" : state.phase,
-      },
-      requestStatus: interruptOutput.includes("^C") ? true : undefined,
-    };
+    return { state: { ...state, phase: "fresh_owner" }, requestStatus: true };
   }
   if (event.type !== "status") return { state };
   if (!event.shell) {
@@ -78,6 +79,12 @@ export function advanceCommandDelivery(
       state: null,
       issue: { kind: "busy", process: event.process },
       handled: true,
+    };
+  }
+  if (state.phase === "owner" && looksLikeContinuationPrompt(event.line)) {
+    return {
+      state: { ...state, phase: "interrupt_ack" },
+      write: INTERRUPT_INPUT_BYTES,
     };
   }
   return {

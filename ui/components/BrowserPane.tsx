@@ -5,8 +5,12 @@ import type { MemberBrowserStatus } from "../../shared/browser-extension-protoco
 import { sectionHeader, hint, cardStyle } from "./access-shared";
 import { dialogCancelBtn, dialogInput, dialogLabel } from "./dialog-styles";
 
+// Chrome refuses to open chrome:// pages from a web page link or
+// window.open, so members copy the address into the address bar.
+const EXTENSIONS_PAGE = "chrome://extensions";
+
 export function BrowserPane() {
-  const { t } = useI18n();
+  const { t, rich } = useI18n();
   const [status, setStatus] = useState<MemberBrowserStatus>();
   const [pair, setPair] = useState<{ code: string; expiresAt: number }>();
   const [now, setNow] = useState(() => Date.now());
@@ -67,6 +71,7 @@ export function BrowserPane() {
   }
   const [revealed, setRevealed] = useState(false);
   const [officeCopied, setOfficeCopied] = useState(false);
+  const [extensionsCopied, setExtensionsCopied] = useState(false);
   const expired = !!pair && now >= pair.expiresAt;
   return (
     <section
@@ -94,7 +99,29 @@ export function BrowserPane() {
                 </a>
               </li>
               <li>{t("browser.extract")}</li>
-              <li>{t("browser.extensions")}</li>
+              <li>
+                {rich("browser.extensions", {
+                  address: (
+                    <>
+                      <code>{EXTENSIONS_PAGE}</code>{" "}
+                      <button
+                        data-testid="browser-extensions-copy"
+                        style={{ ...dialogCancelBtn, padding: "2px 8px" }}
+                        onClick={() => {
+                          void navigator.clipboard
+                            .writeText(EXTENSIONS_PAGE)
+                            .then(
+                              () => setExtensionsCopied(true),
+                              () => setError(true),
+                            );
+                        }}
+                      >
+                        {t(extensionsCopied ? "browser.copied" : "common.copy")}
+                      </button>
+                    </>
+                  ),
+                })}
+              </li>
               <li>{t("browser.load")}</li>
               <li>{t("browser.pin")}</li>
               <li>{t("browser.finish")}</li>

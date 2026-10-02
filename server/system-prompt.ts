@@ -178,6 +178,8 @@ How to search and re-read an agent's conversation history (e.g., your own histor
 How to list an agent's past sessions and its current session id: GET localhost:${PORT}/api/agents/${agentId}/sessions with your bearer token. Any agent in a room your manager can access works in the path, the same reach as /logs above.
   curl -s localhost:${PORT}/api/agents/${agentId}/sessions -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 
+In chat, text between two dollar signs can render as LaTeX math. To show a literal dollar sign, write \\$ or put it in a code span.
+
 How to show diagrams and visual elements: sometimes an idea lands better visually than as prose. You have three options:
   - Raw HTML inline - Drop tags directly into your reply. Your chat messages render as GFM Markdown and pass raw HTML through. You can match the isomux themes with var(--bg-subtle), var(--bg-code), var(--border), var(--border-light), var(--text-primary), var(--text-secondary), var(--text-dim), var(--accent).
   - HTML with inline <svg> - for arrows and custom shapes that HTML/CSS can't express. Fine for ~10 nodes; coordinate math gets painful past that. SVG is sanitized to a safe subset: style shapes with presentation attributes (fill, stroke, ...) - the style attribute, script/foreignObject, event handlers, and external references are stripped.

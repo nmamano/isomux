@@ -48,7 +48,7 @@ export const en = {
   "browser.setup": "Set up Chrome",
   "browser.extract": "Extract the ZIP.",
   "browser.extensions":
-    "Open chrome://extensions in Chrome and enable Developer mode.",
+    "Open {address} in Chrome and enable Developer mode.",
   "browser.load": "Select Load unpacked and choose the extracted folder.",
   "browser.pin": "Pin Isomux Browser in the toolbar.",
   "browser.finish":

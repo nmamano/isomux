@@ -36,6 +36,15 @@ describe("renderMarkdown math", () => {
     expect(html).toContain("this $ stays");
   });
 
+  it("keeps backslash-escaped dollars literal", () => {
+    expect(renderMarkdown(EN, "Set $A,$B now.")).toContain(
+      'class="katex-math"',
+    );
+    const html = renderMarkdown(EN, String.raw`Set \$A,\$B now.`);
+    expect(html).not.toContain('class="katex-math"');
+    expect(html).toContain("Set $A,$B now.");
+  });
+
   it("rejects a closing dollar followed by a digit", () => {
     const html = renderMarkdown(EN, "Keep $x$2 literal.");
     expect(html).not.toContain('class="katex-math"');

@@ -94,6 +94,19 @@ function applyCtrl(data: string): string {
   return CTRL_ARROW[data] ?? data;
 }
 
+// The screen text of the cursor's line, joined across soft wraps, so a long
+// prompt line is read from its first column.
+function cursorLine(term: Terminal): string {
+  const buffer = term.buffer.active;
+  let y = buffer.baseY + buffer.cursorY;
+  let text = buffer.getLine(y)?.translateToString(true) ?? "";
+  while (y > 0 && buffer.getLine(y)?.isWrapped) {
+    y--;
+    text = (buffer.getLine(y)?.translateToString(true) ?? "") + text;
+  }
+  return text;
+}
+
 const MOBILE_TERMINAL_STYLE_ID = "isomux-mobile-terminal-style";
 function ensureMobileTerminalStyle() {
   if (typeof document === "undefined") return;
@@ -378,11 +391,24 @@ export function TerminalPanel({
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
           setOwner({ process: msg.process, shell: msg.shell });
           setCommandIssue(null);
-          advancePendingCommand({
-            type: "status",
+          const status = {
+            type: "status" as const,
             process: msg.process,
             shell: msg.shell,
-          });
+          };
+          // xterm parses writes later, so the prompt is read only after every
+          // chunk that arrived before this status, replay included, is on
+          // screen. The status counts only for the delivery phase it answered:
+          // an exit or timeout meanwhile clears the state, and a click queued
+          // meanwhile waits for its own fresh status.
+          const term = termRef.current;
+          const phase = commandDeliveryRef.current?.phase;
+          if (!term) advancePendingCommand({ ...status, line: "" });
+          else
+            term.write("", () => {
+              if (commandDeliveryRef.current?.phase !== phase) return;
+              advancePendingCommand({ ...status, line: cursorLine(term) });
+            });
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
           setOwner(null);
           setExited(msg.exitCode);
@@ -395,10 +421,9 @@ export function TerminalPanel({
 
   // The panel is the single owner of terminal status, so command-card input is
   // sequenced and gated here instead of keeping a stale second copy in LogView.
-  // A status can lag a foreground change by up to the 500 ms sidecar poll. We
-  // first interrupt in its own write, wait for the tty's ^C echo, and then wait
-  // for a status received after that acknowledgement. Only a fresh shell owner
-  // receives the clear-and-type payload, which still contains no Enter.
+  // A click asks for a fresh owner before it writes anything (see
+  // terminal-command.ts). Only a shell owner receives the clear-and-type
+  // payload, which still contains no Enter.
   useEffect(() => {
     if (!pendingCommand) {
       pendingCommandAcceptedRef.current = false;
@@ -406,22 +431,13 @@ export function TerminalPanel({
       return;
     }
     if (!owner) return;
-    if (!owner.shell) {
-      commandDeliveryRef.current = null;
-      pendingCommandAcceptedRef.current = true;
-      const blocked = setTimeout(() => {
-        setCommandIssue({ kind: "busy", process: owner.process });
-        onCommandHandled?.();
-      }, 0);
-      return () => clearTimeout(blocked);
-    }
     const queued = queueCommand(commandDeliveryRef.current, pendingCommand);
     commandDeliveryRef.current = queued.state;
-    if (!pendingCommandAcceptedRef.current && queued.write) {
-      send({ type: "terminal_input", agentId, data: queued.write });
+    if (!pendingCommandAcceptedRef.current && queued.requestStatus) {
+      send({ type: "terminal_status_request", agentId });
     }
     pendingCommandAcceptedRef.current = true;
-  }, [agentId, onCommandHandled, owner, pendingCommand]);
+  }, [agentId, owner, pendingCommand]);
 
   useEffect(() => {
     if (!pendingCommand) return;
