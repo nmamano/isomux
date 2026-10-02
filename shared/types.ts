@@ -380,10 +380,10 @@ export function effortLevelsFor(
 }
 
 // Claude families allowed to use Isomux's "auto" permission mode (the /resolve
-// auto-classifier). Gated to top-tier models for classifier reliability:
-// opus historically, now opus + fable.
+// auto-classifier). Gated for classifier reliability to the families whose
+// SDK model row reports supportsAutoMode: opus, fable and sonnet (0.3.287).
 export function claudeFamilySupportsAutoPermission(family: string): boolean {
-  return family === "opus" || family === "fable";
+  return family === "opus" || family === "fable" || family === "sonnet";
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human

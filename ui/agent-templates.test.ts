@@ -321,9 +321,10 @@ describe("resolveTemplateModel", () => {
 
 describe("resolveTemplatePermission", () => {
   it("mirrors the Claude model select's auto-permission coercion", () => {
-    expect(resolveTemplatePermission("claude", "sonnet", "auto")).toBe(
+    expect(resolveTemplatePermission("claude", "haiku", "auto")).toBe(
       "bypassPermissions",
     );
+    expect(resolveTemplatePermission("claude", "sonnet", "auto")).toBe("auto");
     expect(resolveTemplatePermission("claude", "opus", "auto")).toBe("auto");
     expect(
       resolveTemplatePermission("codex", "gpt-5.6-sol", "on-request"),

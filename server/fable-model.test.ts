@@ -52,10 +52,10 @@ describe("top-tier capability gates", () => {
     expect(claudeFamilySupportsMaxEffort("haiku")).toBe(false);
   });
 
-  it("grants auto permission to opus and fable only", () => {
+  it("grants auto permission to opus, fable and sonnet, not haiku", () => {
     expect(claudeFamilySupportsAutoPermission("opus")).toBe(true);
     expect(claudeFamilySupportsAutoPermission("fable")).toBe(true);
-    expect(claudeFamilySupportsAutoPermission("sonnet")).toBe(false);
+    expect(claudeFamilySupportsAutoPermission("sonnet")).toBe(true);
     expect(claudeFamilySupportsAutoPermission("haiku")).toBe(false);
   });
 
