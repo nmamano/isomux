@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tempfile
@@ -15,6 +16,8 @@ environment = {**os.environ, "ISOMUX_IMAGE": sys.argv[1],
                "ISOMUX_SETUP_KEY": "synthetic-compose-setup-key-for-local-check",
                "ISOMUX_MEMORY_LIMIT": "2g", "ISOMUX_CPUS": "1"}
 project = "isomux-compose-check-" + uuid.uuid4().hex[:8]
+# A terminated run still removes its containers and volume.
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 # The image must be this machine's native build, so a check on an arm64 runner
 # cannot pass by running an amd64 image.
 native = {"x86_64": "amd64", "aarch64": "arm64"}[os.uname().machine]

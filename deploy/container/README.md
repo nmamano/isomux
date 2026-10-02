@@ -254,7 +254,8 @@ pane and apply it. Finish active agent work first: the update restarts the
 office. Keep the pane open through the restart, then refresh when it offers.
 
 Container updates do not take a snapshot or roll back automatically. Keep
-independent backups of the complete EBS volume.
+independent backups of the complete EBS volume. After the new release starts,
+the update removes the previous image.
 
 ## Add devices and keep backups
 

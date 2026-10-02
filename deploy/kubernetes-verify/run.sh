@@ -8,7 +8,8 @@
 #                              this directory is at /verify
 #   run.sh claim               claim the owner through the ingress; the session
 #                              cookie goes to /work/cookies.txt
-#   run.sh down                delete the cluster
+#   run.sh down                delete the cluster, and the released image if
+#                              `up` pulled it
 #
 # Needs docker, git, openssl, k3d and kubectl. Ports on this machine are not
 # used: clients run on the cluster's Docker network.
@@ -61,7 +62,10 @@ up)
   "$work/hostpath/deploy/kubernetes-latest/deploy.sh"
   # The client containers use the image from this machine's Docker.
   if [[ $IMAGE == "$RELEASED" ]]; then
-    docker pull --quiet "$IMAGE" >/dev/null
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+      docker pull --quiet "$IMAGE" >/dev/null
+      echo "$IMAGE" > "$work/pulled"
+    fi
   else
     k3d image import --cluster "$CLUSTER" "$IMAGE"
   fi
@@ -89,6 +93,10 @@ claim)
   ;;
 down)
   k3d cluster delete "$CLUSTER"
+  if [[ -f $work/pulled ]]; then
+    docker image rm "$(cat "$work/pulled")" >/dev/null
+    rm "$work/pulled"
+  fi
   ;;
 *)
   echo "usage: $0 up|client CMD...|claim|down" >&2

@@ -10,15 +10,20 @@ With --index ARM64_LAYOUT, v2099.1.2 is a multi-arch index published by
 scripts/container/publish.py, so the chain updates from one to the other.
 Fixture commits have fixed dates, so an arm64 machine can make the same
 v2099.1.2 commit: run --arm64-layout OUT there to build that layout.
+
+After the root teardown, --cleanup removes the registry, its storage volume
+and every local fixture image reference.
 """
 import argparse
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
+import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts/container"))
@@ -28,6 +33,7 @@ OUT = ROOT.parent / "container-updater-fixture-artifacts"
 REGISTRY = "isomux-update-fixture-registry"
 IMAGE = "localhost:15000/isomux-fixture"
 TAGS = ("v2099.1.1", "v2099.1.2")
+RUN_LABEL = "isomux.updater-fixture-run=" + uuid.uuid4().hex
 
 
 def run(*args, cwd=ROOT, **kwargs):
@@ -40,11 +46,50 @@ mode.add_argument("--index", metavar="ARM64_LAYOUT", type=Path,
                   help="publish v2099.1.2 as an index with this arm64 layout")
 mode.add_argument("--arm64-layout", metavar="OUT", type=Path,
                   help="on arm64: write the v2099.1.2 layout and stop")
+mode.add_argument("--cleanup", action="store_true",
+                  help="after the root teardown: remove the registry and fixture images")
 args = parser.parse_args()
+# A terminated run still removes what it created.
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+
+
+def remove_registry(label):
+    # Only a registry with this label; -v also removes its anonymous storage volume.
+    found = subprocess.run(["docker", "ps", "-aq", "--filter", "name=^/" + REGISTRY + "$",
+                            "--filter", "label=" + label], capture_output=True, text=True).stdout
+    for container in found.split():
+        subprocess.run(["docker", "rm", "-f", "-v", container], check=False, stdout=subprocess.DEVNULL)
+
+
+def remove_images():
+    listed = run("docker", "image", "ls", "--digests", "--filter", "reference=" + IMAGE,
+                 "--format", "{{.Repository}} {{.Tag}} {{.Digest}}")
+    refs = set()
+    for line in listed.splitlines():
+        repository, tag, digest = line.split()
+        if repository != IMAGE:
+            continue
+        if tag != "<none>":
+            refs.add(repository + ":" + tag)
+        if digest != "<none>":
+            refs.add(repository + "@" + digest)
+    # Tags sort first; removing a tag can also remove its digest reference.
+    for ref in sorted(refs):
+        if subprocess.run(["docker", "image", "inspect", ref], capture_output=True).returncode == 0:
+            subprocess.run(["docker", "image", "rm", ref], check=False, stdout=subprocess.DEVNULL)
+
+
+if args.cleanup:
+    remove_registry("isomux.updater-fixture")
+    remove_images()
+    sys.exit()
 if OUT.exists():
     sys.exit("Fixture artifacts already exist; inspect and remove them before preparing again")
 if run("git", "status", "--porcelain"):
     sys.exit("Commit the lane before preparing the fixture")
+# Failure cleanup removes every fixture image, so none may predate this run.
+if run("docker", "image", "ls", "-q", "--filter", "reference=" + IMAGE):
+    sys.exit("Fixture images already exist; run --cleanup first")
 if not args.arm64_layout:
     if run("docker", "ps", "-aq", "--filter", "name=^/" + REGISTRY + "$"):
         sys.exit("Fixture registry name is occupied")
@@ -97,14 +142,19 @@ def build(tag, commit, platform):
 
 
 if args.arm64_layout:
-    build(TAGS[1], commits[1], "arm64")
-    publish.write_layout(TAGS[1], commits[1], IMAGE + ":" + TAGS[1], "arm64", args.arm64_layout)
+    try:
+        build(TAGS[1], commits[1], "arm64")
+        publish.write_layout(TAGS[1], commits[1], IMAGE + ":" + TAGS[1], "arm64", args.arm64_layout)
+    finally:
+        remove_images()
     print("arm64 layout of " + TAGS[1] + " (" + commits[1] + ") at " + str(args.arm64_layout))
     sys.exit()
-# The registry is ordinary unprivileged fixture work, never a root-access bridge.
-run("docker", "run", "-d", "--name", REGISTRY, "--label", "isomux.updater-fixture=" + head,
-    "--memory=256m", "-p", "127.0.0.1:15000:5000", "registry:2")
+started = False
 try:
+    # The registry is ordinary unprivileged fixture work, never a root-access bridge.
+    run("docker", "run", "-d", "--name", REGISTRY, "--label", "isomux.updater-fixture=" + head,
+        "--label", RUN_LABEL, "--memory=256m", "-p", "127.0.0.1:15000:5000", "registry:2")
+    started = True
     for tag, commit in zip(TAGS, commits):
         build(tag, commit, "amd64")
         if args.index and tag == TAGS[1]:
@@ -118,5 +168,8 @@ try:
             subprocess.run(["docker", "push", IMAGE + ":" + tag], check=True)
     print("Fixture prepared at " + str(OUT) + "; lane " + head)
 except BaseException:
-    subprocess.run(["docker", "rm", "-f", REGISTRY], check=False, stdout=subprocess.DEVNULL)
+    # A failed start can still leave a created container with its volume.
+    remove_registry(RUN_LABEL)
+    if started:
+        remove_images()
     raise

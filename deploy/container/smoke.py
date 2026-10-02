@@ -2,6 +2,7 @@
 """Isolated local image acceptance. No host credentials, network, or model turns."""
 import json
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -13,6 +14,8 @@ volume = name + "-data"
 origin = "https://office.example.com"
 key = "synthetic-container-setup-key-for-local-test"
 seccomp = str(Path(__file__).resolve().parent / "seccomp/chromium.json")
+# A terminated run still removes its containers and volume.
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
 
 
 def run(*args, input=None, timeout=60):

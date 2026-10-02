@@ -654,10 +654,30 @@ container_ready() {
 }
 
 container_finalize() {
+  local release image
+  release=$(cat "$CONTAINER_DIR/release")
+  image=$(cat "$CONTAINER_DIR/image")
   printf '%s\n' "$TARGET_TAG" > "$CONTAINER_DIR/release"
   printf '%s\n' "$target_commit" > "$CONTAINER_DIR/revision"
   printf '%s\n' "$CONTAINER_DIGEST" > "$CONTAINER_DIR/image"
   install -m 600 "$CONTAINER_STAGE/installer.sha256" "$CONTAINER_DIR/installer.sha256"
+  container_remove_previous "$CONTAINER_IMAGE:$release" "$image"
+}
+
+# Remove the two references the installer or the last update pulled for the
+# replaced release, so the host does not keep one image per release. Docker
+# keeps the image while a container or another reference still uses it.
+container_remove_previous() {
+  local current ref id
+  current=$(docker image inspect --format '{{.Id}}' "$CONTAINER_DIGEST") ||
+    { log "warning: could not inspect $CONTAINER_DIGEST; the previous image stays"; return 0; }
+  for ref in "$@"; do
+    [[ $ref == "$CONTAINER_IMAGE"[:@]* ]] || continue
+    # An absent reference was already removed; never remove the new image.
+    id=$(docker image inspect --format '{{.Id}}' "$ref" 2>/dev/null) || continue
+    [[ $id != "$current" ]] || continue
+    docker image rm "$ref" >/dev/null || log "warning: could not remove the previous image $ref"
+  done
 }
 
 # --- Main -------------------------------------------------------------------

@@ -104,6 +104,8 @@ The proposed command is `sudo /bin/bash
 /home/nil/nil/isomux-worktrees/container-updater-fresh-0923/scripts/verify-container-update-root.sh
 setup CHECKOUT COMMIT`, followed by an unprivileged client drive and the same command with
 `teardown`. The script must be implemented and reviewed before Nil runs it.
+After teardown, `scripts/prepare-container-update-fixture.py --cleanup` removes
+the fixture registry, its storage volume and the fixture images.
 It refuses occupied paths, units, Compose names or loopback port 10000 and
 records the tested commit. It creates a loopback ext4 fixture mounted at
 `/srv/isomux-data`; the test uses the production installer step functions and
