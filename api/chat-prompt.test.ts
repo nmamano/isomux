@@ -55,3 +55,40 @@ describe("site chatbot page context", () => {
     expect(widget).toMatch(/messages: messages\.map[\s\S]*\n\s*page,/u);
   });
 });
+
+describe("site chatbot disclosures", () => {
+  const root = join(import.meta.dir, "..");
+
+  it("points site visitors at the privacy policy while the handler relays chats", () => {
+    const handler = readFileSync(join(import.meta.dir, "chat.ts"), "utf8");
+    expect(handler).toContain("DISCORD_WEBHOOK_URL");
+    expect(SYSTEM_PROMPT).toContain("isomux.com/hosted-privacy");
+    // Office receptionist chats are not relayed, so the shared knowledge
+    // carries no such disclosure.
+    expect(ISOMUX_KNOWLEDGE).not.toContain("hosted-privacy");
+  });
+
+  it("offers Nil's X and LinkedIn, with the URLs the site uses", () => {
+    const about = readFileSync(join(root, "site", "about.html"), "utf8");
+    for (const host of ["x.com", "linkedin.com"]) {
+      const url = ISOMUX_KNOWLEDGE.match(
+        new RegExp(`https://${host.replace(".", "\\.")}/[^\\s)]+`),
+      )?.[0];
+      expect(url).toBeDefined();
+      expect(about).toContain(`"${url}"`);
+    }
+  });
+
+  it("gives install steps that name no shell-specific config file", () => {
+    const surfaces = [
+      ISOMUX_KNOWLEDGE,
+      readFileSync(join(root, "README.md"), "utf8"),
+      ...["", "es", "ca", "zh"].map((lang) =>
+        readFileSync(join(root, "site", lang, "index.html"), "utf8"),
+      ),
+    ];
+    for (const text of surfaces) {
+      expect(text).not.toMatch(/\.bashrc|\.zshrc|config\.fish/u);
+    }
+  });
+});

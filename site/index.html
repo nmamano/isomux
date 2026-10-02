@@ -985,16 +985,7 @@
         </p>
         <pre>curl -fsSL https://bun.sh/install | bash</pre>
         <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
-          Open a new shell (or
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >source ~/.bashrc</code
-          >) after this so
+          Open a new terminal after this so
           <code
             style="
               background: var(--bg);
@@ -1013,7 +1004,8 @@
               font-size: 0.85em;
             "
             >PATH</code
-          >. The embedded terminal runs on Node.js; Bun can't replace it.
+          >. If it is still not found, add the lines the installer printed
+          to your shell config and open another terminal. The embedded terminal runs on Node.js; Bun can't replace it.
         </p>
 
         <h3>2. Install &amp; Run</h3>

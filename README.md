@@ -75,7 +75,7 @@ On Debian/Ubuntu, also install the native build tools: `sudo apt install python3
 curl -fsSL https://bun.sh/install | bash
 ```
 
-Open a new shell (or `source ~/.bashrc`) after this so `bun` lands on `PATH`.
+Open a new terminal after this so `bun` lands on `PATH`. If `bun` is still not found, add the lines the installer printed to your shell config and open another terminal.
 
 The embedded terminal runs on Node.js; Bun can't replace it.
 

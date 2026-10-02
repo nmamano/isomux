@@ -71,7 +71,7 @@ Keep these consistent across all surfaces below.
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
 - **Audience:** Indirect. Feeds the chatbot on isomux.com that answers visitor questions.
-- **Structure:** voice/tone rules, "What is Isomux?", getting started, self-hosted guide, and a `## Full Feature List` section that mirrors the canonical inventory in `docs/features.md`. References to setup/access detail point readers at `isomux.com/docs/<slug>`.
+- **Structure:** a "This Chat" rule (what the bot says when asked whether the chat is logged; keep it in line with the chat-widget paragraph of `site/hosted-privacy.html`), voice/tone rules, "What is Isomux?", getting started, self-hosted guide, and a `## Full Feature List` section that mirrors the canonical inventory in `docs/features.md`. References to setup/access detail point readers at `isomux.com/docs/<slug>`.
 - **Update when:** any feature changes. The prompt has an explicit "never make up features" guideline, so stale content here makes the bot lie by omission.
 - **Deploy note:** Vercel Edge function, redeployed with the site.
 
