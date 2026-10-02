@@ -5,14 +5,12 @@ import { setUpDomTestFile } from "./test-support/dom.ts";
 // member editor, before any sign-in link exists.
 setUpDomTestFile();
 
-const { act, fireEvent, render, within } = await import(
-  "@testing-library/react"
-);
+const { act, fireEvent, render, within } =
+  await import("@testing-library/react");
 const { createElement } = await import("react");
 const { UserSettingsView } = await import("./components/UserSettingsView.tsx");
-const { onLanguage, selfUserRecord } = await import(
-  "./test-support/language-fixture.tsx"
-);
+const { onLanguage, selfUserRecord } =
+  await import("./test-support/language-fixture.tsx");
 const { setApiShim } = await import("./api.ts");
 const { en } = await import("../shared/i18n/en.ts");
 

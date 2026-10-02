@@ -695,9 +695,9 @@ describe("the walk, on seeded dates", () => {
     // Every later pass sees the same ended phase and opens nothing more.
     c.set(ENDED + 30 * 86_400_000);
     expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 0 });
-    expect(
-      (await store.operationsFor("inst-1")).map((op) => op.id),
-    ).toEqual([removeDnsId]);
+    expect((await store.operationsFor("inst-1")).map((op) => op.id)).toEqual([
+      removeDnsId,
+    ]);
     await store.close();
   });
 

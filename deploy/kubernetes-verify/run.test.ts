@@ -16,7 +16,8 @@ const RELEASED = readFileSync(SCRIPT, "utf8").match(/^RELEASED=(.+)$/m)![1]!;
 const dirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 // docker, k3d, kubectl, git and openssl stand-ins record their arguments.

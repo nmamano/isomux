@@ -117,7 +117,8 @@ async function harness(autoAck = true) {
         get: async (key: string) =>
           session.has(key) ? { [key]: session.get(key) } : {},
         set: async (value: Record<string, unknown>) => {
-          for (const [key, item] of Object.entries(value)) session.set(key, item);
+          for (const [key, item] of Object.entries(value))
+            session.set(key, item);
         },
       },
       onChanged: {

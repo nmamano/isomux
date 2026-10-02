@@ -675,10 +675,12 @@ Coses que pots fer per ell:
 
   "settings.invites.intro":
     "Un enllaç d'inici de sessió inicia la sessió d'un dispositiu com a membre existent. Per convidar un membre nou, crea'l primer a <i>Membres</i>.",
-  "settings.invites.linkHint": "Envia l'enllaç en privat. Caduca en 24 h, i un enllaç nou substitueix l'anterior del membre.",
+  "settings.invites.linkHint":
+    "Envia l'enllaç en privat. Caduca en 24 h, i un enllaç nou substitueix l'anterior del membre.",
   "settings.invites.createLink": "Crea un enllaç d'inici de sessió",
   "settings.invites.creatingLink": "Creant…",
-  "settings.invites.createLinkFailed": "No s'ha pogut crear l'enllaç d'inici de sessió",
+  "settings.invites.createLinkFailed":
+    "No s'ha pogut crear l'enllaç d'inici de sessió",
   "preAuth.invite.changeLater":
     "Pots canviar el teu nom i idioma més endavant a Configuració.",
   "preAuth.invite.nameTaken": "Aquest nom ja està en ús. Tria’n un altre.",

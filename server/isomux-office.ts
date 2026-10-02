@@ -2873,7 +2873,14 @@ function buildExecutorDeps(
   );
   register(
     usersHandlers({
-      create: async ({ name, role, memberPrompt, avatarColor, avatarVariant, allowedRooms }) => {
+      create: async ({
+        name,
+        role,
+        memberPrompt,
+        avatarColor,
+        avatarVariant,
+        allowedRooms,
+      }) => {
         // Room grants: members only (owners reach every room by rule, and
         // materialized owner grants are the demotion bomb), live rooms only -
         // an unknown id is refused, not pruned, so a stale owner UI can't

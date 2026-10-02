@@ -428,7 +428,11 @@ test("pairing fields survive closing and reopening the popup", async () => {
   // A replacement office typed while paired to another one is not overwritten
   // by the paired office on the next open.
   session.clear();
-  state = { ...state, state: "connected", office: "https://paired.example.com" };
+  state = {
+    ...state,
+    state: "connected",
+    office: "https://paired.example.com",
+  };
   const paired = await open();
   expect(paired.office.value).toBe("https://paired.example.com");
   paired.replace.click();

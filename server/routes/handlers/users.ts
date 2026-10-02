@@ -47,7 +47,9 @@ type DeleteOutcome =
 export interface UsersDeps {
   // Owner creates a member (officeOwner already passed). Validates the name and
   // the room grants, creates the record with pendingSignIn, emits users_list.
-  create(input: UserCreateReq): Promise<
+  create(
+    input: UserCreateReq,
+  ): Promise<
     | { ok: true; user: UserAdminWire }
     | { ok: false; status: HandlerErrorStatus; code: string; error: string }
   >;

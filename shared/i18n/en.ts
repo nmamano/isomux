@@ -679,7 +679,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
 
   "settings.invites.intro":
     "A sign-in link signs one device in as an existing member. To invite a new member, create them first in <i>Members</i>.",
-  "settings.invites.linkHint": "Send the link privately. It expires in 24h, and a new link replaces the member's previous one.",
+  "settings.invites.linkHint":
+    "Send the link privately. It expires in 24h, and a new link replaces the member's previous one.",
   "settings.invites.createLink": "Create sign-in link",
   "settings.invites.creatingLink": "Creating…",
   "settings.invites.createLinkFailed": "Failed to create sign-in link",

@@ -14,7 +14,8 @@ const SCRIPT = new URL("./check.sh", import.meta.url).pathname;
 const dirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 // bash and python3 stand-ins record the build and the two checks and fail the

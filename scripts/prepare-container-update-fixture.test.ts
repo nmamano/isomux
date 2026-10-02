@@ -20,7 +20,8 @@ const REGISTRY = "isomux-update-fixture-registry";
 const dirs: string[] = [];
 
 afterEach(() => {
-  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  for (const dir of dirs.splice(0))
+    rmSync(dir, { recursive: true, force: true });
 });
 
 // Docker stand-in that records every call. $FIXTURE/container holds the one
@@ -94,7 +95,10 @@ function cleanup(listed: string[], labels: string[] | null) {
   const dir = fixture();
   writeFileSync(join(dir, "listed"), listed.join("\n") + "\n");
   if (labels)
-    writeFileSync(join(dir, "container"), ["0123456789ab", ...labels].join("\n"));
+    writeFileSync(
+      join(dir, "container"),
+      ["0123456789ab", ...labels].join("\n"),
+    );
   return { ...spawn(dir, SCRIPT, ["--cleanup"]), dir };
 }
 
@@ -104,7 +108,10 @@ function prepare(run: string) {
   const dir = fixture();
   const repo = join(dir, "repo");
   mkdirSync(join(repo, "scripts", "container"), { recursive: true });
-  copyFileSync(SCRIPT, join(repo, "scripts", "prepare-container-update-fixture.py"));
+  copyFileSync(
+    SCRIPT,
+    join(repo, "scripts", "prepare-container-update-fixture.py"),
+  );
   copyFileSync(PUBLISH, join(repo, "scripts", "container", "publish.py"));
   writeFileSync(
     join(repo, "scripts", "update.sh"),
@@ -112,10 +119,13 @@ function prepare(run: string) {
   );
   const git = (...args: string[]) =>
     expect(
-      Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args], {
-        cwd: repo,
-        env: { PATH: process.env.PATH, HOME: dir },
-      }).exitCode,
+      Bun.spawnSync(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args],
+        {
+          cwd: repo,
+          env: { PATH: process.env.PATH, HOME: dir },
+        },
+      ).exitCode,
     ).toBe(0);
   git("init", "-q");
   git("add", ".");
@@ -157,7 +167,9 @@ test("fixture cleanup leaves a container without the fixture label alone", () =>
 test("a registry that was created but failed to start is removed with its volume", () => {
   const { code, events, dir } = prepare("created");
   expect(code).not.toBe(0);
-  expect(events.some((e) => e.startsWith(`run -d --name ${REGISTRY}`))).toBe(true);
+  expect(events.some((e) => e.startsWith(`run -d --name ${REGISTRY}`))).toBe(
+    true,
+  );
   expect(removedContainers(events)).toEqual(["rm -f -v c0ffee000001"]);
   expect(existsSync(join(dir, "container"))).toBe(false);
 });

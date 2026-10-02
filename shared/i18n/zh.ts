@@ -608,7 +608,8 @@ App 的一些原则：
     "请将此 URL 发给受邀者。此链接只能使用一次：在受邀者的设备上打开即可登录。URL 只显示一次，请立即复制。",
   "settings.invites.intro":
     "登录链接让一台设备以现有成员身份登录。要邀请新成员，请先在<i>成员</i>中创建。",
-  "settings.invites.linkHint": "请私下发送链接。链接在 24 小时后过期，新链接会替换该成员的上一个链接。",
+  "settings.invites.linkHint":
+    "请私下发送链接。链接在 24 小时后过期，新链接会替换该成员的上一个链接。",
   "settings.invites.createLink": "创建登录链接",
   "settings.invites.creatingLink": "正在创建…",
   "settings.invites.createLinkFailed": "创建登录链接失败",

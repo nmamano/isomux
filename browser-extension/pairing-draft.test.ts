@@ -18,9 +18,8 @@ let hold: Promise<void> | null = null;
     },
   },
 };
-const { confirmPairedCode, readPairingDraft, savePairingDraft } = await import(
-  "./pairing-draft"
-);
+const { confirmPairedCode, readPairingDraft, savePairingDraft } =
+  await import("./pairing-draft");
 
 test("a confirmation never erases a draft typed since, in any order", async () => {
   const office = "https://office.example.com";

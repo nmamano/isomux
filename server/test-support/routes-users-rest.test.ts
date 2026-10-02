@@ -154,12 +154,28 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       [{ name: "alice", role: "member" }, 409, "name_taken"],
       [{ name: "bad<script>", role: "member" }, 400, "invalid_name"],
       [{ name: "x".repeat(65), role: "member" }, 400, "invalid_name"],
-      [{ name: "Yu", role: "owner", allowedRooms: [roomA] }, 400, "invalid_rooms"],
-      [{ name: "Yu", role: "member", allowedRooms: ["nope"] }, 400, "invalid_rooms"],
-      [{ name: "Yu", role: "member", allowedRooms: [42] }, 422, "invalid_request"],
+      [
+        { name: "Yu", role: "owner", allowedRooms: [roomA] },
+        400,
+        "invalid_rooms",
+      ],
+      [
+        { name: "Yu", role: "member", allowedRooms: ["nope"] },
+        400,
+        "invalid_rooms",
+      ],
+      [
+        { name: "Yu", role: "member", allowedRooms: [42] },
+        422,
+        "invalid_request",
+      ],
       [{ name: "Yu", role: "king" }, 422, "invalid_request"],
       [{ name: " ", role: "member" }, 422, "invalid_request"],
-      [{ name: "Yu", role: "member", memberPrompt: {} }, 422, "invalid_request"],
+      [
+        { name: "Yu", role: "member", memberPrompt: {} },
+        422,
+        "invalid_request",
+      ],
     ];
     for (const [body, status, code] of cases) {
       const r = await api(srv, "/api/users", {
@@ -214,9 +230,9 @@ describe("routes/users REST - create (owner creates a member before any link)", 
         })
       ).status,
     ).toBe(403);
-    expect((await api(srv, "/api/users", { method: "POST", body })).status).toBe(
-      401,
-    );
+    expect(
+      (await api(srv, "/api/users", { method: "POST", body })).status,
+    ).toBe(401);
     expect(getUserByName("Yu")).toBeUndefined();
   });
 

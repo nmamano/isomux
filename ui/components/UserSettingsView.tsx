@@ -1818,35 +1818,35 @@ function UserEditPanel({
 
         {!creating && (
           <>
-        <label style={subLabelStyle}>
-          {t("common.memory")}{" "}
-          <span style={hintStyle}>
-            {t("settings.profile.memoryHint", {
-              size: mem.size,
-              cap: mem.cap ?? "…",
-            })}
-          </span>
-        </label>
-        <ExpandableTextarea
-          title={t("settings.profile.memoryTitle", { user: user.name })}
-          hint={t("common.memoryEditorHint")}
-          value={mem.memory}
-          onChange={mem.setMemory}
-          placeholder={
-            mem.loaded
-              ? t("settings.profile.memoryPlaceholder")
-              : t("common.loadingMemory")
-          }
-          rows={8}
-          readOnly={!mem.loaded}
-          style={{
-            ...inputStyle,
-            minHeight: 144,
-            resize: "vertical",
-            fontFamily: "inherit",
-            lineHeight: 1.45,
-          }}
-        />
+            <label style={subLabelStyle}>
+              {t("common.memory")}{" "}
+              <span style={hintStyle}>
+                {t("settings.profile.memoryHint", {
+                  size: mem.size,
+                  cap: mem.cap ?? "…",
+                })}
+              </span>
+            </label>
+            <ExpandableTextarea
+              title={t("settings.profile.memoryTitle", { user: user.name })}
+              hint={t("common.memoryEditorHint")}
+              value={mem.memory}
+              onChange={mem.setMemory}
+              placeholder={
+                mem.loaded
+                  ? t("settings.profile.memoryPlaceholder")
+                  : t("common.loadingMemory")
+              }
+              rows={8}
+              readOnly={!mem.loaded}
+              style={{
+                ...inputStyle,
+                minHeight: 144,
+                resize: "vertical",
+                fontFamily: "inherit",
+                lineHeight: 1.45,
+              }}
+            />
           </>
         )}
 
@@ -1970,24 +1970,26 @@ function UserEditPanel({
             {creating ? (
               <span />
             ) : (
-            <button
-              onClick={handleDelete}
-              onBlur={() => setConfirmDelete(false)}
-              disabled={saving}
-              style={{
-                padding: "7px 14px",
-                borderRadius: 6,
-                border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                background: confirmDelete ? "var(--red)" : "transparent",
-                color: confirmDelete ? "var(--bg-base)" : "var(--red)",
-                fontSize: 11,
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-              title={t("settings.profile.deleteHint")}
-            >
-              {confirmDelete ? t("common.confirmQuestion") : t("common.delete")}
-            </button>
+              <button
+                onClick={handleDelete}
+                onBlur={() => setConfirmDelete(false)}
+                disabled={saving}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 6,
+                  border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
+                  background: confirmDelete ? "var(--red)" : "transparent",
+                  color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+                title={t("settings.profile.deleteHint")}
+              >
+                {confirmDelete
+                  ? t("common.confirmQuestion")
+                  : t("common.delete")}
+              </button>
             )}
             <div style={{ display: "flex", gap: 8 }}>
               <button

@@ -199,7 +199,9 @@ function load(): Record<string, UserRecord> {
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
-        ...(value.pendingSignIn === true ? { pendingSignIn: true as const } : {}),
+        ...(value.pendingSignIn === true
+          ? { pendingSignIn: true as const }
+          : {}),
       };
     }
     users = result;

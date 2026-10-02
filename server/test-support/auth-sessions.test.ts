@@ -387,12 +387,12 @@ describe("auth/sessions: scoped revoke - lockout check runs AFTER the scope test
     // POSITIVE CONTROL: Bob can, and the scope follows his id across a rename.
     updateUserById(userIdOf("Bob"), { name: "Robert" });
     const robert = getUserByName("Robert")!;
-    expect(await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert)).toBe(
-      "ok",
-    );
-    expect(await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert)).toBe(
-      "not_found",
-    );
+    expect(
+      await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert),
+    ).toBe("ok");
+    expect(
+      await revokeOutstandingInviteByPrefixForUser(bobPrefix, robert),
+    ).toBe("not_found");
   });
 });
 

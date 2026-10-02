@@ -81,9 +81,7 @@ function SignInLinkForm() {
 
   return (
     <div style={cardStyle}>
-      <p style={{ ...hint, marginTop: 0 }}>
-        {t("settings.invites.linkHint")}
-      </p>
+      <p style={{ ...hint, marginTop: 0 }}>{t("settings.invites.linkHint")}</p>
       <label style={subLabel}>{t("common.user")}</label>
       <select
         {...noTranslate()}
