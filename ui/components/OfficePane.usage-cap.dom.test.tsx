@@ -9,9 +9,11 @@ const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 
-// The member usage cap switch (task 6de8f530): it round-trips through the
-// version-guarded settings PUT, and its status lines show while it is on.
+// The member usage cap switch and member share (task 6de8f530): they
+// round-trip through the version-guarded settings PUT, the share select shows
+// while the switch is on, and the status lines show once it is saved on.
 let enabled = false;
+let share = 80;
 let savedBody: Record<string, unknown> | null = null;
 setApiShim(async (method, path, body) => {
   if (path.startsWith("/api/memory"))
@@ -22,13 +24,14 @@ setApiShim(async (method, path, body) => {
       name: null,
       version: enabled ? "2" : "1",
       memberUsageCap: enabled,
+      memberUsageShare: share,
       memberUsageStatus: enabled
         ? [
             {
               provider: "claude",
               state: "weekly",
               usedPercent: 41.6,
-              pacePercent: 50.2,
+              linePercent: (80 * 4) / 7,
             },
             { provider: "codex", state: "failed" },
           ]
@@ -37,6 +40,7 @@ setApiShim(async (method, path, body) => {
   if (path === "/api/office/settings" && method === "PUT") {
     savedBody = body as Record<string, unknown>;
     enabled = savedBody.memberUsageCap === true;
+    share = savedBody.memberUsageShare as number;
     return undefined;
   }
   throw new Error(`no shim for ${method} ${path}`);
@@ -46,22 +50,34 @@ afterAll(() => {
   setApiShim(null);
 });
 
-it("saves the switch with the settings and shows one status line per provider once on", async () => {
+it("saves the switch and share with the settings and shows one status line per provider once on", async () => {
   const view = render(onLanguage(null, createElement(OfficePane)));
   await act(async () => {});
   const box = view.getByRole("checkbox") as HTMLInputElement;
   expect(box.checked).toBe(false);
+  expect(view.queryByRole("combobox")).toBeNull();
   expect(view.queryByText(/Claude/)).toBeNull();
 
   await act(async () => fireEvent.click(box));
+  const select = view.getByRole("combobox") as HTMLSelectElement;
+  expect(select.value).toBe("80");
+  expect(
+    Array.from(select.options).map((option) => Number(option.value)),
+  ).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
+  await act(async () => fireEvent.change(select, { target: { value: "70" } }));
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "Save" })),
   );
-  expect(savedBody).toMatchObject({ version: "1", memberUsageCap: true });
+  expect(savedBody).toMatchObject({
+    version: "1",
+    memberUsageCap: true,
+    memberUsageShare: 70,
+  });
   expect((view.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
-  // Rounded numbers from the status, and a line for each provider.
+  expect((view.getByRole("combobox") as HTMLSelectElement).value).toBe("70");
+  // The use rounded, the line to one decimal, and a line for each provider.
   expect(view.getByText(/Claude/).textContent).toContain("42");
-  expect(view.getByText(/Claude/).textContent).toContain("50");
+  expect(view.getByText(/Claude/).textContent).toContain("45.7");
   expect(view.getByText(/Codex/)).toBeTruthy();
   view.unmount();
 });

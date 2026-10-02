@@ -5,8 +5,9 @@
 //
 // One warm reader process per provider, closed after a quiet spell. A reading
 // counts for FRESH_MS; an older one triggers a probe that concurrent callers
-// share. A failed probe is never cached and never falls back to an older
-// reading: the cap fails closed (Isomux PM ruling, 2026-10-02).
+// share. A failed probe is never cached: it answers with the last good reading
+// if that is under FALLBACK_MS old, else as failed, and the cap lets a failed
+// reading through (Nil's ruling, 2026-10-02).
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createHash } from "node:crypto";
@@ -24,6 +25,7 @@ import type { RateLimitSnapshot } from "./backends/codex/_generated/v2/RateLimit
 
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export const FRESH_MS = 60_000;
+export const FALLBACK_MS = 60 * 60_000;
 const PROBE_TIMEOUT_MS = 20_000;
 const IDLE_CLOSE_MS = 10 * 60_000;
 // Slack on the far edge of a valid reset time: a reset more than a week and an
@@ -32,8 +34,9 @@ const RESET_SLACK_MS = 60 * 60_000;
 const CODEX_WEEK_MINUTES = 10_080;
 
 // What a probe learned. `no_limit` is the provider's own statement that the
-// account has no plan limit (API key, Bedrock, Vertex): the only exemption.
-// `signed_out` and `failed` both deny; signed_out only changes the status line.
+// account has no plan limit (API key, Bedrock, Vertex). With `signed_out` or
+// `failed` the cap cannot measure the account and lets members through;
+// signed_out only drops the status line.
 export type OfficeWeeklyOutcome =
   | {
       kind: "weekly";
@@ -44,6 +47,8 @@ export type OfficeWeeklyOutcome =
   | { kind: "no_limit"; observedAtMs: number }
   | { kind: "signed_out" }
   | { kind: "failed" };
+
+type GoodOutcome = Extract<OfficeWeeklyOutcome, { observedAtMs: number }>;
 
 // One probe's answer, before it is stamped and checked against the clock.
 export type ProbeResult =
@@ -213,10 +218,11 @@ export interface OfficeUsageReaderDeps {
 
 export interface OfficeUsageReader {
   // A reading at most FRESH_MS old, or the result of a probe shared with
-  // concurrent callers.
+  // concurrent callers. A failed probe answers with the last good reading
+  // while it is under FALLBACK_MS old.
   read(provider: ProviderAccountProvider): Promise<OfficeWeeklyOutcome>;
-  // Drop the cached reading and the warm process, e.g. after the office
-  // signs in or out.
+  // Drop the cached and last good readings and the warm process, e.g. after
+  // the office signs in or out.
   invalidate(provider: ProviderAccountProvider): void;
   close(): void;
 }
@@ -241,6 +247,8 @@ export function createOfficeUsageReader(
     key: string;
     generation: number;
     cached: OfficeWeeklyOutcome | null;
+    // The last weekly or no_limit reading, for a failed probe to fall back on.
+    lastGood: GoodOutcome | null;
     inFlight: Promise<OfficeWeeklyOutcome> | null;
     probe: OfficeUsageProbe | null;
     cancelIdle: (() => void) | null;
@@ -259,6 +267,7 @@ export function createOfficeUsageReader(
         key,
         generation: 0,
         cached: null,
+        lastGood: null,
         inFlight: null,
         probe: null,
         cancelIdle: null,
@@ -289,6 +298,15 @@ export function createOfficeUsageReader(
     if (at - outcome.observedAtMs > FRESH_MS) return false;
     // A reset already past means the reading predates a rollover.
     return outcome.kind !== "weekly" || outcome.resetsAtMs > at;
+  }
+
+  // The last good reading, if under FALLBACK_MS old and, for a weekly one,
+  // its reset is still ahead.
+  function fallback(slot: Slot, at: number): GoodOutcome | null {
+    const last = slot.lastGood;
+    if (!last || at - last.observedAtMs >= FALLBACK_MS) return null;
+    if (last.kind === "weekly" && last.resetsAtMs <= at) return null;
+    return last;
   }
 
   function settle(result: ProbeResult, at: number): OfficeWeeklyOutcome {
@@ -333,11 +351,18 @@ export function createOfficeUsageReader(
     // A failure may mean the process died: start a new one next time.
     if (result.kind === "failed" && probe && slot.probe === probe)
       dropProbe(slot);
-    const outcome = settle(result, now());
-    if (slots.get(provider) === slot && slot.generation === generation) {
+    const at = now();
+    const outcome = settle(result, at);
+    const current =
+      slots.get(provider) === slot && slot.generation === generation;
+    if (current) {
       slot.cached = outcome.kind === "failed" ? null : outcome;
+      if (outcome.kind === "weekly" || outcome.kind === "no_limit")
+        slot.lastGood = outcome;
       if (slot.probe) armIdleClose(slot);
     }
+    if (outcome.kind === "failed" && current)
+      return fallback(slot, at) ?? outcome;
     return outcome;
   }
 
@@ -396,6 +421,7 @@ export function createOfficeUsageReader(
       if (!slot) return;
       slot.generation++;
       slot.cached = null;
+      slot.lastGood = null;
       slot.inFlight = null;
       dropProbe(slot);
     },

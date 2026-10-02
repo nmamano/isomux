@@ -432,13 +432,15 @@ App 的一些原则：
   "settings.office.loadedVariables.other": "已加载 {count} 个变量。",
   "settings.office.memberUsageCap": "控制成员用量节奏",
   "settings.office.memberUsageCapHint":
-    "当本周用量超过本周已过时间的比例时，成员使用办公室通用登录的轮次会停止。",
+    "成员使用办公室通用登录的轮次会在每日上限处停止；该上限每天递增，最多到成员份额。",
+  "settings.office.memberUsageShare": "成员可用的每周限额份额",
+  "settings.office.memberUsageShareOption": "{share}%",
   "settings.office.memberUsageWeekly":
-    "{provider}：已用 {used}%，本周已过 {pace}%。",
+    "{provider}：已用 {used}%；成员今天在 {line}% 停止。",
   "settings.office.memberUsageNoLimit":
     "{provider}：办公室通用登录没有每周限额。成员不受限制。",
   "settings.office.memberUsageFailed":
-    "{provider}：无法读取每周用量。成员已停止。",
+    "{provider}：无法读取每周用量。成员不受限制。",
   "settings.room.title": "{room} · 设置",
   "settings.room.intro": "墙上的通风口、s 键和双击房间标签页都可打开此页面。",
   "settings.room.namePlaceholder": "房间名称",
@@ -1800,9 +1802,7 @@ App 的一些原则：
   "systemEntries.conversationCleared": "对话已清除。",
   "systemEntries.newConversation": "新对话已开始。",
   "systemEntries.usageCap.pace":
-    "成员轮次已暂停：本周办公室用量超过了本周的节奏。将于{when}恢复。",
-  "systemEntries.usageCap.readFailed":
-    "成员轮次已暂停：Isomux 无法读取办公室所有者的每周用量。请一分钟后再试。",
+    "成员轮次已暂停：办公室用量已达到成员今天的上限。将于{when}恢复。",
   "systemEntries.agentStopped": "智能体已停止：{status}。",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "智能体后端在本轮运行中停止。对话已保存，可以继续。",

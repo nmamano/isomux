@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   createOfficeUsageReader,
+  FALLBACK_MS,
   FRESH_MS,
   parseClaudeWeekly,
   parseCodexWeekly,
@@ -218,15 +219,84 @@ describe("createOfficeUsageReader", () => {
     expect(h.reads).toBe(1);
   });
 
-  it("never caches a failure and never falls back to an older reading", async () => {
-    const h = harness([weekly(10), new Error("rpc died"), weekly(40)]);
+  it("answers a failed probe with the last good reading, as observed, and probes again next time", async () => {
+    const h = harness([
+      weekly(10),
+      new Error("rpc died"),
+      { kind: "failed" },
+      weekly(40),
+    ]);
     await h.reader.read("claude");
     h.advance(FRESH_MS + 1);
-    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+    const lastGood = { kind: "weekly", usedPercent: 10, observedAtMs: NOW };
+    expect(await h.reader.read("claude")).toMatchObject(lastGood);
     // The failed process is dropped and the next read probes a new one.
     expect(h.closed).toBe(1);
+    // The fallback is not cached and keeps its own age.
+    expect(await h.reader.read("claude")).toMatchObject(lastGood);
+    expect(h.reads).toBe(3);
     expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 40 });
-    expect(h.created).toBe(2);
+    expect(h.created).toBe(3);
+  });
+
+  it("falls back only while the last good reading is under an hour old", async () => {
+    const h = harness([weekly(10), { kind: "failed" }, { kind: "failed" }]);
+    await h.reader.read("claude");
+    h.advance(FALLBACK_MS - 1);
+    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 10 });
+    h.advance(1);
+    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+  });
+
+  it("does not fall back on a weekly reading whose reset has passed", async () => {
+    const h = harness([
+      { kind: "weekly", usedPercent: 70, resetsAtMs: NOW + 30 * 60_000 },
+      { kind: "failed" },
+      { kind: "failed" },
+    ]);
+    await h.reader.read("claude");
+    h.advance(30 * 60_000 - 1);
+    expect(await h.reader.read("claude")).toMatchObject({ usedPercent: 70 });
+    h.advance(1);
+    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+  });
+
+  it("falls back on a no-limit reading", async () => {
+    const h = harness([{ kind: "no_limit" }, { kind: "failed" }]);
+    await h.reader.read("claude");
+    h.advance(FRESH_MS + 1);
+    expect(await h.reader.read("claude")).toEqual({
+      kind: "no_limit",
+      observedAtMs: NOW,
+    });
+  });
+
+  it("forgets the last good reading on invalidation, on a directory move, and from a probe an invalidation overtook", async () => {
+    const h = harness([
+      weekly(10),
+      { kind: "failed" },
+      weekly(20),
+      { kind: "failed" },
+      weekly(30),
+      { kind: "failed" },
+    ]);
+    await h.reader.read("claude");
+    h.reader.invalidate("claude");
+    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+
+    await h.reader.read("claude");
+    h.setDir("/office/other");
+    expect(await h.reader.read("claude")).toEqual({ kind: "failed" });
+
+    // weekly(30) lands after an invalidation: it is not kept, and the
+    // caller's next probe fails with nothing to fall back on.
+    h.hold(true);
+    const pending = h.reader.read("claude");
+    await Promise.resolve();
+    h.reader.invalidate("claude");
+    h.hold(false);
+    h.release();
+    expect(await pending).toEqual({ kind: "failed" });
   });
 
   it("rejects a reset in the past or more than a week and an hour away", async () => {

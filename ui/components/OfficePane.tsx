@@ -9,6 +9,10 @@ import type {
 } from "../../shared/contract-shapes.ts";
 import { formatNumber } from "../../shared/i18n/number.ts";
 import {
+  DEFAULT_MEMBER_SHARE,
+  MEMBER_SHARE_OPTIONS,
+} from "../../shared/member-usage-share.ts";
+import {
   dialogInput,
   dialogCancelBtn,
   dialogSaveBtn,
@@ -68,13 +72,18 @@ export function OfficePane({
   // and their pane can never be dirty.
   const [baselineName, setBaselineName] = useState("");
   const [baselinePrompt, setBaselinePrompt] = useState("");
-  // The member usage cap switch, under the same version as name and prompt,
-  // and the status lines the GET reads while it is on.
+  // The member usage cap switch and member share, under the same version as
+  // name and prompt, and the status lines the GET reads while it is on.
   const [usageCap, setUsageCap] = useState(false);
   const [baselineUsageCap, setBaselineUsageCap] = useState(false);
+  const [usageShare, setUsageShare] = useState(DEFAULT_MEMBER_SHARE);
+  const [baselineUsageShare, setBaselineUsageShare] =
+    useState(DEFAULT_MEMBER_SHARE);
   const [usageStatus, setUsageStatus] = useState<OfficeUsageStatusWire[]>([]);
   // A server from before the switch existed omits it: no switch, no field.
+  // The same for the share.
   const [usageCapKnown, setUsageCapKnown] = useState(false);
+  const [usageShareKnown, setUsageShareKnown] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const settingsLoaded = settingsVersion != null;
 
@@ -91,6 +100,9 @@ export function OfficePane({
         setUsageCapKnown(r.memberUsageCap !== undefined);
         setUsageCap(r.memberUsageCap ?? false);
         setBaselineUsageCap(r.memberUsageCap ?? false);
+        setUsageShareKnown(r.memberUsageShare !== undefined);
+        setUsageShare(r.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
+        setBaselineUsageShare(r.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
         setUsageStatus(r.memberUsageStatus ?? []);
         setSettingsVersion(r.version);
       })
@@ -115,6 +127,7 @@ export function OfficePane({
       name: name.trim() || null,
       version: settingsVersion,
       ...(usageCapKnown ? { memberUsageCap: usageCap } : {}),
+      ...(usageShareKnown ? { memberUsageShare: usageShare } : {}),
     };
     try {
       await apiFetch<void>("PUT", "/api/office/settings", body);
@@ -137,6 +150,9 @@ export function OfficePane({
         setUsageCapKnown(next.memberUsageCap !== undefined);
         setUsageCap(next.memberUsageCap ?? false);
         setBaselineUsageCap(next.memberUsageCap ?? false);
+        setUsageShareKnown(next.memberUsageShare !== undefined);
+        setUsageShare(next.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
+        setBaselineUsageShare(next.memberUsageShare ?? DEFAULT_MEMBER_SHARE);
         setUsageStatus(next.memberUsageStatus ?? []);
         setSettingsVersion(next.version);
       } catch {
@@ -192,12 +208,14 @@ export function OfficePane({
     (settingsLoaded &&
       (name !== baselineName ||
         text !== baselinePrompt ||
-        usageCap !== baselineUsageCap)) ||
+        usageCap !== baselineUsageCap ||
+        usageShare !== baselineUsageShare)) ||
     mem.dirty;
   const discardPrompt = useUnsavedChangesPrompt(dirty, closeRef, () => {
     setName(baselineName);
     setText(baselinePrompt);
     setUsageCap(baselineUsageCap);
+    setUsageShare(baselineUsageShare);
     mem.reset();
     setStatus({ kind: "idle" });
   });
@@ -295,6 +313,39 @@ export function OfficePane({
             >
               {t("settings.office.memberUsageCapHint")}
             </p>
+            {usageCap && usageShareKnown && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: 8,
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                }}
+              >
+                <span>{t("settings.office.memberUsageShare")}</span>
+                <select
+                  value={usageShare}
+                  disabled={!settingsLoaded}
+                  onChange={(e) => setUsageShare(Number(e.target.value))}
+                  style={{
+                    ...inputStyle,
+                    width: "auto",
+                    padding: "2px 6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {MEMBER_SHARE_OPTIONS.map((share) => (
+                    <option key={share} value={share}>
+                      {t("settings.office.memberUsageShareOption", {
+                        share: formatNumber(language, share),
+                      })}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {baselineUsageCap &&
               usageStatus.map((row) => (
                 <p
@@ -427,6 +478,7 @@ export function OfficePane({
                   setName(baselineName);
                   setText(baselinePrompt);
                   setUsageCap(baselineUsageCap);
+                  setUsageShare(baselineUsageShare);
                   mem.reset();
                   setStatus({ kind: "idle" });
                 }}
@@ -468,7 +520,9 @@ function usageStatusLine(
   return t("settings.office.memberUsageWeekly", {
     provider,
     used: formatNumber(language, Math.round(row.usedPercent)),
-    pace: formatNumber(language, Math.round(row.pacePercent)),
+    // One decimal: a rounded line (11% for 11.4%) would read as a stop at a
+    // use that still runs.
+    line: formatNumber(language, Math.round(row.linePercent * 10) / 10),
   });
 }
 

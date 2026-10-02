@@ -467,9 +467,9 @@ export type EnqueueResult =
       ok: false;
       error: string;
       status: number;
-      // Set with error "usage_cap": why the member usage cap refused, and when
-      // to try again.
-      usageCap?: { reason: "pace" | "read_failed"; retryAtMs: number };
+      // Set with error "usage_cap": when the member usage cap lets the input
+      // through again.
+      usageCap?: { retryAtMs: number };
     };
 
 // Immediate acceptance result for a human-attributed message. This resolves

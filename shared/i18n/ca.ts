@@ -456,13 +456,15 @@ Coses que pots fer per ell:
   "settings.office.loadedVariables.other": "S'han carregat {count} variables.",
   "settings.office.memberUsageCap": "Marcar el ritme d'ús dels membres",
   "settings.office.memberUsageCapHint":
-    "Els torns dels membres amb la sessió de tota l'oficina s'aturen mentre l'ús d'aquesta setmana vagi per davant del temps transcorregut de la setmana.",
+    "Els torns dels membres amb la sessió de tota l'oficina s'aturen en un límit que puja cada dia de la setmana, fins a la part dels membres.",
+  "settings.office.memberUsageShare": "Part dels membres del límit setmanal",
+  "settings.office.memberUsageShareOption": "{share} %",
   "settings.office.memberUsageWeekly":
-    "{provider}: {used} % utilitzat, {pace} % de la setmana transcorregut.",
+    "{provider}: {used} % utilitzat; avui els membres s'aturen al {line} %.",
   "settings.office.memberUsageNoLimit":
     "{provider}: la sessió de tota l'oficina no té límit setmanal. Els membres no tenen topall.",
   "settings.office.memberUsageFailed":
-    "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres estan aturats.",
+    "{provider}: no s'ha pogut llegir l'ús setmanal. Els membres no tenen topall.",
 
   "settings.room.title": "{room} · Configuració",
   "settings.room.intro":
@@ -2002,9 +2004,7 @@ Coses que pots fer per ell:
   "systemEntries.conversationCleared": "Conversa esborrada.",
   "systemEntries.newConversation": "Conversa nova iniciada.",
   "systemEntries.usageCap.pace":
-    "Els torns dels membres estan en pausa: l'ús de l'oficina d'aquesta setmana va per davant del ritme de la setmana. Es reprenen {when}.",
-  "systemEntries.usageCap.readFailed":
-    "Els torns dels membres estan en pausa: Isomux no ha pogut llegir l'ús setmanal del propietari de l'oficina. Torna-ho a provar d'aquí a un minut.",
+    "Els torns dels membres estan en pausa: l'ús de l'oficina ha arribat al límit d'avui per als membres. Es reprenen {when}.",
   "systemEntries.agentStopped": "L'agent s'ha aturat: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend de l'agent s'ha aturat durant el torn. La conversa està desada i es pot reprendre.",

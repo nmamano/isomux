@@ -721,6 +721,9 @@ export interface OfficeSettingsReq {
   version: string;
   // The member usage cap switch. Omitted preserves it (a stale client tab).
   memberUsageCap?: boolean;
+  // The member share of the weekly limit, in percent: a multiple of 10 from
+  // 10 to 100. Omitted preserves it.
+  memberUsageShare?: number;
 }
 
 export type UserEnvRes = { mode: "managed"; values: Record<string, string> };
@@ -747,7 +750,8 @@ export type OfficeUsageStatusWire =
       provider: "claude" | "codex";
       state: "weekly";
       usedPercent: number;
-      pacePercent: number;
+      // Today's line: members stop once usedPercent reaches it.
+      linePercent: number;
     }
   | { provider: "claude" | "codex"; state: "no_limit" | "failed" };
 
@@ -759,6 +763,7 @@ export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
   version: string;
   // Optional for the same reason as `version`.
   memberUsageCap?: boolean;
+  memberUsageShare?: number;
   memberUsageStatus?: OfficeUsageStatusWire[];
 };
 

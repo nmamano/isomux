@@ -7,22 +7,36 @@ subscription as a moving limit tied to the position in the week. The cap is
 hard. The check runs at the start of a turn; a running turn may complete. A
 heads-up before the cap is a follow-up, not in this lane.
 
+Nil's rulings after the first version (2026-10-02, a2be4639): a failed
+reading does not block members: the last good reading counts if it is under an
+hour old, and with none members go through. The owner sets the member share of
+the weekly limit (10-100% in steps of 10, default 80%); the line is the share
+times the day of the week over 7, stepped per day, so the owner always keeps
+at least 100% minus the share.
+
 Isomux PM rulings (2026-10-02): a reading at most 60 s old admits; an older
-one triggers one probe shared by concurrent admissions. A failed, invalid or
-missing reading denies, with no fallback to an older reading. Exempt only
-billing positively identified as having no such weekly limit.
+one triggers one probe shared by concurrent admissions. Exempt only billing
+positively identified as having no such weekly limit. (The first version's
+"a failed reading denies" is replaced by Nil's fail-open ruling above.)
 
 ## 1. The moving limit
 
 A member turn may start only while the office account's weekly utilization is
-below the elapsed fraction of the weekly window (the pace line):
+below today's line. Days count from the start of the weekly window, and a
+whole day's allowance opens at the start of that day:
 
 ```
-elapsed = 1 - (resetsAt - now) / 7 days
-allowed = usedPercent < 100 * elapsed
+weekStart = resetsAt - 7 days
+day       = floor((now - weekStart) / 1 day) + 1      (clamped to 1..7)
+line      = share * day / 7
+allowed   = usedPercent < line
 ```
 
-With 10% of the week left, members stop at 90%. Owners are never stopped.
+With share 70 the lines on days 1-7 are 10, 20, 30, 40, 50, 60 and 70%, and
+the owner keeps at least 30% of the week. Owners are never stopped.
+
+When refused, `retryAtMs` is the start of the first later day whose line is
+above the current use, or the weekly reset if no day's line is.
 
 Only the account-wide weekly window counts: Claude `seven_day`, and the Codex
 window with `windowDurationMins === 10080` (on a Pro plan this is `primary`,
@@ -30,18 +44,20 @@ not `secondary`: probe on 2026-10-02). The 5-hour and per-model weekly windows
 do not count: they are not "the weekly limit", and a member on Sonnet must not
 stop because the Opus window is full.
 
-Early in the week the line is low. Claude reports whole percents, so after 1%
-of use a member waits until 1% of the week (about 1.7 h) has passed.
-
-Owner setting: one switch, **off by default**. The task asks for a cap the
+Owner settings: one switch, **off by default** (the task asks for a cap the
 owner *can* set, and an update must not stop members in existing offices
-mid-week. No reserve setting: the pace line is the ruling's example.
+mid-week), and the member share, a multiple of 10 from 10 to 100, **80 by
+default** (an office with no stored value reads as 80).
 
 ### Limits
 
 The design bounds member use; it does not guarantee the owner a reserved
-balance. Use can pass the pace line through:
+balance. Use can pass the line through:
 
+- a whole day's allowance opening at the start of the day: members can use
+  all of it in the first hour;
+- a reading that cannot be had: members go through with no cap, and the last
+  good reading stands in for up to an hour (Nil's ruling);
 - turns already running when the line is crossed (Nil's ruling);
 - the 60 s reuse window: turns admitted on a reading up to 60 s old;
 - provider reporting lag: the provider's own figure can trail real use;
@@ -72,10 +88,16 @@ minutes with no admission, so an idle office keeps no process.
 
 **Freshness (PM ruling):** a committed reading admits for 60 s from its
 observation time. An admission with no such reading starts a probe, or joins
-the one in flight. A probe that fails, times out (20 s) or returns an invalid
-reading **denies**. No older reading is used after a failure.
+the one in flight.
 
-**Validity.** A reading admits only if all hold, else it denies:
+**Failure (Nil's ruling):** a probe that fails, times out (20 s) or returns an
+invalid reading answers with the last good reading (weekly or no_limit) for
+that account if it was observed less than 1 hour ago and, for a weekly
+reading, its reset is still in the future. With no such reading the outcome is
+failed, and a failed outcome **admits**. The fallback is not cached: the next
+admission probes again.
+
+**Validity.** A reading is weekly only if all hold, else it is failed:
 
 - the weekly window is present;
 - `usedPercent` is a finite number in [0, 100] (not clamped: an out-of-range
@@ -85,7 +107,7 @@ reading **denies**. No older reading is used after a failure.
   next admission probes again, and a fresh probe that still reports a past
   reset is invalid.
 
-**Positive exemption (members run with no cap).** Only:
+**Exemption (members run with no cap).** The provider's own statement:
 
 - the turn does not bill the office sign-in (section 3);
 - Claude office reading with `rate_limits_available: false` (the provider's
@@ -93,21 +115,26 @@ reading **denies**. No older reading is used after a failure.
   Vertex);
 - Codex office `account/read` reports `type: "apiKey"` or `"amazonBedrock"`.
 
-Everything else without a valid weekly window denies: SDK method gone, an
-unparseable answer, a ChatGPT plan with no 10080-minute window, a missing
-`resetsAt`.
+Everything else without a valid weekly window is a failed probe and follows
+the failure rule above (the last good reading if eligible, else admit): SDK
+method gone, an unparseable answer, a ChatGPT plan with no 10080-minute
+window, a missing `resetsAt`. A signed-out office account (`signed_out`) is
+not a failure: it admits with no fallback and has no status line.
 
 **Invalidation.** The reader's key is the office account directory plus a hash
 of the env the reader runs with, so a changed office variable (an API key, a
 cloud switch) is a different account even in the same directory. Office
 sign-in, sign-out and a write of the office variables (`PUT /api/office/env`)
-also bump a generation in the reader and in the cap's recent answers. An
+also bump a generation in the reader and in the cap's recent answers, and
+clear the cached and the last good reading. An
 answer counts only if its key and generation still hold when it arrives: a
 probe that an invalidation overtook is neither cached nor returned, and its
 caller reads again. The cap's admission does the same with its own
 generation, because the reader can hand back a cached answer before an
-invalidation runs; three overtaken reads refuse. A change closes the warm reader. A reader process that
-cannot start reads as failed, so the owner's settings still load.
+invalidation runs; three overtaken reads admit, as a failed read does. A
+change closes the warm reader. A reader process that cannot start reads as
+failed, so the owner's settings still load. An office directory the cap cannot
+resolve also admits.
 
 **App daily budget.** An app message now awaits the cap before delivery, so the
 handler holds one of the app's daily slots across the await; acceptance spends
@@ -197,9 +224,8 @@ status:429, code:"usage_cap", retryAtMs}` and is not queued, so the sending
 agent learns in its HTTP reply. `enqueueMessage` is synchronous, so it answers
 from the cap's last admission for that account (`peek`, at most 60 s old). The
 agent, cron-run and app send paths first await one (`prepareEnqueue`). The
-scheduled-message tick cannot await: with no recent admission it starts a read
-and gets a retryable 429, and the tick (every 30 s, for up to 24 h) tries
-again. Handoff gates before the session reset, so a refused handoff does not
+scheduled-message tick cannot await: with no recent admission the item is
+accepted and the gate at turn start decides. Handoff gates before the session reset, so a refused handoff does not
 wipe the session. Turn start stays the authoritative check.
 
 **Cron** (own sessions, no `runAgentTurn`):
@@ -223,20 +249,14 @@ turn), topic generation (`oneShotPrompt`, not a turn).
 ## 5. What a capped member sees
 
 Chat error entry and the HTTP `error` text (English source; es/ca/zh in the
-same change). Pace refusal:
+same change). The only refusal:
 
-> Member turns are paused: this week's office usage is ahead of the week's pace. They resume {when}.
+> Member turns are paused: office usage has reached today's member limit. They resume {when}.
 
 `{when}` is relative ("in 3 hours", Intl in the reader's language): the server
-writes the entry and does not know the reader's time zone. The moment is when
-the pace line reaches the current use: `resetsAt - 7 days + usedPercent/100 *
-7 days`. Owner use can move it later. The 429 body carries it as `retryAtMs`.
-
-Read failure (fail closed):
-
-> Member turns are paused: Isomux could not read the office owner's weekly usage. Try again in a minute.
-
-`retryAtMs` is now + 60 s.
+writes the entry and does not know the reader's time zone. The moment is
+`retryAtMs` from section 1. Owner use can move it later. The 429 body carries
+it as `retryAtMs`.
 
 The cap lifts with no action: the next admission that passes runs. Refused
 work is not replayed.
@@ -244,24 +264,30 @@ work is not replayed.
 ## 6. Settings and prompt
 
 Office pane (Settings → Office; route `office:admin` with `officeOwner`, user
-scope, so human-only). The switch is `memberUsageCap` in `office-config.json`
-beside `OfficeSettings` (absent reads as false), part of the settings version
-hash, and an optional field on the settings GET and PUT (omitted on PUT
-preserves it). The UI shows and sends it only when the GET carries it.
+scope, so human-only). The switch is `memberUsageCap` and the share
+`memberUsageShare` in `office-config.json` beside `OfficeSettings` (an absent
+switch reads as false, an absent or invalid share as 80). Both are part of the
+settings version hash and optional fields on the settings GET and PUT
+(omitted on PUT preserves each; a share that is not an integer multiple of 10
+in 10..100 is a 400 `invalid_request`). The UI shows and sends each only when
+the GET carries it.
 
 - Switch label: **Pace member usage**
-- Hint: **Members' turns on the office sign-in stop while this week's usage is ahead of the week's elapsed time.**
-- Status, one line per provider with an office sign-in, from a new read-only
+- Hint: **Members' turns on the office sign-in stop at a line that rises each day of the week, up to the member share.**
+- Select under the switch, shown while it is on: **Member share of the weekly limit**, options **10%** to **100%**.
+- Status, one line per provider with an office sign-in, from a read-only
   field on `GET /api/office/settings` (owner-only like the route), read only
   while the switch is on. Three states:
-  - **{Provider}: {used}% used, {pace}% of the week elapsed.**
+  - **{Provider}: {used}% used; members stop at {line}% today.** (`linePercent`
+    on the wire; the UI prints it to one decimal, so a line of 11.4% does not
+    read as 11% while 11% of use still runs.)
   - **{Provider}: no weekly limit on the office sign-in. Members are not capped.**
-  - **{Provider}: weekly usage could not be read. Members are stopped.**
+  - **{Provider}: weekly usage could not be read. Members are not capped.**
 
 Agent-facing prompt: none. The 429 body names the cause and the retry time.
 
-Doc surfaces: one bullet in `docs/features.md` (Multiple members) and the same
-bullet in the chatbot feature list (`api/chat.ts`).
+Doc surfaces: none. Nil's ruling (2026-10-02): member usage pacing appears in
+no public doc; owners find it in Settings → Office.
 
 ## PM rulings on the open points (2026-10-02)
 

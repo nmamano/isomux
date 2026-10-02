@@ -12,7 +12,7 @@
 // existing AgentManager event sink - the handler never emits.
 //
 // office.getSettings returns the editable prompt and display name, the member
-// usage cap switch and its status lines.
+// usage cap switch, the member share and the cap's status lines.
 // The legacy envFile field remains persistence-only until
 // the boot migration clears it.
 //
@@ -31,6 +31,7 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type { OfficeSettingsRes } from "../../../shared/contract-shapes.ts";
+import { validMemberShare } from "../../../shared/member-usage-share.ts";
 
 // setSettings outcome the seam shapes: ok, a status-mapped validation failure
 // (400 over-long name), or a version conflict carrying the
@@ -45,12 +46,14 @@ export interface OfficeSettingsDeps {
   getSettings(): Promise<OfficeSettingsRes>;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
-  // `memberUsageCap === undefined` preserves the switch.
+  // `memberUsageCap === undefined` preserves the switch, and
+  // `memberUsageShare === undefined` the share.
   // Throws nothing - invalid input returns { ok: false }.
   applySettings(input: {
     prompt: string | null;
     name?: string | null;
     memberUsageCap?: boolean;
+    memberUsageShare?: number;
     expectedVersion: string;
   }): ApplyOfficeSettingsResult;
 }
@@ -67,6 +70,7 @@ export function officeSettingsHandlers(
         name?: unknown;
         version?: unknown;
         memberUsageCap?: unknown;
+        memberUsageShare?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
       // Distinguish "name omitted" (undefined → preserve) from "name set to
@@ -93,10 +97,21 @@ export function officeSettingsHandlers(
       ) {
         return fail(400, "invalid_request", "memberUsageCap must be a boolean");
       }
+      if (
+        b.memberUsageShare !== undefined &&
+        !validMemberShare(b.memberUsageShare)
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "memberUsageShare must be a multiple of 10 from 10 to 100",
+        );
+      }
       const r = deps.applySettings({
         prompt,
         name,
         memberUsageCap: b.memberUsageCap,
+        memberUsageShare: b.memberUsageShare,
         expectedVersion: b.version,
       });
       if (!r.ok) {

@@ -1433,7 +1433,13 @@ async function applyAccessSettings(
 function officeSettingsVersion(): string {
   const s = agentManager.getOfficeSettings();
   return versionOf(
-    JSON.stringify([s.prompt, s.envFile, s.name, memberUsageCap().isEnabled()]),
+    JSON.stringify([
+      s.prompt,
+      s.envFile,
+      s.name,
+      memberUsageCap().isEnabled(),
+      memberUsageCap().share(),
+    ]),
   );
 }
 
@@ -1446,6 +1452,7 @@ function applyOfficeSettings(input: {
   prompt: string | null;
   name?: string | null;
   memberUsageCap?: boolean;
+  memberUsageShare?: number;
   expectedVersion: string;
 }):
   | { ok: true }
@@ -1478,6 +1485,11 @@ function applyOfficeSettings(input: {
     input.memberUsageCap !== memberUsageCap().isEnabled()
   )
     memberUsageCap().setEnabled(input.memberUsageCap);
+  if (
+    input.memberUsageShare !== undefined &&
+    input.memberUsageShare !== memberUsageCap().share()
+  )
+    memberUsageCap().setShare(input.memberUsageShare);
   return { ok: true };
 }
 
@@ -3235,6 +3247,7 @@ function buildExecutorDeps(
           name: agentManager.getOfficeSettings().name,
           version: officeSettingsVersion(),
           memberUsageCap: memberUsageCap().isEnabled(),
+          memberUsageShare: memberUsageCap().share(),
         };
         // Status reads the providers, so only while the cap is on.
         return {

@@ -1,9 +1,11 @@
 // Member usage cap (internal-docs/usage-caps-design.md, task 6de8f530).
 //
 // When the owner turns it on, a member-driven turn on the office sign-in may
-// start only while the office account's weekly usage is below the elapsed
-// fraction of the week (the pace line). Owners are never stopped. The check
-// runs at turn start; a running turn completes.
+// start only while the office account's weekly usage is below today's line:
+// the member share times the day of the weekly window over 7, stepped per day
+// (Nil's ruling, 2026-10-02). Owners are never stopped. The check runs at turn
+// start; a running turn completes. A reading the cap cannot get lets members
+// through.
 //
 // Who is capped (Isomux PM ruling, 2026-10-02): input a human sends directly
 // is capped when that human is not an owner; input no human sent directly is
@@ -19,8 +21,14 @@ import type {
 import type { OfficeUsageStatusWire } from "../shared/contract-shapes.ts";
 import type { Translator } from "../shared/i18n/translate.ts";
 import { timeUntilFine } from "../shared/i18n/time.ts";
+import { DEFAULT_MEMBER_SHARE } from "../shared/member-usage-share.ts";
 import { buildOfficeEnv } from "./env-loader.ts";
-import { loadMemberUsageCap, saveMemberUsageCap } from "./persistence.ts";
+import {
+  loadMemberUsageCap,
+  loadMemberUsageShare,
+  saveMemberUsageCap,
+  saveMemberUsageShare,
+} from "./persistence.ts";
 import { effectiveProviderDirectory } from "./provider-account-manager.ts";
 import {
   createOfficeUsageReader,
@@ -28,6 +36,9 @@ import {
   WEEK_MS,
   type OfficeUsageReader,
 } from "./office-usage.ts";
+
+const DAY_MS = WEEK_MS / 7;
+
 import { getUserById, getUserByName } from "./users.ts";
 
 // The account a session bills: its provider and account directory. Null for
@@ -40,13 +51,10 @@ export type BillingAccount = {
 export type Admission =
   | { kind: "admitted" }
   | { kind: "exempt" }
-  | { kind: "refused"; reason: "pace" | "read_failed"; retryAtMs: number };
+  | { kind: "refused"; retryAtMs: number };
 
 export class UsageCapError extends Error {
-  constructor(
-    readonly reason: "pace" | "read_failed",
-    readonly retryAtMs: number,
-  ) {
+  constructor(readonly retryAtMs: number) {
     super("usage_cap");
     this.name = "UsageCapError";
   }
@@ -63,22 +71,33 @@ export function billingAccountFor(
   };
 }
 
-// The pace line. Exported for tests.
-export function evaluatePace(
+// Today's line: on day d (1..7) of the weekly window, share x d / 7. A whole
+// day's allowance opens at the start of that day. Exported for tests.
+export function evaluateLine(
   usedPercent: number,
   resetsAtMs: number,
   now: number,
-): { allowed: boolean; pacePercent: number; retryAtMs: number } {
-  const elapsed = Math.min(1, Math.max(0, 1 - (resetsAtMs - now) / WEEK_MS));
-  const pacePercent = elapsed * 100;
+  share: number,
+): { allowed: boolean; linePercent: number; retryAtMs: number } {
+  const weekStart = resetsAtMs - WEEK_MS;
+  const line = (day: number) => (share * day) / 7;
+  const today = Math.min(
+    7,
+    Math.max(1, Math.floor((now - weekStart) / DAY_MS) + 1),
+  );
+  // The start of the first later day whose line passes today's use, else the
+  // reset. Owner use can move it later.
+  let retryAtMs = resetsAtMs;
+  for (let day = today + 1; day <= 7; day++) {
+    if (line(day) > usedPercent) {
+      retryAtMs = weekStart + (day - 1) * DAY_MS;
+      break;
+    }
+  }
   return {
-    allowed: usedPercent < pacePercent,
-    pacePercent,
-    // When the line reaches today's use. Owner use can move it later.
-    retryAtMs: Math.min(
-      resetsAtMs,
-      resetsAtMs - WEEK_MS + (usedPercent / 100) * WEEK_MS,
-    ),
+    allowed: usedPercent < line(today),
+    linePercent: line(today),
+    retryAtMs,
   };
 }
 
@@ -98,11 +117,9 @@ export function managerCapped(userId: string | null | undefined): boolean {
 
 export function usageCapText(
   translator: Translator,
-  err: Pick<UsageCapError, "reason" | "retryAtMs">,
+  err: Pick<UsageCapError, "retryAtMs">,
   now: number = Date.now(),
 ): string {
-  if (err.reason === "read_failed")
-    return translator.t("systemEntries.usageCap.readFailed");
   const until = timeUntilFine(
     translator.language,
     Math.max(err.retryAtMs, now + 60_000),
@@ -116,6 +133,8 @@ export function usageCapText(
 export interface MemberUsageCap {
   isEnabled(): boolean;
   setEnabled(enabled: boolean): void;
+  share(): number;
+  setShare(share: number): void;
   admit(billing: BillingAccount): Promise<Admission>;
   // The answer `admit` gave for this account in the last FRESH_MS, without
   // waiting for a provider; null when there is none. For callers that cannot
@@ -131,12 +150,15 @@ export interface MemberUsageCapDeps {
   officeDir: (provider: ProviderAccountProvider) => string;
   load?: () => boolean;
   save?: (enabled: boolean) => void;
+  loadShare?: () => number;
+  saveShare?: (share: number) => void;
   now?: () => number;
 }
 
 export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
   const now = deps.now ?? Date.now;
   let enabled = deps.load?.() ?? false;
+  let share = deps.loadShare?.() ?? DEFAULT_MEMBER_SHARE;
 
   // The last answer per office account, for `peek`, and a generation per
   // provider so an answer that an invalidation overtook is not recorded.
@@ -155,6 +177,7 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
     try {
       officeDir = resolve(deps.officeDir(billing.provider));
     } catch {
+      // The cap cannot tell the office account: members go through.
       return { kind: "error" };
     }
     if (resolve(billing.dir) !== officeDir) return { kind: "other" };
@@ -165,14 +188,20 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
     };
   }
 
+  // A reading the cap cannot get (failed, signed out) admits.
   async function read(provider: ProviderAccountProvider): Promise<Admission> {
     const outcome = await deps.reader.read(provider);
     if (outcome.kind === "no_limit") return { kind: "exempt" };
-    if (outcome.kind !== "weekly") return refusedReadFailed(now());
-    const pace = evaluatePace(outcome.usedPercent, outcome.resetsAtMs, now());
-    return pace.allowed
+    if (outcome.kind !== "weekly") return { kind: "admitted" };
+    const line = evaluateLine(
+      outcome.usedPercent,
+      outcome.resetsAtMs,
+      now(),
+      share,
+    );
+    return line.allowed
       ? { kind: "admitted" }
-      : { kind: "refused", reason: "pace", retryAtMs: pace.retryAtMs };
+      : { kind: "refused", retryAtMs: line.retryAtMs };
   }
 
   return {
@@ -181,15 +210,22 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
       enabled = next;
       deps.save?.(next);
     },
+    share: () => share,
+    setShare(next) {
+      share = next;
+      deps.saveShare?.(next);
+      // A recent answer was given against the old line.
+      recent.clear();
+    },
     async admit(billing) {
       if (!enabled) return { kind: "admitted" };
       const account = officeAccount(billing);
-      if (account.kind === "error") return refusedReadFailed(now());
+      if (account.kind === "error") return { kind: "admitted" };
       if (account.kind === "other") return { kind: "exempt" };
       // Only an answer read under the current generation counts: one that an
       // invalidation overtook (even a cached one the reader handed back
       // before the invalidation ran) is read again, and three overtaken reads
-      // refuse.
+      // admit, as a failed read does.
       for (let attempt = 0; attempt < 3; attempt++) {
         const generation = generations.get(account.provider) ?? 0;
         const admission = await read(account.provider);
@@ -197,15 +233,21 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
         recent.set(account.key, { admission, at: now() });
         return admission;
       }
-      return refusedReadFailed(now());
+      return { kind: "admitted" };
     },
     peek(billing) {
       if (!enabled) return { kind: "admitted" };
       const account = officeAccount(billing);
-      if (account.kind === "error") return refusedReadFailed(now());
+      if (account.kind === "error") return { kind: "admitted" };
       if (account.kind === "other") return { kind: "exempt" };
       const last = recent.get(account.key);
       if (!last || now() - last.at > FRESH_MS) return null;
+      // A refusal ends when its retry time comes, even inside FRESH_MS.
+      if (
+        last.admission.kind === "refused" &&
+        now() >= last.admission.retryAtMs
+      )
+        return null;
       return last.admission;
     },
     async status() {
@@ -218,16 +260,17 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
             if (outcome.kind === "no_limit")
               return { provider, state: "no_limit" };
             if (outcome.kind === "failed") return { provider, state: "failed" };
-            const pace = evaluatePace(
+            const line = evaluateLine(
               outcome.usedPercent,
               outcome.resetsAtMs,
               now(),
+              share,
             );
             return {
               provider,
               state: "weekly",
               usedPercent: outcome.usedPercent,
-              pacePercent: pace.pacePercent,
+              linePercent: line.linePercent,
             };
           },
         ),
@@ -245,10 +288,6 @@ export function createMemberUsageCap(deps: MemberUsageCapDeps): MemberUsageCap {
       recent.clear();
     },
   };
-}
-
-function refusedReadFailed(at: number): Admission {
-  return { kind: "refused", reason: "read_failed", retryAtMs: at + FRESH_MS };
 }
 
 function officeDir(provider: ProviderAccountProvider): string {
@@ -282,11 +321,13 @@ export function memberUsageCap(): MemberUsageCap {
     officeDir,
     load: loadMemberUsageCap,
     save: saveMemberUsageCap,
+    loadShare: loadMemberUsageShare,
+    saveShare: saveMemberUsageShare,
   });
   return shared;
 }
 
-// A server boot reads the switch from its own state root.
+// A server boot reads the switch and share from its own state root.
 export function resetMemberUsageCap(): void {
   shared?.close();
   shared = null;

@@ -6,7 +6,7 @@
 // swapped for one over a scripted reader, so no provider is ever read.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -26,7 +26,12 @@ import {
   type OfficeUsageProbe,
   type OfficeWeeklyOutcome,
 } from "../office-usage.ts";
-import { loadMemberUsageCap, saveMemberUsageCap } from "../persistence.ts";
+import {
+  loadMemberUsageCap,
+  loadMemberUsageShare,
+  saveMemberUsageCap,
+  saveMemberUsageShare,
+} from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { setTestManagedOfficeEnv } from "./managed-office-env.ts";
@@ -54,7 +59,8 @@ async function waitUntil(
   }
 }
 
-// Ahead of the pace line (60% used at mid-week) or behind it (40%).
+// Mid-week is day 4: with the default 80% share the line is about 45.7%.
+// Ahead of it (60% used) or behind it (40%).
 function weekly(usedPercent: number): OfficeWeeklyOutcome {
   return {
     kind: "weekly",
@@ -65,10 +71,14 @@ function weekly(usedPercent: number): OfficeWeeklyOutcome {
 }
 const AHEAD = () => weekly(60);
 const BEHIND = () => weekly(40);
+const UNREADABLE = (): OfficeWeeklyOutcome => ({ kind: "failed" });
 
 // Swap in a cap over a scripted reader. `reading` is read on every admission.
 function installCap(opts: { enabled?: boolean } = {}) {
-  const state = { reading: AHEAD, reads: 0 };
+  const state: { reading: () => OfficeWeeklyOutcome; reads: number } = {
+    reading: AHEAD,
+    reads: 0,
+  };
   setMemberUsageCapForTests(
     createMemberUsageCap({
       reader: {
@@ -83,6 +93,8 @@ function installCap(opts: { enabled?: boolean } = {}) {
         effectiveProviderDirectory(provider, buildOfficeEnv()),
       load: opts.enabled === false ? loadMemberUsageCap : () => true,
       save: saveMemberUsageCap,
+      loadShare: loadMemberUsageShare,
+      saveShare: saveMemberUsageShare,
     }),
   );
   return state;
@@ -365,6 +377,63 @@ describe("member usage cap: input no human sent", () => {
     expect(srv.fakeBackend.sessionForAgent(agent.id)).toBe(sessionBefore);
     expect(sessionBefore!.closed).toBe(false);
   });
+
+  it("accepts input with no recent reading and refuses it at turn start", async () => {
+    const { srv } = await boot();
+    const target = await spawnFor(srv, "AliceBot", "Alice");
+    const sender = await spawnFor(srv, "BossBot", "Boss");
+    const cap = installCap();
+
+    // The scheduled-message tick enqueues with no reading taken first.
+    expectCappedSetup(cap);
+    const result = srv.agentManager.enqueueMessage(target.id, {
+      sender: {
+        kind: "agent",
+        agentId: sender.id,
+        agentName: "BossBot",
+        roomName: "Room",
+      },
+      text: "scheduled hello",
+      scheduledFor: Date.now(),
+    });
+    expect(result.ok).toBe(true);
+    await refusedOrSent(srv, target.id);
+    expect(sentTexts(srv, target.id)).toEqual([]);
+    expect(errors(srv, target.id)).toHaveLength(1);
+    expect(queueOf(srv, target.id) ?? []).toEqual([]);
+  });
+});
+
+describe("member usage cap: unreadable office usage", () => {
+  it("lets members' input through when the usage cannot be read", async () => {
+    const { srv } = await boot();
+    const agent = await spawnFor(srv, "AliceBot", "Alice");
+    const sender = await spawnFor(srv, "BossBot", "Boss");
+    const cap = installCap();
+    cap.reading = UNREADABLE;
+
+    void srv.agentManager.sendMessage(agent.id, "member hello", "Alice");
+    await refusedOrSent(srv, agent.id);
+    expect(cap.reads).toBeGreaterThan(0);
+    expect(errors(srv, agent.id)).toEqual([]);
+    expect(sentTexts(srv, agent.id)).toHaveLength(1);
+    srv.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+    await waitUntil(() => stateOf(srv, agent.id) === "waiting_for_response");
+
+    const fromAgent = await postAsAgent(
+      srv,
+      `/api/agents/${agent.id}/messages`,
+      sender.id,
+      { text: "agent hello" },
+    );
+    expect(fromAgent.status).toBe(200);
+    await waitUntil(
+      () => sentTexts(srv, agent.id).some((t) => t.includes("agent hello")),
+      2000,
+      "agent message sent",
+    );
+    expect(errors(srv, agent.id)).toEqual([]);
+  });
 });
 
 describe("member usage cap: cron runs", () => {
@@ -493,6 +562,7 @@ describe("member usage cap: owner switch", () => {
 
     const before = await get(owner.rawSessionId);
     expect(before.body.memberUsageCap).toBe(false);
+    expect(before.body.memberUsageShare).toBe(80);
     expect(before.body.memberUsageStatus).toEqual([]);
 
     const put = await srv.http("/api/office/settings", {
@@ -510,7 +580,20 @@ describe("member usage cap: owner switch", () => {
     const after = await get(owner.rawSessionId);
     expect(after.body.memberUsageCap).toBe(true);
     expect(after.body.version).not.toBe(before.body.version);
-    expect(after.body.memberUsageStatus?.length).toBeGreaterThan(0);
+    expect(after.body.memberUsageStatus).toEqual([
+      {
+        provider: "claude",
+        state: "weekly",
+        usedPercent: 60,
+        linePercent: (80 * 4) / 7,
+      },
+      {
+        provider: "codex",
+        state: "weekly",
+        usedPercent: 60,
+        linePercent: (80 * 4) / 7,
+      },
+    ]);
     const config = JSON.parse(
       readFileSync(join(STATE_ROOT, "office-config.json"), "utf8"),
     ) as { memberUsageCap?: boolean };
@@ -539,6 +622,72 @@ describe("member usage cap: owner switch", () => {
 
     // Members cannot read or set it.
     expect((await get(member.rawSessionId)).status).toBe(403);
+  });
+
+  it("sets the member share: persisted, in the version, preserved when omitted, refused off the 10-step grid", async () => {
+    const { srv, owner } = await boot();
+    installCap();
+    const get = async () =>
+      (await (
+        await srv.http("/api/office/settings", {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).json()) as OfficeSettingsRes;
+    const put = (body: Record<string, unknown>) =>
+      srv.http("/api/office/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        rawSessionId: owner.rawSessionId,
+        body: JSON.stringify({ prompt: null, ...body }),
+      });
+
+    const before = await get();
+    expect(before.memberUsageShare).toBe(80);
+    expect(
+      (await put({ version: before.version, memberUsageShare: 70 })).status,
+    ).toBe(204);
+    const after = await get();
+    expect(after.memberUsageShare).toBe(70);
+    expect(after.version).not.toBe(before.version);
+    // The status line follows the new share: day 4 of 7 at 70%.
+    expect(after.memberUsageStatus?.[0]).toMatchObject({ linePercent: 40 });
+    const config = JSON.parse(
+      readFileSync(join(STATE_ROOT, "office-config.json"), "utf8"),
+    ) as { memberUsageShare?: number };
+    expect(config.memberUsageShare).toBe(70);
+    expect(loadMemberUsageShare()).toBe(70);
+
+    expect((await put({ version: after.version })).status).toBe(204);
+    const kept = await get();
+    expect(kept.memberUsageShare).toBe(70);
+
+    for (const bad of [0, 5, 75, 110, 70.5, "70", null]) {
+      const res = await put({ version: kept.version, memberUsageShare: bad });
+      expect(res.status).toBe(400);
+      expect(
+        ((await res.json()) as { error: { code: string } }).error.code,
+      ).toBe("invalid_request");
+    }
+    expect((await get()).memberUsageShare).toBe(70);
+  });
+
+  it("reads a missing or invalid stored share as 80", () => {
+    const file = join(STATE_ROOT, "office-config.json");
+    let previous: string | null = null;
+    try {
+      previous = readFileSync(file, "utf8");
+    } catch {}
+    try {
+      writeFileSync(file, JSON.stringify({ memberUsageShare: 75 }));
+      expect(loadMemberUsageShare()).toBe(80);
+      writeFileSync(file, JSON.stringify({}));
+      expect(loadMemberUsageShare()).toBe(80);
+      writeFileSync(file, JSON.stringify({ memberUsageShare: 30 }));
+      expect(loadMemberUsageShare()).toBe(30);
+    } finally {
+      if (previous !== null) writeFileSync(file, previous);
+      else rmSync(file, { force: true });
+    }
   });
 });
 

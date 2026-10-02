@@ -31,6 +31,10 @@ import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { sessionMessagePreview } from "../shared/session-label.ts";
+import {
+  DEFAULT_MEMBER_SHARE,
+  validMemberShare,
+} from "../shared/member-usage-share.ts";
 
 const ISOMUX_DIR = STATE_ROOT;
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -1065,24 +1069,34 @@ export function saveOfficeConfig(config: OfficeSettings) {
   }
 }
 
-// The member usage cap switch (server/member-usage-cap.ts). Kept in
-// office-config.json beside OfficeSettings; absent reads as off.
+// The member usage cap switch and member share (server/member-usage-cap.ts).
+// Kept in office-config.json beside OfficeSettings; an absent switch reads as
+// off, an absent or invalid share as the default.
 export function loadMemberUsageCap(): boolean {
   return readOfficeConfigRaw().memberUsageCap === true;
 }
 
 export function saveMemberUsageCap(enabled: boolean): void {
+  saveOfficeConfigField("memberUsageCap", enabled);
+}
+
+export function loadMemberUsageShare(): number {
+  const share = readOfficeConfigRaw().memberUsageShare;
+  return validMemberShare(share) ? share : DEFAULT_MEMBER_SHARE;
+}
+
+export function saveMemberUsageShare(share: number): void {
+  saveOfficeConfigField("memberUsageShare", share);
+}
+
+function saveOfficeConfigField(key: string, value: unknown): void {
   try {
     atomicWriteFileSync(
       OFFICE_CONFIG_FILE,
-      JSON.stringify(
-        { ...readOfficeConfigRaw(), memberUsageCap: enabled },
-        null,
-        2,
-      ),
+      JSON.stringify({ ...readOfficeConfigRaw(), [key]: value }, null, 2),
     );
   } catch (err) {
-    console.error("Failed to save the member usage cap:", err);
+    console.error(`Failed to save ${key}:`, err);
   }
 }
 

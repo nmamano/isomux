@@ -103,7 +103,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       throw new SessionSwappedError("Session replaced before send.");
     }
     if (admission.kind === "refused") {
-      throw new UsageCapError(admission.reason, admission.retryAtMs);
+      throw new UsageCapError(admission.retryAtMs);
     }
   }
 

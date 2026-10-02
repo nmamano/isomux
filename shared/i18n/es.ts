@@ -456,13 +456,16 @@ Cosas que puedes hacer por él:
   "settings.office.loadedVariables.other": "Se cargaron {count} variables.",
   "settings.office.memberUsageCap": "Marcar el ritmo de uso de los miembros",
   "settings.office.memberUsageCapHint":
-    "Los turnos de los miembros con la sesión de toda la oficina se detienen mientras el uso de esta semana vaya por delante del tiempo transcurrido de la semana.",
+    "Los turnos de los miembros con la sesión de toda la oficina se detienen en un límite que sube cada día de la semana, hasta la parte de los miembros.",
+  "settings.office.memberUsageShare":
+    "Parte de los miembros del límite semanal",
+  "settings.office.memberUsageShareOption": "{share} %",
   "settings.office.memberUsageWeekly":
-    "{provider}: {used} % usado, {pace} % de la semana transcurrido.",
+    "{provider}: {used} % usado; hoy los miembros se detienen en el {line} %.",
   "settings.office.memberUsageNoLimit":
     "{provider}: la sesión de toda la oficina no tiene límite semanal. Los miembros no tienen tope.",
   "settings.office.memberUsageFailed":
-    "{provider}: no se pudo leer el uso semanal. Los miembros están detenidos.",
+    "{provider}: no se pudo leer el uso semanal. Los miembros no tienen tope.",
 
   "settings.room.title": "{room} · Ajustes",
   "settings.room.intro":
@@ -2009,9 +2012,7 @@ Cosas que puedes hacer por él:
   "systemEntries.conversationCleared": "Conversación borrada.",
   "systemEntries.newConversation": "Conversación nueva iniciada.",
   "systemEntries.usageCap.pace":
-    "Los turnos de los miembros están en pausa: el uso de la oficina de esta semana va por delante del ritmo de la semana. Se reanudan {when}.",
-  "systemEntries.usageCap.readFailed":
-    "Los turnos de los miembros están en pausa: Isomux no pudo leer el uso semanal del propietario de la oficina. Vuelve a intentarlo en un minuto.",
+    "Los turnos de los miembros están en pausa: el uso de la oficina ha llegado al límite de hoy para los miembros. Se reanudan {when}.",
   "systemEntries.agentStopped": "El agente se detuvo: {status}.",
   "systemEntries.backendFailure.stoppedDuringTurn":
     "El backend del agente se detuvo durante el turno. La conversación está guardada y se puede retomar.",

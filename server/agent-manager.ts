@@ -2999,9 +2999,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Input from no human (agent, scheduled, cron-run, app, handoff) to an agent
   // the cap covers gets its refusal at send time, so the sender hears it.
   // enqueueMessage is synchronous, so this answers from the cap's last reading
-  // for the account (prepareEnqueue takes one first). With none, it starts a
-  // read and refuses as retryable: the scheduled-message tick tries again.
-  // Turn start remains the authoritative check.
+  // for the account (prepareEnqueue takes one first). With none, the item is
+  // accepted. Turn start remains the authoritative check.
   function enqueueCapRefusal(
     managed: ManagedAgent,
     sender: QueuedMessage["sender"],
@@ -3009,28 +3008,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (sender.kind === "user") return null;
     if (!memberUsageCap().isEnabled() || !managerCapped(managed.info.userId))
       return null;
-    const billing = nextBillingAccount(managed);
-    const admission = memberUsageCap().peek(billing);
-    if (admission === null) {
-      void memberUsageCap()
-        .admit(billing)
-        .catch(() => {});
-      return usageCapResult("read_failed", Date.now() + 60_000);
-    }
-    return admission.kind === "refused"
-      ? usageCapResult(admission.reason, admission.retryAtMs)
-      : null;
-  }
-
-  function usageCapResult(
-    reason: "pace" | "read_failed",
-    retryAtMs: number,
-  ): EnqueueResult {
+    const admission = memberUsageCap().peek(nextBillingAccount(managed));
+    if (admission?.kind !== "refused") return null;
     return {
       ok: false,
       error: "usage_cap",
       status: 429,
-      usageCap: { reason, retryAtMs },
+      usageCap: { retryAtMs: admission.retryAtMs },
     };
   }
 
@@ -6546,10 +6530,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           addLogEntry(
             agentId,
             "error",
-            usageCapText(
-              logTranslator(managed),
-              new UsageCapError(admission.reason, admission.retryAtMs),
-            ),
+            usageCapText(logTranslator(managed), admission),
           );
         }
         // Items cancelled during the read are gone from the queue.
