@@ -8,6 +8,7 @@
 !ui/**
 !browser-extension/**
 !skills/**
+!agent-reference/**
 !api/chat.ts
 !site/screenshot.png
 !scripts/build.sh
