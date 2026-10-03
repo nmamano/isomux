@@ -75,9 +75,7 @@ it("keeps a server refusal with its reason", async () => {
   await send(view.container);
 
   await waitFor(() => expect(rows(view.container, "failed").length).toBe(1));
-  expect(rows(view.container, "failed")[0].textContent).toContain(
-    "queue_full",
-  );
+  expect(rows(view.container, "failed")[0].textContent).toContain("queue_full");
   view.unmount();
 });
 
@@ -103,4 +101,3 @@ it("keeps a failed attempt separate from a newer draft, with its own id and text
   expect(failed[0].textContent).not.toContain("second");
   view.unmount();
 });
-

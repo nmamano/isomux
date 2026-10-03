@@ -786,14 +786,16 @@ export function emitThemesCss(): string {
     getThemeById(DEFAULT_THEME_ID),
     ...THEMES.filter((t) => t.id !== DEFAULT_THEME_ID),
   ];
-  return ordered.map((theme, index) => {
-    const selector =
-      index === 0
-        ? `:root, [data-theme="${theme.id}"]`
-        : `[data-theme="${theme.id}"]`;
-    const declarations = Object.entries(theme.vars)
-      .map(([name, value]) => `    ${name}: ${value};`)
-      .join("\n");
-    return `  /* Theme: ${theme.displayName} */\n  ${selector} {\n${declarations}\n    color-scheme: ${theme.mode};\n  }`;
-  }).join("\n\n");
+  return ordered
+    .map((theme, index) => {
+      const selector =
+        index === 0
+          ? `:root, [data-theme="${theme.id}"]`
+          : `[data-theme="${theme.id}"]`;
+      const declarations = Object.entries(theme.vars)
+        .map(([name, value]) => `    ${name}: ${value};`)
+        .join("\n");
+      return `  /* Theme: ${theme.displayName} */\n  ${selector} {\n${declarations}\n    color-scheme: ${theme.mode};\n  }`;
+    })
+    .join("\n\n");
 }

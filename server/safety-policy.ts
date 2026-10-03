@@ -1236,7 +1236,10 @@ const ANSI_C_ESCAPES: Record<string, string> = {
  * backslash, as bash does. A decoded NUL ends the value, as it does in bash;
  * the rest of the span up to the closing quote is still consumed.
  */
-function decodeAnsiC(cmd: string, start: number): { text: string; end: number } {
+function decodeAnsiC(
+  cmd: string,
+  start: number,
+): { text: string; end: number } {
   let text = "";
   let ended = false;
   let i = start;
@@ -1585,7 +1588,12 @@ const SHELL_COMMAND_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
  */
 function shellPayloads(cmd: EffectiveCommand): string[] {
   if (cmd.name === "eval")
-    return [cmd.args.filter((arg) => !arg.redirect).map((arg) => arg.text).join(" ")];
+    return [
+      cmd.args
+        .filter((arg) => !arg.redirect)
+        .map((arg) => arg.text)
+        .join(" "),
+    ];
   if (!SHELL_COMMANDS.includes(cmd.name)) return [];
   const payloads: string[] = [];
   for (let i = 0; i < cmd.args.length; i++) {

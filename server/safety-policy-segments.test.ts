@@ -69,9 +69,9 @@ describe("a safe fragment does not allow the rest of the line (F11)", () => {
       decision("git commit -m 'git reset --hard' && git checkout -b x"),
     ).toBe("allow");
     // A separator inside quotes does not start a segment.
-    expect(decision("git commit -m 'wip; git reset --hard' && git status")).toBe(
-      "allow",
-    );
+    expect(
+      decision("git commit -m 'wip; git reset --hard' && git status"),
+    ).toBe("allow");
   });
 });
 

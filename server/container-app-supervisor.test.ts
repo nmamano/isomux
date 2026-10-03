@@ -240,9 +240,9 @@ test("office output reaches the container stdout and its file; app output does n
       return false;
     }
   }, "app output did not reach its log file");
-  expect(
-    readFileSync(join(root, "runtime", "office.log"), "utf8"),
-  ).toContain("synthetic-office-line");
+  expect(readFileSync(join(root, "runtime", "office.log"), "utf8")).toContain(
+    "synthetic-office-line",
+  );
   expect(containerStdout).not.toContain("synthetic-app-start");
 }, 30000);
 

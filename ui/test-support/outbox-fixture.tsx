@@ -79,7 +79,10 @@ function Page({ connected = true }: { connected?: boolean }) {
         ...state,
         connected,
         slashCommands: new Map([
-          [agent.id, { commands: [{ name: "clear", autoRun: true }], skills: [] }],
+          [
+            agent.id,
+            { commands: [{ name: "clear", autoRun: true }], skills: [] },
+          ],
         ]),
       }}
     >
@@ -132,4 +135,3 @@ export async function send(container: HTMLElement) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
-

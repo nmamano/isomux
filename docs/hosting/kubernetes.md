@@ -208,15 +208,15 @@ of these:
   `sts.amazonaws.com`. Add this patch to `kustomization.yaml` and apply it:
 
   ```yaml
-    - target:
-        kind: ServiceAccount
-        name: isomux
-        namespace: isomux
-      patch: |-
-        - op: add
-          path: /metadata/annotations
-          value:
-            eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/ROLE
+  - target:
+      kind: ServiceAccount
+      name: isomux
+      namespace: isomux
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/ROLE
   ```
 
 The pod gets the role when it starts, so restart it:

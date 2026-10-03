@@ -620,9 +620,11 @@ describe("route table: users.create admits an owner's proxies for a plain member
         { name: "Yu" },
         undefined,
       ]) {
-        expect({ scope: proxy.scope, body, ok: allowed(proxy, body) }).toEqual(
-          { scope: proxy.scope, body, ok: false },
-        );
+        expect({ scope: proxy.scope, body, ok: allowed(proxy, body) }).toEqual({
+          scope: proxy.scope,
+          body,
+          ok: false,
+        });
       }
     }
   });

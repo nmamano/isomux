@@ -195,10 +195,10 @@ describe("USER send acceptance (task 51de8814)", () => {
 
     // A refusal is not remembered: after room frees up, the same id goes in.
     const first = queueOf(srv, agent.id)[0];
-    const cancel = await srv.http(
-      `/api/agents/${agent.id}/queue/${first.id}`,
-      { method: "DELETE", rawSessionId: owner.rawSessionId },
-    );
+    const cancel = await srv.http(`/api/agents/${agent.id}/queue/${first.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
     expect(cancel.status).toBeLessThan(300);
     expect((await send(srv, owner, agent.id, body)).status).toBe(200);
     expect(
@@ -232,9 +232,9 @@ describe("USER send acceptance (task 51de8814)", () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
     const agent = await spawnAgent(srv);
-    expect((await send(srv, owner, agent.id, { text: "bootstrap" })).status).toBe(
-      200,
-    );
+    expect(
+      (await send(srv, owner, agent.id, { text: "bootstrap" })).status,
+    ).toBe(200);
     await waitUntil(
       () => stateOf(srv, agent.id) === "waiting_for_response",
       "idle",
@@ -275,9 +275,9 @@ describe("USER send acceptance (task 51de8814)", () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
     const agent = await spawnAgent(srv);
-    expect((await send(srv, owner, agent.id, { text: "bootstrap" })).status).toBe(
-      200,
-    );
+    expect(
+      (await send(srv, owner, agent.id, { text: "bootstrap" })).status,
+    ).toBe(200);
     await waitUntil(
       () => stateOf(srv, agent.id) === "waiting_for_response",
       "idle",

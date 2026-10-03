@@ -1247,7 +1247,8 @@ App 的一些原则：
   "logView.outbox.resend": "重新发送",
   "logView.outbox.networkError": "无法连接服务器。",
   "logView.outbox.interrupted": "服务器确认之前页面已重新加载。",
-  "logView.outbox.saveFailed": "未发送：浏览器无法先保存一份副本。消息仍在输入框中。",
+  "logView.outbox.saveFailed":
+    "未发送：浏览器无法先保存一份副本。消息仍在输入框中。",
   "logView.sendFailedBanner":
     "无法发送，正在重新连接。消息仍在输入框中；提示条消失后请重试。",
   "logView.editFailedBanner": "无法发送编辑：{error}。文本已放回输入框。",

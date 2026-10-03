@@ -403,7 +403,12 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const att = saveFile("agent-gone", Buffer.from("x"), "text/plain", "x.txt")!;
+    const att = saveFile(
+      "agent-gone",
+      Buffer.from("x"),
+      "text/plain",
+      "x.txt",
+    )!;
     const res = await srv.http(`/api/files/agent-gone/${att.filename}`, {
       rawSessionId: owner.rawSessionId,
     });
@@ -507,8 +512,6 @@ describe("routes/uploads REST: legacy /api/upload follows room access", () => {
     updateUserById(getUserByName("Mallory")!.id, { allowedRooms: [room.id] });
     const allowed = await legacyUpload();
     expect(allowed.status).toBe(200);
-    expect(
-      ((await allowed.json()).attachments as unknown[]).length,
-    ).toBe(1);
+    expect(((await allowed.json()).attachments as unknown[]).length).toBe(1);
   });
 });

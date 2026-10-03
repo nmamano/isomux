@@ -27,10 +27,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
 import { builtShellExists } from "./built-ui.ts";
-import {
-  appRegistrationGeneration,
-  appRegistry,
-} from "../app-registry.ts";
+import { appRegistrationGeneration, appRegistry } from "../app-registry.ts";
 import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,

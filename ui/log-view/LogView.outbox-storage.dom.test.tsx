@@ -57,12 +57,14 @@ it("keeps the text and attachments in the composer and sends nothing when the at
   restores.push(() => (globalThis.fetch = realFetch));
 
   const view = mount();
-  const input = view.container.querySelector<HTMLInputElement>(
-    'input[type="file"]',
-  )!;
+  const input =
+    view.container.querySelector<HTMLInputElement>('input[type="file"]')!;
   const file = new File(["abc"], "shot.png", { type: "image/png" });
   await act(async () => {
-    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    Object.defineProperty(input, "files", {
+      value: [file],
+      configurable: true,
+    });
     fireEvent.change(input);
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
@@ -75,8 +77,8 @@ it("keeps the text and attachments in the composer and sends nothing when the at
   expect(composer(view.container).value).toBe("careful prompt");
   expect(view.container.textContent).toContain("shot.png");
   expect(rows(view.container).length).toBe(0);
-  expect(
-    view.container.querySelector("[data-outbox-save-failed]"),
-  ).not.toBe(null);
+  expect(view.container.querySelector("[data-outbox-save-failed]")).not.toBe(
+    null,
+  );
   view.unmount();
 });
