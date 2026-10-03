@@ -348,7 +348,12 @@ describe("members chat REST: attachments", () => {
     );
     expect(got.status).toBe(200);
     expect(await got.text()).toBe("hi there");
-    expect(got.headers.get("cache-control")).toContain("immutable");
+    expect(got.headers.get("cache-control")).toBe("private, no-cache");
+    // An opened attachment runs in an opaque origin, not as office content.
+    expect(got.headers.get("content-security-policy")).toMatch(
+      /(^|;\s*)sandbox allow-scripts$/,
+    );
+    expect(got.headers.get("x-content-type-options")).toBe("nosniff");
 
     // A filename the chat does not hold is refused, and traversal is a 404.
     const bogus = await api(server, "/api/members-chat", {

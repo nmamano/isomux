@@ -2,6 +2,31 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
+  it("launches the CLI with vendor telemetry and error reporting off", async () => {
+    const env = { DISABLE_TELEMETRY: "", KEEP_ME: "yes" };
+    let received: unknown;
+    const client = new ClaudeAccountClient(env, (options) => {
+      received = options;
+      return {
+        claudeAuthenticate: async () => ({}),
+        claudeOAuthCallback: async () => {},
+        claudeOAuthWaitForCompletion: async () => {},
+        accountInfo: async () => ({}),
+      };
+    });
+    await client.start();
+    expect(received).toMatchObject({
+      options: {
+        settings: {
+          autoMemoryEnabled: false,
+          env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },
+        },
+        env,
+      },
+    });
+    await client.close();
+  });
+
   for (const apiProvider of ["bedrock", "vertex", "gateway"]) {
     for (const tokenSource of [undefined, "none"]) {
       it(`recognizes external ${apiProvider} auth with tokenSource ${tokenSource}`, async () => {

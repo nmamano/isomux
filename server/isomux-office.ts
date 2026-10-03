@@ -99,6 +99,7 @@ import {
   LOBBY_ROOM_ID,
   MODEL_FAMILIES,
   OPENCODE_DEFAULT_MODEL,
+  cronjobRunStreamId,
   type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -138,6 +139,7 @@ import {
   checkOrigin,
   requestIsLoopback,
   securityHeaders,
+  untrustedFileHeaders,
   withSecurityHeaders,
   setOnOwnerCreated,
   tryHandleAuthRoute,
@@ -2169,6 +2171,29 @@ function appViewerFacts(
   };
 }
 
+// Who may reach an agent's files on the legacy /api/upload, /api/files and
+// /api/images routes. A live agent's files follow its room, as on
+// agents.getFile. A killed agent's files follow the room it was in; once that
+// room is gone, only office owners. A cronjob run's files sit under its
+// cronrun-<runId> stream id, which has no room, so they follow the run
+// transcript's own gate (cron:read).
+function mayReachAgentFiles(identity: Identity, agentId: string): boolean {
+  if (agentId.startsWith(cronjobRunStreamId(""))) {
+    return identityHasCapability(identity, "cron:read");
+  }
+  const guardDeps = buildLiveGuardDeps();
+  const liveRoomId = guardDeps.roomIdForAgent(agentId);
+  if (liveRoomId !== null) return guardDeps.hasRoomAccess(identity, liveRoomId);
+  const killedRoomId = agentManager.killedAgentLastRoomId(agentId);
+  if (killedRoomId === null) return false;
+  if (agentManager.roomById(killedRoomId)) {
+    return guardDeps.hasRoomAccess(identity, killedRoomId);
+  }
+  return (
+    identity.userId !== null && guardDeps.isOfficeOwnerUserId(identity.userId)
+  );
+}
+
 function canUserAccessApp(app: AppRecord, userId: string): boolean {
   const user = getUserById(userId);
   if (!user) return false;
@@ -2608,13 +2633,14 @@ function buildExecutorDeps(
   // Uploads + file-serving (browser surfaces; room-ACL gated). Narrow
   // deps: just the persistence helpers (the guard owns access, getFilePath owns
   // path-traversal). agents.getFile is room-ACL-gated [behavior-change]; the
-  // legacy /api/upload + /api/files + /api/images stay untouched.
+  // legacy /api/files + /api/images apply the same check inline.
   register(
     uploadsHandlers({
       saveFile: (agentId, data, mediaType, originalName) =>
         saveFile(agentId, data, mediaType, originalName),
       getFilePath: (agentId, filename) => getFilePath(agentId, filename),
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
+      untrustedFileHeaders,
     }),
   );
 
@@ -2661,6 +2687,7 @@ function buildExecutorDeps(
         membersChat.saveAttachment(data, mediaType, originalName),
       attachmentPath: (filename) => membersChat.attachmentPath(filename),
       contentTypeFor: (filename) => httpContentTypeForFilename(filename),
+      untrustedFileHeaders,
       authorFor: membersChatAuthorFor,
       isOwner: (userId) => getUserById(userId)?.role === "owner",
       emitMessage: (message, updateOnly) =>
@@ -6067,7 +6094,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
         if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
           const agentId = url.pathname.split("/")[3];
-          if (!agentId || !agentManager.getAgent(agentId)) {
+          // Same room check as the file read below; a denial reads as an
+          // unknown agent.
+          if (
+            !agentId ||
+            !agentManager.getAgent(agentId) ||
+            !mayReachAgentFiles(auth.identity, agentId)
+          ) {
             return new Response(JSON.stringify({ error: "agent not found" }), {
               status: 404,
               headers: { "Content-Type": "application/json" },
@@ -6158,14 +6191,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           if (!agentId || !filename) {
             return new Response("Not found", { status: 404 });
           }
-          const filePath = getFilePath(agentId, filename);
+          // The chat UI links every agent file here. A denial reads as a
+          // miss, so the response does not show which agents exist.
+          const filePath = mayReachAgentFiles(auth.identity, agentId)
+            ? getFilePath(agentId, filename)
+            : null;
           if (!filePath) {
             return new Response("Not found", { status: 404 });
           }
           return new Response(Bun.file(filePath), {
             headers: {
+              ...untrustedFileHeaders(),
               "Content-Type": httpContentTypeForFilename(filename),
-              "Cache-Control": "public, max-age=31536000, immutable",
             },
           });
         }

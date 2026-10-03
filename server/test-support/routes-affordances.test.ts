@@ -221,10 +221,8 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
     );
     expect(got.status).toBe(200);
     expect(await got.text()).toBe("hello");
-    // Frozen: served with a long-lived immutable cache header.
-    expect(got.headers.get("cache-control")).toBe(
-      "public, max-age=31536000, immutable",
-    );
+    // Access is per viewer, so no shared cache may store it.
+    expect(got.headers.get("cache-control")).toBe("private, no-cache");
     // The legacy /api/images/:id/:filename alias serves the same bytes (today's
     // file-serving handler resolves both prefixes through getFilePath).
     const legacy = await srv.http(

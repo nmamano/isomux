@@ -5,11 +5,11 @@
 // agents.getFile GET  /api/agents/:id/files/:filename - `office:read` + requiresRoomAccess(:id)
 //
 // Both are USER surfaces (the agent-identity capabilities omit file:upload /
-// office:read), gated by room access. agents.getFile is a [behavior-change]: it is
-// room-ACL-gated, where the legacy /api/files was public-to-authenticated. The
-// legacy /api/upload/:agentId + /api/files + /api/images stay byte-identical and
-// untrimmed until the post-3a UI migration; these new routes don't collide
-// (distinct path shapes) and delegate to the SAME persistence helpers.
+// office:read), gated by room access. The legacy /api/upload/:agentId +
+// /api/files + /api/images keep their paths (the chat UI and cronjob runs
+// still use them, and they apply the same room check); these new routes
+// don't collide (distinct path shapes) and delegate to the SAME persistence
+// helpers.
 //
 // Limits: 5 files / 200MB each / 400MB total
 // - matching the legacy route + the saveFile MAX_FILE_BYTES storage backstop.
@@ -30,8 +30,6 @@ const MAX_FILES = 5;
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
 const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
 
-const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
-
 export interface UploadsDeps {
   saveFile(
     agentId: string,
@@ -41,6 +39,9 @@ export interface UploadsDeps {
   ): Attachment | null;
   getFilePath(agentId: string, filename: string): string | null;
   contentTypeFor(filename: string): string;
+  // Sandbox and private-cache headers: an opened file must not run as office
+  // content, and a shared cache must not store it.
+  untrustedFileHeaders(): Record<string, string>;
 }
 
 export function uploadsHandlers(
@@ -102,9 +103,11 @@ export function uploadsHandlers(
       // both the files/ dir and the legacy images/ fallback. A miss is a 404.
       const filePath = deps.getFilePath(ctx.params.id, ctx.params.filename);
       if (!filePath) return fail(404, "not_found");
-      return file(filePath, deps.contentTypeFor(ctx.params.filename), {
-        "Cache-Control": IMMUTABLE_CACHE,
-      });
+      return file(
+        filePath,
+        deps.contentTypeFor(ctx.params.filename),
+        deps.untrustedFileHeaders(),
+      );
     },
   };
 }

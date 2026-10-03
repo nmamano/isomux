@@ -307,7 +307,7 @@ Reference document: `docs/access-and-invites.md`.
 
 ## Appendix C - Internal authorization gaps (out of primary scope)
 
-Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited member is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
+Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1). In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited member is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
 
 ### C.1 Cronjob metadata and run transcripts are office-wide-readable
 
@@ -319,7 +319,7 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 **If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read).
 
-### C.2 File serving and uploads bypass the room/agent ACL
+### C.2 File serving and uploads bypass the room/agent ACL - RESOLVED (2026-10-03)
 
 - `server/index.ts` - `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
 - `server/index.ts` - `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
@@ -328,13 +328,17 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 **If tightening is desired:** gate both routes with `agentVisibleForSession`.
 
-### C.3 Uploaded HTML executes as same-origin active content
+**Resolved (2026-10-03):** `POST /api/upload/:agentId`, `/api/files` and `/api/images` now check room access, like `/api/agents/:id/uploads` and `/api/agents/:id/files/:filename`. A denial is the same 404 as an unknown agent or a missing file. A killed agent's files follow the room it was in; once that room is gone, only office owners can read them. A cronjob run's files need `cron:read`, like its transcript. Every file route sends `Cache-Control: private, no-cache`, so no shared cache stores a file past the check.
+
+### C.3 Uploaded HTML executes as same-origin active content - RESOLVED (2026-10-03)
 
 - `server/mime-types.ts` maps `html`/`css`/`xml`/`json` to their renderable MIME types; the comment at lines 2-5 acknowledges nosniff is absent.
 - `server/index.ts` - `/api/files/...` is served at the office's own origin with the declared MIME type.
 - Combined with C.2, any authenticated member can upload `payload.html` into any agent and deliver the URL to a victim; opening it in the victim's browser (top-level navigation under `SameSite=Lax` attaches the cookie) yields stored XSS in the office's origin with full WebSocket-command capability.
 
 **If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
+
+**Resolved (2026-10-03):** every file route (`/api/files`, `/api/images`, `/api/agents/:id/files`, `/api/members-chat/files`) sends `Content-Security-Policy: sandbox allow-scripts` and `X-Content-Type-Options: nosniff`. An opened file still renders and runs its scripts, but in an opaque origin: the browser sends it no session cookie, and the WebSocket upgrade refuses its Origin.
 
 ### C.4 Loopback bypass scope - RESOLVED (2026-07-30)
 

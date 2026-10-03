@@ -174,6 +174,27 @@ export function securityHeaders(opts?: {
   return h;
 }
 
+// Headers for a file an agent or member put in chat. The office serves it from
+// its own origin, so without these an opened HTML or SVG file would run as
+// office content with the viewer's session. `sandbox` without
+// allow-same-origin gives the page an opaque origin: its scripts still run,
+// but the browser sends no session cookie for it and the socket upgrade
+// rejects its Origin. withSecurityHeaders keeps a header that is already set,
+// so this policy replaces the office one on these responses.
+//
+// The cache is private because access is checked per viewer: a shared cache
+// must not serve the file to someone else. It is not immutable: storage
+// pruning deletes unreferenced attachments, and a later save of the same name
+// with other bytes then reuses the URL.
+export function untrustedFileHeaders(): Record<string, string> {
+  const officeCsp = securityHeaders()["Content-Security-Policy"];
+  return {
+    "Content-Security-Policy": `${officeCsp}; sandbox allow-scripts`,
+    "X-Content-Type-Options": "nosniff",
+    "Cache-Control": "private, no-cache",
+  };
+}
+
 export function withSecurityHeaders(response: Response): Response {
   const headers = securityHeaders({ tokenInUrl: false });
   for (const [name, value] of Object.entries(headers)) {

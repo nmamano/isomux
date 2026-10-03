@@ -1,8 +1,7 @@
 // Extension → MIME type lookup, shared between /api/files response headers
-// and emitAgentReadFile attachment inference. SVG is intentionally omitted:
-// it falls through to octet-stream so we don't advertise SVG as inline image
-// content. (The /api/files response doesn't set nosniff, so browsers may
-// still sniff - if we want the stronger guarantee later, add the header.)
+// and emitAgentReadFile attachment inference. Active types (HTML, SVG, XML)
+// are safe to name here because every file route serves them under
+// untrustedFileHeaders (server/auth-middleware.ts).
 
 const EXT_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
@@ -10,6 +9,7 @@ const EXT_TO_MIME: Record<string, string> = {
   png: "image/png",
   gif: "image/gif",
   webp: "image/webp",
+  svg: "image/svg+xml",
   pdf: "application/pdf",
   txt: "text/plain",
   md: "text/markdown",

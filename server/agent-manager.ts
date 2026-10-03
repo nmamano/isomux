@@ -1995,6 +1995,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return loadAgentHistory()[agentId]?.userId ?? null;
   }
 
+  // The room a KILLED agent was in when it died, or null for a live or
+  // unknown agent. Its files stay readable to that room after the kill.
+  function killedAgentLastRoomId(agentId: string): string | null {
+    if (agents.has(agentId)) return null;
+    return loadAgentHistory()[agentId]?.lastRoomId ?? null;
+  }
+
   // For legacy entries (no kill-time stamp), use the agent's log directory
   // mtime as a "last-touched" proxy. One stat call per legacy entry; fine
   // for the ~100-entry scale this file reaches in practice.
@@ -9614,6 +9621,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
     killedAgentManagerUserId,
+    killedAgentLastRoomId,
     restoreAgents,
     ensureLobby: (seedDefaultAgent = false) => {
       lobbySeedPending ||= seedDefaultAgent;

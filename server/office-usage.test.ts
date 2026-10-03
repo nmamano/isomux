@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  claudeOfficeProbe,
   createOfficeUsageReader,
   FALLBACK_MS,
   FRESH_MS,
@@ -193,6 +194,27 @@ const weekly = (usedPercent: number): ProbeResult => ({
   kind: "weekly",
   usedPercent,
   resetsAtMs: NOW + 2 * DAY_MS,
+});
+
+describe("claudeOfficeProbe", () => {
+  it("launches the CLI with vendor telemetry and error reporting off", () => {
+    const env = { DISABLE_TELEMETRY: "", KEEP_ME: "yes" };
+    let received: unknown;
+    const probe = claudeOfficeProbe(env, (params) => {
+      received = params;
+      return {};
+    });
+    expect(received).toMatchObject({
+      options: {
+        settings: {
+          autoMemoryEnabled: false,
+          env: { DISABLE_TELEMETRY: "1", DISABLE_ERROR_REPORTING: "1" },
+        },
+        env,
+      },
+    });
+    probe.close();
+  });
 });
 
 describe("createOfficeUsageReader", () => {

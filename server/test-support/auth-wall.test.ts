@@ -104,7 +104,7 @@ function expectOfficeSecurityHeaders(response: Response): void {
 }
 
 describe("auth/wall: WS upgrade gate", () => {
-  it("401 without a cookie, 403 on a bad Origin, 403 on a MISSING Origin, 400 once both pass", async () => {
+  it("401 without a cookie, 403 on a bad or opaque Origin, 403 on a MISSING Origin, 400 once both pass", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const good = buildPublicOrigin().origin;
@@ -119,6 +119,17 @@ describe("auth/wall: WS upgrade gate", () => {
         await wsProbe(server, {
           rawSessionId: owner.rawSessionId,
           origin: "https://evil.example",
+        })
+      ).status,
+    ).toBe(403);
+
+    // A sandboxed page (an agent file opened in a tab) has an opaque origin,
+    // which the browser sends as the literal "null".
+    expect(
+      (
+        await wsProbe(server, {
+          rawSessionId: owner.rawSessionId,
+          origin: "null",
         })
       ).status,
     ).toBe(403);

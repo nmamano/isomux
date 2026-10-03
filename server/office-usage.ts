@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import type { ProviderAccountProvider } from "../shared/types.ts";
 import { CLAUDE_NATIVE_BIN } from "./cwd-utils.ts";
+import { CLAUDE_LAUNCH_SETTINGS } from "./backends/claude.ts";
 import { JsonRpcLiteClient } from "./backends/codex/client.ts";
 import {
   CODEX_LEGACY_LIMIT_KEY,
@@ -129,6 +130,7 @@ type UsageQuery = {
 // CLAUDE_CONFIG_DIR in `env` is signed in to, and never starts a conversation.
 export function claudeOfficeProbe(
   env: Record<string, string | undefined>,
+  createQuery: (params: Parameters<typeof query>[0]) => unknown = query,
 ): OfficeUsageProbe {
   const abortController = new AbortController();
   // Never yields a prompt; it ends when the probe closes.
@@ -138,16 +140,17 @@ export function claudeOfficeProbe(
     );
     if (!abortController.signal.aborted) yield undefined as never;
   }
-  const q = query({
+  const q = createQuery({
     prompt: input(),
     options: {
       cwd: tmpdir(),
       env,
       settingSources: [],
+      settings: CLAUDE_LAUNCH_SETTINGS,
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
       abortController,
     },
-  }) as unknown as UsageQuery;
+  }) as UsageQuery;
   return {
     async read() {
       const usage = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;

@@ -49,7 +49,6 @@ const MAX_FILES = 5;
 const MAX_FILE_SIZE = 200 * 1024 * 1024;
 const MAX_TOTAL = 400 * 1024 * 1024;
 const MAX_DEVICE_CHARS = 64;
-const IMMUTABLE_CACHE = "public, max-age=31536000, immutable";
 
 export type MembersChatAuthor = Omit<
   PostInput,
@@ -78,6 +77,9 @@ export interface MembersChatDeps {
   ): Attachment | null;
   attachmentPath(filename: string): string | null;
   contentTypeFor(filename: string): string;
+  // Sandbox and private-cache headers: an opened file must not run as office
+  // content, and a shared cache must not store it.
+  untrustedFileHeaders(): Record<string, string>;
   // The author snapshot for this identity, or null when it cannot be resolved
   // (a user record that vanished, an agent that is gone) - rendered as 403.
   authorFor(identity: Identity): MembersChatAuthor | null;
@@ -309,9 +311,11 @@ export function membersChatHandlers(
     "membersChat.getFile": (ctx) => {
       const filePath = deps.attachmentPath(ctx.params.filename);
       if (!filePath) return fail(404, "not_found");
-      return file(filePath, deps.contentTypeFor(ctx.params.filename), {
-        "Cache-Control": IMMUTABLE_CACHE,
-      });
+      return file(
+        filePath,
+        deps.contentTypeFor(ctx.params.filename),
+        deps.untrustedFileHeaders(),
+      );
     },
   };
 }
