@@ -206,9 +206,14 @@ const corpus: Case[] = [
   shell("safe reverse temp rm allow", "rm -fr /tmp/isomux-probe"),
   shell("safe var temp rm allow", "rm -Rvf /var/tmp/isomux-probe"),
   shell("safe tmpdir rm allow", "rm -fr $TMPDIR/isomux-probe"),
-  shell(
-    "safe fragment short-circuits destructive fragment",
-    "git clean -n; git reset --hard HEAD",
+  shell("safe clean wins within its segment", "git clean -fn"),
+  divergence(
+    shell(
+      "safe fragment no longer allows a destructive fragment",
+      "git clean -n; git reset --hard HEAD",
+    ),
+    false,
+    true,
   ),
   shell("tunnel precedes safe fragment", "git clean -n; ngrok http 4000"),
   shell("quoted shell reader deny", 'bash -c "cat ~/.env"'),
@@ -427,8 +432,7 @@ const corpus: Case[] = [
 const tripwires = {
   M1: corpus.find((entry) => entry.name === "quoted shell reader deny")!,
   M3: corpus.find(
-    (entry) =>
-      entry.name === "safe fragment short-circuits destructive fragment",
+    (entry) => entry.name === "safe clean wins within its segment",
   )!,
   M4: corpus.find((entry) => entry.name === "write unknown shape deny")!,
   M5: corpus.find((entry) => entry.name === "notebook sensitive read deny")!,
@@ -581,10 +585,13 @@ describe("provider-neutral safety-policy extraction", () => {
         "M1 raw command replaced by stripped command",
         await mutantFactory("m1", (source) =>
           source
-            .replace("checkProcessKill(command)", "checkProcessKill(stripped)")
+            .replace(
+              "checkProcessKill(command)",
+              "checkProcessKill(stripQuotedStrings(command))",
+            )
             .replace(
               "bashSensitiveReadTarget(command)",
-              "bashSensitiveReadTarget(stripped)",
+              "bashSensitiveReadTarget(stripQuotedStrings(command))",
             ),
         ),
         tripwires.M1,
@@ -593,8 +600,8 @@ describe("provider-neutral safety-policy extraction", () => {
         "M3 destructive rules moved before safe rules",
         await mutantFactory("m3", (source) =>
           source.replace(
-            "for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }\n\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) {\n      return denyMessage(reason, command);\n    }\n  }",
-            "for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) return denyMessage(reason, command);\n  }\n  for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }",
+            "  if (safe && rmOperandsAllTemp(text, segment)) return null;\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(text)) return reason;\n  }",
+            "  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(text)) return reason;\n  }\n  if (safe && rmOperandsAllTemp(text, segment)) return null;",
           ),
         ),
         tripwires.M3,
@@ -624,7 +631,7 @@ describe("provider-neutral safety-policy extraction", () => {
         await mutantFactory("m6", (source) =>
           source.replace(
             "if (tunnel) {",
-            "if (tunnel && !SAFE_PATTERNS.some((pattern) => pattern.test(normalized))) {",
+            "if (tunnel && !SAFE_PATTERNS.some((pattern) => pattern.test(stripQuotedStrings(command)))) {",
           ),
         ),
         tripwires.M6,

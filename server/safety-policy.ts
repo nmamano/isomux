@@ -1,7 +1,7 @@
 /**
  * Provider-neutral safety policy for isomux agents.
  *
- * Evaluates provider-neutral proposed actions. Six concerns:
+ * Evaluates provider-neutral proposed actions. Seven concerns:
  *
  *   1. Git safety - block destructive git commands (checkout --, reset --hard, etc.)
  *   2. Filesystem safety - block rm -rf and similar
@@ -9,6 +9,7 @@
  *   4. Secrets protection - block reads of .env, private keys, credentials, etc.
  *   5. Network safety - block recognized outbound tunnel launch commands
  *   6. Process safety - block killing processes by name pattern (pkill/killall)
+ *   7. Admin socket - block using admin.sock, which mints owner sign-in links
  *
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
@@ -848,6 +849,29 @@ function checkOutboundTunnel(command: string): TunnelMatch | null {
   return null;
 }
 
+const SOCKET_CLIENTS = ["curl", "nc", "ncat", "netcat", "socat"];
+const SCRIPT_RUNNERS = ["bun", "bunx", "node", "npx", "tsx", "ts-node", "deno"];
+const ADMIN_CLI_SCRIPT = /(?:^|\/)admin-cli(?:\.[cm]?[jt]s)?$/;
+
+/**
+ * The admin socket mints an owner sign-in link for anyone who can connect,
+ * and every agent runs as the server's OS user. Refuse the recognized ways to
+ * use it: a socket client pointed at admin.sock, or a script runner starting
+ * admin-cli or the `owner-login` subcommand. Mentioning it (`grep admin.sock`)
+ * stays allowed.
+ */
+function usesAdminSocket(command: string): boolean {
+  return collectCommands(command).some(({ name, args }) => {
+    if (SOCKET_CLIENTS.includes(name))
+      return args.some((arg) => arg.text.includes("admin.sock"));
+    if (SCRIPT_RUNNERS.includes(name))
+      return args.some(
+        (arg) => arg.text === "owner-login" || ADMIN_CLI_SCRIPT.test(arg.text),
+      );
+    return false;
+  });
+}
+
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
@@ -1367,6 +1391,9 @@ function parseCommands(
       // A lone `<` is the exception a reader check cares about: its target is a
       // file being read. `<<` / `<<<` are heredoc and here-string, whose bodies
       // are DATA (`cat <<< '.env'` reads no file), and `<&3` names a descriptor.
+      // An unquoted number written against the operator (`2>`, `3<`) is the
+      // descriptor too, not an operand: `cp a b 2>/dev/null` copies to `b`.
+      if (/^\d+$/.test(cur) && !curQuoted && !dropWord) cur = "";
       endWord();
       // Consume the whole run of the operator character first, so `<<<` is one
       // here-string operator rather than three input redirections.
@@ -1554,18 +1581,14 @@ function killsOnlyLiteralPids(cmd: EffectiveCommand): boolean {
  *
  * A redirection may PRECEDE the command - `< .env cat` and `2<.env cat` both
  * open the file and then run `cat` - so leaving the target in the stream would
- * put it (or the bare fd number in front of it) in command position and lose
- * the reader entirely. Only used by the reader check, which is the only caller
- * that asks parseCommands for redirect targets at all.
+ * put it in command position and lose the reader entirely. (The fd number of
+ * `2<` never reaches here: parseCommands drops it.) Only used by the reader
+ * check.
  */
 function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
   const redirects = words.filter((w) => w.redirect === "input");
   if (redirects.length === 0) return commandCandidates(words);
   const rest = words.filter((w) => w.redirect !== "input");
-  // `2<.env cat` leaves the descriptor number as a word of its own, in command
-  // position. Only stripped ahead of a redirect, so an ordinary operand that
-  // happens to be a number is untouched.
-  while (rest.length > 0 && /^\d+$/.test(rest[0].text)) rest.shift();
   return commandCandidates(rest).map((cmd) => ({
     name: cmd.name,
     args: [...cmd.args, ...redirects],
@@ -2229,20 +2252,24 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
 
-  const stripped = stripQuotedStrings(command);
-  const normalized = normalizeAbsolutePaths(stripped);
-
   const protectedWrite = shellWriteDecision(command, cwd);
   if (protectedWrite) return protectedWrite;
 
   // Check process kills. This one gets the raw command: it does its own
   // quote handling (quoted payloads hide a command word, quoted prose does not
-  // reach command position), which the blanket stripping above would defeat.
+  // reach command position), which blanket quote stripping would defeat.
   const killReason = checkProcessKill(command);
   if (killReason) return denyMessage(killReason, command);
 
-  // This must stay before SAFE_PATTERNS. That legacy allowlist returns for the
-  // whole shell line when any safe fragment matches.
+  if (usesAdminSocket(command)) {
+    return denyMessage(
+      `Refused: the isomux admin socket mints owner sign-in links, and an ` +
+        `agent may not use it. This text check covers recognized command ` +
+        `forms only.`,
+      command,
+    );
+  }
+
   const tunnel = checkOutboundTunnel(command);
   if (tunnel) {
     return denyMessage(
@@ -2254,7 +2281,7 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   }
 
   // Check sensitive file reads via shell commands (cat .env, grep KEY .env,
-  // sed -n 1p id_rsa, ...). Runs on the RAW command, not `normalized`: the
+  // sed -n 1p id_rsa, ...). Runs on the RAW command, not quote-blanked text: the
   // reader grammar needs the words themselves, quotes resolved rather than
   // blanked, and a wrapper or `bash -c` payload hides the reader entirely.
   const secretTarget = bashSensitiveReadTarget(command);
@@ -2267,17 +2294,127 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
     );
   }
 
-  for (const pattern of SAFE_PATTERNS) {
-    if (pattern.test(normalized)) return allow();
-  }
-
-  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {
-    if (pattern.test(normalized)) {
-      return denyMessage(reason, command);
-    }
+  // Each command segment is judged on its own: a safe fragment such as
+  // `git checkout -b x` must not let `&& git reset --hard` through with it.
+  // The patterns read the segment with quoted strings blanked; the rm
+  // operand check reads the parsed words, quotes resolved.
+  for (const segment of commandSegments(stripHeredocBodies(command))) {
+    const text = normalizeAbsolutePaths(stripQuotedStrings(segment).trim());
+    const reason = destructiveReason(text, segment);
+    if (reason) return denyMessage(reason, command);
   }
 
   return allow();
+}
+
+/**
+ * Split a command line into the commands it runs: on `;`, newlines, pipes,
+ * `&&`, `||`, a background `&`, subshell parentheses and backticks. Quoted
+ * strings are data and never split, a backslash keeps the next character
+ * (`find … \;` is one command), and the `&` of a redirection (`2>&1`, `&>`,
+ * `<&3`) is not a separator, so `git push origin 2>&1 --force` stays whole.
+ * The legacy patterns are text regexes, so this returns text, not words.
+ */
+function commandSegments(line: string): string[] {
+  const segments: string[] = [];
+  let cur = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\\") {
+      cur += line.slice(i, i + 2);
+      i++;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      // `$'…'` and double quotes honor backslash escapes; plain single
+      // quotes do not. Same spans as stripQuotedStrings.
+      const escapes = ch === '"' || line[i - 1] === "$";
+      let j = i + 1;
+      while (j < line.length && line[j] !== ch)
+        j += escapes && line[j] === "\\" ? 2 : 1;
+      cur += line.slice(i, j + 1);
+      i = j;
+      continue;
+    }
+    const redirectAmpersand =
+      ch === "&" &&
+      (line[i - 1] === ">" || line[i - 1] === "<" || line[i + 1] === ">");
+    if (!redirectAmpersand && ";\n|&()`".includes(ch)) {
+      segments.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  segments.push(cur);
+  return segments;
+}
+
+const TEMP_ROOTS = ["/tmp/", "/var/tmp/"];
+/** `$TMPDIR/rest` or `${TMPDIR}/rest`, exactly that variable. */
+const TMPDIR_OPERAND = /^(?:\$TMPDIR|\$\{TMPDIR\})\/(.*)$/;
+
+/**
+ * The operand names something strictly inside a temp root, judged on the
+ * normalized literal path: `/tmp/../home` and `/tmp/` do not qualify, and no
+ * expansion other than a leading `$TMPDIR` does either, because `/tmp/$x`
+ * can resolve anywhere. A glob may not start a component with a dot, where
+ * it could match `..`.
+ */
+function isTempOperand(word: ShellWord): boolean {
+  let path = word.text;
+  let roots = TEMP_ROOTS;
+  const tmpdir = TMPDIR_OPERAND.exec(path);
+  if (tmpdir) {
+    path = `/tmpdir/${tmpdir[1]}`;
+    roots = ["/tmpdir/"];
+  }
+  if (/[$`]/.test(path)) return false;
+  if (path.split("/").some((part) => /^\.[^/]*[*?[]/.test(part))) return false;
+  const normal = normalize(path).replace(/\/+$/, "");
+  return roots.some(
+    (root) => normal.startsWith(root) && normal.length > root.length,
+  );
+}
+
+/**
+ * Every operand of every `rm` in the segment is inside a temp root. The
+ * temp-dir SAFE patterns match one operand, so without this
+ * `rm -rf /tmp/a ./src` would pass as safe. Reads the parsed words, so a
+ * quoted operand counts by its content. A segment whose text names no `rm`
+ * has nothing to check; one the parser cannot resolve to an rm fails.
+ */
+function rmOperandsAllTemp(text: string, segment: string): boolean {
+  if (!text.split(/\s+/).some((w) => w.replace(/^.*\//, "") === "rm"))
+    return true;
+  const rms = parseCommands(segment, true, true)
+    .flatMap(commandCandidates)
+    .filter((cmd) => cmd.name === "rm");
+  if (rms.length === 0) return false;
+  return rms.every(({ args }) => {
+    let optionsEnded = false;
+    return args.every((arg) => {
+      if (arg.redirect) return true;
+      if (!optionsEnded && arg.text === "--") {
+        optionsEnded = true;
+        return true;
+      }
+      if (!optionsEnded && arg.text.startsWith("-")) return true;
+      return isTempOperand(arg);
+    });
+  });
+}
+
+/** The denial reason for one command segment (its quote-blanked text and its
+ *  raw form), or null when it is safe or neutral. A SAFE pattern wins over a
+ *  DESTRUCTIVE one in the same segment. */
+function destructiveReason(text: string, segment: string): string | null {
+  const safe = SAFE_PATTERNS.some((pattern) => pattern.test(text));
+  if (safe && rmOperandsAllTemp(text, segment)) return null;
+  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {
+    if (pattern.test(text)) return reason;
+  }
+  return null;
 }
 
 function checkWritePaths(
