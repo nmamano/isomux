@@ -263,8 +263,11 @@ work is not replayed.
 
 ## 6. Settings and prompt
 
-Office pane (Settings → Office; route `office:admin` with `officeOwner`, user
-scope, so human-only). The switch is `memberUsageCap` and the share
+A card on the office half of Connections (Settings → Office-wide connections,
+owners only, beside the office sign-ins it limits; Nil, 2026-10-03). Route
+`office:admin` with `officeOwner`, user scope, so human-only. The card shares
+the office settings blob and version with the Office pane's name and prompt,
+so its PUT sends back the prompt it read and omits the name. The switch is `memberUsageCap` and the share
 `memberUsageShare` in `office-config.json` beside `OfficeSettings` (an absent
 switch reads as false, an absent or invalid share as 80). Both are part of the
 settings version hash and optional fields on the settings GET and PUT
@@ -287,7 +290,7 @@ the GET carries it.
 Agent-facing prompt: none. The 429 body names the cause and the retry time.
 
 Doc surfaces: none. Nil's ruling (2026-10-02): member usage pacing appears in
-no public doc; owners find it in Settings → Office.
+no public doc; owners find it in Settings → Office-wide connections.
 
 ## PM rulings on the open points (2026-10-02)
 

@@ -4,24 +4,24 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 setUpDomTestFile();
 
 const { act, fireEvent, render } = await import("@testing-library/react");
-const { OfficePane } = await import("./OfficePane.tsx");
+const { MemberUsageCard } = await import("./MemberUsageCard.tsx");
 const { onLanguage } = await import("../test-support/language-fixture.tsx");
 const { setApiShim } = await import("../api.ts");
 const { createElement } = await import("react");
 
-// The member usage cap switch and member share (task 6de8f530): they
-// round-trip through the version-guarded settings PUT, the share select shows
-// while the switch is on, and the status lines show once it is saved on.
+// The member usage cap switch and member share (task 6de8f530), on the office
+// half of Connections: they round-trip through the version-guarded settings
+// PUT, which carries back the prompt it read (an absent prompt clears it) and
+// no name (an absent name keeps it). The share select shows while the switch is
+// on, and the status lines show once it is saved on.
 let enabled = false;
 let share = 80;
 let savedBody: Record<string, unknown> | null = null;
 setApiShim(async (method, path, body) => {
-  if (path.startsWith("/api/memory"))
-    return { text: "", version: "0", size: 0, cap: 4000 };
   if (path === "/api/office/settings" && method === "GET")
     return {
-      prompt: null,
-      name: null,
+      prompt: "Office rules",
+      name: "Office name",
       version: enabled ? "2" : "1",
       memberUsageCap: enabled,
       memberUsageShare: share,
@@ -51,7 +51,7 @@ afterAll(() => {
 });
 
 it("saves the switch and share with the settings and shows one status line per provider once on", async () => {
-  const view = render(onLanguage(null, createElement(OfficePane)));
+  const view = render(onLanguage(null, createElement(MemberUsageCard)));
   await act(async () => {});
   const box = view.getByRole("checkbox") as HTMLInputElement;
   expect(box.checked).toBe(false);
@@ -68,7 +68,9 @@ it("saves the switch and share with the settings and shows one status line per p
   await act(async () =>
     fireEvent.click(view.getByRole("button", { name: "Save" })),
   );
+  expect(savedBody).not.toHaveProperty("name");
   expect(savedBody).toMatchObject({
+    prompt: "Office rules",
     version: "1",
     memberUsageCap: true,
     memberUsageShare: 70,

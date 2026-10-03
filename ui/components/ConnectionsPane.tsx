@@ -14,6 +14,7 @@ import { dialogCancelBtn } from "./dialog-styles.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
+import { MemberUsageCard } from "./MemberUsageCard.tsx";
 import { useI18n } from "../i18n.tsx";
 
 // One pane per owner, not one pane for both. The office half holds the
@@ -155,6 +156,7 @@ export function ConnectionsPane({
         scopes={scopes}
         onGoToOtherHalf={onGoToOtherHalf}
       />
+      {isOffice && role === "owner" && <MemberUsageCard />}
       <section style={{ ...cardStyle, marginTop: 14 }}>
         <h5 style={{ margin: "0 0 12px" }}>
           {t("settings.connections.envTitle")}
