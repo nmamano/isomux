@@ -2,370 +2,285 @@
 navTitle: Security audit
 ---
 
-# Isomux authorization-system security audit
+# Isomux security audit
 
-> **Note (2026-08-01):** This audit was conducted on 2026-05-17. Isomux development has continued since then; it is overdue for a new pass.
+**Date:** 2026-10-03. This audit replaces the audit of 2026-05-17.
 
-## Preface
+**Method:** Static review of the Isomux source. No live attack tests were done.
 
-This audit was performed in collaboration by an **Anthropic Claude Opus 4.7 (Max-effort) agent** and an **OpenAI GPT-5.5 (xhigh-thinking) agent**. The Opus agent drove the review: read the auth-relevant modules, framed the threat model, drafted the findings, and authored this document. The GPT-5.5 agent acted as an independent reviewer: scrutinized scope and findings, calibrated severities, fact-checked claims, and signed off on the final wording. Both agents are Large-Language-Model-based and operate as conversational coding agents inside the Isomux office they audited; their interaction was via the office's inter-agent messaging API. The work was directed by Isomux's primary author (Nil Mamano).
+**Authors:** Claude agents in the Isomux office, under the direction of Nil Mamano, the primary author of Isomux. A second agent reviewed each statement against the source.
 
-**Date:** 2026-05-17.
-**Scope:** External-access risk - can a party who was **not** intentionally given an invite URL gain access to the office? Specifically: forge a session/invite, intercept a legitimate token, exploit a CSRF/CSWSH gap to ride an authenticated member's session, or escalate from same-host non-operator context. What an invited member can do **inside** the office is out of primary scope; several internal authorization gaps are surfaced separately in **Appendix C** for future reference.
-**Out of scope:** What invited members can do once inside the office; OS-level isolation between members; agent-runtime safety hooks; denial-of-service; supply-chain.
-**Methodology:** Static code review of the auth-related modules (Appendix A). Implementation cross-checked against `docs/access-and-invites.md`. Findings were independently reviewed.
+**Scope:** Who can get access to an office, and what each identity can do after it gets access. Out of scope: denial of service, the supply chain, and the security of the model providers.
 
 ---
 
-## 1. TL;DR - is Isomux safe?
+## 1. Summary
 
-**For the documented threat model - an external attacker who was not given an invite - yes, Isomux's authorization system is sound.** Token forgery is infeasible (256-bit random tokens, SHA-256-hashed on disk, constant-time comparison); cross-origin attacks are closed (strict Origin allowlist built from operator config rather than request headers, `HttpOnly`+`SameSite=Lax`+`Secure`-on-HTTPS cookies, strict cookie+Origin gating on the WebSocket upgrade and on every state-changing HTTP method); and the first-owner claim surface is served on the loopback interface and self-disables once an owner exists, so a remote attacker cannot reach it or re-open it.
+Each office API request and each office WebSocket connection needs a valid credential. Each credential that Isomux mints is a 256-bit random value. The credential files keep SHA-256 hashes, not raw values. Section 4.1 tells where raw values exist. The browser surface rejects cross-site requests and cross-site WebSocket connections.
 
-The residual external-access risk concentrates around **invite-URL handling**: an invite URL is a bearer token, and it appears in places the original recipient does not fully control (the recipient's browser history, the delivery channel). Invite TTLs are capped at 24 hours for owner-issued invites and 1 hour for self-device invites; `Referrer-Policy: no-referrer` is set on the invite-accept page so the token cannot leak via the Referer header; and the first-owner claim flow is served on the loopback interface.
+Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On the installer and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. The fix for this class is a dedicated OS user for the server. It is not built.
 
-A separate **shared-device** risk applies to anyone who opens Isomux on a computer they don't control: the session cookie persists for up to 1 year, and the next member who uses the browser has full access if the invited member forgot to sign out. The mitigation is per-device revocation from the Access pane, which propagates within ~1 second over the active WebSocket.
-
-**This audit does not cover what an authenticated member can do once inside the office.** Several internal authorization gaps (cronjobs and file attachments accessible across rooms, uploaded HTML executing in the same origin, etc.) are surfaced in Appendix C as a forward-looking inventory but are explicitly out of the primary scope of this document. If your trust model treats every invited member as equally privileged for everything in the office (the documented model in `docs/access-and-invites.md`), the answer to "is Isomux safe?" is the TL;DR above. If your trust model relies on the room ACL to keep members separated, read Appendix C first.
+Thus, give office access only to persons you trust with a shell on the server. A personal API token gives the same access as its owner, from any network.
 
 ---
 
-## 2. Findings (ranked)
+## 2. Identities
 
-| #   | Severity          | Title                                                                                                            | Status                                                                                |
-| --- | ----------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 1   | **Low**           | Invite URLs are bearer tokens - they live in the recipient's browser history and delivery channel until consumed | **Mitigated** (24h owner / 1h self TTL; `Referrer-Policy: no-referrer`; one-time use) |
-| 2   | **Low**           | Session cookie persists 30d rolling / 365d absolute - a forgotten session on a shared device remains valid       | **Documented; per-device revoke is the mitigation**                                   |
-| 3   | **Informational** | `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response                              | **Not actionable** (256-bit entropy)                                                  |
+| Identity | How it signs in | What it can do |
+| --- | --- | --- |
+| Owner | Browser session cookie | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member. |
+| Member | Browser session cookie | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens. |
+| Personal API token | `Authorization: Bearer isomux_pat_…` | The reach of the member who minted it, with some exclusions. See section 5. |
+| Agent | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs and apps. |
+| Privileged agent | The same agent token, with more capabilities | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2. |
+| Scheduled run | A run token in the run environment | Its own run affordances, messages that show the schedule as sender, and office-wide tasks. |
+| App | `ISOMUX_APP_TOKEN` in the app environment | Send messages to the agent that built it. Nothing else. |
 
----
-
-## 3. Threat model
-
-### 3.1 Attacker capabilities (in scope)
-
-- No valid session cookie.
-- No valid invite URL - the attacker may try to acquire one through leakage.
-- Standard internet-attacker primitives: control of a malicious domain the victim can be lured to; ability to send phishing links; ability to MITM unencrypted traffic on the network path; ability to read any data the victim's browser auto-attaches to a top-level navigation.
-- (Conditional) Access to a device the invited member has used (shared computer, family device, cloud-synced browser history, recovered backup). Relevant for invite-URL retention and for the shared-device cookie persistence.
-
-### 3.2 Attacker goals (in scope)
-
-- Forge a session cookie or an invite token.
-- Intercept or recover a legitimate cookie or invite token.
-- Cause an authenticated victim's browser to act on the attacker's behalf (CSRF/CSWSH).
-- Bypass the Origin allowlist via Host-header spoofing, DNS rebinding, or origin confusion.
-- Reach the first-owner claim surface (active only while no owner exists) and claim ownership.
-
-### 3.3 Out of scope per the redirect
-
-- An authenticated member intentionally or accidentally elevating their privileges, reading other members' data, or mutating shared state in ways the room ACL was expected to prevent. Preserved in **Appendix C**.
-- An authenticated member uploading malicious content that another member opens (cross-member XSS). Preserved in Appendix C.
-- A same-host process running as the isomux Linux account impersonating an agent. Preserved in Appendix C.
+Isomux reads the role and the room access of a member from the live state on each request. A change to a role, to room access or to a member record has an effect on the next request.
 
 ---
 
-## 4. Detailed findings
+## 3. The OS user boundary
 
-### Finding 1 - Invite URLs are bearer tokens - they live in the recipient's browser history and delivery channel until consumed
+### 3.1 One OS user per office
 
-**Severity:** Low.
+| Hosting setup | OS user of the server and of everything it starts |
+| --- | --- |
+| Installer (VPS or dedicated box) | The `isomux` service user |
+| Self-hosted office that its owner runs | The owner's own login user |
+| Container (Docker, Render, AWS, Kubernetes) | The pod user `node` (uid 1000) |
 
-**Description.** An invite URL contains a 256-bit token and grants the role/identity the invite was minted for. The token has 256 bits of entropy and is SHA-256-hashed on disk (forgery is infeasible), but the _raw_ URL appears in two recoverable places between minting and acceptance:
+No code in Isomux starts an agent, a terminal, an app or a scheduled run as a different user.
 
-1. **Browser history.** Every browser that opens the URL retains the full path including the token. Cloud-synced browsers (Chrome Sync, Edge Sync, Firefox Sync) replicate the URL across signed-in devices.
-2. **The delivery channel** - whatever email, chat, or SMS the operator used to send the link.
+### 3.2 What follows
 
-**Mitigations.**
+- **Members have shell access.** A member can open a terminal panel on each agent in their rooms. The terminal runs as the server's OS user. An agent can also run shell commands for the member.
+- **Shell access is access to all office state.** The state directory (`~/.isomux`) holds the user records, the session and invite hashes, the API token hashes, the managed environment files of all members (`user-env/`, `office-env/`), and the provider sign-ins of all members (`provider-homes/`). File modes such as 0600 do not stop a process that runs as the owner of the file.
+- **A process with that user can change what the server does.** It can write state that the server reads at start. After the next restart, it can have a sign-in that it made itself. On the installer and on a self-hosted office, that user also owns the server code and can change it. In the container image, root owns the code.
+- **Room access is not a boundary against a member.** Room access controls what the office UI and API show. A shell in one room can read the files of all rooms.
+- **The safety hooks are a guardrail, not a boundary.** See section 6.3.
+- **If the OS user can become root, nothing in this document is a boundary.** The installer stops when its service user can log in as root or use `sudo` (see [Root access](hosting-reference.md#root-access)). On a self-hosted office, the owner's login user often has `sudo`. If it needs no password, an agent can use it.
 
-- **Tight TTL.** Owner-issued invite links expire 24 hours after issuing (`INVITE_TTL_MS` in `server/auth.ts`). Self-device invite links expire 1 hour after issuing (`SELF_INVITE_TTL_MS`). Neither TTL is configurable.
-- **`Referrer-Policy: no-referrer`** on `/i/<token>`, the accept page, the SPA shell, and all auth pages that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`), so the token cannot leak via the Referer header on outbound navigations from the accept page. The first-owner claim form intentionally omits this header so Chrome doesn't downgrade its form-POST Origin to `null`; the claim URL has no token to leak.
-- **One-time use.** Once the legitimate recipient clicks accept, the invite is permanently consumed (`server/auth.ts`). Any subsequent leak is inert.
-- **Mutex-serialized acceptance.** Two concurrent clicks on the same URL cannot both succeed (`server/auth.ts`); whichever runs second sees `consumed=true` and is rejected.
-
-**Residual risk.** Anything that obtains the URL before the recipient clicks - primarily someone with access to the recipient's browser history during the 24h (or 1h) window, or anyone who compromises the delivery channel during that same window - can claim the invite first. The legitimate recipient sees a 410 Gone page on their later attempt.
-
-**Affected files & lines.**
-
-- `server/auth.ts` - `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
-- `server/auth-middleware.ts` - `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; first-owner claim responses omit `Referrer-Policy` because their URL contains no bearer token (`securityHeaders({ tokenInUrl: false })`).
-- `server/auth.ts` - one-time consumption.
-
-**Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next member, a forgotten-to-log-out chat archive) can act on it.
+The fix for this class is a dedicated OS user for the server, separate from the agents. It is not built.
 
 ---
 
-### Finding 2 - Session cookie persists 30d rolling / 365d absolute - a forgotten session on a shared device remains valid
+## 4. Access from outside the office
 
-**Severity:** Low (the lifetime is a deliberate product choice).
+This section is about an attacker who has no credential.
 
-**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next member who uses the device - who may not be an intended invitee - has full access in the original member's role and identity without ever needing the invite URL or the cookie value.
+### 4.1 Credentials
 
-The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts`) defend against every cross-site attack; they do not defend against the next member who uses the same physical browser.
+| Credential | Format | Lifetime | Stored as |
+| --- | --- | --- | --- |
+| Session cookie | 32 random bytes | 30 days after last use, 1 year at most | SHA-256 hash in `sessions.json` |
+| Sign-in link from an owner | 32 random bytes in the URL | 24 hours, one use | SHA-256 hash in `invites.json` |
+| Device link (a member, for their own device) | 32 random bytes in the URL | 1 hour, one use | SHA-256 hash in `invites.json` |
+| Owner recovery link | 32 random bytes in the URL | 15 minutes, one use | SHA-256 hash in `invites.json` |
+| Personal API token | `isomux_pat_` and 32 random bytes | 30 days, 365 days or no expiry | SHA-256 hash in `api-tokens.json` |
+| Agent and run tokens | 32 random bytes | Until the agent stops or the run ends, or the server restarts | Process memory only |
+| App token | 32 random bytes | Until the app is deleted | SHA-256 hash in `apps/app-tokens.json`; the raw value in the app's environment file |
 
-**Affected files & lines.**
+Isomux compares hashes in constant time. Isomux does not write the credentials that it mints to its logs. A secret that a person or an agent types into a message is a different case (section 8.3).
 
-- `server/auth.ts` - `rollingTtlMs = 30 days`, `absoluteTtlMs = 365 days`.
+### 4.2 Browser surface
 
-**Mitigation in place.**
+- **Cookie.** `HttpOnly; Path=/; SameSite=Lax`, with no `Domain`. On HTTPS the cookie is `Secure` and has the `__Host-` prefix, so a subdomain cannot set it.
+- **Origin.** The operator sets the public origin in the office configuration. The server never takes it from the `Host` or `X-Forwarded-Host` header. This stops DNS rebinding and Host-header attacks.
+- **WebSocket.** A browser connection needs a valid cookie and an exact Origin match. A WebSocket request with an `Authorization` header never falls back to the cookie. It opens only with an API token, and that socket only receives (section 5.4).
+- **Cross-site requests.** The server rejects a POST, PUT, PATCH or DELETE with a wrong Origin. `SameSite=Lax` also keeps the cookie off cross-site subrequests.
+- **Sign-in forms.** The accept and sign-out forms need the office Origin. When the browser sends no Origin or `null`, they need `Sec-Fetch-Site: same-origin`, which page script cannot set. The first-owner form needs the exact Origin.
+- **Headers.** Each office page has a Content Security Policy with `frame-ancestors 'none'`, and `X-Content-Type-Options: nosniff`. Pages that can have a token in the URL send `Referrer-Policy: no-referrer`. On HTTPS, the server sends HSTS for one year, without `includeSubDomains`.
+- **Files that agents and members show.** Each file route sends a `sandbox` Content Security Policy. A file opened in the browser, such as HTML or SVG, runs in an opaque origin. It gets no session cookie, and the office WebSocket refuses it. The file routes check room access, and they send `Cache-Control: private, no-cache`.
 
-- **Per-device revocation.** The Access pane lists every active session with its device user-agent, last-seen timestamp, and an 8-character device prefix. A member who realizes they left a session open on a shared device can revoke it from any other authenticated device. Revocation propagates over the active WebSocket within ~1 second (`server/auth.ts`: send `session_expired` then close), so the revoked browser tab lands on the login page rather than continuing to run.
-- **Lockout prevention.** Revoking the office's last active owner session is refused server-side (`server/auth.ts`), so an operator cannot accidentally lock the office out of in-browser recovery while trying to clean up sessions.
+### 4.3 First owner
 
-**Operator guidance.** Do not stay signed in on devices you don't control. Use private/incognito windows on shared computers, or revoke from the Access pane after the fact. A shorter rolling-TTL operator override and an optional idle timeout would help deployments where shared-device use is common; neither is implemented today.
+Before the first owner exists, the server listens only on `127.0.0.1`. The first-owner form is only available on the server or through an SSH tunnel. When an owner exists, the form closes and does not open again.
 
----
+### 4.4 Proxies
 
-### Finding 3 - `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response
+By default, the server trusts no forwarding header. The `trustedProxy` setting declares a proxy:
 
-**Severity:** Informational.
+- `none` (default): no proxy.
+- `same-host`: a proxy on the same machine, for example Caddy. The installer sets this value.
+- `load-balancer`: a load balancer in front of the container. The container image sets this value.
 
-**Description.** `peekInvite` (`server/auth.ts`) returns one of three distinct errors - `not_found`, `consumed`, `expired` - and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
+A request is **on-box** when it comes from loopback and has no `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header. Agent, run and app tokens work only on-box. Thus a leaked agent token does not work through the public URL. The first-owner form also needs an on-box request. Personal API tokens work from any network, because they are for remote use.
 
-**Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate member loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not currently implemented.
+The limit: a same-host proxy that sends no forwarding header (for example `socat` or `ssh -R`) looks like the box itself.
 
----
+### 4.5 Rate limits
 
-## 5. Verified controls (external-access scope)
+Rate limits use the client address: the rightmost `X-Forwarded-For` entry from the declared proxy, or else the peer address:
 
-These are observed-and-confirmed-correct implementation details that defend against the in-scope threats:
+- `/readyz`: 30 requests per minute for each client. On-box requests have no limit.
+- App sign-in: a limit for each app and client.
+- The container setup form: a limit for each client.
 
-### 5.1 Token entropy
+Limits of this design:
 
-Both invite tokens and session ids are 32 bytes (256 bits) of `randomBytes`, base64url-encoded (`server/auth.ts`). Forgery by brute force is infeasible.
+- In `load-balancer` mode, a caller inside the cluster can reach the pod directly and set its own `X-Forwarded-For`. Thus it can select its rate-limit key. It cannot use an agent token, because its peer is not loopback.
+- If a platform puts more than one proxy in front of the office, the limit applies to each proxy node, not to each client. This is not checked on Render.
 
-### 5.2 Hash-only on-disk storage
+The sign-in link page (`/i/<token>`) and the accept form have no rate limit. With 256-bit tokens, a guess attack is not possible.
 
-Only `sha256(rawToken)` and an 8-character display prefix are persisted (`server/auth.ts`). A read of `~/.isomux/invites.json` or `~/.isomux/sessions.json` does not yield usable bearer tokens.
+### 4.6 App hosts
 
-### 5.3 Constant-time comparison
-
-`safeHashEq` (`server/auth.ts`) compares hex strings via `timingSafeEqual` after a length check, used on every invite peek, accept, and session validate.
-
-### 5.4 Mutex-serialized state mutations
-
-A single in-process promise chain (`server/auth.ts`) serializes every mutation. Two concurrent attempts to consume the same invite cannot both succeed.
-
-### 5.5 Fail-closed persist ordering
-
-Invite acceptance persists the invite-consumed flag **before** the session (`acceptInvite` in `server/auth.ts`). For a process crash between the two writes, the invite stays consumed without a session: the safer failure mode. For a handled session-persist failure, the in-memory session is deleted and the invite-consumed flag is reverted, so the invite stays usable for a retry.
-
-### 5.6 Cookie attribute set
-
-`setCookieHeader` (`server/auth.ts`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only). On an HTTPS origin the cookie is named `__Host-isomux_session`: the prefix is browser-enforced to require `Secure`, `Path=/`, and no `Domain`, so a page on a subdomain of the office cannot set a cookie the office will read. Both names are read, the prefixed one wins whenever it is present, and an existing session is re-issued under it on its next page load, WebSocket connection, or read-only API request - the legacy name is only cleared once the new cookie has been seen coming back. Signing out clears both names.
-
-### 5.7 Origin allowlist construction
-
-`buildPublicOrigin` resolves the public origin from boot-frozen reachability: before claim or while external access is disabled, it forces the `http://localhost:${PORT}` fallback regardless of any configured value. Otherwise it uses `office-config.json#publicOrigin`, falling back to localhost when unset. The listener bind is a separate boot-frozen decision: `office-config.json#networkBind` can keep it on loopback behind a local proxy without changing cookies, origin checks, invite URLs, or app hostnames. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist. See "External access and public origin" in `docs/access-and-invites.md`.
-
-### 5.8 WebSocket upgrade gating
-
-`/ws` (`server/isomux-office.ts`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
-
-A request that carries an `Authorization` header never falls back to cookies. It upgrades only with a personal API token that holds `api:drain-inbox`, and that socket is receive-only: commands stay on the authenticated REST surface. Browsers cannot set that header on a WebSocket.
-
-### 5.8a Personal API token boundary
-
-Personal API tokens use a distinct `api` identity scope with a curated operational capability set. They inherit the issuing user's accessible-room projection and can drive agents, rooms, tasks, apps, logs, cron jobs, editor and file routes, memory, and office reads. The legacy wall admits the live and killed agent manifests but continues to deny legacy upload/file/image handlers and the static UI; supported file work uses capability-routed `/api` endpoints. Every request resolves the issuing user and current role from live state. Token management, durable identity access, browser-session control, user access, office settings, and the privileged-agent flag remain excluded. An office owner's token can create a member record (`POST /api/users`) with the member role and room grants; the record has no sign-in until a human owner mints a link. Those exclusions are defense in depth, not a shell boundary: agent management can spawn an agent that runs commands. The durable token store contains hashes rather than raw credentials and also holds each token's bounded reply inbox.
-
-Daily backups omit known plaintext credential stores and regenerable caches that
-mechanically capture managed environment variables. They keep `api-tokens.json`:
-it contains token hashes, prefixes, metadata and inboxes, not raw bearer tokens,
-so remote access survives a restore. Personal tokens use 256 random bits to make
-offline guesses against those hashes infeasible. Logs and provider transcripts
-also stay in the archive; user text can incidentally contain sensitive values,
-so the restore report names exclusions and does not claim the archive is free
-of secrets.
-
-New agent and scheduled-run log entries pass through built-in secret redaction
-before Isomux stores them. The scanner checks string values, including nested
-tool payloads and metadata. A bare key keeps its first eight characters plus
-`...REDACTED`; an assignment such as `API_KEY=<value>` keeps the label and the
-first eight characters of the value. Generic assignment names ignore case;
-provider key prefixes are case-sensitive. The scanner can mask placeholders and
-URL query values. It can also miss secrets;
-if scanning fails, Isomux stores the original entry and logs a diagnostic.
-Existing logs, attachments and backend-owned transcripts are unchanged.
-
-### 5.9 State-changing HTTP Origin gate
-
-`authenticate()` (`server/auth-middleware.ts`) rejects mismatched Origin on POST/PUT/PATCH/DELETE. Modern browsers attach Origin to fetch/XHR and to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. Either defense alone suffices.
-
-### 5.10 Pre-auth POST Origin gate
-
-`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` - in that case the request is accepted only if `Sec-Fetch-Site: same-origin` is present, a browser-attested Fetch Metadata signal that page JavaScript cannot forge or override. Empty-string Origin fails closed. The `null`-Origin fallback is needed because Chrome sends `Origin: null` on top-level form POSTs originating from a page that carries `Referrer-Policy: no-referrer` (§5.16), which applies to the invite-accept page. A cross-origin attacker submitting a credentialed form to /auth/accept gets `Sec-Fetch-Site: cross-site` or `same-site`, never `same-origin`, so the CSRF defense holds. `POST /auth/claim` is stricter (no null-Origin fallback) because the claim page does not carry `Referrer-Policy: no-referrer` and therefore always produces a concrete Origin header - see §5.11.
-
-### 5.11 First-owner claim surface gated by bind and `hasOwner()`
-
-The first-owner claim form (GET /) only renders when `!hasOwner()`. The `POST /auth/claim` handler re-checks `hasOwner()` under the auth mutex via `claimOwnership` - a concurrent successful claim makes the second attempt fail closed with `owner_exists`. The server binds `127.0.0.1` only when `!hasOwner()`, so the form is only reachable from the host or via SSH tunnel. Owner creation invalidates any pre-existing bootstrap invite rows, and `acceptInvite` rejects bootstrap rows whenever an owner exists.
-
-### 5.12 Atomic disk writes
-
-`persistInvites` and `persistSessions` use temp-file-plus-rename. A crash mid-write cannot leave the on-disk state inconsistent.
-
-### 5.13 Notify-then-close revoke contract
-
-`forceExpireSocketsForSession` (`server/auth.ts`) sends `{type: "session_expired"}` _before_ closing the socket. A revoked tab lands on the login page within ~1 second rather than looping reconnect against a 401.
-
-### 5.14 Per-message session recheck
-
-WS messages re-validate via `revalidateByHash`. Revocation takes effect on the next message without a reconnect; orphaned sessions are evicted on the spot.
-
-### 5.15 Wire-trust override
-
-The command dispatcher uses `session.username` server-side rather than trusting `cmd.username` (`server/index.ts`). A captured cookie cannot be used to spoof a different user's display name on chat messages.
-
-### 5.16 Security headers on every HTML surface
-
-`Referrer-Policy: no-referrer` on every HTML response that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`); explicitly omitted on the first-owner claim form response, whose URL has no token to leak, so Chrome's privacy coupling doesn't downgrade the form-POST Origin to `null`. `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set - the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
-
-### 5.17 Owner-login CLI is gated by Unix-socket file permissions
-
-`bun run server/index.ts owner-login --name "<owner>"` mints a 15-minute one-time login URL for an existing owner via a Unix-domain admin socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions are the auth boundary - any UID that can already read the auth files in `~/.isomux/` can connect to the socket, so the CLI adds no new authority, just a clean RPC instead of editing JSON by hand. On a multi-user box where `~/.isomux/` is mode 0700 only the Isomux service user can mint recovery URLs. The mintInvite `ttlMsOverride` option is private to the admin socket; the WS wire intentionally doesn't accept it.
+Each app has its own host name (`<label>.<app domain>`), which is a different origin from the office. The relay removes the office cookies before it sends a request to the app. An app session lasts 12 hours at most. A host name that has no live app gets the same answer as a live app, so an attacker cannot list app names.
 
 ---
 
-## 6. CSRF / CSWSH analysis
+## 5. Personal API tokens
 
-### 6.1 WebSocket upgrade
+### 5.1 Reach
 
-`/ws` rejects missing or mismatched Origin and missing/invalid cookie. No loopback bypass. **Verdict: safe.**
+A personal API token acts as the member who minted it. It has that member's live role and room access. It can drive agents, rooms, tasks, apps, schedules, memory and files, and read logs. It can read and replace its member's managed environment variables. An owner's token can also create a member and give that member room access. The new member cannot sign in until a human owner mints a sign-in link.
 
-### 6.2 State-changing HTTP
+A token cannot:
 
-Non-safe methods reject mismatched Origin. Missing Origin is accepted (for loopback curl from same-host agents), but modern browsers attach Origin to fetch/XHR and generally to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. The two defenses are independent. **Verdict: safe.**
+- mint, list or revoke API tokens, including itself,
+- mint sign-in links,
+- list or revoke browser sessions,
+- change member records or room access,
+- change office settings,
+- make an agent privileged,
+- open a terminal panel.
 
-### 6.3 Pre-auth POSTs
+These exclusions do not make a boundary. A token can spawn an agent, and the agent runs shell commands as the server's OS user (section 3). Thus a token has shell-equivalent access. Treat it like a password for a shell account on the server.
 
-`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` - in that case the browser-attested `Sec-Fetch-Site: same-origin` (Fetch Metadata, not forgeable by page JS) is required. Empty-string Origin fails closed. The `null`-Origin fallback exists because Chrome sends `Origin: null` on top-level form POSTs from pages that carry `Referrer-Policy: no-referrer` (§5.10, §5.16). `POST /auth/claim` is stricter: exact-Origin only, no `null` fallback, because the first-owner claim form deliberately omits `Referrer-Policy: no-referrer` so browsers always send concrete Origin (§5.11). **Verdict: safe.**
+### 5.2 Mint and storage
 
-### 6.4 CORS wildcard on `/tasks` and `/cronjobs`
+Each member can mint tokens in **Settings → You → API tokens**. Only a browser session can mint a token. An agent, an app or another token cannot.
 
-Both endpoints returned `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** **Resolved (2026-07-30):** both endpoints are retired along with their preflight handlers, so neither the wildcard ACAO nor the preflight exists any more. (The 404 wall on the stale `POST /agents/:id/*` path still sends `Access-Control-Allow-Origin: *` on its error envelope - a response with no data in it.)
+Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the dates, and a display prefix: `isomux_pat_` and the first 8 characters of the secret. The file is `api-tokens.json` (mode 0600).
 
-### 6.5 DNS rebinding
+### 5.3 Expiry and revocation
 
-Cookie is host-only (no `Domain`). Origin allowlist is operator-configured, not header-inferred. An attacker domain that briefly resolves to the office IP still produces an Origin header equal to the attacker's domain - the allowlist check fails. **Verdict: safe.**
+- The member selects 30 days, 365 days or no expiry.
+- The member revokes a token in the same pane. The revocation has an effect on the next request, and it closes the token's open WebSocket.
+- Only the member who minted a token can revoke it. An owner cannot revoke the token of a different member. An owner can delete that member: then the member's tokens stop working on the next request.
+- Isomux records the last use of each token.
 
-### 6.6 HTTP-host-header confusion
+### 5.4 Remote inbox
 
-Public origin is never inferred from `Host` or `X-Forwarded-Host` (Section 5.7). **Verdict: safe.**
+An agent can send a reply to a token holder (`POST /api/api-token-inboxes/<token-id>/messages`). The token must belong to the member who manages that agent. A reply has 4000 characters at most.
 
----
-
-## 7. Cross-cutting observations
-
-### 7.1 No rate limiting on `/i/<token>` or `/auth/accept`
-
-Neither endpoint has rate limiting. With 256-bit token entropy this is not an actionable brute-force surface for full tokens. A global rate limit (e.g. 10 invite-peek requests per IP per minute, 5 accept attempts per IP per minute) would be cheap insurance and would surface attacker scanning in the access log. Not currently implemented.
-
-### 7.2 Localhost fallback is plaintext but bind-confined
-
-The reachability decision keeps a process serving the localhost fallback on `127.0.0.1`, so plaintext cookies never leave the host. A process with a public HTTPS origin can bind either loopback behind a local proxy or all interfaces for direct-port access. There is no configuration that produces an externally-bound listener on the localhost fallback.
-
-If an operator configures `publicOrigin` but disables the _External access_ toggle, the runtime still serves the localhost fallback - the toggle is the reachability gate, so cookie attributes match the actual connection.
-
-### 7.3 Log hygiene
-
-Raw tokens are never logged. `safePrefix` (`server/auth.ts`) is used for the few diagnostic log lines that need to reference an invite/session. No token leakage was found in error paths or `console.error` calls.
-
-### 7.4 Cookie revocation latency
-
-A revoked session is force-closed within ~1 second on any active WebSocket (per-message recheck + notify-then-close). For an HTTP-only attacker (no WebSocket) the next HTTP request returns 401 immediately. Revocation is effectively synchronous from the legitimate member's perspective.
-
-### 7.5 Vendor telemetry
-
-Isomux disables Claude Code usage metrics and error reporting, and Codex analytics, at backend launch in every deployment. OpenCode share uploads are also disabled; OpenCode 1.18.23 has no vendor usage reporting (source checked 2026-09-10). Operator-configured OpenTelemetry exports remain available.
-
-This does not block all outbound traffic. Authentication, model requests, session resume, hooks, and MCP remain available. Other Claude Code traffic can include updates, release notes, status and availability checks, plugin command-source background runs, and user-submitted feedback. As with Isomux's release check, update metadata traffic remains separate from vendor telemetry. Provider data policies still apply to model requests.
+The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) or over a WebSocket that only receives. Reading does not delete entries. The messages to and from a token are stored as plain text in `token-logs/<token-id>.jsonl`. The inbox has no size limit. An owner can remove old entries with storage pruning. Revocation does not delete the log.
 
 ---
 
-## Appendix A - Files reviewed
+## 6. Agents
 
-Primary auth modules:
+### 6.1 Agent tokens
 
-- `server/auth.ts`
-- `server/auth-middleware.ts`
-- `server/users.ts`
-- `server/index.ts` (auth-relevant slices as of the audit date: WS upgrade, command dispatch, `/auth` routes, `/tasks`, `/cronjobs`, `/agents/:id/*`, `/api/upload`, `/api/files`)
-- `server/cronjob-manager.ts` (auth-relevant slices)
-- `server/mime-types.ts`
-- `shared/identity.ts`, `shared/public-origin.ts`, `shared/types.ts`
+Isomux puts a new token in the environment of each agent and each scheduled run. The token lives only in memory, and it stops when the agent stops, when the run ends, or when the server restarts. Isomux takes the sender of a message from the token, not from the request body. An agent can use its chat affordances only on its own chat.
 
-Reference document: `docs/access-and-invites.md`.
+A terminal panel does not get an agent token.
 
----
+### 6.2 Privileged agents
 
-## Appendix B - Methodology
+An owner can make any agent privileged. A member can make privileged only the agents that they spawned. No agent can set the flag.
 
-- **Static code review.** No dynamic testing, no exploit PoCs executed against a live instance.
-- **Threat model construction.** Built from `docs/access-and-invites.md` and module-level comments in `server/auth.ts`. Scope limited to external (non-invited) access risk per the project's primary use case (small-team self-hosted offices where every invited member is trusted equally).
-- **Findings prioritization.** Severity reflects exploit preconditions, blast radius, and the gap between current behavior and the documented intent.
-- **Pair review.** Produced by a pair-programming workflow with two LLM-based coding agents (Anthropic Claude Opus 4.7 Max-effort + OpenAI GPT-5.5 xhigh-thinking) acting in driver/reviewer roles. Findings, severities, and final wording were independently scrutinized.
+A privileged agent gets a part of its member's capabilities: it can drive other agents, create rooms, manage the rooms that its member can access, manage its member's schedules, and read and upload files. If its member is an owner, it can also create a member, as an owner's API token can (section 5.1). It cannot mint sign-in links, revoke sessions, change room access or office settings, or open a terminal panel.
 
----
+A privileged agent has the destructive reach of its member. For example, it can close a shared room. Give the flag as you give your own seat.
 
-## Appendix C - Internal authorization gaps (out of primary scope)
+### 6.3 Safety hooks
 
-Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1). In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited member is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
+Isomux checks each recognized tool call of Claude, Codex and OpenCode agents before it runs. No setting turns the check off. The check blocks:
 
-### C.1 Cronjob metadata and run transcripts are office-wide-readable
+- destructive git commands, such as `git reset --hard`, `git push --force` and `git clean -f`,
+- `rm -rf` outside one entry in `/tmp` or `/var/tmp`,
+- writes into the state directory,
+- reads of files that usually hold secrets, such as `.env`, private keys and backend sign-in files,
+- recognized process-kill commands, such as `pkill`, `killall` and kills of processes found by name,
+- recognized commands that open outbound tunnels,
+- recognized uses of the owner recovery socket.
 
-- Cronjob config and run transcripts are readable by every authenticated member. The full cronjob list is delivered to each session on connect (office-wide metadata read by design), and the cron read routes (`cron.list`, `cron.get`, `cron.listRuns`, `cron.listAllRuns`, `cron.getRun`) require only `cron:read`, which every authenticated member holds, so any member can read any creator's config and runs.
-- Run transcripts execute with the creator's env and can contain their secrets, so transcript read, not metadata, is the sharp edge here.
-- The legacy `GET /cronjobs/*` read route was a trusted same-host (loopback) bypass: a process on the server read cronjob metadata and transcripts without a token. **Resolved (2026-07-30):** the route is retired; `/api/cronjobs*` requires `cron:read`, so the office-wide-read gap below is now the only one left here.
+The check reads each command of a shell line, also the commands inside `bash -c`, `eval` and command substitutions. One blocked command blocks the line.
 
-Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.delete`/`cron.runNow`) require the creator or an office owner (`cronjobOwnerOrOfficeOwner`, keyed on the stored `userId`); the shared cron prompt (`cron.setPrompt`) requires an office owner; create (`cron.create`) is open to any authenticated member.
+The safety hooks are a guardrail against mistakes by honest agents. They are not a security boundary:
 
-**If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read).
+- They recognize known command forms. A script, a renamed program or an interpreter can do the same thing.
+- They see only the tools that they map. For example, an MCP server with file access goes around them.
+- For Codex and OpenCode, if the checker cannot run, the call runs. Isomux then shows a warning in the chat.
+- Reads in the state directory are allowed, because agents need logs and discovery.
 
-### C.2 File serving and uploads bypass the room/agent ACL - RESOLVED (2026-10-03)
+### 6.4 Owner recovery
 
-- `server/index.ts` - `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
-- `server/index.ts` - `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
-- `saveFile` (`server/persistence.ts`) preserves sanitized original filenames with numeric suffixes on collision, so common filenames are guessable.
-- A member who previously had access to a room retains the ability to fetch any files whose URLs they remembered.
+An operator who loses the last owner session can mint a 15-minute owner sign-in link through a Unix socket (`admin.sock`). By default the socket is in the state directory. On Kubernetes, it is on a volume that the office and a recovery container share. The socket reads the OS user of the caller from the kernel. It answers only root. On Kubernetes, it also answers a separate recovery container that runs as a different user. It always refuses the server's own OS user, so an agent cannot mint a sign-in link through it.
 
-**If tightening is desired:** gate both routes with `agentVisibleForSession`.
+This closes the one-call route. It does not close the class in section 3.2: a process with the server's OS user can still change state that the server reads at start.
 
-**Resolved (2026-10-03):** `POST /api/upload/:agentId`, `/api/files` and `/api/images` now check room access, like `/api/agents/:id/uploads` and `/api/agents/:id/files/:filename`. A denial is the same 404 as an unknown agent or a missing file. A killed agent's files follow the room it was in; once that room is gone, only office owners can read them. A cronjob run's files need `cron:read`, like its transcript. Every file route sends `Cache-Control: private, no-cache`, so no shared cache stores a file past the check.
+### 6.5 Agent affordances that reach outside the chat
 
-### C.3 Uploaded HTML executes as same-origin active content - RESOLVED (2026-10-03)
-
-- `server/mime-types.ts` maps `html`/`css`/`xml`/`json` to their renderable MIME types; the comment at lines 2-5 acknowledges nosniff is absent.
-- `server/index.ts` - `/api/files/...` is served at the office's own origin with the declared MIME type.
-- Combined with C.2, any authenticated member can upload `payload.html` into any agent and deliver the URL to a victim; opening it in the victim's browser (top-level navigation under `SameSite=Lax` attaches the cookie) yields stored XSS in the office's origin with full WebSocket-command capability.
-
-**If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
-
-**Resolved (2026-10-03):** every file route (`/api/files`, `/api/images`, `/api/agents/:id/files`, `/api/members-chat/files`) sends `Content-Security-Policy: sandbox allow-scripts` and `X-Content-Type-Options: nosniff`. An opened file still renders and runs its scripts, but in an opaque origin: the browser sends it no session cookie, and the WebSocket upgrade refuses its Origin.
-
-### C.4 Loopback bypass scope - RESOLVED (2026-07-30)
-
-- `server/index.ts` - the agent self-affordances (`POST /api/agents/:id/{diff,edit-file,read-file,terminal-command}`) and `POST /agents/:id/message` require a per-agent bearer token: affordances are bound to the calling agent by `agentParamMustEqualTokenAgent`, and the message sender is derived from the agent's injected `ISOMUX_AGENT_TOKEN` (a `senderAgentId` that does not match the token is rejected). A same-host process cannot act as an agent it holds no token for.
-- The last loopback bypass covered `POST /tasks`, the `GET /cronjobs` read routes, and `GET /backup/status`: a same-host process reached these without a token, so it could list/create tasks, read cronjob metadata/transcripts, and read backup status as if it were local. **Resolved:** those three prefixes are retired in favour of `/api/tasks*`, `/api/cronjobs*` and `/api/backup/status`, which require an identity like every other `/api` route. There is no loopback allowlist left in the code.
-- What motivated finishing it: any web app an agent builds runs on the same box, so an SSRF or open-proxy bug in one of them reached those routes from outside in two hops, and the receiving socket could not tell the original caller apart from a local process. The same reasoning turned off Caddy's admin API (`127.0.0.1:2019`) in the installer's Caddyfile.
-
-### C.5 HTTP `POST /tasks` accepts client-controlled attribution - RESOLVED
-
-- HTTP `POST /tasks` trusted `body.createdBy` and `body.username`; the WS path used `session.username`. **Resolved:** that route is retired. On `/api/tasks` both fields are derived from the caller's token or cookie and a body value is ignored - an agent's tasks read as the agent, a cron run's as the job.
-
-### C.6 Room creation/close/rename gates use only room-visibility
-
-- `server/index.ts` - `create_room` is unrestricted; `close_room` and `rename_room` gate on `roomAllowedForSession` only.
-
-**If tightening is desired:** decide ownership semantics for rooms - closing/renaming requires creator-or-owner.
-
-### C.7 Privileged agents (deliberate, owner/manager-gated capability grant)
-
-Unlike C.1 through C.6, this is an intentional mechanism rather than a gap. It is documented here because it is the one place an agent's narrow default authority (C.4) is widened on purpose.
-
-- By default an agent's bearer token carries only its own loopback surface: messaging other agents as itself and stopping their turns, the shared task board, and the self-affordances on its own chat. An office owner (for any agent), or an agent's manager (for the agents that member spawned), can opt an agent into **privileged** operator access. This widens the token to a curated subset of the spawning member's capabilities: driving other agents' sessions (resume, new-conversation, send-now, cancel, lifecycle), full cron management over the cronjobs that member created, and room management (creating rooms office-wide, and renaming, configuring, or closing the rooms the spawning member can access).
-- **The identity scope stays `agent`.** Privilege only adds capabilities; it never changes scope. A privileged agent's outbound messages still attribute to the agent, and the routes gated on `scope === "user"` stay unreachable to it: invite minting, login-session administration, user-record and access administration, office-wide settings, and the cronjob prompt. Room management is the room-level grant above; office-level administration is not part of it.
-- **Authority is a subset of the spawning member's.** Each added capability reaches only what that member could already reach from the UI: the room operations are scoped to the rooms the spawning member can access (room-create adds the new room to that member's and the office owners' access lists, exactly as that member creating it would), and cron is limited to the jobs that member owns. A privileged agent gains no office-owner powers and no cross-member reach, with one bounded exception: when the spawning member is an office owner, the agent can create a member record (`POST /api/users`) with the member role and room grants. It cannot create an owner or mint the sign-in link, so the new record gives nobody access until a human owner acts. The conferral itself is gated the same way: a member may privilege only the agents they manage, never another member's, and no agent (privileged or not) can set the flag.
-- **Blast radius.** The flip side of the subset bound: a privileged agent inherits its spawning member's destructive reach. A compromised or prompt-injected one can spam-create rooms and close any shared room that member can access (which evicts co-members), on top of the destructive operations the operator set already implies (killing agents, rewriting files). All of it is bounded by that member's own ability and is the accepted cost of granting operator access, not a new boundary. Grant it deliberately, as you would hand over your own operator seat.
-- This does not change the external-access surface assessed in Sections 1 through 5: the token is still injected only into a local agent subprocess and is never minted to an external party. The privileged set deliberately excludes the credential-minting (invite) and login-session paths, so a confused or compromised privileged agent cannot bootstrap durable or owner-equivalent access.
+- **Show a file** (`read-file`) copies any file that the server's OS user can read, up to 20 MiB, into the chat. It does not check for secrets. The members of the room can then open the file.
+- **Preview a page** (`preview-url`) opens any HTTP or HTTPS URL in a browser on the server. This includes loopback and internal addresses. The only control is the agent system prompt.
+- **Browser control** acts only on a tab that the agent's manager offers in the paired Chrome extension.
 
 ---
 
-_End of report._
+## 7. Members inside the office
+
+Section 3.2 applies first: a member with a terminal panel or an agent has shell access. The items below describe the office API.
+
+- **Rooms.** A member sees only the agents, files and tasks of their rooms, plus the lobby and office-wide tasks. Any member can create a room. A member with access to a room can rename it or close it.
+- **Files.** Upload and file routes check room access. A denial gets the same 404 as a missing file. The files of a stopped agent follow its last room. When that room is gone, only owners can read them.
+- **Schedules.** Each member can read all schedules and their run transcripts. A run uses the environment of the member who made the schedule, so a transcript can show their secrets. Only the maker or an owner can change, delete or run a schedule.
+- **Shared devices.** A session cookie lasts up to one year. A member who does not sign out on a shared computer leaves access open. Revoke the session in the Sessions pane: an open tab closes in about one second.
+
+---
+
+## 8. Data at rest and outbound data
+
+### 8.1 State files
+
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
+
+### 8.2 Backups
+
+Daily backups do not include the managed environment files, the app environment files, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+
+### 8.3 Secret redaction in logs
+
+Before Isomux stores a new agent or scheduled-run log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Token logs, attachments, terminal output and backend transcripts are not scanned.
+
+### 8.4 Vendor telemetry
+
+Isomux turns off Claude Code usage metrics and error reports for each agent session, scheduled run, one-shot prompt, usage probe and sign-in client. One exception: on macOS, the Claude sign-in check runs `claude auth status` without these settings. Isomux turns off Codex analytics and OpenCode sharing.
+
+Model requests, sign-in, updates and operator-configured OpenTelemetry still go to their services. The data policy of each provider applies to model requests.
+
+---
+
+## 9. Findings
+
+| # | Severity | Finding | Status |
+| --- | --- | --- | --- |
+| 1 | High | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | Open. A dedicated OS user is not built. |
+| 2 | Medium | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5). | By design. |
+| 3 | Low | `read-file` puts any readable file into the chat, with no secret check (section 6.5). | Open. |
+| 4 | Low | `preview-url` can open loopback and internal addresses (section 6.5). | By design. |
+| 5 | Low | All members can read all schedule run transcripts, which can show the maker's secrets (section 7). | Open. |
+| 6 | Low | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4). | Open. |
+| 7 | Low | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access. | Mitigated: 24-hour or shorter life, one use, `no-referrer`. |
+| 8 | Low | A session on a shared device stays valid for up to one year (section 7). | Mitigated: revocation per device. |
+| 9 | Info | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker. | Accepted. |
+| 10 | Info | The sign-in link page and the accept form have no rate limit (section 4.5). | Accepted. |
+| 11 | Info | On macOS, `claude auth status` runs without the telemetry opt-out (section 8.4). | Open. |
+| 12 | Info | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control. | Accepted. |
+
+---
+
+## Appendix: files reviewed
+
+- Authentication: `server/auth.ts`, `server/auth-middleware.ts`, `server/users.ts`, `server/identity/`
+- API tokens: `server/api-tokens.ts`, `server/routes/handlers/api-tokens.ts`
+- Route table and guards: `server/routes/table.ts`, `server/identity/guards.ts`, `server/isomux-office.ts`
+- Agents and safety: `server/agent-manager.ts`, `server/identity/tokens.ts`, `server/safety-policy.ts`, `server/safety-hooks.ts`, `server/backends/`
+- Recovery: `server/admin-socket.ts`
+- Apps: `server/app-auth.ts`, `server/app-hosts.ts`, `server/app-proxy.ts`, `server/app-tokens.ts`
+- Files: `server/routes/handlers/uploads.ts`, `server/mime-types.ts`
+- Data: `server/user-env.ts`, `server/env-loader.ts`, `server/backup.ts`, `server/log-redaction.ts`
+- Other: `server/preview-capture.ts`, `server/browser-extension-service.ts`, `server/office-usage.ts`
+- Hosting: `deploy/install.sh`, `deploy/container/`, `deploy/kubernetes/`
