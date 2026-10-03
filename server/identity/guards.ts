@@ -232,9 +232,9 @@ export const officeEnvOwner: Guard = (ctx) => {
 };
 
 // users.create through an office owner's proxy: a privileged agent or an API
-// token whose user is an office owner, checked live. A proxy creates a plain
-// member only: role "member" and no room grants, so it cannot mint an owner or
-// grant access (owner role and room grants stay with a human owner). The body
+// token whose user is an office owner, checked live. A proxy creates a member
+// only: role "member", so it cannot mint an owner (the owner role stays with a
+// human owner). Room grants are allowed; see the role check below. The body
 // limits are part of the authorization, so a refused body is a 403 like any
 // other deny. Stage 1 (user:create) keeps ordinary agents, runs and apps out.
 export const ownerProxyMemberCreate: Guard = ({ identity, body, deps }) => {

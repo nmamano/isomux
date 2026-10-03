@@ -1044,8 +1044,8 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   // An owner creates a member up front; sign-in links (invites.mint) only
   // target existing members. The record starts with pendingSignIn. An owner's
-  // privileged agent or API token may create a plain member (no owner role, no
-  // room grants); it still cannot mint the sign-in link.
+  // privileged agent or API token may create a member (no owner role; room
+  // grants allowed); it still cannot mint the sign-in link.
   defineRoute<UserCreateReq, { user: UserAdminWire }>({
     opId: "users.create",
     method: "POST",

@@ -43,8 +43,8 @@ export type Capability =
   | "user:admin"
   // users.create through an office owner's proxy: a privileged agent or an API
   // token. Held by the PRIVILEGED agent and API sets only. A human creates
-  // members through user:admin. The route guard limits a proxy to a plain
-  // member with no room grants, and only while its user is an office owner.
+  // members through user:admin. The route guard limits a proxy to a member
+  // (room grants allowed), and only while its user is an office owner.
   | "user:create"
   | "office:admin"
   | "invite:manage"
@@ -208,7 +208,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.
 // user:create is the one user capability here: it reaches only users.create,
-// whose guard allows a plain member with no room grants, and only while the
+// whose guard allows a member (room grants allowed), and only while the
 // spawning user is an office owner. It mints no sign-in link.
 // agent:send-as-cron is deliberately absent too: cron attribution belongs only
 // to a live CRON-RUN identity, never to an agent with operator privileges.

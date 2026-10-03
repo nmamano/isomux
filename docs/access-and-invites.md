@@ -122,8 +122,7 @@ cookie carries `HttpOnly`, `SameSite=Lax`, `Secure`-on-HTTPS,
 host-only scope, and a per-message server-side recheck so a revoke
 from the Sessions pane disconnects an active session within ~1s - the
 residual risk is the shared-device case where the member forgot to
-sign out (the security audit calls this out under external-access
-"session lifetime on shared devices"). Devices used in untrusted
+sign out (the security audit calls this out under "Shared devices"). Devices used in untrusted
 environments should be revoked from the Sessions pane (or signed out
 explicitly) rather than relying on session expiry.
 
@@ -133,8 +132,8 @@ Every member can open the lobby. The members chat is office-wide. The first owne
 
 ## Trust model boundaries
 
-- **Inside the office, authenticated members have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other members' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
-- **Agents run with the host Linux user's permissions.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
+- **Inside the office, authenticated members have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other members' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. Isomux does not isolate members from each other at the OS level.
+- **Agents run as the server's OS user.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
 - **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
 
 ## Use your own provider account

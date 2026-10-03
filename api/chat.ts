@@ -213,10 +213,10 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Codex approvals: when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - Built-in pre-tool safety checks block dangerous commands before they execute (Claude, Codex, and OpenCode):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
-  - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
+  - Filesystem safety: blocks \`rm -rf\` except on one entry directly in /tmp or /var/tmp
   - Config protection: blocks writes under ~/.isomux/ (managed by the server)
   - Secrets protection: blocks reads of .env files, private keys, and credentials
-  - Process safety: blocks killing processes created by others
+  - Process safety: blocks recognized process-kill commands
   - Tunnel safety: blocks recognized commands that open outbound tunnels. It's a guardrail, not complete prevention.
 - These guards are an honest-agent safety layer, not OS isolation. A filesystem-capable MCP can still reach protected Isomux state, backend login files, and the Codex checker executable.
 - The embedded terminal is handy when you need to run a blocked command manually
