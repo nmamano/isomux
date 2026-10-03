@@ -159,6 +159,16 @@ export const authenticated: Guard = ({ identity }) =>
 export const operationalAuthenticated: Guard = ({ identity }) =>
   identity.scope === "app" ? FORBIDDEN : ALLOW;
 
+// On-demand agent references are useful to humans, remote API-token callers,
+// and agents. Cron runs have their own prompt contract; app code gets one
+// purpose-built route and must not gain general office documentation.
+export const agentReferenceReader: Guard = ({ identity }) =>
+  identity.scope === "user" ||
+  identity.scope === "api" ||
+  identity.scope === "agent"
+    ? ALLOW
+    : FORBIDDEN;
+
 export const agentTokenSender: Guard = ({ identity }) =>
   identity.scope === "agent" &&
   typeof identity.agentId === "string" &&

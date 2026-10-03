@@ -1,71 +1,89 @@
-// Every office route the agent system prompt documents must pass the OpenCode
-// authority broker, or sit in EXCLUDED with the reason it is refused. The
-// routes come from the prompt an OpenCode agent actually reads (privileged,
-// so the operator section is in, plus the app section that a non-Linux host
-// leaves out), not from a hand-copied list.
+// Every office route an OpenCode agent is taught must pass the OpenCode
+// authority broker, and every route the broker refuses must be marked as
+// unavailable to OpenCode agents at each place a reference names it. The
+// routes come from what the agent actually reads: the fetch command in its
+// system prompt (privileged, so the operator pointer is in) and every topic
+// as the reference route serves it, not from a hand-copied list.
 
 import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { OpenCodeAuthorityBroker } from "./authority-broker.ts";
+import { buildSystemPrompt } from "../../system-prompt.ts";
 import {
-  appHostingSection,
-  buildSystemPrompt,
-  rewriteOpenCodeOfficeCommands,
-} from "../../system-prompt.ts";
+  AGENT_REFERENCE_TOPICS,
+  OPENCODE_UNAVAILABLE_MARK,
+  agentReferenceContent,
+} from "../../agent-reference.ts";
+import { PRIVILEGED_AGENT_CAPABILITIES } from "../../identity/index.ts";
 
-// "METHOD /path" as the prompt spells it -> one-line reason the broker refuses it.
-const EXCLUDED: Record<string, string> = {};
+// "METHOD /path" -> one-line reason the broker refuses it although no
+// OpenCode agent is meant to call it, so it carries no unavailability mark.
+const EXCLUDED: Record<string, string> = {
+  "POST /api/app/message":
+    "App-server route: the app's own token never goes through the agent proxy.",
+};
 
 const cleanup: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose();
 });
 
-function documentedRoutes(): string[] {
-  const prompt = [
-    buildSystemPrompt(
-      "Agent",
-      "agent-x",
-      "Room",
-      "room-1",
-      null,
-      null,
-      null,
-      "owner",
-      null,
-      true,
-      null,
-      "opencode",
-    ),
-    rewriteOpenCodeOfficeCommands(appHostingSection(null)),
-  ].join("\n");
-  const routes = new Set<string>();
-  for (const line of prompt.split("\n")) {
-    for (const match of line.matchAll(
-      /\b(GET|POST|PUT|PATCH|DELETE) http:\/\/isomux(\/[^\s"'?,)]*)/g,
-    ))
-      routes.add(`${match[1]} ${match[2]}`);
-    for (const command of line.split(/(?=\bcurl )/)) {
-      if (!command.startsWith("curl ")) continue;
-      const url = /http:\/\/isomux(\/[^\s"'?]*)/.exec(command);
-      if (!url) continue;
-      const method = /-X (\w+)/.exec(command)?.[1] ?? "GET";
-      routes.add(`${method} ${url[1]}`);
-      // Shorthand in the trailing comment: "add /<name> for one" extends the
-      // path; "also /start and /stop" replaces its last segment.
-      const comment = command.split(/\s#\s/)[1] ?? "";
-      const added = /\badd (\/[^\s/]+)/.exec(comment);
-      if (added) routes.add(`${method} ${url[1]}${added[1]}`);
-      const also = /\balso (\/[^\s/,]+(?:(?:,| and| or)+ \/[^\s/,]+)*)/.exec(
-        comment,
-      );
-      for (const sibling of also?.[1].match(/\/[^\s/,]+/g) ?? [])
-        routes.add(`${method} ${url[1].replace(/\/[^/]+$/, sibling)}`);
+type Occurrence = { route: string; marked: boolean; where: string };
+
+function documentedRoutes(): Occurrence[] {
+  const prompt = buildSystemPrompt(
+    "Agent",
+    "agent-x",
+    "Room",
+    "room-1",
+    null,
+    null,
+    null,
+    "owner",
+    null,
+    true,
+    null,
+    "opencode",
+  );
+  const found: Occurrence[] = [];
+  for (const command of prompt.split(/(?=\bcurl )/)) {
+    if (!command.startsWith("curl ")) continue;
+    const url = /http:\/\/isomux(\/[^\s"'?]*)/.exec(command);
+    if (!url) continue;
+    const method = /-X (\w+)/.exec(command)?.[1] ?? "GET";
+    found.push({ route: `${method} ${url[1]}`, marked: false, where: "prompt" });
+  }
+  // The reference route serves the same bytes to every engine, so this is
+  // the text an OpenCode agent reads.
+  const privileged = {
+    scope: "agent",
+    agentId: "agent-x",
+    userId: "u1",
+    role: "owner",
+    capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+  } as const;
+  const mark = OPENCODE_UNAVAILABLE_MARK.replace(/[()]/g, "\\$&");
+  const span = new RegExp(
+    `\`(GET|POST|PUT|PATCH|DELETE) (\\/[^\`\\s?]*)\`( ${mark})?`,
+    "g",
+  );
+  for (const topic of Object.keys(AGENT_REFERENCE_TOPICS)) {
+    const markdown = agentReferenceContent(privileged, topic);
+    if (typeof markdown !== "string") throw new Error(`${topic} unreadable`);
+    // Exact `METHOD /path` spans. The route-table test pins every agent route
+    // in that form, so shorthand spans with {a,b} or a|b add nothing here.
+    for (const match of markdown.matchAll(span)) {
+      if (/[{|]/.test(match[2])) continue;
+      found.push({
+        route: `${match[1]} ${match[2]}`,
+        marked: match[3] !== undefined,
+        where: topic,
+      });
     }
   }
-  return [...routes].sort();
+  return found;
 }
 
 async function status(
@@ -99,7 +117,7 @@ async function status(
 }
 
 describe("OpenCode broker allowlist", () => {
-  it("passes every office route the agent prompt documents, except EXCLUDED", async () => {
+  it("passes every route OpenCode agents are taught and marks every refused one where it appears", async () => {
     const root = mkdtempSync(join(tmpdir(), "isomux-broker-prompt-routes-"));
     const socketPath = join(root, "private", "authority.sock");
     const upstream = Bun.serve({
@@ -118,27 +136,42 @@ describe("OpenCode broker allowlist", () => {
     });
     const binding = broker.bind("agent-x", "token-x");
 
-    const routes = documentedRoutes();
-    // Guards against a prompt or parser change that leaves nothing to check.
+    const occurrences = documentedRoutes();
+    const routes = [...new Set(occurrences.map((o) => o.route))].sort();
+    // Guards against a prompt, reference, or parser change that leaves
+    // nothing to check.
+    expect(routes).toContain("GET /api/agent-reference/<topic>");
     expect(routes).toContain("GET /agents");
     expect(routes).toContain("POST /api/apps");
     expect(routes).toContain("GET /api/members-chat");
-    expect(routes).toContain("GET /api/apps/<name>");
-    expect(routes).toContain("POST /api/apps/<name>/start");
+    expect(routes).toContain("GET /api/apps/:name");
+    expect(routes).toContain("POST /api/apps/:name/start");
+    expect(routes).toContain("POST /api/api-token-inboxes/:tokenId/messages");
+    expect(occurrences.some((o) => o.marked)).toBe(true);
     expect(Object.keys(EXCLUDED).filter((r) => !routes.includes(r))).toEqual(
       [],
     );
 
-    const mismatches: string[] = [];
+    const refused = new Set<string>();
     for (const route of routes) {
       const [method, path] = route.split(" ");
       // A fresh activation resets the per-turn call limit.
       const handle = binding.activate(process.pid);
       // The upstream answers 200 to everything, so a 403 is the broker's.
-      const expected = route in EXCLUDED ? 403 : 200;
       const actual = await status(socketPath, handle, method, path);
-      if (actual !== expected) mismatches.push(`${route} -> ${actual}`);
+      if (actual === 403) refused.add(route);
+      else expect(actual, route).toBe(200);
     }
+    const mismatches = occurrences
+      .filter((o) =>
+        o.route in EXCLUDED
+          ? !refused.has(o.route) || o.marked
+          : refused.has(o.route) !== o.marked,
+      )
+      .map(
+        (o) =>
+          `${o.where}: ${o.route} ${refused.has(o.route) ? "refused" : "allowed"}, ${o.marked ? "marked" : "unmarked"}`,
+      );
     expect(mismatches).toEqual([]);
   });
 });

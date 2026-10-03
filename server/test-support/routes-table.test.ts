@@ -32,6 +32,11 @@ import {
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
 import { providerAccountsHandlers } from "../routes/handlers/provider-accounts.ts";
+import {
+  AGENT_ROUTE_REFERENCE_EXEMPTIONS,
+  AGENT_ROUTE_REFERENCE_TOPICS,
+  agentReferenceContent,
+} from "../agent-reference.ts";
 
 const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
@@ -681,6 +686,82 @@ describe("route table: coverage sanity", () => {
   });
 });
 
+describe("route table: agent reference coverage", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u1",
+    cronjobCreatorUserId: () => "u1",
+    appOwnerUserId: () => "u1",
+    isOfficeOwnerUserId: () => true,
+    agentManagerUserId: () => "u1",
+    killedAgentManagerUserId: () => "u1",
+  };
+  const identities: Identity[] = [
+    {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "member",
+      capabilities: AGENT_CAPABILITIES,
+    },
+    {
+      scope: "agent",
+      agentId: "a1",
+      userId: "u1",
+      role: "owner",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    },
+  ];
+  const params = {
+    id: "a1",
+    roomId: "r1",
+    username: "user",
+    scheduledId: "scheduled",
+    runId: "run",
+    name: "app",
+  };
+  const body = {
+    roomId: "r1",
+    targetRoomId: "r1",
+    username: "user",
+    senderAgentId: "a1",
+    scope: "agent",
+    // users.create admits an owner's agent only for a member-role body.
+    role: "member",
+  };
+
+  it("maps every agent-authorized route to one topic or an explicit exemption", () => {
+    for (const route of API_ROUTES) {
+      const reachable = identities.some(
+        (identity) => runAuthorize(route.auth, identity, params, body, deps).ok,
+      );
+      if (!reachable) continue;
+      expect(
+        route.opId in AGENT_ROUTE_REFERENCE_TOPICS ||
+          route.opId in AGENT_ROUTE_REFERENCE_EXEMPTIONS,
+        `${route.method} ${route.path} (${route.opId}) lacks a reference or exemption`,
+      ).toBe(true);
+    }
+  });
+
+  it("pins each mapped route's exact method and path in its topic", () => {
+    const privileged = identities[1];
+    for (const [opId, topic] of Object.entries(
+      AGENT_ROUTE_REFERENCE_TOPICS,
+    )) {
+      const route = API_ROUTES.find((candidate) => candidate.opId === opId);
+      expect(route, `${opId} is not declared`).toBeDefined();
+      const markdown = agentReferenceContent(privileged, topic);
+      expect(typeof markdown).toBe("string");
+      expect(
+        markdown,
+        `${topic} omits ${route!.method} ${route!.path}`,
+      ).toContain(`\`${route!.method} ${route!.path}\``);
+    }
+  });
+});
+
 // The spec's per-route capability + emits, restated INDEPENDENTLY (like
 // event-registry's SPEC_AUDIENCES). The table must match this exactly - a
 // wrong-but-VALID emit or capability (a regression neither isEventId nor
@@ -690,6 +771,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   string,
   { caps: Capability[]; emits: EventId[] }
 > = {
+  "agentReference.list": { caps: [], emits: [] },
+  "agentReference.get": { caps: [], emits: [] },
   // Agents - lifecycle
   "agents.spawn": { caps: ["agent:manage"], emits: ["agent_added"] },
   "agents.kill": {
@@ -1257,6 +1340,8 @@ describe("agents.listSessions non-agent service scopes", () => {
 // intended remote-boss surface, not a snapshot of whatever today's guards let
 // through. The first run against the old guards is deliberately red.
 const API_REACHABLE_OPIDS = [
+  "agentReference.list",
+  "agentReference.get",
   "agents.spawn",
   "agents.kill",
   "agents.revive",

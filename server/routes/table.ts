@@ -22,6 +22,7 @@ import type { RouteAuthz } from "../identity/dispatch.ts";
 import {
   authenticated,
   operationalAuthenticated,
+  agentReferenceReader,
   agentTokenSender,
   apiTokenInboxSelf,
   selfOrOwner,
@@ -314,6 +315,20 @@ type InteractionResponseRes = {
 };
 
 export const API_ROUTES: readonly RouteDef[] = [
+  defineRoute<void, { version: string; topics: { topic: string; description: string }[] }>({
+    opId: "agentReference.list",
+    method: "GET",
+    path: "/api/agent-reference",
+    auth: authn(agentReferenceReader),
+    emits: [],
+  }),
+  defineRoute<void, { version: string; topic: string; markdown: string }>({
+    opId: "agentReference.get",
+    method: "GET",
+    path: "/api/agent-reference/:topic",
+    auth: authn(agentReferenceReader),
+    emits: [],
+  }),
   defineRoute<SpawnReq, AgentEnvelope>({
     opId: "agents.spawn",
     method: "POST",

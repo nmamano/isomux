@@ -810,6 +810,8 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ],
   ["POST", "/api/api-token-inboxes/*/messages", "apiCall.inbox.messageBoss"],
   ["POST", "/api/me/api-token-inbox/drain", "apiCall.inbox.drain"],
+  ["GET", "/api/agent-reference", "apiCall.agentReference.read"],
+  ["GET", "/api/agent-reference/*", "apiCall.agentReference.read"],
   ["POST", "/api/agents/*/handoff", "apiCall.agents.handoff"],
   ["GET", "/api/agents/*/scheduled-messages", "apiCall.agents.scheduledList"],
   [

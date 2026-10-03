@@ -53,11 +53,11 @@ describe("app hosting on a host without systemd", () => {
     }
   });
 
-  it("gives agents the registration API only where apps can run", () => {
-    expect(appHostingSection(null)).toContain("/api/apps");
+  it("points agents at the apps topic only where apps can run", () => {
+    expect(appHostingSection(null)).toContain("`apps`");
     const off = appHostingSection(APPS_NOT_SUPPORTED_MESSAGE);
     expect(off).toContain(APPS_NOT_SUPPORTED_MESSAGE);
-    expect(off).not.toContain("/api/apps");
+    expect(off).not.toContain("`apps`");
   });
 
   it("points the Claude caveat at the app section only where apps can run", () => {

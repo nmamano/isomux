@@ -1055,6 +1055,7 @@ App 的一些原则：
   "apiCall.agents.logsSession": "从 {who} 的日志中读取会话",
   "apiCall.agents.logsList": "列出 {who} 的日志会话",
   "apiCall.agents.instructions": "读取智能体指令",
+  "apiCall.agentReference.read": "读取办公室 API 参考",
   "apiCall.agents.systemPrompt": "读取智能体系统提示词",
   "apiCall.agents.clearConversation": "清除 {who} 的对话",
   "apiCall.agents.flushQueue": "立即发送 {who} 队列中的消息",

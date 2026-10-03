@@ -1196,6 +1196,7 @@ Coses que pots fer per ell:
   "apiCall.agents.logsSession": "Llegir una sessió dels registres de {who}",
   "apiCall.agents.logsList": "Llistar les sessions dels registres de {who}",
   "apiCall.agents.instructions": "Llegir les instruccions de l'agent",
+  "apiCall.agentReference.read": "Llegir la referència de l'API de l'oficina",
   "apiCall.agents.systemPrompt": "Llegir el prompt de sistema de l'agent",
   "apiCall.agents.clearConversation": "Esborrar la conversa de {who}",
   "apiCall.agents.flushQueue": "Buidar ara la cua de {who}",

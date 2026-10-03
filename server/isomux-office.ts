@@ -208,6 +208,11 @@ import {
   type HandlerErrorStatus,
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
+import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
+import {
+  recordAgentReferenceUsage,
+  recordApiReferenceUsage,
+} from "./agent-reference-telemetry.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
 import { appPreviewCapture } from "./app-preview.ts";
@@ -2316,6 +2321,8 @@ function buildExecutorDeps(
       handlers.set(opId, handler);
     }
   };
+
+  register(agentReferenceHandlers());
 
   register(
     tasksHandlers({
@@ -5854,6 +5861,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 ? errorResponse(403, "bad_origin", "bad origin")
                 : errorResponse(401, "unauthenticated", "unauthenticated");
             }
+            // Sampled before the call: a self handoff or new-conversation
+            // replaces the session that made it.
+            const callerSessionId =
+              apiAuth.identity.scope === "agent" && apiAuth.identity.agentId
+                ? agentManager.getCurrentSessionId(apiAuth.identity.agentId)
+                : null;
             try {
               const apiRes = await executeRoute(
                 apiMatch,
@@ -5865,6 +5878,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 // caller's session WITHOUT re-validating the cookie in the seam.
                 { callerSessionIdHash: apiAuth.session?.sessionIdHash },
               );
+              if (apiRes.status < 400) {
+                await recordApiReferenceUsage(
+                  apiMatch,
+                  apiAuth.identity,
+                  apiRes,
+                  callerSessionId,
+                );
+              }
               // Cookie migration rides SAFE methods only. A GET/HEAD cannot
               // revoke the session it would re-issue; DELETE
               // /api/sessions/current is exactly that hazard, and a
@@ -6061,6 +6082,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                     auth.identity.userId,
                   )
                 : [];
+            if (auth.identity.scope === "agent" && auth.identity.agentId) {
+              recordAgentReferenceUsage({
+                at: Date.now(),
+                agentId: auth.identity.agentId,
+                sessionId: agentManager.getCurrentSessionId(
+                  auth.identity.agentId,
+                ),
+                kind: "feature_call",
+                category: "discovery",
+                topics: ["discovery"],
+                opId: "agents.discovery",
+              });
+            }
             return new Response(
               JSON.stringify(buildKilledManifest(killed), null, 2),
               { headers: { "Content-Type": "application/json" } },
@@ -6077,6 +6111,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 accessible.has(e.roomId) ||
                 agentManager.roomById(e.roomId)?.type === "lobby",
             );
+          if (auth.identity.scope === "agent" && auth.identity.agentId) {
+            recordAgentReferenceUsage({
+              at: Date.now(),
+              agentId: auth.identity.agentId,
+              sessionId: agentManager.getCurrentSessionId(
+                auth.identity.agentId,
+              ),
+              kind: "feature_call",
+              category: "discovery",
+              topics: ["discovery"],
+              opId: "agents.discovery",
+            });
+          }
           return new Response(JSON.stringify(manifest, null, 2), {
             headers: { "Content-Type": "application/json" },
           });

@@ -60,6 +60,7 @@ const PORT = process.env.PORT || "4000";
 
 const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/agents$/ },
+  { method: "GET", path: /^\/api\/agent-reference(?:\/[^/]+)?$/ },
   { method: "GET", path: /^\/api\/tasks$/ },
   { method: "POST", path: /^\/api\/tasks$/ },
   { method: "PATCH", path: /^\/api\/tasks\/[^/]+$/ },

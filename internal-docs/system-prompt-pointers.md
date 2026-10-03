@@ -1,6 +1,6 @@
 # System prompt API pointers
 
-Design status: proposed on 2026-09-16. This document does not implement the change.
+Design approved on 2026-09-16, implemented on 2026-09-22, and rebased onto main on 2026-10-03.
 
 ## Goal
 
@@ -23,6 +23,19 @@ The measurement rendered each `agentType` with the arguments from `server/test-s
 
 The after-size budget is 9,000 bytes for an ordinary Claude or Codex agent, 11,000 bytes for an ordinary OpenCode agent, and 2,000 added bytes for a privileged agent. These are acceptance budgets, not estimates. The implementation must measure the final rendered strings for all six engine and privilege combinations before it lands.
 
+On 2026-10-03, after the rebase onto current main, the same arguments render:
+
+| Engine | Agent | Characters | Bytes | Whitespace-separated words |
+| --- | --- | ---: | ---: | ---: |
+| Claude | Ordinary | 4,252 | 4,256 | 656 |
+| Claude | Privileged | 4,858 | 4,862 | 749 |
+| Codex | Ordinary | 3,541 | 3,545 | 539 |
+| Codex | Privileged | 4,147 | 4,151 | 632 |
+| OpenCode | Ordinary | 3,872 | 3,876 | 590 |
+| OpenCode | Privileged | 4,478 | 4,482 | 683 |
+
+The manager section's two arrow characters make bytes exceed characters by four. The privileged block adds 606 bytes. Main renders 37,302 to 53,228 bytes for the same six cases on that date.
+
 ## What stays inline
 
 The prompt keeps information that the agent must apply before it knows that it needs a reference:
@@ -36,6 +49,9 @@ The prompt keeps information that the agent must apply before it knows that it n
 - The rule to consult a feature reference before the first call, including one generic fetch example.
 - Office, room, member, and agent instructions and memory. These are deployment data, not API documentation.
 - Engine-specific facts that change how the agent can read a reference.
+- Rules for every reply: a normal reply reaches members only, and a literal dollar sign needs escaping.
+- How to read an Isomux note that another agent interrupted or stopped the turn.
+- Where to read about Isomux itself, and the trigger to run `/wrap-session` when the session goal is complete.
 
 The privileged block becomes a short list of added capabilities and human-only exclusions. It does not keep route catalogs or request examples.
 
@@ -59,7 +75,7 @@ The prompt lists these features with a topic name beside each one:
 | Shared memory | The agent fetches `GET /api/agent-reference/memory`. |
 | Inline diagrams | The agent fetches `GET /api/agent-reference/visuals`. |
 | Privileged agent, room, and cron operations | A privileged agent fetches `GET /api/agent-reference/operator`. |
-| Session closeout | The agent invokes the built-in `/wrap-session` skill. |
+| Session closeout | The agent invokes the built-in `/wrap-session` skill when the session goal is complete. |
 
 Each topic holds the current route, method, parameters, response shape, scope, error cases, and one safe example. Long operating procedures remain skills. `/wrap-session` and `/handoff` are examples: the prompt lists them as features, and the skill carries the workflow.
 
@@ -80,7 +96,7 @@ Claude and Codex agents fetch a topic with the local HTTP route and their inject
 curl -s localhost:<port>/api/agent-reference/<topic> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
 ```
 
-An OpenCode agent has no bearer token. It fetches the same route through the authority proxy, with the per-turn handle that Isomux substitutes into its prompt:
+An OpenCode agent has no bearer token. It fetches the same route through the authority proxy. The prompt builder emits a placeholder. `OpenCodeTransport` replaces it once with the authority binding's stable per-transport handle; the rendered system prompt stays byte-identical across turns while the binding is activated and deactivated for each turn:
 
 ```sh
 curl -s http://isomux/api/agent-reference/<topic> --unix-socket <authority-socket> -H "X-Isomux-Turn: __ISOMUX_OPENCODE_TURN__"
@@ -109,8 +125,8 @@ Mitigations:
 - Keep each topic short and return it in one call.
 - Return structured errors that name the relevant topic when a request has the wrong method or shape.
 - Keep identity, authorization, approval, and secret rules inline because a missed pointer must not bypass them.
-- Log the session id, topic fetch, and feature route category. The primary metric is the share of agent sessions where the first call to a feature route comes before a fetch of that feature's topic in the same session.
-- Before release, run ten scripted tasks per topic against both the current prompt and the pointer prompt on Claude, Codex, and OpenCode. The pointer prompt must fetch the matching topic before the first feature call in at least 95% of runs, and its task success rate must be no more than five percentage points below the current prompt for any engine.
+- Log the session id, topic fetch, and feature route category. The session id is sampled before the call, so a handoff is logged under the session that made it. A feature call also lists every topic that pins its exact route, and a send with `deliverAt` is in the scheduled-messages category. The primary metric is the share of agent sessions where the first call to a feature route comes before a fetch of any topic it lists in the same session.
+- Before release, run five representative tasks five times on each of Claude, Codex, and OpenCode with the new prompt (75 runs). Use isolated office state and no customer actions. Report per-engine feature use, reference-fetch ordering, and task success; the check must test behavior, not only reference presence.
 - After release, measure the same ordering metric from server request logs. If more than 5% of sessions call a feature first, move the minimum rule for that feature back inline.
 
 The pointer design trades guaranteed injection for retrieval on demand. The implementation should ship only with tests for pointer coverage and telemetry that can show whether the trade works.

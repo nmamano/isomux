@@ -31,7 +31,7 @@ const capturedArgument = toolInputSequences.argument as ToolUpdate[];
 const capturedInterrupted = toolInputSequences.interrupted as ToolUpdate[];
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
-  it("sends a byte-identical system prompt across consecutive session turns", async () => {
+  it("uses one stable per-transport authority handle and byte-identical prompt across turns", async () => {
     const systemPayloads: string[] = [];
     let eventController: ReadableStreamDefaultController<Uint8Array> | null =
       null;
