@@ -304,3 +304,73 @@ describe("the admin socket is not for agents (F6 guardrail)", () => {
     expect(decision(command)).toBe("allow");
   });
 });
+
+describe("git global options before the subcommand (d90b99a9)", () => {
+  it.each([
+    "git -C /x reset --hard",
+    "git -C /x clean -fd",
+    "git -C /x push --force",
+    "git -c a=b reset --hard",
+    "git -C /x -c a=b reset --merge",
+    "git --git-dir=/x/.git reset --hard",
+    "git --git-dir /x/.git --work-tree /x reset --hard",
+    "git --work-tree=/x checkout -- f",
+    "git --namespace=n push -f origin main",
+    "git --no-pager -P --bare branch -D topic",
+    "git --no-optional-locks restore f",
+    'git -C "/a b" stash clear',
+    "git -C '/x' reset '--hard'",
+    "sudo git -C /x reset --hard",
+    "/usr/bin/git -C /x reset --hard",
+    "bash -c 'git -C /x reset --hard'",
+    "git -C /x checkout -b y && git -C /x reset --hard",
+    "git -C /x reset --hard 'git' 'clean' '-n'",
+    "git -C '' reset --hard",
+    'git -C "" clean -fd',
+  ])("denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  it.each([
+    "git -C /x status",
+    "git -C /x clean -n",
+    "git -C /x clean -nf",
+    "git -C /x checkout -b y",
+    "git -C /x restore --staged f",
+    "git -c core.pager=cat log",
+    "git --no-pager diff",
+    "git -C '' status",
+    'git -C "" clean -n',
+  ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it("takes the next word as the value of -C and -c", () => {
+    // A directory named `clean` is not the subcommand.
+    expect(decision("git -C clean reset --hard")).toBe("deny");
+    // A directory named `push` is not the subcommand either.
+    expect(decision("git -C push status --force")).toBe("allow");
+    expect(decision("git -c push status --force")).toBe("allow");
+  });
+
+  it.each([
+    "git restore --staged git --worktree f",
+    "git -C /x restore --staged git --worktree f",
+    "git push origin git --force",
+    "git -C /x push origin git --force",
+  ])("keeps the flags after an operand named git: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  it("keeps an explicit empty word as an argument", () => {
+    // Dropped, the empty value would let the flag take the next word.
+    expect(decision('sudo -u "" pkill -f bun')).toBe("deny");
+    expect(decision("cd '' && git status")).toBe("allow");
+  });
+
+  it("denies with the reason of the plain command", () => {
+    expect(reason("git -C /x reset --hard HEAD~3")).toBe(
+      reason("git reset --hard HEAD~3"),
+    );
+  });
+});

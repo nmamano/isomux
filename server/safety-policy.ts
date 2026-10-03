@@ -1315,7 +1315,9 @@ function parseCommands(
   let keepAsRedirect: false | "input" | "output" = false;
 
   const endWord = () => {
-    if (!cur) return;
+    // An explicit empty word (`''`, `""`) is still an argument: `git -C ''`
+    // gives -C its value rather than the next word.
+    if (!cur && !curQuoted) return;
     if (!dropWord)
       words.push({ text: cur, quoted: curQuoted, dynamic: curDynamic });
     else if (keepAsRedirect)
@@ -2448,6 +2450,41 @@ function rmOperands(words: ShellWord[]): ShellWord[] | null {
   });
 }
 
+/** git(1) options before the subcommand that take the next word as a value. */
+const GIT_GLOBAL_VALUE_OPTIONS = [
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--config-env",
+  "--attr-source",
+  "--super-prefix",
+];
+
+/**
+ * The words with the global options of the git that runs removed, so
+ * `git -C dir reset --hard` reads as `git reset --hard` for the git patterns
+ * and SAFE exceptions. Only git in command position (past wrappers) counts,
+ * and the scan stops at its subcommand: an operand named `git` starts
+ * nothing. Any other option before the subcommand (`--no-pager`,
+ * `--git-dir=x`, an unknown one) goes alone: git refuses an option it does
+ * not know, so dropping it can only add a match.
+ */
+function withoutGitGlobalOptions(words: ShellWord[]): ShellWord[] {
+  const dropped = new Set<number>();
+  for (const cmd of commandCandidates(words)) {
+    if (cmd.name !== "git") continue;
+    let i = words.length - cmd.args.length;
+    while (i < words.length && words[i].text.startsWith("-")) {
+      dropped.add(i);
+      if (GIT_GLOBAL_VALUE_OPTIONS.includes(words[i].text)) dropped.add(++i);
+      i++;
+    }
+  }
+  return words.filter((_, i) => !dropped.has(i));
+}
+
 /**
  * The denial reason for one command, or null when it is safe or neutral. A
  * SAFE pattern wins over a DESTRUCTIVE one, but for rm only when every rm
@@ -2455,7 +2492,7 @@ function rmOperands(words: ShellWord[]): ShellWord[] | null {
  * without that `rm -rf /tmp/a ./src` would pass as safe.
  */
 function destructiveReason(words: ShellWord[]): string | null {
-  const plain = words.filter((word) => !word.redirect);
+  const plain = withoutGitGlobalOptions(words.filter((word) => !word.redirect));
   const text = normalizeAbsolutePaths(patternText(plain));
   const operands = rmOperands(words);
   // SAFE reads only the command that runs (past wrappers), from its name on.
