@@ -307,7 +307,7 @@ describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () =>
         { ...plain, allowedRooms: ["r-1"] },
         ownerManaged,
       ),
-    ).toBe(false);
+    ).toBe(true);
     expect(can("users.create", normalAgent, {}, plain, ownerManaged)).toBe(
       false,
     );

@@ -293,6 +293,24 @@ describe("routes/users REST - create (owner creates a member before any link)", 
     const byApi = await create(bossApi, { name: "Zed", role: "member" });
     expect(byApi.status).toBe(201);
     expect(userOf(byApi)).toMatchObject({ role: "member", allowedRooms: [] });
+    // Room grants are allowed: the member still has no sign-in until a human
+    // owner mints the link.
+    for (const [bearer, name] of [
+      [bossAgent, "Ola"],
+      [bossApi, "Pia"],
+    ] as const) {
+      const granted = await create(bearer, {
+        name,
+        role: "member",
+        allowedRooms: [roomId],
+      });
+      expect({ name, status: granted.status }).toEqual({ name, status: 201 });
+      expect(userOf(granted)).toMatchObject({
+        role: "member",
+        allowedRooms: [roomId],
+        pendingSignIn: true,
+      });
+    }
 
     // No sign-in link for a proxy: invites stay with a human owner.
     for (const bearer of [bossAgent, bossApi]) {
@@ -306,9 +324,7 @@ describe("routes/users REST - create (owner creates a member before any link)", 
 
     const refused: [string, unknown][] = [
       [bossAgent, { name: "Owen", role: "owner" }],
-      [bossAgent, { name: "Owen", role: "member", allowedRooms: [roomId] }],
       [bossApi, { name: "Owen", role: "owner" }],
-      [bossApi, { name: "Owen", role: "member", allowedRooms: [roomId] }],
       [aliceAgent, { name: "Owen", role: "member" }],
       [aliceApi, { name: "Owen", role: "member" }],
     ];

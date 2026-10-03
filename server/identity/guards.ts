@@ -232,16 +232,11 @@ export const ownerProxyMemberCreate: Guard = ({ identity, body, deps }) => {
   if (identity.userId === null || !deps.isOfficeOwnerUserId(identity.userId))
     return FORBIDDEN;
   if (typeof body !== "object" || body === null) return FORBIDDEN;
-  const { role, allowedRooms } = body as {
-    role?: unknown;
-    allowedRooms?: unknown;
-  };
+  // Member role only. Room grants are allowed: the manager is an office owner,
+  // who reaches every room, and the member still has no sign-in until a human
+  // owner mints the link (Nil, 2026-10-03).
+  const { role } = body as { role?: unknown };
   if (role !== "member") return FORBIDDEN;
-  if (
-    allowedRooms !== undefined &&
-    !(Array.isArray(allowedRooms) && allowedRooms.length === 0)
-  )
-    return FORBIDDEN;
   return ALLOW;
 };
 

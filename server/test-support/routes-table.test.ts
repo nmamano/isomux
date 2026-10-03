@@ -608,15 +608,17 @@ describe("route table: users.create admits an owner's proxies for a plain member
         scope: proxy.scope,
         ok: allowed(proxy, { ...plain, allowedRooms: [] }),
       }).toEqual({ scope: proxy.scope, ok: true });
+      expect({
+        scope: proxy.scope,
+        ok: allowed(proxy, { ...plain, allowedRooms: ["r1"] }),
+      }).toEqual({ scope: proxy.scope, ok: true });
     }
   });
 
-  it("a proxy cannot create an owner, grant rooms, or send no role", () => {
+  it("a proxy cannot create an owner or send no role", () => {
     for (const proxy of [ownerPrivileged, ownerApi]) {
       for (const body of [
         { name: "Yu", role: "owner" },
-        { ...plain, allowedRooms: ["r1"] },
-        { ...plain, allowedRooms: "r1" },
         { name: "Yu" },
         undefined,
       ]) {
