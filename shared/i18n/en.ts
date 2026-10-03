@@ -1203,6 +1203,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "apiCall.providerAccounts.signOut": "Sign out provider account",
   "apiCall.providerAccounts.refresh": "Refresh provider accounts",
   "apiCall.providerAccounts.signInCode": "Submit provider sign-in code",
+  "apiCall.users.create": "Create a member",
+  "apiCall.users.createNamed": "Create member {name}",
   "apiCall.env.readUser": "Read managed environment",
   "apiCall.env.saveUser": "Save managed environment",
   "apiCall.env.readOffice": "Read office environment",

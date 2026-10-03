@@ -41,6 +41,11 @@ export type Capability =
   | "user:self"
   | "user:env"
   | "user:admin"
+  // users.create through an office owner's proxy: a privileged agent or an API
+  // token. Held by the PRIVILEGED agent and API sets only. A human creates
+  // members through user:admin. The route guard limits a proxy to a plain
+  // member with no room grants, and only while its user is an office owner.
+  | "user:create"
   | "office:admin"
   | "invite:manage"
   | "session:manage"
@@ -126,8 +131,9 @@ export interface Identity {
   capabilities: readonly Capability[];
 }
 
-// USER (browser) set: every capability except the two agent-identity ones and
-// app:message (a person messages an agent by typing in its chat). `log:read`
+// USER (browser) set: every capability except the two agent-identity ones,
+// app:message (a person messages an agent by typing in its chat) and
+// user:create (an owner creates members through user:admin). `log:read`
 // also covers read-only context and subscription checks for reachable agents.
 // Owner vs member is NOT expressed here - both humans hold this full set and
 // owner-only routes are blocked for members by the officeOwner guard, not by a
@@ -193,7 +199,7 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // This is a CURATED allowlist, NOT union(AGENT, USER): the literal union exposes
 // capability-only owner routes - invites.mintSelf (mints a durable owner LOGIN),
 // sessions.revoke (kills the human's browser session). So invite:manage,
-// session:manage, user:* (user records / access),
+// session:manage, user:self and user:admin (user records / access),
 // office:admin (office settings + access), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
@@ -201,6 +207,9 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // defense-in-depth on top of that. Whenever a new capability is added, decide
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.
+// user:create is the one user capability here: it reaches only users.create,
+// whose guard allows a plain member with no room grants, and only while the
+// spawning user is an office owner. It mints no sign-in link.
 // agent:send-as-cron is deliberately absent too: cron attribution belongs only
 // to a live CRON-RUN identity, never to an agent with operator privileges.
 export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
@@ -214,6 +223,7 @@ export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   "file:upload",
   "cron:read",
   "cron:manage",
+  "user:create",
 ];
 
 // The capability set an AGENT-scope token resolves to, by its privileged flag.
@@ -272,7 +282,8 @@ export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 // session:manage, user:self, user:admin, office:admin, view:manage and
 // agent:privilege. user:env is the explicit exception for the issuing user's
 // managed environment routes: their own values, and - when that user is an
-// office owner - the name-only read of another user's variables. The
+// office owner - the name-only read of another user's variables. user:create
+// is the other exception, with the privileged agent's member-only limits. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. Its `log:read` covers
 // conversation logs plus context and subscription checks. These exclusions are
@@ -292,6 +303,7 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "file:upload",
   "cron:read",
   "cron:manage",
+  "user:create",
   "task:read",
   "task:write",
   "memory:read",

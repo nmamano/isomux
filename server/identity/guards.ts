@@ -221,6 +221,30 @@ export const officeEnvOwner: Guard = (ctx) => {
     : FORBIDDEN;
 };
 
+// users.create through an office owner's proxy: a privileged agent or an API
+// token whose user is an office owner, checked live. A proxy creates a plain
+// member only: role "member" and no room grants, so it cannot mint an owner or
+// grant access (owner role and room grants stay with a human owner). The body
+// limits are part of the authorization, so a refused body is a 403 like any
+// other deny. Stage 1 (user:create) keeps ordinary agents, runs and apps out.
+export const ownerProxyMemberCreate: Guard = ({ identity, body, deps }) => {
+  if (identity.scope !== "agent" && identity.scope !== "api") return FORBIDDEN;
+  if (identity.userId === null || !deps.isOfficeOwnerUserId(identity.userId))
+    return FORBIDDEN;
+  if (typeof body !== "object" || body === null) return FORBIDDEN;
+  const { role, allowedRooms } = body as {
+    role?: unknown;
+    allowedRooms?: unknown;
+  };
+  if (role !== "member") return FORBIDDEN;
+  if (
+    allowedRooms !== undefined &&
+    !(Array.isArray(allowedRooms) && allowedRooms.length === 0)
+  )
+    return FORBIDDEN;
+  return ALLOW;
+};
+
 // USER-scope gate. Any user identity (owner OR member) passes; AGENT and
 // CRON-RUN never do - a privileged agent stays scope==="agent", so it cannot
 // pass either. This is the scope half of the agents.setPrivileged double-gate:

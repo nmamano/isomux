@@ -10,7 +10,7 @@ Nil's direction: creating a member and signing a member in are two different act
 
 ## 1. Create member
 
-- Who: office owners only. Route guard `cap("user:admin", officeOwner)`, the same as `users.setAccess`. Agents, privileged agents included, cannot call it (no `user:admin`).
+- Who: office owners. Route guard `cap(["user:admin", "user:create"], or(officeOwner, ownerProxyMemberCreate))`. `user:create` is held by the privileged agent and API sets only: an office owner's privileged agent or API token can create a plain member (role `member`, no `allowedRooms`; anything else is a 403). Ordinary agents and members' proxies cannot (task 1ad91d87).
 - Where: the Members group in the settings sidebar gets a "New member" row for owners. It opens `UserEditPanel` in a create mode. There is no separate form.
 - Fields in create mode: name (required), Office owner checkbox, avatar, room access (members only), profile prompt. These are the record fields the owner can already edit.
 - Not in create mode: member memory, variable names, delete. They need a stored record. After "Create member" succeeds, the panel opens the new member in normal edit mode, where these sections are available.

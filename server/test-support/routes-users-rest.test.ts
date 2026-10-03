@@ -27,7 +27,8 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { _testMintLegacyInvite, acceptInvite, peekInvite } from "../auth.ts";
 import { getUserByName } from "../users.ts";
-import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { getAgentTokenRaw, mintAgentToken } from "../identity/tokens.ts";
+import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -234,6 +235,88 @@ describe("routes/users REST - create (owner creates a member before any link)", 
       (await api(srv, "/api/users", { method: "POST", body })).status,
     ).toBe(401);
     expect(getUserByName("Yu")).toBeUndefined();
+  });
+
+  it("an owner's privileged agent and API token create a plain member, and cannot mint its link", async () => {
+    const srv = (server = await startTestServer());
+    const boss = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const bossId = getUserByName("Boss")!.id;
+    const aliceId = getUserByName("Alice")!.id;
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const spawn = async (name: string) => {
+      const info = await srv.agentManager.spawn(
+        name,
+        srv.stateRoot,
+        "default",
+        undefined,
+        undefined,
+        roomId,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "claude",
+      );
+      if (!info) throw new Error("spawn failed");
+      return info;
+    };
+    const apiToken = async (rawSessionId: string) => {
+      const r = await srv.http("/api/me/api-tokens", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Remote", expiresInDays: 30 }),
+        rawSessionId,
+      });
+      expect(r.status).toBe(201);
+      return ((await r.json()) as ApiTokenCreateRes).token;
+    };
+    const bossAgent = mintAgentToken((await spawn("BossBot")).id, bossId, true);
+    const aliceAgent = mintAgentToken(
+      (await spawn("AliceBot")).id,
+      aliceId,
+      true,
+    );
+    const bossApi = await apiToken(boss.rawSessionId);
+    const aliceApi = await apiToken(alice.rawSessionId);
+    const create = (bearer: string, body: unknown) =>
+      api(srv, "/api/users", { method: "POST", bearer, body });
+
+    const byAgent = await create(bossAgent, { name: "Yu", role: "member" });
+    expect(byAgent.status).toBe(201);
+    expect(userOf(byAgent)).toMatchObject({
+      name: "Yu",
+      role: "member",
+      pendingSignIn: true,
+      allowedRooms: [],
+    });
+    const byApi = await create(bossApi, { name: "Zed", role: "member" });
+    expect(byApi.status).toBe(201);
+    expect(userOf(byApi)).toMatchObject({ role: "member", allowedRooms: [] });
+
+    // No sign-in link for a proxy: invites stay with a human owner.
+    for (const bearer of [bossAgent, bossApi]) {
+      const link = await api(srv, "/api/invites", {
+        method: "POST",
+        bearer,
+        body: { userId: userOf(byAgent).id },
+      });
+      expect(link.status).toBe(403);
+    }
+
+    const refused: [string, unknown][] = [
+      [bossAgent, { name: "Owen", role: "owner" }],
+      [bossAgent, { name: "Owen", role: "member", allowedRooms: [roomId] }],
+      [bossApi, { name: "Owen", role: "owner" }],
+      [bossApi, { name: "Owen", role: "member", allowedRooms: [roomId] }],
+      [aliceAgent, { name: "Owen", role: "member" }],
+      [aliceApi, { name: "Owen", role: "member" }],
+    ];
+    for (const [bearer, body] of refused) {
+      const r = await create(bearer, body);
+      expect({ body, status: r.status }).toEqual({ body, status: 403 });
+    }
+    expect(getUserByName("Owen")).toBeUndefined();
   });
 
   // Legacy new-member rows minted before members were created up front still

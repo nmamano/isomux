@@ -766,7 +766,9 @@ export const THEMES: readonly Theme[] = [
   },
 ];
 
-export const DEFAULT_THEME_ID = "dark";
+// The dark default for a member with no stored pick (an OS light preference
+// still gets "light"; see ui/store.tsx). A stored pick always wins.
+export const DEFAULT_THEME_ID = "dracula";
 
 export function getThemeById(id: string): Theme {
   return (
@@ -775,10 +777,16 @@ export function getThemeById(id: string): Theme {
   );
 }
 
-// Emit the per-theme CSS blocks. The first (Dark) doubles as `:root` so the
-// page renders correctly before any `data-theme` attribute is applied.
+// Emit the per-theme CSS blocks. The default theme doubles as `:root` so the
+// page renders correctly before any `data-theme` attribute is applied. It goes
+// first: `:root` and `[data-theme=...]` have the same specificity, so a later
+// `:root` block would override the theme a member picked.
 export function emitThemesCss(): string {
-  return THEMES.map((theme, index) => {
+  const ordered = [
+    getThemeById(DEFAULT_THEME_ID),
+    ...THEMES.filter((t) => t.id !== DEFAULT_THEME_ID),
+  ];
+  return ordered.map((theme, index) => {
     const selector =
       index === 0
         ? `:root, [data-theme="${theme.id}"]`

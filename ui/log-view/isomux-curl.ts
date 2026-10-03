@@ -778,6 +778,7 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/me/api-tokens", "apiCall.apiTokens.create"],
   ["DELETE", "/api/me/api-tokens/*", "apiCall.apiTokens.revoke"],
   ["GET", "/api/me/provider-accounts", "apiCall.providerAccounts.check"],
+  ["POST", "/api/users", "apiCall.users.create"],
   ["GET", "/api/users/*/env", "apiCall.env.readUser"],
   ["PUT", "/api/users/*/env", "apiCall.env.saveUser"],
   ["GET", "/api/office/env", "apiCall.env.readOffice"],
@@ -1099,6 +1100,13 @@ export function humanizeIsomuxRequest(
           return t("apiCall.agents.editMessage", { who });
       }
     }
+  }
+
+  if (segs[0] === "users" && segs.length === 1 && m === "POST") {
+    const name = field("name");
+    return name
+      ? t("apiCall.users.createNamed", { name: truncateLabel(name, 24) })
+      : t("apiCall.users.create");
   }
 
   if (segs[0] === "rooms") {

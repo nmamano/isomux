@@ -1074,6 +1074,8 @@ App 的一些原则：
   "apiCall.providerAccounts.signOut": "退出提供方账户",
   "apiCall.providerAccounts.refresh": "刷新提供方账户",
   "apiCall.providerAccounts.signInCode": "提交提供方登录验证码",
+  "apiCall.users.create": "创建成员",
+  "apiCall.users.createNamed": "创建成员 {name}",
   "apiCall.env.readUser": "读取托管环境",
   "apiCall.env.saveUser": "保存托管环境",
   "apiCall.env.readOffice": "读取办公室环境",

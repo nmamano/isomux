@@ -1143,6 +1143,13 @@ describe("describeIsomuxRoute", () => {
     ).toBe("apiCall.agents.instructions");
   });
 
+  test("member create is labeled", () => {
+    expect(describeIsomuxRoute("POST", "/api/users")).toBe(
+      "apiCall.users.create",
+    );
+    expect(describeIsomuxRoute("GET", "/api/users")).toBeNull();
+  });
+
   test("version read is labeled", () => {
     expect(describeIsomuxRoute("GET", "/api/version")).toBe(
       "apiCall.version.check",
@@ -1212,6 +1219,24 @@ describe("humanizeIsomuxRequest", () => {
         ),
       ),
     );
+  });
+
+  test("a member create names the new member", () => {
+    const named = humanizeIsomuxRequest(
+      EN,
+      parse(
+        `curl -s -X POST localhost:4000/api/users -H 'Content-Type: application/json' -d '{"name":"Marmalade","role":"member"}'`,
+      ),
+    );
+    const unnamed = humanizeIsomuxRequest(
+      EN,
+      parse(
+        `curl -s -X POST localhost:4000/api/users -H 'Content-Type: application/json' -d '{"role":"member"}'`,
+      ),
+    );
+    expect(named).toContain("Marmalade");
+    expect(unnamed).not.toContain("Marmalade");
+    expect(unnamed).not.toBe(named);
   });
 
   test("memory append uses the body scope", () => {

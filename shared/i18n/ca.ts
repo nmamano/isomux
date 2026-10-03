@@ -1219,6 +1219,8 @@ Coses que pots fer per ell:
   "apiCall.providerAccounts.refresh": "Actualitzar els comptes de proveïdor",
   "apiCall.providerAccounts.signInCode":
     "Enviar el codi d'inici de sessió del proveïdor",
+  "apiCall.users.create": "Crear un membre",
+  "apiCall.users.createNamed": "Crear el membre {name}",
   "apiCall.env.readUser": "Llegir l'entorn gestionat",
   "apiCall.env.saveUser": "Desar l'entorn gestionat",
   "apiCall.env.readOffice": "Llegir l'entorn de l'oficina",

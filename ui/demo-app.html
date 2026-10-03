@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
-    <meta name="theme-color" content="#0d1117" />
+    <meta name="theme-color" content="#282a36" />
     <title>Demo app - Isomux</title>
     <script>
       (function () {
@@ -15,7 +15,7 @@
             (window.matchMedia &&
             window.matchMedia("(prefers-color-scheme: light)").matches
               ? "light"
-              : "dark");
+              : "dracula");
           var lightThemes = ["light", "solarized-light"];
           var mode = lightThemes.indexOf(theme) >= 0 ? "light" : "dark";
           document.documentElement.setAttribute("data-theme", theme);
@@ -26,7 +26,7 @@
     <style>
       body {
         margin: 0;
-        background: #0a0e16;
+        background: #282a36;
       }
       [data-theme-mode="light"] body {
         background: #f0f2f6;

@@ -86,6 +86,7 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "GET", path: /^\/api\/rooms\/[^/]+\/settings$/ },
   { method: "PUT", path: /^\/api\/rooms\/[^/]+\/settings$/ },
   { method: "POST", path: /^\/api\/rooms\/[^/]+\/swap-desks$/ },
+  { method: "POST", path: /^\/api\/users$/ },
   {
     method: "GET",
     path: /^\/api\/cronjobs(?:\/[^/]+(?:\/runs(?:\/[^/]+)?)?)?$/,

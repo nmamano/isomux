@@ -148,6 +148,7 @@ Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthog
 | `view:manage` | yes | no | own view preferences (order, shown, notifRooms, defaultRoom) |
 | `user:self` | yes | no | edit own user record (name/env/prompt/avatar) |
 | `user:admin` | yes | no | edit/delete any user, set room-access grants (guard: `officeOwner`) |
+| `user:create` | no | no‡ | `users.create` through an office owner's proxy: privileged agents and API tokens only, plain member with no room grants (guard: `ownerProxyMemberCreate`). Humans create members through `user:admin` |
 | `office:admin` | yes | no | office settings, access settings, env file (guard: `officeOwner`) |
 | `invite:manage` | yes | no | mint/list/revoke invites (scoped by guard) |
 | `session:manage` | yes | no | list/revoke sessions (scoped by guard) |
@@ -166,7 +167,7 @@ Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthog
 
 † `self:affordance` is also held by RUN scope (a firing cron run), bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`. RUN additionally holds `agent:send-as-cron` and the office-global task-board capabilities.
 
-‡ The **Held by AGENT** column is for a *normal* agent. A **privileged** agent (the `privileged` flag set) additionally holds the curated allowlist `{ agent:converse, office:read, agent:manage, room:manage, editor:use, file:upload, cron:read, cron:manage }` - that is the privileged delta. Scope stays `"agent"`, so the `scope === "user"` guards still block it from owner/user-admin routes. `agent:privilege` itself is **not** in the delta, so no agent can grant privilege.
+‡ The **Held by AGENT** column is for a *normal* agent. A **privileged** agent (the `privileged` flag set) additionally holds the curated allowlist `{ agent:converse, office:read, agent:manage, room:manage, editor:use, file:upload, cron:read, cron:manage, user:create }` - that is the privileged delta. Scope stays `"agent"`, so the `scope === "user"` guards still block it from owner/user-admin routes; `user:create` reaches only `users.create`, for a plain member, while the spawning user is an office owner. `agent:privilege` itself is **not** in the delta, so no agent can grant privilege.
 
 The non-user sender capabilities are deliberately absent from USER scope. A human is not an agent or cron job. A USER or CRON-RUN identity cannot satisfy `agentParamMustEqualTokenAgent` or `senderMustEqualTokenAgent` because it has no `agentId`, and it lacks `agent:send-as-self` anyway. Cron attribution cannot impersonate an agent either: its distinct capability reaches a distinct scope branch, which builds the sender from the live job. RUN scope carries only its run affordances, cron messaging, and the office-global task board.
 
@@ -180,6 +181,7 @@ Named, reusable, individually contract-tested policies. A route names one (possi
 | `authenticated` | any identity | valid cookie or bearer | `401` |
 | `selfUser` | `/users/:username` self routes | `:username` resolves to `token.userId` | `403` |
 | `selfOrOwner` | user edit/delete | `selfUser` OR `officeOwner` | `403` |
+| `ownerProxyMemberCreate` | `users.create` (∨ `officeOwner`) | AGENT or API scope ∧ `token.userId` is a live office owner ∧ `body.role === "member"` ∧ no non-empty `body.allowedRooms` | `403` |
 | `officeOwner` | owner-only routes | `scope === "user"` ∧ `token.role === "owner"` | `403` |
 | `userScope` | `agents.setPrivileged` (outermost, ∧ `or(officeOwner, agentManagerMatch)`) | `scope === "user"` - any user, owner or member; never an agent (privileged or not, since privilege keeps `scope === "agent"`). Kept OUTERMOST so an agent whose `userId` coincides with the target's manager still can't pass via the manager-match branch | `403` |
 | `agentManagerMatch(:id)` | `agents.setPrivileged` (member branch) | `:id`'s manager (`AgentInfo.userId`) `=== token.userId`. Scope-agnostic in isolation - MUST compose under `userScope` | `403` |
@@ -275,6 +277,7 @@ Non-leak invariant on all view writes: inaccessible or unknown room ids are igno
 
 | opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
 |---|---|---|---|---|---|---|---|
+| `users.create` | POST `/api/users` | `user:admin` \| `user:create` | `officeOwner` ∨ `ownerProxyMemberCreate` | `UserCreateReq` | `201 { user: UserAdminWire }` | `users_list` | Creates a member with `pendingSignIn`; no sign-in link. A proxy (owner's privileged agent or API token) creates a plain member only |
 | `users.update` | PATCH `/api/users/:username` | `user:self` \| `user:admin` | `selfOrOwner` | `UserUpdateReq` | `{ user: UserSelfWire }` (self) \| `{ user: UserAdminWire }` (owner) | `user_updated`, `users_list` | WS:update_user (record slice) `[strangle]`, `[delete]` settings_save_response. Name/env/prompt/avatar only (no access/view fields). Emits the public `user_updated` + `users_list` (`all`, `toPublicWire` payload: public fields only, env/prompt never leak) ONLY when a public field (name/avatar) actually changed; a private-only edit (env/prompt) instead emits scoped `user_admin_updated` (owners) + `user_self_updated` (self), so no timing signal reaches `all`. Follow-up #13 DONE (`0236f470`), mirroring `users.setAccess` |
 | `users.setAccess` | PUT `/api/users/:username/access` | `user:admin` | `officeOwner` | `SetAccessReq` | `{ user: UserAdminWire }` (to the owner caller) | `user_admin_updated` (owners), `user_self_updated` (target), `full_state` (target) | WS:update_user (allowedRooms slice) `[behavior-change]` access grants split from record edit. PRIVATE-only mutation (Option A): NO public `user_updated`/`users_list` (would leak the timing+target of an access change to `all`); owners get the grants via `user_admin_updated`, the target re-projects via `full_state` + `user_self_updated`. The notif/default prune-clamp rides the same write |
 | `users.delete` | DELETE `/api/users/:username` | `user:self` \| `user:admin` | `selfOrOwner` (not last owner; owner≠self) | - | `204` | `users_list`, `session_expired` (target) | WS:delete_user `[strangle]`, `[delete]` delete_user_blocked |

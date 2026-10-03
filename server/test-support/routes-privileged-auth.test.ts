@@ -282,10 +282,37 @@ describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () =>
     expect(can("office.setSettings", privilegedAgent)).toBe(false);
     expect(can("users.setAccess", owner, { username: "x" })).toBe(true); // owner can
   });
-  it("CANNOT create members: users.create is office-owner only", () => {
-    expect(can("users.create", privilegedAgent)).toBe(false);
-    expect(can("users.create", member)).toBe(false);
-    expect(can("users.create", owner)).toBe(true);
+  it("creates only a plain member, and only while its manager is an office owner", () => {
+    const ownerManaged = deps({ isOfficeOwnerUserId: () => true });
+    const plain = { name: "Yu", role: "member" };
+    expect(can("users.create", privilegedAgent, {}, plain, ownerManaged)).toBe(
+      true,
+    );
+    // A member's privileged agent: the human member cannot create members.
+    expect(can("users.create", privilegedAgent, {}, plain)).toBe(false);
+    expect(
+      can(
+        "users.create",
+        privilegedAgent,
+        {},
+        { name: "Yu", role: "owner" },
+        ownerManaged,
+      ),
+    ).toBe(false);
+    expect(
+      can(
+        "users.create",
+        privilegedAgent,
+        {},
+        { ...plain, allowedRooms: ["r-1"] },
+        ownerManaged,
+      ),
+    ).toBe(false);
+    expect(can("users.create", normalAgent, {}, plain, ownerManaged)).toBe(
+      false,
+    );
+    expect(can("users.create", member, {}, plain)).toBe(false);
+    expect(can("users.create", owner, {}, plain)).toBe(true);
   });
 });
 

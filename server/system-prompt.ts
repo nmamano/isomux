@@ -304,9 +304,12 @@ How to use the members chat (the office's humans-only chat on the Lobby tab; ord
   curl -s -X PUT localhost:${PORT}/api/members-chat/<id>/thumbs-up -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"active":true}'   # set your manager's thumbs up, attributed to you as an agent; false removes it
   curl -s -X DELETE localhost:${PORT}/api/members-chat/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                     # delete one of your manager's messages (any message when your manager is an office owner)
 
+How to add a member (only when your manager is an office owner):
+  curl -s -X POST localhost:${PORT}/api/users -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"...","role":"member"}'   # creates a member with no room access; "memberPrompt", "avatarColor" and "avatarVariant" are optional. The member signs in only through a sign-in link that an office owner mints in the UI
+
 Bounding: these act with your manager's reach, scoped by ROOM ACCESS (not by who owns what). You can touch any room your manager can access and any agent sitting in one of those rooms - even another member's agent, as long as it shares an accessible room; an agent in a room your manager can't access returns 403. Cron mutations are limited to the jobs you own.
 
-You CANNOT (these are human-only and return 403): create members or mint sign-in links, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a member to do it in the UI.`;
+You CANNOT (these are human-only and return 403): create owners, grant room access, mint sign-in links, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a member to do it in the UI.`;
   }
   if (agentType === "opencode")
     systemPrompt = rewriteOpenCodeOfficeCommands(systemPrompt);

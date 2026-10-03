@@ -28,6 +28,7 @@ import {
   selfUserOrApi,
   officeOwner,
   officeEnvOwner,
+  ownerProxyMemberCreate,
   userScope,
   requiresRoomAccess,
   agentParamMustEqualTokenAgent,
@@ -1027,12 +1028,17 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // An owner creates a member up front; sign-in links (invites.mint) only
-  // target existing members. The record starts with pendingSignIn.
+  // target existing members. The record starts with pendingSignIn. An owner's
+  // privileged agent or API token may create a plain member (no owner role, no
+  // room grants); it still cannot mint the sign-in link.
   defineRoute<UserCreateReq, { user: UserAdminWire }>({
     opId: "users.create",
     method: "POST",
     path: "/api/users",
-    auth: cap("user:admin", officeOwner),
+    auth: cap(
+      ["user:admin", "user:create"],
+      or(officeOwner, ownerProxyMemberCreate),
+    ),
     emits: ["users_list"],
   }),
   // Response is UserSelfWire (self) or UserAdminWire (owner) - same UserRecord

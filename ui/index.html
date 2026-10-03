@@ -15,7 +15,7 @@
     />
     <link rel="apple-touch-icon" href="/icons/icon-180.png" />
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#0a0e16" />
+    <meta name="theme-color" content="#282a36" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Isomux" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
@@ -34,7 +34,7 @@
             (window.matchMedia &&
             window.matchMedia("(prefers-color-scheme: light)").matches
               ? "light"
-              : "dark");
+              : "dracula");
           var lightThemes = ["light", "solarized-light"];
           var mode = lightThemes.indexOf(theme) >= 0 ? "light" : "dark";
           document.documentElement.setAttribute("data-theme", theme);
@@ -44,7 +44,7 @@
     </script>
     <style>
       body {
-        background: #0a0e16;
+        background: #282a36;
       }
       [data-theme-mode="light"] body {
         background: #f0f2f6;

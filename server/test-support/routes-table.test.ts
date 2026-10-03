@@ -552,6 +552,108 @@ describe("route table: managed office env is owner-only", () => {
   });
 });
 
+describe("route table: users.create admits an owner's proxies for a plain member only", () => {
+  const deps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => null,
+    cronjobCreatorUserId: () => null,
+    appOwnerUserId: () => null,
+    isOfficeOwnerUserId: (id: string) => id === "owner",
+    agentManagerUserId: () => null,
+    killedAgentManagerUserId: () => null,
+  } satisfies GuardDeps;
+  const identity = (
+    scope: Identity["scope"],
+    userId: string | null,
+    role: "owner" | "member",
+    capabilities: readonly Capability[],
+  ): Identity => ({
+    scope,
+    userId,
+    role,
+    capabilities,
+    ...(scope === "agent" ? { agentId: "a1" } : {}),
+    ...(scope === "app" ? { appName: "app" } : {}),
+    ...(scope === "cron-run" ? { cronjobId: "j1", runId: "run1" } : {}),
+  });
+  const route = API_ROUTES.find((r) => r.opId === "users.create")!;
+  const allowed = (candidate: Identity, body: unknown) =>
+    runAuthorize(route.auth, candidate, {}, body, deps).ok;
+  const plain = { name: "Yu", role: "member" };
+  const ownerUser = identity("user", "owner", "owner", USER_CAPABILITIES);
+  const ownerApi = identity("api", "owner", "owner", API_CAPABILITIES);
+  const ownerPrivileged = identity(
+    "agent",
+    "owner",
+    "member",
+    PRIVILEGED_AGENT_CAPABILITIES,
+  );
+
+  it("a human owner keeps the full create: owner role and room grants", () => {
+    expect(allowed(ownerUser, plain)).toBe(true);
+    expect(allowed(ownerUser, { name: "Yu", role: "owner" })).toBe(true);
+    expect(
+      allowed(ownerUser, { name: "Yu", role: "member", allowedRooms: ["r1"] }),
+    ).toBe(true);
+  });
+
+  it("an owner's privileged agent or API token creates a plain member", () => {
+    for (const proxy of [ownerPrivileged, ownerApi]) {
+      expect({ scope: proxy.scope, ok: allowed(proxy, plain) }).toEqual({
+        scope: proxy.scope,
+        ok: true,
+      });
+      expect({
+        scope: proxy.scope,
+        ok: allowed(proxy, { ...plain, allowedRooms: [] }),
+      }).toEqual({ scope: proxy.scope, ok: true });
+    }
+  });
+
+  it("a proxy cannot create an owner, grant rooms, or send no role", () => {
+    for (const proxy of [ownerPrivileged, ownerApi]) {
+      for (const body of [
+        { name: "Yu", role: "owner" },
+        { ...plain, allowedRooms: ["r1"] },
+        { ...plain, allowedRooms: "r1" },
+        { name: "Yu" },
+        undefined,
+      ]) {
+        expect({ scope: proxy.scope, body, ok: allowed(proxy, body) }).toEqual(
+          { scope: proxy.scope, body, ok: false },
+        );
+      }
+    }
+  });
+
+  it("refuses a member's proxies, ordinary agents, members, apps and runs", () => {
+    for (const who of [
+      identity("user", "member", "member", USER_CAPABILITIES),
+      identity("api", "member", "member", API_CAPABILITIES),
+      identity("agent", "member", "member", PRIVILEGED_AGENT_CAPABILITIES),
+      identity("agent", "owner", "member", AGENT_CAPABILITIES),
+      identity("app", "owner", "member", APP_CAPABILITIES),
+      identity("cron-run", "owner", "member", RUN_CAPABILITIES),
+    ]) {
+      expect({ who, ok: allowed(who, plain) }).toEqual({ who, ok: false });
+    }
+  });
+
+  it("holds user:create in the privileged agent and API sets only", () => {
+    expect(PRIVILEGED_AGENT_CAPABILITIES).toContain("user:create");
+    expect(API_CAPABILITIES).toContain("user:create");
+    for (const set of [
+      USER_CAPABILITIES,
+      AGENT_CAPABILITIES,
+      RUN_CAPABILITIES,
+      APP_CAPABILITIES,
+    ]) {
+      expect(set).not.toContain("user:create");
+    }
+  });
+});
+
 describe("route table: coverage sanity", () => {
   it("declares the expected /api surface (every spec resource group present)", () => {
     const opIds = new Set(API_ROUTES.map((r) => r.opId));
@@ -790,7 +892,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "apiTokenInbox.drain": { caps: ["api:drain-inbox"], emits: [] },
   // Users
-  "users.create": { caps: ["user:admin"], emits: ["users_list"] },
+  "users.create": {
+    caps: ["user:admin", "user:create"],
+    emits: ["users_list"],
+  },
   "users.update": {
     caps: ["user:self", "user:admin"],
     emits: ["user_updated", "users_list"],

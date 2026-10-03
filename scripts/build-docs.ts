@@ -264,15 +264,15 @@ function jsStringLiteral(s: string): string {
 
 const STYLES = `
 :root {
-  --bg: #0a0e16;
-  --bg-surface: #161b22;
-  --bg-card: #1c2128;
-  --text: #f0f3f6;
-  --text-dim: #bcc5d0;
-  --accent: #50b86c;
-  --accent-hover: #3da85a;
-  --border: #30363d;
-  --topbar-bg: rgba(10, 14, 22, 0.92);
+  --bg: #282a36;
+  --bg-surface: #303241;
+  --bg-card: #383a4a;
+  --text: #f8f8f2;
+  --text-dim: #c6c6c9;
+  --accent: #bd93f9;
+  --accent-hover: #caa9fa;
+  --border: #44475a;
+  --topbar-bg: rgba(40, 42, 54, 0.92);
   --layout-max: 1180px;
   --sidebar-width: 220px;
   color-scheme: dark;
@@ -302,15 +302,15 @@ const STYLES = `
    data-theme-mode blocks beat :root inside @media on specificity, so the
    user pick wins regardless of OS preference. */
 :root[data-theme-mode="dark"] {
-  --bg: #0a0e16;
-  --bg-surface: #161b22;
-  --bg-card: #1c2128;
-  --text: #f0f3f6;
-  --text-dim: #bcc5d0;
-  --accent: #50b86c;
-  --accent-hover: #3da85a;
-  --border: #30363d;
-  --topbar-bg: rgba(10, 14, 22, 0.92);
+  --bg: #282a36;
+  --bg-surface: #303241;
+  --bg-card: #383a4a;
+  --text: #f8f8f2;
+  --text-dim: #c6c6c9;
+  --accent: #bd93f9;
+  --accent-hover: #caa9fa;
+  --border: #44475a;
+  --topbar-bg: rgba(40, 42, 54, 0.92);
   color-scheme: dark;
 }
 :root[data-theme-mode="light"] {
@@ -784,7 +784,7 @@ function htmlShell(opts: {
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${title} · Isomux docs" />
 <meta name="twitter:description" content="${desc}" />
-<meta name="theme-color" content="#0a0e16" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#282a36" media="(prefers-color-scheme: dark)" />
 <meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

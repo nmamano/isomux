@@ -173,6 +173,25 @@ describe("the theme toggle's own label", () => {
     expect(label("ca", null)).toBe(label("ca", "light"));
   });
 
+  // The dark side stores the app's default dark theme, so the embedded /demo
+  // iframe shows the same palette; the light side stores "light".
+  it("stores dracula for dark and light for light", () => {
+    document.body.innerHTML = "";
+    localStorage.clear();
+    localStorage.setItem("isomux-theme", "light");
+    runOn("en", THEME_TOGGLE);
+    const btn = document.querySelector<HTMLButtonElement>(
+      "button.theme-toggle",
+    )!;
+    btn.click();
+    expect(localStorage.getItem("isomux-theme")).toBe("dracula");
+    expect(document.documentElement.getAttribute("data-theme-mode")).toBe(
+      "dark",
+    );
+    btn.click();
+    expect(localStorage.getItem("isomux-theme")).toBe("light");
+  });
+
   it("puts the same sentence on aria-label as on title", () => {
     document.body.innerHTML = "";
     localStorage.clear();

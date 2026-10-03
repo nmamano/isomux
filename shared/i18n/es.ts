@@ -1223,6 +1223,8 @@ Cosas que puedes hacer por él:
   "apiCall.providerAccounts.refresh": "Actualizar las cuentas de proveedor",
   "apiCall.providerAccounts.signInCode":
     "Enviar el código de inicio de sesión del proveedor",
+  "apiCall.users.create": "Crear un miembro",
+  "apiCall.users.createNamed": "Crear el miembro {name}",
   "apiCall.env.readUser": "Leer el entorno gestionado",
   "apiCall.env.saveUser": "Guardar el entorno gestionado",
   "apiCall.env.readOffice": "Leer el entorno de la oficina",

@@ -135,6 +135,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "file:upload",
       "cron:read",
       "cron:manage",
+      "user:create",
     ] as Capability[]) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
     }
@@ -219,6 +220,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "file:upload",
       "cron:read",
       "cron:manage",
+      "user:create",
       "task:read",
       "task:write",
       "memory:read",
