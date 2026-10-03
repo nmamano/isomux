@@ -1,11 +1,13 @@
-// Fixed-window per-IP rate limit for the unauthenticated /readyz probe
+// Fixed-window per-client rate limit for the unauthenticated /readyz probe
 // (internal-docs/release-design.md).
 //
-// /readyz is the one endpoint that answers non-loopback callers with no
-// identity at all, so it gets an anti-abuse limit. Loopback is exempt AT THE
+// /readyz is the one endpoint that answers off-box callers with no identity
+// at all, so it gets an anti-abuse limit. On-box callers are exempt AT THE
 // CALL SITE (the updater's post-restart poll must never be able to
 // manufacture a rollback by tripping its own limit); this module only ever
-// sees non-loopback addresses.
+// sees off-box clients. The key is the client address from
+// server/proxy-trust.ts, which behind a declared proxy is the address the
+// proxy forwarded, not the proxy's own.
 //
 // Failure posture is fail-OPEN: /readyz exists to report availability, and
 // the limiter is a nuisance control, not a security boundary. When the

@@ -161,6 +161,9 @@ export interface AppHostDeps {
   // request is actually relayed. See the relay for why that is the only address
   // it can honestly claim.
   peer?: () => string | null | undefined;
+  // The client address the sign-in redeem limit keys on (server/proxy-trust.ts).
+  // Read only for a redeem.
+  client: () => string;
   // Hands a request to the runtime as a WebSocket. Supplied by the office, which
   // is the only place that holds the Bun server; absent means this office cannot
   // upgrade anything, and an upgrade on an app host is refused rather than
@@ -259,7 +262,12 @@ export function handleAppHostRequest(
     if (!upgrade && pathname === APP_AUTH_PATH && req.method === "GET") {
       // A live label answers this for every code that fails.
       if (app === null) return handshake(400, SIGN_IN_FAILED_BODY);
-      return handleAppAuthRedeem(req, { host, app, canAccess: deps.canAccess });
+      return handleAppAuthRedeem(req, {
+        host,
+        app,
+        canAccess: deps.canAccess,
+        client: deps.client(),
+      });
     }
     return neutralNotFound();
   }

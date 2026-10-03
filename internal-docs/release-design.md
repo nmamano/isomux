@@ -258,10 +258,10 @@ updater copy the same way.
 
    At the end of the target release's dependency-only installer, after it
    restores Caddy, the installer records
-   `networkBind: "loopback"` only when the key is absent and the active Caddy
-   config currently proxies to `127.0.0.1:4000`. The write preserves the state
-   file's owner, group and mode. A stopped proxy or an explicit `auto`,
-   `loopback` or `all` value is left alone.
+   `networkBind: "loopback"` and `trustedProxy: "same-host"`, each only when
+   its key is absent, and only when the active Caddy config currently proxies
+   to `127.0.0.1:4000`. The write preserves the state file's owner, group and
+   mode. A stopped proxy or an explicit value of either key is left alone.
 
    Installed packages are additive and are NOT undone by a later rollback; a
    failed dependency step can leave host packages partly changed.

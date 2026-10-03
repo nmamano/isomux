@@ -32,6 +32,7 @@ import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { sessionMessagePreview } from "../shared/session-label.ts";
+import { TRUSTED_PROXY_VALUES, type TrustedProxy } from "./proxy-trust.ts";
 import {
   DEFAULT_MEMBER_SHARE,
   validMemberShare,
@@ -1136,6 +1137,9 @@ export interface ServerConfig {
   // Operator/deployment-authored. The server reads this field but never writes
   // it, so Access-pane saves preserve the deployment's bind choice.
   networkBind: "auto" | "loopback" | "all";
+  // Operator/deployment-authored, like networkBind: the proxy in front of the
+  // office (server/proxy-trust.ts).
+  trustedProxy: TrustedProxy;
 }
 
 // Re-read the raw JSON object so save paths can do a read-modify-write that
@@ -1207,7 +1211,18 @@ export function loadServerConfig(): ServerConfig {
       );
     }
   }
-  return { publicOrigin, externalAccess, networkBind };
+  let trustedProxy: TrustedProxy = "none";
+  if ("trustedProxy" in raw) {
+    const candidate = raw.trustedProxy;
+    if (TRUSTED_PROXY_VALUES.includes(candidate as TrustedProxy)) {
+      trustedProxy = candidate as TrustedProxy;
+    } else if (candidate !== null) {
+      console.error(
+        '[server-config] trustedProxy in office-config.json must be "none", "same-host", or "load-balancer"; using none',
+      );
+    }
+  }
+  return { publicOrigin, externalAccess, networkBind, trustedProxy };
 }
 
 // Persist `publicOrigin` and `externalAccess` to office-config.json,

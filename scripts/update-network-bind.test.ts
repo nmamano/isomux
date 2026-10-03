@@ -100,13 +100,14 @@ afterEach(() => {
   }
 });
 
-describe("deps-only networkBind convergence", () => {
-  it("adds loopback once and preserves siblings, owner, group, and mode", () => {
+describe("deps-only networkBind and trustedProxy convergence", () => {
+  it("adds loopback and same-host once and preserves siblings, owner, group, and mode", () => {
     const result = run({ config: { sibling: 7 }, mode: 0o640, twice: true });
     expect(result.code).toBe(0);
     expect(JSON.parse(result.contents!)).toEqual({
       sibling: 7,
       networkBind: "loopback",
+      trustedProxy: "same-host",
     });
     expect(result.after!.uid).toBe(result.before!.uid);
     expect(result.after!.gid).toBe(result.before!.gid);
@@ -115,19 +116,42 @@ describe("deps-only networkBind convergence", () => {
     expect(result.finalStat).toBe(result.firstStat);
   });
 
-  it("preserves every explicit networkBind value", () => {
+  it("preserves every explicit networkBind value and adds the missing trustedProxy", () => {
     for (const value of ["auto", "loopback", "all"]) {
       const result = run({ config: { networkBind: value, sibling: true } });
       expect(JSON.parse(result.contents!)).toEqual({
         networkBind: value,
         sibling: true,
+        trustedProxy: "same-host",
       });
     }
   });
 
+  it("preserves every explicit trustedProxy value and adds the missing networkBind", () => {
+    for (const value of ["none", "same-host", "load-balancer"]) {
+      const result = run({ config: { trustedProxy: value, sibling: true } });
+      expect(JSON.parse(result.contents!)).toEqual({
+        trustedProxy: value,
+        sibling: true,
+        networkBind: "loopback",
+      });
+    }
+  });
+
+  it("leaves a config with both keys untouched", () => {
+    const config = { networkBind: "all", trustedProxy: "none", sibling: 7 };
+    const result = run({ config });
+    expect(JSON.parse(result.contents!)).toEqual(config);
+    expect(result.after!.ino).toBe(result.before!.ino);
+    expect(result.after!.mtimeMs).toBe(result.before!.mtimeMs);
+  });
+
   it("creates a missing config for the service user", () => {
     const result = run({ config: null });
-    expect(JSON.parse(result.contents!)).toEqual({ networkBind: "loopback" });
+    expect(JSON.parse(result.contents!)).toEqual({
+      networkBind: "loopback",
+      trustedProxy: "same-host",
+    });
     expect(result.after!.uid).toBe(process.getuid!());
     expect(result.after!.gid).toBe(process.getgid!());
     expect(result.after!.mode & 0o777).toBe(0o644);

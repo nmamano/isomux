@@ -3822,10 +3822,14 @@ assert_caddy_file() {
   [[ $(stat -c '%U:%G:%a' "$(dirname "$file")") == root:caddy:750 ]]
 }
 
+# Caddy on this box proxies to the office: bind the office to loopback, and
+# declare the same-host proxy so the office reads the client address from
+# Caddy's X-Forwarded-For (internal-docs/proxy-trust-design.md). Each key is
+# added only when absent, so an operator's explicit value stays.
 write_loopback_bind_if_proxied() {
   local config=$SERVICE_HOME/.isomux/office-config.json
   [[ -z $DRY_RUN ]] || {
-    log "DRY-RUN: would set networkBind=loopback only if caddy is active and proxies to $BASE_URL"
+    log "DRY-RUN: would set networkBind=loopback and trustedProxy=same-host only if caddy is active and proxies to $BASE_URL"
     return 0
   }
   systemctl is-active --quiet caddy || return 0
@@ -3837,21 +3841,23 @@ write_loopback_bind_if_proxied() {
     mkdir -p "$dir"
     if [[ -f $CONFIG ]]; then
       jq -e '\''type == "object"'\'' "$CONFIG" >/dev/null
-      jq -e '\''has("networkBind")'\'' "$CONFIG" >/dev/null && exit 0
+      jq -e '\''has("networkBind") and has("trustedProxy")'\'' "$CONFIG" >/dev/null && exit 0
     fi
     tmp=$(mktemp "$dir/.office-config.network-bind.XXXXXXXXXX")
     trap '\''rm -f "$tmp"'\'' EXIT
     if [[ -f $CONFIG ]]; then
-      jq '\''. + {networkBind: "loopback"}'\'' "$CONFIG" >"$tmp"
+      jq '\''. + (if has("networkBind") then {} else {networkBind: "loopback"} end)
+        + (if has("trustedProxy") then {} else {trustedProxy: "same-host"} end)'\'' \
+        "$CONFIG" >"$tmp"
       chmod --reference="$CONFIG" "$tmp"
     else
-      jq -n '\''{networkBind: "loopback"}'\'' >"$tmp"
+      jq -n '\''{networkBind: "loopback", trustedProxy: "same-host"}'\'' >"$tmp"
       chmod 644 "$tmp"
     fi
     mv -f "$tmp" "$CONFIG"
     trap - EXIT
   '; then
-    log "warning: $config could not be merged as $SERVICE_USER; networkBind was not changed"
+    log "warning: $config could not be merged as $SERVICE_USER; networkBind and trustedProxy were not changed"
   fi
 }
 

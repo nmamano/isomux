@@ -43,6 +43,7 @@ import {
 
 const HOST = "hello.office.example";
 const LABEL = "hello";
+const CLIENT = "203.0.113.10";
 const SESSION_HASH = "a".repeat(64);
 
 function mint(
@@ -225,11 +226,12 @@ describe("app sign-in codes", () => {
     const first = redeemAppCode(code, {
       host: HOST,
       label: LABEL,
+      client: CLIENT,
       now: 1_000_100,
     });
     expect(first?.returnPath).toBe("/");
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, now: 1_000_100 }),
+      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
     ).toBeNull();
   });
 
@@ -238,6 +240,7 @@ describe("app sign-in codes", () => {
     const record = redeemAppCode(code, {
       host: HOST,
       label: LABEL,
+      client: CLIENT,
       now: 1_000_100,
     });
     expect(record?.returnPath).toBe("/deep/path?x=1");
@@ -249,12 +252,12 @@ describe("app sign-in codes", () => {
     const code = mint();
     const atExpiry = 1_000_000 + APP_CODE_TTL_MS;
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, now: atExpiry }),
+      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: atExpiry }),
     ).toBeNull();
     // And a code redeemed one tick earlier would have worked.
     const other = mint();
     expect(
-      redeemAppCode(other, { host: HOST, label: LABEL, now: atExpiry - 1 }),
+      redeemAppCode(other, { host: HOST, label: LABEL, client: CLIENT, now: atExpiry - 1 }),
     ).not.toBeNull();
   });
 
@@ -264,6 +267,7 @@ describe("app sign-in codes", () => {
       redeemAppCode(code, {
         host: "other.office.example",
         label: LABEL,
+        client: CLIENT,
         now: 1_000_100,
       }),
     ).toBeNull();
@@ -275,6 +279,7 @@ describe("app sign-in codes", () => {
       redeemAppCode(code, {
         host: "other.office.example",
         label: LABEL,
+        client: CLIENT,
         now: 1_000_100,
       }),
     ).toBeNull();
@@ -291,12 +296,12 @@ describe("app sign-in codes", () => {
       `${code}=`,
     ]) {
       expect(
-        redeemAppCode(bogus, { host: HOST, label: LABEL, now: 1_000_100 }),
+        redeemAppCode(bogus, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
       ).toBeNull();
     }
     // The real code still works: none of the above consumed it.
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, now: 1_000_100 }),
+      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
     ).not.toBeNull();
   });
 
@@ -310,12 +315,44 @@ describe("app sign-in codes", () => {
     const code = mint();
     expect(_testPendingCodeCount()).toBe(1);
     for (let i = 0; i < APP_REDEEM_MAX_PER_WINDOW; i++) {
-      redeemAppCode("Zm9vYmFy", { host: HOST, label: LABEL, now: 1_000_050 });
+      redeemAppCode("Zm9vYmFy", { host: HOST, label: LABEL, client: CLIENT, now: 1_000_050 });
     }
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, now: 1_000_050 }),
+      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_050 }),
     ).toBeNull();
     expect(_testPendingCodeCount()).toBe(0);
+  });
+
+  it("charges the redeem budget per client, so one caller cannot spend another's", () => {
+    const noisy = "198.51.100.7";
+    for (let i = 0; i < APP_REDEEM_MAX_PER_WINDOW; i++) {
+      redeemAppCode("Zm9vYmFy", {
+        host: HOST,
+        label: LABEL,
+        client: noisy,
+        now: 1_000_050,
+      });
+    }
+    // The noisy client is over its budget...
+    const refused = mint();
+    expect(
+      redeemAppCode(refused, {
+        host: HOST,
+        label: LABEL,
+        client: noisy,
+        now: 1_000_050,
+      }),
+    ).toBeNull();
+    // ...and a different client at the same label still redeems.
+    const code = mint();
+    expect(
+      redeemAppCode(code, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: 1_000_050,
+      }),
+    ).not.toBeNull();
   });
 
   it("rate-limits minting per office session", () => {

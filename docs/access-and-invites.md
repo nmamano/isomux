@@ -198,7 +198,7 @@ CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
 
 Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology - Isomux is not reachable to an outside attacker.
 
-The residual gap: a same-host reverse proxy or tunnel (Tailscale Funnel, Caddy → localhost, etc.) configured **before** an owner claims can forward external traffic to `localhost:4000`, and from Isomux's point of view that connection looks loopback. Anyone who can reach the proxy from outside could claim ownership through it. This is an inherent limit of the proxy-on-same-host topology; isomux can't tell the proxy is there.
+A same-host reverse proxy configured **before** an owner claims forwards external traffic to `localhost:4000`. Isomux refuses the claim on a request with an `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header, and Caddy always sends `X-Forwarded-For`. The residual gap: a proxy or tunnel that sends none of these headers looks like loopback, and anyone who can reach it from outside could claim ownership through it.
 
 The mitigation is operator discipline: **claim first, expose later**. The Access pane's _External access_ toggle is the supported sequence - boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
 

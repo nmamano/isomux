@@ -227,6 +227,7 @@ describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", ()
     const id = resolveIdentityForRequest(
       reqWith({ Authorization: `Bearer ${raw}` }),
       cookieLookup,
+      true,
     )!;
     expect(id.scope).toBe("agent");
     expect(id.agentId).toBe("agent-prec");
@@ -236,6 +237,7 @@ describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", ()
     const id = resolveIdentityForRequest(
       reqWith({ Authorization: "Bearer nope" }),
       cookieLookup,
+      true,
     )!;
     expect(id.scope).toBe("user");
     expect(id.userId).toBe("user-cookie");
@@ -243,6 +245,15 @@ describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", ()
   });
 
   it("no credentials -> null", () => {
-    expect(resolveIdentityForRequest(reqWith({}), null)).toBeNull();
+    expect(resolveIdentityForRequest(reqWith({}), null, true)).toBeNull();
+  });
+
+  it("an off-box agent bearer is ignored and falls through to the cookie identity", () => {
+    const raw = mintAgentToken("agent-prec", "user-agent");
+    const req = reqWith({ Authorization: `Bearer ${raw}` });
+    const id = resolveIdentityForRequest(req, cookieLookup, false)!;
+    expect(id.scope).toBe("user");
+    expect(id.userId).toBe("user-cookie");
+    expect(resolveIdentityForRequest(req, null, false)).toBeNull();
   });
 });

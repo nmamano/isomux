@@ -23,6 +23,16 @@ input{margin-top:8px;background:#1f2937;color:white}button{margin-top:28px;backg
 <form method="post" action="/setup"><label>Your name (can be changed later)<input name="name" required maxlength="64" autocomplete="name"></label>
 <label>Setup key<input name="key" type="password" required autocomplete="off"></label><button>Create office</button></form></main></html>`;
 
+// Setup attempts per client per minute. A counter per client, so one caller
+// cannot keep the first-owner claim blocked for everyone. The table is
+// bounded like server/ready-limiter.ts and fails open when it is full of live
+// windows: the setup key has at least 32 characters, so the limit is a
+// nuisance control, not what stops guessing.
+const SETUP_WINDOW_MS = 60_000;
+const SETUP_MAX_PER_WINDOW = 20;
+const SETUP_MAX_TRACKED_CLIENTS = 1024;
+
+// `client` is the caller's address as server/proxy-trust.ts resolves it.
 export function createSetupHandler(options: {
   origin: string;
   key: string;
@@ -34,9 +44,19 @@ export function createSetupHandler(options: {
     throw new Error("Setup key must contain at least 32 characters");
   let claimed = false;
   let inFlight = false;
-  let attempts = 0;
-  let windowStart = Date.now();
-  return async (request: Request): Promise<Response> => {
+  const windows = new Map<string, { start: number; count: number }>();
+  const allowAttempt = (client: string, now: number): boolean => {
+    const w = windows.get(client);
+    if (w && now - w.start < SETUP_WINDOW_MS) return ++w.count <= SETUP_MAX_PER_WINDOW;
+    if (!w && windows.size >= SETUP_MAX_TRACKED_CLIENTS) {
+      for (const [key, win] of windows)
+        if (now - win.start >= SETUP_WINDOW_MS) windows.delete(key);
+      if (windows.size >= SETUP_MAX_TRACKED_CLIENTS) return true;
+    }
+    windows.set(client, { start: now, count: 1 });
+    return true;
+  };
+  return async (request: Request, client: string): Promise<Response> => {
     const path = new URL(request.url).pathname;
     if (path === "/health" && request.method === "GET")
       return new Response("ok");
@@ -48,11 +68,7 @@ export function createSetupHandler(options: {
       return new Response("Not found", { status: 404 });
     if (request.headers.get("origin") !== options.origin)
       return new Response("Bad origin", { status: 403 });
-    if (Date.now() - windowStart > 60_000) {
-      attempts = 0;
-      windowStart = Date.now();
-    }
-    if (++attempts > 20)
+    if (!allowAttempt(client, Date.now()))
       return new Response("Try again later", { status: 429 });
     if (
       !request.headers

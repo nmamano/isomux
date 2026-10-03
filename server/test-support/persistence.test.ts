@@ -545,6 +545,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       publicOrigin: "https://office.example.com",
       externalAccess: true,
       networkBind: "auto",
+      trustedProxy: "none",
     });
     expect(loadOfficeConfig()).toEqual({
       prompt: "P",
@@ -573,6 +574,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       publicOrigin: "https://office.example.com",
       externalAccess: false,
       networkBind: "auto",
+      trustedProxy: "none",
     });
   });
 
@@ -595,6 +597,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
       publicOrigin: null,
       externalAccess: null,
       networkBind: "auto",
+      trustedProxy: "none",
     });
   });
 
@@ -632,6 +635,44 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     }
     expect(errors).toHaveLength(4);
     expect(errors.every((line) => line.includes("networkBind"))).toBe(true);
+  });
+
+  it("reads trustedProxy without letting server config saves overwrite it", () => {
+    for (const trustedProxy of ["none", "same-host", "load-balancer"] as const) {
+      seed("office-config.json", {
+        publicOrigin: "https://office.example.com",
+        externalAccess: true,
+        trustedProxy,
+      });
+      expect(loadServerConfig().trustedProxy).toBe(trustedProxy);
+
+      saveServerConfig({
+        publicOrigin: "https://changed.example.com",
+        externalAccess: false,
+      });
+      expect(
+        JSON.parse(readFileSync(stateFile("office-config.json"), "utf-8"))
+          .trustedProxy,
+      ).toBe(trustedProxy);
+    }
+  });
+
+  it("logs unknown trustedProxy values and treats them, and null, as none", () => {
+    const original = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    try {
+      for (const trustedProxy of ["samehost", true, 7, ""]) {
+        seed("office-config.json", { trustedProxy });
+        expect(loadServerConfig().trustedProxy).toBe("none");
+      }
+      seed("office-config.json", { trustedProxy: null });
+      expect(loadServerConfig().trustedProxy).toBe("none");
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toHaveLength(4);
+    expect(errors.every((line) => line.includes("trustedProxy"))).toBe(true);
   });
 
   it("treats a null networkBind as a silent unset", () => {

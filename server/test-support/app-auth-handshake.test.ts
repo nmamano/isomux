@@ -375,6 +375,7 @@ describe("app-host handshake: the generation binding", () => {
       host: appHost(label),
       app: { ...app, hostGen: app.hostGen + 1 },
       canAccess: () => true,
+      client: "203.0.113.10",
     });
     expect(res.status).toBe(400);
     expect(await res.text()).toBe(SIGN_IN_FAILED_BODY);

@@ -3,7 +3,6 @@
 // The whole gating layer lives in this file so a future audit can read one
 // file end-to-end and trace every request shape.
 
-import type { Server } from "bun";
 import {
   acceptInvite,
   browserSessionDiagnostic,
@@ -62,34 +61,6 @@ export async function _testRunOwnerCreatedHook(
   username: string,
 ): Promise<void> {
   await onOwnerCreated?.({ username });
-}
-
-// Loopback detection. This is NOT an authentication bypass, and there is no
-// longer one: every caller needs a bearer token or a session cookie, and the
-// last loopback-trusted prefixes were retired (see the gating function below,
-// which says so at the point it enforces it). What survives is a locality
-// check for the two places that care where the peer is rather than who it is -
-// the tokenless claim, which refuses an off-box peer outright, and /readyz,
-// which exempts loopback from rate limiting so the updater's own poll cannot
-// manufacture a rollback.
-
-function isLoopback(addr: string | null): boolean {
-  if (!addr) return false;
-  return (
-    addr === "127.0.0.1" ||
-    addr === "::1" ||
-    addr === "::ffff:127.0.0.1" ||
-    addr.startsWith("127.")
-  );
-}
-
-export function requestIsLoopback<T>(req: Request, server: Server<T>): boolean {
-  try {
-    const info = server.requestIP(req);
-    return isLoopback(info?.address ?? null);
-  } catch {
-    return false;
-  }
 }
 
 // Origin check. Reverse proxies are configured by the operator setting
@@ -227,14 +198,20 @@ function wantsJson(req: Request): boolean {
   return accept.includes("application/json") || !accept.includes("text/html");
 }
 
-function unauthorized(req: Request, officeName: string | null): Response {
+function unauthorized(
+  req: Request,
+  officeName: string | null,
+  onBox: boolean,
+): Response {
   if (wantsJson(req)) {
     return new Response(JSON.stringify({ error: "unauthenticated" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
-  return new Response(renderLoginPage(translatorForVisitor(req), officeName), {
+  return new Response(
+    renderLoginPage(translatorForVisitor(req, onBox), officeName),
+    {
     status: 401,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
@@ -243,18 +220,20 @@ function unauthorized(req: Request, officeName: string | null): Response {
       // Origin: null behavior.
       ...securityHeaders({ tokenInUrl: false }),
     },
-  });
+    },
+  );
 }
 
 // The language a pre-sign-in page is written in (S9). The gating layer's own
 // helpers answer who is asking - a bearer, a cookie session, or nobody - and
 // server/i18n.ts turns that into a translator: a reader we already know reads
 // their stored preference, a stranger reads what their browser asked for.
-function translatorForVisitor(req: Request): Translator {
+function translatorForVisitor(req: Request, onBox: boolean): Translator {
   const cookies = readSessionCookies(req);
   const identity = resolveIdentityForRequest(
     req,
     validateSession(cookies.selected || null),
+    onBox,
   );
   return translatorForRequest(identity, req.headers.get("accept-language"));
 }
@@ -271,8 +250,10 @@ function authPageTitle(officeName: string | null, suffix: string): string {
 
 // Gating function. Called at the top of every fetch handler.
 //
-// Every caller needs an identity: a bearer token (agent / cron-run) or a
-// session cookie. There is no loopback bypass - the last three
+// Every caller needs an identity: a bearer token (agent / cron-run / app /
+// personal API) or a session cookie. `onBox` comes from the request's one
+// classification in isomux-office.ts (server/proxy-trust.ts): agent, cron-run
+// and app tokens count only on-box. There is no loopback bypass - the last three
 // loopback-trusted prefixes (/tasks, the /cronjobs reads, /backup/status) were
 // retired in favour of their bearer-gated /api equivalents, so a same-box agent
 // presents its ISOMUX_AGENT_TOKEN and a same-box browser claims a cookie via
@@ -281,6 +262,7 @@ function authPageTitle(officeName: string | null, suffix: string): string {
 
 export function authenticate(
   req: Request,
+  onBox: boolean,
   opts?: { officeName?: string | null },
 ): AuthResult {
   // Origin check runs regardless of the cookie path. A user's browser
@@ -310,7 +292,10 @@ export function authenticate(
   // What the caller may then DO is decided per route on the /api surface (the
   // capability + resource guards); this function only answers "is there an
   // identity".
-  const bearerId = resolveBearerIdentity(req);
+  //
+  // Off-box, an agent, cron-run or app token is ignored like an invalid one,
+  // and the refusal is logged.
+  const bearerId = resolveBearerIdentity(req, onBox, logOffBoxToken);
   if (bearerId) {
     return { kind: "ok", identity: bearerId };
   }
@@ -323,7 +308,7 @@ export function authenticate(
   if (!session) {
     return {
       kind: "rejected",
-      response: unauthorized(req, opts?.officeName ?? null),
+      response: unauthorized(req, opts?.officeName ?? null, onBox),
     };
   }
   return { kind: "ok", session, identity: identityFromSession(session) };
@@ -331,15 +316,16 @@ export function authenticate(
 
 // The bearer-then-cookie identity precedence, factored out as a pure helper so
 // the "a valid bearer wins over a valid cookie" contract is unit-testable
-// without constructing a Server. authenticate() applies the same order with the
-// loopback fallback interleaved (loopback is anonymous trust and carries no
-// identity). A valid bearer wins; an invalid bearer is ignored; otherwise a
-// cookie session (if any) yields a USER identity.
+// without constructing a Server. authenticate() applies the same order. A
+// valid bearer wins; an invalid bearer, or an agent, cron-run or app bearer
+// off-box, is ignored; otherwise a cookie session (if any) yields a USER
+// identity.
 export function resolveIdentityForRequest(
   req: Request,
   cookieLookup: SessionLookup | null,
+  onBox: boolean,
 ): Identity | null {
-  const bearerId = resolveBearerIdentity(req);
+  const bearerId = resolveBearerIdentity(req, onBox);
   if (bearerId) return bearerId;
   if (cookieLookup) return identityFromSession(cookieLookup);
   return null;
@@ -348,7 +334,11 @@ export function resolveIdentityForRequest(
 // Single source of bearer-identity resolution, shared by authenticate() and
 // resolveIdentityForRequest() so the bearer precedence has exactly ONE
 // implementation - no drift between the live gate and the unit-tested helper.
-function resolveBearerIdentity(req: Request): Identity | null {
+function resolveBearerIdentity(
+  req: Request,
+  onBox: boolean,
+  onRefused?: (identity: Identity) => void,
+): Identity | null {
   const bearer = readBearerToken(req);
   if (!bearer) return null;
   // In-memory tokens (agent, cron-run) first, then the persisted app-token
@@ -356,7 +346,11 @@ function resolveBearerIdentity(req: Request): Identity | null {
   // order is about cost, not precedence: an agent token resolves from a map,
   // an app token reads a file.
   const transientOrApp = resolveToken(bearer) ?? appIdentityFromToken(bearer);
-  if (transientOrApp) return transientOrApp;
+  if (transientOrApp) {
+    if (onBox) return transientOrApp;
+    onRefused?.(transientOrApp);
+    return null;
+  }
   const apiToken = resolveApiToken(bearer);
   if (!apiToken) return null;
   // Role and existence are live, never stamped into a durable credential. A
@@ -373,6 +367,15 @@ function resolveBearerIdentity(req: Request): Identity | null {
   };
 }
 
+// One line per refused request, naming the holder and never the token.
+function logOffBoxToken(identity: Identity): void {
+  const holder =
+    identity.agentId ?? identity.runId ?? identity.appName ?? "unknown";
+  console.warn(
+    `[auth] refused a ${identity.scope} token from off-box (${holder}); agent, cron-run and app tokens work only from this machine`,
+  );
+}
+
 // /auth/* route handlers. These run BEFORE the gating function - they're how
 // unauthenticated visitors transition to authenticated.
 
@@ -385,8 +388,9 @@ export function handleInvitePeek(
   req: Request,
   token: string,
   officeName: string | null,
+  onBox: boolean,
 ): Response {
-  const i18n = translatorForVisitor(req);
+  const i18n = translatorForVisitor(req, onBox);
   const peek = peekInvite(token);
   if ("error" in peek) {
     if (peek.error === "consumed") {
@@ -395,7 +399,7 @@ export function handleInvitePeek(
     }
     return renderInviteError(i18n, peek.error, officeName);
   }
-  const conflict = inviteIdentityConflict(req, peek, null);
+  const conflict = inviteIdentityConflict(req, peek, null, onBox);
   if (conflict) return renderInviteIdentityConflict(i18n, conflict, officeName);
   return new Response(
     renderAcceptPage(
@@ -422,11 +426,12 @@ export function handleInvitePeek(
 export async function handleAccept(
   req: Request,
   officeName: string | null,
+  onBox: boolean,
 ): Promise<Response> {
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
-  let i18n = translatorForVisitor(req);
+  let i18n = translatorForVisitor(req, onBox);
   const form = await req.formData().catch(() => null);
   const tokenField = form?.get("token");
   const nameField = form?.get("name");
@@ -448,7 +453,7 @@ export async function handleAccept(
   // making two unresolved values look equal. Peek errors stay on the existing
   // acceptInvite path below, which preserves the consumed-invite redirect.
   if (!("error" in peek)) {
-    const conflict = inviteIdentityConflict(req, peek, name);
+    const conflict = inviteIdentityConflict(req, peek, name, onBox);
     if (conflict)
       return renderInviteIdentityConflict(i18n, conflict, officeName);
   }
@@ -521,6 +526,7 @@ function inviteIdentityConflict(
   req: Request,
   invite: InvitePeek,
   chosenName: string | null,
+  onBox: boolean,
 ): { current: string; invitee: string } | null {
   const session = validateSession(readSessionCookie(req));
   if (!session) return null;
@@ -530,7 +536,7 @@ function inviteIdentityConflict(
       invitee:
         invite.label ||
         invite.username ||
-        translatorForVisitor(req).t("preAuth.invite.newMember"),
+        translatorForVisitor(req, onBox).t("preAuth.invite.newMember"),
     };
 
   let invitee: string;
@@ -592,6 +598,7 @@ function renderInviteIdentityConflict(
 export async function handleLogout(
   req: Request,
   officeName: string | null,
+  onBox: boolean,
 ): Promise<Response> {
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
@@ -599,7 +606,7 @@ export async function handleLogout(
   const cookie = readSessionCookie(req);
   const lookup = validateSession(cookie);
   if (lookup && wouldRevokeLeaveOfficeUnreachable(lookup.sessionIdHash)) {
-    const i18n = translatorForVisitor(req);
+    const i18n = translatorForVisitor(req, onBox);
     return new Response(
       renderLockoutBlocked(
         i18n,
@@ -666,39 +673,39 @@ function originValidForAuthPost(req: Request): boolean {
 
 // Top-level router used by isomux-office.ts: returns null when the path isn't an
 // /auth/* path, so the caller falls through to its normal dispatch.
-export async function tryHandleAuthRoute<T>(
+export async function tryHandleAuthRoute(
   req: Request,
   url: URL,
   officeName: string | null,
-  server: Server<T>,
+  onBox: boolean,
 ): Promise<Response | null> {
   // Pre-claim tokenless flow. The server binds 127.0.0.1 pre-claim, so this
   // surface is unreachable from off-box; we still layer a strict same-origin
-  // + loopback-peer-IP check on the POST as defense-in-depth in case the
-  // bind is widened by operator override.
+  // + on-box check on the POST as defense-in-depth in case the bind is
+  // widened by operator override or a proxy forwards to it.
   if (req.method === "GET" && url.pathname === "/" && !hasOwner()) {
-    return handleClaimForm(translatorForVisitor(req), officeName);
+    return handleClaimForm(translatorForVisitor(req, onBox), officeName);
   }
   if (req.method === "POST" && url.pathname === "/auth/claim") {
-    return handleClaim(req, server, officeName);
+    return handleClaim(req, onBox, officeName);
   }
   // GET /i/<token> - peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
     const token = url.pathname.slice(3);
     if (!token)
       return renderInviteError(
-        translatorForVisitor(req),
+        translatorForVisitor(req, onBox),
         "not_found",
         officeName,
       );
-    return handleInvitePeek(req, token, officeName);
+    return handleInvitePeek(req, token, officeName, onBox);
   }
   // POST /auth/accept - actually consumes the invite. Origin-checked.
   if (url.pathname === "/auth/accept" && req.method === "POST") {
-    return handleAccept(req, officeName);
+    return handleAccept(req, officeName, onBox);
   }
   if (url.pathname === "/auth/logout" && req.method === "POST") {
-    return handleLogout(req, officeName);
+    return handleLogout(req, officeName, onBox);
   }
   // GET /auth/login-bg.png - pre-auth static asset (the login page's
   // backdrop screenshot). Same image as the marketing site so an unauth
@@ -737,25 +744,24 @@ function handleClaimForm(
 // set the cookie. Locality is enforced at multiple layers:
 //   1. The server bind (127.0.0.1 pre-claim) keeps off-box clients off the
 //      TCP socket entirely;
-//   2. requestIsLoopback rejects non-loopback peers if the bind has been
-//      widened by operator override;
+//   2. onBox (server/proxy-trust.ts) rejects non-loopback peers if the bind
+//      has been widened by operator override, and rejects requests that
+//      carry a forwarding header, which a same-host proxy such as Caddy
+//      always adds;
 //   3. A strict same-origin check rejects ordinary browser POSTs from
 //      pages on other origins (CSRF defense).
 //
-// The strict-Origin check does NOT close the "non-browser client forges
-// Origin over a same-host proxy" case - curl can set Origin to anything,
-// including the exact loopback value. A reverse proxy or tunnel running
-// on the same box that forwards external traffic to localhost:4000 is
-// indistinguishable from a real local browser at the peer-IP level. This
-// is an inherent topology limit; the documented mitigation is operator
-// discipline (claim first, expose later - see docs/access-and-invites.md
-// "Bootstrap-window exposure").
-async function handleClaim<T>(
+// A same-host proxy or tunnel that adds no forwarding header (socat,
+// `ssh -R`) is still indistinguishable from a real local browser, and curl
+// can forge the loopback Origin through it. The documented mitigation for
+// that setup is operator discipline (claim first, expose later - see
+// docs/access-and-invites.md "Bootstrap-window exposure").
+async function handleClaim(
   req: Request,
-  server: Server<T>,
+  onBox: boolean,
   officeName: string | null,
 ): Promise<Response> {
-  if (!requestIsLoopback(req, server)) {
+  if (!onBox) {
     return new Response("forbidden", { status: 403 });
   }
   const origin = req.headers.get("origin");
@@ -768,7 +774,7 @@ async function handleClaim<T>(
   const ua = req.headers.get("user-agent");
   const result = await claimOwnership(name, { userAgent: ua });
   if (!result.ok) {
-    const i18n = translatorForVisitor(req);
+    const i18n = translatorForVisitor(req, onBox);
     const errorMsg =
       result.error === "owner_exists"
         ? i18n.t("preAuth.claim.errorOwnerExists")

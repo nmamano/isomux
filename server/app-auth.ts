@@ -81,13 +81,14 @@ export const APP_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 export const APP_MINT_MAX_PER_WINDOW = 20;
 export const APP_MINT_WINDOW_MS = 60_000;
 
-// Redeem budget, per app label. Nuisance control, not the boundary: guessing a
-// 256-bit code is not a thing that happens. Keyed by label because there is no
-// usable per-caller key - the office sits behind a terminator on the same box,
-// so every external request arrives from loopback, and `X-Forwarded-*` is not
-// trustworthy here. The cost of that choice, stated rather than hidden:
-// someone hammering one app's hostname can spend that app's redeem budget for a
-// minute, and its legitimate users wait.
+// Redeem budget, per app label and client. Nuisance control, not the boundary:
+// guessing a 256-bit code is not a thing that happens, so a budget per client
+// does not make guessing possible. The client is the address
+// server/proxy-trust.ts resolves: behind a declared proxy, the address the
+// proxy wrote into X-Forwarded-For, so one noisy caller spends only its own
+// budget. With an undeclared proxy every caller shares the proxy's address,
+// and someone hammering one app's hostname can spend that app's redeem budget
+// for a minute.
 export const APP_REDEEM_MAX_PER_WINDOW = 60;
 export const APP_REDEEM_WINDOW_MS = 60_000;
 
@@ -393,7 +394,13 @@ export function mintAppCode(
 // replayable because somebody else was noisy.
 export function redeemAppCode(
   rawCode: string | null,
-  ctx: { host: string; label: string; registrationGen?: number; now?: number },
+  ctx: {
+    host: string;
+    label: string;
+    client: string;
+    registrationGen?: number;
+    now?: number;
+  },
 ): PendingCode | null {
   const now = ctx.now ?? Date.now();
   if (
@@ -407,7 +414,7 @@ export function redeemAppCode(
   const codeHash = hashOf(rawCode);
   const record = pendingCodes.get(codeHash);
   pendingCodes.delete(codeHash);
-  if (!redeemLimiter.allow(ctx.label, now)) return null;
+  if (!redeemLimiter.allow(`${ctx.label} ${ctx.client}`, now)) return null;
   if (!record) return null;
   if (!safeHashEq(record.codeHash, codeHash)) return null;
   if (record.expiresAt <= now) return null;
@@ -646,7 +653,7 @@ export interface AppHostContext {
 // the path the code remembers.
 export function handleAppAuthRedeem(
   req: Request,
-  ctx: AppHostContext,
+  ctx: AppHostContext & { client: string },
 ): Response {
   const now = ctx.now ?? Date.now();
   const url = new URL(req.url);
@@ -657,6 +664,7 @@ export function handleAppAuthRedeem(
   const record = redeemAppCode(codeParam, {
     host: ctx.host,
     label: ctx.app.hostLabel,
+    client: ctx.client,
     registrationGen: appRegistrationGeneration(ctx.app),
     now,
   });

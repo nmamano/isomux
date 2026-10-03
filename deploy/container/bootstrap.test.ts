@@ -39,6 +39,7 @@ test("public setup requires its secret and origin and closes after owner creatio
         },
         body: new URLSearchParams({ key: secret, name: "Owner" }),
       }),
+      "203.0.113.10",
     );
   expect((await post("wrong")).status).toBe(403);
   expect((await post(key, "https://other.example.com")).status).toBe(403);
@@ -49,6 +50,44 @@ test("public setup requires its secret and origin and closes after owner creatio
   expect(claims).toBe(1);
   expect((await post(key)).status).toBe(409);
   expect(claims).toBe(1);
+});
+
+test("setup attempts are limited per client, so one caller cannot block the claim", async () => {
+  let owner = false;
+  const key = "synthetic-setup-key-32-characters-long";
+  const handler = createSetupHandler({
+    origin: "https://office.example.com",
+    key,
+    hasOwner: () => owner,
+    complete: () => {},
+    claim: async () => {
+      owner = true;
+      return "__Host-isomux_session=synthetic; Secure; HttpOnly; Path=/";
+    },
+  });
+  const post = (secret: string, client: string) =>
+    handler(
+      new Request("https://office.example.com/setup", {
+        method: "POST",
+        headers: {
+          origin: "https://office.example.com",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({ key: secret, name: "Owner" }),
+      }),
+      client,
+    );
+  const noisy = "198.51.100.7";
+  const statuses: number[] = [];
+  for (let i = 0; i < 21; i++) statuses.push((await post("wrong", noisy)).status);
+  // Wrong keys are refused until the noisy client runs out of attempts.
+  expect(new Set(statuses.slice(0, -1))).toEqual(new Set([403]));
+  expect(statuses.at(-1)).toBe(429);
+  expect((await post(key, noisy)).status).toBe(429);
+  expect(owner).toBe(false);
+  // Another client still reaches the key check and claims the office.
+  expect((await post(key, "203.0.113.10")).status).toBe(200);
+  expect(owner).toBe(true);
 });
 
 test("a container setup claim seeds the three welcome agents after office boot", async () => {
@@ -77,6 +116,7 @@ test("a container setup claim seeds the three welcome agents after office boot",
       },
       body: new URLSearchParams({ key, name: "Owner" }),
     }),
+    "203.0.113.10",
   );
   expect(response.status).toBe(200);
   expect(claimedUsername).toBe("Owner");

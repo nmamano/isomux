@@ -88,6 +88,12 @@ import {
 } from "./backup.ts";
 import { getVersionInfo } from "./version.ts";
 import { allowReadyRequest } from "./ready-limiter.ts";
+import {
+  classifyRequest,
+  setTrustedProxy,
+  trustedProxy,
+  type RequestSource,
+} from "./proxy-trust.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import {
   modelFamilyMismatchError,
@@ -137,7 +143,6 @@ import {
   authenticate,
   resolveIdentityForRequest,
   checkOrigin,
-  requestIsLoopback,
   securityHeaders,
   untrustedFileHeaders,
   withSecurityHeaders,
@@ -422,6 +427,7 @@ function bootPrelude(): void {
 
     setPublicOriginFallback(cfg.publicOrigin);
     freezeBootState({ externalAccess, networkBind: cfg.networkBind });
+    setTrustedProxy(cfg.trustedProxy);
     if (cfg.networkBind === "loopback") {
       console.log(
         '[network] networkBind="loopback": office listener uses 127.0.0.1. Set networkBind to "all" for direct-port access.',
@@ -5603,6 +5609,23 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
     maxRequestBodySize: 512 * 1024 * 1024, // 512MB
     ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
     async fetch(req, server) {
+      // Where the request comes from, decided once (server/proxy-trust.ts):
+      // whether it is on-box, and the client address the rate limits key on.
+      // Read on first use, because an app-host request that is not relayed
+      // and not redeemed never needs it.
+      let requestSource: RequestSource | undefined;
+      const source = (): RequestSource => {
+        if (requestSource === undefined) {
+          let peer: string | null = null;
+          try {
+            peer = server.requestIP(req)?.address ?? null;
+          } catch {
+            peer = null;
+          }
+          requestSource = classifyRequest(req, peer, trustedProxy());
+        }
+        return requestSource;
+      };
       // Registered-app hostnames divert here, ahead of EVERYTHING - before the
       // URL is even parsed, let alone dispatched. A request whose Host is a
       // strict child of the office host must never reach an office handler, so
@@ -5618,6 +5641,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // request that is actually being relayed, and this runs in front of
         // every request the office serves.
         peer: () => server.requestIP(req)?.address ?? null,
+        client: () => source().client,
         // The only way an app host can turn a request into a socket. The arm
         // never sees the server itself. The headers it passes carry the app's
         // own subprotocol selection, which the runtime would otherwise answer
@@ -5654,7 +5678,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           // Browser WebSockets cannot set this header, so it is deliberate.
           const authorization = req.headers.get("Authorization");
           if (authorization !== null) {
-            const identity = resolveIdentityForRequest(req, null);
+            const identity = resolveIdentityForRequest(
+              req,
+              null,
+              source().onBox,
+            );
             if (
               identity?.scope !== "api" ||
               !identity.apiTokenId ||
@@ -5721,13 +5749,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // (bootPrelude, migrateOwnersToRuleBasedAccess) BEFORE buildServer
         // binds, so a served request implies migrations completed. The body is
         // deliberately state-free ("ok" only - no version, no office info).
-        // Non-loopback callers are rate-limited; loopback is exempt so the
-        // updater's post-restart poll can never trip the limit and manufacture
-        // a rollback.
+        // Callers are rate-limited per client; an on-box caller is exempt so
+        // the updater's post-restart poll can never trip the limit and
+        // manufacture a rollback. A proxied request is never on-box, so public
+        // traffic through Caddy is limited too.
         if (url.pathname === "/readyz" && req.method === "GET") {
-          if (!requestIsLoopback(req, server)) {
-            const ip = server.requestIP(req)?.address ?? "unknown";
-            if (!allowReadyRequest(ip, Date.now())) {
+          const { onBox, client } = source();
+          if (!onBox) {
+            if (!allowReadyRequest(client, Date.now())) {
               return new Response("rate limited\n", { status: 429 });
             }
           }
@@ -5774,7 +5803,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           req,
           url,
           officeName,
-          server,
+          source().onBox,
         );
         if (authResponse) return authResponse;
 
@@ -5811,7 +5840,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         if (url.pathname.startsWith("/api/")) {
           const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
           if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
-            const apiAuth = authenticate(req, { officeName });
+            const apiAuth = authenticate(req, source().onBox, { officeName });
             if (apiAuth.kind !== "ok") {
               // Marshal the auth rejection into the /api envelope
               // {error:{code,message}} - the new contract, NOT the legacy
@@ -5861,7 +5890,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // agent-built web apps: an SSRF or open-proxy bug in any of them reaches
         // a loopback listener in two hops, and the final socket cannot tell who
         // the original caller was.
-        const auth = authenticate(req, { officeName });
+        const auth = authenticate(req, source().onBox, { officeName });
         if (auth.kind === "rejected") return auth.response;
 
         // Narrow non-browser tokens stop here, before the identity-only legacy

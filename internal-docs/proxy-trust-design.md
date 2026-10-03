@@ -1,7 +1,8 @@
 # Proxy trust: on-box requests and real client addresses (F7, F8)
 
-Status: proposal, 2026-10-03, revised after the Isomux PM ruling of the same
-day. Tasks a4f13754 (F7) and 7c9d674e (F8). Source:
+Status: approved by Nil on 2026-10-03 and implemented in batch 1006. Nil
+ruled: no allowed-proxy address setting, and no ingress NetworkPolicy
+hardening. Tasks a4f13754 (F7) and 7c9d674e (F8). Source:
 `~/nil/isomux-security-audit/findings.md`.
 
 ## Problem
@@ -87,7 +88,7 @@ the comment at `handleClaim` calls inherent.
 | Nil's office (Caddy, hand-mirrored) | `same-host` | By hand: add `"trustedProxy": "same-host"` to `~/.isomux/office-config.json`, then restart. Also check that `/etc/caddy/Caddyfile` does not remove `X-Forwarded-For` (`header_up -X-Forwarded-For`) and does not set `trusted_proxies`. Unchecked: the file is outside `~/nil`. |
 | Container: AWS Compose, EKS ALB, Render | `load-balancer` | The container entry `deploy/container/office.ts`, which all three images run, declares it. The manifests do not change. In Compose, the peer is the Docker gateway that carries the host Caddy's traffic. |
 | Plain self-hosted, no proxy | `none` | Nothing to do. |
-| Self-hosted with an operator's own proxy | `same-host` | The operator sets the key. `docs/self-hosted.md` says so, and says that the proxy must send `X-Forwarded-For`. |
+| Self-hosted with an operator's own proxy | `same-host` | The operator sets the key. `docs/hosting-reference.md` says so, and says that the proxy must send `X-Forwarded-For`. |
 
 The server reads `trustedProxy` once at boot from `office-config.json`
 (`server/persistence.ts`, next to `networkBind`). An unknown value counts as
@@ -112,8 +113,8 @@ The server reads `trustedProxy` once at boot from `office-config.json`
 - `load-balancer` mode: a caller inside the cluster can reach the pod without
   the ALB (there is no ingress NetworkPolicy) and forge `X-Forwarded-For` to
   choose its rate-limit key. It cannot use an agent token, because its peer is
-  not loopback. Optional hardening for Nil, outside this change: a setting that
-  lists the allowed proxy addresses, and/or an ingress NetworkPolicy in
+  not loopback. Optional hardening, not chosen (Nil, 2026-10-03): a setting
+  that lists the allowed proxy addresses, and/or an ingress NetworkPolicy in
   `deploy/kubernetes` that admits only the load balancer.
 - Render: unchecked whether Render puts more than one proxy in front. If it
   does, the rightmost entry is Render's edge and the limit is per edge node,
@@ -122,7 +123,7 @@ The server reads `trustedProxy` once at boot from `office-config.json`
   client. The updater polls from the box and stays exempt.
 
 Docs to update: `docs/security-audit.md` (threat model, F7 and F8),
-`docs/self-hosted.md` (the setting and the proxy requirement), and the code
+`docs/hosting-reference.md` (the setting and the proxy requirement), and the code
 comments at `requestIsLoopback`, `handleClaim` and `APP_REDEEM_MAX_PER_WINDOW`.
 
 ## Alternative not chosen

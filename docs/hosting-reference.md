@@ -138,6 +138,10 @@ The operator supplies AWS credentials, region, and model access; the installer d
 
 When an active Caddy config forwards to `127.0.0.1:4000`, an install or update records that fact in the office config. After the update restarts Isomux, the direct `:4000` address stops answering; the Caddy address keeps working. This also applies to a hand-provisioned VPS. Set `networkBind` to `"all"` in `~/.isomux/office-config.json` before the update to keep the direct port.
 
+The same step sets `trustedProxy` to `"same-host"`, so Isomux rate-limits each client by the address Caddy sends in `X-Forwarded-For`. Behind your own proxy on the same machine, set `"trustedProxy": "same-host"` in `~/.isomux/office-config.json` and restart Isomux. The proxy must send `X-Forwarded-For`. The container images set `"load-balancer"` themselves. On Render it is unchecked whether more than one proxy is in front; if there is, the limits apply per Render proxy, not per client.
+
+Agent, cron-run and app tokens work only from the machine itself. Isomux refuses them on a request that came through a proxy, which it recognizes by an `X-Forwarded-For`, `Forwarded` or `X-Real-IP` header. A proxy or tunnel that sends none of these looks like the machine itself.
+
 ## Proxy and no real domain
 
 | Shape                                   | Reach the office             | App addresses                              | Firewall                                                             | Request log                                                   | Isomux does not cover                                                |
