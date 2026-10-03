@@ -271,6 +271,51 @@ describe("USER send acceptance (task 51de8814)", () => {
     expect(delivered()).toBe(1);
   });
 
+  it("refuses a message that cancels a pick when its transcript write fails", async () => {
+    const srv = (server = await startTestServer());
+    const owner = await srv.seedOwner("Boss");
+    const agent = await spawnAgent(srv);
+    expect((await send(srv, owner, agent.id, { text: "bootstrap" })).status).toBe(
+      200,
+    );
+    await waitUntil(
+      () => stateOf(srv, agent.id) === "waiting_for_response",
+      "idle",
+    );
+    const file = join(
+      srv.stateRoot,
+      "logs",
+      agent.id,
+      `${srv.fakeBackend.sessions[0].sessionId}.jsonl`,
+    );
+    expect(existsSync(file)).toBe(true);
+    renameSync(file, `${file}.saved`);
+    mkdirSync(file);
+
+    // A pending pick plus plain text: the pick is cancelled and the text is
+    // echoed late, after the pick handling, as a normal message.
+    expect((await send(srv, owner, agent.id, { text: "/model" })).status).toBe(
+      200,
+    );
+    const body = { text: "after the pick", clientMessageId: "attempt-pick" };
+    const refused = await send(srv, owner, agent.id, body);
+    expect(refused.status).toBe(500);
+    expect(refused.code).toBe("persist_failed");
+    expect(echoesOf(srv, agent.id, "after the pick")).toBe(0);
+    const delivered = () =>
+      srv.fakeBackend.sessions
+        .flatMap((s) => s.sent)
+        .filter((m) => m.text.includes("after the pick")).length;
+    expect(delivered()).toBe(0);
+
+    rmdirSync(file);
+    renameSync(`${file}.saved`, file);
+    expect((await send(srv, owner, agent.id, body)).status).toBe(200);
+    await waitUntil(() => stateOf(srv, agent.id) !== "thinking", "idle");
+    expect(echoesOf(srv, agent.id, "after the pick")).toBe(1);
+    expect(delivered()).toBe(1);
+  });
+
   it("bounds a member's attempt id at 128 characters, and only on the member path", async () => {
     const srv = (server = await startTestServer());
     const owner = await srv.seedOwner("Boss");
