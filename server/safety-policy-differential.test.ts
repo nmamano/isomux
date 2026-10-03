@@ -205,7 +205,12 @@ const corpus: Case[] = [
   shell("safe temp rm allow", "rm -rf /tmp/isomux-probe"),
   shell("safe reverse temp rm allow", "rm -fr /tmp/isomux-probe"),
   shell("safe var temp rm allow", "rm -Rvf /var/tmp/isomux-probe"),
-  shell("safe tmpdir rm allow", "rm -fr $TMPDIR/isomux-probe"),
+  // An unset TMPDIR makes this `rm -fr /isomux-probe`; the exception is gone.
+  divergence(
+    shell("tmpdir rm now denies", "rm -fr $TMPDIR/isomux-probe"),
+    false,
+    true,
+  ),
   shell("safe clean wins within its segment", "git clean -fn"),
   divergence(
     shell(
@@ -587,11 +592,11 @@ describe("provider-neutral safety-policy extraction", () => {
           source
             .replace(
               "checkProcessKill(command)",
-              "checkProcessKill(stripQuotedStrings(command))",
+              `checkProcessKill(command.replace(/"[^"]*"|'[^']*'/g, "''"))`,
             )
             .replace(
               "bashSensitiveReadTarget(command)",
-              "bashSensitiveReadTarget(stripQuotedStrings(command))",
+              `bashSensitiveReadTarget(command.replace(/"[^"]*"|'[^']*'/g, "''"))`,
             ),
         ),
         tripwires.M1,
@@ -600,8 +605,8 @@ describe("provider-neutral safety-policy extraction", () => {
         "M3 destructive rules moved before safe rules",
         await mutantFactory("m3", (source) =>
           source.replace(
-            "  if (safe && rmOperandsAllTemp(text, segment)) return null;\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(text)) return reason;\n  }",
-            "  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(text)) return reason;\n  }\n  if (safe && rmOperandsAllTemp(text, segment)) return null;",
+            "  if (safe && operands !== null && operands.every(isTempOperand)) return null;",
+            "  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(text)) return reason;\n  }\n  if (safe && operands !== null && operands.every(isTempOperand)) return null;",
           ),
         ),
         tripwires.M3,
@@ -631,7 +636,7 @@ describe("provider-neutral safety-policy extraction", () => {
         await mutantFactory("m6", (source) =>
           source.replace(
             "if (tunnel) {",
-            "if (tunnel && !SAFE_PATTERNS.some((pattern) => pattern.test(stripQuotedStrings(command)))) {",
+            "if (tunnel && !SAFE_PATTERNS.some((pattern) => pattern.test(command))) {",
           ),
         ),
         tripwires.M6,

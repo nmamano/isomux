@@ -60,6 +60,10 @@ function denyMessage(reason: string, command: string): PolicyDecision {
   );
 }
 
+// The root-or-home rm pattern. destructiveReason skips it when no operand is
+// a root or home path, so a mixed temp line gets the generic rm reason.
+const RM_ROOT_OR_HOME = /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+[/~]/;
+
 const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   [
     /git\s+checkout\s+--\s+/,
@@ -104,7 +108,7 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   // Note: [rR] because both -r and -R mean recursive in GNU coreutils
   // Specific root/home pattern MUST come before generic pattern
   [
-    /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+[/~]/,
+    RM_ROOT_OR_HOME,
     "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the member to run it manually if truly needed.",
   ],
   [
@@ -131,30 +135,28 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   ],
 ];
 
+// Anchored: destructiveReason tests them against the command that runs, from
+// its name on, so an operand cannot supply another command's exception.
 const SAFE_PATTERNS: RegExp[] = [
-  /git\s+checkout\s+-b\s+/, // Creating new branch
-  /git\s+checkout\s+--orphan\s+/, // Creating orphan branch
-  /git\s+restore\s+--staged\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging only (safe)
-  /git\s+restore\s+-S\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging short form (safe)
-  /git\s+clean\s+-[a-z]*n[a-z]*/, // Dry run (-n, -fn, -nf, etc.)
-  /git\s+clean\s+--dry-run/, // Dry run (long form)
+  /^git\s+checkout\s+-b\s+/, // Creating new branch
+  /^git\s+checkout\s+--orphan\s+/, // Creating orphan branch
+  /^git\s+restore\s+--staged\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging only (safe)
+  /^git\s+restore\s+-S\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging short form (safe)
+  /^git\s+clean\s+-[a-z]*n[a-z]*/, // Dry run (-n, -fn, -nf, etc.)
+  /^git\s+clean\s+--dry-run/, // Dry run (long form)
   // Allow rm -rf on temp directories (-rf/-Rf and -fr/-fR flag orderings)
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/tmp\//,
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/var\/tmp\//,
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\$TMPDIR\//,
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\$\{TMPDIR/,
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+"\$TMPDIR\//,
-  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+"\$\{TMPDIR/,
+  /^rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/tmp\//,
+  /^rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/var\/tmp\//,
   // Separate flags on temp directories
-  /rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/tmp\//,
-  /rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/tmp\//,
-  /rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/var\/tmp\//,
-  /rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/var\/tmp\//,
+  /^rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/tmp\//,
+  /^rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/tmp\//,
+  /^rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/var\/tmp\//,
+  /^rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/var\/tmp\//,
   // Long options on temp directories
-  /rm\s+.*--recursive.*--force\s+\/tmp\//,
-  /rm\s+.*--force.*--recursive\s+\/tmp\//,
-  /rm\s+.*--recursive.*--force\s+\/var\/tmp\//,
-  /rm\s+.*--force.*--recursive\s+\/var\/tmp\//,
+  /^rm\s+.*--recursive.*--force\s+\/tmp\//,
+  /^rm\s+.*--force.*--recursive\s+\/tmp\//,
+  /^rm\s+.*--recursive.*--force\s+\/var\/tmp\//,
+  /^rm\s+.*--force.*--recursive\s+\/var\/tmp\//,
 ];
 
 function normalizeAbsolutePaths(cmd: string): string {
@@ -344,19 +346,6 @@ function stripHeredocBodies(cmd: string): string {
     }
   }
   return kept.join("\n");
-}
-
-/**
- * Strip quoted strings and heredocs from a command so that pattern matching
- * only applies to actual command structure, not to message content.
- * Replaces quoted content with empty strings to preserve command structure.
- */
-function stripQuotedStrings(cmd: string): string {
-  let result = stripHeredocBodies(cmd);
-  result = result.replace(/"(?:[^"\\]|\\.)*"/g, '""');
-  result = result.replace(/'[^']*'/g, "''");
-  result = result.replace(/\$'(?:[^'\\]|\\.)*'/g, "''");
-  return result;
 }
 
 // Copy-like commands where only the last argument (destination) is a write target.
@@ -713,7 +702,7 @@ function readerPathOperands(args: ShellWord[], g: ReaderGrammar): string[] {
  *  redirections are kept here (`cat < .env`) and only here - the kill guard has
  *  no use for them, so its call keeps the parser's default behaviour. */
 function bashSensitiveReadTarget(command: string): string | null {
-  for (const cmd of collectCommands(command, 0, true)) {
+  for (const cmd of collectCommands(command, true)) {
     const grammar = READER_GRAMMAR[cmd.name];
     if (!grammar) continue;
     for (const path of readerPathOperands(cmd.args, grammar)) {
@@ -1224,6 +1213,77 @@ function matchParen(cmd: string, open: number): number {
   return cmd.length;
 }
 
+const ANSI_C_ESCAPES: Record<string, string> = {
+  a: "\x07",
+  b: "\b",
+  e: "\x1b",
+  E: "\x1b",
+  f: "\f",
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  v: "\v",
+  "\\": "\\",
+  "'": "'",
+  '"': '"',
+  "?": "?",
+};
+
+/**
+ * The body of a `$'…'` word that starts at `start`, and the index of its
+ * closing quote. Decodes the escapes in ANSI_C_ESCAPES, `\xHH`, `\NNN`
+ * (octal), `\uHHHH`, `\UHHHHHHHH` and `\cX`. Any other escape keeps its
+ * backslash, as bash does. A decoded NUL ends the value, as it does in bash;
+ * the rest of the span up to the closing quote is still consumed.
+ */
+function decodeAnsiC(cmd: string, start: number): { text: string; end: number } {
+  let text = "";
+  let ended = false;
+  let i = start;
+  while (i < cmd.length && cmd[i] !== "'") {
+    let ch: string;
+    const next = cmd[i + 1];
+    if (cmd[i] !== "\\" || next === undefined) {
+      ch = cmd[i++];
+    } else {
+      const numeric =
+        next === "x"
+          ? /^[0-9a-fA-F]{1,2}/.exec(cmd.slice(i + 2))
+          : next === "u"
+            ? /^[0-9a-fA-F]{1,4}/.exec(cmd.slice(i + 2))
+            : next === "U"
+              ? /^[0-9a-fA-F]{1,8}/.exec(cmd.slice(i + 2))
+              : null;
+      if (numeric) {
+        const code = parseInt(numeric[0], 16);
+        ch = code <= 0x10ffff ? String.fromCodePoint(code) : "�";
+        i += 2 + numeric[0].length;
+      } else if (/[0-7]/.test(next)) {
+        const octal = /^[0-7]{1,3}/.exec(cmd.slice(i + 1))![0];
+        ch = String.fromCharCode(parseInt(octal, 8) & 0xff);
+        i += 1 + octal.length;
+      } else if (next === "c" && i + 2 < cmd.length && cmd[i + 2] !== "'") {
+        // `\cX` is control-X; `\c\\` spells the backslash with two.
+        const target = cmd[i + 2];
+        ch =
+          target === "?"
+            ? "\x7f"
+            : String.fromCharCode(target.toUpperCase().charCodeAt(0) & 0x1f);
+        i += target === "\\" && cmd[i + 3] === "\\" ? 4 : 3;
+      } else if (next in ANSI_C_ESCAPES) {
+        ch = ANSI_C_ESCAPES[next];
+        i += 2;
+      } else {
+        ch = cmd.slice(i, i + 2);
+        i += 2;
+      }
+    }
+    if (ch === "\0") ended = true;
+    if (!ended) text += ch;
+  }
+  return { text, end: i };
+}
+
 /**
  * Parse a command line into the words of each command it runs, honoring quotes.
  *
@@ -1317,6 +1377,14 @@ function parseCommands(
       curDynamic = true;
       cur += "``";
       i = stop + 1;
+      continue;
+    }
+    if (ch === "$" && cmd[i + 1] === "'") {
+      // ANSI-C quoting: `$'--hard'` is the word `--hard`. Nothing inside runs.
+      const { text, end } = decodeAnsiC(cmd, i + 2);
+      cur += text;
+      curQuoted = true;
+      i = end + 1;
       continue;
     }
     if (ch === "'") {
@@ -1510,9 +1578,12 @@ const SHELL_COMMAND_FLAG = /^-[A-Za-z]*c[A-Za-z]*$/;
  * The command lines an interpreter invocation runs: `bash -c '<payload>'`
  * executes its argument, so that one quoted word is structure rather than data.
  * Shells accept clustered flags (`bash -lc '…'`), so match the cluster, not a
- * literal `-c`. A `--` ends option parsing.
+ * literal `-c`. A `--` ends option parsing. `eval` runs its arguments,
+ * joined by spaces, as one command line.
  */
 function shellPayloads(cmd: EffectiveCommand): string[] {
+  if (cmd.name === "eval")
+    return [cmd.args.filter((arg) => !arg.redirect).map((arg) => arg.text).join(" ")];
   if (!SHELL_COMMANDS.includes(cmd.name)) return [];
   const payloads: string[] = [];
   for (let i = 0; i < cmd.args.length; i++) {
@@ -1596,25 +1667,27 @@ function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
 }
 
 /**
- * Every command a line runs, following `bash -c` payloads into the command
- * lines they execute. Depth-limited because a payload can nest.
+ * The line and every `bash -c` payload it runs, followed into the payloads
+ * they run in turn. Depth-limited because a payload can nest.
  */
+function commandLines(command: string, depth = 0): string[] {
+  if (depth > 4) return [];
+  const payloads = parseCommands(stripHeredocBodies(command))
+    .flatMap(commandCandidates)
+    .flatMap(shellPayloads);
+  return [command, ...payloads.flatMap((p) => commandLines(p, depth + 1))];
+}
+
+/** Every command a line runs, `bash -c` payloads included. */
 function collectCommands(
   command: string,
-  depth = 0,
   keepInputTargets = false,
 ): EffectiveCommand[] {
-  const commands = parseCommands(
-    stripHeredocBodies(command),
-    keepInputTargets,
-  ).flatMap(keepInputTargets ? candidatesWithRedirects : commandCandidates);
-  if (depth >= 4) return commands;
-  return commands.flatMap((cmd) => [
-    cmd,
-    ...shellPayloads(cmd).flatMap((p) =>
-      collectCommands(p, depth + 1, keepInputTargets),
+  return commandLines(command).flatMap((line) =>
+    parseCommands(stripHeredocBodies(line), keepInputTargets).flatMap(
+      keepInputTargets ? candidatesWithRedirects : commandCandidates,
     ),
-  ]);
+  );
 }
 
 /** Returns a denial reason, or null if the command kills nothing by name. */
@@ -2294,125 +2367,114 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
     );
   }
 
-  // Each command segment is judged on its own: a safe fragment such as
+  // Each command is judged on its own: a safe fragment such as
   // `git checkout -b x` must not let `&& git reset --hard` through with it.
-  // The patterns read the segment with quoted strings blanked; the rm
-  // operand check reads the parsed words, quotes resolved.
-  for (const segment of commandSegments(stripHeredocBodies(command))) {
-    const text = normalizeAbsolutePaths(stripQuotedStrings(segment).trim());
-    const reason = destructiveReason(text, segment);
-    if (reason) return denyMessage(reason, command);
+  // The parser supplies the commands, so a `bash -c` payload and a
+  // substitution inside double quotes are judged as well, and a quoted
+  // flag reads as the flag.
+  for (const line of commandLines(command)) {
+    for (const words of parseCommands(stripHeredocBodies(line), true, true)) {
+      const reason = destructiveReason(words);
+      if (reason) return denyMessage(reason, command);
+    }
   }
 
   return allow();
 }
 
 /**
- * Split a command line into the commands it runs: on `;`, newlines, pipes,
- * `&&`, `||`, a background `&`, subshell parentheses and backticks. Quoted
- * strings are data and never split, a backslash keeps the next character
- * (`find … \;` is one command), and the `&` of a redirection (`2>&1`, `&>`,
- * `<&3`) is not a separator, so `git push origin 2>&1 --force` stays whole.
- * The legacy patterns are text regexes, so this returns text, not words.
+ * Words as the text the DESTRUCTIVE and SAFE patterns read: one space between
+ * words. A word that holds whitespace, quoted or escaped, is one argument and
+ * never a token sequence, so it is blanked: `git commit -m 'git reset --hard'`
+ * and `git\ clean\ -n` match nothing.
  */
-function commandSegments(line: string): string[] {
-  const segments: string[] = [];
-  let cur = "";
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === "\\") {
-      cur += line.slice(i, i + 2);
-      i++;
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      // `$'…'` and double quotes honor backslash escapes; plain single
-      // quotes do not. Same spans as stripQuotedStrings.
-      const escapes = ch === '"' || line[i - 1] === "$";
-      let j = i + 1;
-      while (j < line.length && line[j] !== ch)
-        j += escapes && line[j] === "\\" ? 2 : 1;
-      cur += line.slice(i, j + 1);
-      i = j;
-      continue;
-    }
-    const redirectAmpersand =
-      ch === "&" &&
-      (line[i - 1] === ">" || line[i - 1] === "<" || line[i + 1] === ">");
-    if (!redirectAmpersand && ";\n|&()`".includes(ch)) {
-      segments.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  segments.push(cur);
-  return segments;
+function patternText(words: ShellWord[]): string {
+  return words
+    .map((word) => (/\s/.test(word.text) ? "''" : word.text))
+    .join(" ");
 }
 
 const TEMP_ROOTS = ["/tmp/", "/var/tmp/"];
-/** `$TMPDIR/rest` or `${TMPDIR}/rest`, exactly that variable. */
-const TMPDIR_OPERAND = /^(?:\$TMPDIR|\$\{TMPDIR\})\/(.*)$/;
 
 /**
- * The operand names something strictly inside a temp root, judged on the
- * normalized literal path: `/tmp/../home` and `/tmp/` do not qualify, and no
- * expansion other than a leading `$TMPDIR` does either, because `/tmp/$x`
- * can resolve anywhere. A glob may not start a component with a dot, where
- * it could match `..`.
+ * The operand names one entry directly in a temp root, as written:
+ * `/tmp/<name>` or `/var/tmp/<name>`. rm removes that entry itself and does
+ * not follow a symlink there. A deeper path or a trailing slash can pass
+ * through a symlink to anywhere, and the policy does not stat the disk (the
+ * link can come from earlier in the same command), so those do not qualify.
+ * Neither does an expansion (`$x`, `{a,..}`), `.`, `..`, or a glob that
+ * starts with a dot, where it could match `..`.
  */
 function isTempOperand(word: ShellWord): boolean {
-  let path = word.text;
-  let roots = TEMP_ROOTS;
-  const tmpdir = TMPDIR_OPERAND.exec(path);
-  if (tmpdir) {
-    path = `/tmpdir/${tmpdir[1]}`;
-    roots = ["/tmpdir/"];
-  }
-  if (/[$`]/.test(path)) return false;
-  if (path.split("/").some((part) => /^\.[^/]*[*?[]/.test(part))) return false;
-  const normal = normalize(path).replace(/\/+$/, "");
-  return roots.some(
-    (root) => normal.startsWith(root) && normal.length > root.length,
-  );
+  const root = TEMP_ROOTS.find((r) => word.text.startsWith(r));
+  if (!root) return false;
+  const name = word.text.slice(root.length);
+  if (!name || name.includes("/") || name === "." || name === "..")
+    return false;
+  if (/[$`{}]/.test(name)) return false;
+  return !/^\.[^/]*[*?[]/.test(name);
 }
 
 /**
- * Every operand of every `rm` in the segment is inside a temp root. The
- * temp-dir SAFE patterns match one operand, so without this
- * `rm -rf /tmp/a ./src` would pass as safe. Reads the parsed words, so a
- * quoted operand counts by its content. A segment whose text names no `rm`
- * has nothing to check; one the parser cannot resolve to an rm fails.
+ * A root or home path, as the root-or-home reason means it: absolute or
+ * `~`-relative, and not inside a temp root once normalized.
  */
-function rmOperandsAllTemp(text: string, segment: string): boolean {
-  if (!text.split(/\s+/).some((w) => w.replace(/^.*\//, "") === "rm"))
-    return true;
-  const rms = parseCommands(segment, true, true)
-    .flatMap(commandCandidates)
-    .filter((cmd) => cmd.name === "rm");
-  if (rms.length === 0) return false;
-  return rms.every(({ args }) => {
+function isRootOrHomeOperand(word: ShellWord): boolean {
+  if (!/^[/~]/.test(word.text)) return false;
+  const normal = normalize(word.text);
+  return !TEMP_ROOTS.some((root) => normal.startsWith(root));
+}
+
+/**
+ * The operands of every `rm` in the words. Empty when the words name no rm;
+ * null when a word names rm but the parser resolves no rm command, so a
+ * caller fails closed.
+ */
+function rmOperands(words: ShellWord[]): ShellWord[] | null {
+  const rms = commandCandidates(words.filter((w) => !w.redirect)).filter(
+    (cmd) => cmd.name === "rm",
+  );
+  if (rms.length === 0)
+    return words.some((w) => w.text.replace(/^.*\//, "") === "rm") ? null : [];
+  return rms.flatMap(({ args }) => {
     let optionsEnded = false;
-    return args.every((arg) => {
-      if (arg.redirect) return true;
+    return args.filter((arg) => {
       if (!optionsEnded && arg.text === "--") {
         optionsEnded = true;
-        return true;
+        return false;
       }
-      if (!optionsEnded && arg.text.startsWith("-")) return true;
-      return isTempOperand(arg);
+      return optionsEnded || !arg.text.startsWith("-");
     });
   });
 }
 
-/** The denial reason for one command segment (its quote-blanked text and its
- *  raw form), or null when it is safe or neutral. A SAFE pattern wins over a
- *  DESTRUCTIVE one in the same segment. */
-function destructiveReason(text: string, segment: string): string | null {
-  const safe = SAFE_PATTERNS.some((pattern) => pattern.test(text));
-  if (safe && rmOperandsAllTemp(text, segment)) return null;
+/**
+ * The denial reason for one command, or null when it is safe or neutral. A
+ * SAFE pattern wins over a DESTRUCTIVE one, but for rm only when every rm
+ * operand is a temp operand: the temp SAFE patterns match one operand, so
+ * without that `rm -rf /tmp/a ./src` would pass as safe.
+ */
+function destructiveReason(words: ShellWord[]): string | null {
+  const plain = words.filter((word) => !word.redirect);
+  const text = normalizeAbsolutePaths(patternText(plain));
+  const operands = rmOperands(words);
+  // SAFE reads only the command that runs (past wrappers), from its name on.
+  const runs = commandCandidates(plain)[0];
+  const safeText = runs
+    ? patternText([{ text: runs.name, quoted: false }, ...runs.args])
+    : "";
+  const safe = SAFE_PATTERNS.some((pattern) => pattern.test(safeText));
+  if (safe && operands !== null && operands.every(isTempOperand)) return null;
   for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {
-    if (pattern.test(text)) return reason;
+    if (!pattern.test(text)) continue;
+    // `rm -rf /tmp/a ./src` is not a root or home deletion.
+    if (
+      pattern === RM_ROOT_OR_HOME &&
+      operands !== null &&
+      !operands.some(isRootOrHomeOperand)
+    )
+      continue;
+    return reason;
   }
   return null;
 }

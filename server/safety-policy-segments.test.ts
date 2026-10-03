@@ -108,26 +108,43 @@ describe("rm is safe in a temp root only when every operand is there", () => {
     "rm -rf /tmp/a 2>/dev/null",
     "rm -rf /tmp/a 2> /dev/null",
     "rm -rf /tmp/a 2>&1",
-    "rm -rf $TMPDIR/a",
-    "rm -rf ${TMPDIR}/a",
-    "rm -rf /tmp/a/./b /var/tmp/c/",
-    "rm -rf /tmp/a/*",
+    "rm -rf /tmp/a*",
+    "rm -rf /var/tmp/a.b",
   ])("allows %p", (command) => {
     expect(decision(command)).toBe("allow");
   });
 
-  it("judges containment on the normalized path, not a prefix", () => {
-    expect(decision("rm -rf /tmp/a /tmp/b/../c")).toBe("allow");
-    expect(decision("rm -rf /tmp/a /tmp/../home/data")).toBe("deny");
-    expect(decision("rm -rf /tmp/")).toBe("deny");
-    expect(decision("rm -rf /tmp/a /tmp/.*")).toBe("deny");
+  // rm on /tmp/<name> removes that entry and never follows a symlink there.
+  // Anything deeper can pass through a link, which the policy does not stat:
+  // the link can come from earlier in the same command.
+  it.each([
+    "rm -rf /tmp/link/",
+    "rm -rf /tmp/a/b",
+    "rm -rf /tmp/a/*",
+    "rm -rf /tmp/a/./b",
+    "rm -rf /tmp/a /tmp/b/../c",
+    "rm -rf /tmp/a /tmp/../home/data",
+    "rm -rf /tmp/",
+    "rm -rf /tmp/.",
+    "rm -rf /tmp/..",
+    "rm -rf /tmp/{a,..}",
+    "rm -rf /tmp/a /tmp/.*",
+    "rm -rf /var/tmp/c/",
+    "ln -s ~ /tmp/l && rm -rf /tmp/l/",
+  ])("allows only a direct child of a temp root: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
   });
 
-  it("accepts $TMPDIR by its exact name only", () => {
-    expect(decision("rm -rf /tmp/a ${TMPDIR}/src")).toBe("allow");
-    expect(decision("rm -rf /tmp/a ${TMPDIR_OTHER}/src")).toBe("deny");
-    expect(decision("rm -rf /tmp/a $TMPDIRX/src")).toBe("deny");
-    expect(decision("rm -rf $TMPDIR/../src")).toBe("deny");
+  // TMPDIR is usually unset, so `$TMPDIR/home` can be `/home`.
+  it.each([
+    "rm -rf $TMPDIR/home",
+    "rm -rf ${TMPDIR}/etc",
+    'rm -rf "$TMPDIR/home"',
+    'rm -rf "${TMPDIR}/etc"',
+    "rm -rf /tmp/a $TMPDIR/src",
+    "rm -r -f $TMPDIR/home",
+  ])("gives $TMPDIR no temp exception: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
   });
 
   it("does not let another expansion qualify by its prefix", () => {
@@ -141,6 +158,122 @@ describe("rm is safe in a temp root only when every operand is there", () => {
     expect(decision("rm -rf /tmp/a '/var/tmp/b c'")).toBe("allow");
     expect(decision('rm -rf /tmp/a "./src"')).toBe("deny");
     expect(decision("rm -rf /tmp/a '/home/u'")).toBe("deny");
+  });
+
+  it("does not give a temp operand the root-or-home reason", () => {
+    expect(reason("rm -rf /tmp/a ./src")).toBe(reason("rm -rf ./src"));
+    expect(reason("rm -rf ./src /tmp/a")).toBe(reason("rm -rf ./src"));
+    expect(reason("rm -rf /tmp/a/b ./src")).toBe(reason("rm -rf ./src"));
+    expect(reason("rm -rf /tmp/a /home/u")).toBe(reason("rm -rf /home/u"));
+    expect(reason("rm -rf /tmp/a /")).toBe(reason("rm -rf /"));
+    expect(reason("rm -rf /home/u")).not.toBe(reason("rm -rf ./src"));
+  });
+});
+
+describe("destructive commands in quoted payloads (a447b095)", () => {
+  it.each([
+    "bash -c 'git reset --hard'",
+    'sh -c "git reset --hard"',
+    "bash -lc 'cd x && git clean -fd'",
+    "sudo bash -c 'rm -rf ./src'",
+    `bash -c "bash -c 'git reset --hard'"`,
+    "eval 'git reset --hard'",
+    'echo "$(git reset --hard)"',
+    'echo "`git reset --hard`"',
+    'git checkout -b x "$(git reset --hard)"',
+    'git reset "--hard"',
+    "git reset '--hard'",
+    'git re"set" --hard',
+    '"git" reset --hard',
+    "git reset \\--hard",
+    'rm "-rf" ./src',
+  ])("denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  it.each([
+    "echo '$(git reset --hard)'",
+    "git commit -m 'git reset --hard'",
+    'git commit -m "rm -rf /"',
+    "bash -c 'git status'",
+  ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it("keeps a word that holds whitespace opaque, quoted or escaped", () => {
+    // Read as tokens, the argument would be the SAFE `git clean -n`.
+    expect(decision("git clean -fd 'git clean -n'")).toBe("deny");
+    expect(decision("git clean -fd git\\ clean\\ -n")).toBe("deny");
+    expect(decision("git checkout -b x git\\ reset\\ --hard")).toBe("allow");
+  });
+
+  it.each([
+    "git restore --worktree -- 'git' 'clean' '-n'",
+    "git restore --worktree -- git clean -n",
+    "git reset --hard 'git' 'checkout' '-b' x",
+    "git clean -fd -- git clean -n",
+    "git push --force origin 'git' 'clean' '-n'",
+  ])("takes no SAFE exception from operands: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  it.each([
+    "git clean -n",
+    'git clean "-n"',
+    "sudo git clean -n",
+    "env A=1 git checkout -b x",
+    "/usr/bin/git checkout -b x",
+    "git restore --staged 'a b'",
+  ])("keeps the SAFE exception of the command itself: allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  it("judges each command a payload runs on its own", () => {
+    expect(
+      reason("bash -c 'git checkout -b x && git reset --hard HEAD~3'"),
+    ).toBe(reason("git reset --hard HEAD~3"));
+  });
+
+  it("follows a payload into a reader behind an input redirect", () => {
+    expect(decision("bash -c '< .env cat'")).toBe("deny");
+    expect(decision("bash -c '< README.md cat'")).toBe("allow");
+  });
+});
+
+describe("ANSI-C quoting reads as its decoded word", () => {
+  it.each([
+    "git reset $'--hard'",
+    "git reset --$'ha'rd",
+    "git reset $'\\x2d-hard'",
+    "git reset $'\\055-hard'",
+    "git reset $'\\u002d-hard'",
+    "git commit -m $'it\\'s' && git reset --hard",
+    "cat $'.env'",
+    "cat $'.e'nv",
+  ])("denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
+  });
+
+  it.each([
+    "echo $'$(git reset --hard)'",
+    "echo $'`git reset --hard`'",
+    "git commit -m $'it\\'s; git reset --hard'",
+    "cat $'.env.example'",
+    "cat $'.env.example\\0'",
+  ])("allows %p", (command) => {
+    expect(decision(command)).toBe("allow");
+  });
+
+  // Bash ends the value at a decoded NUL and still consumes the span.
+  it.each([
+    "git $'reset\\0ignored' --hard",
+    "git $'reset\\x00ignored' --hard",
+    "git $'reset\\c@ignored' --hard",
+    "git $'re\\0x'set --hard",
+    "cat $'.env\\0.example'",
+    "cat $'.env\\u0000.example'",
+  ])("ends the word at NUL: denies %p", (command) => {
+    expect(decision(command)).toBe("deny");
   });
 });
 
