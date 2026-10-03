@@ -682,12 +682,21 @@ async function readNonTablePosture(
   };
 }
 
+/**
+ * Production moves between the literal rosters. Tests pass a pair with
+ * collision-free names: the names are cluster-global, so a suite that governs
+ * `cp_web` collides with every other process on the same cluster.
+ */
 export async function reapplyMatrix(
   dsn: string,
   direction: "forward" | "reverse",
+  rosters: {
+    prior: readonly RolePosture[];
+    current: readonly RolePosture[];
+  } = { prior: priorRuntimeRoles(), current: runtimeRoles() },
 ): Promise<ReapplyResult> {
-  const from = direction === "forward" ? priorRuntimeRoles() : runtimeRoles();
-  const to = direction === "forward" ? runtimeRoles() : priorRuntimeRoles();
+  const from = direction === "forward" ? rosters.prior : rosters.current;
+  const to = direction === "forward" ? rosters.current : rosters.prior;
   const pool = await openPool(dsn);
   const ask = async <T extends pg.QueryResultRow>(
     sql: string,
@@ -700,11 +709,24 @@ export async function reapplyMatrix(
     }
   };
   try {
+    const { owner, config } = await ownerState(pool, dsn);
+    const identities = [from, to].map((roster) =>
+      validateRuntimeRoster(roster, owner)
+        .map((entry) => entry.role)
+        .sort()
+        .join(","),
+    );
+    if (identities[0] !== identities[1]) {
+      throw new Error(
+        "refusing to re-apply the matrix: the two rosters do not name the " +
+          "same roles, so the change would not move one posture between two " +
+          "matrices",
+      );
+    }
     // The deployed identities retain every governed membership and ownership
     // boundary, and PUBLIC holds nothing on this build's tables. LOGIN and live
     // backends are expected here; this step preserves rather than owns them.
     await reapplyPreflight(pool, dsn, to);
-    const { owner, config } = await ownerState(pool, dsn);
     if (!boundsAreExact(config, GOVERNED_SETTINGS)) {
       throw new Error(
         "refusing to re-apply the matrix: the owner role does not already " +
@@ -717,6 +739,7 @@ export async function reapplyMatrix(
       (sql, args) => ask(sql, args),
       GOVERNED_SETTINGS,
       owner,
+      to,
     );
     for (const { role, budget } of to) {
       const facts = posture.get(role);
@@ -806,6 +829,7 @@ export async function reapplyMatrix(
       (sql, args) => ask(sql, args),
       GOVERNED_SETTINGS,
       owner,
+      to,
     );
     const noMemberships: [string, boolean][] = roleNames.map((role) => [
       role,

@@ -3074,6 +3074,12 @@ have recorded a fix that does not exist. (Reaching that cell at all needs a
 build Node produced, since the bun build still fails.) `bun --bun next dev`
 is unaffected and is still how the app is developed.
 
+**Except from a cold start.** Measured 2026-10-03 on Next 16.3.8: a
+`bun --bun next dev` that starts with no `.next` fails its first `pg` load with
+"Failed to load external module pg-<hash>", and a restart over the `.next` it
+left works. Node passes from cold. So `e2e/lifecycle.e2e.ts` and
+`e2e/i18n.e2e.ts` spawn Next under Node.
+
 The `next build` split is also why `lib/services.server.ts` reaches the control
 plane through **request-time dynamic imports** - but note that the reason has
 shifted. It used to be enforced by the build itself, because a module-scope

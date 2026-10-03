@@ -189,8 +189,13 @@ async function main(): Promise<void> {
     });
   });
 
+  // NEXT RUNS UNDER NODE, not `bun --bun`. Measured 2026-10-03 on Next 16.3.8:
+  // under bun, a run that starts with no `.next` fails its first sign-in with
+  // "Failed to load external module pg-<hash>", the Turbopack alias for `pg`,
+  // and a second run over the `.next` the first one left passes. Under Node
+  // the cold run passes. Node is also the runtime a deployment uses.
   const server = Bun.spawn(
-    ["bun", "--bun", "node_modules/.bin/next", "dev", "-p", String(PORT)],
+    ["node", "node_modules/.bin/next", "dev", "-p", String(PORT)],
     {
       cwd: WEB_DIR,
       env: {

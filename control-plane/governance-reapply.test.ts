@@ -20,17 +20,15 @@
 // LOCAL ENGINE ONLY, like the other role suites: these create and drop
 // cluster-wide roles.
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { applyGovernance, reapplyIsExact, reapplyMatrix } from "./bootstrap.ts";
 import {
   PROVISIONER_GRANTS,
-  PROVISIONER_BUDGET,
   PROVISIONER_ROLE,
   PRIOR_PROVISIONER_GRANTS,
   PRIOR_WEB_GRANTS,
   WEB_GRANTS,
-  WEB_BUDGET,
   WEB_ROLE,
   grantMatrixStatements,
   judgeMatrix,
@@ -40,6 +38,7 @@ import {
   roleIdentitySql,
   runtimeRoles,
   type RoleIdentity,
+  type RolePosture,
 } from "./roles.ts";
 import { Store } from "./store.ts";
 import {
@@ -48,21 +47,53 @@ import {
   TARGET_IS_LOCAL,
   inCleanupPool,
 } from "./testing/pg.ts";
+import { withRoleSuiteLock } from "./testing/role-suite-lock.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
-const measuredProductionRoles = [
-  { role: WEB_ROLE, budget: WEB_BUDGET, grants: PRIOR_WEB_GRANTS },
-  {
-    role: PROVISIONER_ROLE,
-    budget: PROVISIONER_BUDGET,
-    grants: PRIOR_PROVISIONER_GRANTS,
-  },
-];
 
-/** Roles are cluster-wide, so every case that touches one runs alone. */
+/**
+ * Role names are cluster-wide, and the local engine is one cluster shared by
+ * every process on the box. A suite that governs the literal `cp_web` collides
+ * with any other process doing the same, which `serial` cannot see. So every
+ * role here, runtime pair and auxiliaries alike, is a fresh name owned by this
+ * process and recorded, and cleanup proves each one gone. The rosters keep the
+ * production budgets and grants; only the names differ.
+ */
+const createdRoles: string[] = [];
+function uniqueRole(prefix: string): string {
+  const role = `${prefix}_${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
+  createdRoles.push(role);
+  return role;
+}
+
+function renamed(
+  roster: readonly RolePosture[],
+  names: readonly string[],
+): RolePosture[] {
+  return roster.map((entry, i) => ({ ...entry, role: names[i] }));
+}
+
+let TEST_WEB_ROLE = "";
+let TEST_PROVISIONER_ROLE = "";
+/** The current matrix and the one production held on 2026-08-21. */
+let TEST_CURRENT: readonly RolePosture[] = [];
+let TEST_PRIOR: readonly RolePosture[] = [];
+const testRosters = () => ({ prior: TEST_PRIOR, current: TEST_CURRENT });
+
+/** Every case that touches a role runs alone, under names of its own. The
+ * owner role is still shared, so `withRoleSuiteLock` keeps it alone across
+ * processes too. */
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const next = queue.then(fn, fn);
+  const run = (): Promise<T> =>
+    withRoleSuiteLock(async () => {
+      const names = [uniqueRole("cp_rw"), uniqueRole("cp_rp")];
+      [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE] = names;
+      TEST_CURRENT = renamed(runtimeRoles(), names);
+      TEST_PRIOR = renamed(priorRuntimeRoles(), names);
+      return fn();
+    });
+  const next = queue.then(run, run);
   queue = next.then(
     () => undefined,
     () => undefined,
@@ -74,10 +105,21 @@ const admin = new pg.Pool({ connectionString: LOCAL_DATABASE_URL, max: 2 });
 admin.on("error", () => {});
 const databases: string[] = [];
 const liveRuntimes = new Map<string, Map<string, pg.Client>>();
-const auxiliaryRoles = new Map<
-  string,
-  { parents: string[]; members: string[] }
->();
+let productionRolesBefore: Record<string, unknown>[] = [];
+
+async function productionRoleSnapshot(): Promise<Record<string, unknown>[]> {
+  return (
+    await admin.query(
+      "select rolname, rolcanlogin, rolconnlimit, rolconfig from pg_roles " +
+        "where rolname = any($1) order by rolname",
+      [[WEB_ROLE, PROVISIONER_ROLE]],
+    )
+  ).rows;
+}
+
+beforeAll(async () => {
+  productionRolesBefore = await productionRoleSnapshot();
+});
 
 async function scratchDatabase(): Promise<string> {
   const name = `cp_re_${Math.random().toString(36).slice(2, 10)}`;
@@ -106,77 +148,58 @@ async function run(dsn: string, statements: readonly string[]): Promise<void> {
   for (const statement of statements) await ask(dsn, statement);
 }
 
-async function dropRoles(dsn: string): Promise<void> {
-  const pool = new pg.Pool({ connectionString: dsn, max: 1 });
-  pool.on("error", () => {});
-  const query = async <T extends pg.QueryResultRow>(
-    sql: string,
-    args: unknown[] = [],
-  ): Promise<T[]> => (await pool.query<T>(sql, args)).rows;
-  try {
-    const live = liveRuntimes.get(dsn);
-    if (live) {
-      liveRuntimes.delete(dsn);
-      await Promise.all(
-        [...live.values()].map((client) => client.end().catch(() => {})),
-      );
-    }
-    const auxiliaries = auxiliaryRoles.get(dsn) ?? {
-      parents: [],
-      members: [],
-    };
-    auxiliaryRoles.delete(dsn);
-    for (const member of auxiliaries.members) {
-      await query(`revoke ${PROVISIONER_ROLE} from ${member}`).catch(() => []);
-      await query(`drop role if exists ${member}`).catch(() => []);
-    }
-    for (const parent of auxiliaries.parents) {
-      await query(`revoke ${parent} from ${PROVISIONER_ROLE}`).catch(() => []);
-      await query(`drop role if exists ${parent}`).catch(() => []);
-    }
-    const rolesPresent = await query<{ count: string }>(
-      "select count(*)::text as count from pg_roles where rolname = any($1)",
-      [[WEB_ROLE, PROVISIONER_ROLE]],
-    );
-    if (Number(rolesPresent[0]?.count ?? -1) === 0) return;
-    for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
-      await query(
-        `revoke all privileges on all tables in schema public from ${role}`,
-      ).catch(() => []);
-      await query(`revoke all privileges on schema public from ${role}`).catch(
-        () => [],
-      );
-      await query(`drop owned by ${role}`).catch(() => []);
-      await query(`alter role ${role} connection limit -1`).catch(() => []);
-      await query(`alter role ${role} nologin`).catch(() => []);
-      await query(`drop role if exists ${role}`).catch(() => []);
-    }
-  } finally {
-    await pool.end().catch(() => {});
-  }
+async function closeRuntimes(dsn: string): Promise<void> {
+  const live = liveRuntimes.get(dsn);
+  liveRuntimes.delete(dsn);
+  await Promise.all(
+    [...(live?.values() ?? [])].map((client) => client.end().catch(() => {})),
+  );
 }
 
+/**
+ * Roles are dropped ONCE, after the last scratch database is gone. A role that
+ * still holds a grant in any database refuses to drop, so dropping per
+ * database while a sibling still granted to it left the roles behind on every
+ * green run. Dropping the databases first takes every grant with them.
+ */
 afterAll(async () => {
   const failures: unknown[] = [];
-  await inCleanupPool(databases, async (name) => {
-    try {
-      const url = new URL(LOCAL_DATABASE_URL);
-      url.pathname = `/${name}`;
-      await dropRoles(url.toString());
-      await admin
-        .query(
-          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-          [name],
-        )
-        .catch(() => {});
-      await admin.query(`drop database if exists ${name}`);
-    } catch (error) {
-      failures.push(error);
+  try {
+    await Promise.all([...liveRuntimes.keys()].map(closeRuntimes));
+    // Under the case lock, for the reason governance-apply.test.ts gives: a
+    // database drop waits for a checkpoint, slow while other cases run.
+    await withRoleSuiteLock(async () => {
+      await inCleanupPool(databases, async (name) => {
+        try {
+          await admin.query(
+            "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+            [name],
+          );
+          await admin.query(`drop database if exists ${name}`);
+        } catch (error) {
+          failures.push(error);
+        }
+      });
+      for (const role of createdRoles) {
+        if (role === WEB_ROLE || role === PROVISIONER_ROLE) {
+          throw new Error(`refusing to drop production runtime role ${role}`);
+        }
+        await admin
+          .query(`drop role if exists ${role}`)
+          .catch((error: unknown) => failures.push(error));
+      }
+    });
+    const leftovers = await admin.query<{ n: string }>(
+      "select count(*)::text as n from pg_roles where rolname = any($1)",
+      [createdRoles],
+    );
+    expect(leftovers.rows[0]?.n).toBe("0");
+    expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "failed to clean up scratch state");
     }
-  });
-  await admin.end().catch(() => {});
-  if (failures.length > 0) {
-    throw new AggregateError(failures, "failed to drop scratch databases");
+  } finally {
+    await admin.end().catch(() => {});
   }
 }, PG_TEST_HOOK_TIMEOUT_MS);
 
@@ -185,14 +208,14 @@ afterAll(async () => {
 async function asProductionIsToday(): Promise<string> {
   const dsn = await scratchDatabase();
   await (await Store.open(dsn)).close();
-  await applyGovernance(dsn);
-  await run(dsn, grantMatrixStatements(measuredProductionRoles));
+  await applyGovernance(dsn, TEST_CURRENT);
+  await run(dsn, grantMatrixStatements(TEST_PRIOR));
   const password = crypto.randomUUID().replace(/-/g, "");
-  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+  for (const role of [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]) {
     await ask(dsn, `alter role ${role} login password '${password}'`);
   }
   const live = new Map<string, pg.Client>();
-  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+  for (const role of [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]) {
     const runtimeDsn = new URL(dsn);
     runtimeDsn.username = role;
     runtimeDsn.password = password;
@@ -226,7 +249,7 @@ async function provisionerInsertsStripeEvent(
   dsn: string,
   allowed: boolean,
 ): Promise<void> {
-  const live = liveRuntimes.get(dsn)?.get(PROVISIONER_ROLE);
+  const live = liveRuntimes.get(dsn)?.get(TEST_PROVISIONER_ROLE);
   if (!live) throw new Error("the production fixture has no live provisioner");
   const result = await live
     .query(
@@ -249,7 +272,7 @@ async function webUpdatesReservation(
   dsn: string,
   allowed: boolean,
 ): Promise<void> {
-  const live = liveRuntimes.get(dsn)?.get(WEB_ROLE);
+  const live = liveRuntimes.get(dsn)?.get(TEST_WEB_ROLE);
   if (!live) throw new Error("the production fixture has no live web role");
   // Zero rows match, so nothing moves either way: the privilege check fires
   // before the row count matters, which is all this probe needs.
@@ -275,12 +298,12 @@ async function matrixOf(dsn: string): Promise<string[]> {
   const rows = await ask<{ role: string; table: string; verb: string }>(
     dsn,
     matrixSql(),
-    [[WEB_ROLE, PROVISIONER_ROLE]],
+    [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
   );
   return rows.map((r) => `${r.role}:${r.table}:${r.verb}`).sort();
 }
 
-function matrixFor(roster: ReturnType<typeof runtimeRoles>): string[] {
+function matrixFor(roster: readonly RolePosture[]): string[] {
   return roster
     .flatMap(({ role, grants }) =>
       grants.flatMap(({ table, verbs }) =>
@@ -297,24 +320,24 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         const before = await matrixOf(dsn);
-        expect(before).toEqual(matrixFor(measuredProductionRoles));
+        expect(before).toEqual(matrixFor(TEST_PRIOR));
         const rows = await ask<{ role: string; table: string; verb: string }>(
           dsn,
           matrixSql(),
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
-        expect(judgeMatrix(rows, WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
         expect(
-          judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
+          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
         ).toBe(true);
-        expect(before).not.toContain(`${WEB_ROLE}:name_reservations:UPDATE`);
+        expect(before).not.toContain(`${TEST_WEB_ROLE}:name_reservations:UPDATE`);
         // Grants already in the baseline stay exercisable; the pending one
         // refuses. Together they prove the live sessions test real privilege.
         await provisionerInsertsStripeEvent(dsn, true);
-        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
+        await runtimeSelects(dsn, TEST_WEB_ROLE, "reinstatement_attempts", true);
         await webUpdatesReservation(dsn, false);
 
-        const applied = await reapplyMatrix(dsn, "forward");
+        const applied = await reapplyMatrix(dsn, "forward", testRosters());
         expect(applied.exact).toBe(true);
         for (const [, verdict] of [...applied.direct, ...applied.effective]) {
           expect(verdict.missing).toBe(0);
@@ -331,10 +354,10 @@ suite("the incremental matrix change", () => {
         expect(applied.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
 
         const after = await matrixOf(dsn);
-        expect(after).toEqual(matrixFor(runtimeRoles()));
-        expect(after).toContain(`${WEB_ROLE}:name_reservations:UPDATE`);
+        expect(after).toEqual(matrixFor(TEST_CURRENT));
+        expect(after).toContain(`${TEST_WEB_ROLE}:name_reservations:UPDATE`);
         await webUpdatesReservation(dsn, true);
-        await dropRoles(dsn);
+        await closeRuntimes(dsn);
       }),
     60_000,
   );
@@ -344,9 +367,9 @@ suite("the incremental matrix change", () => {
     () =>
       serial(async () => {
         const dsn = await asProductionIsToday();
-        await reapplyMatrix(dsn, "forward");
+        await reapplyMatrix(dsn, "forward", testRosters());
         await webUpdatesReservation(dsn, true);
-        const applied = await reapplyMatrix(dsn, "reverse");
+        const applied = await reapplyMatrix(dsn, "reverse", testRosters());
         await webUpdatesReservation(dsn, false);
         expect(applied.exact).toBe(true);
         expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
@@ -358,20 +381,20 @@ suite("the incremental matrix change", () => {
         const rows = await ask<{ role: string; table: string; verb: string }>(
           dsn,
           matrixSql(),
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
         expect(
-          judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
+          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
         ).toBe(true);
-        expect(judgeMatrix(rows, WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
         // The provisioner's prior equals its current matrix (measured
         // 2026-08-24), so only the web role reads as moved-away-from.
         expect(
-          judgeMatrix(rows, PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
+          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
         ).toBe(true);
-        expect(judgeMatrix(rows, WEB_ROLE, WEB_GRANTS).exact).toBe(false);
-        expect(await matrixOf(dsn)).toEqual(matrixFor(priorRuntimeRoles()));
-        await dropRoles(dsn);
+        expect(judgeMatrix(rows, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(false);
+        expect(await matrixOf(dsn)).toEqual(matrixFor(TEST_PRIOR));
+        await closeRuntimes(dsn);
       }),
     60_000,
   );
@@ -382,10 +405,10 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         const start = await matrixOf(dsn);
-        await reapplyMatrix(dsn, "forward");
-        await reapplyMatrix(dsn, "reverse");
+        await reapplyMatrix(dsn, "forward", testRosters());
+        await reapplyMatrix(dsn, "reverse", testRosters());
         expect(await matrixOf(dsn)).toEqual(start);
-        await dropRoles(dsn);
+        await closeRuntimes(dsn);
       }),
     60_000,
   );
@@ -406,12 +429,12 @@ suite("the incremental matrix change", () => {
             "select rolname as role, rolconnlimit as limit, rolconfig as config, " +
               'rolcanlogin as "canLogin" ' +
               "from pg_roles where rolname = any($1) order by rolname",
-            [[WEB_ROLE, PROVISIONER_ROLE]],
+            [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
           );
         const before = await roleState();
-        await reapplyMatrix(dsn, "forward");
+        await reapplyMatrix(dsn, "forward", testRosters());
         expect(await roleState()).toEqual(before);
-        await dropRoles(dsn);
+        await closeRuntimes(dsn);
       }),
     60_000,
   );
@@ -484,8 +507,8 @@ suite("a role created by a non-superuser owner", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        const creator = `cp_creator_${Math.random().toString(36).slice(2, 8)}`;
-        const child = `cp_child_${Math.random().toString(36).slice(2, 8)}`;
+        const creator = uniqueRole("cp_creator");
+        const child = uniqueRole("cp_child");
         const password = crypto.randomUUID().replace(/-/g, "");
         await ask(
           dsn,
@@ -541,6 +564,7 @@ suite("it refuses before writing anything", () => {
      * how a precondition test stops testing its own precondition. */
     because: RegExp,
     direction: "forward" | "reverse" = "forward",
+    rosters: () => ReturnType<typeof testRosters> = testRosters,
   ): Promise<void> => {
     const dsn = await asProductionIsToday();
     await stage(dsn);
@@ -548,21 +572,41 @@ suite("it refuses before writing anything", () => {
     // Awaited to completion before the catalog is read again: the claim is
     // that the refusal left nothing behind, and reading while the call was
     // still running would not be that claim.
-    const message = await reapplyMatrix(dsn, direction).then(
+    const message = await reapplyMatrix(dsn, direction, rosters()).then(
       () => "it did not refuse",
       (err: Error) => err.message,
     );
     expect(message).toMatch(because);
     expect(await matrixOf(dsn)).toEqual(before);
-    await dropRoles(dsn);
+    await closeRuntimes(dsn);
   };
+
+  test(
+    "when the two rosters do not name the same roles",
+    () =>
+      serial(() =>
+        refuses(
+          async () => {},
+          /do not name the same roles/,
+          "forward",
+          () => ({
+            prior: TEST_PRIOR,
+            current: renamed(runtimeRoles(), [
+              TEST_WEB_ROLE,
+              uniqueRole("cp_rx"),
+            ]),
+          }),
+        ),
+      ),
+    60_000,
+  );
 
   test(
     "when the catalog is not exactly the matrix being moved away from",
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `grant delete on accounts to ${PROVISIONER_ROLE}`);
+          await ask(dsn, `grant delete on accounts to ${TEST_PROVISIONER_ROLE}`);
         }, /does not carry exactly the matrix/),
       ),
     60_000,
@@ -573,7 +617,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `grant update on name_reservations to ${WEB_ROLE}`);
+          await ask(dsn, `grant update on name_reservations to ${TEST_WEB_ROLE}`);
         }, /does not carry exactly the matrix/),
       ),
     60_000,
@@ -584,7 +628,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await reapplyMatrix(dsn, "forward");
+          await reapplyMatrix(dsn, "forward", testRosters());
         }, /does not carry exactly the matrix/),
       ),
     60_000,
@@ -609,15 +653,9 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          const parent = `cp_parent_${Math.random().toString(36).slice(2, 8)}`;
+          const parent = uniqueRole("cp_parent");
           await ask(dsn, `create role ${parent}`);
-          const auxiliaries = auxiliaryRoles.get(dsn) ?? {
-            parents: [],
-            members: [],
-          };
-          auxiliaries.parents.push(parent);
-          auxiliaryRoles.set(dsn, auxiliaries);
-          await ask(dsn, `grant ${parent} to ${PROVISIONER_ROLE}`);
+          await ask(dsn, `grant ${parent} to ${TEST_PROVISIONER_ROLE}`);
         }, /not exactly the deployed identity/),
       ),
     60_000,
@@ -628,15 +666,9 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          const member = `cp_member_${Math.random().toString(36).slice(2, 8)}`;
+          const member = uniqueRole("cp_member");
           await ask(dsn, `create role ${member}`);
-          const auxiliaries = auxiliaryRoles.get(dsn) ?? {
-            parents: [],
-            members: [],
-          };
-          auxiliaries.members.push(member);
-          auxiliaryRoles.set(dsn, auxiliaries);
-          await ask(dsn, `grant ${PROVISIONER_ROLE} to ${member}`);
+          await ask(dsn, `grant ${TEST_PROVISIONER_ROLE} to ${member}`);
         }, /not exactly the deployed identity/),
       ),
     60_000,
@@ -647,7 +679,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `create schema authorization ${WEB_ROLE}`);
+          await ask(dsn, `create schema authorization ${TEST_WEB_ROLE}`);
         }, /not exactly the deployed identity/),
       ),
     60_000,
@@ -658,7 +690,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `alter role ${WEB_ROLE} connection limit 7`);
+          await ask(dsn, `alter role ${TEST_WEB_ROLE} connection limit 7`);
         }, /not exactly the role/),
       ),
     60_000,
@@ -690,7 +722,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `grant create on schema public to ${WEB_ROLE}`);
+          await ask(dsn, `grant create on schema public to ${TEST_WEB_ROLE}`);
         }, /CREATE on the schema, or a sequence privilege/),
       ),
     60_000,
@@ -704,7 +736,7 @@ suite("it refuses before writing anything", () => {
           await ask(dsn, "create sequence cp_reapply_probe_seq");
           await ask(
             dsn,
-            `grant usage on sequence cp_reapply_probe_seq to ${PROVISIONER_ROLE}`,
+            `grant usage on sequence cp_reapply_probe_seq to ${TEST_PROVISIONER_ROLE}`,
           );
         }, /CREATE on the schema, or a sequence privilege/),
       ),
@@ -716,7 +748,7 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `alter role ${WEB_ROLE} set lock_timeout = '5s'`);
+          await ask(dsn, `alter role ${TEST_WEB_ROLE} set lock_timeout = '5s'`);
         }, /not exactly the role/),
       ),
     60_000,

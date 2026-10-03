@@ -140,8 +140,9 @@ async function main(): Promise<void> {
       check("granted the seed account operator access", granted.ok);
     }
 
+    // Under Node, not `bun --bun`: see the same spawn in lifecycle.e2e.ts.
     server = Bun.spawn(
-      ["bun", "--bun", "node_modules/.bin/next", "dev", "-p", String(PORT)],
+      ["node", "node_modules/.bin/next", "dev", "-p", String(PORT)],
       {
         cwd: WEB_DIR,
         env: {

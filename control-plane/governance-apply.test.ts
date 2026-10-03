@@ -59,6 +59,7 @@ import {
   TARGET_IS_LOCAL,
   inCleanupPool,
 } from "./testing/pg.ts";
+import { withRoleSuiteLock } from "./testing/role-suite-lock.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 
@@ -93,18 +94,20 @@ let TEST_PROBE_MEMBER = "";
  * governing `cp_web` in parallel would be one case watching the other's
  * catalog, whatever database each was connected to. So every mutating case runs
  * through `serial`, which is the only thing here that makes a BEFORE snapshot
- * mean anything.
+ * mean anything. `serial` also holds `withRoleSuiteLock`, because the owner
+ * role is shared with every other process on the cluster.
  */
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const run = async (): Promise<T> => {
-    const names = caseNames();
-    TEST_ROSTER = names.roster;
-    TEST_WEB_ROLE = names.roster[0].role;
-    TEST_PROVISIONER_ROLE = names.roster[1].role;
-    TEST_PROBE_MEMBER = names.probeMember;
-    return fn();
-  };
+  const run = (): Promise<T> =>
+    withRoleSuiteLock(async () => {
+      const names = caseNames();
+      TEST_ROSTER = names.roster;
+      TEST_WEB_ROLE = names.roster[0].role;
+      TEST_PROVISIONER_ROLE = names.roster[1].role;
+      TEST_PROBE_MEMBER = names.probeMember;
+      return fn();
+    });
   const next = queue.then(run, run);
   queue = next.then(
     () => undefined,
@@ -158,6 +161,17 @@ describe("injected runtime roster metadata", () => {
   });
 });
 
+/** What a refused call said, awaited: a case that moved on while the call was
+ * still running would read the catalog mid-call, and release the role-suite
+ * lock under it. */
+const NO_REFUSAL = "it did not refuse";
+async function refusal(work: Promise<unknown>): Promise<string> {
+  return work.then(
+    () => NO_REFUSAL,
+    (err: Error) => err.message,
+  );
+}
+
 async function scratchDatabase(): Promise<string> {
   const name = `cp_gov_${Math.random().toString(36).slice(2, 10)}`;
   await admin.query(`create database ${name}`);
@@ -201,7 +215,11 @@ async function dropRoles(
 }
 
 afterAll(async () => {
-  await inCleanupPool(databases, async (entry) => {
+  // Under the case lock: a database drop waits for a forced checkpoint, and
+  // measured 2026-10-03 one waited 19.7s while other processes' cases were
+  // creating databases, against 115ms with the engine idle.
+  await withRoleSuiteLock(() =>
+    inCleanupPool(databases, async (entry) => {
     const { name, roster, probe } = entry;
     const url = new URL(LOCAL_DATABASE_URL);
     url.pathname = `/${name}`;
@@ -218,7 +236,8 @@ afterAll(async () => {
       )
       .catch(() => {});
     await admin.query(`drop database if exists ${name}`).catch(() => {});
-  });
+    }),
+  );
   const testNames = databases.flatMap(({ roster, probe }) => [
     ...roster.map((entry) => entry.role),
     probe,
@@ -281,7 +300,7 @@ suite("a fresh, empty database", () => {
         const dsn = await scratchDatabase();
         await applyRolePosture(dsn, TEST_ROSTER);
         // The roles exist and are governed; the tables do not exist yet.
-        expect(applyGrantMatrix(dsn, TEST_ROSTER)).rejects.toThrow();
+        expect(await refusal(applyGrantMatrix(dsn, TEST_ROSTER))).not.toBe(NO_REFUSAL);
         await dropRoles(dsn);
       }),
     30_000,
@@ -343,7 +362,7 @@ suite("the migration is one transaction or none of it", () => {
         // with it - which is the property the autocommit version did not have.
         await ask(dsn, "drop table subscriptions");
 
-        expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow();
+        expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).not.toBe(NO_REFUSAL);
 
         const roles = await ask<{ n: string }>(
           dsn,
@@ -381,7 +400,7 @@ suite("a name that is already taken is not taken over", () => {
           `create role ${TEST_WEB_ROLE} login password 'not-ours'`,
         );
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /inert residue/,
           );
           const still = await ask<{ login: boolean; config: string[] | null }>(
@@ -417,7 +436,7 @@ suite("a name that is already taken is not taken over", () => {
         await ask(dsn, `create table someone_elses (id text) `);
         await ask(dsn, `alter table someone_elses owner to ${TEST_WEB_ROLE}`);
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /inert residue/,
           );
         } finally {
@@ -442,7 +461,7 @@ suite("a privilege PUBLIC holds is a privilege every role holds", () => {
         await dropRoles(dsn);
         await ask(dsn, "grant delete on subscriptions to public");
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /PUBLIC holds privileges/,
           );
           // The public ACL is not this build's to edit, so it is still there.
@@ -546,7 +565,7 @@ suite("a role other roles belong to is not adoptable", () => {
           throw new Error("refusing to drop a production runtime role");
         }
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /inert residue/,
           );
           const config = await ask<{ config: string[] | null; limit: number }>(
@@ -583,7 +602,7 @@ suite("a role other roles belong to is not adoptable", () => {
           `create schema someone_elses authorization ${TEST_WEB_ROLE}`,
         );
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /inert residue/,
           );
         } finally {
@@ -675,7 +694,7 @@ suite("the posture converges rather than accumulating", () => {
         await (await Store.open(dsn)).close();
         await ask(dsn, "alter role current_user set lock_timeout = '5s'");
         try {
-          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+          expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).toMatch(
             /did not put there/,
           );
           const roles = await ask<{ n: string }>(
