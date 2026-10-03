@@ -5,10 +5,10 @@
 // handlers AND deletes the WS cases (+ the legacy POST /agents/:id/message).
 //
 // STREAMING, not response-returning: send/edit/sendNow/newConversation/resume are
-// FIRE-AND-FORGET on the turn - the index dep closures void-discard the manager
-// promise and the handler returns only an ack; the log_entry / approval_request /
-// clear_logs events STREAM over the WS as the turn runs (the double-signal: HTTP
-// acks, WS streams). An awaited HTTP response would block on the whole turn.
+// FIRE-AND-FORGET on the turn - the handler returns only an ack; the log_entry /
+// approval_request / clear_logs events STREAM over the WS as the turn runs (the
+// double-signal: HTTP acks, WS streams). An awaited HTTP response would block on
+// the whole turn, so a send awaits only its acceptance decision.
 //
 // sendMessage is UNIFIED + OVERLOADED across the two identity branches the
 // messageSend guard authorizes:
@@ -18,9 +18,10 @@
 //     reply, so calling the same core preserves it for free).
 //   - AGENT (bearer, agent:send-as-self) -> sendAsAgent (enqueueMessage with a
 //     server-derived structured sender; the inter-agent path the retired legacy
-//     POST /agents/:id/message used). Programmatic callers get an explicit HTTP
-//     failure (the manager's documented asymmetry); the USER path is permissive
-//     (errors surface as streamed log entries, never an HTTP error).
+//     POST /agents/:id/message used). Both branches answer a refused send with
+//     an explicit HTTP failure. On the USER path that covers only acceptance
+//     (task 51de8814); errors later in the turn still surface as streamed log
+//     entries.
 //
 // LEAF over the injected ConversationDeps (the EMIT/CALL-IN-DEP closures own every
 // agent-manager touch; these handlers parse, branch on scope, and map outcomes).
@@ -103,9 +104,10 @@ export interface ConversationDeps {
     createdBy: string;
     username: string | undefined;
   };
-  // USER chat send. Void - sendMessage owns the echo / queue / recovery / slash /
-  // approval-reply overload and streams the turn over WS; there is no queued id
-  // to ack (the UI ignores the body and consumes the stream).
+  // USER chat send. Resolves at the acceptance decision, never at turn
+  // completion: sendMessage owns the echo / queue / recovery / slash /
+  // approval-reply overload and streams the turn over WS. A repeated
+  // clientMessageId from the same member resolves without sending again.
   sendAsUser(
     agentId: string,
     text: string,
@@ -113,7 +115,8 @@ export interface ConversationDeps {
     device: string | undefined,
     attachments: Attachment[] | undefined,
     sendNow: boolean,
-  ): void;
+    clientMessageId: string | undefined,
+  ): Promise<UserSendAcceptance>;
   // API-token human send. Resolves at the queue-or-direct acceptance decision,
   // never at turn completion.
   sendAsApi(
@@ -238,6 +241,10 @@ function malformedAttachmentSpec(a: unknown): boolean {
 // 7b's malformedAgentFields on the container TYPE, and additionally validates
 // each attachment ELEMENT (the WS command never element-validated; the REST
 // surface is the one a hand-crafted body reaches).
+// Member sends only (Isomux PM ruling, task 51de8814); the agent and
+// API-token branches keep their own rules.
+export const USER_CLIENT_MESSAGE_ID_MAX = 128;
+
 function malformedSendFields(b: Record<string, unknown>): boolean {
   if (b.device !== undefined && typeof b.device !== "string") return true;
   if (b.clientMessageId !== undefined && typeof b.clientMessageId !== "string")
@@ -462,18 +469,33 @@ export function conversationHandlers(
         if (!r.ok) return fail(r.status, r.code, r.message);
         return ok({ messageId: r.messageId, sentAt: r.sentAt });
       }
-      // USER path: fire-and-forget. Empty text is allowed when attachments carry
-      // the content (the composer sends an image with no caption). The ack body
-      // is "" - there is no single queued id (sendMessage may echo, queue, or
-      // recover); the UI ignores it and consumes the WS stream (double-signal).
-      deps.sendAsUser(
+      // USER path. Empty text is allowed when attachments carry the content (the
+      // composer sends an image with no caption). The 200 means the server has
+      // taken durable responsibility for the message (task 51de8814); every
+      // refusal is an HTTP error with its code, so the composer can keep the
+      // attempt. The ack body is "" - there is no single queued id (sendMessage
+      // may echo, queue, or recover); the turn streams over WS.
+      // The composer sends a UUID; the bound keeps the in-memory dedupe small.
+      if (
+        b.clientMessageId !== undefined &&
+        b.clientMessageId.length > USER_CLIENT_MESSAGE_ID_MAX
+      ) {
+        return fail(
+          422,
+          "invalid_client_message_id",
+          `clientMessageId must be at most ${USER_CLIENT_MESSAGE_ID_MAX} characters.`,
+        );
+      }
+      const r = await deps.sendAsUser(
         ctx.params.id,
         b.text,
         deps.attributionFor(ctx.identity).username,
         b.device,
         b.attachments,
         b.sendNow === true,
+        b.clientMessageId,
       );
+      if (!r.ok) return fail(r.status, r.code, r.message);
       return ok({ messageId: "" });
     },
 

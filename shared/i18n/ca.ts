@@ -1395,6 +1395,14 @@ Coses que pots fer per ell:
   "logView.lastMessagePrefix": "↑ Tu:",
   "logView.emptyStart": "Envia un missatge per començar una conversa o",
   "logView.emptyResume": "reprèn-ne una d'anterior",
+  "logView.outbox.sending": "Enviant",
+  "logView.outbox.notSent": "No enviat",
+  "logView.outbox.resend": "Reenviar",
+  "logView.outbox.networkError": "No s'ha pogut contactar amb el servidor.",
+  "logView.outbox.interrupted":
+    "La pàgina s'ha recarregat abans que el servidor ho confirmés.",
+  "logView.outbox.saveFailed":
+    "No enviat: aquest navegador no ha pogut desar-ne abans una còpia. El teu missatge continua a la caixa.",
   "logView.sendFailedBanner":
     "No s'ha pogut enviar - reconnectant. El teu missatge continua a la caixa; torna-ho a provar quan desaparegui aquest avís.",
   "logView.editFailedBanner":

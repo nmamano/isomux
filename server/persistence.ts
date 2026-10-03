@@ -101,21 +101,37 @@ export function prepareLogEntry(entry: LogEntry): LogEntry {
 }
 
 export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
+  try {
+    appendLogOrThrow(agentId, sessionId, entry);
+  } catch (err) {
+    console.error("Failed to write log:", err);
+  }
+}
+
+// appendLog for a caller that must know the entry reached the transcript (a
+// member message the server acknowledges, task 51de8814). Throws when the
+// JSONL write fails; the first-user-message index is metadata, so its failure
+// is only logged.
+export function appendLogOrThrow(
+  agentId: string,
+  sessionId: string,
+  entry: LogEntry,
+) {
   // Ephemeral entries (e.g. UI-only "Conversation cleared." markers) must
   // never reach disk - guarded here as defense-in-depth so future callers
   // can't accidentally persist one by going through appendLog directly.
   if (entry.ephemeral) return;
   entry = prepareLogEntry(entry);
-  try {
-    const agentDir = join(LOGS_DIR, agentId);
-    mkdirSync(agentDir, { recursive: true });
-    const logFile = join(agentDir, `${sessionId}.jsonl`);
-    appendFileSync(logFile, JSON.stringify(entry) + "\n");
-    if (entry.kind === "user_message") {
+  const agentDir = join(LOGS_DIR, agentId);
+  mkdirSync(agentDir, { recursive: true });
+  const logFile = join(agentDir, `${sessionId}.jsonl`);
+  appendFileSync(logFile, JSON.stringify(entry) + "\n");
+  if (entry.kind === "user_message") {
+    try {
       persistSessionFirstUserMessage(agentId, sessionId, entry.content);
+    } catch (err) {
+      console.error("Failed to write log:", err);
     }
-  } catch (err) {
-    console.error("Failed to write log:", err);
   }
 }
 

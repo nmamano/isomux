@@ -55,6 +55,7 @@ import {
 import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
+  appendLogOrThrow,
   prepareLogEntry,
   loadLog,
   loadLogWithAncestors,
@@ -260,6 +261,7 @@ import {
   type EditLogUser,
 } from "./edit-target.ts";
 import { FAILED_EDIT_TEXT_KEY } from "../shared/failed-edit.ts";
+import { createUserSendDedupe } from "./user-send-dedupe.ts";
 // AgentManager was a singleton function-module (module-level officeState /
 // eventHandler / agents map + exported functions). It is now an instantiable
 // unit: createAgentManager(deps) owns its collaborators; the production wiring
@@ -961,6 +963,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   const agents = new Map<string, ManagedAgent>();
+  // Member-send attempt ids already accepted (see server/user-send-dedupe.ts).
+  const userSendDedupe = createUserSendDedupe();
   // Shared by every SessionManager instance (server/session-manager.ts): the
   // manager-side collaborators the lifecycle operations call. Same lines as
   // before the extraction, reached through this object.
@@ -3379,6 +3383,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
   }
 
+  // Returns false only for a `durable` entry whose transcript write failed;
+  // such an entry is then neither cached nor emitted. A durable entry on an
+  // agent whose session has no id yet is cached and written by the
+  // system_init backfill, as every other entry is.
   function addLogEntry(
     agentId: string,
     kind: LogEntry["kind"],
@@ -3386,7 +3394,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
     extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
-  ) {
+    opts?: { durable?: boolean },
+  ): boolean {
     const editTurnText = agents.get(agentId)?.editTurnText;
     if (kind === "error" && editTurnText !== undefined)
       metadata = { [FAILED_EDIT_TEXT_KEY]: editTurnText, ...metadata };
@@ -3400,15 +3409,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ...(attachments && attachments.length > 0 ? { attachments } : {}),
       ...(extra ?? {}),
     });
+    const managed = agents.get(agentId);
+    const sessionId = managed?.sessionManager.sessionId;
+    if (opts?.durable && managed && sessionId) {
+      try {
+        appendLogOrThrow(agentId, sessionId, entry);
+      } catch (err) {
+        console.error("Failed to write log:", err);
+        return false;
+      }
+    }
     const cached = logCache.get(agentId) ?? [];
     cached.push(entry);
     logCache.set(agentId, cached);
 
     emit({ type: "log_entry", entry });
 
-    const managed = agents.get(agentId);
-    if (managed?.sessionManager.sessionId) {
-      appendLog(agentId, managed.sessionManager.sessionId, entry);
+    if (managed && sessionId) {
+      if (!opts?.durable) appendLog(agentId, sessionId, entry);
       // Track the last entry actually written to this session's JSONL so that
       // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
       managed.lastWrittenEntryId = entry.id;
@@ -3431,6 +3449,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emit(event);
       }
     }
+    return true;
   }
 
   function addApiTokenOutbound(
@@ -6960,6 +6979,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // onAccepted reports the moment the server takes durable responsibility for
+  // a member message, or the refusal (task 51de8814). Per path:
+  //   - normal message: echoed to the log (the session's JSONL, or the log
+  //     cache that is written out when a fresh session reports its id);
+  //   - busy path: in the persisted queue;
+  //   - slash command: dispatched to run;
+  //   - choice or permission reply: applied to its pending prompt.
+  // A path that returns without either is a defect; the wrapper then reports
+  // acceptance_missing so the caller never waits forever.
   async function sendMessage(
     agentId: string,
     text: string,
@@ -6970,11 +6998,90 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sendNow?: boolean;
       onAccepted?: (result: UserSendAcceptance) => void;
       claimedChoice?: ClaimedChoiceInteraction;
+      clientMessageId?: string;
     },
   ) {
+    if (!agents.has(agentId)) {
+      opts?.onAccepted?.({
+        ok: false,
+        status: 404,
+        code: "agent_not_found",
+        message: "No such agent.",
+      });
+      return;
+    }
+    let dedupe: ((result: UserSendAcceptance) => void) | null = null;
+    if (opts?.clientMessageId) {
+      // Keyed by sender as well, so one member cannot answer for another
+      // member's attempt id.
+      const claim = userSendDedupe.claim(
+        agentId,
+        `${username ?? ""}\u0000${opts.clientMessageId}`,
+      );
+      if (claim.kind === "accepted") {
+        opts.onAccepted?.({ ok: true });
+        return;
+      }
+      if (claim.kind === "in_flight") {
+        const onAccepted = opts.onAccepted;
+        void claim.wait.then((result) => onAccepted?.(result));
+        return;
+      }
+      dedupe = claim.settle;
+    }
+    let settled = false;
+    const settle = (result: UserSendAcceptance) => {
+      if (settled) return;
+      settled = true;
+      dedupe?.(result);
+      opts?.onAccepted?.(result);
+    };
+    try {
+      await sendMessageInner(agentId, text, username, device, attachments, {
+        sendNow: opts?.sendNow,
+        claimedChoice: opts?.claimedChoice,
+        accept: () => settle({ ok: true }),
+        refuse: settle,
+      });
+    } finally {
+      settle({
+        ok: false,
+        status: 500,
+        code: "acceptance_missing",
+        message: "The message did not reach an acceptance decision.",
+      });
+    }
+  }
+
+  async function sendMessageInner(
+    agentId: string,
+    text: string,
+    username: string | undefined,
+    device: string | undefined,
+    attachments: Attachment[] | undefined,
+    opts: {
+      sendNow?: boolean;
+      claimedChoice?: ClaimedChoiceInteraction;
+      accept: () => void;
+      refuse: (result: Exclude<UserSendAcceptance, { ok: true }>) => void;
+    },
+  ) {
+    const { accept, refuse } = opts;
+    const promptGone = {
+      ok: false,
+      status: 409,
+      code: "prompt_gone",
+      message: "The prompt this reply was for has ended.",
+    } as const;
+    const persistFailed = {
+      ok: false,
+      status: 500,
+      code: "persist_failed",
+      message: "The message could not be saved.",
+    } as const;
     const managed = agents.get(agentId);
     if (!managed) {
-      opts?.onAccepted?.({
+      refuse({
         ok: false,
         status: 404,
         code: "agent_not_found",
@@ -7015,13 +7122,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             error: result.error,
           }),
         );
-        opts?.onAccepted?.({
+        refuse({
           ok: false,
           status: result.status as 404 | 409 | 429 | 500,
           code: result.error,
           message: result.error,
         });
-      } else if (opts?.sendNow) {
+      } else if (opts.sendNow) {
         // Ctrl/Cmd+Enter "deliver now": the message just landed in the queue,
         // so trigger the same abort+flush the /send-now endpoint runs. The
         // flag is read ONLY inside this branch, so its guards (busy, no
@@ -7030,11 +7137,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the endpoint's own wiring (sendNow handles its own state).
         void sendNow(agentId, "member_send_now");
       }
-      if (result.ok) opts?.onAccepted?.({ ok: true });
+      if (result.ok) accept();
       return;
     }
-
-    opts?.onAccepted?.({ ok: true });
 
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic
@@ -7060,13 +7165,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const echoEarly =
       !managed.pendingPermission && !claimedChoice && !text.startsWith("/");
     if (echoEarly) {
-      addLogEntry(
-        agentId,
-        "user_message",
-        text,
-        buildUserMeta(username, device),
-        attachments,
-      );
+      if (
+        !addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+          undefined,
+          { durable: true },
+        )
+      ) {
+        refuse(persistFailed);
+        return;
+      }
+      // Accepted: the echo is in the session's transcript. On a fresh session
+      // with no id yet it is in memory and handed to the backend, and the
+      // system_init backfill writes it; a crash in that window loses it
+      // (Isomux PM ruling, task 51de8814).
+      accept();
       beginTurn(agentId, { humanInput: true });
       if (
         (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
@@ -7118,7 +7235,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // below and surface the descriptive error.
     if (!managed.sessionManager.session && !claimedChoice && !isSlash) {
       // Fall through on success so the message is actually sent on the new
-      // session; bail on failure (an error was logged inside the helper).
+      // session; bail on failure (an error was logged inside the helper). The
+      // helper logs the message on failure too, so it is accepted either way.
       if (
         !wakeSessionForSend(agentId, managed, {
           echoEarly,
@@ -7127,8 +7245,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           device,
           attachments,
         })
-      )
+      ) {
+        accept();
         return;
+      }
     }
 
     // Runs before slash-command interception by design - any typed slash command
@@ -7144,8 +7264,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (
       claimedChoice?.interaction.kind === "permission" &&
       managed.pendingPermission?.interactionId !== claimedChoice.interaction.id
-    )
+    ) {
+      refuse(promptGone);
       return;
+    }
     if (
       managed.pendingPermission &&
       (!claimedChoice || clickedPermissionChoice !== null)
@@ -7201,6 +7323,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "system",
           logWords(agentId, username)("systemEntries.permissionSessionGone"),
         );
+        refuse(promptGone);
         return;
       }
       const options = permissionOptions(
@@ -7291,6 +7414,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // queue-idle state) an inbound message could race into the active turn and
       // skip the queue.
       updateState(agentId, resumeState);
+      // The reply is now applied to its prompt; a failure to deliver the
+      // decision to the backend is reported in the chat.
+      accept();
       try {
         await session.approve(pending.approvalId, decision);
         recordPermissionOutcome(
@@ -7339,6 +7465,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (picked) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
+        accept();
         managed.pendingResumeSessions = [];
         // Resuming a different past session is a context switch; queued
         // messages were addressed to the current session and shouldn't bleed
@@ -7460,6 +7587,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (picked) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
+        accept();
         const label = familyDisplayLabel(picked);
         if (picked === managed.info.modelFamily) {
           emitEphemeralLog(
@@ -7530,6 +7658,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (selectedEffort) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
+        accept();
         const picked = {
           level: validateEffort(
             managed.info.agentType,
@@ -7590,6 +7719,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     if (claimedChoice?.interaction.kind === "cronjob") {
       if (claimedChoice.value !== null) {
+        accept();
         await handleSlashCommand(
           agentId,
           managed,
@@ -7611,6 +7741,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Intercept slash commands that are handled locally, not by the LLM
     if (text.startsWith("/")) {
       const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
+      // Accepted to run. A command that is not handled here is a skill, which
+      // runs as a normal turn below.
+      accept();
       const handled = await handleSlashCommand(
         agentId,
         managed,
@@ -7640,8 +7773,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           device,
           attachments,
         })
-      )
+      ) {
+        accept();
         return;
+      }
     }
 
     // Skip if the early echo at the top already covered this. We use the
@@ -7650,13 +7785,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // reply during /resume) reaches here with the flag now false but still
     // needs the echo.
     if (!echoEarly) {
-      addLogEntry(
-        agentId,
-        "user_message",
-        text,
-        buildUserMeta(username, device),
-        attachments,
-      );
+      // A slash command that reached here is a skill, already accepted to
+      // run; any other message is accepted only once its echo is stored (see
+      // the early echo above for the fresh-session case).
+      if (
+        !addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+          undefined,
+          { durable: !isSlash },
+        )
+      ) {
+        refuse(persistFailed);
+        return;
+      }
+      accept();
       beginTurn(agentId, { humanInput: true });
 
       // First-message bootstrap (topic === null) OR drift-driven refresh after
@@ -8290,6 +8436,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
     dropSettledChoiceInteractions(agentId);
+    userSendDedupe.forgetAgent(agentId);
     // The agent left the live map; revoke its bearer token (mirrors the mint at
     // spawn/restore). A killed agent has no subprocess and no valid token.
     revokeAgentToken(agentId);

@@ -144,10 +144,15 @@ export interface SendMessageReq {
   // Optional legacy input. Sender authority is ALWAYS the token; rejected if
   // present and ≠ token.agentId, ignored otherwise (see guards.senderMustEqualTokenAgent).
   senderAgentId?: string;
-  // Optional retry-dedup key for the AGENT (inter-agent) branch - folds into the
+  // Optional retry-dedup key. AGENT (inter-agent) branch: folds into the
   // manager's queue dedupe, the same field the retired POST /agents/:id/message
-  // accepted. The UI (USER branch) omits it. When deliverAt is present it doubles
-  // as the scheduled-message idempotency key (persisted, so it survives restarts).
+  // accepted; when deliverAt is present it doubles as the scheduled-message
+  // idempotency key (persisted, so it survives restarts). USER branch: the
+  // composer's attempt id - a repeat from the same member is acknowledged
+  // without sending again (in memory, per agent, bounded; lost on restart).
+  // At most 128 characters on the USER branch (422 otherwise). On the USER
+  // branch a 200 means the server has taken durable responsibility for the
+  // message; every refusal is an HTTP error with its code.
   clientMessageId?: string;
   // AGENT branch only: schedule the message for future delivery instead of
   // sending now. Strict RFC3339 with a REQUIRED Z or numeric offset (offset-less

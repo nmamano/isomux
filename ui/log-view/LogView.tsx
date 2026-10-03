@@ -52,6 +52,8 @@ import {
 } from "./tool-call-groups.ts";
 import { citationBlock } from "./cite.ts";
 import { appendBlockToDraft } from "./draft-append.ts";
+import { sendAttempt, takeAttempt } from "./outbox.ts";
+import { OutboxRows } from "./OutboxRows.tsx";
 import { errMessage } from "../../shared/errors.ts";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
@@ -969,6 +971,8 @@ export function LogView({
     null,
   );
   const [sendError, setSendError] = useState(false);
+  // The browser refused to save the last attempt, so it was not sent.
+  const [saveError, setSaveError] = useState(false);
   // Why the last edit request was rejected before it reached the server's
   // edit path. Its text is already back in the composer.
   const [editError, setEditError] = useState<string | null>(null);
@@ -1374,18 +1378,24 @@ export function LogView({
     copyTimer.current = setTimeout(() => setCopied(false), 1500);
   }, [getConversationText]);
 
+  // Returns whether the command was handed to the outbox, so a caller that
+  // clears the composer does so only then.
   const runSlashCommand = useCallback(
-    (command: string) => {
+    (command: string): boolean => {
       if (!connected) {
         setSendError(true);
-        return;
+        return false;
       }
-      apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+      const recorded = sendAttempt({
+        agentId: agent.id,
         text: command,
         device: device || undefined,
-      }).catch(() => {});
+      });
+      setSaveError(!recorded);
+      if (!recorded) return false;
       setSendError(false);
       setAutoScroll(true);
+      return true;
     },
     [agent.id, connected, device],
   );
@@ -1843,11 +1853,11 @@ export function LogView({
     // wire data) falls through to the safe insert path.
     if (autoRun === true) {
       setSkillsOpen(false);
+      const recorded = runSlashCommand(`/${name}`);
       if (pickedFromDraft) {
         setSlashMenuDismissed(true);
-        setInput("");
+        if (recorded) setInput("");
       }
-      runSlashCommand(`/${name}`);
       return;
     }
     if (pickedFromDraft) {
@@ -1904,6 +1914,23 @@ export function LogView({
     insertBlockIntoDraft(`${fence}\n${body}\n${fence}\n`);
   }
 
+  // Edit on a not-sent row: its text and attachments come back into the
+  // composer as a new draft, and the attempt is dropped. The text is
+  // appended, like a failed edit, so nothing already typed is lost.
+  function editFailedAttempt(id: string) {
+    const attempt = takeAttempt(id);
+    if (!attempt) return;
+    if (attempt.attachments && attempt.attachments.length > 0) {
+      const restored = attempt.attachments.map((att) => ({
+        ...att,
+        id: Math.random().toString(36).slice(2, 10),
+        uploading: false,
+      }));
+      setStagedAttachments((prev) => [...prev, ...restored]);
+    }
+    if (attempt.text) restoreFailedEdit(attempt.text);
+  }
+
   function handleSend(opts?: {
     sendNow?: boolean;
     text?: string;
@@ -1935,19 +1962,24 @@ export function LogView({
       setSendError(true);
       return false;
     }
-    // Fire-and-forget: the user_message echo + reply stream back over WS; the
-    // ack ({ messageId: "" } for a USER send) is ignored. username is
+    // The outbox records the attempt as pending before the composer clears,
+    // and keeps it until the server acknowledges it (task 51de8814); the
+    // user_message echo + reply stream back over WS. username is
     // server-derived (attributionFor), not body-sent. sendNow (Ctrl/Cmd+Enter)
     // asks the server to interrupt the current turn and flush the queue right
     // after this message lands in it - the flag is inert when the agent is
     // idle (plain send) or the message takes a non-queue path (slash command,
     // permission/multi-step reply), so it's always safe to set.
-    apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+    const recorded = sendAttempt({
+      agentId: agent.id,
       text,
-      device: device || undefined,
       attachments,
-      ...(opts?.sendNow ? { sendNow: true } : {}),
-    }).catch(() => {});
+      device: device || undefined,
+      sendNow: opts?.sendNow,
+    });
+    // Not saved, so not sent: the composer keeps the only copy.
+    setSaveError(!recorded);
+    if (!recorded) return false;
     setSendError(false);
     setEditError(null);
     setInput("");
@@ -2778,6 +2810,28 @@ export function LogView({
                 <span>{i18n.t("logView.sendFailedBanner")}</span>
               </div>
             )}
+            {saveError && (
+              <div
+                role="alert"
+                data-outbox-save-failed
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 8,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "var(--red-bg, rgba(192,57,43,0.12))",
+                  border: "1px solid var(--red, #c0392b)",
+                  color: "var(--red-text)",
+                  fontSize: isMobile ? 12 : 11,
+                  fontWeight: 600,
+                }}
+              >
+                <span>⚠</span>
+                <span>{i18n.t("logView.outbox.saveFailed")}</span>
+              </div>
+            )}
             {voiceInputError && (
               <div
                 role="alert"
@@ -2794,6 +2848,11 @@ export function LogView({
               queue={agent.queue ?? []}
               agentId={agent.id}
               isMobile={isMobile}
+            />
+            <OutboxRows
+              agentId={agent.id}
+              isMobile={isMobile}
+              onEdit={editFailedAttempt}
             />
             {stagedAttachments.length > 0 && (
               <div

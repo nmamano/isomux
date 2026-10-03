@@ -78,6 +78,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ### Conversation controls
 
 - **Input drafts preserved** when switching between agents and across page reloads.
+- **Unsent messages kept** - a message stays above the input box until the server confirms it. If sending fails, resend, edit or discard it.
 - **Markdown rendering** for agent output.
 - **Collapsible thinking and tool-call cards** with timing for each step (errors are expanded automatically).
 - **Structured API-call cards**: when an agent curls the isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.

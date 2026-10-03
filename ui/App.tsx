@@ -11,6 +11,7 @@ import {
 } from "./view-persistence.ts";
 import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
+import { restoreOutbox } from "./log-view/outbox.ts";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import {
@@ -195,6 +196,7 @@ export function App({ routing = true }: { routing?: boolean }) {
       }
     }
     pruneUserDrafts(persistUser, liveAgentIds);
+    restoreOutbox(persistUser, liveAgentIds);
     const saved = loadSavedView(persistUser);
     if (!saved) {
       dispatch({ type: "set_lobby_open", open: true });

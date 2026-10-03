@@ -3773,19 +3773,34 @@ function buildExecutorDeps(
   register(
     conversationHandlers({
       attributionFor,
-      sendAsUser: (agentId, text, username, device, attachments, sendNow) => {
-        // Bare void mirrors the deleted WS send_message case: sendMessage owns the
-        // echo / queue / recovery / slash / approval-reply overload and streams
-        // the turn over WS; it handles its own errors as log entries (no reject).
-        void agentManager.sendMessage(
-          agentId,
-          text,
-          username,
-          device,
-          attachments,
-          { sendNow },
-        );
-      },
+      sendAsUser: (
+        agentId,
+        text,
+        username,
+        device,
+        attachments,
+        sendNow,
+        clientMessageId,
+      ) =>
+        // Resolves at the acceptance decision (task 51de8814), never at turn
+        // completion: sendMessage owns the echo / queue / recovery / slash /
+        // approval-reply overload and streams the turn over WS.
+        new Promise<UserSendAcceptance>((resolve) => {
+          agentManager
+            .sendMessage(agentId, text, username, device, attachments, {
+              sendNow,
+              clientMessageId,
+              onAccepted: resolve,
+            })
+            .catch(() =>
+              resolve({
+                ok: false,
+                status: 500,
+                code: "send_failed",
+                message: "The message could not be sent.",
+              }),
+            );
+        }),
       sendAsApi: (agentId, text, username, device, tokenId) =>
         sendApiTokenMessage(
           tokenId,

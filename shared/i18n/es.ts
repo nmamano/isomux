@@ -1399,6 +1399,14 @@ Cosas que puedes hacer por él:
   "logView.lastMessagePrefix": "↑ Tú:",
   "logView.emptyStart": "Envía un mensaje para empezar una conversación o",
   "logView.emptyResume": "reanuda una anterior",
+  "logView.outbox.sending": "Enviando",
+  "logView.outbox.notSent": "No enviado",
+  "logView.outbox.resend": "Reenviar",
+  "logView.outbox.networkError": "No se ha podido contactar con el servidor.",
+  "logView.outbox.interrupted":
+    "La página se recargó antes de que el servidor lo confirmara.",
+  "logView.outbox.saveFailed":
+    "No enviado: este navegador no ha podido guardar antes una copia. Tu mensaje sigue en la caja.",
   "logView.sendFailedBanner":
     "No se ha podido enviar - reconectando. Tu mensaje sigue en la caja; vuelve a intentarlo cuando desaparezca este aviso.",
   "logView.editFailedBanner":

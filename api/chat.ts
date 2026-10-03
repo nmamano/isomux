@@ -139,6 +139,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 
 ### Conversation View
 - Input drafts preserved when switching between agents and across page reloads
+- Unsent messages kept: a message stays above the input box until the server confirms it. If sending fails, it can be resent, edited or discarded
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
 - Structured cards for agent curl calls to the isomux API, describing each call in plain language with its key payload fields

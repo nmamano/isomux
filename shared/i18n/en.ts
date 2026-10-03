@@ -1377,6 +1377,14 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "logView.lastMessagePrefix": "↑ You:",
   "logView.emptyStart": "Send a message to start a conversation or",
   "logView.emptyResume": "resume a past one",
+  "logView.outbox.sending": "Sending",
+  "logView.outbox.notSent": "Not sent",
+  "logView.outbox.resend": "Resend",
+  "logView.outbox.networkError": "The server could not be reached.",
+  "logView.outbox.interrupted":
+    "The page reloaded before the server confirmed it.",
+  "logView.outbox.saveFailed":
+    "Not sent: this browser could not save a copy first. Your message is still in the box.",
   "logView.sendFailedBanner":
     "Couldn't send - reconnecting. Your message is still in the box; try again once the banner clears.",
   "logView.editFailedBanner":

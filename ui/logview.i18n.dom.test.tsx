@@ -267,7 +267,7 @@ describe("the log view chrome", () => {
   // "keeps the escalated Abort label short and shows its shortcut in a tooltip"
   // and "opens resume from the empty state and ends a populated conversation
   // through slash commands". Those states are rerenders now, not fresh mounts.
-  it("reads the languages and keeps the conversation controls working", () => {
+  it("reads the languages and keeps the conversation controls working", async () => {
     const view = render(logView("ca", []));
     containsText(view, ANCHOR.emptyStart.ca);
     shows(view, ANCHOR.emptyResume.ca);
@@ -334,7 +334,8 @@ describe("the log view chrome", () => {
     commandCalls.length = 0;
     view.rerender(logView(null, []));
     fireEvent.click(view.getByRole("button", { name: ANCHOR.emptyResume.en }));
-    expect(commandCalls.at(-1)).toEqual({
+    // The body also carries the outbox attempt id (task 51de8814).
+    expect(commandCalls.at(-1)).toMatchObject({
       method: "POST",
       path: "/api/agents/a1/messages",
       body: { text: "/resume" },
@@ -342,11 +343,16 @@ describe("the log view chrome", () => {
 
     view.rerender(logView(null, SEEDED));
     fireEvent.click(view.getByTitle(ANCHOR.endConversation.en));
-    expect(commandCalls.at(-1)).toEqual({
+    expect(commandCalls.at(-1)).toMatchObject({
       method: "POST",
       path: "/api/agents/a1/messages",
       body: { text: "/clear" },
     });
+    // Let the outbox settle the acks before the DOM goes away.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    view.unmount();
   });
 });
 
