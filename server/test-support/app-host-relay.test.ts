@@ -238,13 +238,13 @@ describe("app-host relay: nothing reaches a socket it should not", () => {
     ).toBe(200);
 
     await deleteApp(srv, token, "hello");
-    // The label is retired: the arm refuses it before the gate or the relay is
-    // consulted, and the process still listening on that port is irrelevant.
+    // The label is retired: the arm sends the caller to sign in instead of
+    // relaying, and the process still listening on that port is irrelevant.
     const after = await raw(srv.port, {
       host: appHost(label),
       headers: { ...NAVIGATION_HEADERS, ...withAppCookie(cookie) },
     });
-    expectPlaceholder(after, NOT_FOUND, "after delete");
+    expectBounce(after, { label, path: "/" }, "after delete");
     expect(seen.length).toBe(1);
   });
 

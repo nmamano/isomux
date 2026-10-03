@@ -28,6 +28,10 @@ import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
 import { builtShellExists } from "./built-ui.ts";
 import {
+  appRegistrationGeneration,
+  appRegistry,
+} from "../app-registry.ts";
+import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
   expectBounce,
@@ -51,6 +55,33 @@ import {
 } from "./app-host-test-kit.ts";
 
 let server: TestServer | null = null;
+
+// Requests whose answer on an app host does not contain the label: everything
+// that is refused rather than bounced to the office's mint URL.
+const LABEL_FREE_SHAPES: {
+  path?: string;
+  method?: string;
+  headers?: Record<string, string>;
+}[] = [
+  { headers: { "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } },
+  { method: "POST", headers: { "Content-Length": "0" } },
+  { method: "HEAD" },
+  { path: "/ws", headers: WS_UPGRADE_HEADERS },
+  { path: "/__isomux/auth" },
+  { path: "/__isomux/auth?code=bogus" },
+  { path: "/__isomux/other" },
+];
+
+// Every request shape a caller with no app session can send, including the
+// ones bounced to the mint URL, which carries the label.
+const ALL_SHAPES = [
+  ...LABEL_FREE_SHAPES,
+  {},
+  { headers: NAVIGATION_HEADERS },
+  { path: "/page?x=1", headers: NAVIGATION_HEADERS },
+  { path: "/favicon.ico", headers: NAVIGATION_HEADERS },
+  { headers: { ...NAVIGATION_HEADERS, ...withAppCookie("stale") } },
+];
 afterEach(async () => {
   await server?.stop();
   server = null;
@@ -368,10 +399,11 @@ describe("app hosts: the office is untouched", () => {
     const after = await before.restart();
     server = after;
     // The feature is on: an app host under the domain now diverts.
-    expect(
-      (await raw(after.port, { host: `hello.${OFFICE_HOST}`, path: "/readyz" }))
-        .status,
-    ).toBe(404);
+    expectBounce(
+      await raw(after.port, { host: `hello.${OFFICE_HOST}`, path: "/readyz" }),
+      { label: "hello", path: "/readyz" },
+      "app host after the restart",
+    );
 
     for (const host of NON_APP_HOSTS) {
       const res = await raw(after.port, { host, path: "/readyz" });
@@ -474,10 +506,11 @@ describe("app hosts: the office is untouched", () => {
     const srv = await startFlatOffice();
     patchOfficeConfig({ publicOrigin: "https://later.example" });
     // The domain this process booted with still diverts...
-    expect(
-      (await raw(srv.port, { host: `hello.${OFFICE_HOST}`, path: "/readyz" }))
-        .status,
-    ).toBe(404);
+    expectBounce(
+      await raw(srv.port, { host: `hello.${OFFICE_HOST}`, path: "/readyz" }),
+      { label: "hello", path: "/readyz" },
+      "booted domain",
+    );
     // ...and the one written underneath it does not exist for this process.
     expect(
       (await raw(srv.port, { host: "hello.later.example", path: "/readyz" }))
@@ -545,15 +578,75 @@ describe("app hosts: the arm", () => {
     const token = await anAgentToken(srv);
     await registerApp(srv, token, "hello");
     await deleteApp(srv, token, "hello");
-    // "hello" is retired: in the ledger forever, no live app behind it.
-    const retired = await raw(srv.port, { host: `hello.${OFFICE_HOST}` });
-    const unknown = await raw(srv.port, {
-      host: `never-existed.${OFFICE_HOST}`,
-    });
-    expectPlaceholder(retired, NOT_FOUND, "retired label");
-    expectPlaceholder(unknown, NOT_FOUND, "unknown label");
-    // And byte-identical to each other, headers and order included.
-    expect(retired.stable).toBe(unknown.stable);
+    // "hello" is retired: in the ledger forever, no live app behind it. These
+    // request shapes get answers that do not contain the label.
+    for (const shape of LABEL_FREE_SHAPES) {
+      const retired = await raw(srv.port, {
+        host: `hello.${OFFICE_HOST}`,
+        ...shape,
+      });
+      const unknown = await raw(srv.port, {
+        host: `never-existed.${OFFICE_HOST}`,
+        ...shape,
+      });
+      // Byte-identical, headers and order included.
+      expect({ shape, stable: retired.stable }).toEqual({
+        shape,
+        stable: unknown.stable,
+      });
+    }
+  });
+
+  it("gives a label the same answer before and after its app is deleted", async () => {
+    // A caller with no app session must not learn whether a label is live
+    // (security finding F9), by any method, path, protocol or stale cookie.
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    const host = `${label}.${OFFICE_HOST}`;
+    const live = [];
+    for (const shape of ALL_SHAPES) {
+      live.push(await raw(srv.port, { host, ...shape }));
+    }
+    await deleteApp(srv, token, "hello");
+    for (const [i, shape] of ALL_SHAPES.entries()) {
+      const retired = await raw(srv.port, { host, ...shape });
+      expect({ shape, stable: retired.stable }).toEqual({
+        shape,
+        stable: live[i].stable,
+      });
+    }
+  });
+
+  it("gives a REUSED label the same answer, with no Clear-Site-Data", async () => {
+    // A label registered again carries a newer registration generation. The
+    // no-session answer must not depend on that either (PM ruling, 2026-10-03).
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    await registerApp(srv, token, "hello");
+    await deleteApp(srv, token, "hello");
+    const label = await registerApp(srv, token, "hello");
+    const record = appRegistry.get("hello");
+    if (!record) throw new Error("hello is not registered");
+    expect(appRegistrationGeneration(record)).toBeGreaterThan(record.hostGen);
+    const host = `${label}.${OFFICE_HOST}`;
+    const reused = [];
+    for (const shape of ALL_SHAPES) {
+      const res = await raw(srv.port, { host, ...shape });
+      expect({ shape, hasClear: "clear-site-data" in res.headers }).toEqual({
+        shape,
+        hasClear: false,
+      });
+      reused.push(res);
+    }
+    await deleteApp(srv, token, "hello");
+    for (const [i, shape] of ALL_SHAPES.entries()) {
+      const retired = await raw(srv.port, { host, ...shape });
+      expect({ shape, stable: retired.stable }).toEqual({
+        shape,
+        stable: reused[i].stable,
+      });
+    }
   });
 
   it("serves a re-registered app on its stable label", async () => {
@@ -589,19 +682,35 @@ describe("app hosts: the arm", () => {
     }
   });
 
-  it("404s a RESERVED label like any other unknown one", async () => {
+  it("answers a RESERVED label like any other unknown one", async () => {
     // Reversal recorded 2026-08-06: reserved names do not fall through to the
     // office. An office on HTTPS owns the whole namespace below its host.
     const srv = await startFlatOffice();
-    const control = await raw(srv.port, { host: `nope.${OFFICE_HOST}` });
-    for (const label of ["www", "api", "mail", "admin"]) {
-      const res = await raw(srv.port, { host: `${label}.${OFFICE_HOST}` });
-      expectPlaceholder(res, NOT_FOUND, label);
-      expect({ label, stable: res.stable }).toEqual({
-        label,
-        stable: control.stable,
+    for (const shape of LABEL_FREE_SHAPES) {
+      const control = await raw(srv.port, {
+        host: `nope.${OFFICE_HOST}`,
+        ...shape,
       });
+      for (const label of ["www", "api", "mail", "admin"]) {
+        const res = await raw(srv.port, {
+          host: `${label}.${OFFICE_HOST}`,
+          ...shape,
+        });
+        expect({ label, shape, stable: res.stable }).toEqual({
+          label,
+          shape,
+          stable: control.stable,
+        });
+      }
     }
+    expectBounce(
+      await raw(srv.port, {
+        host: `www.${OFFICE_HOST}`,
+        headers: NAVIGATION_HEADERS,
+      }),
+      { label: "www", path: "/" },
+      "reserved label navigation",
+    );
   });
 
   it("reserves /__isomux on a live app host", async () => {
@@ -627,23 +736,6 @@ describe("app hosts: the arm", () => {
       { label, path: "/__isomuxer" },
       "/__isomuxer",
     );
-  });
-
-  it("looks the label up BEFORE it looks at the path or the upgrade", async () => {
-    const srv = await startFlatOffice();
-    const host = `never-existed.${OFFICE_HOST}`;
-    const plain = await raw(srv.port, { host });
-    const reserved = await raw(srv.port, { host, path: "/__isomux/auth" });
-    const upgrade = await raw(srv.port, {
-      host,
-      path: "/ws",
-      headers: WS_UPGRADE_HEADERS,
-    });
-    // If the reservation or the upgrade branch ran first, one of these would
-    // differ - and an unknown host would be leaking which paths are special.
-    expect(reserved.stable).toBe(plain.stable);
-    expect(upgrade.stable).toBe(plain.stable);
-    expect(plain.status).toBe(404);
   });
 
   it("refuses a WebSocket upgrade instead of handing it to the office", async () => {

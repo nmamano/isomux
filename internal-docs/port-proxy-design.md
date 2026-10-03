@@ -158,8 +158,9 @@ origin state as the smaller harm than permanently losing a wanted URL
 **What shipped, for registered apps.** A separate monotonic registration
 identity binds every server-held code, session and relay. Delete stops the unit,
 closes HTTP and both WebSocket legs, purges auth state and revokes the app token
-before it frees the name and port. `Clear-Site-Data` on pre-auth responses is
-best-effort cleanup only. Existing generated labels remain at their existing
+before it frees the name and port. Pre-auth responses send no
+`Clear-Site-Data`: they must be the same for a missing label and a live one
+(PM ruling, 2026-10-03). Existing generated labels remain at their existing
 URLs; stable bare labels apply prospectively. The shape is flat -
 `hello.office.example.com`, no `apps.` tier (Nil, 2026-08-06) - and a
 reserved-name list guards the office's own namespace. With the hosted wildcard,

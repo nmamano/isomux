@@ -29,8 +29,8 @@
 // origin at a real DNS name, its children are app hostnames. The consequence,
 // accepted deliberately: an operator who has some other record pointed at this
 // office under that name (`www.`, `staging.`) stops getting the office there
-// and gets a neutral 404, because an unknown label cannot be allowed to fall
-// through to the office. Loopback and plain-HTTP offices - every dev box - get
+// and gets the app-host answer for an unknown label, because an unknown label
+// cannot be allowed to fall through to the office. Loopback and plain-HTTP offices - every dev box - get
 // no app-host domain at all and are byte-identical to before this existed.
 
 import { appRegistry as productionRegistry } from "./app-registry.ts";
@@ -43,9 +43,14 @@ import {
   appHostAuthGate,
   appHostWsAuthGate,
   handleAppAuthRedeem,
+  unknownLabelAnswer,
 } from "./app-auth.ts";
 import { relayWsToApp, type AppRelayWsData } from "./app-ws-relay.ts";
-import { neutralNotFound } from "./app-host-responses.ts";
+import {
+  SIGN_IN_FAILED_BODY,
+  handshake,
+  neutralNotFound,
+} from "./app-host-responses.ts";
 // The hostname grammar and the office's own domain live in app-domain.ts, a
 // leaf module: the supervisor needs the same domain to write an app's URL into
 // its unit, and this module imports the supervisor.
@@ -173,13 +178,14 @@ export interface AppHostDeps {
 // The order of the checks below is load-bearing:
 //
 //   1. multi-label host               -> 404
-//   2. no live app with that label    -> the SAME 404, whether the label was
-//      never issued or was retired. Those two must be indistinguishable: a
-//      retired label is a name somebody used to have, and the difference is
-//      not the internet's business.
+//   2. no live app with that label    -> the answer a live label gives a caller
+//      with no app session, at each step below: the reserved 404, the failed
+//      sign-in, the 401 or the bounce to the office. An anonymous caller cannot
+//      tell a live label from one that was never issued or was retired; the
+//      office mint endpoint refuses the label behind the office sign-in.
 //   3. /favicon.ico                   -> the app's Isomux-family tab icon. It
-//      sits here, after the live-label check, so unknown and retired labels
-//      still get the same neutral 404.
+//      sits behind the gate in step 6, so it does not show that a label is
+//      live.
 //   4. the handshake's own path       -> redeem a sign-in code. Everything
 //      else under the reserved prefix, including any other method or protocol
 //      on this path, is the 404: an app never sees a reserved path, and both
@@ -228,7 +234,7 @@ export function handleAppHostRequest(
     apps = registry.list();
   } catch (err) {
     // A registry that cannot be read cannot vouch for a label. Fail closed:
-    // the same 404 an unknown label gets, never an app.
+    // the neutral 404, never an app.
     console.error("[app-hosts] app registry unreadable; refusing host:", err);
     return neutralNotFound();
   }
@@ -236,7 +242,6 @@ export function handleAppHostRequest(
   // app's issuance TUPLE (label + generation), which is what the registry
   // treats as an app's identity.
   const app = apps.find((a) => a.hostLabel === match.label) ?? null;
-  if (app === null) return neutralNotFound();
 
   const { pathname } = new URL(req.url);
   const upgrade = isWebSocketUpgrade(req);
@@ -252,10 +257,14 @@ export function handleAppHostRequest(
     // code and then be relayed. The reserved namespace is not the app's, by any
     // method and by any protocol.
     if (!upgrade && pathname === APP_AUTH_PATH && req.method === "GET") {
+      // A live label answers this for every code that fails.
+      if (app === null) return handshake(400, SIGN_IN_FAILED_BODY);
       return handleAppAuthRedeem(req, { host, app, canAccess: deps.canAccess });
     }
     return neutralNotFound();
   }
+
+  if (app === null) return unknownLabelAnswer(req, match.label, upgrade);
 
   if (upgrade) {
     // Auth first, in the same position as the HTTP path's gate - but with its

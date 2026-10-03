@@ -14,10 +14,10 @@
 // code or session material, so there is no reflection surface at all, and no
 // response varies with who is asking.
 
-// The refusal. Sent for a label that names no live app - never issued, or
-// issued once and retired - and for anything under an app host that is not a
-// route. "This label used to be somebody's app" is not the internet's
-// business, so all of it is one answer.
+// The refusal. Sent for a host more than one label below the domain, and for
+// anything under an app host that is not a route. A label that names no live
+// app does not get it: it gets what a live label gives a caller with no app
+// session (app-hosts.ts), so this answer cannot show which labels are live.
 export const NOT_FOUND_BODY = "not found\n";
 
 // The "this app is not reachable yet" body is GONE. It was the last placeholder

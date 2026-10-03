@@ -55,7 +55,7 @@ import {
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { createHash } from "crypto";
-import { appRegistry } from "../app-registry.ts";
+import { appRegistrationGeneration, appRegistry } from "../app-registry.ts";
 import {
   APP_COOKIE_NAME,
   APP_MINT_MAX_PER_WINDOW,
@@ -320,17 +320,21 @@ describe("app-host handshake: the whole round trip", () => {
 
     await deleteApp(srv, token, "hello");
     const host = appHost(label);
-    // The label is retired: the arm refuses before the handshake is consulted,
-    // so a live cookie and an unspent code are equally worthless.
-    expectPlaceholder(
-      await raw(srv.port, {
-        host,
-        headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
-      }),
-      NOT_FOUND,
-      "cookie on a deleted app",
-    );
-    expectPlaceholder(await redeem(srv, label, code), NOT_FOUND, "code on it");
+    // The label is retired: it answers as a live label answers a caller with no
+    // app session, so a live cookie and an unspent code are equally worthless.
+    const withCookie = await raw(srv.port, {
+      host,
+      headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
+    });
+    expectBounce(withCookie, { label, path: "/" }, "cookie on a deleted app");
+    expect(withCookie.setCookies).toEqual([
+      `${APP_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`,
+    ]);
+    const spent = await redeem(srv, label, code);
+    expect({ status: spent.status, body: spent.body }).toEqual({
+      status: 400,
+      body: SIGN_IN_FAILED_BODY,
+    });
 
     // Re-registering keeps the wanted label, while server-held registration
     // identity makes the predecessor's credentials worthless.
@@ -420,35 +424,30 @@ describe("app-host handshake: the generation binding", () => {
     expect(refused.body).toBe(SIGN_IN_FAILED_BODY);
   });
 
-  it("emits cleanup only before auth for a reused reachable origin", async () => {
-    // This test asserts response headers only. The stale-code and stale-cookie
-    // tests above prove safety without reading this header, so disabling or
-    // ignoring browser cleanup does not weaken the registration boundary.
+  it("emits no cleanup for a reused reachable origin", async () => {
+    // A no-session answer that depended on reuse would show a missing label
+    // apart from a reused one, so reuse sends no Clear-Site-Data (PM ruling,
+    // 2026-10-03). The stale-code and stale-cookie tests above prove safety
+    // without this header.
     const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
-    const first = await raw(srv.port, {
-      host: appHost(label),
-      headers: NAVIGATION_HEADERS,
-    });
-    expect(first.headers["clear-site-data"]).toBeUndefined();
     await deleteApp(srv, token, "hello");
     expect(await registerApp(srv, token, "hello")).toBe(label);
+    const record = appRegistry.get("hello");
+    if (!record) throw new Error("hello is not registered");
+    expect(appRegistrationGeneration(record)).toBeGreaterThan(record.hostGen);
 
     const navigation = await raw(srv.port, {
       host: appHost(label),
       headers: NAVIGATION_HEADERS,
     });
     expect(navigation.status).toBe(302);
-    expect(navigation.headers["clear-site-data"]).toBe(
-      '"cache", "cookies", "storage"',
-    );
+    expect(navigation.headers["clear-site-data"]).toBeUndefined();
     const background = await raw(srv.port, {
       host: appHost(label),
       method: "POST",
     });
     expect(background.status).toBe(401);
-    expect(background.headers["clear-site-data"]).toBe(
-      '"cache", "cookies", "storage"',
-    );
+    expect(background.headers["clear-site-data"]).toBeUndefined();
 
     const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
     const redeemed = await redeem(srv, label, codeFromMint(minted));

@@ -642,14 +642,6 @@ export interface AppHostContext {
   now?: number;
 }
 
-const CLEAR_REUSED_ORIGIN = '"cache", "cookies", "storage"';
-
-function cleanupHeaders(app: AppRecord): Record<string, string> | undefined {
-  return appRegistrationGeneration(app) > app.hostGen
-    ? { "Clear-Site-Data": CLEAR_REUSED_ORIGIN }
-    : undefined;
-}
-
 // GET /__isomux/auth?code=... on an app host: redeem, set the cookie, go to
 // the path the code remembers.
 export function handleAppAuthRedeem(
@@ -740,11 +732,10 @@ export function appHostWsAuthGate(
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
   }
-  // Presented and rejected -> clear it, exactly as the gate does; absent ->
-  // nothing to clear. Same helper, so the two cannot emit different bytes.
-  return handshake(401, AUTH_REQUIRED_BODY, {
-    ...(rawCookie === null ? {} : { "Set-Cookie": appCookieClearLine() }),
-    ...cleanupHeaders(ctx.app),
+  return noAppSessionAnswer(req, {
+    label: ctx.app.hostLabel,
+    rawCookie,
+    upgrade: true,
   });
 }
 
@@ -762,19 +753,52 @@ export function appHostAuthGate(
   if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
   }
-  // PRESENT and rejected -> clear it, whatever the reason it failed (expired,
-  // revoked, another app's, or empty). Absent -> nothing to clear.
-  const clear = rawCookie === null ? [] : [appCookieClearLine()];
-  if (!mayInitiateHandshake(req)) {
-    return handshake(401, AUTH_REQUIRED_BODY, {
-      ...(clear.length > 0 ? { "Set-Cookie": clear[0] } : {}),
-      ...cleanupHeaders(ctx.app),
-    });
+  return noAppSessionAnswer(req, {
+    label: ctx.app.hostLabel,
+    rawCookie,
+    upgrade: false,
+  });
+}
+
+// A label with no live app gets the answer that a live app gives a caller with
+// no app session, so an anonymous caller cannot tell which labels are live. A
+// signed-in caller who follows the bounce gets the mint endpoint's 404.
+export function unknownLabelAnswer(
+  req: Request,
+  label: string,
+  upgrade: boolean,
+): Response {
+  return noAppSessionAnswer(req, {
+    label,
+    rawCookie: readAppCookie(req),
+    upgrade,
+  });
+}
+
+// The one answer for a caller with no live app session, shared by both gates
+// and by unknownLabelAnswer so they cannot emit different bytes. It depends
+// only on the request and the label, never on the app's state: no
+// Clear-Site-Data for a reused label, because a missing label could not send
+// the same.
+//
+// PRESENT and rejected -> clear the cookie, whatever the reason it failed
+// (expired, revoked, another app's, or empty). Absent -> nothing to clear.
+function noAppSessionAnswer(
+  req: Request,
+  opts: { label: string; rawCookie: string | null; upgrade: boolean },
+): Response {
+  const clear = opts.rawCookie === null ? [] : [appCookieClearLine()];
+  if (opts.upgrade || !mayInitiateHandshake(req)) {
+    return handshake(
+      401,
+      AUTH_REQUIRED_BODY,
+      clear.length > 0 ? { "Set-Cookie": clear[0] } : {},
+    );
   }
   const url = new URL(req.url);
   const target =
     `${buildPublicOrigin().origin}${APP_MINT_PATH}` +
-    `?app=${encodeURIComponent(ctx.app.hostLabel)}` +
+    `?app=${encodeURIComponent(opts.label)}` +
     `&r=${encodeURIComponent(`${url.pathname}${url.search}`)}`;
-  return handshakeRedirect(target, clear, cleanupHeaders(ctx.app));
+  return handshakeRedirect(target, clear);
 }

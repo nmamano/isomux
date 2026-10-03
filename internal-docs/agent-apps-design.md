@@ -149,9 +149,9 @@ in-memory and disappear on restart; that fact is required by the legacy-state
 identity derivation. Persisting either map later requires revisiting the
 derivation.
 
-A pre-auth response can send `Clear-Site-Data` after reuse as a courtesy. It is
-not a safety boundary. Surviving origin state is the accepted tradeoff for never
-losing a wanted URL. The filesystem has a separate rule: delete moves the data
+A pre-auth response sends no `Clear-Site-Data` after reuse: the response must be
+the same for a missing label and a live one (PM ruling, 2026-10-03). Surviving
+origin state is the accepted tradeoff for never losing a wanted URL. The filesystem has a separate rule: delete moves the data
 directory to `apps/data/.retired/<name>-<deletedAt>`, so the replacement starts
 with an empty directory.
 
