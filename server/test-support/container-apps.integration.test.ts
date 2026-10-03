@@ -14,6 +14,7 @@ import {
   HTTPS_ORIGIN,
   wsConnect,
   withAppCookie,
+  expectBounce,
 } from "./app-host-test-kit.ts";
 import { buildPublicOrigin } from "../auth.ts";
 import type { AppWire } from "../../shared/types.ts";
@@ -171,5 +172,7 @@ websocket: {message(ws, message) { ws.send(message); }} });
     host: `generated.${OFFICE_HOST}`,
     headers: withAppCookie(cookie),
   });
-  expect(missing.status).toBe(404);
+  // A deleted app's label answers like any label with no app session (F9):
+  // the bounce to the office mint endpoint, never the app.
+  expectBounce(missing, { label: "generated", path: "/" }, "deleted app");
 }, 30000);

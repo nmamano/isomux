@@ -2,7 +2,13 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { mayUseExtension } from "../isomux-office";
 import { getUserByName } from "../users";
-import { startFlatOffice, raw, WS_UPGRADE_HEADERS } from "./app-host-test-kit";
+import {
+  startFlatOffice,
+  raw,
+  WS_UPGRADE_HEADERS,
+  expectAuthRequired,
+  expectBounce,
+} from "./app-host-test-kit";
 import {
   memberRequest,
   ownedAgent,
@@ -385,7 +391,12 @@ test("app host dispatch cannot reach pairing or browser sockets", async () => {
         ? { headers: { ...WS_UPGRADE_HEADERS, Origin: origin } }
         : { method: path.endsWith(".zip") ? "GET" : "POST" }),
     });
-    expect(response.status).toBe(404);
+    // The app-host gate answers (F9: an unknown label gets the no-session
+    // answer), so the request never reaches the office's own handler. A GET
+    // may start the sign-in handshake; the rest are refused.
+    if (path.endsWith(".zip"))
+      expectBounce(response, { label: "unknown", path }, path);
+    else expectAuthRequired(response, path);
   }
 });
 
