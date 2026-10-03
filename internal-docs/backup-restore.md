@@ -332,8 +332,8 @@ office has several owners:
 
 ```
 jq -r '.[] | select(.role=="owner") | .name' /home/isomux/.isomux/users.json
-cd /opt/isomux
-sudo -u isomux HOME=/home/isomux /usr/local/bin/bun run server/index.ts owner-login --name "<that name>"
+curl -s --unix-socket /home/isomux/.isomux/admin.sock -X POST http://localhost/admin/owner-login \
+  -H 'Content-Type: application/json' --data '{"name":"<that name>"}'
 ```
 
 The link is single-use and expires in 15 minutes. Sessions are in the

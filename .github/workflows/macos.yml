@@ -52,8 +52,9 @@ jobs:
 
       # These features call macOS programs that differ from their Linux
       # versions: bsdtar for backups, code signing for the compiled Codex
-      # safety hook, the Chrome app bundle for previews, and the Keychain for
-      # the Claude sign-in check.
+      # safety hook, the Chrome app bundle for previews, the Keychain for the
+      # Claude sign-in check, and LOCAL_PEERCRED for the admin socket's caller
+      # check.
       - name: Run the tests for macOS-specific behavior
         env:
           ISOMUX_TEST_MAC_KEYCHAIN: "1"
@@ -64,6 +65,8 @@ jobs:
           server/backends/codex/safety-hook-install.test.ts
           server/test-support/preview-capture.test.ts
           server/backends/claude-install-check.test.ts
+          server/unix-socket-server.test.ts
+          server/test-support/admin-socket.test.ts
 
       # Codex lists a hook and reports its trust without a real login.
       - name: Check that Codex trusts the installed safety hook

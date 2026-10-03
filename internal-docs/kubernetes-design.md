@@ -64,6 +64,13 @@ CSI driver whose sidecars support RWOP (csi-provisioner 3.0+, csi-attacher
   node group. Resources match Compose: requests `cpu: 1`,
   `memory: 4Gi`; limits `cpu: 2`, `memory: 4Gi`.
   `terminationGracePeriodSeconds: 30`.
+- Owner recovery: a second container, `recovery` (same image, `runAsUser:
+  1001`, `sleep` under `tini`), shares an `emptyDir` with the office for the
+  admin socket. The office sets `ISOMUX_ADMIN_SOCKET` into it and
+  `ISOMUX_RECOVERY_UID: "1001"`, because the socket refuses the office uid
+  (`internal-docs/owner-login-recovery-design.md`, Option 1b). The pod
+  annotation `kubectl.kubernetes.io/default-container: office` keeps
+  `kubectl exec` and `kubectl logs` on the office.
 - Fargate is out: Fargate has no EBS volumes and no Localhost seccomp profiles.
 
 ## 3. Chromium seccomp profile

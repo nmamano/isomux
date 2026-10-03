@@ -18,6 +18,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: isomux
+      annotations:
+        kubectl.kubernetes.io/default-container: office
     spec:
       serviceAccountName: isomux
       automountServiceAccountToken: false
@@ -67,6 +69,12 @@ spec:
                   name: isomux-setup
                   key: ISOMUX_SETUP_KEY
                   optional: true
+            # The admin socket refuses the office uid, which every agent
+            # shares, and answers the recovery container below.
+            - name: ISOMUX_ADMIN_SOCKET
+              value: /run/isomux-admin/admin.sock
+            - name: ISOMUX_RECOVERY_UID
+              value: "1001"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -81,6 +89,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/data
+            - name: admin
+              mountPath: /run/isomux-admin
           # GET / returns 200 during setup and 401 after it. An httpGet probe
           # treats 401 as a failure, so run the image's own check.
           startupProbe:
@@ -101,7 +111,33 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
+        # Owner recovery: kubectl exec into this container and curl the admin
+        # socket. `command`, not `args`: the image entrypoint ignores
+        # arguments and starts the office. tini passes SIGTERM to sleep.
+        - name: recovery
+          image: ghcr.io/nmamano/isomux
+          command: [/usr/bin/tini, --, sleep, infinity]
+          env:
+            - name: ISOMUX_ADMIN_SOCKET
+              value: /run/isomux-admin/admin.sock
+          securityContext:
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          volumeMounts:
+            - name: admin
+              mountPath: /run/isomux-admin
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: isomux-data
+        - name: admin
+          emptyDir: {}

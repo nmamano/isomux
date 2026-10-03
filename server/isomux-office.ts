@@ -6649,10 +6649,10 @@ function runBackgroundBoot(
   if (!startOpts.quiet)
     console.log(`Isomux running at http://localhost:${server.port}`);
 
-  // Admin Unix socket - lets the `owner-login` CLI mint a recovery URL for
-  // an existing owner. Starts after the HTTP listener so the CLI's printed
-  // URL is immediately openable. Optional surface; a startup failure logs
-  // but doesn't block the server.
+  // Admin Unix socket - lets root mint a recovery URL for an existing owner.
+  // Starts after the HTTP listener so the printed URL is immediately
+  // openable. Optional surface; a startup failure logs but doesn't block the
+  // server.
   if (!startOpts.skipAdminSocket) startAdminSocket();
 
   return restorePromise;
@@ -6873,13 +6873,13 @@ export async function startServer(
  */
 export async function runOfficeMain(): Promise<void> {
   // CLI sub-command fast-path. `bun run server/isomux-office.ts owner-login
-  // --name X` dynamic-imports the CLI (no auth-state side effects of its own)
+  // --name X` dynamic-imports the CLI, which prints the root recovery command,
   // and exits before the heavy boot below. Inside this function rather than at
   // module scope, so importing this module (the in-process test harness) can
   // never process-exit on a stray argv token.
   if (process.argv[2] === "owner-login") {
     const { runAdminCli } = await import("./admin-cli.ts");
-    await runAdminCli(process.argv.slice(2));
+    runAdminCli(process.argv.slice(2));
     process.exit(0);
   }
   // Name this process `isomux` rather than `bun`, so out-of-memory protection

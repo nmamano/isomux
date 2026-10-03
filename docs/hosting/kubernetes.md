@@ -151,6 +151,10 @@ kubectl -n isomux delete secret isomux-setup
 kubectl -n isomux rollout restart deployment/isomux
 ```
 
+If you lose your owner session later, mint a sign-in link through the
+`recovery` container: see
+[Locked out as owner](access-and-invites.md#locked-out-as-owner).
+
 <!-- include: provider -->
 
 ## Claude on Amazon Bedrock with an IAM role

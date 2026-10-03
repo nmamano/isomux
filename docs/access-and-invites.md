@@ -204,18 +204,26 @@ The mitigation is operator discipline: **claim first, expose later**. The Access
 
 ## Locked out as owner
 
-If you somehow lose your only owner session (cleared cookies, hit the 1-year absolute cap, etc.), recover with the owner-login CLI from a shell on the box:
+If you lose your only owner session (cleared cookies, the 1-year cap, etc.), mint a sign-in link on the box while the office runs. The admin socket answers only root: agents run as the office's own user, so it refuses that user.
 
 ```
-bun run server/isomux-office.ts owner-login --name "<your-display-name>"
+sudo curl -s --unix-socket /home/isomux/.isomux/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
 ```
 
-That prints a one-time login URL valid for 15 minutes. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600 - only the Isomux service user can connect), so on a multi-user box only the UID running isomux can mint recovery URLs. The server has to be running for the CLI to work.
+The response's `url` is a one-time sign-in link, valid for 15 minutes. The socket is `.isomux/admin.sock` in the home directory of the user that runs Isomux (`/home/isomux` on a VPS install). `bun run server/isomux-office.ts owner-login --name "<your-display-name>"` prints the command with this office's path.
 
-In the container image (Docker), run it inside the container as the `node` user:
+In the container image (Docker), run it in the container as root:
 
 ```
-docker exec -u node -e HOME=/var/data/home -e ISOMUX_HOME=/var/data/home/.isomux <container> bun run server/isomux-office.ts owner-login --name "<your-display-name>"
+docker exec <container> curl -s --unix-socket /var/data/home/.isomux/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
+```
+
+On Render, run the `curl` part of that command in the service's Shell. It works only if that Shell runs as root, which is unchecked.
+
+On Kubernetes, run it in the `recovery` container:
+
+```
+kubectl -n isomux exec deployment/isomux -c recovery -- curl -s --unix-socket /run/isomux-admin/admin.sock -X POST http://localhost/admin/owner-login -H 'Content-Type: application/json' --data '{"name":"<your-display-name>"}'
 ```
 
 ## Operating notes

@@ -34,3 +34,16 @@ export const STATE_ROOT = resolveStateRoot();
 // literals in terminal cards and the generated codex wrapper - while still
 // targeting the active root under an ISOMUX_HOME override.
 export const IS_DEFAULT_STATE_ROOT = STATE_ROOT === join(homedir(), ".isomux");
+
+// The admin socket (server/admin-socket.ts). ISOMUX_ADMIN_SOCKET moves it out
+// of the state root, for example into a directory a recovery container shares
+// (deploy/kubernetes). Defaults to <state root>/admin.sock.
+export function resolveAdminSocketPath(
+  env: NodeJS.ProcessEnv = process.env,
+  stateRoot: string = STATE_ROOT,
+): string {
+  const override = env.ISOMUX_ADMIN_SOCKET?.trim();
+  return override ? resolve(override) : join(stateRoot, "admin.sock");
+}
+
+export const ADMIN_SOCKET_PATH = resolveAdminSocketPath();

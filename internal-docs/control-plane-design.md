@@ -398,7 +398,7 @@ service user's state), preferring the `owner-id` the installer persisted, which
 is the same fallback ladder `install.sh` uses. A stored name is not enough.
 
 Minting is available only while the access window is open. After it closes,
-recovery is the customer's own SSH key and the `owner-login` admin CLI, or
+recovery is the customer's own SSH key and the root admin-socket recipe, or
 nothing.
 
 ## Provisioning: coarse state, explicit operations

@@ -1,6 +1,6 @@
 # Owner-login recovery without an agent route (design, task 636901c1)
 
-Status: proposal, not approved. No code and no recovery-doc changes until Isomux PM approves it.
+Status: approved by Nil on 2026-10-03 (Option 1 with Option 1b). Implemented in task 636901c1.
 
 ## Problem
 

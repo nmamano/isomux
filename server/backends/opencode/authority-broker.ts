@@ -1,10 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
-import { dlopen, ptr } from "bun:ffi";
 import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
-import { readDarwinPeerCredentials } from "./darwin-libsystem.ts";
 import { readProcessHop, type ProcessHop } from "./process-identity.ts";
+import {
+  httpResponse,
+  parseHttpRequest,
+  readPeerCredentials,
+  socketFileDescriptor,
+  type ParsedRequest,
+} from "../../unix-socket-server.ts";
 
 interface TurnBinding {
   owner: symbol;
@@ -194,7 +199,7 @@ export class OpenCodeAuthorityBroker {
           }
           let request: ParsedRequest | null;
           try {
-            request = parseHttpRequest(socket.data.buffer);
+            request = parseHttpRequest(socket.data.buffer, MAX_REQUEST_BYTES);
           } catch {
             socket.data.handled = true;
             socket.end(httpResponse(400, "Invalid OpenCode office request."));
@@ -304,62 +309,6 @@ export class OpenCodeAuthorityBroker {
   }
 }
 
-interface ParsedRequest {
-  method: string;
-  url: URL;
-  headers: Headers;
-  body: Buffer;
-}
-
-function parseHttpRequest(buffer: Buffer): ParsedRequest | null {
-  const headerEnd = buffer.indexOf("\r\n\r\n");
-  if (headerEnd < 0) return null;
-  const lines = buffer.subarray(0, headerEnd).toString("utf8").split("\r\n");
-  const match = /^(GET|POST|PATCH|PUT|DELETE) ([^ ]+) HTTP\/1\.[01]$/.exec(
-    lines.shift() ?? "",
-  );
-  if (!match || /[\r\n]/.test(match[2]))
-    throw new Error("Invalid proxy request.");
-  const headers = new Headers();
-  for (const line of lines) {
-    const colon = line.indexOf(":");
-    if (colon <= 0) throw new Error("Invalid proxy header.");
-    headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim());
-  }
-  const lengthText = headers.get("content-length") ?? "0";
-  if (!/^\d+$/.test(lengthText)) throw new Error("Invalid content length.");
-  const length = Number(lengthText);
-  if (length > MAX_REQUEST_BYTES) throw new Error("Proxy body is too large.");
-  const bodyStart = headerEnd + 4;
-  if (buffer.length < bodyStart + length) return null;
-  const url = new URL(match[2], "http://isomux");
-  if (url.origin !== "http://isomux") throw new Error("Proxy host is fixed.");
-  return {
-    method: match[1],
-    url,
-    headers,
-    body: buffer.subarray(bodyStart, bodyStart + length),
-  };
-}
-
-function httpResponse(
-  status: number,
-  body: string | Buffer,
-  contentType = "text/plain; charset=utf-8",
-): Buffer {
-  const safeBody = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  return Buffer.concat([
-    Buffer.from(
-      `HTTP/1.1 ${status} ${statusText(status)}\r\nContent-Type: ${contentType ?? "application/octet-stream"}\r\nContent-Length: ${safeBody.length}\r\nConnection: close\r\n\r\n`,
-    ),
-    safeBody,
-  ]);
-}
-
-function statusText(status: number): string {
-  return status >= 200 && status < 300 ? "OK" : "Error";
-}
-
 function scrubToken(body: Buffer, token: string): Buffer {
   return Buffer.from(body.toString("utf8").split(token).join("[REDACTED]"));
 }
@@ -413,73 +362,6 @@ function readVerifiedAncestry(
     if (readHop(hop.pid)?.startTicks !== hop.startTicks) return null;
   }
   return hops;
-}
-
-const LIBC_SYMBOLS = {
-  getsockopt: {
-    args: ["i32", "i32", "i32", "ptr", "ptr"],
-    returns: "i32",
-  },
-} as const;
-
-function openLibc(candidate: string) {
-  return dlopen(candidate, LIBC_SYMBOLS);
-}
-
-type LibcLibrary = ReturnType<typeof openLibc>;
-
-let libc: LibcLibrary | null = null;
-let libcLoadAttempted = false;
-let libcLoadFailureLogged = false;
-
-function loadLibc(): LibcLibrary | null {
-  if (libcLoadAttempted) return libc;
-  libcLoadAttempted = true;
-  const candidates = [
-    "libc.so.6",
-    process.arch === "arm64"
-      ? "libc.musl-aarch64.so.1"
-      : "libc.musl-x86_64.so.1",
-  ];
-  for (const candidate of candidates) {
-    try {
-      libc = openLibc(candidate);
-      return libc;
-    } catch {}
-  }
-  if (!libcLoadFailureLogged) {
-    libcLoadFailureLogged = true;
-    console.error(
-      "[opencode-office-proxy] SO_PEERCRED is unavailable; OpenCode office calls will be refused.",
-    );
-  }
-  return null;
-}
-
-function socketFileDescriptor(
-  socket: Bun.Socket<ConnectionData>,
-): number | null {
-  // Bun's Socket type omits fd; the runtime exposes a number, verified
-  // 2026-08-29. Read it as unknown and fail closed if that shape changes.
-  const fd: unknown = Reflect.get(socket, "fd");
-  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : null;
-}
-
-function readPeerCredentials(fd: number): { pid: number; uid: number } | null {
-  if (process.platform === "darwin") return readDarwinPeerCredentials(fd);
-  if (process.platform !== "linux") return null;
-  const loaded = loadLibc();
-  if (!loaded) return null;
-  const credential = new Uint32Array(3);
-  const length = new Uint32Array([credential.byteLength]);
-  let result: number;
-  try {
-    result = loaded.symbols.getsockopt(fd, 1, 17, ptr(credential), ptr(length));
-  } catch {
-    return null;
-  }
-  if (result !== 0 || length[0] !== credential.byteLength) return null;
-  return { pid: credential[0], uid: credential[1] };
 }
 
 export const openCodeAuthorityBroker = new OpenCodeAuthorityBroker();

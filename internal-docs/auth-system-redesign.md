@@ -12,7 +12,7 @@ Implemented in the `auth-redesign` branch. The pre-implementation analysis (orig
 
 **Post-claim, external access on**: an owner uses the *External access* section in the Access pane to flip a toggle and fill in a Public URL field. Saving persists both to `office-config.json` and mints an owner self-invite bound to the new URL (TTL 1h). The toggle takes effect on the next isomux restart; the pane spells out `systemctl --user restart isomux`. The auto-minted URL gives the owner a sign-in path at the new origin without having to mint one separately.
 
-**Lost-session recovery**: `bun run server/index.ts owner-login --name "<owner>"` from a shell on the box prints a 15-minute one-time login URL. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions on the socket are the auth boundary: any UID that can already read the auth files in `~/.isomux/` can connect, so the socket adds no new authority. On a multi-user box where `~/.isomux/` is 0700, only the Isomux service user can mint recovery URLs.
+**Lost-session recovery**: root on the box sends `POST /admin/owner-login` to the Unix-domain socket at `~/.isomux/admin.sock` (`sudo curl --unix-socket ...`) and gets a 15-minute one-time login URL. The socket checks the caller's uid: it answers root and `ISOMUX_RECOVERY_UID` only, and refuses the server's own uid, which every agent shares (task 636901c1, `internal-docs/owner-login-recovery-design.md`). `bun run server/index.ts owner-login --name "<owner>"` prints the command.
 
 **Boot freeze**: cookie attributes, public-origin policy, and listener binding are captured at boot via `freezeBootState({externalAccess, networkBind})`. Three predicates derive from the captured state:
 
@@ -42,7 +42,7 @@ A successful claim mid-process changes neither policy. This eliminates a class o
 2. The pane shows a "Restart isomux to apply" panel with the exact `systemctl --user restart isomux` command and a freshly-minted sign-in URL for the new origin.
 3. Run the restart command. Open the sign-in URL on your laptop browser at the new public address. Bookmark the public URL going forward.
 
-**Recover a lost-session owner**: SSH in, `bun run server/index.ts owner-login --name "<your-name>"`. Open the printed URL on whichever device you want signed in.
+**Recover a lost-session owner**: SSH in and run the root curl recipe in `docs/access-and-invites.md` ("Locked out as owner"). Open the printed URL on whichever device you want signed in.
 
 ## Open design questions, resolved
 
