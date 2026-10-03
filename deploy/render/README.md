@@ -34,8 +34,8 @@ it does not free the app's port while cleanup remains unproved.
 Automatic restart uses a two-second delay and a five-starts-per-minute limit.
 App tokens live in private files and enter only their own app environment.
 The controller does not copy Render credentials into generated app environments.
-App and office stdout/stderr go to bounded files on the persistent disk, not
-Render service logs.
+Office stdout/stderr go to Render service logs and to a bounded file on the
+persistent disk. App output goes only to bounded files on the disk.
 
 The TypeScript adapter's environment descriptor preserves compatibility with
 the existing token and URL reconciliation APIs. It records the installed app

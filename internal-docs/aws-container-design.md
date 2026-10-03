@@ -47,12 +47,14 @@ wizard and gateway workflow. No customer message is part of this slice.
   session cookie. The launcher removes the key from its own environment before
   loading the office. The supervisor still inherits the original environment;
   this is not complete secret erasure. The form currently names Render.
-- [Supervisor](../deploy/render/supervisor.py) and
+- [Supervisor](../deploy/container/supervisor.py) and
   [adapter](../server/container-app-supervisor.ts): private Unix socket,
   persisted desired app state, descendant cleanup, and office/app restarts.
   Office restart preserves apps; container replacement interrupts all processes.
-  Logs are bounded files under `.isomux/container-runtime`, not normal container
-  stdout. App RSS/process guards are sampled, with no per-app CPU quota or hard
+  Logs are bounded files under `.isomux/container-runtime`. Office output also
+  goes to container stdout (2026-10-03, for cluster log pipelines), through a
+  nonblocking write that drops what a full stdout cannot take; app output does
+  not. App RSS/process guards are sampled, with no per-app CPU quota or hard
   memory isolation. The adapter currently references the Render script path.
 - [State root](../server/config.ts), [provider accounts](../server/provider-account-manager.ts),
   [Codex home](../server/backends/codex/native-bin.ts), and
@@ -103,8 +105,10 @@ Use `GET /` for the initial deployment probe and verify its expected response
 in both phases. Do not advertise `/health` as an office readiness API. Any new
 route or changed public contract goes back to PM.
 
-Keep existing private file logs; do not copy agent/app output to AWS logs by
-default. Document where operators can read them. Enforce whole-container memory
+Keep existing private file logs. Office output also goes to container stdout
+and so to AWS logs; it can contain parts of agent errors, and the docs tell
+operators to hold that log pipeline to the data volume's rules. Do not copy app
+output to container stdout. Document where operators can read them. Enforce whole-container memory
 and CPU limits; size them from acceptance results, not an unmeasured guarantee.
 All office members and their code share this container's OS trust boundary.
 Do not give the runtime an AWS role with deployment permissions or pass registry

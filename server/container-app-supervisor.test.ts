@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import {
+  closeSync,
+  constants,
   mkdtempSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   rmSync,
+  statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,6 +30,7 @@ let app: AppRecord;
 let origin: string;
 let detachedPid: number | undefined;
 let detachedStart: string | undefined;
+let containerStdout = "";
 
 async function until(
   check: () => boolean | Promise<boolean>,
@@ -38,11 +45,17 @@ async function until(
   throw new Error(message);
 }
 
-async function boot() {
-  daemon = spawn("python3", [program, "serve", join(root, "runtime")], {
-    stdio: "ignore",
-    env: { ...process.env, RENDER_SECRET_SENTINEL: "must-not-reach-app" },
-  });
+async function boot(office: string[] = [], stdout: "pipe" | number = "pipe") {
+  containerStdout = "";
+  daemon = spawn(
+    "python3",
+    [program, "serve", join(root, "runtime"), ...office],
+    {
+      stdio: ["ignore", stdout, "ignore"],
+      env: { ...process.env, RENDER_SECRET_SENTINEL: "must-not-reach-app" },
+    },
+  );
+  daemon.stdout?.on("data", (chunk) => (containerStdout += String(chunk)));
   supervisor = createContainerAppSupervisor(
     join(root, "runtime", "control.sock"),
     () => "office.example.com",
@@ -204,6 +217,99 @@ test("container restart restores running apps, data, credentials, and stopped in
   expect(supervisor.states([app.name]).get(app.name)?.state).toBe("stopped");
   expect(await response()).toBeNull();
   expect(readFileSync(join(root, "data", "counter"), "utf8")).toBe("2");
+}, 30000);
+
+test("office output reaches the container stdout and its file; app output does not", async () => {
+  await closeDaemon();
+  writeFileSync(
+    join(root, "office.py"),
+    `import time\nprint("synthetic-office-line", flush=True)\ntime.sleep(60)\n`,
+  );
+  await boot(["python3", join(root, "office.py")]);
+  supervisor.install(app);
+  await until(
+    () => containerStdout.includes("synthetic-office-line"),
+    "office output did not reach the container stdout",
+  );
+  await until(() => {
+    try {
+      return readFileSync(join(root, "runtime", "sample.log"), "utf8").includes(
+        "synthetic-app-start",
+      );
+    } catch {
+      return false;
+    }
+  }, "app output did not reach its log file");
+  expect(
+    readFileSync(join(root, "runtime", "office.log"), "utf8"),
+  ).toContain("synthetic-office-line");
+  expect(containerStdout).not.toContain("synthetic-app-start");
+}, 30000);
+
+// The production control client, with a short timeout instead of its 18 s.
+function ping(): boolean {
+  const result = spawnSync(
+    "python3",
+    [program, "client", join(root, "runtime", "control.sock")],
+    { input: '{"op":"ping"}', timeout: 1500 },
+  );
+  try {
+    return JSON.parse(String(result.stdout)).ok === true;
+  } catch {
+    return false;
+  }
+}
+
+test("supervision continues while the container stdout is full", async () => {
+  await closeDaemon();
+  const total = 1024 * 1024;
+  writeFileSync(
+    join(root, "office.py"),
+    `import sys, time\ntime.sleep(0.5)\nsys.stdout.write("x" * ${total})\nsys.stdout.flush()\ntime.sleep(60)\n`,
+  );
+  const fifo = join(root, "stdout.fifo");
+  expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
+  const reader = openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+  const writer = openSync(fifo, constants.O_WRONLY);
+  // A second, nonblocking writer probes for a full pipe without reading it.
+  const probe = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
+  try {
+    await boot(["python3", join(root, "office.py")], writer);
+    closeSync(writer);
+    await until(() => {
+      try {
+        writeSync(probe, "x");
+        return false;
+      } catch (err) {
+        return (err as NodeJS.ErrnoException).code === "EAGAIN";
+      }
+    }, "container stdout did not fill");
+    expect(ping()).toBe(true);
+    await until(() => {
+      try {
+        return statSync(join(root, "runtime", "office.log")).size === total;
+      } catch {
+        return false;
+      }
+    }, "office.log did not receive all office output");
+    let drained = 0;
+    const buffer = Buffer.alloc(65536);
+    for (;;) {
+      try {
+        const n = readSync(reader, buffer);
+        if (n === 0) break;
+        drained += n;
+      } catch {
+        break;
+      }
+    }
+    // The pipe held part of the output; the rest was dropped for stdout only.
+    expect(drained).toBeGreaterThan(0);
+    expect(drained).toBeLessThan(total);
+  } finally {
+    closeSync(probe);
+    closeSync(reader);
+  }
 }, 30000);
 
 test("delete reaps a double-forked child that left the original process group", async () => {

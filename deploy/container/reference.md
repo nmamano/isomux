@@ -61,8 +61,12 @@ listener, not provider or app readiness. Do not use `/health` after setup.
 The supervisor preserves running and stopped app intent. Office restart keeps
 apps running; container replacement interrupts all processes. Office and app
 logs and worker diagnostics are private files under
-`/var/data/home/.isomux/container-runtime`. `docker logs` carries container
-supervisor diagnostics.
+`/var/data/home/.isomux/container-runtime`. `docker logs` carries the office
+output and container supervisor diagnostics; app output stays in the files.
+Office output can contain parts of agent errors, so a log pipeline that
+collects container stdout must meet the same data rules as the data volume.
+When stdout cannot take more output, the supervisor drops it there; `office.log`
+stays complete.
 All members and their code share one OS trust boundary. App memory/process
 guards are sampled, with no per-app CPU quota or hard memory isolation.
 

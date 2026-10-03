@@ -153,6 +153,86 @@ kubectl -n isomux rollout restart deployment/isomux
 
 <!-- include: provider -->
 
+## Claude on Amazon Bedrock with an IAM role
+
+On EKS, the office can use an IAM role instead of static keys. Isomux has not
+verified this setup end to end.
+
+Every process in the office pod can use the role, including the agents of every
+member. Allow the role only `bedrock:InvokeModel*` on the models that the office
+uses:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel*",
+      "Resource": "arn:aws:bedrock:REGION:ACCOUNT:inference-profile/PROFILE_ID"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "bedrock:InvokeModel*",
+      "Resource": "arn:aws:bedrock:*::foundation-model/MODEL_ID",
+      "Condition": {
+        "StringLike": {
+          "bedrock:InferenceProfileArn": "arn:aws:bedrock:REGION:ACCOUNT:inference-profile/PROFILE_ID"
+        }
+      }
+    }
+  ]
+}
+```
+
+`PROFILE_ID` is an inference profile, such as `us.anthropic.claude-sonnet-4-6`;
+`MODEL_ID` is the same ID without its prefix. Add both ARNs for each model that
+agents use: the pinned models, or the Bedrock defaults when nothing is pinned.
+
+Attach the role to the service account `isomux` in namespace `isomux` with one
+of these:
+
+- **EKS Pod Identity**: install the `eks-pod-identity-agent` add-on. The role
+  trusts the service `pods.eks.amazonaws.com` for `sts:AssumeRole` and
+  `sts:TagSession`. Then:
+
+  ```sh
+  aws eks create-pod-identity-association --cluster-name CLUSTER \
+    --namespace isomux --service-account isomux \
+    --role-arn arn:aws:iam::ACCOUNT:role/ROLE
+  ```
+
+- **IAM roles for service accounts (IRSA)**: the cluster needs an IAM OIDC
+  provider. The role trusts that provider for `sts:AssumeRoleWithWebIdentity`,
+  with `sub` set to `system:serviceaccount:isomux:isomux` and `aud` set to
+  `sts.amazonaws.com`. Add this patch to `kustomization.yaml` and apply it:
+
+  ```yaml
+    - target:
+        kind: ServiceAccount
+        name: isomux
+        namespace: isomux
+      patch: |-
+        - op: add
+          path: /metadata/annotations
+          value:
+            eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT:role/ROLE
+  ```
+
+The pod gets the role when it starts, so restart it:
+
+```sh
+kubectl -n isomux rollout restart deployment/isomux
+```
+
+In **Settings → Office-wide connections → Environment variables**, add only
+these, with no keys, and then `/clear` Claude agents:
+
+```text
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=REGION
+```
+
 <!-- include: invites -->
 
 ## Update the office
@@ -187,8 +267,17 @@ for example with AWS Backup.
 
 ## Office logs
 
+The office writes its output to the container log, so your cluster's log
+collector receives it. This output can contain parts of agent errors, so the
+log pipeline must meet the same data rules as the office volume:
+
 ```sh
 kubectl -n isomux logs deployment/isomux
+```
+
+The volume also keeps the latest office output across pod replacements:
+
+```sh
 kubectl -n isomux exec deployment/isomux -- \
   tail -n 50 /var/data/home/.isomux/container-runtime/office.log
 ```

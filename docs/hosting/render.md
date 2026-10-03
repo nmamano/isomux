@@ -19,8 +19,10 @@ Only the disk, mounted at `/var/data`, survives a deploy; the rest of the contai
 To check that app subdomains work, ask an agent to build a small app and open it.
 Render provides HTTPS for the office and configured app domains.
 
-Use Render's service logs for build and container startup failures. Office and
-app logs are on the persistent disk under
+Render's service logs show the build, container startup and office output.
+Office output can contain parts of agent errors, so any log stream that
+collects it must meet the same data rules as the persistent disk.
+The office and app logs are also on the persistent disk under
 `/var/data/home/.isomux/container-runtime`. Keep projects under `/var/data` so
 that replacement does not remove them.
 

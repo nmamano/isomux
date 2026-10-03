@@ -410,6 +410,12 @@ def serve(root, office_command):
     signal.signal(signal.SIGINT, stop)
     office = None
     office_log = open(root / "office.log", "ab") if office_command else None
+    if office_command:
+        # A slow log reader must never stall supervision.
+        try:
+            os.set_blocking(sys.stdout.fileno(), False)
+        except OSError:
+            pass
     office_at = 0
     try:
         while not stopping:
@@ -429,6 +435,13 @@ def serve(root, office_command):
                         office_log = open(root / "office.log", "ab")
                     office_log.write(chunk)
                     office_log.flush()
+                    # Cluster log pipelines read the container stdout; app
+                    # output stays in private files. Bytes that a full stdout
+                    # cannot take are dropped there, never from office.log.
+                    try:
+                        os.write(sys.stdout.fileno(), chunk)
+                    except OSError:
+                        pass
             if not select.select([server], [], [], 0.05)[0]:
                 continue
             connection, _ = server.accept()
