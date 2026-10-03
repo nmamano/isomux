@@ -15,7 +15,12 @@ function req(headers: [string, string][] = []): Request {
 describe("classifyRequest: on-box", () => {
   it("is on-box for a loopback peer with no forwarding header, in every mode", () => {
     for (const mode of MODES) {
-      for (const peer of ["127.0.0.1", "::1", "::ffff:127.0.0.1", "127.0.0.5"]) {
+      for (const peer of [
+        "127.0.0.1",
+        "::1",
+        "::ffff:127.0.0.1",
+        "127.0.0.5",
+      ]) {
         expect(classifyRequest(req(), peer, mode).onBox).toBe(true);
       }
     }
@@ -48,9 +53,9 @@ describe("classifyRequest: client", () => {
   const xff = (value: string) => req([["X-Forwarded-For", value]]);
 
   it("none: the client is always the peer", () => {
-    expect(classifyRequest(xff("203.0.113.9"), "127.0.0.1", "none").client).toBe(
-      "127.0.0.1",
-    );
+    expect(
+      classifyRequest(xff("203.0.113.9"), "127.0.0.1", "none").client,
+    ).toBe("127.0.0.1");
     expect(classifyRequest(xff("203.0.113.9"), "10.0.0.8", "none").client).toBe(
       "10.0.0.8",
     );
@@ -58,8 +63,11 @@ describe("classifyRequest: client", () => {
 
   it("same-host: the rightmost X-Forwarded-For entry of a loopback request", () => {
     expect(
-      classifyRequest(xff("198.51.100.1, 203.0.113.9"), "127.0.0.1", "same-host")
-        .client,
+      classifyRequest(
+        xff("198.51.100.1, 203.0.113.9"),
+        "127.0.0.1",
+        "same-host",
+      ).client,
     ).toBe("203.0.113.9");
     // A non-loopback peer did not come through the same-host proxy.
     expect(
@@ -69,8 +77,11 @@ describe("classifyRequest: client", () => {
 
   it("load-balancer: the rightmost X-Forwarded-For entry of a non-loopback request", () => {
     expect(
-      classifyRequest(xff("198.51.100.1,203.0.113.9"), "10.0.0.8", "load-balancer")
-        .client,
+      classifyRequest(
+        xff("198.51.100.1,203.0.113.9"),
+        "10.0.0.8",
+        "load-balancer",
+      ).client,
     ).toBe("203.0.113.9");
     // A loopback peer did not come through the load balancer.
     expect(
@@ -92,9 +103,9 @@ describe("classifyRequest: client", () => {
     expect(classifyRequest(xff(""), "127.0.0.1", "same-host").client).toBe(
       "127.0.0.1",
     );
-    expect(classifyRequest(xff("1.2.3.4, "), "127.0.0.1", "same-host").client).toBe(
-      "127.0.0.1",
-    );
+    expect(
+      classifyRequest(xff("1.2.3.4, "), "127.0.0.1", "same-host").client,
+    ).toBe("127.0.0.1");
   });
 
   it("never reads X-Real-IP or Forwarded as an address", () => {
@@ -103,7 +114,9 @@ describe("classifyRequest: client", () => {
       ["Forwarded", "for=203.0.113.9"],
     ]);
     for (const mode of MODES) {
-      expect(classifyRequest(other, "127.0.0.1", mode).client).toBe("127.0.0.1");
+      expect(classifyRequest(other, "127.0.0.1", mode).client).toBe(
+        "127.0.0.1",
+      );
       expect(classifyRequest(other, "10.0.0.8", mode).client).toBe("10.0.0.8");
     }
   });

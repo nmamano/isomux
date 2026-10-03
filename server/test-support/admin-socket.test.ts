@@ -33,10 +33,7 @@ afterEach(async () => {
 
 // The caller's curl command, joined across its line continuations.
 function callerCurl(script: string): string {
-  const text = readFileSync(join(REPO, script), "utf8").replace(
-    /\\\n\s*/g,
-    "",
-  );
+  const text = readFileSync(join(REPO, script), "utf8").replace(/\\\n\s*/g, "");
   const start = text.indexOf("curl -fsS --unix-socket");
   const tail = `'{name: $name}')"`;
   const end = text.indexOf(tail, start);
@@ -51,7 +48,11 @@ async function runCaller(
   owner: string,
 ): Promise<{ exitCode: number; stdout: string }> {
   const child = Bun.spawn(
-    ["bash", "-c", `resp=$(${callerCurl(script)}) || exit $?; printf %s "$resp"`],
+    [
+      "bash",
+      "-c",
+      `resp=$(${callerCurl(script)}) || exit $?; printf %s "$resp"`,
+    ],
     { env: { ...process.env, ADMIN_SOCK: socketPath, owner }, stdout: "pipe" },
   );
   const stdout = await new Response(child.stdout).text();
@@ -102,7 +103,11 @@ describe("admin socket peer check", () => {
     admin = startAdminSocket({ socketPath, recoveryUidSetting: undefined });
     expect(admin).not.toBeNull();
     expect(statSync(socketPath).mode & 0o777).toBe(0o600);
-    const { exitCode } = await runCaller("deploy/install.sh", socketPath, "Boss");
+    const { exitCode } = await runCaller(
+      "deploy/install.sh",
+      socketPath,
+      "Boss",
+    );
     // curl -f exits 22 on an HTTP error status.
     expect(exitCode).toBe(22);
     const response = await fetch("http://localhost/admin/owner-login", {
@@ -116,9 +121,9 @@ describe("admin socket peer check", () => {
 
   it("refuses a peer whose uid could not be read", async () => {
     const socketPath = await start({ peerUid: null });
-    expect((await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode).toBe(
-      22,
-    );
+    expect(
+      (await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode,
+    ).toBe(22);
   });
 
   it("answers ISOMUX_RECOVERY_UID and lets it connect", async () => {
@@ -128,7 +133,9 @@ describe("admin socket peer check", () => {
       recoveryUidSetting: String(recoveryUid),
     });
     expect(statSync(socketPath).mode & 0o777).toBe(0o666);
-    expect((await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode).toBe(0);
+    expect(
+      (await runCaller("deploy/install.sh", socketPath, "Boss")).exitCode,
+    ).toBe(0);
   });
 
   it("refuses any other uid while a recovery uid is enabled", async () => {

@@ -53,7 +53,11 @@ function documentedRoutes(): Occurrence[] {
     const url = /http:\/\/isomux(\/[^\s"'?]*)/.exec(command);
     if (!url) continue;
     const method = /-X (\w+)/.exec(command)?.[1] ?? "GET";
-    found.push({ route: `${method} ${url[1]}`, marked: false, where: "prompt" });
+    found.push({
+      route: `${method} ${url[1]}`,
+      marked: false,
+      where: "prompt",
+    });
   }
   // The reference route serves the same bytes to every engine, so this is
   // the text an OpenCode agent reads.

@@ -119,7 +119,8 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
   "agents.readSystemPrompt": "Human UI inspection route.",
   "agents.readInstructions": "Human agent-settings inspection route.",
   "agents.previewSystemPrompt": "Human UI preview route.",
-  "agents.respondInteraction": "Harness interaction response, not an office feature call.",
+  "agents.respondInteraction":
+    "Harness interaction response, not an office feature call.",
   "agents.openFile": "Human editor transport route.",
   "agents.saveFile": "Human editor transport route.",
   "agents.closeFile": "Human editor transport route.",
@@ -145,7 +146,9 @@ const content = new Map(
   ]),
 );
 export const AGENT_REFERENCE_VERSION = createHash("sha256")
-  .update(topicNames.map((topic) => `${topic}\0${content.get(topic)}`).join("\0"))
+  .update(
+    topicNames.map((topic) => `${topic}\0${content.get(topic)}`).join("\0"),
+  )
   .digest("hex")
   .slice(0, 12);
 

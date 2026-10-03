@@ -26,15 +26,15 @@ Thus, give office access only to persons you trust with a shell on the server. A
 
 ## 2. Identities
 
-| Identity | How it signs in | What it can do |
-| --- | --- | --- |
-| Owner | Browser session cookie | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member. |
-| Member | Browser session cookie | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens. |
-| Personal API token | `Authorization: Bearer isomux_pat_…` | The reach of the member who minted it, with some exclusions. See section 5. |
-| Agent | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs and apps. |
-| Privileged agent | The same agent token, with more capabilities | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2. |
-| Scheduled run | A run token in the run environment | Its own run affordances, messages that show the schedule as sender, and office-wide tasks. |
-| App | `ISOMUX_APP_TOKEN` in the app environment | Send messages to the agent that built it. Nothing else. |
+| Identity           | How it signs in                               | What it can do                                                                                                                                       |
+| ------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner              | Browser session cookie                        | Everything a member can do. Also: create members, mint sign-in links, change room access, change office settings, revoke the sessions of any member. |
+| Member             | Browser session cookie                        | Use the rooms the owner gives them: agents, terminal panels, tasks, files, apps, schedules. Mint their own device links and API tokens.              |
+| Personal API token | `Authorization: Bearer isomux_pat_…`          | The reach of the member who minted it, with some exclusions. See section 5.                                                                          |
+| Agent              | `ISOMUX_AGENT_TOKEN` in the agent environment | Its own chat affordances, messages to other agents, the task board, memory, logs and apps.                                                           |
+| Privileged agent   | The same agent token, with more capabilities  | Also: drive other agents, manage rooms and schedules, all inside the reach of the member who spawned it. See section 6.2.                            |
+| Scheduled run      | A run token in the run environment            | Its own run affordances, messages that show the schedule as sender, and office-wide tasks.                                                           |
+| App                | `ISOMUX_APP_TOKEN` in the app environment     | Send messages to the agent that built it. Nothing else.                                                                                              |
 
 Isomux reads the role and the room access of a member from the live state on each request. A change to a role, to room access or to a member record has an effect on the next request.
 
@@ -44,11 +44,11 @@ Isomux reads the role and the room access of a member from the live state on eac
 
 ### 3.1 One OS user per office
 
-| Hosting setup | OS user of the server and of everything it starts |
-| --- | --- |
-| Installer (VPS or dedicated box) | The `isomux` service user |
-| Self-hosted office that its owner runs | The owner's own login user |
-| Container (Docker, Render, AWS, Kubernetes) | The pod user `node` (uid 1000) |
+| Hosting setup                               | OS user of the server and of everything it starts |
+| ------------------------------------------- | ------------------------------------------------- |
+| Installer (VPS or dedicated box)            | The `isomux` service user                         |
+| Self-hosted office that its owner runs      | The owner's own login user                        |
+| Container (Docker, Render, AWS, Kubernetes) | The pod user `node` (uid 1000)                    |
 
 No code in Isomux starts an agent, a terminal, an app or a scheduled run as a different user.
 
@@ -71,15 +71,15 @@ This section is about an attacker who has no credential.
 
 ### 4.1 Credentials
 
-| Credential | Format | Lifetime | Stored as |
-| --- | --- | --- | --- |
-| Session cookie | 32 random bytes | 30 days after last use, 1 year at most | SHA-256 hash in `sessions.json` |
-| Sign-in link from an owner | 32 random bytes in the URL | 24 hours, one use | SHA-256 hash in `invites.json` |
-| Device link (a member, for their own device) | 32 random bytes in the URL | 1 hour, one use | SHA-256 hash in `invites.json` |
-| Owner recovery link | 32 random bytes in the URL | 15 minutes, one use | SHA-256 hash in `invites.json` |
-| Personal API token | `isomux_pat_` and 32 random bytes | 30 days, 365 days or no expiry | SHA-256 hash in `api-tokens.json` |
-| Agent and run tokens | 32 random bytes | Until the agent stops or the run ends, or the server restarts | Process memory only |
-| App token | 32 random bytes | Until the app is deleted | SHA-256 hash in `apps/app-tokens.json`; the raw value in the app's environment file |
+| Credential                                   | Format                            | Lifetime                                                      | Stored as                                                                           |
+| -------------------------------------------- | --------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Session cookie                               | 32 random bytes                   | 30 days after last use, 1 year at most                        | SHA-256 hash in `sessions.json`                                                     |
+| Sign-in link from an owner                   | 32 random bytes in the URL        | 24 hours, one use                                             | SHA-256 hash in `invites.json`                                                      |
+| Device link (a member, for their own device) | 32 random bytes in the URL        | 1 hour, one use                                               | SHA-256 hash in `invites.json`                                                      |
+| Owner recovery link                          | 32 random bytes in the URL        | 15 minutes, one use                                           | SHA-256 hash in `invites.json`                                                      |
+| Personal API token                           | `isomux_pat_` and 32 random bytes | 30 days, 365 days or no expiry                                | SHA-256 hash in `api-tokens.json`                                                   |
+| Agent and run tokens                         | 32 random bytes                   | Until the agent stops or the run ends, or the server restarts | Process memory only                                                                 |
+| App token                                    | 32 random bytes                   | Until the app is deleted                                      | SHA-256 hash in `apps/app-tokens.json`; the raw value in the app's environment file |
 
 Isomux compares hashes in constant time. Isomux does not write the credentials that it mints to its logs. A secret that a person or an agent types into a message is a different case (section 8.3).
 
@@ -255,20 +255,20 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 
 ## 9. Findings
 
-| # | Severity | Finding | Status |
-| --- | --- | --- | --- |
-| 1 | High | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | Open. A dedicated OS user is not built. |
-| 2 | Medium | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5). | By design. |
-| 3 | Low | `read-file` puts any readable file into the chat, with no secret check (section 6.5). | Open. |
-| 4 | Low | `preview-url` can open loopback and internal addresses (section 6.5). | By design. |
-| 5 | Low | All members can read all schedule run transcripts, which can show the maker's secrets (section 7). | Open. |
-| 6 | Low | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4). | Open. |
-| 7 | Low | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access. | Mitigated: 24-hour or shorter life, one use, `no-referrer`. |
-| 8 | Low | A session on a shared device stays valid for up to one year (section 7). | Mitigated: revocation per device. |
-| 9 | Info | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker. | Accepted. |
-| 10 | Info | The sign-in link page and the accept form have no rate limit (section 4.5). | Accepted. |
-| 11 | Info | On macOS, `claude auth status` runs without the telemetry opt-out (section 8.4). | Open. |
-| 12 | Info | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control. | Accepted. |
+| #   | Severity | Finding                                                                                                                                                                                                                 | Status                                                      |
+| --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 1   | High     | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | Open. A dedicated OS user is not built.                     |
+| 2   | Medium   | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5).                                   | By design.                                                  |
+| 3   | Low      | `read-file` puts any readable file into the chat, with no secret check (section 6.5).                                                                                                                                   | Open.                                                       |
+| 4   | Low      | `preview-url` can open loopback and internal addresses (section 6.5).                                                                                                                                                   | By design.                                                  |
+| 5   | Low      | All members can read all schedule run transcripts, which can show the maker's secrets (section 7).                                                                                                                      | Open.                                                       |
+| 6   | Low      | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4).                                                                                                                       | Open.                                                       |
+| 7   | Low      | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access.                                                                    | Mitigated: 24-hour or shorter life, one use, `no-referrer`. |
+| 8   | Low      | A session on a shared device stays valid for up to one year (section 7).                                                                                                                                                | Mitigated: revocation per device.                           |
+| 9   | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                   |
+| 10  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                             | Accepted.                                                   |
+| 11  | Info     | On macOS, `claude auth status` runs without the telemetry opt-out (section 8.4).                                                                                                                                        | Open.                                                       |
+| 12  | Info     | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control.                                                                                         | Accepted.                                                   |
 
 ---
 

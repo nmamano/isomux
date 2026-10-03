@@ -146,9 +146,7 @@ export function startAdminSocket(options: AdminSocketOptions = {}): {
             request = parseHttpRequest(socket.data.buffer, MAX_REQUEST_BYTES);
           } catch {
             socket.data.handled = true;
-            socket.end(
-              jsonBytes(400, { ok: false, error: "bad request" }),
-            );
+            socket.end(jsonBytes(400, { ok: false, error: "bad request" }));
             return;
           }
           if (!request) return;
@@ -158,9 +156,7 @@ export function startAdminSocket(options: AdminSocketOptions = {}): {
             console.error(
               `[admin-socket] refused a connection from uid ${peerUid ?? "unknown"}`,
             );
-            socket.end(
-              jsonBytes(403, { ok: false, error: refusal(allowed) }),
-            );
+            socket.end(jsonBytes(403, { ok: false, error: refusal(allowed) }));
             return;
           }
           void handleParsed(request)

@@ -201,7 +201,8 @@ describe("F8: /readyz", () => {
     const probe = (client: string) =>
       srv.http("/readyz", { headers: { "X-Forwarded-For": client } });
     const statuses: number[] = [];
-    for (let i = 0; i < 31; i++) statuses.push((await probe("198.51.100.7")).status);
+    for (let i = 0; i < 31; i++)
+      statuses.push((await probe("198.51.100.7")).status);
     expect(new Set(statuses.slice(0, -1))).toEqual(new Set([200]));
     expect(statuses.at(-1)).toBe(429);
     // Another client behind the same proxy still has its own budget.

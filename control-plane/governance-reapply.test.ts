@@ -326,15 +326,25 @@ suite("the incremental matrix change", () => {
           matrixSql(),
           [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
-        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(
+          true,
+        );
         expect(
-          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
+          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS)
+            .exact,
         ).toBe(true);
-        expect(before).not.toContain(`${TEST_WEB_ROLE}:name_reservations:UPDATE`);
+        expect(before).not.toContain(
+          `${TEST_WEB_ROLE}:name_reservations:UPDATE`,
+        );
         // Grants already in the baseline stay exercisable; the pending one
         // refuses. Together they prove the live sessions test real privilege.
         await provisionerInsertsStripeEvent(dsn, true);
-        await runtimeSelects(dsn, TEST_WEB_ROLE, "reinstatement_attempts", true);
+        await runtimeSelects(
+          dsn,
+          TEST_WEB_ROLE,
+          "reinstatement_attempts",
+          true,
+        );
         await webUpdatesReservation(dsn, false);
 
         const applied = await reapplyMatrix(dsn, "forward", testRosters());
@@ -384,9 +394,12 @@ suite("the incremental matrix change", () => {
           [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
         expect(
-          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
+          judgeMatrix(rows, TEST_PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS)
+            .exact,
         ).toBe(true);
-        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        expect(judgeMatrix(rows, TEST_WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(
+          true,
+        );
         // The provisioner's prior equals its current matrix (measured
         // 2026-08-24), so only the web role reads as moved-away-from.
         expect(
@@ -606,7 +619,10 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `grant delete on accounts to ${TEST_PROVISIONER_ROLE}`);
+          await ask(
+            dsn,
+            `grant delete on accounts to ${TEST_PROVISIONER_ROLE}`,
+          );
         }, /does not carry exactly the matrix/),
       ),
     60_000,
@@ -617,7 +633,10 @@ suite("it refuses before writing anything", () => {
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `grant update on name_reservations to ${TEST_WEB_ROLE}`);
+          await ask(
+            dsn,
+            `grant update on name_reservations to ${TEST_WEB_ROLE}`,
+          );
         }, /does not carry exactly the matrix/),
       ),
     60_000,

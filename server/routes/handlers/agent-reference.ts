@@ -23,7 +23,11 @@ export function agentReferenceHandlers(): Record<string, RouteHandler> {
         );
       if (markdown === undefined)
         return fail(404, "reference_not_found", "Unknown reference topic.");
-      return ok({ version: AGENT_REFERENCE_VERSION, topic: params.topic, markdown });
+      return ok({
+        version: AGENT_REFERENCE_VERSION,
+        topic: params.topic,
+        markdown,
+      });
     },
   };
 }

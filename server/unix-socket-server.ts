@@ -104,7 +104,9 @@ function loadLibc(): LibcLibrary | null {
   return null;
 }
 
-export function socketFileDescriptor(socket: Bun.Socket<unknown>): number | null {
+export function socketFileDescriptor(
+  socket: Bun.Socket<unknown>,
+): number | null {
   // Bun's Socket type omits fd; the runtime exposes a number, verified
   // 2026-08-29. Read it as unknown and fail closed if that shape changes.
   const fd: unknown = Reflect.get(socket, "fd");

@@ -315,7 +315,10 @@ type InteractionResponseRes = {
 };
 
 export const API_ROUTES: readonly RouteDef[] = [
-  defineRoute<void, { version: string; topics: { topic: string; description: string }[] }>({
+  defineRoute<
+    void,
+    { version: string; topics: { topic: string; description: string }[] }
+  >({
     opId: "agentReference.list",
     method: "GET",
     path: "/api/agent-reference",

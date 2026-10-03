@@ -638,7 +638,11 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
   });
 
   it("reads trustedProxy without letting server config saves overwrite it", () => {
-    for (const trustedProxy of ["none", "same-host", "load-balancer"] as const) {
+    for (const trustedProxy of [
+      "none",
+      "same-host",
+      "load-balancer",
+    ] as const) {
       seed("office-config.json", {
         publicOrigin: "https://office.example.com",
         externalAccess: true,

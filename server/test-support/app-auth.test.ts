@@ -231,7 +231,12 @@ describe("app sign-in codes", () => {
     });
     expect(first?.returnPath).toBe("/");
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
+      redeemAppCode(code, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: 1_000_100,
+      }),
     ).toBeNull();
   });
 
@@ -252,12 +257,22 @@ describe("app sign-in codes", () => {
     const code = mint();
     const atExpiry = 1_000_000 + APP_CODE_TTL_MS;
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: atExpiry }),
+      redeemAppCode(code, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: atExpiry,
+      }),
     ).toBeNull();
     // And a code redeemed one tick earlier would have worked.
     const other = mint();
     expect(
-      redeemAppCode(other, { host: HOST, label: LABEL, client: CLIENT, now: atExpiry - 1 }),
+      redeemAppCode(other, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: atExpiry - 1,
+      }),
     ).not.toBeNull();
   });
 
@@ -296,12 +311,22 @@ describe("app sign-in codes", () => {
       `${code}=`,
     ]) {
       expect(
-        redeemAppCode(bogus, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
+        redeemAppCode(bogus, {
+          host: HOST,
+          label: LABEL,
+          client: CLIENT,
+          now: 1_000_100,
+        }),
       ).toBeNull();
     }
     // The real code still works: none of the above consumed it.
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_100 }),
+      redeemAppCode(code, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: 1_000_100,
+      }),
     ).not.toBeNull();
   });
 
@@ -315,10 +340,20 @@ describe("app sign-in codes", () => {
     const code = mint();
     expect(_testPendingCodeCount()).toBe(1);
     for (let i = 0; i < APP_REDEEM_MAX_PER_WINDOW; i++) {
-      redeemAppCode("Zm9vYmFy", { host: HOST, label: LABEL, client: CLIENT, now: 1_000_050 });
+      redeemAppCode("Zm9vYmFy", {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: 1_000_050,
+      });
     }
     expect(
-      redeemAppCode(code, { host: HOST, label: LABEL, client: CLIENT, now: 1_000_050 }),
+      redeemAppCode(code, {
+        host: HOST,
+        label: LABEL,
+        client: CLIENT,
+        now: 1_000_050,
+      }),
     ).toBeNull();
     expect(_testPendingCodeCount()).toBe(0);
   });

@@ -10,14 +10,14 @@ Safe example: `GET /api/tasks?status=all`.
 
 ## Route contract
 
-| Method and route | Request | Success |
-| --- | --- | --- |
-| `GET /api/tasks` | Query filters above | `TaskItem[]` |
-| `GET /api/tasks/:id` (not available to OpenCode agents) | Path id | `TaskItem` |
-| `POST /api/tasks` | Create fields above | `201 TaskItem` |
-| `PATCH /api/tasks/:id` | `version` plus partial create fields and `status` | `TaskItem` |
-| `POST /api/tasks/:id/claim` | `{"assignee":"name"}` | `TaskItem` |
-| `POST /api/tasks/:id/done` | Empty body | `TaskItem` |
-| `DELETE /api/tasks/:id` (not available to OpenCode agents) | Empty body | `204` |
+| Method and route                                           | Request                                           | Success        |
+| ---------------------------------------------------------- | ------------------------------------------------- | -------------- |
+| `GET /api/tasks`                                           | Query filters above                               | `TaskItem[]`   |
+| `GET /api/tasks/:id` (not available to OpenCode agents)    | Path id                                           | `TaskItem`     |
+| `POST /api/tasks`                                          | Create fields above                               | `201 TaskItem` |
+| `PATCH /api/tasks/:id`                                     | `version` plus partial create fields and `status` | `TaskItem`     |
+| `POST /api/tasks/:id/claim`                                | `{"assignee":"name"}`                             | `TaskItem`     |
+| `POST /api/tasks/:id/done`                                 | Empty body                                        | `TaskItem`     |
+| `DELETE /api/tasks/:id` (not available to OpenCode agents) | Empty body                                        | `204`          |
 
 All calls require task capability and room visibility. Hidden or missing tasks and inaccessible target rooms return 404; invalid status, priority, fields, or room returns 400/422; a stale version or a claim of a held task returns 409.

@@ -212,14 +212,14 @@ function unauthorized(
   return new Response(
     renderLoginPage(translatorForVisitor(req, onBox), officeName),
     {
-    status: 401,
-    headers: {
-      "Content-Type": "text/html; charset=utf-8",
-      // Login page has no bearer token in its URL; skip Referrer-Policy:
-      // no-referrer so any future form on this page wouldn't trip Chrome's
-      // Origin: null behavior.
-      ...securityHeaders({ tokenInUrl: false }),
-    },
+      status: 401,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        // Login page has no bearer token in its URL; skip Referrer-Policy:
+        // no-referrer so any future form on this page wouldn't trip Chrome's
+        // Origin: null behavior.
+        ...securityHeaders({ tokenInUrl: false }),
+      },
     },
   );
 }

@@ -220,22 +220,24 @@ afterAll(async () => {
   // creating databases, against 115ms with the engine idle.
   await withRoleSuiteLock(() =>
     inCleanupPool(databases, async (entry) => {
-    const { name, roster, probe } = entry;
-    const url = new URL(LOCAL_DATABASE_URL);
-    url.pathname = `/${name}`;
-    if ([WEB_ROLE, PROVISIONER_ROLE].includes(probe)) {
-      throw new Error("refusing to drop a production runtime role");
-    }
-    await admin.query(`revoke ${roster[0].role} from ${probe}`).catch(() => {});
-    await admin.query(`drop role if exists ${probe}`).catch(() => {});
-    await dropRoles(url.toString(), roster);
-    await admin
-      .query(
-        "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-        [name],
-      )
-      .catch(() => {});
-    await admin.query(`drop database if exists ${name}`).catch(() => {});
+      const { name, roster, probe } = entry;
+      const url = new URL(LOCAL_DATABASE_URL);
+      url.pathname = `/${name}`;
+      if ([WEB_ROLE, PROVISIONER_ROLE].includes(probe)) {
+        throw new Error("refusing to drop a production runtime role");
+      }
+      await admin
+        .query(`revoke ${roster[0].role} from ${probe}`)
+        .catch(() => {});
+      await admin.query(`drop role if exists ${probe}`).catch(() => {});
+      await dropRoles(url.toString(), roster);
+      await admin
+        .query(
+          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+          [name],
+        )
+        .catch(() => {});
+      await admin.query(`drop database if exists ${name}`).catch(() => {});
     }),
   );
   const testNames = databases.flatMap(({ roster, probe }) => [
@@ -300,7 +302,9 @@ suite("a fresh, empty database", () => {
         const dsn = await scratchDatabase();
         await applyRolePosture(dsn, TEST_ROSTER);
         // The roles exist and are governed; the tables do not exist yet.
-        expect(await refusal(applyGrantMatrix(dsn, TEST_ROSTER))).not.toBe(NO_REFUSAL);
+        expect(await refusal(applyGrantMatrix(dsn, TEST_ROSTER))).not.toBe(
+          NO_REFUSAL,
+        );
         await dropRoles(dsn);
       }),
     30_000,
@@ -362,7 +366,9 @@ suite("the migration is one transaction or none of it", () => {
         // with it - which is the property the autocommit version did not have.
         await ask(dsn, "drop table subscriptions");
 
-        expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).not.toBe(NO_REFUSAL);
+        expect(await refusal(applyGovernance(dsn, TEST_ROSTER))).not.toBe(
+          NO_REFUSAL,
+        );
 
         const roles = await ask<{ n: string }>(
           dsn,

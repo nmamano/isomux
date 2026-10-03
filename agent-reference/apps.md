@@ -14,17 +14,17 @@ Safe example: `GET /api/apps`.
 
 ## Route contract
 
-| Method and route | Request | Success |
-| --- | --- | --- |
-| `GET /api/apps` | None | `AppWire[]` projected for caller |
-| `GET /api/apps/:name` | Name | `AppWire` |
-| `POST /api/apps/:name/preview` (not available to OpenCode agents) | Empty body | Raw `image/png` bytes |
-| `POST /api/apps` | Registration fields above | `201 AppWire` |
-| `PATCH /api/apps/:name` | Partial command/cwd/description/target | `AppWire` |
-| `DELETE /api/apps/:name` | Empty body | `204` |
-| `GET /api/apps/:name/logs` | Optional `lines` | `{lines:string[]}` |
-| `POST /api/apps/:name/start` | Empty body | `AppWire` |
-| `POST /api/apps/:name/stop` | Empty body | `AppWire` |
-| `POST /api/apps/:name/restart` | Empty body | `AppWire` |
+| Method and route                                                  | Request                                | Success                          |
+| ----------------------------------------------------------------- | -------------------------------------- | -------------------------------- |
+| `GET /api/apps`                                                   | None                                   | `AppWire[]` projected for caller |
+| `GET /api/apps/:name`                                             | Name                                   | `AppWire`                        |
+| `POST /api/apps/:name/preview` (not available to OpenCode agents) | Empty body                             | Raw `image/png` bytes            |
+| `POST /api/apps`                                                  | Registration fields above              | `201 AppWire`                    |
+| `PATCH /api/apps/:name`                                           | Partial command/cwd/description/target | `AppWire`                        |
+| `DELETE /api/apps/:name`                                          | Empty body                             | `204`                            |
+| `GET /api/apps/:name/logs`                                        | Optional `lines`                       | `{lines:string[]}`               |
+| `POST /api/apps/:name/start`                                      | Empty body                             | `AppWire`                        |
+| `POST /api/apps/:name/stop`                                       | Empty body                             | `AppWire`                        |
+| `POST /api/apps/:name/restart`                                    | Empty body                             | `AppWire`                        |
 
 An agent can create and manage apps for its manager; visibility also follows creator-room access. Invalid names, commands, cwd, targets, or line counts return 400/422; invisible apps return 404; ownership failures return 403; lifecycle conflicts return 409; supervisor failures return 500/502. A host that cannot run apps (no Linux systemd) answers every route that would change or run an app with 501 `apps_not_supported`; tell the member.

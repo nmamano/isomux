@@ -47,7 +47,8 @@ export function createSetupHandler(options: {
   const windows = new Map<string, { start: number; count: number }>();
   const allowAttempt = (client: string, now: number): boolean => {
     const w = windows.get(client);
-    if (w && now - w.start < SETUP_WINDOW_MS) return ++w.count <= SETUP_MAX_PER_WINDOW;
+    if (w && now - w.start < SETUP_WINDOW_MS)
+      return ++w.count <= SETUP_MAX_PER_WINDOW;
     if (!w && windows.size >= SETUP_MAX_TRACKED_CLIENTS) {
       for (const [key, win] of windows)
         if (now - win.start >= SETUP_WINDOW_MS) windows.delete(key);

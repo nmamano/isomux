@@ -79,7 +79,8 @@ test("setup attempts are limited per client, so one caller cannot block the clai
     );
   const noisy = "198.51.100.7";
   const statuses: number[] = [];
-  for (let i = 0; i < 21; i++) statuses.push((await post("wrong", noisy)).status);
+  for (let i = 0; i < 21; i++)
+    statuses.push((await post("wrong", noisy)).status);
   // Wrong keys are refused until the noisy client runs out of attempts.
   expect(new Set(statuses.slice(0, -1))).toEqual(new Set([403]));
   expect(statuses.at(-1)).toBe(429);

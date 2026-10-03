@@ -747,9 +747,7 @@ describe("route table: agent reference coverage", () => {
 
   it("pins each mapped route's exact method and path in its topic", () => {
     const privileged = identities[1];
-    for (const [opId, topic] of Object.entries(
-      AGENT_ROUTE_REFERENCE_TOPICS,
-    )) {
+    for (const [opId, topic] of Object.entries(AGENT_ROUTE_REFERENCE_TOPICS)) {
       const route = API_ROUTES.find((candidate) => candidate.opId === opId);
       expect(route, `${opId} is not declared`).toBeDefined();
       const markdown = agentReferenceContent(privileged, topic);
