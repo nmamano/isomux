@@ -138,7 +138,9 @@ export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
 } as const;
 
 const topicNames = Object.keys(AGENT_REFERENCE_TOPICS) as AgentReferenceTopic[];
-const referenceDir = join(import.meta.dir, "..", "agent-reference");
+// The pages live under server/ so every package that ships the server ships
+// them, and a missing page fails this module load instead of a request.
+const referenceDir = join(import.meta.dir, "agent-reference");
 const content = new Map(
   topicNames.map((topic) => [
     topic,

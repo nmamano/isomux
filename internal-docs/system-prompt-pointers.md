@@ -81,7 +81,7 @@ Each topic holds the current route, method, parameters, response shape, scope, e
 
 ## Reference storage and retrieval
 
-Store the source text as checked-in Markdown under `agent-reference/<topic>.md`. A server route reads only known topic names from that directory:
+Store the source text as checked-in Markdown under `server/agent-reference/<topic>.md`. A server route reads only known topic names from that directory:
 
 ```text
 GET /api/agent-reference
