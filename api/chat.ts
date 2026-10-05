@@ -232,14 +232,13 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
 - Same configurability as a desk agent: model, thinking effort, cwd, permission mode
 - Manual "Run now" for any schedule, independent of its timing
-- A schedule belongs to a room: its members see the schedule and its last result; only its maker and office owners see its prompt and runs. The Schedules page has a room filter.
 - Per schedule token usage rolled into the /isomux-usage report alongside per-agent and per-room totals (for owners)
 - OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 - Accessed via the Schedules entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
-- The Apps tab lists every app available to you with its state, restart count, and screenshot preview, with a room filter. App owners and office owners can also read recent output and start, stop, restart, or delete an app.
+- The Apps tab lists every app available to you with its state, restart count, and screenshot preview. App owners and office owners can also read recent output and start, stop, restart, or delete an app.
 - On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/hosting).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.

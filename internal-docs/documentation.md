@@ -86,7 +86,7 @@ Keep these consistent across all surfaces below.
 
   - `access-and-invites.md` - canonical auth deep dive: member creation and the sign-in-link flow, roles and TTLs, device links, external access and public origin, cookie semantics, trust model, owner recovery. Reachability setup moved to `self-hosted.md`.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
-  - `security-audit.md` - authorization-system threat model and findings.
+  - `security-audit.md` - authorization-system threat model and findings. Keep it short: remove a finding when it is fixed (git history keeps it) and update the "last updated" date at the top.
   - `developer-api.md` - Isomux developer resource index: website OpenAPI contract, self-hosted API authentication, route-table source, memory READ/APPEND/REPLACE contract and limits, and structured error shape.
 - **Frontmatter:** `title`, `description`, `navTitle` (override the sidebar label when the H1 is too long), and `order` (override nav position).
 - **Internal safety evidence:** `internal-docs/safety-hooks.md` records the maintained scope, evidence, and limits for Claude and Codex pre-tool safety hooks. Update it when the policy surface, backend hook contract, installation checks, failure behavior, or isolation boundary changes.

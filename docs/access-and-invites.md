@@ -240,6 +240,6 @@ A signed-in member can create a named personal API token in **Settings â†’ You â
 
 Personal tokens have a separate API identity scope. They carry the issuing member's curated operational reach across agents, rooms, tasks, apps, logs, schedules, editor and file actions, memory, and office reads. They cannot manage API tokens or other durable identity access, browser sessions, user access, office settings, or the privileged-agent flag. The server reads the issuing member and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 
-The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked. An owner can also list and revoke a member's tokens on that member's profile (`GET` and `DELETE /api/users/:username/api-tokens[/:id]`, browser session only).
+The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.
 
 Sending messages and reading replies is described in the [developer API guide](/docs/developer-api).
