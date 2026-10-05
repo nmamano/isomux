@@ -339,10 +339,7 @@ import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
-import {
-  cronjobDeltaFor,
-  type CronjobChange,
-} from "./events/cronjob-delta.ts";
+import { cronjobDeltaFor, type CronjobChange } from "./events/cronjob-delta.ts";
 import {
   cronjobDetailFor,
   cronjobViewerForIdentity,
@@ -4949,9 +4946,7 @@ function pushCronjobDeltaToEachWs(change: CronjobChange) {
 // outcome as a projected cronjob_updated, and only when this run is the job's
 // latest by start time.
 function pushCronjobRunToEachWs(run: CronjobRun) {
-  const job = cronjobManager
-    .listCronjobs()
-    .find((c) => c.id === run.cronjobId);
+  const job = cronjobManager.listCronjobs().find((c) => c.id === run.cronjobId);
   const facts = job ? cronjobFacts(job) : GONE_CRONJOB_FACTS;
   const isLatest =
     job !== undefined && cronjobManager.getLastRunId(job.id) === run.id;
@@ -4962,7 +4957,9 @@ function pushCronjobRunToEachWs(run: CronjobRun) {
     } else if (job && isLatest) {
       const projected = projectCronjobFor(job, viewer);
       if (projected) {
-        ws.send(JSON.stringify({ type: "cronjob_updated", cronjob: projected }));
+        ws.send(
+          JSON.stringify({ type: "cronjob_updated", cronjob: projected }),
+        );
       }
     }
   }

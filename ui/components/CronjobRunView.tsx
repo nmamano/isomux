@@ -67,13 +67,8 @@ export function CronjobRunView({
   runId: string;
   onClose: () => void;
 }) {
-  const {
-    cronjobRunsByJob,
-    isMobile,
-    logs,
-    hydrationEpoch,
-    cronjobsStateSeq,
-  } = useAppState();
+  const { cronjobRunsByJob, isMobile, logs, hydrationEpoch, cronjobsStateSeq } =
+    useAppState();
   const { t, language } = useI18n();
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop

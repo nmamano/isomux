@@ -1,4 +1,3 @@
-
 // Generic assignment names ignore case; provider prefixes remain case-sensitive.
 // A single pass means one match cannot
 // consume the replacement of another overlapping match.

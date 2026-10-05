@@ -1704,7 +1704,8 @@ Coses que pots fer per ell:
   "roomFilter.none": "Sense sala",
   "schedules.noMatch": "Cap programació no coincideix amb aquest filtre.",
   "dialogs.schedule.room": "Sala",
-  "dialogs.schedule.roomHint": "Els membres de la sala veuen aquesta programació, però no el seu prompt ni les seves execucions.",
+  "dialogs.schedule.roomHint":
+    "Els membres de la sala veuen aquesta programació, però no el seu prompt ni les seves execucions.",
   "apps.unavailable.needsLinux":
     "L'allotjament d'apps necessita Linux amb systemd, així que no està disponible en aquest ordinador.",
   "apps.loadFailed": "No s'han pogut carregar les apps.",

@@ -818,9 +818,9 @@ describe("guard: cronjobDetailReader", () => {
         ctx(privilegedAgent, { id: "job-1" }, undefined, creator("u-spawn")),
       ),
     ).toEqual(OK);
-    expect(guard(ctx(api, { id: "job-1" }, undefined, creator("u-mem")))).toEqual(
-      OK,
-    );
+    expect(
+      guard(ctx(api, { id: "job-1" }, undefined, creator("u-mem"))),
+    ).toEqual(OK);
     expect(
       guard(ctx(userOwner, { id: "job-1" }, undefined, creator("u-x"))),
     ).toEqual(OK);

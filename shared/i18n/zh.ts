@@ -778,8 +778,7 @@ App 的一些原则：
   "settings.memberConnections.unknown": "无法检查状态。",
   "settings.memberConnections.empty": "没有变量。",
   "settings.memberApiTokens.title": "API 令牌",
-  "settings.memberApiTokens.hint":
-    "撤销令牌后，它的下一个请求即被拒绝。",
+  "settings.memberApiTokens.hint": "撤销令牌后，它的下一个请求即被拒绝。",
   "dialogs.textarea.expand": "展开 {title}",
   "dialogs.textarea.escCollapse": "按 Esc 折叠",
   "dialogs.textarea.done": "完成",
@@ -1533,7 +1532,8 @@ App 的一些原则：
   "roomFilter.none": "无房间",
   "schedules.noMatch": "没有符合筛选条件的定时任务。",
   "dialogs.schedule.room": "房间",
-  "dialogs.schedule.roomHint": "房间成员能看到这个定时任务，但看不到它的提示词和运行记录。",
+  "dialogs.schedule.roomHint":
+    "房间成员能看到这个定时任务，但看不到它的提示词和运行记录。",
   "apps.unavailable.needsLinux":
     "App 托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
   "apps.loadFailed": "无法加载 App。",

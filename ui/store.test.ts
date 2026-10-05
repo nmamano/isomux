@@ -381,9 +381,15 @@ describe("reducer: cronjobs", () => {
     state = reducer(state, { type: "cronjob_added", cronjob: viewerRow("a") });
     expect(state.cronjobs.map((c) => c.id)).toEqual(["a"]);
     // A job moved into a visible room arrives as an update for an unknown row.
-    state = reducer(state, { type: "cronjob_updated", cronjob: viewerRow("b") });
+    state = reducer(state, {
+      type: "cronjob_updated",
+      cronjob: viewerRow("b"),
+    });
     expect(state.cronjobs.map((c) => c.id)).toEqual(["a", "b"]);
-    state = reducer(state, { type: "cronjob_updated", cronjob: detailRow("a") });
+    state = reducer(state, {
+      type: "cronjob_updated",
+      cronjob: detailRow("a"),
+    });
     expect(state.cronjobs.map((c) => [c.id, c.detail])).toEqual([
       ["a", true],
       ["b", false],
@@ -394,7 +400,9 @@ describe("reducer: cronjobs", () => {
   const withRunsAndLogs = (jobIds: string[]): AppState => ({
     ...initialState,
     cronjobRunsByJob: new Map(jobIds.map((id) => [id, [run(id)]])),
-    logs: new Map(jobIds.map((id) => [stream(id), [entry("e", stream(id), 1)]])),
+    logs: new Map(
+      jobIds.map((id) => [stream(id), [entry("e", stream(id), 1)]]),
+    ),
     logEntryIds: new Map(jobIds.map((id) => [stream(id), new Set(["e"])])),
   });
 
@@ -468,7 +476,9 @@ describe("reducer: cronjobs", () => {
     const before: AppState = {
       ...withRunsAndLogs([]),
       logsReplay: {
-        logs: new Map([["cronrun-unlisted", [entry("r1", "cronrun-unlisted", 1)]]]),
+        logs: new Map([
+          ["cronrun-unlisted", [entry("r1", "cronrun-unlisted", 1)]],
+        ]),
         logEntryIds: new Map([["cronrun-unlisted", new Set(["r1"])]]),
         seq: 1,
       },

@@ -116,10 +116,7 @@ const appsView = (language: Language) =>
     appsLoaded: true,
   });
 
-const cronjobsView = (
-  language: Language,
-  cronjobs: CronjobListWire[] = [],
-) =>
+const cronjobsView = (language: Language, cronjobs: CronjobListWire[] = []) =>
   onLanguage(language, createElement(CronjobsView, { onClose: noop }), {
     hasReceivedInitialState: true,
     cronjobs,

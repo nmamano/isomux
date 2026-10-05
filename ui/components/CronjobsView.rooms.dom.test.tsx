@@ -92,7 +92,9 @@ async function mount() {
   const listed = () =>
     cronjobs.map((c) => c.id).filter((id) => row(id) !== null);
   const filter = () =>
-    view.container.querySelector<HTMLSelectElement>("select[data-room-filter]")!;
+    view.container.querySelector<HTMLSelectElement>(
+      "select[data-room-filter]",
+    )!;
   return { view, row, listed, filter };
 }
 
@@ -101,9 +103,9 @@ it("a room member's row shows the last run and no run or edit controls", async (
   const viewer = row("view0001")!;
   expect(viewer.querySelectorAll("button")).toHaveLength(0);
   expect(
-    viewer.querySelector("[data-cronjob-last-run]")?.getAttribute(
-      "data-cronjob-last-run",
-    ),
+    viewer
+      .querySelector("[data-cronjob-last-run]")
+      ?.getAttribute("data-cronjob-last-run"),
   ).toBe("failed");
   expect(row("mine0001")!.querySelectorAll("button").length).toBe(2);
   view.unmount();

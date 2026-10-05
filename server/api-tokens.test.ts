@@ -280,9 +280,9 @@ describe("API token log secret masking", () => {
     loadApiTokens();
     const disk = readFileSync(pathFor(apiToken.id), "utf8");
     expect(disk).not.toContain(PROVIDER_SECRET);
-    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual(
-      [maskedText(SECRET_TEXT)],
-    );
+    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual([
+      maskedText(SECRET_TEXT),
+    ]);
   });
 
   it("stores the original entry when the scan fails, as agent logs do", async () => {
@@ -300,9 +300,9 @@ describe("API token log secret masking", () => {
       scan.mockRestore();
       errors.mockRestore();
     }
-    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual(
-      [SECRET_TEXT],
-    );
+    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual([
+      SECRET_TEXT,
+    ]);
     // The failure report carries no payload.
     expect(reports).not.toHaveLength(0);
     for (const call of reports)

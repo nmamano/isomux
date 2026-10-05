@@ -351,8 +351,9 @@ describe("personal API tokens", () => {
     const other = await srv.seedMember("Otto");
     const room = srv.agentManager.getRooms()[0].id;
     const agent = await spawn(srv, "Worker", room, 0, owner.username, ownerId);
-    const memberToken = (await mintThroughApi(srv, member.rawSessionId, "Phone"))
-      .body;
+    const memberToken = (
+      await mintThroughApi(srv, member.rawSessionId, "Phone")
+    ).body;
     const otherToken = (await mintThroughApi(srv, other.rawSessionId, "Laptop"))
       .body;
     const ownerToken = (await mintThroughApi(srv, owner.rawSessionId, "Mine"))
@@ -374,7 +375,9 @@ describe("personal API tokens", () => {
     expect(body).not.toContain("tokenHash");
 
     // Every caller but an owner's browser session is refused, for both routes.
-    const denied: Array<[string, (path: string, method: string) => Promise<Response>]> = [
+    const denied: Array<
+      [string, (path: string, method: string) => Promise<Response>]
+    > = [
       [
         "member cookie",
         (path, method) =>

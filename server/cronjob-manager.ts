@@ -1884,13 +1884,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
         message: "The run is busy. Send again when it stops.",
       };
     if (run.status === "skipped") {
-      const message = "Cannot resume a skipped run - it never opened a session.";
+      const message =
+        "Cannot resume a skipped run - it never opened a session.";
       emitRunErrorEntry(jobId, runId, message);
       return notResumable(message);
     }
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      const message = "Cannot resume: the original run never reached backend init.";
+      const message =
+        "Cannot resume: the original run never reached backend init.";
       emitRunErrorEntry(jobId, runId, message);
       return notResumable(message);
     }
@@ -1980,7 +1982,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
         }
         abortResumedRunToken(jobId, runId, session);
         const restored = updateRun(jobId, runId, before);
-        if (restored) eventHandler({ type: "cronjob_run_updated", run: restored });
+        if (restored)
+          eventHandler({ type: "cronjob_run_updated", run: restored });
         return {
           ok: false,
           status: 500,

@@ -277,11 +277,7 @@ export function ApiTokenCards({
             {token.expiresAt === null
               ? t("settings.apiTokens.neverExpires")
               : t("settings.apiTokens.expiresOn", {
-                  date: formatDateTime(
-                    language,
-                    token.expiresAt,
-                    "date",
-                  ),
+                  date: formatDateTime(language, token.expiresAt, "date"),
                 })}
           </div>
           <div style={hint}>

@@ -10,9 +10,8 @@ const { act, render } = await import("@testing-library/react");
 const { CronjobsView } = await import("./CronjobsView.tsx");
 const { setApiShim } = await import("../api.ts");
 const { DispatchCtx } = await import("../store.tsx");
-const { onLanguage, stateWithSelfUser } = await import(
-  "../test-support/language-fixture.tsx"
-);
+const { onLanguage, stateWithSelfUser } =
+  await import("../test-support/language-fixture.tsx");
 type AppState = import("../store.tsx").AppState;
 type Action = Parameters<typeof import("../store.tsx").reducer>[1];
 type CronjobListWire = import("../../shared/types.ts").CronjobListWire;

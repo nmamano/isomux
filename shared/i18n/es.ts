@@ -1708,7 +1708,8 @@ Cosas que puedes hacer por él:
   "roomFilter.none": "Sin sala",
   "schedules.noMatch": "Ninguna programación coincide con este filtro.",
   "dialogs.schedule.room": "Sala",
-  "dialogs.schedule.roomHint": "Los miembros de la sala ven esta programación, pero no su prompt ni sus ejecuciones.",
+  "dialogs.schedule.roomHint":
+    "Los miembros de la sala ven esta programación, pero no su prompt ni sus ejecuciones.",
   "apps.unavailable.needsLinux":
     "El alojamiento de apps necesita Linux con systemd, así que no está disponible en este ordenador.",
   "apps.loadFailed": "No se pudieron cargar las apps.",

@@ -248,7 +248,9 @@ describe("cron rooms: who sees a cronjob over REST", () => {
     ).not.toContain(job.id);
     for (const who of [maker, owner]) {
       expect(
-        ids(await api(srv, "/api/cronjobs", { rawSessionId: who.rawSessionId })),
+        ids(
+          await api(srv, "/api/cronjobs", { rawSessionId: who.rawSessionId }),
+        ),
       ).toContain(job.id);
     }
   });
@@ -357,7 +359,7 @@ describe("cron rooms: details stay with the maker and office owners", () => {
 });
 
 describe("cron rooms: create and move", () => {
-  it("a member files into a room they can access, gets 404 for one they cannot, and \"\" means no room", async () => {
+  it('a member files into a room they can access, gets 404 for one they cannot, and "" means no room', async () => {
     const { srv, maker, roomA, roomB } = await office();
     const inA = await api(srv, "/api/cronjobs", {
       method: "POST",
@@ -646,7 +648,9 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
     const ran = (text: string) =>
       srv.agentManager
         .getAgentLogs(agent.id)
-        .some((entry) => entry.kind === "user_message" && entry.content === text);
+        .some(
+          (entry) => entry.kind === "user_message" && entry.content === text,
+        );
 
     // Alice can see both jobs in room A but reads neither in detail.
     for (const job of [makersJob, bossJob]) {
@@ -655,14 +659,24 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
       expect(ran(text)).toBe(true);
       expect(markerFor(job.id)).toBe(false);
     }
-    await sendHuman(srv, alice.rawSessionId, agent.id, "/isomux-cronjob-system-prompt");
+    await sendHuman(
+      srv,
+      alice.rawSessionId,
+      agent.id,
+      "/isomux-cronjob-system-prompt",
+    );
     expect(
       srv.agentManager
         .getPendingInteractions()
         .some((item) => item.agentId === agent.id),
     ).toBe(false);
 
-    await sendHuman(srv, maker.rawSessionId, agent.id, "/isomux-cronjob-system-prompt");
+    await sendHuman(
+      srv,
+      maker.rawSessionId,
+      agent.id,
+      "/isomux-cronjob-system-prompt",
+    );
     const interaction = srv.agentManager
       .getPendingInteractions()
       .find((item) => item.agentId === agent.id);

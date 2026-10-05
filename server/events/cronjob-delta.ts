@@ -14,7 +14,11 @@
 //
 // LEAF over the visibility module and types.
 
-import type { Cronjob, CronjobLastRun, CronjobListWire } from "../../shared/types.ts";
+import type {
+  Cronjob,
+  CronjobLastRun,
+  CronjobListWire,
+} from "../../shared/types.ts";
 import {
   cronjobVisibleTo,
   projectCronjob,

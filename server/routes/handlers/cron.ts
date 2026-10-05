@@ -51,7 +51,10 @@ export interface CronDeps {
   // (server/cronjob-visibility.ts): the maker and office owners get the whole
   // record, a member of the job's room the schedule and last-run outcome.
   listCronjobsFor(identity: Identity): CronjobListWire[];
-  projectCronjobFor(identity: Identity, cronjob: Cronjob): CronjobListWire | null;
+  projectCronjobFor(
+    identity: Identity,
+    cronjob: Cronjob,
+  ): CronjobListWire | null;
   // DETAIL on a job's runs (maker + office owners). A job that is gone keeps
   // only office owners.
   runsVisibleTo(identity: Identity, jobId: string): boolean;

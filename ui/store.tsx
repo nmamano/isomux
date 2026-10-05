@@ -441,10 +441,7 @@ function clearStreamInReplay(
 function dropCronjobRuns(
   state: AppState,
   dropJob: (jobId: string) => boolean,
-): Pick<
-  AppState,
-  "cronjobRunsByJob" | "logs" | "logEntryIds" | "logsReplay"
-> {
+): Pick<AppState, "cronjobRunsByJob" | "logs" | "logEntryIds" | "logsReplay"> {
   const cronjobRunsByJob = new Map<string, CronjobRun[]>();
   const keptStreams = new Set<string>();
   for (const [jobId, runs] of state.cronjobRunsByJob) {

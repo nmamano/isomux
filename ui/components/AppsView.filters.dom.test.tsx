@@ -139,7 +139,9 @@ it("filters by the creator agent's live room and remembers the room on this devi
     ],
   } as unknown as Parameters<typeof onLanguage>[2];
   const mountRooms = async () => {
-    const view = render(onLanguage("en", <AppsView onClose={() => {}} />, state));
+    const view = render(
+      onLanguage("en", <AppsView onClose={() => {}} />, state),
+    );
     await act(async () => {});
     const listed = () =>
       roomed

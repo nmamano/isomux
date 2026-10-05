@@ -1676,7 +1676,8 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "roomFilter.none": "No room",
   "schedules.noMatch": "No schedules match this filter.",
   "dialogs.schedule.room": "Room",
-  "dialogs.schedule.roomHint": "Room members see this schedule but not its prompt or runs.",
+  "dialogs.schedule.roomHint":
+    "Room members see this schedule but not its prompt or runs.",
   "apps.unavailable.needsLinux":
     "App hosting needs Linux with systemd, so it is not available on this computer.",
   "apps.loadFailed": "Could not load apps.",

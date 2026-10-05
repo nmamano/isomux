@@ -7,9 +7,8 @@ import { setUpDomTestFile } from "../test-support/dom.ts";
 
 setUpDomTestFile();
 
-const { act, fireEvent, render, waitFor } = await import(
-  "@testing-library/react"
-);
+const { act, fireEvent, render, waitFor } =
+  await import("@testing-library/react");
 const { CronjobRunView } = await import("./CronjobRunView.tsx");
 const { StateCtx, StoreProvider, useAppState } = await import("../store.tsx");
 const { ApiError, setApiShim } = await import("../api.ts");

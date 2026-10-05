@@ -224,7 +224,10 @@ describe("spawnedAgentMode", () => {
   });
 
   it("claude -> codex: always never with full access", () => {
-    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    const full = {
+      permissionMode: "never",
+      codexSandbox: "danger-full-access",
+    };
     expect(childModes("claude", "codex")).toEqual({
       default: full,
       acceptEdits: full,
@@ -253,7 +256,10 @@ describe("spawnedAgentMode", () => {
   });
 
   it("codex -> codex: never carries over with the spawner's sandbox; prompting modes become never with full access", () => {
-    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    const full = {
+      permissionMode: "never",
+      codexSandbox: "danger-full-access",
+    };
     expect(childModes("codex", "codex")).toEqual({
       untrusted: full,
       "on-request": full,
@@ -278,7 +284,10 @@ describe("spawnedAgentMode", () => {
   });
 
   it("opencode -> codex: always never with full access", () => {
-    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    const full = {
+      permissionMode: "never",
+      codexSandbox: "danger-full-access",
+    };
     expect(childModes("opencode", "codex")).toEqual({
       default: full,
       bypassPermissions: full,

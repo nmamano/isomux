@@ -237,8 +237,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
   };
   const openRunReadable = openRun !== null && runsReadable(openRun.jobId);
   const editingAllowed = editing !== null && editable(editing.id);
-  const runFilterReadable =
-    runFilter !== null && runsReadable(runFilter.jobId);
+  const runFilterReadable = runFilter !== null && runsReadable(runFilter.jobId);
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     if (openRun && !openRunReadable) setOpenRun(null);
@@ -261,14 +260,12 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
   }, [cronjobRunsByJob]);
 
   const filteredRuns = useMemo(() => {
-    if (runFilter) return allRuns.filter((r) => r.cronjobId === runFilter.jobId);
+    if (runFilter)
+      return allRuns.filter((r) => r.cronjobId === runFilter.jobId);
     if (roomFilter === ROOM_FILTER_ALL) return allRuns;
     // A run of a deleted job has no room.
     const roomByJob = new Map(
-      cronjobs.map((job) => [
-        job.id,
-        knownRoomId(job.roomId, roomOptions),
-      ]),
+      cronjobs.map((job) => [job.id, knownRoomId(job.roomId, roomOptions)]),
     );
     return allRuns.filter((r) =>
       roomFilterMatches(roomFilter, roomByJob.get(r.cronjobId) ?? null),
@@ -603,7 +600,8 @@ function CronjobsTable({
                 color: c.enabled ? undefined : "var(--text-hint)",
               }}
               onMouseEnter={(e) => {
-                if (detail) e.currentTarget.style.background = "var(--bg-hover)";
+                if (detail)
+                  e.currentTarget.style.background = "var(--bg-hover)";
               }}
               onMouseLeave={(e) =>
                 (e.currentTarget.style.background = "transparent")
@@ -754,48 +752,52 @@ function CronjobsTable({
                 onClick={(e) => e.stopPropagation()}
               >
                 {managed && (
-                <div
-                  style={{ display: "inline-flex", gap: 6, flexWrap: "nowrap" }}
-                >
-                  <button
-                    onClick={() => handleRunClick(managed)}
-                    title={t("schedules.runNow")}
+                  <div
                     style={{
-                      padding: "3px 10px",
-                      borderRadius: 4,
-                      border: `1px solid ${justStarted.has(c.id) ? "var(--green)" : "var(--border)"}`,
-                      background: justStarted.has(c.id)
-                        ? "rgba(80,200,120,0.15)"
-                        : "transparent",
-                      color: justStarted.has(c.id)
-                        ? "var(--green-text)"
-                        : "var(--text-dim)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                      transition:
-                        "background 0.2s, color 0.2s, border-color 0.2s",
+                      display: "inline-flex",
+                      gap: 6,
+                      flexWrap: "nowrap",
                     }}
                   >
-                    {t("schedules.run")}
-                  </button>
-                  <button
-                    onClick={() => onEdit(managed)}
-                    title={t("common.edit")}
-                    style={{
-                      padding: "3px 10px",
-                      borderRadius: 4,
-                      border: "1px solid var(--border)",
-                      background: "transparent",
-                      color: "var(--text-dim)",
-                      fontSize: 11,
-                      cursor: "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {t("common.edit")}
-                  </button>
-                </div>
+                    <button
+                      onClick={() => handleRunClick(managed)}
+                      title={t("schedules.runNow")}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 4,
+                        border: `1px solid ${justStarted.has(c.id) ? "var(--green)" : "var(--border)"}`,
+                        background: justStarted.has(c.id)
+                          ? "rgba(80,200,120,0.15)"
+                          : "transparent",
+                        color: justStarted.has(c.id)
+                          ? "var(--green-text)"
+                          : "var(--text-dim)",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                        transition:
+                          "background 0.2s, color 0.2s, border-color 0.2s",
+                      }}
+                    >
+                      {t("schedules.run")}
+                    </button>
+                    <button
+                      onClick={() => onEdit(managed)}
+                      title={t("common.edit")}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 4,
+                        border: "1px solid var(--border)",
+                        background: "transparent",
+                        color: "var(--text-dim)",
+                        fontSize: 11,
+                        cursor: "pointer",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {t("common.edit")}
+                    </button>
+                  </div>
                 )}
               </td>
             </tr>

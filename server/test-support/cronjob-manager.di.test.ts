@@ -352,7 +352,10 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     now += 1000;
     const newer = mgr.runCronjobNow(job.id, "Nil")!;
     expect(mgr.getLastRunId(job.id)).toBe(newer.id);
-    expect(mgr.getLastRun(job.id)).toEqual({ status: "running", endedAt: null });
+    expect(mgr.getLastRun(job.id)).toEqual({
+      status: "running",
+      endedAt: null,
+    });
 
     const sessionFor = (runId: string) =>
       fake.sessions.find((s) =>
@@ -376,8 +379,8 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     sessionFor(older.id)!.completeTurn({ status: "failed", error: "boom" });
     await settle(
       () =>
-        mgr.getRunsForCronjob(job.id).find((r) => r.id === older.id)
-          ?.status === "failed",
+        mgr.getRunsForCronjob(job.id).find((r) => r.id === older.id)?.status ===
+        "failed",
     );
     expect(mgr.getLastRunId(job.id)).toBe(newer.id);
     expect(mgr.getLastRun(job.id)?.status).toBe("completed");
@@ -388,7 +391,11 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     const persistence = makeFakeCronPersistence();
     const mgr = createCronjobManager(baseDeps({ persistence }));
     const job = mgr.addCronjob(intervalInput("Seeded"));
-    const row = (id: string, startedAt: number, status: "completed" | "failed") =>
+    const row = (
+      id: string,
+      startedAt: number,
+      status: "completed" | "failed",
+    ) =>
       ({
         id,
         cronjobId: job.id,
@@ -402,7 +409,10 @@ describe("CronjobManager DI (temp-state isolated)", () => {
       row("earliest", 50, "failed"),
     ]);
     expect(mgr.getLastRunId(job.id)).toBe("latest-start");
-    expect(mgr.getLastRun(job.id)).toEqual({ status: "completed", endedAt: 205 });
+    expect(mgr.getLastRun(job.id)).toEqual({
+      status: "completed",
+      endedAt: 205,
+    });
     expect(mgr.jobIdForRun("earliest")).toBe(job.id);
     expect(mgr.jobIdForRun("no-such-run")).toBeNull();
   });

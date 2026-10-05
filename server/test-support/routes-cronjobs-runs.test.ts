@@ -27,13 +27,7 @@
 // Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import {
-  mkdirSync,
-  renameSync,
-  rmdirSync,
-  statSync,
-  writeFileSync,
-} from "fs";
+import { mkdirSync, renameSync, rmdirSync, statSync, writeFileSync } from "fs";
 import { join } from "path";
 import {
   clearTestManagedOfficeEnv,
@@ -583,8 +577,7 @@ describe("routes/cron run-messages: ack idempotency", () => {
 // clientMessageId is not sent twice.
 describe("routes/cron run-messages: acceptance and clientMessageId", () => {
   it("200 carries the id of the user_message now in the run log", async () => {
-    const { srv, owner, path, userMessages } =
-      await startResumableRun();
+    const { srv, owner, path, userMessages } = await startResumableRun();
     const r = await httpJson(srv, path, {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -624,8 +617,7 @@ describe("routes/cron run-messages: acceptance and clientMessageId", () => {
   });
 
   it("a busy run refuses with 409 instead of dropping the message behind a 200", async () => {
-    const { srv, owner, path, userMessages } =
-      await startResumableRun(true);
+    const { srv, owner, path, userMessages } = await startResumableRun(true);
     const first = await httpJson(srv, path, {
       method: "POST",
       rawSessionId: owner.rawSessionId,
@@ -773,8 +765,7 @@ describe("routes/cron run-messages: acceptance and clientMessageId", () => {
   });
 
   it("rejects a clientMessageId that is not a string or is too long (422)", async () => {
-    const { srv, owner, path, userMessages } =
-      await startResumableRun();
+    const { srv, owner, path, userMessages } = await startResumableRun();
     for (const clientMessageId of [7, "x".repeat(129)]) {
       const r = await httpJson(srv, path, {
         method: "POST",
