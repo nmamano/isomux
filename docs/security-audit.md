@@ -160,14 +160,14 @@ Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the d
 
 - The member selects 30 days, 365 days or no expiry.
 - The member revokes a token in the same pane. The revocation has an effect on the next request, and it closes the token's open WebSocket.
-- Only the member who minted a token can revoke it. An owner cannot revoke the token of a different member. An owner can delete that member: then the member's tokens stop working on the next request. A fix is planned: owners will be able to revoke any member's token.
+- An owner can list and revoke the tokens of each member, on the member's profile in **Settings**. The effect is the same.
 - Isomux records the last use of each token.
 
 ### 5.4 Remote inbox
 
 An agent can send a reply to a token holder (`POST /api/api-token-inboxes/<token-id>/messages`). The token must belong to the member who manages that agent. A reply has 4000 characters at most.
 
-The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) or over a WebSocket that only receives. Reading does not delete entries. The messages to and from a token are stored as plain text in `token-logs/<token-id>.jsonl`. The inbox has no size limit. An owner can remove old entries with storage pruning. Revocation does not delete the log.
+The token holder reads replies over HTTP (`POST /api/me/api-token-inbox/drain`) or over a WebSocket that only receives. Reading does not delete entries. The messages to and from a token are stored in `token-logs/<token-id>.jsonl`, with secrets masked as in agent logs (section 8.3). Entries that older versions wrote stay as plain text. The inbox has no size limit. An owner can remove old entries with storage pruning. Revocation does not delete the log.
 
 ---
 
@@ -245,7 +245,7 @@ Daily backups do not include the managed environment files, the app environment 
 
 ### 8.3 Secret redaction in logs
 
-Before Isomux stores a new agent or scheduled-run log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Token logs, attachments, terminal output and backend transcripts are not scanned.
+Before Isomux stores a new agent, scheduled-run or token log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Attachments, terminal output and backend transcripts are not scanned.
 
 ### 8.4 Telemetry
 
@@ -264,11 +264,11 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 | #   | Severity | Finding                                                                                                                                                                                                                 | Status                                                                                                                |
 | --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | 1   | High     | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | By design: a tradeoff for collaboration. Planned: a separate OS user for the server, so agents cannot read its state. |
-| 2   | Medium   | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5).                                   | Token reach by design. Planned fix: owners can revoke any member's token.                                             |
+| 2   | Medium   | A personal API token has shell-equivalent access from any network, and can have no expiry (section 5). | Token reach by design. Owners can revoke the token of any member (section 5.3). |
 | 3   | Low      | `read-file` puts any readable file into the chat, with no secret check (section 6.5).                                                                                                                                   | By design: it shows a file to the members of the room, who can already read it through a terminal panel.              |
 | 4   | Low      | `preview-url` can open loopback and internal addresses (section 6.5).                                                                                                                                                   | By design.                                                                                                            |
 | 5   | Low      | All members can read all schedule run transcripts, which can show the maker's secrets (section 7).                                                                                                                      | Open.                                                                                                                 |
-| 6   | Low      | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4).                                                                                                                       | Open.                                                                                                                 |
+| 6   | Low      | Token logs keep remote messages with no size limit, also in backups and after revocation (section 5.4). | Mitigated: secrets are masked as in agent logs (section 8.3). Older entries stay as plain text. |
 | 7   | Low      | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access.                                                                    | Mitigated: 24-hour or shorter life, one use, `no-referrer`.                                                           |
 | 8   | Low      | A session on a shared device stays valid for up to one year (section 7).                                                                                                                                                | Mitigated: revocation per device.                                                                                     |
 | 9   | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                                                                             |

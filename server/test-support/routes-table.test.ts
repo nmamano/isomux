@@ -950,6 +950,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
+  "apiTokens.adminList": { caps: ["user:admin"], emits: [] },
+  "apiTokens.adminRevoke": { caps: ["user:admin"], emits: [] },
   "providerAccounts.list": { caps: ["user:self"], emits: [] },
   "providerAccounts.start": {
     caps: ["user:self"],

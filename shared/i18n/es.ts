@@ -872,6 +872,9 @@ Cosas que puedes hacer por él:
     "No se han podido cargar las conexiones.",
   "settings.memberConnections.unknown": "No se pudo comprobar el estado.",
   "settings.memberConnections.empty": "No hay variables.",
+  "settings.memberApiTokens.title": "Tokens de API",
+  "settings.memberApiTokens.hint":
+    "Revoca un token para detenerlo en su próxima solicitud.",
   "dialogs.textarea.expand": "Ampliar {title}",
   "dialogs.textarea.escCollapse": "Esc para plegar",
   "dialogs.textarea.done": "Hecho",

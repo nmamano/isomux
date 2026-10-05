@@ -20,6 +20,7 @@ import type { UserSendAcceptance } from "./internal-types.ts";
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { redactLogEntry } from "./log-redaction.ts";
 import type {
   ApiTokenInboxDrainRes,
   ApiTokenInboxMessage,
@@ -279,7 +280,19 @@ function sameFile(
   );
 }
 
-function appendLog(id: string, entry: ApiTokenLogEntry): void {
+// Mask secrets at write, the same scan and fail-open rule as agent logs
+// (prepareLogEntry). Returns the stored entry, which is what readers see.
+function appendLog(id: string, raw: ApiTokenLogEntry): ApiTokenLogEntry {
+  let entry = raw;
+  try {
+    entry = redactLogEntry(raw);
+  } catch {
+    console.error(
+      "API token log secret redaction failed; keeping original entry.",
+      id,
+      raw.id,
+    );
+  }
   mkdirSync(API_TOKEN_LOG_DIR, { recursive: true, mode: 0o700 });
   const hint = logHints.get(id);
   try {
@@ -295,6 +308,7 @@ function appendLog(id: string, entry: ApiTokenLogEntry): void {
     cursorSequence: hint?.cursorSequence ?? 0,
     cursorOffset: hint?.cursorOffset ?? 0,
   });
+  return entry;
 }
 
 function refreshLog(record: StoredApiToken): LogHint {
@@ -312,14 +326,14 @@ function refreshLog(record: StoredApiToken): LogHint {
 function commitEntry(record: StoredApiToken, entry: ApiTokenLogEntry): void {
   refreshLog(record);
   entry.sequence = record.lastSequence + 1;
-  appendLog(record.id, entry);
+  const stored = appendLog(record.id, entry);
   // Never roll back a sequence after its line reached disk. A failed counter
   // persist is repaired by the log scan at boot.
   record.lastSequence = entry.sequence;
   // The log is durable even if the metadata write fails. Stream errors must
   // never turn an accepted append into a failed send.
   try {
-    onLogEntry(record.id, entry);
+    onLogEntry(record.id, stored);
   } catch {}
   persist();
 }

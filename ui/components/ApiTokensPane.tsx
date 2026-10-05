@@ -21,7 +21,7 @@ const EXPIRY_OPTIONS = [30, 365, null] as const;
 type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 export function ApiTokensPane() {
-  const { t, tn, rich, language } = useI18n();
+  const { t, tn, rich } = useI18n();
   const [tokens, setTokens] = useState<ApiTokenWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
@@ -240,54 +240,71 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         ) : tokens.length === 0 ? (
           <p style={hint}>{t("settings.apiTokens.empty")}</p>
         ) : (
-          tokens.map((token) => (
-            <div key={token.id} style={{ ...cardStyle, marginBottom: 8 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <strong style={{ fontSize: 13 }}>{token.name}</strong>
-                  <div style={hint}>
-                    {token.tokenPrefix}… ·{" "}
-                    {token.expiresAt === null
-                      ? t("settings.apiTokens.neverExpires")
-                      : t("settings.apiTokens.expiresOn", {
-                          date: formatDateTime(
-                            language,
-                            token.expiresAt,
-                            "date",
-                          ),
-                        })}
-                  </div>
-                  <div style={hint}>
-                    {t("settings.apiTokens.lastRequest", {
-                      when: token.lastUsedAt
-                        ? t("settings.apiTokens.about", {
-                            date: formatDateTime(
-                              language,
-                              token.lastUsedAt,
-                              "dateTimeSeconds",
-                            ),
-                          })
-                        : t("settings.apiTokens.never"),
-                    })}
-                  </div>
-                </div>
-                <button
-                  onClick={() => revoke(token.id)}
-                  style={{ ...dialogSaveBtn, alignSelf: "start" }}
-                >
-                  {t("common.revoke")}
-                </button>
-              </div>
-            </div>
-          ))
+          <ApiTokenCards tokens={tokens} onRevoke={revoke} />
         )}
       </div>
     </div>
   );
+}
+
+// One card per token: name, prefix, expiry, last request and Revoke. The
+// member's own pane and an owner's view of a member share it.
+export function ApiTokenCards({
+  tokens,
+  onRevoke,
+}: {
+  tokens: ApiTokenWire[];
+  onRevoke: (id: string) => void;
+}) {
+  const { t, language } = useI18n();
+  return tokens.map((token) => (
+    <div
+      key={token.id}
+      data-api-token={token.id}
+      style={{ ...cardStyle, marginBottom: 8 }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div>
+          <strong style={{ fontSize: 13 }}>{token.name}</strong>
+          <div style={hint}>
+            {token.tokenPrefix}… ·{" "}
+            {token.expiresAt === null
+              ? t("settings.apiTokens.neverExpires")
+              : t("settings.apiTokens.expiresOn", {
+                  date: formatDateTime(
+                    language,
+                    token.expiresAt,
+                    "date",
+                  ),
+                })}
+          </div>
+          <div style={hint}>
+            {t("settings.apiTokens.lastRequest", {
+              when: token.lastUsedAt
+                ? t("settings.apiTokens.about", {
+                    date: formatDateTime(
+                      language,
+                      token.lastUsedAt,
+                      "dateTimeSeconds",
+                    ),
+                  })
+                : t("settings.apiTokens.never"),
+            })}
+          </div>
+        </div>
+        <button
+          onClick={() => onRevoke(token.id)}
+          style={{ ...dialogSaveBtn, alignSelf: "start" }}
+        >
+          {t("common.revoke")}
+        </button>
+      </div>
+    </div>
+  ));
 }

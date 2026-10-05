@@ -80,6 +80,20 @@ const state = new OfficeState();
 let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
+// Another member's tokens, by lowercase username, for the owner's view.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const demoMemberApiTokens: Record<string, ApiTokenWire[]> = {
+  stephen: [
+    {
+      id: "5d3e7a1c9b2f4e60",
+      name: "Stephen's phone",
+      tokenPrefix: "isomux_pat_7Kq2xR9m",
+      createdAt: Date.now() - 12 * DAY_MS,
+      expiresAt: Date.now() + 18 * DAY_MS,
+      lastUsedAt: Date.now() - 3 * 60 * 60 * 1000,
+    },
+  ],
+};
 
 const demoMemory = new Map<string, string>();
 
@@ -2410,6 +2424,26 @@ export async function demoApi(
     if (!existing)
       throw new ApiError(404, "not_found", `User ${uname} not found`);
     return { names: Object.keys(demoManagedEnv[existing.id] ?? {}).sort() };
+  }
+  // apiTokens.adminList / adminRevoke - an owner's view of a member's tokens.
+  const memberTokensMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/api-tokens(\/[^/]+)?$/,
+  );
+  if (
+    memberTokensMatch &&
+    (method === "GET" ? !memberTokensMatch[2] : method === "DELETE")
+  ) {
+    const uname = decodeURIComponent(memberTokensMatch[1]);
+    const key = uname.toLowerCase();
+    if (!users.get(key))
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    const tokens = demoMemberApiTokens[key] ?? [];
+    if (!memberTokensMatch[2]) return { apiTokens: [...tokens] };
+    const id = decodeURIComponent(memberTokensMatch[2].slice(1));
+    if (!tokens.some((token) => token.id === id))
+      throw new ApiError(404, "api_token_not_found", "API token not found");
+    demoMemberApiTokens[key] = tokens.filter((token) => token.id !== id);
+    return undefined;
   }
   const userAccessMatch = pathname.match(/^\/api\/users\/([^/]+)\/access$/);
   if (userAccessMatch && method === "PUT") {

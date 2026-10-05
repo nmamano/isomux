@@ -33,6 +33,11 @@ describe("log secret redaction", () => {
     "gho_" + "A1".repeat(18),
     "github_pat_" + "a_".repeat(41),
     "AKIA" + "A1".repeat(8),
+    "sk_live_" + "A1".repeat(10),
+    "sk_test_" + "A1".repeat(10),
+    "rk_live_" + "A1".repeat(10),
+    "rk_test_" + "A1".repeat(10),
+    "whsec_" + "A1".repeat(10),
     "api_key=" + "x".repeat(16),
     "api-key: '" + "a_".repeat(8),
     'apikey="' + "x".repeat(16),
@@ -101,6 +106,19 @@ describe("log secret redaction", () => {
       expect(result.kind).toBe(kind);
     }
   });
+  it("leaves Stripe-like values outside the secret and webhook prefixes", () => {
+    const unchanged = [
+      // A publishable key is public by design.
+      "pk_live_" + "A1".repeat(10),
+      "pk_test_" + "A1".repeat(10),
+      "sk_prod_" + "A1".repeat(10),
+      "rk_dev_" + "A1".repeat(10),
+      "whsec" + "A1".repeat(10),
+      "Sk_live_" + "A1".repeat(10),
+    ];
+    for (const value of unchanged)
+      expect(redactLogEntry(entry(value)).content).toBe(value);
+  });
   it("shows the exact generic false-positive surface", () => {
     const unchanged = [
       'curl -H "Authorization: Bearer $API_TOKEN" https://example.com',
@@ -146,7 +164,7 @@ it("handles 20000 nested objects without call-stack overflow and preserves undef
   };
   for (let i = 0; i < 20000; i++) metadata = { child: metadata };
   const result = redactLogEntry({ ...entry("ok"), metadata, ephemeral: true });
-  let leaf = result.metadata!;
+  let leaf = result.metadata;
   for (let i = 0; i < 20000; i++) leaf = leaf.child as Record<string, unknown>;
   expect(leaf.value).toBe("sk-xxxxx...REDACTED");
   expect(Object.hasOwn(leaf, "absent")).toBe(true);

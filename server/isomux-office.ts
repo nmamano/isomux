@@ -4275,6 +4275,7 @@ function buildExecutorDeps(
       list: (userId) => listApiTokens(userId),
       mint: (input) => mintApiToken(input),
       revoke: (userId, id) => revokeApiToken(userId, id),
+      userIdForUsername: (username) => getUser(username)?.id ?? null,
       sendToInbox: async (input) => {
         const result = await enqueueApiTokenInboxMessage(input);
         return result.ok

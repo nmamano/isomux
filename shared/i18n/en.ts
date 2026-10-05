@@ -860,6 +860,9 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "settings.memberConnections.loadFailed": "Could not load connections.",
   "settings.memberConnections.unknown": "Could not check status.",
   "settings.memberConnections.empty": "No variables.",
+  "settings.memberApiTokens.title": "API Tokens",
+  "settings.memberApiTokens.hint":
+    "Revoke a token to stop it on its next request.",
   // The dialogs (internal-docs/i18n-loop.md, S4).
 
   // ExpandableTextarea's own chrome. Its title, hint and placeholder all

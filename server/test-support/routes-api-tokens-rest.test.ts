@@ -14,6 +14,7 @@ import { mintAgentToken } from "../identity/tokens.ts";
 import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
 import { needsInterruptionMarker } from "../agent-manager.ts";
 import { TIERS } from "../log-search.ts";
+import { redactLogEntry } from "../log-redaction.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -281,6 +282,174 @@ describe("personal API tokens", () => {
     );
     expect(revoked.status).toBe(204);
     expect((await bearer(srv, minted.body.token, "/agents")).status).toBe(401);
+  });
+
+  it("masks secrets in the token log while the agent receives the full text", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName(owner.username)!.id;
+    const room = srv.agentManager.getRooms()[0].id;
+    const target = await spawn(srv, "Target", room, 0, owner.username, ownerId);
+    const minted = await mintThroughApi(srv, owner.rawSessionId);
+    const secret = "sk-ant-api03-" + "A1b2C3d4".repeat(4);
+    const text = `deploy with ${secret}`;
+    const masked = redactLogEntry({ text }).text;
+    expect(masked).not.toContain(secret);
+
+    const sentPromise = bearer(
+      srv,
+      minted.body.token,
+      `/api/agents/${target.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      },
+    );
+    await waitFor(
+      () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
+    );
+    expect((await sentPromise).status).toBe(200);
+    expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
+      secret,
+    );
+    srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
+    srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
+
+    const reply = await bearer(
+      srv,
+      mintAgentToken(target.id, ownerId),
+      `/api/api-token-inboxes/${minted.body.apiToken.id}/messages`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      },
+    );
+    expect(reply.status).toBe(200);
+
+    const drained = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      { method: "POST" },
+    );
+    expect(
+      ((await drained.json()) as { entries: Array<{ text: string }> }).entries,
+    ).toMatchObject([{ text: masked }, { text: masked }]);
+  });
+
+  it("lets an office owner list and revoke one member's tokens, with self-revoke's effect", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName(owner.username)!.id;
+    const member = await srv.seedMember("Mia");
+    const other = await srv.seedMember("Otto");
+    const room = srv.agentManager.getRooms()[0].id;
+    const agent = await spawn(srv, "Worker", room, 0, owner.username, ownerId);
+    const memberToken = (await mintThroughApi(srv, member.rawSessionId, "Phone"))
+      .body;
+    const otherToken = (await mintThroughApi(srv, other.rawSessionId, "Laptop"))
+      .body;
+    const ownerToken = (await mintThroughApi(srv, owner.rawSessionId, "Mine"))
+      .body;
+    const listPath = `/api/users/${encodeURIComponent(member.username)}/api-tokens`;
+    const revokePath = (username: string, id: string) =>
+      `/api/users/${encodeURIComponent(username)}/api-tokens/${id}`;
+
+    const listed = await srv.http(listPath, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(listed.status).toBe(200);
+    const body = await listed.text();
+    const tokens = (JSON.parse(body) as { apiTokens: Array<{ id: string }> })
+      .apiTokens;
+    expect(tokens.map((token) => token.id)).toEqual([memberToken.apiToken.id]);
+    expect(tokens[0]).toEqual(memberToken.apiToken);
+    expect(body).not.toContain(memberToken.token);
+    expect(body).not.toContain("tokenHash");
+
+    // Every caller but an owner's browser session is refused, for both routes.
+    const denied: Array<[string, (path: string, method: string) => Promise<Response>]> = [
+      [
+        "member cookie",
+        (path, method) =>
+          srv.http(path, { method, rawSessionId: member.rawSessionId }),
+      ],
+      [
+        "owner API token",
+        (path, method) => bearer(srv, ownerToken.token, path, { method }),
+      ],
+      [
+        "agent token",
+        (path, method) =>
+          bearer(srv, mintAgentToken(agent.id, ownerId), path, { method }),
+      ],
+      [
+        "privileged agent token",
+        (path, method) =>
+          bearer(srv, mintAgentToken(agent.id, ownerId, true), path, {
+            method,
+          }),
+      ],
+    ];
+    for (const [caller, call] of denied) {
+      for (const [path, method] of [
+        [listPath, "GET"],
+        [revokePath(member.username, memberToken.apiToken.id), "DELETE"],
+      ]) {
+        const response = await call(path, method);
+        expect({ caller, method, status: response.status }).toEqual({
+          caller,
+          method,
+          status: 403,
+        });
+      }
+    }
+
+    for (const [path, method] of [
+      ["/api/users/nobody/api-tokens", "GET"],
+      [revokePath("nobody", memberToken.apiToken.id), "DELETE"],
+    ]) {
+      const response = await srv.http(path, {
+        method,
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(response.status).toBe(404);
+      expect((await response.json()).error.code).toBe("not_found");
+    }
+    // A token is revoked only through its own member.
+    for (const id of [otherToken.apiToken.id, "0000000000000000"]) {
+      const response = await srv.http(revokePath(member.username, id), {
+        method: "DELETE",
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(response.status).toBe(404);
+      expect((await response.json()).error.code).toBe("api_token_not_found");
+    }
+    expect((await bearer(srv, otherToken.token, "/agents")).status).toBe(200);
+    expect((await bearer(srv, memberToken.token, "/agents")).status).toBe(200);
+
+    const socket = await srv.connectWs("", {
+      headers: { Authorization: `Bearer ${memberToken.token}`, Origin: "" },
+    });
+    const revoked = await srv.http(
+      revokePath(member.username, memberToken.apiToken.id),
+      { method: "DELETE", rawSessionId: owner.rawSessionId },
+    );
+    expect(revoked.status).toBe(204);
+    await waitFor(() => socket.raw.readyState === WebSocket.CLOSED);
+    expect((await bearer(srv, memberToken.token, "/agents")).status).toBe(401);
+    const after = await srv.http("/api/me/api-tokens", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect((await after.json()).apiTokens).toEqual([]);
+    expect((await bearer(srv, otherToken.token, "/agents")).status).toBe(200);
+    expect((await bearer(srv, ownerToken.token, "/agents")).status).toBe(200);
   });
 
   it("returns the enqueue failure status instead of acknowledging success", async () => {

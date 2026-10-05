@@ -26,6 +26,7 @@ export interface ApiTokenDeps {
     expiresInDays: number | null;
   }): Promise<ApiTokenCreateRes>;
   revoke(userId: string, id: string): Promise<boolean>;
+  userIdForUsername(username: string): string | null;
   sendToInbox(input: {
     tokenId: string;
     userId: string;
@@ -49,6 +50,11 @@ export interface ApiTokenDeps {
   agentDisplay(agentId: string): { name: string; roomName: string } | null;
   agentManagerUserId(agentId: string): string | null;
   echoToAgent(agentId: string, tokenName: string, text: string): void;
+}
+
+// The same 404 the sibling /api/users/:username routes give.
+function memberNotFound(username: string) {
+  return fail(404, "not_found", `User ${username} not found`);
 }
 
 export function apiTokenHandlers(
@@ -95,6 +101,21 @@ export function apiTokenHandlers(
     "apiTokens.revoke": async (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user");
+      if (!(await deps.revoke(userId, ctx.params.id))) {
+        return fail(404, "api_token_not_found", "API token not found");
+      }
+      return noContent();
+    },
+    // An office owner's view of one member's tokens. Revoke runs the member's
+    // own revoke, so the token stops on its next request and its socket closes.
+    "apiTokens.adminList": (ctx) => {
+      const userId = deps.userIdForUsername(ctx.params.username);
+      if (!userId) return memberNotFound(ctx.params.username);
+      return ok({ apiTokens: deps.list(userId) } satisfies ApiTokenListRes);
+    },
+    "apiTokens.adminRevoke": async (ctx) => {
+      const userId = deps.userIdForUsername(ctx.params.username);
+      if (!userId) return memberNotFound(ctx.params.username);
       if (!(await deps.revoke(userId, ctx.params.id))) {
         return fail(404, "api_token_not_found", "API token not found");
       }

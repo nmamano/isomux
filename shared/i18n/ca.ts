@@ -867,6 +867,9 @@ Coses que pots fer per ell:
     "No s'han pogut carregar les connexions.",
   "settings.memberConnections.unknown": "No s'ha pogut comprovar l'estat.",
   "settings.memberConnections.empty": "No hi ha variables.",
+  "settings.memberApiTokens.title": "Tokens d'API",
+  "settings.memberApiTokens.hint":
+    "Revoca un token per aturar-lo a la seva propera sol·licitud.",
   "dialogs.textarea.expand": "Amplia {title}",
   "dialogs.textarea.escCollapse": "Esc per plegar",
   "dialogs.textarea.done": "Fet",

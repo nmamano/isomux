@@ -27,7 +27,10 @@ import {
   mintApiToken,
   resolveApiToken,
   revokeApiToken,
+  setApiTokenStreamSinks,
 } from "./api-tokens.ts";
+import * as redaction from "./log-redaction.ts";
+import type { ApiTokenLogEntry } from "../shared/contract-shapes.ts";
 
 const file = join(STATE_ROOT, "api-tokens.json");
 
@@ -43,7 +46,10 @@ beforeEach(() => {
     }
   }
 });
-afterEach(() => _testResetApiTokens());
+afterEach(() => {
+  _testResetApiTokens();
+  setApiTokenStreamSinks({ logEntry: () => {}, revoked: () => {} });
+});
 
 describe("personal API token persistence", () => {
   it("persists only a hash and returns the raw token once", async () => {
@@ -199,6 +205,108 @@ describe("personal API token persistence", () => {
     expect(
       await enqueueApiTokenInboxMessage({ ...input, userId: "u1", now: 2_000 }),
     ).toEqual({ ok: false, reason: "unavailable" });
+  });
+});
+
+// Test values in shapes the shared agent-log scan catches: a provider prefix
+// and a KEY=value assignment.
+const PROVIDER_SECRET = "sk-ant-api03-" + "A1b2C3d4".repeat(4);
+const ASSIGNED_SECRET = "Q9w8E7r6".repeat(3);
+const SECRET_TEXT = `use ${PROVIDER_SECRET} and API_KEY=${ASSIGNED_SECRET}`;
+// What an agent log stores for the same text: the token log must match it.
+const maskedText = (text: string) => redaction.redactLogEntry({ text }).text;
+
+describe("API token log secret masking", () => {
+  it("masks both directions on disk, in the drain and in the live stream, like agent logs", async () => {
+    const streamed: ApiTokenLogEntry[] = [];
+    setApiTokenStreamSinks({
+      logEntry: (_tokenId, entry) => streamed.push(entry),
+      revoked: () => {},
+    });
+    const { apiToken } = await mint();
+    const target = {
+      targetAgentId: "a2",
+      targetAgentName: "Second",
+      targetRoomName: "Lab",
+      text: SECRET_TEXT,
+    };
+    const sent = await sendApiTokenMessage(apiToken.id, target, async () => ({
+      ok: true,
+    }));
+    expect(sent.ok).toBe(true);
+    await inboxMessage(apiToken.id, SECRET_TEXT);
+
+    const expected = maskedText(SECRET_TEXT);
+    expect(expected).not.toContain(PROVIDER_SECRET);
+    expect(expected).not.toContain(ASSIGNED_SECRET);
+    const disk = readFileSync(pathFor(apiToken.id), "utf8");
+    expect(disk).not.toContain(PROVIDER_SECRET);
+    expect(disk).not.toContain(ASSIGNED_SECRET);
+    const drained = (await readInbox(apiToken.id)).entries;
+    expect(drained.map((e) => [e.direction, e.text])).toEqual([
+      ["to_agent", expected],
+      ["from_agent", expected],
+    ]);
+    expect(streamed).toEqual(drained);
+    // The caller's own copy, which the office sends to the agent, keeps the
+    // full text.
+    expect(target.text).toBe(SECRET_TEXT);
+  });
+
+  it("keeps the masked log after revoke", async () => {
+    const { apiToken } = await mint();
+    await inboxMessage(apiToken.id, SECRET_TEXT);
+    expect(await revokeApiToken("u1", apiToken.id)).toBe(true);
+    const disk = readFileSync(pathFor(apiToken.id), "utf8");
+    expect(JSON.parse(disk).text).toBe(maskedText(SECRET_TEXT));
+  });
+
+  it("masks a retained inbox when it migrates into the log", async () => {
+    const { apiToken } = await mint();
+    const stored = JSON.parse(readFileSync(file, "utf8"));
+    stored[apiToken.id].inbox = [
+      {
+        sequence: 1,
+        id: "0123456789abcdef",
+        sentAt: 1_000,
+        text: SECRET_TEXT,
+        senderAgentId: "a1",
+        senderAgentName: "Worker",
+        senderRoomName: "Lab",
+      },
+    ];
+    writeFileSync(file, JSON.stringify(stored));
+    _testResetApiTokens();
+    loadApiTokens();
+    const disk = readFileSync(pathFor(apiToken.id), "utf8");
+    expect(disk).not.toContain(PROVIDER_SECRET);
+    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual(
+      [maskedText(SECRET_TEXT)],
+    );
+  });
+
+  it("stores the original entry when the scan fails, as agent logs do", async () => {
+    const { apiToken } = await mint();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    const scan = spyOn(redaction, "redactLogEntry").mockImplementation(() => {
+      throw new Error("scan failed");
+    });
+    let reports: unknown[][];
+    try {
+      expect((await inboxMessage(apiToken.id, SECRET_TEXT)).ok).toBe(true);
+      expect(scan).toHaveBeenCalled();
+      reports = [...errors.mock.calls];
+    } finally {
+      scan.mockRestore();
+      errors.mockRestore();
+    }
+    expect((await readInbox(apiToken.id)).entries.map((e) => e.text)).toEqual(
+      [SECRET_TEXT],
+    );
+    // The failure report carries no payload.
+    expect(reports).not.toHaveLength(0);
+    for (const call of reports)
+      expect(JSON.stringify(call)).not.toContain(PROVIDER_SECRET);
   });
 });
 

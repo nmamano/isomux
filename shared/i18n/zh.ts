@@ -777,6 +777,9 @@ App 的一些原则：
   "settings.memberConnections.loadFailed": "无法加载连接。",
   "settings.memberConnections.unknown": "无法检查状态。",
   "settings.memberConnections.empty": "没有变量。",
+  "settings.memberApiTokens.title": "API 令牌",
+  "settings.memberApiTokens.hint":
+    "撤销令牌后，它的下一个请求即被拒绝。",
   "dialogs.textarea.expand": "展开 {title}",
   "dialogs.textarea.escCollapse": "按 Esc 折叠",
   "dialogs.textarea.done": "完成",

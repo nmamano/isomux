@@ -28,7 +28,11 @@ import {
   getUsername,
 } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
-import type { UserEnvNamesRes } from "../../shared/contract-shapes.ts";
+import type {
+  ApiTokenListRes,
+  ApiTokenWire,
+  UserEnvNamesRes,
+} from "../../shared/contract-shapes.ts";
 import { type UserView, isFullUserView } from "../user-merge.ts";
 import {
   GHOST_COLOR_PALETTE,
@@ -60,7 +64,7 @@ import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { BrowserPane } from "./BrowserPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
-import { ApiTokensPane } from "./ApiTokensPane.tsx";
+import { ApiTokenCards, ApiTokensPane } from "./ApiTokensPane.tsx";
 import { ConnectionsPane } from "./ConnectionsPane.tsx";
 import {
   ExpandableTextarea,
@@ -1120,6 +1124,72 @@ function MemberVariableNames({ username }: { username: string }) {
   );
 }
 
+// An office owner's view of one member's API tokens. Revoke has the effect of
+// the member's own revoke. Keyed on the username at the call site, like
+// MemberVariableNames.
+function MemberApiTokens({ username }: { username: string }) {
+  const { t } = useI18n();
+  const [tokens, setTokens] = useState<ApiTokenWire[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const path = `/api/users/${encodeURIComponent(username)}/api-tokens`;
+
+  useEffect(() => {
+    let live = true;
+    apiFetch<ApiTokenListRes>("GET", path)
+      .then((res) => {
+        if (!live) return;
+        // A body without the array is a broken read, not an empty list.
+        if (Array.isArray(res.apiTokens)) setTokens(res.apiTokens);
+        else setError(t("settings.apiTokens.loadFailed"));
+      })
+      .catch(() => {
+        if (live) setError(t("settings.apiTokens.loadFailed"));
+      });
+    return () => {
+      live = false;
+    };
+    // The catalog only words the error; a language change is no reason to
+    // refetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
+  function revoke(id: string) {
+    setError(null);
+    apiFetch<void>("DELETE", `${path}/${encodeURIComponent(id)}`)
+      .then(() =>
+        setTokens(
+          (current) => current?.filter((token) => token.id !== id) ?? null,
+        ),
+      )
+      .catch((err) =>
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : t("settings.apiTokens.revokeFailed"),
+        ),
+      );
+  }
+
+  return (
+    <>
+      <h5 style={sectionTitleStyle}>{t("settings.memberApiTokens.title")}</h5>
+      <p style={sectionHintStyle}>{t("settings.memberApiTokens.hint")}</p>
+      {error && (
+        <p style={{ ...sectionHintStyle, color: "var(--red-text)" }}>{error}</p>
+      )}
+      {tokens === null ? (
+        !error && <p style={sectionHintStyle}>{t("common.loading")}</p>
+      ) : tokens.length === 0 ? (
+        <p style={sectionHintStyle}>{t("settings.apiTokens.empty")}</p>
+      ) : (
+        <div style={{ marginTop: 10 }}>
+          <ApiTokenCards tokens={tokens} onRevoke={revoke} />
+        </div>
+      )}
+    </>
+  );
+}
+
 function UserEditPanel({
   user,
   creating = false,
@@ -1855,7 +1925,10 @@ function UserEditPanel({
         {/* Owners inspect other members here; their own connections have a
             dedicated sidebar pane. */}
         {isOwner && !isMe && !creating && (
-          <MemberVariableNames key={user.name} username={user.name} />
+          <>
+            <MemberVariableNames key={user.name} username={user.name} />
+            <MemberApiTokens key={`tokens:${user.name}`} username={user.name} />
+          </>
         )}
 
         {/* Aesthetics last: looks are secondary to the

@@ -1091,6 +1091,22 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["users_list", "session_expired", "invites_list"],
     preconditions: ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
   }),
+  // An office owner lists and revokes one member's personal API tokens.
+  // officeOwner is cookie USER-only, so no API token or agent reaches these.
+  defineRoute<void, ApiTokenListRes>({
+    opId: "apiTokens.adminList",
+    method: "GET",
+    path: "/api/users/:username/api-tokens",
+    auth: cap("user:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "apiTokens.adminRevoke",
+    method: "DELETE",
+    path: "/api/users/:username/api-tokens/:id",
+    auth: cap("user:admin", officeOwner),
+    emits: [],
+  }),
 
   // A sign-in link for an EXISTING member, by stable userId. Invites never
   // create members (users.create does). Ungated on current sessions: the same

@@ -120,6 +120,8 @@ Every entry has `direction`, `sequence`, `id`, `sentAt`, and `text`. A `to_agent
 
 Reading deletes nothing. A lost response costs nothing; the client asks again with the same cursor, as long as the owner has not pruned the log. There are no acknowledgements, inbox capacity, leases, or entry expiry. The log survives restarts. Existing retained inboxes migrate into the log in stored order on startup. If a write stops partway through a final line, recovery removes that incomplete line and keeps the complete entries before it. A corrupt complete line moves that token’s log to a quarantine file; other tokens keep working.
 
+Before the office stores an entry, it masks values that look like secrets, as it does in agent logs. The agent still receives the full text.
+
 ## Prune token conversations
 
 Entries leave only through owner-driven storage pruning. The storage report counts token logs under **API token conversations**. The owner can preview or apply pruning in the storage panel, or call `POST /api/storage/prune` with `{"target":"token-logs","olderThanDays":30}`. This is a dry run; add `"apply":true` to delete the selected files. `olderThanDays` must be an integer of at least 1; `keepPerAgent` is ignored for token logs.
