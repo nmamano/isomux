@@ -44,6 +44,8 @@ full at every slice. Where this file and the design disagree, this file wins.
 - scoped tests on the touched area; a slice that adds or changes a route also
   runs server/test-support/routes-table.test.ts and
   routes-agents-manifest.test.ts
+- a slice that adds a capability also runs
+  server/test-support/identity-tokens.test.ts (it pins each scope's exact set)
 - eslint on touched files
 - `bunx tsc --noEmit`
 

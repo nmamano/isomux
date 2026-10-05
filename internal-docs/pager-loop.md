@@ -35,6 +35,8 @@ disagree, this file wins.
 - scoped tests on the touched area; a slice that adds or changes a route also
   runs server/test-support/routes-table.test.ts and
   routes-agents-manifest.test.ts
+- a slice that adds a capability also runs
+  server/test-support/identity-tokens.test.ts (it pins each scope's exact set)
 - eslint on touched files
 - `bunx tsc --noEmit`
 
@@ -66,7 +68,7 @@ PARKED FOR NIL items.
 
 ## Slices
 
-- [ ] P1 - page record, store, agent route
+- [x] P1 - page record, store, agent route: dabd298e; the reference page says pages are not sent yet, which P2 must change
 - [ ] P2 - Discord delivery and member settings
 - [ ] P3 - app route
 - [ ] P4 - pager view, badge, docs
@@ -105,3 +107,48 @@ the store file layout (backward compatible: a missing file means no pages).
 
 Locked: rulings above; the design's state machine (`open`, `acked`,
 `resolved`).
+
+## PICKUP P2 (Worker 4 / Reviewer 4)
+
+Goal: design "Delivery: Discord": the member settings (webhook URL, Discord
+user ID, repeat interval or never, a "send test page" button) in Settings →
+You, the sender, the repeat while a page is `open`, the one "resolved"
+message, failure classes on the record, and the 429 `retry_after` wait. Wire
+it into the P1 seam (`onRaised` in server/pager-store.ts, a no-op in
+isomux-office.ts today). Update server/agent-reference/pager.md, which says
+pages are not sent yet.
+
+What P1 left (merged as dabd298e): the store, the routes, `pager_upserted`,
+`delivery: {state: "not_delivered", sends, lastAttemptAt?, lastFailure?}` on
+each record, and the seam.
+
+Mechanics and traps:
+- Ruling 3: the Discord URL never reaches an agent. The per-member env file
+  behind Settings → You → Individual connections is injected into agents, so it
+  is the wrong home. Find or add a server-side per-member store that no agent
+  path reads, and say in the report where it lives and why no agent route
+  returns it.
+- The server POSTs to a URL a member typed, so accept only Discord webhook URLs
+  (https, host discord.com or discordapp.com, path /api/webhooks/...). Anything
+  else is refused at save time.
+- `allowed_mentions` names only the member's Discord user ID; no @everyone,
+  no role pings, whatever the title or body holds.
+- The message links to the page in the office. The pager view lands in P4, so
+  settle the link shape now (for example a query parameter the UI reads) and
+  record it in the report; P4 implements the receiving side. The office origin
+  comes from where other absolute office links come from: find it.
+- The repeat survives a restart: on boot, open pages resume their schedule from
+  `delivery.lastAttemptAt`, without a burst of sends.
+- Tests stub the HTTP call (prohibition: no real Discord sends).
+
+Acceptance: a new page reaches the stub once with the mention and the link; an
+open page repeats at the interval and stops on ack and on resolve; resolve
+sends one "resolved" message; a 429 waits `retry_after`; each failure class
+lands on the record without the URL or the response body; a member with no URL
+gets `no_webhook` and nothing is sent; the URL appears in no response, event or
+log line except its masked form.
+
+Decide with the reviewer: the settings route shape, the timer design, the
+message layout.
+
+Locked: rulings above; Discord as the only channel.

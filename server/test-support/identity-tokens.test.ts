@@ -65,6 +65,11 @@ describe("identity: capability sets (Phase 2.1)", () => {
           // may touch WHICH app is the appOwnerOrOfficeOwner guard's job.
           "app:read",
           "app:write",
+          // The pager: an agent raises pages to its manager and acts on pages
+          // in rooms its manager can access.
+          "pager:raise",
+          "pager:read",
+          "pager:write",
         ] as Capability[]
       ).sort(),
     );
@@ -228,6 +233,8 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "log:read",
       "app:read",
       "app:write",
+      "pager:read",
+      "pager:write",
     ]);
     for (const set of [
       USER_CAPABILITIES,
