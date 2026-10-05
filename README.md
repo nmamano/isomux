@@ -43,6 +43,7 @@ free for small teams · source-available · no account needed · works with your
 - [**Hierarchical**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't have to repeat context every time
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
 - [**Recurring work**](https://x.com/Nil053/status/2048308972072079753) can be scheduled
+- **A pager**: agents page you on Discord when something needs you, and keep paging until you ack
 - [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), plus everything is interactable (click the moon for dark mode, the door to change rooms, the clock to see scheduled tasks...)
 - **Full of quality-of-life features**: edit a past message to branch the conversation, attach files, auto-generated conversation topics, [pre-tool-call safety hooks](https://x.com/Nil053/status/2039497314826666469), secrets kept out of prompts, daily backups, and more
 
