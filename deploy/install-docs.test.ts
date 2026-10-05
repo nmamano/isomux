@@ -70,7 +70,14 @@ describe("documented installer transport", () => {
 
   it("keeps inline and piped Isomux installer recipes out of tracked files", () => {
     const root = new URL("..", import.meta.url).pathname;
-    for (const relative of trackedFiles()) {
+    // git grep lists only tracked files that hold the URL; reading every
+    // tracked file in JS timed out the suite on a loaded box (2026-10-05).
+    const result = Bun.spawnSync(["git", "grep", "-lF", INSTALL_URL], {
+      cwd: root,
+    });
+    expect(result.exitCode).toBe(0);
+    const files = result.stdout.toString().trim().split("\n").filter(Boolean);
+    for (const relative of files) {
       if (relative === "deploy/install-docs.test.ts") continue;
       const source = readFileSync(join(root, relative), "utf8");
       for (const line of source.split("\n")) {
