@@ -18,7 +18,7 @@ navTitle: Security audit
 
 Each office API request and each office WebSocket connection needs a valid credential. Each credential that Isomux mints is a 256-bit random value. The credential files keep SHA-256 hashes, not raw values. Section 4.1 tells where raw values exist. The browser surface rejects cross-site requests and cross-site WebSocket connections.
 
-Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On the installer and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. The fix for this class is a dedicated OS user for the server. It is not built.
+Inside the office, the boundary is the operating-system user. On every hosting setup, the server, its agents, the terminal panels, the apps and the scheduled runs all run as the same OS user. Thus a member or an agent that runs a shell command can read and change everything that the server can: the office state and the credentials of other members. On the installer and on a self-hosted office, it can also change the server code. Room access and the safety hooks do not change this. This is a design choice: one shared OS user lets members and agents work on the same files and with each other. Separate OS users would make that collaboration harder, and agents that talk to each other could still pass data across.
 
 Thus, give office access only to persons you trust with a shell on the server. A personal API token gives the same access as its owner, from any network.
 
@@ -61,7 +61,7 @@ No code in Isomux starts an agent, a terminal, an app or a scheduled run as a di
 - **The safety hooks are a guardrail, not a boundary.** See section 6.3.
 - **If the OS user can become root, nothing in this document is a boundary.** The installer stops when its service user can log in as root or use `sudo` (see [Root access](hosting-reference.md#root-access)). On a self-hosted office, the owner's login user often has `sudo`. If it needs no password, an agent can use it.
 
-The fix for this class is a dedicated OS user for the server, separate from the agents. It is not built.
+This is a tradeoff between isolation and collaboration, not a defect with one correct fix. One shared OS user lets members and agents work on the same files and with each other.
 
 ---
 
@@ -158,7 +158,7 @@ Isomux shows the raw token one time. It stores the SHA-256 hash, the name, the d
 
 - The member selects 30 days, 365 days or no expiry.
 - The member revokes a token in the same pane. The revocation has an effect on the next request, and it closes the token's open WebSocket.
-- Only the member who minted a token can revoke it. An owner cannot revoke the token of a different member. An owner can delete that member: then the member's tokens stop working on the next request.
+- Only the member who minted a token can revoke it. An owner cannot revoke the token of a different member. An owner can delete that member: then the member's tokens stop working on the next request. A fix is planned: owners will be able to revoke any member's token.
 - Isomux records the last use of each token.
 
 ### 5.4 Remote inbox
@@ -245,9 +245,13 @@ Daily backups do not include the managed environment files, the app environment 
 
 Before Isomux stores a new agent or scheduled-run log entry, it masks values that look like provider keys or `API_KEY=…` assignments. It keeps the first 8 characters. This is a backstop: it can miss secrets. If the scan fails, Isomux stores the original entry. Token logs, attachments, terminal output and backend transcripts are not scanned.
 
-### 8.4 Vendor telemetry
+### 8.4 Telemetry
 
-Isomux turns off Claude Code usage metrics and error reports for each agent session, scheduled run, one-shot prompt, usage probe and sign-in client. One exception: on macOS, the Claude sign-in check runs `claude auth status` without these settings. Isomux turns off Codex analytics and OpenCode sharing.
+Isomux itself has no telemetry. It sends no usage data to Isomux LLC or to anyone else.
+
+The agent programs that Isomux runs have their own telemetry, which goes to their vendors.
+
+Isomux turns off Claude Code usage metrics and error reports for each agent session, scheduled run, one-shot prompt, usage probe and sign-in client. One exception: on macOS, the Claude sign-in check runs `claude auth status` without these settings, so Claude Code's own telemetry to Anthropic can run for that one command. Isomux turns off Codex analytics and OpenCode sharing.
 
 Model requests, sign-in, updates and operator-configured OpenTelemetry still go to their services. The data policy of each provider applies to model requests.
 
@@ -255,20 +259,20 @@ Model requests, sign-in, updates and operator-configured OpenTelemetry still go 
 
 ## 9. Findings
 
-| #   | Severity | Finding                                                                                                                                                                                                                 | Status                                                      |
-| --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| 1   | High     | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | Open. A dedicated OS user is not built.                     |
-| 2   | Medium   | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5).                                   | By design.                                                  |
-| 3   | Low      | `read-file` puts any readable file into the chat, with no secret check (section 6.5).                                                                                                                                   | Open.                                                       |
-| 4   | Low      | `preview-url` can open loopback and internal addresses (section 6.5).                                                                                                                                                   | By design.                                                  |
-| 5   | Low      | All members can read all schedule run transcripts, which can show the maker's secrets (section 7).                                                                                                                      | Open.                                                       |
-| 6   | Low      | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4).                                                                                                                       | Open.                                                       |
-| 7   | Low      | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access.                                                                    | Mitigated: 24-hour or shorter life, one use, `no-referrer`. |
-| 8   | Low      | A session on a shared device stays valid for up to one year (section 7).                                                                                                                                                | Mitigated: revocation per device.                           |
-| 9   | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                   |
-| 10  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                             | Accepted.                                                   |
-| 11  | Info     | On macOS, `claude auth status` runs without the telemetry opt-out (section 8.4).                                                                                                                                        | Open.                                                       |
-| 12  | Info     | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control.                                                                                         | Accepted.                                                   |
+| #   | Severity | Finding                                                                                                                                                                                                                 | Status                                                                    |
+| --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 1   | High     | All office processes run as one OS user. A member or agent with a shell can read the credentials of other members and change office state. Outside the container image, it can also change the server code (section 3). | By design: a tradeoff for collaboration.                                  |
+| 2   | Medium   | A personal API token has shell-equivalent access from any network, and can have no expiry. An owner cannot revoke another member's token, except by deleting that member (section 5).                                   | Token reach by design. Planned fix: owners can revoke any member's token. |
+| 3   | Low      | `read-file` puts any readable file into the chat, with no secret check (section 6.5).                                                                                                                                   | Open.                                                                     |
+| 4   | Low      | `preview-url` can open loopback and internal addresses (section 6.5).                                                                                                                                                   | By design.                                                                |
+| 5   | Low      | All members can read all schedule run transcripts, which can show the maker's secrets (section 7).                                                                                                                      | Open.                                                                     |
+| 6   | Low      | Token logs keep remote messages as plain text, with no size limit, also in backups (section 5.4).                                                                                                                       | Open.                                                                     |
+| 7   | Low      | A sign-in link is a bearer URL. Someone who reads it in the browser history or in the delivery channel before the recipient uses it gets the access.                                                                    | Mitigated: 24-hour or shorter life, one use, `no-referrer`.               |
+| 8   | Low      | A session on a shared device stays valid for up to one year (section 7).                                                                                                                                                | Mitigated: revocation per device.                                         |
+| 9   | Info     | The sign-in link page shows a different message for a used link, an expired link and an unknown link. With 256-bit tokens, this does not help an attacker.                                                              | Accepted.                                                                 |
+| 10  | Info     | The sign-in link page and the accept form have no rate limit (section 4.5).                                                                                                                                             | Accepted.                                                                 |
+| 11  | Info     | On macOS, `claude auth status` runs without Claude Code's own telemetry opt-out (section 8.4). Isomux has no telemetry.                                                                                                 | Open.                                                                     |
+| 12  | Info     | The browser extension socket accepts any Chrome extension origin. The pairing code and the stored pairing are the real control.                                                                                         | Accepted.                                                                 |
 
 ---
 
