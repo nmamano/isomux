@@ -384,7 +384,15 @@ describe("route table: managed env values are self-only", () => {
   };
 
   it("admits the owning user and API identity, and no agent identity", () => {
-    for (const opId of ["userEnv.get", "userEnv.replace"]) {
+    // The pager settings hold the Discord webhook URL, a credential that never
+    // reaches an agent: same gate as the managed env.
+    for (const opId of [
+      "userEnv.get",
+      "userEnv.replace",
+      "pagerSettings.get",
+      "pagerSettings.update",
+      "pagerSettings.test",
+    ]) {
       const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
       expect(
         runAuthorize(
@@ -957,6 +965,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "userEnv.names": { caps: ["user:env"], emits: [] },
   "officeEnv.get": { caps: ["user:env"], emits: [] },
   "officeEnv.replace": { caps: ["user:env"], emits: [] },
+  "pagerSettings.get": { caps: ["user:env"], emits: [] },
+  "pagerSettings.update": { caps: ["user:env"], emits: ["pager_upserted"] },
+  "pagerSettings.test": { caps: ["user:env"], emits: [] },
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
@@ -1426,6 +1437,9 @@ const API_REACHABLE_OPIDS = [
   "userEnv.names",
   "officeEnv.get",
   "officeEnv.replace",
+  "pagerSettings.get",
+  "pagerSettings.update",
+  "pagerSettings.test",
   "apiTokenInbox.drain",
   "validate.cwd",
   "backends.listModels",

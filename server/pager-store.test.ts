@@ -280,6 +280,58 @@ describe("pager store: commit order and hand-offs", () => {
     expect(p.saved).toHaveLength(2);
   });
 
+  it("hands each ack and resolve that changed the state to delivery, once", () => {
+    const seen: Array<[string, string]> = [];
+    const store = createPagerStore({
+      persistence: memPersistence(),
+      onTransitioned: (e, to) => {
+        seen.push([e.state, to]);
+        if (to === "resolved") throw new Error("boom");
+      },
+    });
+    const e = created(raise(store, fields("x")));
+    store.ack(e.id, "Boss");
+    store.ack(e.id, "Boss");
+    expect(store.resolve(e.id, "Boss").outcome).toBe("changed");
+    store.resolve(e.id, "Boss");
+    expect(seen).toEqual([
+      ["acked", "acked"],
+      ["resolved", "resolved"],
+    ]);
+  });
+
+  it("a resolve marks the resolved message pending in the same commit", () => {
+    const p = memPersistence();
+    const store = createPagerStore({ persistence: p });
+    const e = created(raise(store, fields("x")));
+    store.ack(e.id, "Boss");
+    expect(p.saved![0].delivery.resolvedNotice).toBeUndefined();
+    store.resolve(e.id, "Boss");
+    expect(p.saved![0].delivery.resolvedNotice).toBe("pending");
+  });
+
+  it("recordDelivery replaces the delivery block only, saves and notifies", () => {
+    const p = memPersistence();
+    const changes: PagerEntry[] = [];
+    const store = createPagerStore({
+      persistence: p,
+      onChange: (e) => changes.push(e),
+    });
+    const e = created(raise(store, fields("x", { body: "b" })));
+    const next = store.recordDelivery(e.id, {
+      state: "delivered",
+      sends: 1,
+      lastAttemptAt: 5,
+    });
+    expect(next).toEqual({
+      ...e,
+      delivery: { state: "delivered", sends: 1, lastAttemptAt: 5 },
+    });
+    expect(p.saved![0].delivery.state).toBe("delivered");
+    expect(changes.at(-1)!.delivery.sends).toBe(1);
+    expect(store.recordDelivery("nope", e.delivery)).toBeNull();
+  });
+
   it("returns copies: a caller cannot change stored pages", () => {
     const store = createPagerStore({ persistence: memPersistence() });
     const e = created(raise(store, fields("x")));

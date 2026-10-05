@@ -253,11 +253,21 @@ describe("pager REST: visibility, ack and resolve", () => {
     expect(again.status).toBe(409);
     expect(errCode(again)).toBe("already_resolved");
     await sleep(50);
-    expect(pagerEvents(bossWs).map((x) => x.state)).toEqual([
+    // The second "open" and the second "resolved" are delivery attempts (the
+    // page, then the resolved message): the boss has no webhook.
+    const events = pagerEvents(bossWs);
+    expect(events.map((x) => x.state)).toEqual([
+      "open",
       "open",
       "acked",
       "resolved",
+      "resolved",
     ]);
+    expect(events[1].delivery.lastFailure).toBe("no_webhook");
+    expect(events[4].delivery).toMatchObject({
+      lastFailure: "no_webhook",
+      resolvedNotice: "done",
+    });
   });
 
   it("the source resolves its own page even without access to its room", async () => {

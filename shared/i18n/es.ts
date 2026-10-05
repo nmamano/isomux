@@ -2386,4 +2386,37 @@ Cosas que puedes hacer por él:
     "Esto es una demo: tu mensaje no se ha enviado a Claude. Para usar Isomux de verdad, sigue las instrucciones de instalación en [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
     "Bienvenidos al vestíbulo. En una oficina real respondo preguntas sobre Isomux y sobre esta oficina. Esto es una demo, así que no se ha enviado nada a un modelo.",
+  "settings.sidebar.pager": "Avisos",
+  "pager.settings.intro":
+    "Los avisos de tus agentes llegan a Discord y se repiten hasta que los confirmes.",
+  "pager.settings.webhook": "URL del webhook de Discord",
+  "pager.settings.webhookHint":
+    "En Discord: ajustes del canal → Integraciones → Webhooks → Nuevo webhook → Copiar URL del webhook.",
+  "pager.settings.webhookCurrent":
+    "Guardada: {masked}. Pega una URL nueva para reemplazarla.",
+  "pager.settings.webhookNone":
+    "Sin configurar. Los avisos se quedan en la oficina.",
+  "pager.settings.webhookRemove": "Quitar webhook",
+  "pager.settings.userId": "ID de usuario de Discord",
+  "pager.settings.userIdHint":
+    "Los avisos te mencionan para que Discord te notifique. En Discord, activa el modo desarrollador y luego haz clic derecho en tu nombre → Copiar ID de usuario.",
+  "pager.settings.repeat": "Repetir un aviso abierto",
+  "pager.settings.repeatNever": "Nunca",
+  "pager.settings.repeatEvery": "Cada {count} min",
+  "pager.settings.saved": "Guardado.",
+  "pager.settings.loadFailed": "No se pudieron cargar los ajustes de avisos.",
+  "pager.settings.test": "Enviar aviso de prueba",
+  "pager.settings.testSent": "Aviso de prueba enviado.",
+  "pager.settings.testFailed": "Aviso de prueba no enviado: {reason}.",
+  "pager.failure.noWebhook": "no hay webhook",
+  "pager.failure.http4xx": "Discord rechazó el webhook",
+  "pager.failure.http5xx": "error de Discord",
+  "pager.failure.rateLimited": "límite de frecuencia de Discord",
+  "pager.failure.network": "no se pudo contactar con Discord",
+  "pager.discord.stillOpen": "Sigue abierto: {title}",
+  "pager.discord.resolved": "Resuelto: {title}",
+  "pager.discord.test": "Aviso de prueba de Isomux.",
+  "apiCall.pagerSettings.read": "Leer los ajustes de avisos",
+  "apiCall.pagerSettings.save": "Guardar los ajustes de avisos",
+  "apiCall.pagerSettings.test": "Enviar aviso de prueba",
 };

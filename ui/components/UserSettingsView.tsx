@@ -64,6 +64,7 @@ import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { BrowserPane } from "./BrowserPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
+import { PagerSettingsPane } from "./PagerSettingsPane.tsx";
 import { ApiTokenCards, ApiTokensPane } from "./ApiTokensPane.tsx";
 import { ConnectionsPane } from "./ConnectionsPane.tsx";
 import {
@@ -93,6 +94,7 @@ export type SettingsSection =
   | "prefs"
   | "browser"
   | "connectionsPersonal"
+  | "pager"
   | "apiTokens"
   | "signInLinks"
   | "updates"
@@ -417,6 +419,7 @@ export function UserSettingsView({
               "connectionsPersonal",
               t("settings.sidebar.connectionsPersonal"),
             ),
+            sectionRow("pager", t("settings.sidebar.pager")),
             sectionRow("apiTokens", t("settings.sidebar.apiTokens")),
             sectionRow("signInLinks", t("settings.sidebar.signInLinks")),
           ],
@@ -895,6 +898,8 @@ export function UserSettingsView({
                   <ThemePane />
                 ) : selection.section === "apiTokens" && sessionContext ? (
                   <ApiTokensPane />
+                ) : selection.section === "pager" && sessionContext ? (
+                  <PagerSettingsPane username={sessionContext.username} />
                 ) : null}
               </div>
             ) : selection?.kind === "room" ? (

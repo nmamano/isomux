@@ -2380,4 +2380,37 @@ Coses que pots fer per ell:
     "Això és una demo: el teu missatge no s'ha enviat a Claude. Per fer servir Isomux de debò, segueix les instruccions d'instal·lació a [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
     "Benvinguts al vestíbul. En una oficina real responc preguntes sobre Isomux i sobre aquesta oficina. Això és una demo, així que no s'ha enviat res a cap model.",
+  "settings.sidebar.pager": "Avisos",
+  "pager.settings.intro":
+    "Els avisos dels teus agents arriben a Discord i es repeteixen fins que els confirmis.",
+  "pager.settings.webhook": "URL del webhook de Discord",
+  "pager.settings.webhookHint":
+    "A Discord: configuració del canal → Integracions → Webhooks → Nou webhook → Copia l'URL del webhook.",
+  "pager.settings.webhookCurrent":
+    "Desada: {masked}. Enganxa una URL nova per substituir-la.",
+  "pager.settings.webhookNone":
+    "Sense configurar. Els avisos es queden a l'oficina.",
+  "pager.settings.webhookRemove": "Treu el webhook",
+  "pager.settings.userId": "ID d'usuari de Discord",
+  "pager.settings.userIdHint":
+    "Els avisos et mencionen perquè Discord t'avisi. A Discord, activa el mode de desenvolupador i després fes clic dret al teu nom → Copia l'ID d'usuari.",
+  "pager.settings.repeat": "Repeteix un avís obert",
+  "pager.settings.repeatNever": "Mai",
+  "pager.settings.repeatEvery": "Cada {count} min",
+  "pager.settings.saved": "Desat.",
+  "pager.settings.loadFailed": "No s'han pogut carregar els ajustos d'avisos.",
+  "pager.settings.test": "Envia un avís de prova",
+  "pager.settings.testSent": "Avís de prova enviat.",
+  "pager.settings.testFailed": "No s'ha enviat l'avís de prova: {reason}.",
+  "pager.failure.noWebhook": "no hi ha webhook",
+  "pager.failure.http4xx": "Discord ha rebutjat el webhook",
+  "pager.failure.http5xx": "error de Discord",
+  "pager.failure.rateLimited": "límit de freqüència de Discord",
+  "pager.failure.network": "no s'ha pogut contactar amb Discord",
+  "pager.discord.stillOpen": "Encara obert: {title}",
+  "pager.discord.resolved": "Resolt: {title}",
+  "pager.discord.test": "Avís de prova d'Isomux.",
+  "apiCall.pagerSettings.read": "Llegir els ajustos d'avisos",
+  "apiCall.pagerSettings.save": "Desar els ajustos d'avisos",
+  "apiCall.pagerSettings.test": "Enviar un avís de prova",
 };

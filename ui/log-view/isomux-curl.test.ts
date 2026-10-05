@@ -1987,3 +1987,18 @@ describe("parseIsomuxCurl matching || fallback", () => {
     expect(shown).toStartWith(rawPart);
   });
 });
+
+describe("describeIsomuxRoute: pager settings", () => {
+  test("each pager settings route has its own label, apart from the env routes", () => {
+    const keys = [
+      describeIsomuxRoute("GET", "/api/users/nil/pager-settings"),
+      describeIsomuxRoute("PATCH", "/api/users/nil/pager-settings"),
+      describeIsomuxRoute("POST", "/api/users/nil/pager-settings/test"),
+    ];
+    expect(keys.every((k) => k !== null)).toBe(true);
+    expect(new Set(keys).size).toBe(3);
+    expect(keys).not.toContain(
+      describeIsomuxRoute("GET", "/api/users/nil/env"),
+    );
+  });
+});

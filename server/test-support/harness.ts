@@ -213,6 +213,11 @@ async function bootTestServer(
       skipBackups: true,
       skipAdminSocket: true,
       skipUpdateChecker: true,
+      // No test sends a page to Discord: a test that saves a webhook passes
+      // its own stub through opts.startServer.pagerFetch.
+      pagerFetch: async () => {
+        throw new Error("test harness: pager send without a pagerFetch stub");
+      },
       quiet: true,
       awaitRestore: true,
       getBackupStatus: () => ({

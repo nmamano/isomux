@@ -25,6 +25,8 @@ import type {
   EditAgentReq,
   SendMessageReq,
   PreferencesReq,
+  PagerSettingsReq,
+  PagerSettingsRes,
   TuckedRoomsReq,
   StoragePruneReq,
   StoragePruneRes,
@@ -193,6 +195,11 @@ function seedMembersChat(now: number): void {
   };
 }
 const demoManagedEnv: Record<string, Record<string, string>> = {};
+const demoPagerSettings: PagerSettingsRes = {
+  webhookUrlMasked: null,
+  discordUserId: null,
+  repeatMinutes: 5,
+};
 let demoManagedOfficeEnv: Record<string, string> = {};
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
@@ -2427,6 +2434,35 @@ export async function demoApi(
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
+  // pagerSettings.* - the visitor's own pager settings round-trip in memory,
+  // and the test send always "arrives": the demo has no Discord to reach.
+  // Only the mask is kept, as the server returns nothing more.
+  const pagerSettingsMatch = pathname.match(
+    /^\/api\/users\/[^/]+\/pager-settings(\/test)?$/,
+  );
+  if (pagerSettingsMatch) {
+    if (pagerSettingsMatch[1]) {
+      if (method !== "POST") throw new ApiError(405, "method_not_allowed", "");
+      return demoPagerSettings.webhookUrlMasked
+        ? { delivered: true }
+        : { delivered: false, failure: "no_webhook" };
+    }
+    if (method === "PATCH") {
+      const b = (body ?? {}) as PagerSettingsReq;
+      if (b.webhookUrl !== undefined) {
+        demoPagerSettings.webhookUrlMasked = b.webhookUrl
+          ? `https://discord.com/api/webhooks/…${b.webhookUrl.slice(-4)}`
+          : null;
+      }
+      if (b.discordUserId !== undefined) {
+        demoPagerSettings.discordUserId = b.discordUserId;
+      }
+      if (b.repeatMinutes !== undefined) {
+        demoPagerSettings.repeatMinutes = b.repeatMinutes;
+      }
+    }
+    return { ...demoPagerSettings };
+  }
   const userEnvMatch = pathname.match(/^\/api\/users\/([^/]+)\/env$/);
   if (userEnvMatch) {
     const uname = decodeURIComponent(userEnvMatch[1]);

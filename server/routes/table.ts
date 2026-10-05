@@ -125,6 +125,9 @@ import type {
   UserEnvNamesRes,
   UserEnvReplaceReq,
   UserEnvRes,
+  PagerSettingsReq,
+  PagerSettingsRes,
+  PagerTestRes,
   InviteMintReq,
   AccessSettingsReq,
   AccessSettings,
@@ -983,6 +986,32 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/office/env",
     auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  // Where the member's pages go (a Discord webhook). Same self-only gate as
+  // userEnv: the URL is a credential, so no agent scope reaches it, and the
+  // responses carry only its masked form.
+  defineRoute<void, PagerSettingsRes>({
+    opId: "pagerSettings.get",
+    method: "GET",
+    path: "/api/users/:username/pager-settings",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<PagerSettingsReq, PagerSettingsRes>({
+    opId: "pagerSettings.update",
+    method: "PATCH",
+    path: "/api/users/:username/pager-settings",
+    auth: cap("user:env", selfUserOrApi),
+    // A save re-arms the member's open pages; any delivery result it causes
+    // emits from the store.
+    emits: ["pager_upserted"],
+  }),
+  defineRoute<void, PagerTestRes>({
+    opId: "pagerSettings.test",
+    method: "POST",
+    path: "/api/users/:username/pager-settings/test",
+    auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
 

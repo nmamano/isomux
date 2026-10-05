@@ -12,7 +12,7 @@ import {
   RECEPTIONIST_PROFILE_KEY,
   RECEPTIONIST_OUTFIT,
 } from "../shared/receptionist-profile.ts";
-import { english } from "./i18n.ts";
+import { english, translatorForUserId } from "./i18n.ts";
 import {
   INSTALL_KIND,
   isHostedAccess,
@@ -64,6 +64,15 @@ import {
   createPagerStore,
   type PagerStore,
 } from "./pager-store.ts";
+import {
+  createPagerSettingsFilePersistence,
+  createPagerSettingsStore,
+  type PagerSettingsStore,
+} from "./pager-settings.ts";
+import {
+  createPagerDelivery,
+  type PagerDeliveryService,
+} from "./pager-delivery.ts";
 import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
@@ -224,6 +233,7 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { pagerHandlers } from "./routes/handlers/pager.ts";
+import { pagerSettingsHandlers } from "./routes/handlers/pager-settings.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
 import {
   recordAgentReferenceUsage,
@@ -483,6 +493,8 @@ let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
 let scheduledMessageManager: ScheduledMessageManager;
 let pagerStore: PagerStore;
+let pagerSettings: PagerSettingsStore;
+let pagerDelivery: PagerDeliveryService;
 let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
@@ -622,13 +634,29 @@ function createManagers(startOpts: StartServerOpts): void {
     clock: { now: () => Date.now() },
     scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
   });
-  // The pager. Delivery to the member's own channel is a later slice: until
-  // then onRaised is the hand-off point and does nothing, and every page
-  // stays "not delivered".
+  // The pager: the store, the member settings (the Discord webhook URL is a
+  // credential and lives in its own file, never in the env injected into
+  // agents), and delivery. The store and delivery call each other through
+  // these closures.
+  pagerSettings = createPagerSettingsStore(
+    createPagerSettingsFilePersistence(join(STATE_ROOT, "pager-settings.json")),
+  );
   pagerStore = createPagerStore({
     persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
     onChange: (entry) => pushPagerEntryToEachWs(entry),
-    onRaised: () => {},
+    onRaised: (entry, kind) => pagerDelivery.onRaised(entry, kind),
+    onTransitioned: (entry, to) => pagerDelivery.onTransitioned(entry, to),
+  });
+  pagerDelivery = createPagerDelivery({
+    store: pagerStore,
+    settings: (userId) => pagerSettings.get(userId),
+    setHoldUntil: (userId, at) => pagerSettings.setHoldUntil(userId, at),
+    translator: (userId) => translatorForUserId(userId).t,
+    fetch: startOpts.pagerFetch ?? ((url, init) => fetch(url, init)),
+    now: () => Date.now(),
+    scheduler: { setTimeout, clearTimeout },
+    officeOrigin: () => buildPublicOrigin().origin,
+    roomName: (roomId) => agentManager.roomById(roomId)?.name ?? null,
   });
 }
 
@@ -2484,6 +2512,14 @@ function buildExecutorDeps(
           : null;
       },
       actorName: (identity) => attributionFor(identity).createdBy,
+    }),
+  );
+
+  register(
+    pagerSettingsHandlers({
+      settings: pagerSettings,
+      rescheduleMember: (userId) => pagerDelivery.rescheduleMember(userId),
+      sendTest: (userId) => pagerDelivery.sendTest(userId),
     }),
   );
 
@@ -7042,6 +7078,9 @@ function runBackgroundBoot(
   // `bun test` runs no timers; stopServer() clears the timers defensively.
   if (!startOpts.skipSchedulers) scheduledMessageManager.start();
 
+  // Resume the repeat of open pages from their saved last attempt.
+  if (!startOpts.skipSchedulers) pagerDelivery.start();
+
   // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
   if (!startOpts.skipBackups) startBackupScheduler();
 
@@ -7102,6 +7141,8 @@ export interface StartServerOpts {
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.
   appSupervisor?: AppSupervisor;
+  // Inject the pager's HTTP send. Tests pass a stub: no test sends to Discord.
+  pagerFetch?: (url: string, init: RequestInit) => Promise<Response>;
   // Background-job skips. Tests set these so `bun test` does no timers, no
   // network (update checker), no daily backup, and no admin socket.
   skipSchedulers?: boolean;
@@ -7149,6 +7190,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // before the next harness boot.
   extensionService?.stop();
   extensionSessions?.stop();
+  pagerDelivery?.stop();
   await server.stop(true);
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no

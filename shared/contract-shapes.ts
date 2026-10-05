@@ -29,6 +29,7 @@ import type {
   WebhookRule,
   WebhookScheme,
   WebhookTarget,
+  PagerDeliveryFailure,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -766,6 +767,26 @@ export type UserEnvNamesRes = {
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
 }
+
+// A member's pager settings (server/pager-settings.ts). The webhook URL is a
+// credential: responses carry only its masked form.
+export interface PagerSettingsRes {
+  webhookUrlMasked: string | null;
+  discordUserId: string | null;
+  // Minutes between repeats of an open page; null = never.
+  repeatMinutes: number | null;
+}
+
+// PATCH body: an absent key keeps the saved value, null clears it.
+export interface PagerSettingsReq {
+  webhookUrl?: string | null;
+  discordUserId?: string | null;
+  repeatMinutes?: number | null;
+}
+
+export type PagerTestRes =
+  | { delivered: true }
+  | { delivered: false; failure: PagerDeliveryFailure };
 
 // One line of the member usage cap status: the office sign-in's weekly
 // reading for one provider. A provider with no office sign-in has no line.

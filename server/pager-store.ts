@@ -1,8 +1,9 @@
 // The pager store: durable page records (internal-docs/pager-design.md).
 //
 // A page is durable state, not a chat message. Agents raise pages, members
-// (and agents in the same rooms) ack and resolve them, and a later slice sends
-// them to the member's own channel through the onRaised seam below.
+// (and agents in the same rooms) ack and resolve them, and the delivery
+// module (server/pager-delivery.ts) sends them to the member's Discord through
+// the onRaised and onTransitioned seams below.
 //
 // Persistence is one JSON array in STATE_ROOT/pager.json. Every write saves
 // the NEXT array first and changes memory only after the save returned, so a
@@ -26,6 +27,7 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   generatePagerId,
+  type PagerDelivery,
   type PagerEntry,
   type PagerSource,
   type PagerTransition,
@@ -45,7 +47,11 @@ const PAGER_STATES: ReadonlySet<string> = new Set([
   "acked",
   "resolved",
 ]);
-const PAGER_DELIVERY_STATES: ReadonlySet<string> = new Set(["not_delivered"]);
+const PAGER_DELIVERY_STATES: ReadonlySet<string> = new Set([
+  "not_delivered",
+  "delivered",
+  "failed",
+]);
 
 export type PagerLoadResult =
   | { kind: "missing" }
@@ -208,7 +214,10 @@ export function isPagerEntry(v: unknown): v is PagerEntry {
     typeof delivery.sends === "number" &&
     (delivery.lastAttemptAt === undefined ||
       typeof delivery.lastAttemptAt === "number") &&
-    isOptionalString(delivery.lastFailure)
+    isOptionalString(delivery.lastFailure) &&
+    (delivery.resolvedNotice === undefined ||
+      delivery.resolvedNotice === "pending" ||
+      delivery.resolvedNotice === "done")
   );
 }
 
@@ -241,6 +250,12 @@ export interface PagerStoreDeps {
     entry: PagerEntry,
     kind: "created" | "reraised",
   ) => void | Promise<void>;
+  // An ack or a resolve that changed the state, after the commit. Same
+  // never-throw rule as onRaised.
+  onTransitioned?: (
+    entry: PagerEntry,
+    to: "acked" | "resolved",
+  ) => void | Promise<void>;
 }
 
 export interface PagerStore {
@@ -253,6 +268,8 @@ export interface PagerStore {
   }): PagerRaiseResult;
   ack(id: string, by: string): PagerActResult;
   resolve(id: string, by: string): PagerActResult;
+  // Replace the delivery block of one page. Null when the page is gone.
+  recordDelivery(id: string, delivery: PagerDelivery): PagerEntry | null;
 }
 
 const copy = (e: PagerEntry): PagerEntry => structuredClone(e);
@@ -291,18 +308,24 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
     }
   };
 
-  const handOff = (entry: PagerEntry, kind: "created" | "reraised") => {
-    if (!deps.onRaised) return;
+  // A listener's throw or rejected promise is logged and never undoes or
+  // fails the operation that committed.
+  const notify = (entry: PagerEntry, call: () => void | Promise<void>) => {
     const fail = (err: unknown) =>
       console.error(
         `[pager] delivery hand-off failed for ${entry.id}: ${errMessage(err)}`,
       );
     try {
-      const r = deps.onRaised(copy(entry), kind);
+      const r = call();
       if (r instanceof Promise) r.catch(fail);
     } catch (err) {
       fail(err);
     }
+  };
+
+  const handOff = (entry: PagerEntry, kind: "created" | "reraised") => {
+    const onRaised = deps.onRaised;
+    if (onRaised) notify(entry, () => onRaised(copy(entry), kind));
   };
 
   const replace = (updated: PagerEntry): PagerEntry[] =>
@@ -327,7 +350,14 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
       state: to,
       [to]: { by, at: now() },
     };
+    // Recorded in the same commit as the resolve, so a restart right after it
+    // still owes the member the "resolved" message.
+    if (to === "resolved") updated.delivery.resolvedNotice = "pending";
     commit(replace(updated), updated);
+    const onTransitioned = deps.onTransitioned;
+    if (onTransitioned) {
+      notify(updated, () => onTransitioned(copy(updated), to));
+    }
     return { outcome: "changed", entry: copy(updated) };
   };
 
@@ -401,6 +431,18 @@ export function createPagerStore(deps: PagerStoreDeps): PagerStore {
 
     resolve(id, by) {
       return transition(id, by, "resolved");
+    },
+
+    recordDelivery(id, delivery) {
+      ensureAvailable();
+      const current = entries.find((e) => e.id === id);
+      if (!current) return null;
+      const updated: PagerEntry = {
+        ...copy(current),
+        delivery: { ...delivery },
+      };
+      commit(replace(updated), updated);
+      return copy(updated);
     },
   };
 }

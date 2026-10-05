@@ -855,11 +855,28 @@ export type PagerSource = {
 
 // The send to the member's own channel. Never holds the destination URL or a
 // raw response body.
+//   not_delivered - no send has succeeded yet (includes no_webhook)
+//   delivered     - the last attempt succeeded
+//   failed        - a send succeeded earlier, and the last attempt failed
+export type PagerDeliveryState = "not_delivered" | "delivered" | "failed";
+
+// Why the last attempt failed. no_webhook means nothing was sent.
+export type PagerDeliveryFailure =
+  | "no_webhook"
+  | "http_4xx"
+  | "http_5xx"
+  | "rate_limited"
+  | "network";
+
 export interface PagerDelivery {
-  state: "not_delivered";
-  sends: number;
+  state: PagerDeliveryState;
+  sends: number; // successful sends
   lastAttemptAt?: number;
-  lastFailure?: string;
+  lastFailure?: PagerDeliveryFailure;
+  // The one "resolved" message: pending from the resolve until its attempt
+  // ends (sent, refused, or no webhook). A pending notice is retried after a
+  // restart, so a crash between the send and this record can send it twice.
+  resolvedNotice?: "pending" | "done";
 }
 
 export interface PagerTransition {

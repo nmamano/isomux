@@ -2371,6 +2371,41 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
     "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).",
   "demo.receptionistReply":
     "Welcome to the lobby. In a real office I answer questions about Isomux and about this office. This is a demo, so nothing was sent to a model.",
+  // Settings → You → Pager (server/pager-settings.ts) and the delivery
+  // failure classes (server/pager-delivery.ts).
+  "settings.sidebar.pager": "Pager",
+  "pager.settings.intro":
+    "Pages from your agents go to Discord and repeat until you ack them.",
+  "pager.settings.webhook": "Discord webhook URL",
+  "pager.settings.webhookHint":
+    "In Discord: channel settings → Integrations → Webhooks → New Webhook → Copy Webhook URL.",
+  "pager.settings.webhookCurrent":
+    "Saved: {masked}. Paste a new URL to replace it.",
+  "pager.settings.webhookNone": "Not set. Pages stay in the office.",
+  "pager.settings.webhookRemove": "Remove webhook",
+  "pager.settings.userId": "Discord user ID",
+  "pager.settings.userIdHint":
+    "Pages mention you so that Discord notifies you. In Discord, turn on Developer Mode, then right-click your name → Copy User ID.",
+  "pager.settings.repeat": "Repeat an open page",
+  "pager.settings.repeatNever": "Never",
+  "pager.settings.repeatEvery": "Every {count} min",
+  "pager.settings.saved": "Saved.",
+  "pager.settings.loadFailed": "Could not load the pager settings.",
+  "pager.settings.test": "Send test page",
+  "pager.settings.testSent": "Test page sent.",
+  "pager.settings.testFailed": "Test page not sent: {reason}.",
+  "pager.failure.noWebhook": "no webhook",
+  "pager.failure.http4xx": "Discord refused the webhook",
+  "pager.failure.http5xx": "Discord error",
+  "pager.failure.rateLimited": "Discord rate limit",
+  "pager.failure.network": "Discord unreachable",
+  // The Discord message around the page's own title (server/pager-delivery.ts).
+  "pager.discord.stillOpen": "Still open: {title}",
+  "pager.discord.resolved": "Resolved: {title}",
+  "pager.discord.test": "Test page from Isomux.",
+  "apiCall.pagerSettings.read": "Read pager settings",
+  "apiCall.pagerSettings.save": "Save pager settings",
+  "apiCall.pagerSettings.test": "Send test page",
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

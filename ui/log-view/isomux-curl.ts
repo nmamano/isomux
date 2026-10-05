@@ -775,6 +775,9 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/pager", "apiCall.pager.raise"],
   ["POST", "/api/pager/*/ack", "apiCall.pager.ack"],
   ["POST", "/api/pager/*/resolve", "apiCall.pager.resolve"],
+  ["GET", "/api/users/*/pager-settings", "apiCall.pagerSettings.read"],
+  ["PATCH", "/api/users/*/pager-settings", "apiCall.pagerSettings.save"],
+  ["POST", "/api/users/*/pager-settings/test", "apiCall.pagerSettings.test"],
   // The agent-discovery manifest is exposed both at /agents and /api/agents.
   ["GET", "/agents", "apiCall.agents.list"],
   ["GET", "/api/agents", "apiCall.agents.list"],
