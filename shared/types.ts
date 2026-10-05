@@ -1100,6 +1100,21 @@ export function cronjobRunStreamId(runId: string): string {
   return `cronrun-${runId}`;
 }
 
+// How a webhook checks a delivery's signature. Both are an HMAC-SHA256 of the
+// raw body; github-hmac-sha256 reads X-Hub-Signature-256, hmac-sha256 reads the
+// header the hook names. See internal-docs/webhooks-design.md section 1.
+export type WebhookScheme = "github-hmac-sha256" | "hmac-sha256";
+
+// One rule of a webhook. The first rule that matches a delivery wins.
+// `event` is an exact event name or "*". `match` maps a dotted payload path to
+// the exact string it must have. `args` maps a name to a template whose
+// rendered value reaches the target as an opaque string.
+export interface WebhookRule {
+  event: string;
+  match?: Record<string, string>;
+  args?: Record<string, string>;
+}
+
 export function humanizeSchedule(s: Schedule): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   if (s.type === "daily") return `Daily at ${pad(s.hour)}:${pad(s.minute)}`;
