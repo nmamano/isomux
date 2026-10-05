@@ -245,7 +245,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 
 ### Pager
-- Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord through a webhook they set in Settings → You → Pager, and repeats until someone acks or resolves it.
+- Agents and apps can page their manager or owner when a person must act. The page goes to the member's Discord and repeats until someone acks or resolves it.
 - The Pager view in the office bar lists every page the member can see, with ack and resolve. A badge counts their open pages.
 
 ### Other
