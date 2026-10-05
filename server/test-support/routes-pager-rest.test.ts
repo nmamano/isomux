@@ -312,7 +312,8 @@ describe("pager REST: visibility, ack and resolve", () => {
     // Mia's agent sits in room A too, but Mia (and so her agent) cannot
     // access it, and the page's source is Bot, not this agent.
     const miaBot = await spawnAgent(srv, "MiaBot", roomA, "Mia");
-    expect(e.source.agentId).not.toBe(miaBot.agent.id);
+    expect(e.source).toMatchObject({ kind: "agent", agentId: bot.agent.id });
+    expect(bot.agent.id).not.toBe(miaBot.agent.id);
     expect(
       (await api(srv, `/api/pager/${e.id}`, { bearer: miaBot.token })).status,
     ).toBe(404);

@@ -6,6 +6,8 @@ Raise with `POST /api/pager` and `{title, body?, key?}`. The title is one line, 
 
 Resolve your page with `POST /api/pager/:id/resolve` when the problem is gone: the repeats stop, and the office tells your manager it resolved. Members ack a page to say they saw it. List with `GET /api/pager`: open and acked pages by default, or `state=open|acked|resolved|all`, and `roomId` for one room.
 
+An app you built can page its owner from its server code with its `ISOMUX_APP_TOKEN`: `POST /api/app/pager` with the same fields, and `POST /api/app/pager/resolve` with `{id}` or `{key}` to resolve its own open or acked page. The page's room is the room of the agent that registered the app, or none when that agent is gone.
+
 Safe example: `GET /api/pager`.
 
 ## Route contract
@@ -18,4 +20,4 @@ Safe example: `GET /api/pager`.
 | `POST /api/pager/:id/ack`     | Empty body           | `PagerEntry`                                     |
 | `POST /api/pager/:id/resolve` | Empty body           | `PagerEntry`                                     |
 
-A page is visible to callers with access to its source room; the source can always resolve its own page. Hidden or missing pages and inaccessible rooms return 404. Invalid fields return 400; an agent with no manager returns 409; an ack of a resolved page returns 409; too many open pages return 429.
+A page is visible to callers with access to the room it was raised in; an app page is also visible to the app's owner and office owners, and with no room only to them. The source can always resolve its own page. Hidden or missing pages and inaccessible rooms return 404. Invalid fields return 400; an agent with no manager returns 409; an ack of a resolved page returns 409; too many open pages return 429. An app raise returns 409 when the app has no owner.

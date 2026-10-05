@@ -17,6 +17,7 @@ import { tmpdir } from "os";
 import {
   createPagerFilePersistence,
   createPagerStore,
+  pagerEntryVisible,
   parseRaiseFields,
   PagerUnavailableError,
   PAGER_BODY_MAX,
@@ -57,6 +58,14 @@ const SRC: PagerSource = {
   kind: "agent",
   agentId: "a1",
   name: "Bot",
+  roomId: "r1",
+};
+
+const APP_SRC: PagerSource = {
+  kind: "app",
+  appName: "a1",
+  registrationGen: 1,
+  name: "a1",
   roomId: "r1",
 };
 
@@ -151,6 +160,23 @@ describe("pager store: raise and dedupe", () => {
     created(raise(store, fields("x", { key: "k" })));
     created(raise(store, fields("x", { key: "k" }), { ...SRC, agentId: "a2" }));
     expect(store.list()).toHaveLength(4);
+  });
+
+  it("an app source never shares pages with an agent of the same id or another registration of its name", () => {
+    const store = createPagerStore({ persistence: memPersistence() });
+    created(raise(store, fields("x", { key: "k" })));
+    const app = created(raise(store, fields("x", { key: "k" }), APP_SRC));
+    expect(raise(store, fields("y", { key: "k" }), APP_SRC)).toMatchObject({
+      outcome: "updated",
+      entry: { id: app.id },
+    });
+    created(
+      raise(store, fields("x", { key: "k" }), {
+        ...APP_SRC,
+        registrationGen: 2,
+      }),
+    );
+    expect(store.list()).toHaveLength(3);
   });
 
   it("caps open+acked pages per source; dedupe and resolve do not count", () => {
@@ -362,6 +388,28 @@ describe("pager store: load posture", () => {
     expect(store.list()).toEqual([]);
   });
 
+  it("an app-source record loads, and its dedupe continues across the load", () => {
+    const appEntry: PagerEntry = { ...valid, id: "1a1b1c1d", source: APP_SRC };
+    const store = createPagerStore({
+      persistence: memPersistence({ kind: "data", value: [valid, appEntry] }),
+    });
+    expect(store.list()).toEqual([valid, appEntry]);
+    const r = raise(store, fields("t2", { key: "k" }), APP_SRC);
+    expect(r).toMatchObject({ outcome: "updated", entry: { id: appEntry.id } });
+  });
+
+  it("an app-source record with no room loads", () => {
+    const appEntry: PagerEntry = {
+      ...valid,
+      id: "2a2b2c2d",
+      source: { ...APP_SRC, roomId: null },
+    };
+    const store = createPagerStore({
+      persistence: memPersistence({ kind: "data", value: [appEntry] }),
+    });
+    expect(store.list()).toEqual([appEntry]);
+  });
+
   it("valid records load, and dedupe continues across the load", () => {
     const store = createPagerStore({
       persistence: memPersistence({ kind: "data", value: [valid] }),
@@ -374,6 +422,19 @@ describe("pager store: load posture", () => {
   it("a bad record or an unparsable file is moved aside; the store starts empty", () => {
     for (const loaded of [
       { kind: "data", value: [valid, { ...valid, state: "weird" }] },
+      // An agent source without a room.
+      {
+        kind: "data",
+        value: [valid, { ...valid, source: { ...SRC, roomId: null } }],
+      },
+      // An app source without its registration generation.
+      {
+        kind: "data",
+        value: [
+          valid,
+          { ...valid, source: { ...APP_SRC, registrationGen: undefined } },
+        ],
+      },
       { kind: "data", value: { not: "an array" } },
       { kind: "corrupt" },
     ] as PagerLoadResult[]) {
@@ -521,5 +582,46 @@ describe("pager raise fields", () => {
     bad({ title: "t", key: "" });
     bad({ title: "t", key: 1 });
     bad({ title: "t", key: "k".repeat(PAGER_KEY_MAX + 1) });
+  });
+});
+
+describe("pager visibility", () => {
+  const base: PagerEntry = {
+    id: "0a0b0c0d",
+    createdAt: 1,
+    lastRaisedAt: 1,
+    raiseCount: 1,
+    source: SRC,
+    targetUserId: "owner",
+    title: "t",
+    state: "open",
+    delivery: { state: "not_delivered", sends: 0 },
+  };
+  const viewer = (
+    rooms: string[],
+    userId: string | null,
+    isOfficeOwner = false,
+  ) => ({ accessibleRoomIds: new Set(rooms), userId, isOfficeOwner });
+
+  it("an agent page: the stored room only, not its manager or an office owner by role", () => {
+    expect(pagerEntryVisible(base, viewer(["r1"], "x"))).toBe(true);
+    expect(pagerEntryVisible(base, viewer([], "owner"))).toBe(false);
+    expect(pagerEntryVisible(base, viewer([], "x", true))).toBe(false);
+  });
+
+  it("an app page: the stored room, the app owner and office owners", () => {
+    const app: PagerEntry = { ...base, source: APP_SRC };
+    expect(pagerEntryVisible(app, viewer(["r1"], "x"))).toBe(true);
+    expect(pagerEntryVisible(app, viewer([], "owner"))).toBe(true);
+    expect(pagerEntryVisible(app, viewer([], "x", true))).toBe(true);
+    expect(pagerEntryVisible(app, viewer(["r2"], "x"))).toBe(false);
+    expect(pagerEntryVisible(app, viewer([], null))).toBe(false);
+  });
+
+  it("an app page with no room: the app owner and office owners only", () => {
+    const app: PagerEntry = { ...base, source: { ...APP_SRC, roomId: null } };
+    expect(pagerEntryVisible(app, viewer(["r1"], "x"))).toBe(false);
+    expect(pagerEntryVisible(app, viewer([], "owner"))).toBe(true);
+    expect(pagerEntryVisible(app, viewer([], "x", true))).toBe(true);
   });
 });

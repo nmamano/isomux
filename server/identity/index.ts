@@ -60,10 +60,12 @@ export type Capability =
   // Shared by USER and AGENT - isomux-memory (durable shared facts).
   | "memory:read"
   | "memory:write"
-  // The pager. pager:raise is AGENT-only: a page's source and target come from
-  // the raising agent's token, so a human or an API token has nothing to raise
-  // as. Reading, acking and resolving follow room access for humans and agents
-  // alike, the same as the task board.
+  // The pager. pager:raise is held by AGENT and APP: a page's source and
+  // target come from the raising token, so a human or an API token has nothing
+  // to raise as. An app also resolves its own pages with it. Reading, acking
+  // and resolving follow room access for humans and agents alike, the same as
+  // the task board, and an app page is also open to the app owner and office
+  // owners.
   | "pager:raise"
   | "pager:read"
   | "pager:write"
@@ -280,23 +282,29 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
   "task:write",
 ];
 
-// APP set: ONE capability, and the narrowness is the whole point of the scope.
+// APP set: TWO capabilities, and the narrowness is the whole point of the
+// scope.
 //
-// An app may message the agent that built it. That is the entire surface: it
-// cannot read the office, list its siblings, touch the task board or shared
-// memory, or manage even ITS OWN registry record - app:read and app:write are
-// the owner's capabilities, not the app's, so an app cannot rename, restart or
-// delete itself, nor read another app's port. The route this one capability
-// reaches carries no recipient parameter either (the registry decides who hears
-// it), so the widest thing a stolen app token can do is wake one agent, rate-
-// limited, with a message labelled as coming from an app.
+// An app may message the agent that built it (app:message), and raise and
+// resolve its own pages (pager:raise). That is the entire surface: it cannot
+// read the office, list its siblings, touch the task board or shared memory,
+// or manage even ITS OWN registry record - app:read and app:write are the
+// owner's capabilities, not the app's, so an app cannot rename, restart or
+// delete itself, nor read another app's port. None of its routes carries a
+// recipient parameter either (the registry decides who hears it, and a page
+// goes to the app's owner), so the widest thing a stolen app token can do is
+// wake one agent, rate-limited, with a message labelled as coming from an
+// app, or page the app's owner within the pager's per-source bound.
 //
-// A single-entry set rather than no scope at all because the token must still be
+// A narrow set rather than no scope at all because the token must still be
 // distinguishable from a garbage one - an app presenting its token for anything
 // else gets a 403 (I know who you are, you may not do that), not a 401. The
 // whole-table reachability test in routes-table.test.ts walks every route and
-// pins that the one is exactly one.
-export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
+// pins the exact set an app reaches.
+export const APP_CAPABILITIES: readonly Capability[] = [
+  "app:message",
+  "pager:raise",
+];
 
 // API set: a remote member gets the same curated operational reach as a
 // privileged agent, expressed explicitly so every capability is an audit

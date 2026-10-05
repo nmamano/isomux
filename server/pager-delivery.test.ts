@@ -1000,4 +1000,30 @@ describe("pager delivery: message", () => {
     });
     expect(msg.embeds![0].footer!.text).toContain("room-a");
   });
+
+  it("an app page with no room shows only the app name", () => {
+    const entry: PagerEntry = {
+      id: "p1",
+      createdAt: 0,
+      lastRaisedAt: 0,
+      raiseCount: 1,
+      source: {
+        kind: "app",
+        appName: "uptime",
+        registrationGen: 1,
+        name: "uptime",
+        roomId: null,
+      },
+      targetUserId: "u1",
+      title: "t",
+      state: "open",
+      delivery: { state: "not_delivered", sends: 0 },
+    };
+    const msg = buildPageMessage(entry, "page", {
+      t: en,
+      origin: ORIGIN,
+      roomName: null,
+    });
+    expect(msg.embeds![0].footer!.text).toBe("uptime");
+  });
 });

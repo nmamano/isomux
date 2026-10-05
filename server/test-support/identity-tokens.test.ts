@@ -182,11 +182,12 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(agentCapabilities(true)).toBe(PRIVILEGED_AGENT_CAPABILITIES);
   });
 
-  it("APP scope holds app:message and NOTHING else - and no other scope holds it", () => {
+  it("APP scope holds app:message and pager:raise and NOTHING else - and no other scope holds app:message", () => {
     // The narrowest set in the lattice, and the reason an app token is safe to
-    // write into a file agent-authored code reads: one capability, reaching one
-    // route (pinned end to end by the whole-table test in routes-table.test.ts).
-    expect([...APP_CAPABILITIES]).toEqual(["app:message"]);
+    // write into a file agent-authored code reads: two capabilities, reaching
+    // the app-self message route and the two app pager routes (pinned end to
+    // end by the whole-table test in routes-table.test.ts).
+    expect([...APP_CAPABILITIES]).toEqual(["app:message", "pager:raise"]);
     // An app manages nothing, INCLUDING itself: app:read/app:write are the
     // owner's capabilities over the registry, not the app's.
     expect(APP_CAPABILITIES).not.toContain("app:read" as Capability);

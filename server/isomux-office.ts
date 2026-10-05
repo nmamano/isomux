@@ -62,6 +62,7 @@ import { createScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   createPagerFilePersistence,
   createPagerStore,
+  pagerEntryVisible,
   type PagerStore,
 } from "./pager-store.ts";
 import {
@@ -2524,7 +2525,15 @@ function buildExecutorDeps(
   register(
     pagerHandlers({
       store: pagerStore,
-      accessibleRoomIds: accessibleRoomIdsForIdentity,
+      viewer: (identity) => {
+        const userId = viewerUserId(identity);
+        const user = userId ? getUserById(userId) : null;
+        return {
+          accessibleRoomIds: accessibleRoomIdsForIdentity(identity),
+          userId: user?.id ?? null,
+          isOfficeOwner: user?.role === "owner",
+        };
+      },
       agentSource: (agentId) => {
         const agent = agentManager.getAgent(agentId);
         return agent
@@ -2535,7 +2544,23 @@ function buildExecutorDeps(
             }
           : null;
       },
-      actorName: (identity) => attributionFor(identity).createdBy,
+      // The app's room is its creator agent's live room, the rule that
+      // decides who sees the app (appVisibilityFacts); null without one.
+      appSource: (appName) => {
+        const app = appRegistry.get(appName);
+        if (!app) return null;
+        return {
+          registrationGen: appRegistrationGeneration(app),
+          roomId: appVisibilityFacts(app).creatorRoomId ?? null,
+          ownerUserId: app.userId,
+        };
+      },
+      // An app acts as itself, not as its owner: a page the app resolves
+      // reads as resolved by the app.
+      actorName: (identity) =>
+        identity.scope === "app" && identity.appName
+          ? identity.appName
+          : attributionFor(identity).createdBy,
     }),
   );
 
@@ -5035,13 +5060,20 @@ function pushTaskDeltaToEachWs(change: TaskChange) {
   }
 }
 
-// Push ONE page change to every socket whose user can access the page's
-// source room - the same rule GET /api/pager applies. Everyone else hears
+// Push ONE page change to every socket whose user can see the page - the same
+// rule GET /api/pager applies (pagerEntryVisible). Everyone else hears
 // nothing, so a page id never reaches a socket that could not read it.
 function pushPagerEntryToEachWs(entry: PagerEntry) {
   for (const ws of browsers) {
     const user = getUserById(ws.data.session.userId);
-    if (user && accessibleRoomIdsFor(user).has(entry.source.roomId)) {
+    if (
+      user &&
+      pagerEntryVisible(entry, {
+        accessibleRoomIds: accessibleRoomIdsFor(user),
+        userId: user.id,
+        isOfficeOwner: user.role === "owner",
+      })
+    ) {
       ws.send(JSON.stringify({ type: "pager_upserted", entry }));
     }
   }

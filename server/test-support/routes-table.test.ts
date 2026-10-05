@@ -42,8 +42,9 @@ const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
   ...AGENT_CAPABILITIES,
   ...RUN_CAPABILITIES,
-  // One entry today (app:message); listed so a capability added to the APP set
-  // has to be a real Capability, and so this union does not quietly go stale.
+  // app:message and pager:raise today; listed so a capability added to the APP
+  // set has to be a real Capability, and so this union does not quietly go
+  // stale.
   ...APP_CAPABILITIES,
   ...API_CAPABILITIES,
 ]);
@@ -1057,8 +1058,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "tasks.claim": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.done": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.delete": { caps: ["task:write"], emits: ["tasks"] },
-  // Pager. pager:raise is AGENT-only (source and target come from the agent's
-  // token); reads and ack/resolve follow room access in the handler.
+  // Pager. pager:raise is held by AGENT and APP (source and target come from
+  // the raising token); reads and ack/resolve follow room access in the
+  // handler.
   "pager.raise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
   "pager.list": { caps: ["pager:read"], emits: [] },
   "pager.get": { caps: ["pager:read"], emits: [] },
@@ -1084,6 +1086,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // The app-SELF route. app:message is held by APP scope alone, so this is the
   // one line in this table whose capability no human and no agent carries.
   "apps.sendMessage": { caps: ["app:message"], emits: ["log_entry"] },
+  // The app pager routes: an app raises and resolves its own pages.
+  "pager.appRaise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
+  "pager.appResolve": { caps: ["pager:raise"], emits: ["pager_upserted"] },
   // Webhooks. The secret routes are webhook:write AND a human session.
   "webhooks.list": { caps: ["webhook:read"], emits: [] },
   "webhooks.get": { caps: ["webhook:read"], emits: [] },
@@ -1200,22 +1205,28 @@ describe("route table: typed preconditions are pinned (Phase 3 can't forget)", (
   });
 });
 
-// --- APP scope reaches EXACTLY ONE route ------------------------------------
+// --- APP scope reaches EXACTLY THE APP-SELF ROUTES ---------------------------
 //
 // The invariant that bounds what an app token is worth: of every route in the
-// table, an app identity authorizes one - the app-self message route. Walked
+// table, an app identity authorizes the app-self message route and the two app
+// pager routes. Walked
 // over the whole table rather than asserted per route, so a route added later -
 // or an existing one whose guard is loosened - trips this without anyone
 // remembering to think about apps.
 //
 // The allowlist below is the ONLY place a route becomes reachable by an app, and
 // editing it is meant to feel like a decision. It grew from [] to one entry when
-// app-to-agent messaging landed; anything joining it should have as much
-// argument behind it as that did.
+// app-to-agent messaging landed, and to three when apps could page their owner
+// (PM ruling, pager loop P3); anything joining it should have as much argument
+// behind it as that did.
 
-const APP_REACHABLE_OPIDS = ["apps.sendMessage"];
+const APP_REACHABLE_OPIDS = [
+  "apps.sendMessage",
+  "pager.appRaise",
+  "pager.appResolve",
+];
 
-describe("route table: an APP identity authorizes exactly the app-self route", () => {
+describe("route table: an APP identity authorizes exactly the app-self routes", () => {
   // Maximally permissive deps: every room accessible, every ownership lookup
   // answering with the app's own owner. Anything that gets through here got
   // through on scope, which is the only thing that should ever gate an app.
@@ -1275,7 +1286,7 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
     capabilities: RUN_CAPABILITIES,
   };
 
-  it("denies every API route but the app-self message route", () => {
+  it("denies every API route but the app-self routes", () => {
     const allowed: string[] = [];
     for (const r of API_ROUTES) {
       if (r.auth.kind === "public") continue;
@@ -1303,32 +1314,37 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
   });
 
   // The other half of the same invariant, and the reason the list above is not
-  // just "whatever the table happens to allow": the app-self route must be
+  // just "whatever the table happens to allow": each app-self route must be
   // reachable by an app and by NOTHING else. A capability set edited to hand
-  // app:message to agents (or the guard swapped for `authenticated`) passes the
-  // test above and fails here.
-  it("and that route is reachable by an app identity ONLY", () => {
-    const route = API_ROUTES.find((r) => r.opId === "apps.sendMessage")!;
-    for (const other of [
-      { label: "office owner", identity: ownerIdentity },
-      { label: "member", identity: memberIdentity },
-      { label: "agent", identity: agentIdentity },
-      { label: "privileged agent", identity: privilegedAgentIdentity },
-      { label: "cron run", identity: runIdentity },
-    ]) {
-      expect({
-        label: other.label,
-        outcome: runAuthorize(
-          route.auth,
-          other.identity,
-          {},
-          undefined,
-          generousDeps,
-        ),
-      }).toEqual({
-        label: other.label,
-        outcome: { ok: false, status: 403, code: "forbidden" },
-      });
+  // app:message to agents (or a guard swapped for `authenticated`) passes the
+  // test above and fails here. The pager routes lean on appScope alone, since
+  // agents hold pager:raise too.
+  it("and those routes are reachable by an app identity ONLY", () => {
+    for (const opId of APP_REACHABLE_OPIDS) {
+      const route = API_ROUTES.find((r) => r.opId === opId)!;
+      for (const other of [
+        { label: "office owner", identity: ownerIdentity },
+        { label: "member", identity: memberIdentity },
+        { label: "agent", identity: agentIdentity },
+        { label: "privileged agent", identity: privilegedAgentIdentity },
+        { label: "cron run", identity: runIdentity },
+      ]) {
+        expect({
+          opId,
+          label: other.label,
+          outcome: runAuthorize(
+            route.auth,
+            other.identity,
+            {},
+            undefined,
+            generousDeps,
+          ),
+        }).toEqual({
+          opId,
+          label: other.label,
+          outcome: { ok: false, status: 403, code: "forbidden" },
+        });
+      }
     }
   });
 

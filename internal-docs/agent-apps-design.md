@@ -289,6 +289,7 @@ can pass it straight to its listen call.
 | | Agent token | App token |
 | --- | --- | --- |
 | Message its configured target agent | yes | yes |
+| Raise and resolve its own pages (to its manager / owner) | yes | yes |
 | Message any agent in the office | yes | no |
 | Read and write the task board | yes | no |
 | Read other agents' conversations | yes | no |

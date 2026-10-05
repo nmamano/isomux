@@ -1,9 +1,9 @@
 // The pager store: durable page records (internal-docs/pager-design.md).
 //
-// A page is durable state, not a chat message. Agents raise pages, members
-// (and agents in the same rooms) ack and resolve them, and the delivery
-// module (server/pager-delivery.ts) sends them to the member's Discord through
-// the onRaised and onTransitioned seams below.
+// A page is durable state, not a chat message. Agents and apps raise pages,
+// members (and agents in the same rooms) ack and resolve them, and the
+// delivery module (server/pager-delivery.ts) sends them to the member's
+// Discord through the onRaised and onTransitioned seams below.
 //
 // Persistence is one JSON array in STATE_ROOT/pager.json. Every write saves
 // the NEXT array first and changes memory only after the save returned, so a
@@ -164,10 +164,52 @@ export function parseRaiseFields(
   return { ok: true, fields };
 }
 
-// One identity per source, so an agent and (later) an app with the same id
-// string never share pages.
+// One identity per source, so an agent and an app with the same id string
+// never share pages, and neither do two registrations of one app name.
 export function pagerSourceKey(source: PagerSource): string {
-  return `agent:${source.agentId}`;
+  return source.kind === "agent"
+    ? `agent:${source.agentId}`
+    : `app:${source.appName}:${source.registrationGen}`;
+}
+
+function isPagerSource(v: unknown): v is PagerSource {
+  if (typeof v !== "object" || v === null) return false;
+  const s = v as Record<string, unknown>;
+  if (typeof s.name !== "string") return false;
+  if (s.kind === "agent") {
+    return typeof s.agentId === "string" && typeof s.roomId === "string";
+  }
+  return (
+    s.kind === "app" &&
+    typeof s.appName === "string" &&
+    typeof s.registrationGen === "number" &&
+    (s.roomId === null || typeof s.roomId === "string")
+  );
+}
+
+// Who is looking at a page: the rooms they can access, their user, and
+// whether that user is an office owner.
+export interface PagerViewer {
+  accessibleRoomIds: ReadonlySet<string>;
+  userId: string | null;
+  isOfficeOwner: boolean;
+}
+
+// The one visibility rule, for the routes and the per-socket event. A viewer
+// sees a page when they can access its stored room (the room at the first
+// raise; never looked up again). An app page is also visible to the app owner
+// (its target) and to office owners, and with a null room only to them.
+export function pagerEntryVisible(
+  entry: PagerEntry,
+  viewer: PagerViewer,
+): boolean {
+  const roomId = entry.source.roomId;
+  if (roomId !== null && viewer.accessibleRoomIds.has(roomId)) return true;
+  return (
+    entry.source.kind === "app" &&
+    (viewer.isOfficeOwner ||
+      (viewer.userId !== null && viewer.userId === entry.targetUserId))
+  );
 }
 
 function isTransition(v: unknown): v is PagerTransition {
@@ -186,19 +228,13 @@ function isOptionalString(v: unknown): boolean {
 export function isPagerEntry(v: unknown): v is PagerEntry {
   if (typeof v !== "object" || v === null) return false;
   const e = v as Record<string, unknown>;
-  const source = e.source as Record<string, unknown> | null | undefined;
   const delivery = e.delivery as Record<string, unknown> | null | undefined;
   return (
     typeof e.id === "string" &&
     typeof e.createdAt === "number" &&
     typeof e.lastRaisedAt === "number" &&
     typeof e.raiseCount === "number" &&
-    typeof source === "object" &&
-    source !== null &&
-    source.kind === "agent" &&
-    typeof source.agentId === "string" &&
-    typeof source.name === "string" &&
-    typeof source.roomId === "string" &&
+    isPagerSource(e.source) &&
     typeof e.targetUserId === "string" &&
     typeof e.title === "string" &&
     isOptionalString(e.body) &&

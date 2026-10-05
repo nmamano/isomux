@@ -443,8 +443,9 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   // Per-recipient like task_upserted: a socket hears a page only when its
-  // user can access the page's source room. Delivered by an explicit
-  // per-socket loop (pushPagerEntryToEachWs).
+  // user can see it (pagerEntryVisible: the page's room, plus the app owner
+  // and office owners for an app page). Delivered by an explicit per-socket
+  // loop (pushPagerEntryToEachWs).
   pager_upserted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },

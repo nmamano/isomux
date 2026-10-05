@@ -1383,8 +1383,10 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // The pager (internal-docs/pager-design.md). Source and target come from the
-  // raising agent's token; pager:raise is held by agents only. Reads and the
-  // ack/resolve verbs follow room access in the handler, like tasks.
+  // raising agent's token; pager:raise is held by agents and apps, and
+  // operationalAuthenticated keeps apps on their own routes (pager.appRaise).
+  // Reads and the ack/resolve verbs follow room access in the handler, like
+  // tasks; an app page is also open to the app owner and office owners.
   defineRoute<{ title: string; body?: string; key?: string }, PagerEntry>({
     opId: "pager.raise",
     method: "POST",
@@ -1513,8 +1515,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   // speaking and the registry says which agent built it, so neither is a
   // parameter a caller could lie about.
   //
-  // The ONLY route an app identity authorizes, pinned by the whole-table
-  // reachability test in routes-table.test.ts.
+  // One of the three routes an app identity authorizes, with the two app
+  // pager routes below, pinned by the whole-table reachability test in
+  // routes-table.test.ts.
   defineRoute<AppMessageReq, AgentMessageAck>({
     opId: "apps.sendMessage",
     method: "POST",
@@ -1524,6 +1527,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     // guard).
     auth: cap("app:message", appScope),
     emits: ["log_entry"],
+  }),
+  // The app raises and resolves its own pages (internal-docs/pager-design.md),
+  // so a health app can page when the agent it would message is down. Source
+  // and target come from the token and the registry, as for the message route.
+  // pager:raise is also an agent capability, so appScope is what keeps agents
+  // off these routes.
+  defineRoute<{ title: string; body?: string; key?: string }, PagerEntry>({
+    opId: "pager.appRaise",
+    method: "POST",
+    path: "/api/app/pager",
+    auth: cap("pager:raise", appScope),
+    emits: ["pager_upserted"],
+  }),
+  defineRoute<{ id?: string; key?: string }, PagerEntry>({
+    opId: "pager.appResolve",
+    method: "POST",
+    path: "/api/app/pager/resolve",
+    auth: cap("pager:raise", appScope),
+    emits: ["pager_upserted"],
   }),
 
   // Webhooks (internal-docs/webhooks-design.md section 7). Ownership is the

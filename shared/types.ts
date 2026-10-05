@@ -850,13 +850,26 @@ export interface MemoryItem {
 export type PagerState = "open" | "acked" | "resolved";
 
 // Who raised the page. The room is a snapshot taken at the first raise: it
-// decides who can see the page, and stays put if the agent moves later.
-export type PagerSource = {
-  kind: "agent";
-  agentId: string;
-  name: string; // display snapshot; the agent may be renamed or gone
-  roomId: string;
-};
+// decides who can see the page, and stays put if the agent moves later. An
+// app's room is its creator agent's room at the first raise, or null when that
+// agent or its room is gone; the app owner and office owners always see an app
+// page, and a null room leaves it to them alone.
+export type PagerSource =
+  | {
+      kind: "agent";
+      agentId: string;
+      name: string; // display snapshot; the agent may be renamed or gone
+      roomId: string;
+    }
+  | {
+      kind: "app";
+      appName: string;
+      // The app's registration generation. A deleted app's name can be
+      // registered again; the new registration never shares its pages.
+      registrationGen: number;
+      name: string; // the app name, for display
+      roomId: string | null;
+    };
 
 // The send to the member's own channel. Never holds the destination URL or a
 // raw response body.
@@ -1889,8 +1902,9 @@ export type ServerMessage =
   // this recipient could not see never produced a frame in the first place.
   | { type: "app_deleted"; name: string }
   // One page was raised, re-raised, acked or resolved, and the recipient can
-  // access its source room. There is no whole-list event: a pager view reads
-  // GET /api/pager when it opens and after a reconnect.
+  // see it (its room; for an app page also the app owner and office owners).
+  // There is no whole-list event: a pager view reads GET /api/pager when it
+  // opens and after a reconnect.
   | { type: "pager_upserted"; entry: PagerEntry }
   // Webhooks: only the hook owner and office owners receive these.
   | { type: "webhook_upserted"; webhook: WebhookWire }

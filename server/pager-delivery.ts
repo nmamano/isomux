@@ -140,8 +140,10 @@ export function buildPageMessage(
       : kind === "repeat"
         ? `${ping}${ctx.t("pager.discord.stillOpen", { title })}`
         : ctx.t("pager.discord.resolved", { title });
+  // An app page with no room shows only the source.
+  const room = ctx.roomName ?? entry.source.roomId;
   const footer = clip(
-    `${ctx.roomName ?? entry.source.roomId} · ${entry.source.name}`,
+    room === null ? entry.source.name : `${room} · ${entry.source.name}`,
     EMBED_FOOTER_MAX,
   );
   return {
@@ -470,7 +472,10 @@ export function createPagerDelivery(
         t: deps.translator(userId),
         discordUserId: settings.discordUserId,
         origin: deps.officeOrigin(),
-        roomName: deps.roomName(entry.source.roomId),
+        roomName:
+          entry.source.roomId === null
+            ? null
+            : deps.roomName(entry.source.roomId),
       });
       const result = await post(deps.fetch, settings.webhookUrl, message);
       q.lastSentAt = deps.now();
