@@ -2433,7 +2433,13 @@ export async function demoApi(
     const existing = users.get(uname.toLowerCase());
     if (!existing)
       throw new ApiError(404, "not_found", `User ${uname} not found`);
-    return { names: Object.keys(demoManagedEnv[existing.id] ?? {}).sort() };
+    return {
+      names: Object.keys(demoManagedEnv[existing.id] ?? {}).sort(),
+      providers: [
+        { provider: "claude", status: "connected" },
+        { provider: "codex", status: "not_connected" },
+      ],
+    };
   }
   // apiTokens.adminList / adminRevoke - an owner's view of a member's tokens.
   const memberTokensMatch = pathname.match(
