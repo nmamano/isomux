@@ -69,7 +69,7 @@ PARKED FOR NIL items.
 ## Slices
 
 - [x] P1 - page record, store, agent route: dabd298e; the reference page says pages are not sent yet, which P2 must change
-- [ ] P2 - Discord delivery and member settings
+- [x] P2 - Discord delivery and member settings: 2b90953a; link shape `<origin>/?pager=<id>` (pagerLink in server/pager-delivery.ts)
 - [ ] P3 - app route
 - [ ] P4 - pager view, badge, docs
 
@@ -152,3 +152,43 @@ Decide with the reviewer: the settings route shape, the timer design, the
 message layout.
 
 Locked: rulings above; Discord as the only channel.
+
+## PICKUP P3 (Worker 3 / Reviewer 3)
+
+Goal: design "Raising a page", the app half. An app raises a page with its app
+token on a new app route next to `apps.sendMessage` (`POST /api/app/message`),
+and resolves its own page, so a health app can page when its agent is down and
+resolve when the check passes again. The source is the app (its name and its
+room); the target is the app's owner. Dedupe, bounds, delivery and events work
+as for agents, through the P1 store and the P2 delivery.
+
+What P1 and P2 left (merged as dabd298e and 2b90953a): the store with
+`source: {kind: "agent", ...}`, the agent routes, the `onRaised` and
+`onTransitioned` seams, and the delivery module.
+
+Mechanics and traps:
+- The APP scope holds only `app:message` today, and
+  server/test-support/identity-tokens.test.ts and routes-table.test.ts pin that
+  an app reaches exactly one route. PM ruling: the APP scope also gets
+  `pager:raise`, and an app reaches exactly the app raise and app resolve
+  routes besides `apps.sendMessage`. Change those pins on purpose and name each
+  changed assertion in the report.
+- `source` becomes a union with an app variant. Every place that reads
+  `source.agentId` is found by grep, not assumed; members list, ack and resolve
+  app pages under the same room-access rule.
+- An app resolves only its own pages: same app identity, never another app's
+  or an agent's.
+- Find where an app's owner and room are recorded; do not assume field names.
+- The apps agent-reference page tells agents how their app code calls the app
+  routes: add the page route there, and to the pager page.
+- ROUTE_LABELS covers agent-facing routes only; check whether app routes have
+  labels today and follow that.
+
+Acceptance: an app token raises, dedupes and resolves its own page through the
+real route table; it cannot resolve another source's page or reach any other
+route; the page reaches the app owner's Discord stub; a member with room access
+sees and acks it.
+
+Decide with the reviewer: route paths, the source union shape.
+
+Locked: rulings above; the PM ruling on the APP scope in this pickup.
