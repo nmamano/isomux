@@ -29,6 +29,7 @@ function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
     allowedRooms: [],
     hidden: [],
     order: [],
+    tucked: [],
     memberPrompt: null,
     avatarColor: "#abcabc",
     avatarVariant: "classic",

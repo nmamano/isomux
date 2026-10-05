@@ -286,3 +286,141 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
     expect(ownerBody.rooms.map((r) => r.id)).toEqual([r1, r2, r3]);
   });
 });
+
+// Task 6c23d908 - view.setTucked: a tucked room leaves the member's tab bar
+// for its overflow chip but stays in the projection, so presence still flows.
+describe("view.setTucked (task 6c23d908)", () => {
+  async function waitForSelfTucked(
+    sock: TestSocket,
+    tucked: string[],
+  ): Promise<void> {
+    const want = JSON.stringify(tucked);
+    const deadline = Date.now() + 2000;
+    for (;;) {
+      const found = (sock.messages as Record<string, unknown>[]).some(
+        (m) =>
+          m.type === "user_self_updated" &&
+          JSON.stringify((m.user as { tucked: string[] }).tucked) === want,
+      );
+      if (found) return;
+      if (Date.now() > deadline)
+        throw new Error(`no user_self_updated with tucked=${want}`);
+      await sleep(5);
+    }
+  }
+
+  it("stores the full list: dedupes, drops unknown and inaccessible ids, keeps hidden-but-accessible ones", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    const r3 = server.agentManager.createRoom("R3"); // inaccessible to Mia
+    grant(member.username, [r1, r2]);
+    hide(member.username, [r2]);
+    const memberId = getUserByName(member.username)!.id;
+
+    expect(
+      await putView(server, member.rawSessionId, "tucked", {
+        tucked: [r2, r1, r2, r3, "no-such-room"],
+      }),
+    ).toBe(204);
+    expect(getUserById(memberId)!.tucked).toEqual([r2, r1]);
+    // Untuck is a write of the shorter list.
+    expect(
+      await putView(server, member.rawSessionId, "tucked", { tucked: [r2] }),
+    ).toBe(204);
+    expect(getUserById(memberId)!.tucked).toEqual([r2]);
+    expect(
+      await putView(server, member.rawSessionId, "tucked", { tucked: r1 }),
+    ).toBe(422);
+    expect(getUserById(memberId)!.tucked).toEqual([r2]);
+  });
+
+  it("sends the member's own record and no full_state; other members get nothing", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const other = await server.seedMember("Ola");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    grant(member.username, [r1, r2]);
+    grant(other.username, [r1, r2]);
+
+    const sock = await connectSettled(server, member.rawSessionId);
+    const otherSock = await connectSettled(server, other.rawSessionId);
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const fsBefore = bagLen(sock, "full_state");
+    const otherBefore = otherSock.messages.length;
+    const ownerBefore = ownerSock.messages.length;
+
+    await putView(server, member.rawSessionId, "tucked", { tucked: [r2] });
+    await waitForSelfTucked(sock, [r2]);
+    await sleep(50);
+    // The tucked room stays in the projection: no full_state is needed.
+    expect(bagLen(sock, "full_state")).toBe(fsBefore);
+    expect(otherSock.messages.slice(otherBefore)).toEqual([]);
+    // Owners get the full record on the admin channel, as for hidden and
+    // order; nothing goes out on the public channel.
+    const ownerNew = (ownerSock.messages as Record<string, unknown>[]).slice(
+      ownerBefore,
+    );
+    expect(ownerNew.map((m) => m.type)).toEqual(["user_admin_updated"]);
+    expect((ownerNew[0].user as { tucked: string[] }).tucked).toEqual([r2]);
+  });
+
+  it("never puts tucked on the public user wire", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const other = await server.seedMember("Ola");
+    const r1 = server.agentManager.getRooms()[0].id;
+    grant(member.username, [r1]);
+    await putView(server, member.rawSessionId, "tucked", { tucked: [r1] });
+    // A connect sends the public roster; a public record change follows.
+    const otherSock = await connectSettled(server, other.rawSessionId);
+    await putView(server, member.rawSessionId, "notif-rooms", {
+      notifRooms: [r1],
+    });
+    await otherSock.waitFor("user_updated");
+    const publicRecords = (otherSock.messages as Record<string, unknown>[])
+      .filter((m) => m.type === "users_list" || m.type === "user_updated")
+      .flatMap((m) =>
+        m.type === "users_list"
+          ? (m.users as Record<string, unknown>[])
+          : [m.user as Record<string, unknown>],
+      );
+    expect(publicRecords.length).toBeGreaterThan(0);
+    expect(publicRecords.every((u) => !("tucked" in u))).toBe(true);
+  });
+
+  it("a hidden room keeps its tucked flag and comes back tucked when shown again", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const r1 = server.agentManager.getRooms()[0].id;
+    const r2 = server.agentManager.createRoom("R2");
+    grant(member.username, [r1, r2]);
+    const memberId = getUserByName(member.username)!.id;
+    const sock = await connectSettled(server, member.rawSessionId);
+
+    await putView(server, member.rawSessionId, "tucked", { tucked: [r2] });
+    // Tucked is not hidden: the room stays in the member's projection.
+    expect(
+      fullStateRoomIds(
+        (sock.messages as Record<string, unknown>[]).findLast(
+          (m) => m.type === "full_state",
+        )!,
+      ),
+    ).toEqual([r1, r2]);
+
+    await putView(server, member.rawSessionId, "shown", { shown: [r1] });
+    await waitForFullState(sock, [r1]);
+    expect(getUserById(memberId)!.tucked).toEqual([r2]);
+
+    await putView(server, member.rawSessionId, "shown", { shown: [r1, r2] });
+    await waitForFullState(sock, [r1, r2]);
+    expect(getUserById(memberId)!.hidden).toEqual([]);
+    expect(getUserById(memberId)!.tucked).toEqual([r2]);
+  });
+});

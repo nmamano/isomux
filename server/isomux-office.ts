@@ -5050,6 +5050,7 @@ interface ViewChange {
   order?: readonly string[];
   shown?: readonly string[];
   notifRooms?: readonly string[];
+  tucked?: readonly string[];
 }
 
 // PURE clamp - the single source of truth for the view invariants. Given the
@@ -5057,7 +5058,8 @@ interface ViewChange {
 // the next fields: order deduped (first wins) + filtered to accessible (hidden-
 // but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
 // accessible rooms NOT in the desired shown set (or the stored hidden re-
-// filtered to accessible); notifRooms within effective shown. applyViewChange
+// filtered to accessible); notifRooms within effective shown; tucked deduped +
+// filtered to accessible (hidden ids kept, as for order). applyViewChange
 // (view.*) and the users.setAccess prune-clamp both clamp through this,
 // so the invariant lives in exactly one place.
 function clampViewFields(
@@ -5066,12 +5068,14 @@ function clampViewFields(
     order: readonly string[];
     hidden: readonly string[];
     notifRooms: readonly string[];
+    tucked: readonly string[];
   },
   change: ViewChange,
 ): {
   order: string[];
   hidden: string[];
   notifRooms: string[];
+  tucked: string[];
 } {
   const order = dedupeFirstWins([...(change.order ?? current.order)]).filter(
     (id) => accessible.has(id),
@@ -5090,7 +5094,10 @@ function clampViewFields(
   const notifRooms = dedupeFirstWins([
     ...(change.notifRooms ?? current.notifRooms),
   ]).filter((id) => effectiveShown.has(id));
-  return { order, hidden, notifRooms };
+  const tucked = dedupeFirstWins([...(change.tucked ?? current.tucked)]).filter(
+    (id) => accessible.has(id),
+  );
+  return { order, hidden, notifRooms, tucked };
 }
 
 function applyViewChange(targetUserId: string, change: ViewChange): boolean {
@@ -5104,12 +5111,14 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   const prevOrderKey = user.order.join("\u0000");
   const prevHiddenKey = [...user.hidden].sort().join("\u0000");
   const prevNotifKey = [...user.notifRooms].sort().join("\u0000");
+  const prevTuckedKey = [...user.tucked].sort().join("\u0000");
   const next = clampViewFields(accessible, user, change);
 
   const r = updateUserById(targetUserId, {
     order: next.order,
     hidden: next.hidden,
     notifRooms: next.notifRooms,
+    tucked: next.tucked,
   });
   if (!r.ok) {
     console.error(
@@ -5145,6 +5154,10 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   if (recordChanged) {
     emitUserUpdated(r.user);
     emitUsersList();
+  } else if ([...next.tucked].sort().join("\u0000") !== prevTuckedKey) {
+    // Tucked is private and not in full_state: a tuck leaves the projection
+    // as it is, so only the record goes out, on the private channels.
+    emitPrivateUserRecord(r.user);
   }
   return true;
 }

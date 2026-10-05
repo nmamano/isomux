@@ -1355,9 +1355,14 @@ export interface UserRecord {
   //     remaining accessible+shown rooms in the office's room order. A
   //     brand-new or never-reordered user has `order: []` and falls back to
   //     the office order, so newly-created rooms append at the end for free.
-  // Both default to `[]` (backfilled on load for legacy records).
+  //   - `tucked`: shown rooms the user moved off the tab bar into its
+  //     overflow chip. Unlike `hidden`, a tucked room stays in the projection,
+  //     so its agents and presence still reach the user. A hidden room keeps
+  //     its tucked flag; hidden wins at display.
+  // All default to `[]` (backfilled on load for legacy records).
   hidden: string[];
   order: string[];
+  tucked: string[];
   // Self-described member profile prompt. Auto-injected into the system
   // prompt of every agent owned by this user, so the agent has standing
   // context about who its owner is. Other agents can also look up this

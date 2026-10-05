@@ -997,10 +997,13 @@ function newMemberRecord(): UserRecord {
     allowedRooms: [],
     hidden: [],
     order: [],
+    tucked: [],
     memberPrompt: null,
     language: null,
   };
 }
+
+const NO_ROOM_IDS: string[] = [];
 
 function sameRoomSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -1256,6 +1259,17 @@ function UserEditPanel({
   // "shown" list) via PUT /api/me/view/shown. The three room settings are
   // hierarchical: ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
   const [hiddenSetting, setHiddenSetting] = useState<string[]>(user.hidden);
+  // Rooms tucked into the tab bar's overflow chip. The bar writes the same
+  // field, so a tuck made there while this form is open lands here when the
+  // member has not edited the column. A record from a server older than
+  // this field has no `tucked`.
+  const userTucked = user.tucked ?? NO_ROOM_IDS;
+  const [tuckedSetting, setTuckedSetting] = useState<string[]>(userTucked);
+  const [tuckedBase, setTuckedBase] = useState<string[]>(userTucked);
+  if (!sameRoomSet(tuckedBase, userTucked)) {
+    setTuckedBase(userTucked);
+    if (sameRoomSet(tuckedSetting, tuckedBase)) setTuckedSetting(userTucked);
+  }
   // The room ids the TARGET can reach, for rendering their self prefs: an owner
   // reaches every live room by rule; a member SELF-editing reads their LIVE
   // record (user.allowedRooms - they have no Access column, and the record
@@ -1383,6 +1397,14 @@ function UserEditPanel({
     }
   }
 
+  function toggleRoomTucked(roomId: string) {
+    setTuckedSetting(
+      tuckedSetting.includes(roomId)
+        ? tuckedSetting.filter((id) => id !== roomId)
+        : [...tuckedSetting, roomId],
+    );
+  }
+
   // When a room is removed from access, prune notifSetting to fit. The server
   // applies the same prune on save, but the client-side mirror keeps the form
   // state consistent mid-edit.
@@ -1408,6 +1430,7 @@ function UserEditPanel({
     if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
     if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
     if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
+    if (isMe && !sameRoomSet(tuckedSetting, userTucked)) return true;
     return false;
   }
 
@@ -1564,6 +1587,11 @@ function UserEditPanel({
       if (isMe && !sameRoomSet(notifSetting, user.notifRooms)) {
         await apiFetch("PUT", "/api/me/view/notif-rooms", {
           notifRooms: notifSetting,
+        });
+      }
+      if (isMe && !sameRoomSet(tuckedSetting, userTucked)) {
+        await apiFetch("PUT", "/api/me/view/tucked", {
+          tucked: tuckedSetting,
         });
       }
       if (renamed) onRenamed?.(trimmed);
@@ -1727,6 +1755,11 @@ function UserEditPanel({
                   </span>
                 )}
                 {isMe && (
+                  <span style={{ width: 80, textAlign: "center" }}>
+                    {t("settings.profile.tuckedColumn")}
+                  </span>
+                )}
+                {isMe && (
                   <span style={{ width: 90, textAlign: "center" }}>
                     {t("settings.profile.notificationsColumn")}
                   </span>
@@ -1747,6 +1780,8 @@ function UserEditPanel({
                   const hasAccess = accessibleForPrefs.includes(r.id);
                   const displayed = hasAccess && !hiddenSetting.includes(r.id);
                   const wantsNotif = displayed && notifSetting.includes(r.id);
+                  // A hidden room keeps its tucked flag: shown, but locked.
+                  const tucked = hasAccess && tuckedSetting.includes(r.id);
                   return (
                     <div
                       key={r.id}
@@ -1819,6 +1854,33 @@ function UserEditPanel({
                               accentColor: "var(--accent)",
                               cursor: hasAccess ? "pointer" : "default",
                               opacity: hasAccess ? 1 : 0.35,
+                            }}
+                          />
+                        </span>
+                      )}
+                      {isMe && (
+                        <span
+                          style={{
+                            width: 80,
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={tucked}
+                            disabled={!displayed}
+                            onChange={() => {
+                              if (!displayed) return;
+                              toggleRoomTucked(r.id);
+                            }}
+                            aria-label={t("settings.profile.tuck", {
+                              room: r.name,
+                            })}
+                            style={{
+                              accentColor: "var(--accent)",
+                              cursor: displayed ? "pointer" : "default",
+                              opacity: displayed ? 1 : 0.35,
                             }}
                           />
                         </span>

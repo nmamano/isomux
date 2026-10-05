@@ -597,6 +597,12 @@ export interface NotifRoomsReq {
   notifRooms: string[];
 }
 
+// view.setTucked: the FULL list of rooms the caller tucks into the tab bar's
+// overflow chip.
+export interface TuckedRoomsReq {
+  tucked: string[];
+}
+
 // prefs.update (PATCH /api/me/preferences). SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
 // split keeps an owner out of a member's personal settings. A Partial

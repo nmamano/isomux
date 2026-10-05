@@ -25,6 +25,7 @@ import type {
   EditAgentReq,
   SendMessageReq,
   PreferencesReq,
+  TuckedRoomsReq,
   StoragePruneReq,
   StoragePruneRes,
   StorageUsageWire,
@@ -1166,6 +1167,7 @@ function seedUsers() {
       allowedRooms: [...roomIds],
       hidden: [],
       order: [],
+      tucked: [],
       memberPrompt: null,
       avatarColor: defaultGhostColorForUserId(id),
       // Stephen gets a distinctive variant so the cycling ghost is
@@ -2068,6 +2070,20 @@ export async function demoApi(
     // view.setShown - hide/show rooms is likewise not modeled in the demo.
     case "PUT /api/me/view/shown":
       return undefined;
+    // view.setTucked round-trips, like prefs.update below: the tab bar reads
+    // tucked straight off the self record.
+    case "PUT /api/me/view/tucked": {
+      const b = (body ?? {}) as TuckedRoomsReq;
+      const selfId = sessionContext?.userId ?? null;
+      const existing = selfId
+        ? [...users.values()].find((u) => u.id === selfId)
+        : undefined;
+      if (!existing || !Array.isArray(b.tucked)) return undefined;
+      const updated: UserRecord = { ...existing, tucked: [...b.tucked] };
+      users.set(updated.name.toLowerCase(), updated);
+      shimEmit({ type: "user_self_updated", user: updated });
+      return undefined;
+    }
     // prefs.update - personal preferences DO round-trip in the demo (unlike the
     // view prefs above): the Preferences pane reads them straight back off the
     // user record, so a no-op would leave the visitor's pick snapping back and

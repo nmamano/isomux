@@ -515,6 +515,7 @@ describe("users.json field normalization (Phase 1.3)", () => {
         allowedRooms: ["r1", "r2"],
         hidden: ["r2"],
         order: ["r2", "r1"],
+        tucked: ["r1"],
       },
       // Malformed (non-array) view prefs -> normalized to [].
       bad: {
@@ -524,18 +525,22 @@ describe("users.json field normalization (Phase 1.3)", () => {
         allowedRooms: ["r1"],
         hidden: "r1",
         order: 42,
+        tucked: { r1: true },
       },
     });
     _testResetUsers();
     const legacy = getUserById("legacy");
     expect(legacy?.hidden).toEqual([]);
     expect(legacy?.order).toEqual([]);
+    expect(legacy?.tucked).toEqual([]);
     const withprefs = getUserById("withprefs");
     expect(withprefs?.hidden).toEqual(["r2"]);
     expect(withprefs?.order).toEqual(["r2", "r1"]);
+    expect(withprefs?.tucked).toEqual(["r1"]);
     const bad = getUserById("bad");
     expect(bad?.hidden).toEqual([]);
     expect(bad?.order).toEqual([]);
+    expect(bad?.tucked).toEqual([]);
   });
 });
 

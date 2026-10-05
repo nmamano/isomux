@@ -1,5 +1,5 @@
 // View-preference resource handlers. The per-user visibility
-// surface (opIds view.{setOrder,setShown,setNotifRooms,listRooms}) on the
+// surface (opIds view.{setOrder,setShown,setNotifRooms,setTucked,listRooms}) on the
 // unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
@@ -20,7 +20,7 @@
 // so the view invariants - order deduped + filtered to accessible; hidden =
 // accessible minus shown; notifRooms within effective shown - live in exactly
 // one place. The handler NEVER emits; the core fans out (projected full_state
-// for order/shown, user_updated for notifRooms).
+// for order/shown, user_updated for notifRooms, the private record for tucked).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /
@@ -36,6 +36,7 @@ export interface ViewChangeInput {
   order?: string[];
   shown?: string[];
   notifRooms?: string[];
+  tucked?: string[];
 }
 
 export interface ViewDeps {
@@ -54,7 +55,10 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
   // Set one view field from a string[] body field. Rejects only a malformed
   // SHAPE; the core silently filters unknown/inaccessible/hidden ids.
   const setIdList =
-    (field: "order" | "shown" | "notifRooms", code: string): RouteHandler =>
+    (
+      field: "order" | "shown" | "notifRooms" | "tucked",
+      code: string,
+    ): RouteHandler =>
     (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "view is per-user");
@@ -73,6 +77,7 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     "view.setOrder": setIdList("order", "invalid_order"),
     "view.setShown": setIdList("shown", "invalid_shown"),
     "view.setNotifRooms": setIdList("notifRooms", "invalid_notif_rooms"),
+    "view.setTucked": setIdList("tucked", "invalid_tucked"),
 
     "view.listRooms": (ctx) => {
       const userId = ctx.identity.userId;

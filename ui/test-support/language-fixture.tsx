@@ -38,6 +38,7 @@ export function selfUserRecord(
     allowedRooms: [],
     hidden: [],
     order: [],
+    tucked: [],
     memberPrompt: null,
     language,
   };

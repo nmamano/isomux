@@ -195,6 +195,7 @@ function load(): Record<string, UserRecord> {
         // Backfill view prefs to [] for legacy records lacking them.
         hidden: normalizeRoomIdList(value.hidden),
         order: normalizeRoomIdList(value.order),
+        tucked: normalizeRoomIdList(value.tucked),
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
@@ -342,6 +343,7 @@ export function claimUser(
     // default office-order room order.
     hidden: [],
     order: [],
+    tucked: [],
     memberPrompt: normalizeMemberPrompt(initial?.memberPrompt),
     // Live-avatars defaults. Color is deterministic per user-id so the
     // same user gets a consistent hue across restarts; variant is the
@@ -523,6 +525,7 @@ export function updateUserById(
       | "allowedRooms"
       | "hidden"
       | "order"
+      | "tucked"
       | "memberPrompt"
       | "avatarColor"
       | "avatarVariant"
@@ -577,6 +580,10 @@ export function updateUserById(
       changes.order !== undefined
         ? normalizeRoomIdList(changes.order)
         : existing.order,
+    tucked:
+      changes.tucked !== undefined
+        ? normalizeRoomIdList(changes.tucked)
+        : existing.tucked,
     memberPrompt:
       changes.memberPrompt !== undefined
         ? normalizeMemberPrompt(changes.memberPrompt)

@@ -156,6 +156,7 @@ describe("usageAudienceForUser", () => {
     avatarVariant: "classic",
     hidden: [],
     order: [],
+    tucked: [],
     memberPrompt: null,
     language: null,
   };
