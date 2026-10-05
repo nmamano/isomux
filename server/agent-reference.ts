@@ -22,6 +22,7 @@ export const AGENT_REFERENCE_TOPICS = {
   "cronjob-management": "Privileged cronjob management",
   "members-chat": "Privileged members-chat use",
   members: "Privileged member creation",
+  pager: "Pages to your manager",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
@@ -98,6 +99,11 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "tasks.claim": "tasks",
   "tasks.done": "tasks",
   "tasks.delete": "tasks",
+  "pager.raise": "pager",
+  "pager.list": "pager",
+  "pager.get": "pager",
+  "pager.ack": "pager",
+  "pager.resolve": "pager",
   "apps.list": "apps",
   "apps.get": "apps",
   "apps.preview": "apps",

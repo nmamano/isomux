@@ -39,6 +39,7 @@ import type {
   PresenceInfo,
   OfficeWire,
   TaskItem,
+  PagerEntry,
   AppListWire,
   CronjobListWire,
   CronjobRun,
@@ -210,6 +211,7 @@ export interface EventPayloads {
   // cannot see an app is told nothing rather than sent an empty frame.
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
+  pager_upserted: { entry: PagerEntry };
   // Cronjobs: per-recipient, like tasks. A socket sees the jobs it may see
   // (maker, office owners, members of the job's live room). See
   // server/cronjob-visibility.ts.
@@ -423,6 +425,13 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   app_deleted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  // Per-recipient like task_upserted: a socket hears a page only when its
+  // user can access the page's source room. Delivered by an explicit
+  // per-socket loop (pushPagerEntryToEachWs).
+  pager_upserted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

@@ -60,6 +60,13 @@ export type Capability =
   // Shared by USER and AGENT - isomux-memory (durable shared facts).
   | "memory:read"
   | "memory:write"
+  // The pager. pager:raise is AGENT-only: a page's source and target come from
+  // the raising agent's token, so a human or an API token has nothing to raise
+  // as. Reading, acking and resolving follow room access for humans and agents
+  // alike, the same as the task board.
+  | "pager:raise"
+  | "pager:read"
+  | "pager:write"
   // Shared by USER and AGENT - the app registry. BASELINE for an ordinary
   // agent, not a privileged extra: an agent registering the app it just built
   // is the entire feature. Object-level scoping (your own apps; an office owner
@@ -164,6 +171,8 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "log:read",
   "app:read",
   "app:write",
+  "pager:read",
+  "pager:write",
 ];
 
 // AGENT set: the loopback surface plus the global task board, isomux-memory,
@@ -184,6 +193,9 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "app:read",
   "app:write",
   "self:affordance",
+  "pager:raise",
+  "pager:read",
+  "pager:write",
 ];
 
 // PRIVILEGED AGENT set: the baseline AGENT set PLUS a curated allowlist of the
@@ -311,6 +323,8 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "log:read",
   "app:read",
   "app:write",
+  "pager:read",
+  "pager:write",
 ];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {

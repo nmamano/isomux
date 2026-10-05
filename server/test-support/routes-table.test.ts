@@ -1036,6 +1036,13 @@ const SPEC_ROUTE_CONTRACT: Record<
   "tasks.claim": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.done": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.delete": { caps: ["task:write"], emits: ["tasks"] },
+  // Pager. pager:raise is AGENT-only (source and target come from the agent's
+  // token); reads and ack/resolve follow room access in the handler.
+  "pager.raise": { caps: ["pager:raise"], emits: ["pager_upserted"] },
+  "pager.list": { caps: ["pager:read"], emits: [] },
+  "pager.get": { caps: ["pager:read"], emits: [] },
+  "pager.ack": { caps: ["pager:write"], emits: ["pager_upserted"] },
+  "pager.resolve": { caps: ["pager:write"], emits: ["pager_upserted"] },
   // Apps (agent-built web apps isomux runs). app:read / app:write are BASELINE
   // agent capabilities - an agent registering the app it just built IS the
   // feature - so the object-level scoping is carried by the
@@ -1402,6 +1409,10 @@ const API_REACHABLE_OPIDS = [
   "tasks.claim",
   "tasks.done",
   "tasks.delete",
+  "pager.list",
+  "pager.get",
+  "pager.ack",
+  "pager.resolve",
   "apps.list",
   "apps.get",
   "apps.preview",

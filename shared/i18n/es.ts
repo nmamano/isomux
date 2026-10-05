@@ -1140,6 +1140,11 @@ Cosas que puedes hacer por él:
   "apiCall.tasks.complete": "Completar tarea",
   "apiCall.tasks.update": "Actualizar tarea",
   "apiCall.tasks.delete": "Eliminar tarea",
+  "apiCall.pager.list": "Listar avisos",
+  "apiCall.pager.get": "Leer aviso",
+  "apiCall.pager.raise": "Enviar aviso",
+  "apiCall.pager.ack": "Confirmar aviso",
+  "apiCall.pager.resolve": "Resolver aviso",
   "apiCall.tasks.listOpen": "Listar tareas abiertas",
   "apiCall.tasks.listOpenGlobal":
     "Listar tareas abiertas (solo las globales de la oficina)",

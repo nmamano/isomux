@@ -1136,6 +1136,11 @@ Coses que pots fer per ell:
   "apiCall.tasks.complete": "Completar tasca",
   "apiCall.tasks.update": "Actualitzar tasca",
   "apiCall.tasks.delete": "Eliminar tasca",
+  "apiCall.pager.list": "Llistar avisos",
+  "apiCall.pager.get": "Llegir avís",
+  "apiCall.pager.raise": "Enviar avís",
+  "apiCall.pager.ack": "Confirmar avís",
+  "apiCall.pager.resolve": "Resoldre avís",
   "apiCall.tasks.listOpen": "Llistar tasques obertes",
   "apiCall.tasks.listOpenGlobal":
     "Llistar tasques obertes (només les globals de l'oficina)",

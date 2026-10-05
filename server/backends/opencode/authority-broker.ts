@@ -65,6 +65,8 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/tasks$/ },
   { method: "PATCH", path: /^\/api\/tasks\/[^/]+$/ },
   { method: "POST", path: /^\/api\/tasks\/[^/]+\/(claim|done)$/ },
+  { method: "GET", path: /^\/api\/pager(?:\/[^/]+)?$/ },
+  { method: "POST", path: /^\/api\/pager(?:\/[^/]+\/(ack|resolve))?$/ },
   {
     method: "GET",
     path: /^\/api\/agents\/[^/]+\/(context|subscription|logs|sessions|instructions|scheduled-messages)$/,

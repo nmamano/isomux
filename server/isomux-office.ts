@@ -59,6 +59,11 @@ import {
 } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
 import { createScheduledMessageManager } from "./scheduled-messages.ts";
+import {
+  createPagerFilePersistence,
+  createPagerStore,
+  type PagerStore,
+} from "./pager-store.ts";
 import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
@@ -105,6 +110,7 @@ import type {
   CronjobRun,
   LogEntry,
   TaskItem,
+  PagerEntry,
 } from "../shared/types.ts";
 import {
   CODEX_MODELS,
@@ -214,6 +220,7 @@ import {
   type HandlerErrorStatus,
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
+import { pagerHandlers } from "./routes/handlers/pager.ts";
 import { agentReferenceHandlers } from "./routes/handlers/agent-reference.ts";
 import {
   recordAgentReferenceUsage,
@@ -467,6 +474,7 @@ function bootPrelude(): void {
 let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
 let scheduledMessageManager: ScheduledMessageManager;
+let pagerStore: PagerStore;
 let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
@@ -605,6 +613,14 @@ function createManagers(startOpts: StartServerOpts): void {
     },
     clock: { now: () => Date.now() },
     scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
+  });
+  // The pager. Delivery to the member's own channel is a later slice: until
+  // then onRaised is the hand-off point and does nothing, and every page
+  // stays "not delivered".
+  pagerStore = createPagerStore({
+    persistence: createPagerFilePersistence(join(STATE_ROOT, "pager.json")),
+    onChange: (entry) => pushPagerEntryToEachWs(entry),
+    onRaised: () => {},
   });
 }
 
@@ -2439,6 +2455,24 @@ function buildExecutorDeps(
       attributionFor,
       accessibleRoomIds: accessibleRoomIdsForIdentity,
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
+    }),
+  );
+
+  register(
+    pagerHandlers({
+      store: pagerStore,
+      accessibleRoomIds: accessibleRoomIdsForIdentity,
+      agentSource: (agentId) => {
+        const agent = agentManager.getAgent(agentId);
+        return agent
+          ? {
+              name: agent.name,
+              roomId: agent.roomId,
+              managerUserId: agent.userId,
+            }
+          : null;
+      },
+      actorName: (identity) => attributionFor(identity).createdBy,
     }),
   );
 
@@ -4876,6 +4910,18 @@ function pushTaskDeltaToEachWs(change: TaskChange) {
     const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
     const delta = taskDeltaFor(change, accessible);
     if (delta) ws.send(JSON.stringify(delta));
+  }
+}
+
+// Push ONE page change to every socket whose user can access the page's
+// source room - the same rule GET /api/pager applies. Everyone else hears
+// nothing, so a page id never reaches a socket that could not read it.
+function pushPagerEntryToEachWs(entry: PagerEntry) {
+  for (const ws of browsers) {
+    const user = getUserById(ws.data.session.userId);
+    if (user && accessibleRoomIdsFor(user).has(entry.source.roomId)) {
+      ws.send(JSON.stringify({ type: "pager_upserted", entry }));
+    }
   }
 }
 

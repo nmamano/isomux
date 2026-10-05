@@ -839,6 +839,52 @@ export interface MemoryItem {
   raw: string; // the exact persisted markdown line
 }
 
+// The pager (internal-docs/pager-design.md). User-facing copy calls one record
+// a "page"; code says PagerEntry because the UI already uses `page` for its
+// views.
+export type PagerState = "open" | "acked" | "resolved";
+
+// Who raised the page. The room is a snapshot taken at the first raise: it
+// decides who can see the page, and stays put if the agent moves later.
+export type PagerSource = {
+  kind: "agent";
+  agentId: string;
+  name: string; // display snapshot; the agent may be renamed or gone
+  roomId: string;
+};
+
+// The send to the member's own channel. Never holds the destination URL or a
+// raw response body.
+export interface PagerDelivery {
+  state: "not_delivered";
+  sends: number;
+  lastAttemptAt?: number;
+  lastFailure?: string;
+}
+
+export interface PagerTransition {
+  by: string; // display name of the actor (member or agent)
+  at: number;
+}
+
+export interface PagerEntry {
+  id: string; // 8-char hex
+  createdAt: number;
+  lastRaisedAt: number;
+  raiseCount: number;
+  source: PagerSource;
+  // The member who receives the page: the source's manager.
+  targetUserId: string;
+  title: string;
+  body?: string;
+  // Dedupe key chosen by the source.
+  key?: string;
+  state: PagerState;
+  acked?: PagerTransition;
+  resolved?: PagerTransition;
+  delivery: PagerDelivery;
+}
+
 // Generate a unique 8-char hex ID, avoiding collisions with `existing`.
 function generateHexId(existing?: string[]): string {
   const ids = existing ? new Set(existing) : undefined;
@@ -853,6 +899,10 @@ function generateHexId(existing?: string[]): string {
 }
 
 export function generateTaskId(existing?: string[]): string {
+  return generateHexId(existing);
+}
+
+export function generatePagerId(existing?: string[]): string {
   return generateHexId(existing);
 }
 
@@ -1727,6 +1777,10 @@ export type ServerMessage =
   // The app is gone from this recipient's list. Only its name travels: an app
   // this recipient could not see never produced a frame in the first place.
   | { type: "app_deleted"; name: string }
+  // One page was raised, re-raised, acked or resolved, and the recipient can
+  // access its source room. There is no whole-list event: a pager view reads
+  // GET /api/pager when it opens and after a reconnect.
+  | { type: "pager_upserted"; entry: PagerEntry }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }

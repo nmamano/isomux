@@ -85,6 +85,8 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // user and to office owners, never to the office.
   app_upserted: "recipient-scoped",
   app_deleted: "recipient-scoped",
+  // Per socket by access to the page's source room, like task_upserted.
+  pager_upserted: "recipient-scoped",
   // Cronjobs and their runs are per-recipient (maker, office owners, members
   // of the job's live room); the shared cron prompt stays office-wide.
   cronjobs_state: "recipient-scoped",

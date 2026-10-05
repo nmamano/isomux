@@ -56,6 +56,7 @@ import type {
   AgentInfo,
   RoomWire,
   TaskItem,
+  PagerEntry,
   CronjobListWire,
   CronjobRun,
   ScheduledMessageEntry,
@@ -1329,6 +1330,45 @@ export const API_ROUTES: readonly RouteDef[] = [
     // a cron run holds it only for the create/complete affordance in its prompt.
     auth: cap("task:write", taskDelete),
     emits: ["tasks"],
+  }),
+
+  // The pager (internal-docs/pager-design.md). Source and target come from the
+  // raising agent's token; pager:raise is held by agents only. Reads and the
+  // ack/resolve verbs follow room access in the handler, like tasks.
+  defineRoute<{ title: string; body?: string; key?: string }, PagerEntry>({
+    opId: "pager.raise",
+    method: "POST",
+    path: "/api/pager",
+    auth: cap("pager:raise", operationalAuthenticated),
+    emits: ["pager_upserted"],
+  }),
+  defineRoute<void, PagerEntry[]>({
+    opId: "pager.list",
+    method: "GET",
+    path: "/api/pager",
+    auth: cap("pager:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, PagerEntry>({
+    opId: "pager.get",
+    method: "GET",
+    path: "/api/pager/:id",
+    auth: cap("pager:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, PagerEntry>({
+    opId: "pager.ack",
+    method: "POST",
+    path: "/api/pager/:id/ack",
+    auth: cap("pager:write", operationalAuthenticated),
+    emits: ["pager_upserted"],
+  }),
+  defineRoute<void, PagerEntry>({
+    opId: "pager.resolve",
+    method: "POST",
+    path: "/api/pager/:id/resolve",
+    auth: cap("pager:write", operationalAuthenticated),
+    emits: ["pager_upserted"],
   }),
 
   // The registry: register an app by name, isomux allocates the port. Ownership
