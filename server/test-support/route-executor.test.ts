@@ -40,6 +40,7 @@ const NOOP_GUARD_DEPS: GuardDeps = {
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
   appOwnerUserId: () => null,
+  webhookOwnerUserId: () => null,
   isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,

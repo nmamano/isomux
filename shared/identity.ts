@@ -51,6 +51,12 @@ export function formatAppSenderPrefix(appName: string): string {
   return `[App "${appName}"]`;
 }
 
+// A webhook name has the app-name alphabet, so it needs no escaping either.
+// Format: `[Webhook "pr-review"]`.
+export function formatWebhookSenderPrefix(webhookName: string): string {
+  return `[Webhook "${webhookName}"]`;
+}
+
 // Cron job names are free-form, unlike app names. Normalize them before they
 // enter an agent prompt so controls, newlines, and delimiter-like whitespace
 // cannot forge a second sender line. Clamp after normalization so the rendered

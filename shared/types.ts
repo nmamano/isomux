@@ -1165,6 +1165,90 @@ export interface WebhookRule {
   args?: Record<string, string>;
 }
 
+// Where a matched delivery goes. The note is the hook owner's text: one line,
+// no angle brackets.
+export type WebhookTarget =
+  | { kind: "agent"; agentId: string; note?: string }
+  | { kind: "cronjob"; cronjobId: string };
+
+// A registered webhook. The secret is not here: it lives only in
+// webhooks/secrets.json, so no read of a record can return it. See
+// internal-docs/webhooks-design.md section 2.
+export interface WebhookRecord {
+  // "wh_" + 16 hex characters. Not a secret, but not guessable.
+  id: string;
+  name: string;
+  scheme: WebhookScheme;
+  // hmac-sha256 only; null for github-hmac-sha256.
+  signatureHeader: string | null;
+  eventHeader: string | null;
+  deliveryHeader: string | null;
+  rules: WebhookRule[];
+  target: WebhookTarget;
+  enabled: boolean;
+  // OWNER: the caller's user; for an agent caller, its manager. Never null:
+  // create requires an owning user.
+  userId: string;
+  username: string | null;
+  createdBy: string;
+  createdByAgentId?: string;
+  createdAt: number;
+}
+
+export type WebhookDeliveryOutcome =
+  | "pending"
+  | "ping"
+  | "bad_payload"
+  | "no_match"
+  | "dispatch_limited"
+  | "target_unavailable"
+  | "dispatched";
+
+// One row of a hook's delivery log (design section 6). The payload is never
+// stored.
+export interface WebhookDelivery {
+  id: string;
+  receivedAt: number;
+  event: string;
+  deliveryId: string;
+  bodyHash: string;
+  bodySize: number;
+  outcome: WebhookDeliveryOutcome;
+  attempts: number;
+  duplicates: number;
+  lastSeenAt: number;
+  status: number;
+  ruleIndex: number | null;
+  args: Record<string, string> | null;
+  target:
+    | { kind: "agent"; agentId: string }
+    | { kind: "cronjob"; cronjobId: string; runId?: string }
+    | null;
+  detail: string | null;
+}
+
+// Rejections before the signature check. They raise a counter and never write
+// a delivery row.
+export type WebhookCounterReason =
+  | "disabled"
+  | "method"
+  | "secret_missing"
+  | "rate_limited"
+  | "body_too_large"
+  | "bad_signature";
+
+// A record as the API returns it. It never carries the secret.
+export interface WebhookWire extends WebhookRecord {
+  url: string;
+  // "missing" after a restore: backups hold no secrets.
+  secretState: "set" | "missing";
+  counters: Partial<
+    Record<WebhookCounterReason, { count: number; lastAt: number }>
+  >;
+  countersSince: number;
+  lastDelivery: { outcome: WebhookDeliveryOutcome; receivedAt: number } | null;
+}
+
 export function humanizeSchedule(s: Schedule): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   if (s.type === "daily") return `Daily at ${pad(s.hour)}:${pad(s.minute)}`;
@@ -1786,6 +1870,9 @@ export type ServerMessage =
   // access its source room. There is no whole-list event: a pager view reads
   // GET /api/pager when it opens and after a reconnect.
   | { type: "pager_upserted"; entry: PagerEntry }
+  // Webhooks: only the hook owner and office owners receive these.
+  | { type: "webhook_upserted"; webhook: WebhookWire }
+  | { type: "webhook_deleted"; id: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }

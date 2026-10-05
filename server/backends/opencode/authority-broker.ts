@@ -85,6 +85,13 @@ const ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = [
   { method: "POST", path: /^\/api\/apps(?:\/[^/]+\/(restart|start|stop))?$/ },
   { method: "PATCH", path: /^\/api\/apps\/[^/]+$/ },
   { method: "DELETE", path: /^\/api\/apps\/[^/]+$/ },
+  {
+    method: "GET",
+    path: /^\/api\/webhooks(?:\/[^/]+(?:\/deliveries)?)?$/,
+  },
+  { method: "POST", path: /^\/api\/webhooks(?:\/[^/]+\/dry-run)?$/ },
+  { method: "PATCH", path: /^\/api\/webhooks\/[^/]+$/ },
+  { method: "DELETE", path: /^\/api\/webhooks\/[^/]+$/ },
   { method: "GET", path: /^\/api\/memory$/ },
   { method: "POST", path: /^\/api\/memory$/ },
   { method: "PUT", path: /^\/api\/memory$/ },

@@ -25,6 +25,10 @@ import type {
   OfficeSettings,
   PendingPromptKind,
   MembersChatMessage,
+  WebhookDelivery,
+  WebhookRule,
+  WebhookScheme,
+  WebhookTarget,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -1066,6 +1070,81 @@ export type AppErrorCode =
   // route that would change or run an app answers it before any side effect.
   | "apps_not_supported";
 
+// The wire contract for webhooks (internal-docs/webhooks-design.md section 7).
+export type { WebhookWire } from "./types.ts";
+
+// POST /api/webhooks. `target` may be left out by an agent caller: the hook
+// then messages that agent. The server generates the secret; there is no field
+// for it.
+export interface WebhookCreateReq {
+  name: string;
+  scheme: WebhookScheme;
+  signatureHeader?: string | null;
+  eventHeader?: string | null;
+  deliveryHeader?: string | null;
+  rules?: WebhookRule[];
+  target?: WebhookTarget;
+  enabled?: boolean;
+}
+
+// PATCH /api/webhooks/:id. Any subset; the server merges it into the stored
+// record and validates the whole result. The scheme is fixed at create: a
+// PATCH that names it gets 422.
+export interface WebhookUpdateReq {
+  name?: string;
+  signatureHeader?: string | null;
+  eventHeader?: string | null;
+  deliveryHeader?: string | null;
+  rules?: WebhookRule[];
+  target?: WebhookTarget;
+  enabled?: boolean;
+}
+
+// GET /api/webhooks/:id/deliveries, newest first.
+export interface WebhookDeliveriesRes {
+  deliveries: WebhookDelivery[];
+}
+
+// POST /api/webhooks/:id/dry-run. `event` is the raw event header value;
+// `payload` is the JSON object the sender would post.
+export interface WebhookDryRunReq {
+  event: string;
+  payload: unknown;
+}
+
+// What a delivery with this event and payload would do. No dispatch, no row.
+export type WebhookDryRunRes =
+  | { outcome: "ping" | "no_match" }
+  | {
+      outcome: "match";
+      ruleIndex: number;
+      args: Record<string, string>;
+      block: string;
+    };
+
+// The two secret routes. Only a human session reaches them.
+export interface WebhookSecretRes {
+  secret: string;
+}
+
+export type WebhookErrorCode =
+  | "invalid_request"
+  | "invalid_name"
+  | "invalid_scheme"
+  | "invalid_headers"
+  | "invalid_rules"
+  | "invalid_target"
+  | "invalid_note"
+  // A match path, match value or arg template over the 1000-character bound.
+  | "rule_field_too_long"
+  // A PATCH that names `scheme`, even with the stored value.
+  | "scheme_immutable"
+  | "name_taken"
+  | "webhook_limit_reached"
+  | "secret_missing"
+  | "registry_corrupt"
+  | "persist_failed";
+
 // The wire contract for the disk-usage breakdown and the manual pruner. Defined
 // here rather than in the server modules so the route table and the
 // implementation cannot drift: server/storage-usage.ts and
@@ -1081,6 +1160,7 @@ export type StorageCategoryId =
   | "provider-homes"
   | "cronjobs"
   | "memory"
+  | "webhooks"
   | "other-state"
   | "backups"
   | "update-snapshots";

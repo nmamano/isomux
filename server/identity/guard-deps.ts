@@ -50,6 +50,9 @@ export interface GuardDepsLiveReaders {
   // registry THROWS here rather than reading as an empty list - see the
   // adapter below for why the guard lets that through.
   listApps(): readonly { name: string; userId?: string | null }[];
+  // The registered webhooks; id -> owner userId. webhookRegistry.list. A
+  // corrupt registry throws here, like listApps.
+  listWebhooks(): readonly { id: string; userId: string }[];
 }
 
 export function buildProductionGuardDeps(
@@ -98,6 +101,11 @@ export function buildProductionGuardDeps(
       const app = live.listApps().find((a) => a.name === name);
       // Unknown app collapses with unowned into the same null (non-leak deny).
       return app?.userId ?? null;
+    },
+
+    webhookOwnerUserId(id: string): string | null {
+      // Not caught, as appOwnerUserId: a corrupt registry answers 500.
+      return live.listWebhooks().find((w) => w.id === id)?.userId ?? null;
     },
 
     agentManagerUserId(agentId: string): string | null {

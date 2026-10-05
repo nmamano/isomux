@@ -70,6 +70,10 @@ describe("identity: capability sets (Phase 2.1)", () => {
           "pager:raise",
           "pager:read",
           "pager:write",
+          // The webhook registry, baseline like apps; the
+          // webhookOwnerOrOfficeOwner guard scopes it.
+          "webhook:read",
+          "webhook:write",
         ] as Capability[]
       ).sort(),
     );
@@ -235,6 +239,8 @@ describe("identity: capability sets (Phase 2.1)", () => {
       "app:write",
       "pager:read",
       "pager:write",
+      "webhook:read",
+      "webhook:write",
     ]);
     for (const set of [
       USER_CAPABILITIES,

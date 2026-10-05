@@ -193,6 +193,8 @@ describe("verified backup publication", () => {
       "browser-profiles/u-alice/storage-state.json",
       "browser-profiles/u-alice/storage-state.json.corrupt-1789000000000",
       "tls/cert.key",
+      "webhooks/secrets.json",
+      "webhooks/secrets.json.tmp",
     ];
     const kept = [
       "apps/apps.json",
@@ -207,6 +209,8 @@ describe("verified backup publication", () => {
       "opencode/profiles/shared/data/opencode/opencode.db",
       "tls/cert.crt",
       "nil-codex-noauth.env",
+      "webhooks/webhooks.json",
+      "webhooks/wh_0123456789abcdef/deliveries.json",
     ];
     for (const relativePath of excluded)
       write(f.state, relativePath, `EXCLUDED:${relativePath}\n`);

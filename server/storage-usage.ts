@@ -202,6 +202,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const providerHomes = join(stateRoot, "provider-homes");
   const cronjobs = join(stateRoot, "cronjobs");
   const memory = join(stateRoot, "memory");
+  const webhooks = join(stateRoot, "webhooks");
 
   const total = measureTree(stateRoot);
   const logs = measureLogs(logsDir);
@@ -209,6 +210,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const providers = measureTree(providerHomes);
   const cron = measureTree(cronjobs);
   const mem = measureTree(memory);
+  const hooks = measureTree(webhooks);
 
   // Everything in the state root the named categories did not claim:
   // agents.json, tasks.json, users.json, state/, slide/, tls/, ...
@@ -221,7 +223,8 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     codex.bytes +
     providers.bytes +
     cron.bytes +
-    mem.bytes;
+    mem.bytes +
+    hooks.bytes;
   const claimedFiles =
     tokenLogs.files +
     logs.transcripts.files +
@@ -230,7 +233,8 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     codex.files +
     providers.files +
     cron.files +
-    mem.files;
+    mem.files +
+    hooks.files;
 
   // `available` is computed PER CATEGORY PATH, and by actually reading the
   // directory rather than testing for existence: the wire contract says "exists
@@ -255,6 +259,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     cat("provider-homes", providerHomes, providers),
     cat("cronjobs", cronjobs, cron),
     cat("memory", memory, mem),
+    cat("webhooks", webhooks, hooks),
     cat("other-state", stateRoot, {
       bytes: Math.max(0, total.bytes - claimedBytes),
       files: Math.max(0, total.files - claimedFiles),

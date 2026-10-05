@@ -110,6 +110,7 @@ Isomux gives you features beyond your own tools. Each line below names a situati
 - You need what you or another agent did or said earlier: search the conversation logs. Page: \`conversation-history\`.
 - A rule or pointer would change what future agents do before they read anything: save it to shared memory, in the narrowest scope that reaches them (only you, this room, the whole office, or one member). Page: \`memory\`.
 ${appHostingSection(appsUnsupported)}
+- The member wants an outside service such as GitHub to wake you or start a cronjob: register a webhook. Page: \`webhooks\`.
 - The member needs you to read or act on a page in their own Chrome, for example behind their login: control their browser. Page: \`browser\`.
 - The member asks about cronjobs or their runs: inspect them. Page: \`cronjobs\`.
 - A relationship or flow is easier to see than to read: draw it in chat. Page: \`visuals\`.

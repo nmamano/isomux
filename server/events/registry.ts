@@ -49,6 +49,7 @@ import type {
   UpdateStatusWire,
   ProviderAccountWire,
   MembersChatMessage,
+  WebhookWire,
 } from "../../shared/types.ts";
 import type {
   ApiTokenLogEntry,
@@ -212,6 +213,9 @@ export interface EventPayloads {
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
   pager_upserted: { entry: PagerEntry };
+  // Webhooks: the hook owner and office owners only. Never the secret.
+  webhook_upserted: { webhook: WebhookWire };
+  webhook_deleted: { id: string };
   // Cronjobs: per-recipient, like tasks. A socket sees the jobs it may see
   // (maker, office owners, members of the job's live room). See
   // server/cronjob-visibility.ts.
@@ -425,6 +429,16 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   app_deleted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  // Sent by an explicit per-socket loop to the hook owner's sockets and every
+  // office owner's.
+  webhook_upserted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  webhook_deleted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

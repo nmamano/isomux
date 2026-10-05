@@ -855,6 +855,13 @@ const ROUTE_LABELS: Array<[string, string, RouteLabelKey]> = [
   ["POST", "/api/apps/*/start", "apiCall.apps.start"],
   ["POST", "/api/apps/*/stop", "apiCall.apps.stop"],
   ["POST", "/api/apps/*/restart", "apiCall.apps.restart"],
+  ["GET", "/api/webhooks", "apiCall.webhooks.list"],
+  ["POST", "/api/webhooks", "apiCall.webhooks.create"],
+  ["GET", "/api/webhooks/*", "apiCall.webhooks.read"],
+  ["PATCH", "/api/webhooks/*", "apiCall.webhooks.update"],
+  ["DELETE", "/api/webhooks/*", "apiCall.webhooks.delete"],
+  ["GET", "/api/webhooks/*/deliveries", "apiCall.webhooks.deliveries"],
+  ["POST", "/api/webhooks/*/dry-run", "apiCall.webhooks.dryRun"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "apiCall.skillUsage.read"],
   // Deployment version identity (reachable by privileged agent tokens).

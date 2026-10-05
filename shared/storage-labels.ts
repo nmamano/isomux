@@ -26,6 +26,7 @@ export const IN_ROOT_ORDER: readonly StorageCategoryId[] = [
   "provider-homes",
   "cronjobs",
   "memory",
+  "webhooks",
   "other-state",
 ];
 
@@ -53,6 +54,7 @@ export const CATEGORY_KEYS: Record<StorageCategoryId, StorageCategoryKey> = {
   "provider-homes": "settings.storage.category.providerHomes",
   cronjobs: "settings.storage.category.cronjobs",
   memory: "common.memory",
+  webhooks: "settings.storage.category.webhooks",
   "other-state": "settings.storage.category.otherState",
   backups: "settings.storage.category.backups",
   "update-snapshots": "settings.storage.category.updateSnapshots",

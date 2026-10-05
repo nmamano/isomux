@@ -237,11 +237,11 @@ Section 3.2 applies first: a member with a terminal panel or an agent has shell 
 
 ### 8.1 State files
 
-All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
+All office state is in the state directory: `~/.isomux` of the server's OS user, or `/var/data/home/.isomux` in the container. The credential files (`api-tokens.json`, `token-logs/`, `user-env/`, `office-env/`, `apps/app-tokens.json`, `webhooks/secrets.json`, `provider-homes/`) have mode 0600 or 0700. The managed environment files hold their values as plain text.
 
 ### 8.2 Backups
 
-Daily backups do not include the managed environment files, the app environment files, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
+Daily backups do not include the managed environment files, the app environment files, the webhook secrets, the TLS key or the backend sign-in files. They include `api-tokens.json` (hashes only), the token logs, and the agent logs. Logs can hold sensitive text that a member typed or that a tool printed.
 
 ### 8.3 Secret redaction in logs
 

@@ -122,6 +122,7 @@ describe("routes/storage.usage REST", () => {
       "provider-homes",
       "cronjobs",
       "memory",
+      "webhooks",
       "other-state",
       "backups",
       "update-snapshots",

@@ -120,6 +120,7 @@ describe("measureStorage", () => {
       "provider-homes",
       "cronjobs",
       "memory",
+      "webhooks",
       "other-state",
     ];
     const sum = inRoot.reduce((acc, id) => acc + bytesOf(usage, id), 0);
@@ -139,6 +140,19 @@ describe("measureStorage", () => {
     expect(a.attachmentBytes).toBe(50);
     expect(a.sessions).toBe(2);
     expect(a.lastActivityAt).toBeGreaterThan(0);
+  });
+
+  it("claims the webhooks directory out of other state", () => {
+    const stateRoot = buildStateRoot();
+    write(join(stateRoot, "webhooks", "webhooks.json"), 15);
+    write(join(stateRoot, "webhooks", "wh_1", "deliveries.json"), 20);
+    const usage = measureStorage({
+      stateRoot,
+      backupDir: null,
+      snapshotDir: null,
+    });
+    expect(bytesOf(usage, "webhooks")).toBe(35);
+    expect(bytesOf(usage, "other-state")).toBe(70);
   });
 
   it("measures backups and update snapshots outside the state root", () => {

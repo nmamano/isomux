@@ -1632,6 +1632,13 @@ const DEMO_STORAGE_CATEGORIES: StorageUsageWire["categories"] = [
     files: 12,
   },
   {
+    id: "webhooks",
+    path: "~/.isomux/webhooks",
+    available: true,
+    bytes: 65_536,
+    files: 4,
+  },
+  {
     id: "other-state",
     path: "~/.isomux",
     available: true,

@@ -249,6 +249,7 @@ describe("prefs.update - agent tokens are locked out", () => {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => "u-1",
     appOwnerUserId: () => null,
+    webhookOwnerUserId: () => null,
     isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => "u-1",
     killedAgentManagerUserId: () => null,

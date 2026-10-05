@@ -199,6 +199,15 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/provider-homes/*/codex/shell_snapshots/*`,
     ],
   },
+  // Webhook signing secrets (D5). After a restore, the owner rotates once per
+  // hook. The temp file is the secrets file in the middle of a write.
+  {
+    id: "webhook-secrets",
+    archivePatterns: (root) => [
+      `${root}/webhooks/secrets.json`,
+      `${root}/webhooks/secrets.json.tmp`,
+    ],
+  },
   {
     id: "legacy-tls-key",
     archivePatterns: (root) => [`${root}/tls/cert.key`],

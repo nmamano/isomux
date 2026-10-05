@@ -28,6 +28,7 @@ function usageFixture(
     "provider-homes",
     "cronjobs",
     "memory",
+    "webhooks",
     "other-state",
     "backups",
     "update-snapshots",

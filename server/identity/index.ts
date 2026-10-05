@@ -78,6 +78,12 @@ export type Capability =
   // AGENT - a human has the chat box and an agent has agents.sendMessage, so
   // granting it anywhere else would only widen what a stolen token reaches.
   | "app:message"
+  // Shared by USER, AGENT and API - the webhook registry. Like app:read and
+  // app:write, a BASELINE agent capability; the webhookOwnerOrOfficeOwner
+  // guard scopes it to the caller's own hooks. CRON-RUN and APP do not hold
+  // it: a run has nobody to hand a hook URL to.
+  | "webhook:read"
+  | "webhook:write"
   // The members chat on the Lobby tab: humans and their proxies only. Held by
   // USER, API and the PRIVILEGED agent set; deliberately absent from the AGENT
   // baseline, RUN and APP sets, so an ordinary agent, a cron run or an app can
@@ -173,6 +179,8 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "app:write",
   "pager:read",
   "pager:write",
+  "webhook:read",
+  "webhook:write",
 ];
 
 // AGENT set: the loopback surface plus the global task board, isomux-memory,
@@ -192,6 +200,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "log:read",
   "app:read",
   "app:write",
+  "webhook:read",
+  "webhook:write",
   "self:affordance",
   "pager:raise",
   "pager:read",
@@ -325,6 +335,8 @@ export const API_CAPABILITIES: readonly Capability[] = [
   "app:write",
   "pager:read",
   "pager:write",
+  "webhook:read",
+  "webhook:write",
 ];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {

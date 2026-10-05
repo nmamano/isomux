@@ -131,7 +131,10 @@ import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
-import { type GuardDeps } from "./identity/guards.ts";
+import {
+  cronjobOwnerOrOfficeOwner,
+  type GuardDeps,
+} from "./identity/guards.ts";
 import {
   listUsers,
   createMember,
@@ -228,6 +231,11 @@ import {
 } from "./agent-reference-telemetry.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
+import { webhookRegistry } from "./webhooks/registry.ts";
+import {
+  webhooksHandlers,
+  webhookTargetPrecondition,
+} from "./routes/handlers/webhooks.ts";
 import { appPreviewCapture } from "./app-preview.ts";
 import { handleAppHostRequest } from "./app-hosts.ts";
 import {
@@ -1150,6 +1158,8 @@ function nextConnectionId(): string {
 }
 
 const browsers = new Set<ServerWebSocket<OfficeWsData>>();
+// The start of the in-memory webhook counters: this process's boot.
+const WEBHOOK_COUNTERS_SINCE = Date.now();
 
 // Centralized Idempotency-Key cache. Process-global; reset per boot in
 // resetServerModuleState so a repeated in-process harness boot starts clean.
@@ -1914,6 +1924,7 @@ function buildLiveGuardDeps(): GuardDeps {
     getUserById: (userId) => getUserById(userId) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
+    listWebhooks: () => webhookRegistry.list(),
   };
   return buildProductionGuardDeps(readers);
 }
@@ -2603,6 +2614,65 @@ function buildExecutorDeps(
           name: app.name,
           visibility: appVisibilityFacts(app),
         }),
+    }),
+  );
+
+  // Webhooks (internal-docs/webhooks-design.md). Ownership and attribution
+  // come from the token, as for apps. The target check reads live agents,
+  // rooms and cronjobs, so it is a precondition and not a guard.
+  register(
+    webhooksHandlers({
+      registry: webhookRegistry,
+      attributionFor,
+      hasOfficeWideReach: (identity) =>
+        identity.scope === "app" || identity.scope === "cron-run"
+          ? false
+          : identity.userId !== null &&
+            getUserById(identity.userId)?.role === "owner",
+      publicOrigin: () => buildPublicOrigin().origin,
+      // The pre-verify counters arrive with ingress (S3).
+      counters: () => ({ counters: {}, countersSince: WEBHOOK_COUNTERS_SINCE }),
+      announce: (wire) =>
+        pushWebhookEventToEachWs(wire.userId, {
+          type: "webhook_upserted",
+          webhook: wire,
+        }),
+      announceRemoved: (record) =>
+        pushWebhookEventToEachWs(record.userId, {
+          type: "webhook_deleted",
+          id: record.id,
+        }),
+    }),
+  );
+  preconditions.set(
+    "webhookTargetAllowed",
+    webhookTargetPrecondition({
+      get: (id) => webhookRegistry.get(id),
+      agentReachableByUser: (userId, agentId) => {
+        if (!isSafeScopeId(agentId)) return "invalid_id";
+        const owner = userId ? getUserById(userId) : null;
+        const target = agentManager.getAgent(agentId);
+        if (!owner || !target) return "unavailable";
+        return accessibleRoomIdsFor(owner).has(target.roomId)
+          ? "ok"
+          : "unavailable";
+      },
+      cronjobExists: (cronjobId) =>
+        cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
+      callerManagesCronjob: (identity, cronjobId) =>
+        cronjobOwnerOrOfficeOwner("id")({
+          identity,
+          params: { id: cronjobId },
+          deps: buildLiveGuardDeps(),
+        }).ok,
+      userMayRunCronjob: (userId, cronjobId) => {
+        if (userId === null) return false;
+        if (getUserById(userId)?.role === "owner") return true;
+        const job = cronjobManager
+          .listCronjobs()
+          .find((candidate) => candidate.id === cronjobId);
+        return job?.userId === userId;
+      },
     }),
   );
 
@@ -4941,6 +5011,23 @@ function pushAppDeltaToEachWs(change: AppChange) {
       hasRoomAccess: (roomId) => roomAllowedForSession(ws.data.session, roomId),
     });
     if (delta) ws.send(JSON.stringify(delta));
+  }
+}
+
+// Webhook deltas go to the hook owner's sockets and every office owner's.
+function pushWebhookEventToEachWs(
+  ownerUserId: string | null,
+  event: Extract<
+    ServerMessage,
+    { type: "webhook_upserted" } | { type: "webhook_deleted" }
+  >,
+) {
+  const frame = JSON.stringify(event);
+  for (const ws of browsers) {
+    const { userId, role } = ws.data.session;
+    if (role === "owner" || (ownerUserId !== null && userId === ownerUserId)) {
+      ws.send(frame);
+    }
   }
 }
 

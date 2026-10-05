@@ -48,6 +48,7 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
       { name: "hello", userId: "u7" },
       { name: "orphan", userId: null },
     ],
+    listWebhooks: () => [{ id: "wh_0000000000000001", userId: "u7" }],
   };
   const deps = buildProductionGuardDeps(readers);
 
@@ -94,6 +95,10 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
       },
     });
     expect(() => boom.appOwnerUserId("hello")).toThrow("registry_corrupt");
+  });
+  it("webhookOwnerUserId resolves the hook's owner, null for unknown", () => {
+    expect(deps.webhookOwnerUserId("wh_0000000000000001")).toBe("u7");
+    expect(deps.webhookOwnerUserId("wh_ffffffffffffffff")).toBeNull();
   });
   it("agentManagerUserId resolves the agent's manager, null for unknown/unowned", () => {
     expect(deps.agentManagerUserId("a1")).toBe("u1");

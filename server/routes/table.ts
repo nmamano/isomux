@@ -43,6 +43,7 @@ import {
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
   appScope,
+  webhookOwnerOrOfficeOwner,
   hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
@@ -164,6 +165,13 @@ import type {
   StoragePruneReq,
   StoragePruneRes,
   BackupStatusWire,
+  WebhookCreateReq,
+  WebhookDeliveriesRes,
+  WebhookDryRunReq,
+  WebhookDryRunRes,
+  WebhookSecretRes,
+  WebhookUpdateReq,
+  WebhookWire,
 } from "../../shared/contract-shapes.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -212,7 +220,11 @@ export type RoutePrecondition =
   | "userDeleteNotSelfOwner"
   // users.delete: refuse a delete that would leave the office with no owner record
   // (defense-in-depth; same invariant as the session-revoke lockout).
-  | "userDeleteNotLastOwner";
+  | "userDeleteNotLastOwner"
+  // webhooks.create / webhooks.update: the caller may point the hook at its
+  // target, checked on the WHOLE record after a PATCH merge, also when the
+  // request does not name the target. Reads live agents, rooms and cronjobs.
+  | "webhookTargetAllowed";
 
 export interface RouteDef<Req = unknown, Res = unknown> {
   opId: string;
@@ -1483,6 +1495,77 @@ export const API_ROUTES: readonly RouteDef[] = [
     // guard).
     auth: cap("app:message", appScope),
     emits: ["log_entry"],
+  }),
+
+  // Webhooks (internal-docs/webhooks-design.md section 7). Ownership is the
+  // USER's, as for apps. webhooks.list has no :id and is filtered per caller in
+  // the handler. Create and update also check the target against live state
+  // (webhookTargetAllowed). The secret routes admit a human session only: an
+  // agent, a privileged agent, a cron run, an app and an API token get 403.
+  defineRoute<void, WebhookWire[]>({
+    opId: "webhooks.list",
+    method: "GET",
+    path: "/api/webhooks",
+    auth: cap("webhook:read", operationalAuthenticated),
+    emits: [],
+  }),
+  defineRoute<void, WebhookWire>({
+    opId: "webhooks.get",
+    method: "GET",
+    path: "/api/webhooks/:id",
+    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    emits: [],
+  }),
+  defineRoute<WebhookCreateReq, WebhookWire>({
+    opId: "webhooks.create",
+    method: "POST",
+    path: "/api/webhooks",
+    auth: cap("webhook:write", and(operationalAuthenticated, hasOwningUser)),
+    emits: ["webhook_upserted"],
+    preconditions: ["webhookTargetAllowed"],
+  }),
+  defineRoute<WebhookUpdateReq, WebhookWire>({
+    opId: "webhooks.update",
+    method: "PATCH",
+    path: "/api/webhooks/:id",
+    auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
+    emits: ["webhook_upserted"],
+    preconditions: ["webhookTargetAllowed"],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "webhooks.delete",
+    method: "DELETE",
+    path: "/api/webhooks/:id",
+    auth: cap("webhook:write", webhookOwnerOrOfficeOwner("id")),
+    emits: ["webhook_deleted"],
+  }),
+  defineRoute<void, WebhookDeliveriesRes>({
+    opId: "webhooks.deliveries",
+    method: "GET",
+    path: "/api/webhooks/:id/deliveries",
+    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    emits: [],
+  }),
+  defineRoute<WebhookDryRunReq, WebhookDryRunRes>({
+    opId: "webhooks.dryRun",
+    method: "POST",
+    path: "/api/webhooks/:id/dry-run",
+    auth: cap("webhook:read", webhookOwnerOrOfficeOwner("id")),
+    emits: [],
+  }),
+  defineRoute<void, WebhookSecretRes>({
+    opId: "webhooks.readSecret",
+    method: "GET",
+    path: "/api/webhooks/:id/secret",
+    auth: cap("webhook:write", and(userScope, webhookOwnerOrOfficeOwner("id"))),
+    emits: [],
+  }),
+  defineRoute<void, WebhookSecretRes>({
+    opId: "webhooks.rotateSecret",
+    method: "POST",
+    path: "/api/webhooks/:id/secret",
+    auth: cap("webhook:write", and(userScope, webhookOwnerOrOfficeOwner("id"))),
+    emits: ["webhook_upserted"],
   }),
 
   // Three verbs: READ (whole file + version), APPEND (one server-stamped line),

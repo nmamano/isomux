@@ -65,6 +65,9 @@ export interface GuardDeps {
   // exists / it has no owner. Unknown and unowned collapse into the same null,
   // so a caller cannot use a denial to probe which names are taken.
   appOwnerUserId(name: string): string | null;
+  // The OWNER userId of webhook `id`, or null if no such hook exists. Every
+  // hook has an owner.
+  webhookOwnerUserId(id: string): string | null;
   // Whether userId names a live office owner. Agent and API identities carry
   // their user's id, so app authorization can grant that user's office-wide
   // reach without making Identity.role authoritative outside USER scope.
@@ -425,6 +428,38 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
     return ownerUserId !== null && ownerUserId === identity.userId
       ? ALLOW
       : FORBIDDEN;
+  };
+}
+
+// Webhook routes with an :id. Shaped like appOwnerOrOfficeOwner, with the
+// webhook capability as the participation signal: the owner match binds an
+// agent to its own manager's hooks, and an agent or API token of an office
+// owner gets office-wide reach. ONE DIFFERENCE: the hook lookup comes before
+// the office-owner branch, so an unknown id gets the same 403 for everyone,
+// office owners included (design section 7). Every hook has an owner (create
+// requires hasOwningUser), so a null owner means an unknown id.
+export function webhookOwnerOrOfficeOwner(idParamName = "id"): Guard {
+  return (ctx) => {
+    const { identity, params, deps } = ctx;
+    const participates =
+      identity.scope === "user" ||
+      identity.scope === "api" ||
+      (identity.scope === "agent" &&
+        identityHasCapability(identity, "webhook:read"));
+    if (!participates) return FORBIDDEN;
+    const id = params[idParamName];
+    if (!id) return FORBIDDEN;
+    const ownerUserId = deps.webhookOwnerUserId(id);
+    if (ownerUserId === null) return FORBIDDEN;
+    if (officeOwner(ctx).ok) return ALLOW;
+    if (
+      (identity.scope === "agent" || identity.scope === "api") &&
+      identity.userId !== null &&
+      deps.isOfficeOwnerUserId(identity.userId)
+    ) {
+      return ALLOW;
+    }
+    return ownerUserId === identity.userId ? ALLOW : FORBIDDEN;
   };
 }
 
