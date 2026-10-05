@@ -6,9 +6,7 @@
 // "Identities and capabilities", and Conventions → two-stage authz + error
 // envelope.
 //
-// LEAF MODULE: imports only ./index.ts (Identity/Capability) and the pure
-// cronjob visibility rule (../cronjob-visibility.ts, itself a leaf over
-// ./index.ts), so REST and the WebSocket share one rule. It must NOT import
+// LEAF MODULE: imports only ./index.ts (Identity/Capability). It must NOT import
 // server/isomux-office.ts, the managers, or users.ts - mutable office state reaches
 // guards ONLY through the injected `GuardDeps` seam. That keeps the catalog pure
 // and unit-testable, and lets the access model change from materialized
@@ -16,10 +14,6 @@
 // never a guard signature.
 
 import { identityHasCapability, type Identity } from "./index.ts";
-import {
-  cronjobDetailFor,
-  cronjobViewerForIdentity,
-} from "../cronjob-visibility.ts";
 
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the
@@ -469,29 +463,6 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
     if (!cronjobId) return FORBIDDEN;
     const creatorUserId = deps.cronjobCreatorUserId(cronjobId);
     return creatorUserId !== null && creatorUserId === identity.userId
-      ? ALLOW
-      : FORBIDDEN;
-  };
-}
-
-// Cronjob DETAIL read: prompt, system prompt, runs and transcripts. The maker
-// and office owners only - the same arms as cronjobOwnerOrOfficeOwner, with
-// `cron:read` as the participation signal (server/cronjob-visibility.ts holds
-// the rule). A run uses the maker's environment, so its transcript can show the
-// maker's secrets; room access never reaches this. A job that is gone (or
-// unowned) has no maker to match, so only office owners pass.
-export function cronjobDetailReader(idParamName = "id"): Guard {
-  return (ctx) => {
-    const { identity, params, deps } = ctx;
-    const cronjobId = params[idParamName];
-    if (!cronjobId) return FORBIDDEN;
-    return cronjobDetailFor(
-      {
-        makerUserId: deps.cronjobCreatorUserId(cronjobId),
-        liveRoomId: null,
-      },
-      cronjobViewerForIdentity(identity, () => false),
-    )
       ? ALLOW
       : FORBIDDEN;
   };

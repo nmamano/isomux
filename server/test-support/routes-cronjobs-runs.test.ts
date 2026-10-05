@@ -809,7 +809,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       listCronjobs: () => [],
       listCronjobsFor: () => [],
       projectCronjobFor: () => null,
-      runsVisibleTo: () => true,
+      visibleTo: () => true,
       assignableRoomIds: () => new Set(),
       defaultCreateRoomId: () => undefined,
       buildCronjobSystemPrompt: () => "system prompt",

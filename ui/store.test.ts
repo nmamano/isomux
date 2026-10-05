@@ -368,29 +368,28 @@ function boardTask(id: string, title: string, roomId?: string): TaskItem {
 }
 
 describe("reducer: cronjobs", () => {
-  const viewerRow = (id: string): CronjobListWire =>
-    ({ id, name: id, detail: false, canManage: false }) as CronjobListWire;
-  const detailRow = (id: string): CronjobListWire =>
-    ({ id, name: id, detail: true, canManage: true }) as CronjobListWire;
+  // canManage false: a member of the job's room.
+  const row = (id: string, canManage = true): CronjobListWire =>
+    ({ id, name: id, canManage }) as CronjobListWire;
   const run = (cronjobId: string) =>
     ({ id: `run-${cronjobId}`, cronjobId }) as CronjobRun;
 
   it("added and updated are one idempotent upsert by id", () => {
     let state: AppState = { ...initialState, cronjobs: [] };
-    state = reducer(state, { type: "cronjob_added", cronjob: viewerRow("a") });
-    state = reducer(state, { type: "cronjob_added", cronjob: viewerRow("a") });
+    state = reducer(state, { type: "cronjob_added", cronjob: row("a", false) });
+    state = reducer(state, { type: "cronjob_added", cronjob: row("a", false) });
     expect(state.cronjobs.map((c) => c.id)).toEqual(["a"]);
     // A job moved into a visible room arrives as an update for an unknown row.
     state = reducer(state, {
       type: "cronjob_updated",
-      cronjob: viewerRow("b"),
+      cronjob: row("b", false),
     });
     expect(state.cronjobs.map((c) => c.id)).toEqual(["a", "b"]);
     state = reducer(state, {
       type: "cronjob_updated",
-      cronjob: detailRow("a"),
+      cronjob: row("a"),
     });
-    expect(state.cronjobs.map((c) => [c.id, c.detail])).toEqual([
+    expect(state.cronjobs.map((c) => [c.id, c.canManage])).toEqual([
       ["a", true],
       ["b", false],
     ]);
@@ -407,9 +406,9 @@ describe("reducer: cronjobs", () => {
   });
 
   it("a re-projection drops the transcripts of runs it drops and keeps the rest", () => {
-    const state = reducer(withRunsAndLogs(["kept", "now-viewer"]), {
+    const state = reducer(withRunsAndLogs(["kept", "now-hidden"]), {
       type: "cronjobs_state",
-      cronjobs: [detailRow("kept"), viewerRow("now-viewer")],
+      cronjobs: [row("kept")],
       cronjobsPrompt: null,
     });
     expect([...state.logs.keys()]).toEqual([stream("kept")]);
@@ -442,7 +441,7 @@ describe("reducer: cronjobs", () => {
     expect(afterDelete.logs.has(stream("other"))).toBe(true);
     const afterState = reducer(before, {
       type: "cronjobs_state",
-      cronjobs: [detailRow("other")],
+      cronjobs: [row("other")],
       cronjobsPrompt: null,
     });
     expect(afterState.logs.has("cronrun-unlisted")).toBe(false);
@@ -536,22 +535,23 @@ describe("reducer: cronjobs", () => {
     expect([...state.cronjobRunsByJob.keys()]).toEqual(["x"]);
   });
 
-  it("a re-projection keeps cached runs only for jobs still read in detail", () => {
+  it("a re-projection keeps cached runs only for jobs the viewer still sees", () => {
     let state: AppState = {
       ...initialState,
       cronjobRunsByJob: new Map([
         ["kept", [run("kept")]],
-        ["now-viewer", [run("now-viewer")]],
+        ["room-viewer", [run("room-viewer")]],
+        ["now-hidden", [run("now-hidden")]],
         ["deleted", [run("deleted")]],
       ]),
     };
     const seq = state.cronjobsStateSeq;
     state = reducer(state, {
       type: "cronjobs_state",
-      cronjobs: [detailRow("kept"), viewerRow("now-viewer")],
+      cronjobs: [row("kept"), row("room-viewer", false)],
       cronjobsPrompt: null,
     });
-    expect([...state.cronjobRunsByJob.keys()]).toEqual(["kept"]);
+    expect([...state.cronjobRunsByJob.keys()]).toEqual(["kept", "room-viewer"]);
     expect(state.cronjobsStateSeq).toBe(seq + 1);
   });
 });

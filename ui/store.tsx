@@ -155,9 +155,8 @@ export interface AppState {
   // revision has moved is refused. Ordering GETs against each other is not
   // enough - the race is a GET against a DELTA.
   appsRevision: number;
-  // Each job projected for this viewer: the whole record for its maker and
-  // office owners (detail: true), the schedule and last-run outcome for a
-  // member of its room (detail: false).
+  // The jobs this viewer may see: its maker's, office owners', and those of
+  // the viewer's rooms.
   cronjobs: CronjobListWire[];
   // Bumped by every cronjobs_state, so the Schedules page refetches the run
   // lists it just dropped.
@@ -430,7 +429,7 @@ function clearStreamInReplay(
   return { ...replay, logs, logEntryIds };
 }
 
-// Drop cached cronjob runs whose job this viewer no longer reads in detail,
+// Drop cached cronjob runs whose job this viewer no longer sees,
 // and every run transcript stream that is not a kept run's. Conservative on
 // purpose: a transcript can be cached for a run with no row in the run lists
 // (a run view opened on a run the list never loaded), and such a stream has
@@ -1197,17 +1196,15 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sessionExpired: true };
     // A whole re-projection: on connect, and after a change in what this
     // viewer may see (room close, access or role change). Cached runs and
-    // their transcripts survive only for jobs this viewer still reads in
-    // detail; the rest (including runs of deleted jobs, which only office
-    // owners read) drop, and the Schedules page refetches what the server
-    // still gives. The seq bump also voids run-list fetches already in flight.
+    // their transcripts survive only for jobs this viewer still sees; the
+    // rest (including runs of deleted jobs, which only office owners read)
+    // drop, and the Schedules page refetches what the server still gives.
+    // The seq bump also voids run-list fetches already in flight.
     case "cronjobs_state": {
-      const detailIds = new Set(
-        action.cronjobs.filter((c) => c.detail).map((c) => c.id),
-      );
+      const visibleIds = new Set(action.cronjobs.map((c) => c.id));
       return {
         ...state,
-        ...dropCronjobRuns(state, (jobId) => !detailIds.has(jobId)),
+        ...dropCronjobRuns(state, (jobId) => !visibleIds.has(jobId)),
         cronjobs: action.cronjobs,
         cronjobsPrompt: action.cronjobsPrompt,
         cronjobsLoaded: true,
@@ -1254,7 +1251,7 @@ export function reducer(state: AppState, action: Action): AppState {
     // Client-local seed for the all-runs fetch (cron.listAllRuns REST). Merged
     // run by run (mergeRuns), so neither a job absent from the answer nor a run
     // that arrived live while the fetch was out is lost. That keeps nothing
-    // private: every loss of detail access arrives as cronjobs_state or
+    // private: every loss of access to a job arrives as cronjobs_state or
     // cronjob_deleted, which drop the job's runs and bump the seq that voids
     // fetches already in flight.
     case "cronjob_runs_loaded": {

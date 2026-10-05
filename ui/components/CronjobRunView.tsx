@@ -53,8 +53,9 @@ export function transcriptFetchAction(
   return fetchedKey === fetchKey ? "skip" : "fetch";
 }
 
-// Cronjob runs are resumable: any member can send follow-up turns into a past
-// run, and edit-to-fork lets them branch from any prior user message. The
+// Cronjob runs are resumable: the job's maker and office owners can send
+// follow-up turns into a past run, and edit-to-fork lets them branch from any
+// prior user message. Everyone else who sees the job reads the transcript. The
 // server-side handlers live in cronjob-manager.ts (sendRunMessage,
 // editRunMessage), reached via the REST routes cron.runMessage (POST) /
 // cron.editRunMessage (PATCH).
@@ -67,8 +68,15 @@ export function CronjobRunView({
   runId: string;
   onClose: () => void;
 }) {
-  const { cronjobRunsByJob, isMobile, logs, hydrationEpoch, cronjobsStateSeq } =
-    useAppState();
+  const {
+    cronjobs,
+    cronjobRunsByJob,
+    isMobile,
+    logs,
+    hydrationEpoch,
+    cronjobsStateSeq,
+    sessionContext,
+  } = useAppState();
   const { t, language } = useI18n();
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
@@ -148,8 +156,8 @@ export function CronjobRunView({
     // dropped nor duplicated.
     //
     // An answer that lands after this view closed, or after a newer fetch
-    // replaced this one, is dropped: the parent closes the view when detail
-    // access ends, and a late answer must not seed the transcript back.
+    // replaced this one, is dropped: the parent closes the view when access
+    // to the job ends, and a late answer must not seed the transcript back.
     let cancelled = false;
     apiFetch<{ run: CronjobRun; entries: LogEntry[] }>(
       "GET",
@@ -238,8 +246,15 @@ export function CronjobRunView({
   const hasResumableSession =
     !leafSessionId.startsWith("pending-") &&
     !leafSessionId.startsWith("skipped-");
+  // A deleted job's runs are office owners'.
+  const job = cronjobs.find((c) => c.id === jobId);
+  const mayManage = job ? job.canManage : sessionContext?.role === "owner";
   const canResume =
-    !!run && !isRunning && run.status !== "skipped" && hasResumableSession;
+    mayManage &&
+    !!run &&
+    !isRunning &&
+    run.status !== "skipped" &&
+    hasResumableSession;
 
   // Auto-scroll to bottom on new entries when the user hasn't scrolled up.
   useEffect(() => {
@@ -253,13 +268,14 @@ export function CronjobRunView({
   }, [entries.length, autoScroll]);
 
   // Cancel any in-progress edit when a run kicks off, so the input box (which
-  // is hidden during run) doesn't leave the inline editor stranded.
+  // is hidden during run) doesn't leave the inline editor stranded, and when
+  // the viewer stops managing the job.
   useEffect(() => {
-    if (isRunning && editingLogEntryId) {
+    if ((isRunning || !mayManage) && editingLogEntryId) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditingLogEntryId(null);
     }
-  }, [isRunning, editingLogEntryId]);
+  }, [isRunning, mayManage, editingLogEntryId]);
 
   function handleScroll() {
     if (!scrollRef.current) return;
@@ -646,8 +662,9 @@ export function CronjobRunView({
         )}
       </div>
 
-      {/* Input - replaces the old read-only banner. Hidden for unresumable runs. */}
-      {canResume ? (
+      {/* Input - replaces the old read-only banner. Hidden for unresumable runs,
+          and with no banner for a viewer who does not manage the job. */}
+      {!mayManage ? null : canResume ? (
         <div
           style={{
             flexShrink: 0,

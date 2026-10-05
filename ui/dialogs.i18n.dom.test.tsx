@@ -60,8 +60,11 @@ const shows = (view: View, text: string) =>
   expect(view.queryAllByText(text).length, text).toBeGreaterThan(0);
 
 /** The weekday select only renders once the schedule type is weekly. */
+// The schedule-type select: the one that offers "weekly".
 function chooseWeekly(view: View): void {
-  const select = view.container.querySelector("select") as HTMLSelectElement;
+  const select = view.container
+    .querySelector('option[value="weekly"]')!
+    .closest("select") as HTMLSelectElement;
   act(() => {
     select.value = "weekly";
     select.dispatchEvent(new Event("change", { bubbles: true }));

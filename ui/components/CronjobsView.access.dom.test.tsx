@@ -1,7 +1,7 @@
-// Losing detail access to a cronjob (an owner demoted, a job deleted) closes
-// every open view of its private parts - the run transcript, the edit dialog,
-// the run filter - and a transcript fetch still in flight when the view closes
-// seeds nothing.
+// Losing sight of a cronjob (a room change, a job deleted) closes every open
+// view of it - the run transcript, the edit dialog, the run filter - and a
+// transcript fetch still in flight when the view closes seeds nothing. Losing
+// manage authority closes the edit dialog only.
 import { afterAll, beforeEach, expect, it } from "bun:test";
 import { setUpDomTestFile } from "../test-support/dom.ts";
 
@@ -20,7 +20,7 @@ type CronjobRun = import("../../shared/types.ts").CronjobRun;
 const JOB_PROMPT = "JOB_PROMPT_MARKER";
 const RUN_PROMPT = "RUN_PROMPT_MARKER";
 
-const detailJob = {
+const managedJob = {
   id: "job00001",
   name: "Nightly",
   schedule: { type: "interval", minutes: 60 },
@@ -37,26 +37,15 @@ const detailJob = {
   createdAt: 0,
   lastFireAt: null,
   nextFireAt: Date.now() + 60_000,
-  detail: true,
   canManage: true,
 } as unknown as CronjobListWire;
 
+// The same job as a member of its room receives it.
 const viewerJob = {
-  id: "job00001",
-  name: "Nightly",
-  schedule: { type: "interval", minutes: 60 },
-  enabled: true,
-  agentType: "claude",
-  createdBy: "Tester",
+  ...managedJob,
   userId: "u2",
-  username: "Tester",
-  createdAt: 0,
-  lastFireAt: null,
-  nextFireAt: Date.now() + 60_000,
-  lastRun: null,
-  detail: false,
   canManage: false,
-} as unknown as CronjobListWire;
+} as CronjobListWire;
 
 const run = {
   id: "run00001",
@@ -149,7 +138,7 @@ function tree(state: Partial<AppState>) {
 }
 
 const readable = stateFor({
-  cronjobs: [detailJob],
+  cronjobs: [managedJob],
   cronjobRunsByJob: new Map([["job00001", [run]]]),
 });
 
@@ -164,12 +153,20 @@ async function openRun() {
   return view;
 }
 
-it("an open run view closes when the job becomes a room member's row, and its late transcript seeds nothing", async () => {
+it("an open run view stays for a room member and closes when the job leaves the viewer's sight, and its late transcript seeds nothing", async () => {
   const view = await openRun();
   expect(answerTranscript).not.toBeNull();
   view.rerender(
-    tree(stateFor({ cronjobs: [viewerJob], cronjobRunsByJob: new Map() })),
+    tree(
+      stateFor({
+        cronjobs: [viewerJob],
+        cronjobRunsByJob: new Map([["job00001", [run]]]),
+      }),
+    ),
   );
+  await act(async () => {});
+  expect(view.queryByText(RUN_PROMPT)).not.toBeNull();
+  view.rerender(tree(stateFor({ cronjobs: [], cronjobRunsByJob: new Map() })));
   await act(async () => {});
   expect(view.queryByText(RUN_PROMPT)).toBeNull();
   expect(view.container.textContent).not.toContain("/private/dir");
@@ -216,12 +213,14 @@ it("a deleted job's open run view closes for a member and stays for an office ow
   );
   await act(async () => {});
   expect(owner.queryByText(RUN_PROMPT)).not.toBeNull();
+  // The owner may still follow up on the deleted job's run.
+  expect(owner.container.querySelector("textarea")).not.toBeNull();
   owner.unmount();
 });
 
 it("an owner's open run fetches its transcript again after the delete drops it, and the run list refetches", async () => {
   const ownerState = stateFor(
-    { cronjobs: [detailJob], cronjobRunsByJob: new Map([["job00001", [run]]]) },
+    { cronjobs: [managedJob], cronjobRunsByJob: new Map([["job00001", [run]]]) },
     "owner",
   );
   const view = render(tree(ownerState));
@@ -304,5 +303,58 @@ it("an open edit dialog closes when the job is no longer the viewer's to manage"
   view.rerender(tree(readable));
   await act(async () => {});
   expect(promptShown()).toBe(false);
+  view.unmount();
+});
+
+it("a room member reads a resumable run without a composer or message edit; managing the job brings them, and losing it takes them away mid-edit", async () => {
+  const stream = "cronrun-run00001";
+  const logs = new Map([
+    [
+      stream,
+      [
+        {
+          id: "u1",
+          agentId: stream,
+          timestamp: 1,
+          kind: "user_message",
+          content: "FOLLOW_UP_MARKER",
+          metadata: { username: "Tester" },
+        },
+      ],
+    ],
+  ]) as AppState["logs"];
+  const asViewer = stateFor({
+    cronjobs: [viewerJob],
+    cronjobRunsByJob: new Map([["job00001", [run]]]),
+    logs,
+  });
+  const asManager = { ...asViewer, cronjobs: [managedJob] };
+  const view = render(tree(asViewer));
+  await act(async () => {});
+  await act(async () =>
+    view.container
+      .querySelector<HTMLElement>('tr[data-cronjob-run-row="run00001"]')!
+      .click(),
+  );
+  const textareas = () => view.container.querySelectorAll("textarea");
+  const editButtons = () =>
+    view.container.querySelectorAll<HTMLElement>("[data-edit-message]");
+  expect(view.queryByText(RUN_PROMPT)).not.toBeNull();
+  expect(view.queryByText("FOLLOW_UP_MARKER")).not.toBeNull();
+  expect(textareas()).toHaveLength(0);
+  expect(editButtons()).toHaveLength(0);
+
+  view.rerender(tree(asManager));
+  await act(async () => {});
+  expect(textareas()).toHaveLength(1);
+  expect(editButtons()).toHaveLength(1);
+  await act(async () => editButtons()[0].click());
+  expect(textareas().length).toBeGreaterThan(1);
+
+  view.rerender(tree(asViewer));
+  await act(async () => {});
+  expect(textareas()).toHaveLength(0);
+  expect(editButtons()).toHaveLength(0);
+  expect(view.queryByText("FOLLOW_UP_MARKER")).not.toBeNull();
   view.unmount();
 });

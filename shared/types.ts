@@ -1042,47 +1042,18 @@ export interface Cronjob {
   // unowned cronjobs.
   userId: string | null;
   username: string | null; // Human member this record is on behalf of
-  // The room whose members may see this job (not its prompt or runs). Absent
-  // = no room: the maker and office owners only. Records written before rooms
-  // carried no roomId and load as no room.
+  // The room whose members may see this job. Absent = no room: the maker and
+  // office owners only. Records written before rooms carried no roomId and
+  // load as no room.
   roomId?: string;
   createdAt: number;
   lastFireAt: number | null;
   nextFireAt: number;
 }
 
-// The latest run by start time: its status and finish time only.
-export interface CronjobLastRun {
-  status: CronjobRunStatus;
-  endedAt: number | null;
-}
-
-// What the maker and office owners receive: the whole record. canManage is
-// the run/edit/delete authority, which read access alone never grants.
-export type CronjobDetailWire = Cronjob & { detail: true; canManage: boolean };
-
-// What a member of the job's room receives: the schedule and the last run's
-// outcome. No prompt, cwd, engine settings, run list or transcript excerpt -
-// a run uses the maker's environment.
-export interface CronjobViewerWire {
-  detail: false;
-  canManage: false;
-  id: string;
-  name: string;
-  schedule: Schedule;
-  enabled: boolean;
-  agentType: AgentBackendType;
-  roomId?: string;
-  createdBy: string;
-  userId: string | null;
-  username: string | null;
-  createdAt: number;
-  lastFireAt: number | null;
-  nextFireAt: number;
-  lastRun: CronjobLastRun | null;
-}
-
-export type CronjobListWire = CronjobDetailWire | CronjobViewerWire;
+// A cronjob as its viewer receives it. canManage is the run/edit/delete
+// authority, which read access alone never grants.
+export type CronjobListWire = Cronjob & { canManage: boolean };
 
 export type CronjobRunStatus =
   | "running"

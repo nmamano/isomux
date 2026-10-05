@@ -1,6 +1,5 @@
 import { describe, expect, it } from "bun:test";
 import {
-  cronjobDetailFor,
   cronjobManageFor,
   cronjobViewerForIdentity,
   cronjobVisibleTo,
@@ -94,7 +93,7 @@ describe("cronjob visibility: SEE", () => {
   it("a null maker never matches a viewer, not even one with a null userId", () => {
     const unowned = facts({ makerUserId: null, liveRoomId: null });
     expect(cronjobVisibleTo(unowned, viewer({ userId: null }))).toBe(false);
-    expect(cronjobDetailFor(unowned, viewer({ userId: null }))).toBe(false);
+    expect(cronjobManageFor(unowned, viewer({ userId: null }))).toBe(false);
   });
 
   it("a viewer that does not read cronjobs sees nothing, even in the job's room and as its maker", () => {
@@ -104,72 +103,51 @@ describe("cronjob visibility: SEE", () => {
       hasRoomAccess: inRoom(ROOM),
     });
     expect(cronjobVisibleTo(facts(), nonReader)).toBe(false);
-    expect(cronjobDetailFor(facts(), nonReader)).toBe(false);
+    expect(cronjobManageFor(facts(), nonReader)).toBe(false);
   });
 });
 
-describe("cronjob visibility: DETAIL and MANAGE", () => {
-  it("room access never grants detail", () => {
+describe("cronjob visibility: MANAGE", () => {
+  it("room access never grants manage authority", () => {
     expect(
-      cronjobDetailFor(facts(), viewer({ hasRoomAccess: inRoom(ROOM) })),
+      cronjobManageFor(facts(), viewer({ hasRoomAccess: inRoom(ROOM) })),
     ).toBe(false);
   });
 
-  it("the maker and office owners get detail", () => {
-    expect(cronjobDetailFor(facts(), viewer({ userId: "u-maker" }))).toBe(true);
-    expect(cronjobDetailFor(facts(), viewer({ isOfficeOwner: true }))).toBe(
+  it("the maker and office owners may manage", () => {
+    expect(cronjobManageFor(facts(), viewer({ userId: "u-maker" }))).toBe(true);
+    expect(cronjobManageFor(facts(), viewer({ isOfficeOwner: true }))).toBe(
       true,
     );
   });
 
   it("read authority alone never reports manage authority", () => {
     const reader = viewer({ userId: "u-maker", canManage: false });
-    expect(cronjobDetailFor(facts(), reader)).toBe(true);
+    expect(cronjobVisibleTo(facts(), reader)).toBe(true);
     expect(cronjobManageFor(facts(), reader)).toBe(false);
-    expect(projectCronjob(JOB, facts(), reader, null)).toMatchObject({
-      detail: true,
+    expect(projectCronjob(JOB, facts(), reader)).toMatchObject({
       canManage: false,
     });
   });
 });
 
 describe("cronjob visibility: projection", () => {
-  it("a room member gets the schedule and last-run outcome, never the prompt, cwd or engine settings", () => {
+  it("a room member gets the whole record without manage authority", () => {
     const member = viewer({ hasRoomAccess: inRoom(ROOM) });
-    const projected = projectCronjob(JOB, facts(), member, {
-      status: "failed",
-      endedAt: 10,
-    });
-    expect(projected).toEqual({
-      detail: false,
+    expect(projectCronjob(JOB, facts(), member)).toEqual({
+      ...JOB,
       canManage: false,
-      id: JOB.id,
-      name: JOB.name,
-      schedule: JOB.schedule,
-      enabled: JOB.enabled,
-      agentType: JOB.agentType,
-      roomId: ROOM,
-      createdBy: JOB.createdBy,
-      userId: JOB.userId,
-      username: JOB.username,
-      createdAt: JOB.createdAt,
-      lastFireAt: JOB.lastFireAt,
-      nextFireAt: JOB.nextFireAt,
-      lastRun: { status: "failed", endedAt: 10 },
     });
-    const text = JSON.stringify(projected);
-    expect(text).not.toContain(JOB.prompt);
-    expect(text).not.toContain(JOB.cwd);
   });
 
   it("the maker gets the whole record with manage authority", () => {
-    expect(
-      projectCronjob(JOB, facts(), viewer({ userId: "u-maker" }), null),
-    ).toEqual({ ...JOB, detail: true, canManage: true });
+    expect(projectCronjob(JOB, facts(), viewer({ userId: "u-maker" }))).toEqual(
+      { ...JOB, canManage: true },
+    );
   });
 
   it("a viewer who may not see the job gets nothing", () => {
-    expect(projectCronjob(JOB, facts(), viewer(), null)).toBeNull();
+    expect(projectCronjob(JOB, facts(), viewer())).toBeNull();
   });
 });
 
@@ -180,14 +158,14 @@ describe("cronjob visibility: identities", () => {
     role: Identity["role"] = "member",
   ): Identity => ({ scope, userId: "u-maker", role, capabilities });
 
-  it("a user, a privileged agent and an API token of the maker get detail", () => {
+  it("a user, a privileged agent and an API token of the maker see and manage", () => {
     for (const id of [
       identity("user", USER_CAPABILITIES),
       identity("agent", PRIVILEGED_AGENT_CAPABILITIES),
       identity("api", API_CAPABILITIES),
     ]) {
       const v = cronjobViewerForIdentity(id, () => false);
-      expect(cronjobDetailFor(facts(), v)).toBe(true);
+      expect(cronjobVisibleTo(facts(), v)).toBe(true);
       expect(cronjobManageFor(facts(), v)).toBe(true);
     }
   });
@@ -212,7 +190,7 @@ describe("cronjob visibility: identities", () => {
         () => false,
       );
       expect(v.isOfficeOwner).toBe(false);
-      expect(cronjobDetailFor(facts(), v)).toBe(false);
+      expect(cronjobVisibleTo(facts(), v)).toBe(false);
     }
   });
 
@@ -221,15 +199,15 @@ describe("cronjob visibility: identities", () => {
       { ...identity("user", USER_CAPABILITIES, "owner"), userId: "u-other" },
       () => false,
     );
-    expect(cronjobDetailFor(facts(), v)).toBe(true);
+    expect(cronjobVisibleTo(facts(), v)).toBe(true);
   });
 
-  it("an API token that only reads cronjobs gets detail without manage authority", () => {
+  it("an API token that only reads cronjobs sees the job without manage authority", () => {
     const v = cronjobViewerForIdentity(
       identity("api", ["cron:read"]),
       () => false,
     );
-    expect(cronjobDetailFor(facts(), v)).toBe(true);
+    expect(cronjobVisibleTo(facts(), v)).toBe(true);
     expect(cronjobManageFor(facts(), v)).toBe(false);
   });
 });

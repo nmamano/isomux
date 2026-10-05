@@ -46,7 +46,7 @@ import type {
   LogEntry,
   ModelFamily,
   Cronjob,
-  CronjobDetailWire,
+  CronjobListWire,
   CronjobRun,
   PresenceInfo,
   Schedule,
@@ -865,10 +865,9 @@ function demoReply(agentId: string): string {
 // Cron jobs: maintained as plain in-memory state (not via OfficeState).
 const cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
-// The demo's one user makes every schedule, so each is the maker's whole record.
-const demoCronjobWire = (cronjob: Cronjob): CronjobDetailWire => ({
+// The demo's one user makes every schedule, so it manages each one.
+const demoCronjobWire = (cronjob: Cronjob): CronjobListWire => ({
   ...cronjob,
-  detail: true,
   canManage: true,
 });
 

@@ -42,14 +42,15 @@ const at = (roomId: string | null) => ({
 });
 
 describe("cronjobDeltaFor", () => {
-  it("a create reaches a room member as a viewer projection and the maker as the whole record", () => {
+  it("a create reaches a room member and the maker as the whole record, with manage authority for the maker only", () => {
     const change = { kind: "added" as const, cronjob: JOB, facts: at(ROOM) };
-    const toMember = cronjobDeltaFor(change, member([ROOM]), null);
-    expect(toMember?.type).toBe("cronjob_added");
-    expect(JSON.stringify(toMember)).not.toContain(JOB.prompt);
-    expect(cronjobDeltaFor(change, maker, null)).toEqual({
+    expect(cronjobDeltaFor(change, member([ROOM]))).toEqual({
       type: "cronjob_added",
-      cronjob: { ...JOB, detail: true, canManage: true },
+      cronjob: { ...JOB, canManage: false },
+    });
+    expect(cronjobDeltaFor(change, maker)).toEqual({
+      type: "cronjob_added",
+      cronjob: { ...JOB, canManage: true },
     });
   });
 
@@ -58,14 +59,12 @@ describe("cronjobDeltaFor", () => {
       cronjobDeltaFor(
         { kind: "added", cronjob: JOB, facts: at(ROOM) },
         member([OTHER]),
-        null,
       ),
     ).toBeNull();
     expect(
       cronjobDeltaFor(
         { kind: "deleted", id: JOB.id, before: at(ROOM) },
         member([OTHER]),
-        null,
       ),
     ).toBeNull();
   });
@@ -79,7 +78,6 @@ describe("cronjobDeltaFor", () => {
         before: at(ROOM),
       },
       member([ROOM]),
-      null,
     );
     expect(out).toEqual({ type: "cronjob_deleted", id: JOB.id });
     const into = cronjobDeltaFor(
@@ -90,7 +88,6 @@ describe("cronjobDeltaFor", () => {
         before: at(OTHER),
       },
       member([ROOM]),
-      null,
     );
     expect(into?.type).toBe("cronjob_updated");
   });
@@ -100,14 +97,12 @@ describe("cronjobDeltaFor", () => {
       cronjobDeltaFor(
         { kind: "deleted", id: JOB.id, before: at(ROOM) },
         member([ROOM]),
-        null,
       ),
     ).toEqual({ type: "cronjob_deleted", id: JOB.id });
     expect(
       cronjobDeltaFor(
         { kind: "deleted", id: JOB.id, before: at(null) },
         maker,
-        null,
       ),
     ).toEqual({ type: "cronjob_deleted", id: JOB.id });
   });

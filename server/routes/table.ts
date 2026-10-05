@@ -41,7 +41,6 @@ import {
   logSearchAccess,
   sessionListAccess,
   cronjobOwnerOrOfficeOwner,
-  cronjobDetailReader,
   appOwnerOrOfficeOwner,
   appScope,
   hasOwningUser,
@@ -57,7 +56,6 @@ import type {
   AgentInfo,
   RoomWire,
   TaskItem,
-  CronjobDetailWire,
   CronjobListWire,
   CronjobRun,
   ScheduledMessageEntry,
@@ -1495,17 +1493,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.readSystemPrompt",
     method: "GET",
     path: "/api/cronjobs/:id/system-prompt",
-    auth: cap("cron:read", cronjobDetailReader("id")),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
-  defineRoute<CronCreateReq, CronjobDetailWire>({
+  defineRoute<CronCreateReq, CronjobListWire>({
     opId: "cron.create",
     method: "POST",
     path: "/api/cronjobs",
     auth: cap("cron:manage", operationalAuthenticated),
     emits: ["cronjob_added"],
   }),
-  defineRoute<CronUpdateReq, CronjobDetailWire>({
+  defineRoute<CronUpdateReq, CronjobListWire>({
     opId: "cron.update",
     method: "PATCH",
     path: "/api/cronjobs/:id",
@@ -1538,7 +1536,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.listRuns",
     method: "GET",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:read", cronjobDetailReader("id")),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, { jobs: { cronjobId: string; runs: CronjobRun[] }[] }>({
@@ -1552,7 +1550,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.getRun",
     method: "GET",
     path: "/api/cronjobs/:id/runs/:runId",
-    auth: cap("cron:read", cronjobDetailReader("id")),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<CronRunMessageReq, MessageAck>({

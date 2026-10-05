@@ -41,7 +41,6 @@ import {
   runParamMustEqualTokenRun,
   requiresRoomAccess,
   cronjobOwnerOrOfficeOwner,
-  cronjobDetailReader,
   appOwnerOrOfficeOwner,
   appScope,
   hasOwningUser,
@@ -799,72 +798,6 @@ describe("guard: cronjobOwnerOrOfficeOwner", () => {
     const deps = makeDeps({ cronjobCreatorUserId: () => "not-u-spawn" });
     expect(
       guard(ctx(privilegedAgent, { id: "job-1" }, undefined, deps)),
-    ).toEqual(DENY);
-  });
-});
-
-// --- cronjobDetailReader ---------------------------------------------------
-
-describe("guard: cronjobDetailReader", () => {
-  const guard = cronjobDetailReader("id");
-  const creator = (userId: string | null) =>
-    makeDeps({ cronjobCreatorUserId: () => userId });
-  it("allows the maker (user, privileged agent, API token) and a user-scope office owner", () => {
-    expect(
-      guard(ctx(userMember, { id: "job-1" }, undefined, creator("u-mem"))),
-    ).toEqual(OK);
-    expect(
-      guard(
-        ctx(privilegedAgent, { id: "job-1" }, undefined, creator("u-spawn")),
-      ),
-    ).toEqual(OK);
-    expect(
-      guard(ctx(api, { id: "job-1" }, undefined, creator("u-mem"))),
-    ).toEqual(OK);
-    expect(
-      guard(ctx(userOwner, { id: "job-1" }, undefined, creator("u-x"))),
-    ).toEqual(OK);
-  });
-  it("denies another member even with access to every room: room access never reaches detail", () => {
-    const deps = makeDeps({
-      cronjobCreatorUserId: () => "u-x",
-      hasRoomAccess: () => true,
-    });
-    expect(guard(ctx(userMember, { id: "job-1" }, undefined, deps))).toEqual(
-      DENY,
-    );
-  });
-  it("a gone or unowned job is office owners' only, and a missing :id denies", () => {
-    expect(
-      guard(ctx(userMember, { id: "job-1" }, undefined, creator(null))),
-    ).toEqual(DENY);
-    expect(
-      guard(ctx(userOwner, { id: "job-1" }, undefined, creator(null))),
-    ).toEqual(OK);
-    expect(guard(ctx(userOwner, {}, undefined, creator("u-x")))).toEqual(DENY);
-  });
-  it("a narrow agent and a cron run of the maker are denied", () => {
-    expect(
-      guard(ctx(agent, { id: "job-1" }, undefined, creator("u-spawn"))),
-    ).toEqual(DENY);
-    expect(
-      guard(ctx(run, { id: "job-1" }, undefined, creator("u-cron"))),
-    ).toEqual(DENY);
-  });
-  it("an agent whose user is an office owner gets no office-wide detail", () => {
-    const deps = makeDeps({
-      cronjobCreatorUserId: () => "u-x",
-      isOfficeOwnerUserId: () => true,
-    });
-    expect(
-      guard(
-        ctx(
-          { ...privilegedAgent, role: "owner" },
-          { id: "job-1" },
-          undefined,
-          deps,
-        ),
-      ),
     ).toEqual(DENY);
   });
 });

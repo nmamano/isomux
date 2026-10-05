@@ -1533,7 +1533,7 @@ App 的一些原则：
   "schedules.noMatch": "没有符合筛选条件的定时任务。",
   "dialogs.schedule.room": "房间",
   "dialogs.schedule.roomHint":
-    "房间成员能看到这个定时任务，但看不到它的提示词和运行记录。",
+    "房间成员能看到这个定时任务及其运行记录。",
   "apps.unavailable.needsLinux":
     "App 托管需要带 systemd 的 Linux，因此这台电脑无法使用。",
   "apps.loadFailed": "无法加载 App。",

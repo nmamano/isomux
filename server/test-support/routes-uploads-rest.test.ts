@@ -13,7 +13,7 @@
 //   - The legacy /api/upload + /api/files + /api/images keep their old paths -
 //     no collision - and apply the room check too (a miss and a denial are the
 //     same 404). A killed agent's files follow its last room, or office owners
-//     once that room is gone; cronjob-run files follow cron:read.
+//     once that room is gone; cronjob-run files follow the job's visibility.
 //   - Every file response carries the sandbox headers, so an opened HTML or
 //     SVG file runs in an opaque origin, not as office content, and a private
 //     cache header, so no shared cache stores it.
@@ -27,9 +27,11 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import { saveFile } from "../persistence.ts";
+import { saveRuns } from "../cronjob-persistence.ts";
 import {
   cronjobRunStreamId,
   type AgentInfo,
+  type CronjobRun,
   type LogEntry,
 } from "../../shared/types.ts";
 
@@ -415,22 +417,42 @@ describe("routes/uploads REST: legacy /api/files + /api/images follow room acces
     expect(res.status).toBe(404);
   });
 
-  it("a cronjob run's files follow cron:read: a member reads them, an ordinary agent does not", async () => {
+  it("a cronjob run's files follow the job's room: a member of it reads them; another member and an ordinary agent do not", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mallory"); // allowedRooms []
-    const room = srv.agentManager.getRooms()[0];
-    const agent = await spawnAgent(srv, "Worker", room.id);
+    const granted = await srv.seedMember("Grace");
+    const other = await srv.seedMember("Mallory"); // allowedRooms []
+    const roomId = srv.agentManager.createRoom("Lab");
+    updateUserById(getUserByName("Grace")!.id, { allowedRooms: [roomId] });
+    const agent = await spawnAgent(srv, "Worker", roomId);
+    const job = srv.cronjobManager.addCronjob({
+      name: "Nightly",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Boss",
+      userId: getUserByName("Boss")!.id,
+      roomId,
+    });
+    saveRuns(job.id, [
+      { id: "run1", cronjobId: job.id, startedAt: 1 } as unknown as CronjobRun,
+    ]);
     const stream = cronjobRunStreamId("run1");
     const att = saveFile(stream, Buffer.from("r"), "text/plain", "r.txt")!;
     const path = `/api/files/${stream}/${att.filename}`;
 
-    const got = await srv.http(path, { rawSessionId: member.rawSessionId });
+    const got = await srv.http(path, { rawSessionId: granted.rawSessionId });
     expect(got.status).toBe(200);
     expect(await got.text()).toBe("r");
     expectSandboxed(got);
 
+    const denied = await srv.http(path, { rawSessionId: other.rawSessionId });
+    expect(denied.status).toBe(404);
     const byAgent = await srv.http(path, {
       headers: { Authorization: `Bearer ${getAgentTokenRaw(agent.id)!}` },
     });

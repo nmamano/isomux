@@ -15,7 +15,7 @@ import {
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
-  type CronjobDetailWire,
+  type CronjobListWire,
   type CronjobPermissionMode,
   type EffortLevel,
   type Schedule,
@@ -121,7 +121,7 @@ export function CronjobDialog({
   defaultRoomId = "",
   onClose,
 }: {
-  cronjob?: CronjobDetailWire;
+  cronjob?: CronjobListWire;
   // Create only: the room the new schedule starts in ("" = no room).
   defaultRoomId?: string;
   onClose: () => void;

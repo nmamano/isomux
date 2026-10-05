@@ -47,17 +47,16 @@ import type {
 
 export interface CronDeps {
   listCronjobs(): Cronjob[];
-  // The jobs this caller may see, each projected for them
-  // (server/cronjob-visibility.ts): the maker and office owners get the whole
-  // record, a member of the job's room the schedule and last-run outcome.
+  // The jobs this caller may see (server/cronjob-visibility.ts), each with
+  // the caller's canManage.
   listCronjobsFor(identity: Identity): CronjobListWire[];
   projectCronjobFor(
     identity: Identity,
     cronjob: Cronjob,
   ): CronjobListWire | null;
-  // DETAIL on a job's runs (maker + office owners). A job that is gone keeps
-  // only office owners.
-  runsVisibleTo(identity: Identity, jobId: string): boolean;
+  // May this caller see the job, its runs and its system prompt? A job that
+  // is gone keeps only office owners.
+  visibleTo(identity: Identity, jobId: string): boolean;
   // Room ids this caller may file a cronjob into: live rooms they can access.
   assignableRoomIds(identity: Identity): ReadonlySet<string>;
   // The room a create with no roomId defaults to: an agent caller's own room.
@@ -173,7 +172,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
 
     "cron.readSystemPrompt": (ctx) => {
       const job = deps.listCronjobs().find((c) => c.id === ctx.params.id);
-      return job
+      return job && deps.visibleTo(ctx.identity, job.id)
         ? ok({
             systemPrompt: deps.buildCronjobSystemPrompt(job),
             firstUserMessage: job.prompt,
@@ -293,21 +292,27 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       return noContent();
     },
 
-    "cron.listRuns": (ctx) => ok({ runs: deps.runsForCronjob(ctx.params.id) }),
+    "cron.listRuns": (ctx) =>
+      deps.visibleTo(ctx.identity, ctx.params.id)
+        ? ok({ runs: deps.runsForCronjob(ctx.params.id) })
+        : fail(404, "not_found"),
 
     // Map the manager's internal `jobId` to the public `cronjobId` so the wire
     // matches the documented contract and the rest of the cron surface (every
     // other cron field identifies a cronjob by `cronjobId`).
-    // Only jobs whose runs the caller may read (maker + office owners).
+    // Only jobs the caller may see.
     "cron.listAllRuns": (ctx) =>
       ok({
         jobs: deps
           .allRunsByJob()
-          .filter((j) => deps.runsVisibleTo(ctx.identity, j.jobId))
+          .filter((j) => deps.visibleTo(ctx.identity, j.jobId))
           .map((j) => ({ cronjobId: j.jobId, runs: j.runs })),
       }),
 
     "cron.getRun": (ctx) => {
+      if (!deps.visibleTo(ctx.identity, ctx.params.id)) {
+        return fail(404, "not_found");
+      }
       const { run, entries } = deps.runTranscript(
         ctx.params.id,
         ctx.params.runId,

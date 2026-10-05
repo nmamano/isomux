@@ -14,11 +14,7 @@
 //
 // LEAF over the visibility module and types.
 
-import type {
-  Cronjob,
-  CronjobLastRun,
-  CronjobListWire,
-} from "../../shared/types.ts";
+import type { Cronjob, CronjobListWire } from "../../shared/types.ts";
 import {
   cronjobVisibleTo,
   projectCronjob,
@@ -46,19 +42,13 @@ export type CronjobChange =
 export function cronjobDeltaFor(
   change: CronjobChange,
   viewer: CronjobViewer,
-  lastRun: CronjobLastRun | null,
 ): CronjobDelta | null {
   if (change.kind === "deleted") {
     return cronjobVisibleTo(change.before, viewer)
       ? { type: "cronjob_deleted", id: change.id }
       : null;
   }
-  const projected = projectCronjob(
-    change.cronjob,
-    change.facts,
-    viewer,
-    lastRun,
-  );
+  const projected = projectCronjob(change.cronjob, change.facts, viewer);
   if (projected) {
     return change.kind === "added"
       ? { type: "cronjob_added", cronjob: projected }

@@ -211,9 +211,8 @@ export interface EventPayloads {
   app_upserted: { app: AppListWire };
   app_deleted: { name: string };
   // Cronjobs: per-recipient, like tasks. A socket sees the jobs it may see
-  // (maker, office owners, members of the job's live room), each projected:
-  // the whole record for the maker and owners, the schedule and last-run
-  // outcome for a room member. See server/cronjob-visibility.ts.
+  // (maker, office owners, members of the job's live room). See
+  // server/cronjob-visibility.ts.
   cronjobs_state: {
     cronjobs: CronjobListWire[];
     cronjobsPrompt: string | null;
@@ -224,12 +223,11 @@ export interface EventPayloads {
   // The shared cron prompt is office configuration owners write for every
   // run, like office instructions: office-wide.
   cronjobs_prompt_updated: { value: string | null };
-  // Run rows and live run entries: the job's maker and office owners only. A
-  // run uses the maker's environment, so its transcript can show their secrets.
+  // Run rows and live run entries: the sockets that may see the job.
   cronjob_run_updated: { run: CronjobRun };
   // NEW. Live cron-run transcript stream; entry.agentId = synthetic
-  // `cronrun-<runId>`. Maker + office owners only (today it still rides the
-  // `log_entry` wire shape, sent per recipient).
+  // `cronrun-<runId>`. The sockets that may see the job (today it still rides
+  // the `log_entry` wire shape, sent per recipient).
   cron_run_log_entry: { entry: LogEntry };
   // TARGET: public office metadata only; `envFile` is owner-only via
   // office.getSettings and never rides this `all` event.

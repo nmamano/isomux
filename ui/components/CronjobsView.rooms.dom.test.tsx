@@ -26,10 +26,15 @@ const base = {
   createdAt: 0,
   lastFireAt: null,
   nextFireAt: Date.now() + 60_000,
+  prompt: "p",
+  cwd: "~",
+  modelFamily: "opus",
+  effort: "medium",
+  permissionMode: "bypassPermissions",
 } as const;
 
-// Mine, in room A: the whole record. Someone else's, in room B: the room
-// member's projection. Mine with no room.
+// Mine, in room A. Someone else's, in room B, as a member of that room gets
+// it. Mine with no room.
 const cronjobs = [
   {
     ...base,
@@ -37,12 +42,6 @@ const cronjobs = [
     name: "Mine in Alpha",
     roomId: ROOM_A,
     userId: "u1",
-    prompt: "p",
-    cwd: "~",
-    modelFamily: "opus",
-    effort: "medium",
-    permissionMode: "bypassPermissions",
-    detail: true,
     canManage: true,
   },
   {
@@ -50,31 +49,30 @@ const cronjobs = [
     id: "view0001",
     name: "Theirs in Beta",
     roomId: ROOM_B,
-    detail: false,
     canManage: false,
-    lastRun: { status: "failed", endedAt: 1 },
   },
   {
     ...base,
     id: "none0001",
     name: "Mine with no room",
     userId: "u1",
-    prompt: "p",
-    cwd: "~",
-    modelFamily: "opus",
-    effort: "medium",
-    permissionMode: "bypassPermissions",
-    detail: true,
     canManage: true,
   },
 ] as unknown as CronjobListWire[];
 
+let requests: string[] = [];
 setApiShim(async (method, path) => {
+  requests.push(`${method} ${path}`);
   if (method === "GET" && path === "/api/cron-runs") return { jobs: [] };
+  if (method === "GET" && path === "/api/cronjobs/view0001/runs")
+    return { runs: [] };
   throw new Error(`Unexpected request: ${method} ${path}`);
 });
 afterAll(() => setApiShim(null));
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  requests = [];
+});
 
 async function mount() {
   const view = render(
@@ -98,16 +96,13 @@ async function mount() {
   return { view, row, listed, filter };
 }
 
-it("a room member's row shows the last run and no run or edit controls", async () => {
+it("a room member's row has no run or edit controls and opens the job's runs", async () => {
   const { view, row } = await mount();
   const viewer = row("view0001")!;
   expect(viewer.querySelectorAll("button")).toHaveLength(0);
-  expect(
-    viewer
-      .querySelector("[data-cronjob-last-run]")
-      ?.getAttribute("data-cronjob-last-run"),
-  ).toBe("failed");
   expect(row("mine0001")!.querySelectorAll("button").length).toBe(2);
+  await act(async () => viewer.click());
+  expect(requests).toContain("GET /api/cronjobs/view0001/runs");
   view.unmount();
 });
 

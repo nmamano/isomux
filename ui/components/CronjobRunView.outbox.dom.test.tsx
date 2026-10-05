@@ -15,6 +15,7 @@ const { ApiError, setApiShim } = await import("../api.ts");
 const { setShim, connect } = await import("../ws.ts");
 const { _resetOutboxForTests } = await import("../log-view/outbox.ts");
 type CronjobRun = import("../../shared/types.ts").CronjobRun;
+type CronjobListWire = import("../../shared/types.ts").CronjobListWire;
 
 const run = {
   id: "run1",
@@ -71,6 +72,8 @@ function Page() {
     <StateCtx.Provider
       value={{
         ...state,
+        // The viewer manages the job, so the composer shows.
+        cronjobs: [{ id: run.cronjobId, canManage: true } as CronjobListWire],
         cronjobRunsByJob: new Map([[run.cronjobId, [run]]]),
       }}
     >

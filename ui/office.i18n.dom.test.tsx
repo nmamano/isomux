@@ -144,7 +144,6 @@ const CRONJOB = {
   createdAt: 0,
   lastFireAt: null,
   nextFireAt: Date.now() + 20_000,
-  detail: true,
   canManage: true,
 } as unknown as CronjobListWire;
 

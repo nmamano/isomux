@@ -7,7 +7,6 @@ import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
 import {
-  type CronjobDetailWire,
   type CronjobListWire,
   type CronjobRun,
   type CronjobRunStatus,
@@ -46,17 +45,6 @@ const STATUS_ICON: Record<CronjobRunStatus, React.ReactNode> = {
   failed: "✗",
   timed_out: "⏱",
   skipped: "⊘",
-};
-
-const STATUS_LABEL: Record<
-  CronjobRunStatus,
-  Extract<MessageKey, `schedules.status.${string}`>
-> = {
-  running: "schedules.status.running",
-  completed: "schedules.status.completed",
-  failed: "schedules.status.failed",
-  timed_out: "schedules.status.timedOut",
-  skipped: "schedules.status.skipped",
 };
 
 const STATUS_COLOR: Record<CronjobRunStatus, string> = {
@@ -142,7 +130,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<CronjobDetailWire | null>(null);
+  const [editing, setEditing] = useState<CronjobListWire | null>(null);
   const roomOptions = roomFilterOptions(rooms, allRooms);
   const [storedRoomFilter, setStoredRoomFilter] = useState(() =>
     getRoomFilter("schedules"),
@@ -221,20 +209,16 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runFilter?.jobId, cronjobsStateSeq]);
 
-  // Who may still read a job's runs, from what the server last sent: the
-  // maker and office owners get the job with detail:true; a deleted job's
-  // runs are office owners' only. The run view, the edit dialog and the run
-  // filter close the moment that ends (demotion, deletion), so no local copy
-  // of a prompt, cwd or transcript outlives the access.
+  // Who may still read a job's runs, from what the server last sent: anyone
+  // it sends the job to; a deleted job's runs are office owners' only. The run
+  // view, the edit dialog and the run filter close the moment that ends (room
+  // change, deletion), so no local copy of a prompt, cwd or transcript
+  // outlives the access.
   const isOfficeOwner = sessionContext?.role === "owner";
-  const runsReadable = (jobId: string) => {
-    const job = cronjobs.find((c) => c.id === jobId);
-    return job ? job.detail : isOfficeOwner;
-  };
-  const editable = (jobId: string) => {
-    const job = cronjobs.find((c) => c.id === jobId);
-    return job?.detail === true && job.canManage;
-  };
+  const runsReadable = (jobId: string) =>
+    cronjobs.some((c) => c.id === jobId) || isOfficeOwner;
+  const editable = (jobId: string) =>
+    cronjobs.find((c) => c.id === jobId)?.canManage === true;
   const openRunReadable = openRun !== null && runsReadable(openRun.jobId);
   const editingAllowed = editing !== null && editable(editing.id);
   const runFilterReadable = runFilter !== null && runsReadable(runFilter.jobId);
@@ -521,17 +505,17 @@ function CronjobsTable({
   loaded: boolean;
   runsByJob: Map<string, CronjobRun[]>;
   isMobile: boolean;
-  onRowClick: (c: CronjobDetailWire) => void;
-  onEdit: (c: CronjobDetailWire) => void;
-  onToggleEnabled: (c: CronjobDetailWire) => void;
-  onRunNow: (c: CronjobDetailWire) => void;
+  onRowClick: (c: CronjobListWire) => void;
+  onEdit: (c: CronjobListWire) => void;
+  onToggleEnabled: (c: CronjobListWire) => void;
+  onRunNow: (c: CronjobListWire) => void;
 }) {
   const { t, language } = useI18n();
   // Brief visual ack after clicking Run. Cleared after 1.8s so subsequent
   // clicks always re-flash. The persistent in-flight badge (below) is the
   // longer-lived signal that something is actually executing.
   const [justStarted, setJustStarted] = useState<Set<string>>(new Set());
-  function handleRunClick(c: CronjobDetailWire) {
+  function handleRunClick(c: CronjobListWire) {
     onRunNow(c);
     setJustStarted((prev) => new Set(prev).add(c.id));
     setTimeout(() => {
@@ -586,23 +570,21 @@ function CronjobsTable({
       <tbody>
         {cronjobs.map((c) => {
           const runs = runsByJob.get(c.id) ?? [];
-          // A room member sees the job, not its runs or controls.
-          const detail = c.detail ? c : null;
-          const managed = detail?.canManage ? detail : null;
+          // Run, edit and pause are the maker's and office owners'.
+          const managed = c.canManage ? c : null;
           return (
             <tr
               key={c.id}
               data-cronjob-row={c.id}
-              onClick={detail ? () => onRowClick(detail) : undefined}
+              onClick={() => onRowClick(c)}
               style={{
-                cursor: detail ? "pointer" : "default",
+                cursor: "pointer",
                 borderBottom: "1px solid var(--border-subtle)",
                 color: c.enabled ? undefined : "var(--text-hint)",
               }}
-              onMouseEnter={(e) => {
-                if (detail)
-                  e.currentTarget.style.background = "var(--bg-hover)";
-              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "var(--bg-hover)")
+              }
               onMouseLeave={(e) =>
                 (e.currentTarget.style.background = "transparent")
               }
@@ -712,19 +694,7 @@ function CronjobsTable({
                   fontFamily: "'JetBrains Mono',monospace",
                 }}
               >
-                {c.detail ? (
-                  runs.length
-                ) : c.lastRun ? (
-                  <span
-                    data-cronjob-last-run={c.lastRun.status}
-                    title={t(STATUS_LABEL[c.lastRun.status])}
-                    style={{ color: STATUS_COLOR[c.lastRun.status] }}
-                  >
-                    {STATUS_ICON[c.lastRun.status]}
-                  </span>
-                ) : (
-                  " - "
-                )}
+                {runs.length}
               </td>
               {!isMobile && (
                 <td

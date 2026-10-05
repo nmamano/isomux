@@ -1,10 +1,11 @@
-// Cronjobs belong to a room (task f0679cfe). Who sees a job and how much of it,
-// on every surface: the REST list/get, the detail routes (system prompt, runs,
-// transcripts), the WebSocket state and deltas, run updates and live run
-// entries, run files, and the /isomux-cronjob-system-prompt picker.
+// Cronjobs belong to a room (task f0679cfe). Who sees a job, on every
+// surface: the REST list/get, the system prompt, runs and transcripts, the
+// WebSocket state and deltas, run updates and live run entries, run files, and
+// the /isomux-cronjob-system-prompt picker.
 //
-//   SEE    - maker, office owners, members of the job's live room.
-//   DETAIL - maker and office owners only. Room access never widens it.
+//   SEE    - maker, office owners, members of the job's live room: the whole
+//            job, runs and transcripts included.
+//   MANAGE - maker and office owners only. Room access never widens it.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -193,7 +194,7 @@ const typesOf = (sock: TestSocket) =>
   sock.messages.map((m) => (m as { type?: string }).type);
 
 describe("cron rooms: who sees a cronjob over REST", () => {
-  it("a room member gets the schedule without the prompt; a non-member gets 404; the maker and owners get the whole record", async () => {
+  it("a room member gets the whole record without manage authority; a non-member gets 404; the maker and owners may manage", async () => {
     const { srv, owner, alice, bob, maker, roomA } = await office();
     const job = seedJob(srv, "Maker", roomA, "Report");
 
@@ -204,15 +205,12 @@ describe("cron rooms: who sees a cronjob over REST", () => {
     expect(asAlice.body).toMatchObject({
       id: job.id,
       name: "Report",
-      detail: false,
       canManage: false,
       roomId: roomA,
-      lastRun: null,
+      prompt: PROMPT,
+      cwd: srv.stateRoot,
+      modelFamily: "opus",
     });
-    const viewerText = JSON.stringify(asAlice.body);
-    expect(viewerText).not.toContain(PROMPT);
-    expect(viewerText).not.toContain(srv.stateRoot);
-    expect(asAlice.body).not.toHaveProperty("modelFamily");
 
     expect(
       (
@@ -229,11 +227,7 @@ describe("cron rooms: who sees a cronjob over REST", () => {
       const full = await api(srv, `/api/cronjobs/${job.id}`, {
         rawSessionId: who.rawSessionId,
       });
-      expect(full.body).toMatchObject({
-        detail: true,
-        canManage: true,
-        prompt: PROMPT,
-      });
+      expect(full.body).toMatchObject({ canManage: true, prompt: PROMPT });
     }
   });
 
@@ -286,9 +280,9 @@ describe("cron rooms: who sees a cronjob over REST", () => {
   });
 });
 
-describe("cron rooms: details stay with the maker and office owners", () => {
-  it("a room member is refused the system prompt, the run list and a transcript, and listAllRuns leaves the job out", async () => {
-    const { srv, owner, alice, maker, roomA } = await office();
+describe("cron rooms: runs, transcripts and the system prompt follow SEE", () => {
+  it("a room member reads the system prompt, the run list and a transcript; a non-member gets 404; listAllRuns follows suit", async () => {
+    const { srv, owner, alice, bob, maker, roomA } = await office();
     const job = seedJob(srv, "Maker", roomA);
     seedRun(job, "run00001");
 
@@ -297,10 +291,10 @@ describe("cron rooms: details stay with the maker and office owners", () => {
       `/api/cronjobs/${job.id}/runs`,
       `/api/cronjobs/${job.id}/runs/run00001`,
     ]) {
-      const denied = await api(srv, path, { rawSessionId: alice.rawSessionId });
-      expect(denied.status).toBe(403);
+      const denied = await api(srv, path, { rawSessionId: bob.rawSessionId });
+      expect(denied.status).toBe(404);
       expect(JSON.stringify(denied.body)).not.toContain(PROMPT);
-      for (const who of [maker, owner]) {
+      for (const who of [alice, maker, owner]) {
         expect(
           (await api(srv, path, { rawSessionId: who.rawSessionId })).status,
         ).toBe(200);
@@ -313,7 +307,8 @@ describe("cron rooms: details stay with the maker and office owners", () => {
           (j) => j.cronjobId,
         ),
       );
-    expect(await allRuns(alice.rawSessionId)).not.toContain(job.id);
+    expect(await allRuns(bob.rawSessionId)).not.toContain(job.id);
+    expect(await allRuns(alice.rawSessionId)).toContain(job.id);
     expect(await allRuns(maker.rawSessionId)).toContain(job.id);
     expect(await allRuns(owner.rawSessionId)).toContain(job.id);
   });
@@ -326,14 +321,14 @@ describe("cron rooms: details stay with the maker and office owners", () => {
     const path = `/api/cronjobs/${job.id}/runs/run00002`;
     expect(
       (await api(srv, path, { rawSessionId: maker.rawSessionId })).status,
-    ).toBe(403);
+    ).toBe(404);
     expect(
       (await api(srv, path, { rawSessionId: owner.rawSessionId })).status,
     ).toBe(200);
   });
 
-  it("run files follow the transcript rule, and an unknown run's files deny even an owner", async () => {
-    const { srv, owner, alice, maker, roomA } = await office();
+  it("run files follow SEE, and an unknown run's files deny even an owner", async () => {
+    const { srv, owner, alice, bob, maker, roomA } = await office();
     const job = seedJob(srv, "Maker", roomA);
     seedRun(job, "run00003");
     const stream = cronjobRunStreamId("run00003");
@@ -351,7 +346,8 @@ describe("cron rooms: details stay with the maker and office owners", () => {
           rawSessionId: who,
         })
       ).status;
-    expect(await fileStatus(alice.rawSessionId, stream)).toBe(404);
+    expect(await fileStatus(bob.rawSessionId, stream)).toBe(404);
+    expect(await fileStatus(alice.rawSessionId, stream)).toBe(200);
     expect(await fileStatus(maker.rawSessionId, stream)).toBe(200);
     expect(await fileStatus(owner.rawSessionId, stream)).toBe(200);
     expect(await fileStatus(owner.rawSessionId, orphan)).toBe(404);
@@ -367,7 +363,7 @@ describe("cron rooms: create and move", () => {
       body: createBody(srv, { roomId: roomA }),
     });
     expect(inA.status).toBe(201);
-    expect(inA.body).toMatchObject({ roomId: roomA, detail: true });
+    expect(inA.body).toMatchObject({ roomId: roomA, canManage: true });
 
     const before = srv.cronjobManager.listCronjobs().length;
     const inB = await api(srv, "/api/cronjobs", {
@@ -481,17 +477,17 @@ describe("cron rooms: create and move", () => {
     const asMaker = await api(srv, `/api/cronjobs/${job.id}`, {
       bearer: makerToken.token,
     });
-    expect(asMaker.body).toMatchObject({ detail: true, canManage: true });
+    expect(asMaker.body).toMatchObject({ canManage: true });
     expect(
       (await api(srv, `/api/cronjobs/${job.id}`, { bearer: aliceToken.token }))
         .status,
     ).toBe(404);
-    // Filed into room A, Alice's token sees the schedule only.
+    // Filed into room A, Alice's token sees it without manage authority.
     srv.cronjobManager.updateCronjob(job.id, { roomId: roomA });
     expect(
       (await api(srv, `/api/cronjobs/${job.id}`, { bearer: aliceToken.token }))
         .body,
-    ).toMatchObject({ detail: false });
+    ).toMatchObject({ prompt: PROMPT, canManage: false });
   });
 });
 
@@ -506,10 +502,16 @@ describe("cron rooms: the WebSocket", () => {
 
     const job = seedJob(srv, "Maker", roomA, "Live");
     const added = await aliceWs.waitFor("cronjob_added");
-    expect(added.cronjob).toMatchObject({ id: job.id, detail: false });
-    expect(JSON.stringify(added)).not.toContain(PROMPT);
+    expect(added.cronjob).toMatchObject({
+      id: job.id,
+      prompt: PROMPT,
+      canManage: false,
+    });
     const makerAdded = await makerWs.waitFor("cronjob_added");
-    expect(makerAdded.cronjob).toMatchObject({ prompt: PROMPT });
+    expect(makerAdded.cronjob).toMatchObject({
+      prompt: PROMPT,
+      canManage: true,
+    });
 
     // Moving the job to room B: Alice is told it is gone, Bob learns it.
     srv.cronjobManager.updateCronjob(job.id, { roomId: roomB });
@@ -523,7 +525,7 @@ describe("cron rooms: the WebSocket", () => {
       "alice cronjob_deleted",
     );
     const bobUpdate = await bobWs.waitFor("cronjob_updated");
-    expect(bobUpdate.cronjob).toMatchObject({ id: job.id, detail: false });
+    expect(bobUpdate.cronjob).toMatchObject({ id: job.id, canManage: false });
     expect(typesOf(bobWs)).not.toContain("cronjob_added");
 
     // A connect hydrates only what the socket may see.
@@ -532,34 +534,27 @@ describe("cron rooms: the WebSocket", () => {
     expect(state.cronjobs as CronjobListWire[]).toEqual([]);
   });
 
-  it("run rows and live run entries reach the maker only; a room member gets the last-run outcome", async () => {
-    const { srv, alice, maker, roomA } = await office();
+  it("run rows and live run entries reach the maker and room members; a non-member hears none", async () => {
+    const { srv, alice, bob, maker, roomA } = await office();
     const job = seedJob(srv, "Maker", roomA, "Runner");
     const aliceWs = await srv.connectWs(alice.rawSessionId);
+    const bobWs = await srv.connectWs(bob.rawSessionId);
     const makerWs = await srv.connectWs(maker.rawSessionId);
     await aliceWs.waitFor("cronjobs_state");
+    await bobWs.waitFor("cronjobs_state");
     await makerWs.waitFor("cronjobs_state");
 
     const run = srv.cronjobManager.runCronjobNow(job.id, "Maker")!;
+    const sawCompleted = (sock: TestSocket) =>
+      sock.messages.some(
+        (m) =>
+          (m as { type?: string }).type === "cronjob_run_updated" &&
+          (m as { run?: CronjobRun }).run?.status === "completed",
+      );
     await waitUntil(
-      () =>
-        makerWs.messages.some(
-          (m) =>
-            (m as { type?: string }).type === "cronjob_run_updated" &&
-            (m as { run?: CronjobRun }).run?.status === "completed",
-        ),
-      "maker sees the run complete",
+      () => sawCompleted(makerWs) && sawCompleted(aliceWs),
+      "maker and alice see the run complete",
       5000,
-    );
-    await waitUntil(
-      () =>
-        aliceWs.messages.some(
-          (m) =>
-            (m as { type?: string }).type === "cronjob_updated" &&
-            (m as { cronjob?: { lastRun?: { status?: string } } }).cronjob
-              ?.lastRun?.status === "completed",
-        ),
-      "alice sees the last-run outcome",
     );
     const stream = cronjobRunStreamId(run.id);
     const sawRunEntry = (sock: TestSocket) =>
@@ -569,10 +564,10 @@ describe("cron rooms: the WebSocket", () => {
           (m as { entry?: { agentId?: string } }).entry?.agentId === stream,
       );
     expect(sawRunEntry(makerWs)).toBe(true);
-    expect(sawRunEntry(aliceWs)).toBe(false);
-    expect(typesOf(aliceWs)).not.toContain("cronjob_run_updated");
-    const aliceText = JSON.stringify(aliceWs.messages);
-    expect(aliceText).not.toContain(PROMPT);
+    expect(sawRunEntry(aliceWs)).toBe(true);
+    expect(sawRunEntry(bobWs)).toBe(false);
+    expect(typesOf(bobWs)).not.toContain("cronjob_run_updated");
+    expect(JSON.stringify(bobWs.messages)).not.toContain(PROMPT);
   });
 
   it("losing room access re-projects the list live", async () => {
@@ -635,10 +630,11 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
     expect(res.status).toBeLessThan(400);
   }
 
-  it("lists and resolves only the jobs the typing member may read in detail", async () => {
-    const { srv, alice, maker, roomA } = await office();
+  it("lists and resolves only the jobs the typing member may see", async () => {
+    const { srv, alice, roomA, roomB } = await office();
     const makersJob = seedJob(srv, "Maker", roomA, "Makers job");
     const bossJob = seedJob(srv, "Boss", roomA, "Boss job");
+    const betaJob = seedJob(srv, "Boss", roomB, "Beta job");
     const agent = await spawnAgent(srv, "Picker", roomA);
     const markerFor = (jobId: string) =>
       srv.agentManager
@@ -652,39 +648,28 @@ describe("cron rooms: /isomux-cronjob-system-prompt", () => {
           (entry) => entry.kind === "user_message" && entry.content === text,
         );
 
-    // Alice can see both jobs in room A but reads neither in detail.
-    for (const job of [makersJob, bossJob]) {
-      const text = `/isomux-cronjob-system-prompt ${job.id}`;
-      await sendHuman(srv, alice.rawSessionId, agent.id, text);
-      expect(ran(text)).toBe(true);
-      expect(markerFor(job.id)).toBe(false);
-    }
+    // Alice cannot see the room B job.
+    const hidden = `/isomux-cronjob-system-prompt ${betaJob.id}`;
+    await sendHuman(srv, alice.rawSessionId, agent.id, hidden);
+    expect(ran(hidden)).toBe(true);
+    expect(markerFor(betaJob.id)).toBe(false);
+
     await sendHuman(
       srv,
       alice.rawSessionId,
       agent.id,
       "/isomux-cronjob-system-prompt",
     );
-    expect(
-      srv.agentManager
-        .getPendingInteractions()
-        .some((item) => item.agentId === agent.id),
-    ).toBe(false);
-
-    await sendHuman(
-      srv,
-      maker.rawSessionId,
-      agent.id,
-      "/isomux-cronjob-system-prompt",
-    );
     const interaction = srv.agentManager
       .getPendingInteractions()
       .find((item) => item.agentId === agent.id);
-    expect(interaction?.choices.map((c) => c.value)).toEqual([makersJob.id]);
+    expect(interaction?.choices.map((c) => c.value).sort()).toEqual(
+      [makersJob.id, bossJob.id].sort(),
+    );
 
     await sendHuman(
       srv,
-      maker.rawSessionId,
+      alice.rawSessionId,
       agent.id,
       `/isomux-cronjob-system-prompt ${makersJob.id}`,
     );
