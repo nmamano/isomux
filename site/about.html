@@ -76,6 +76,7 @@
         } catch (e) {}
       })();
     </script>
+    <link rel="stylesheet" href="/footer.css" />
     <style>
       * {
         margin: 0;
@@ -274,23 +275,6 @@
         color: var(--text-dim);
       }
 
-      footer {
-        max-width: var(--max-width);
-        margin: 0 auto;
-        padding: 32px 24px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        color: var(--text-dim);
-        font-size: 0.9rem;
-      }
-      .footer-links {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 24px;
-      }
-
       @media (max-width: 640px) {
         main {
           padding: 20px 16px 8px;
@@ -303,11 +287,6 @@
         }
         th {
           white-space: normal;
-        }
-        footer {
-          flex-direction: column;
-          gap: 12px;
-          text-align: center;
         }
       }
     </style>
@@ -737,25 +716,34 @@
       </section>
     </main>
 
-    <footer>
-      <a href="/">Isomux</a>
-
-      <div class="footer-links">
-        <a href="/hosted">Hosted</a>
-        <a href="/hosted-terms">Terms</a>
-        <a href="/hosted-privacy">Privacy</a>
-        <a
-          href="https://github.com/nmamano/isomux"
-          target="_blank"
-          rel="noopener"
-          >GitHub</a
-        >
-        <a
-          href="https://nilmamano.com/blog?category=isomux"
-          target="_blank"
-          rel="noopener"
-          >Blog</a
-        >
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/">Isomux</a>
+      </div>
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="https://nilmamano.com/blog?category=isomux" target="_blank" rel="noopener">Blog</a></li>
+            <li><a href="https://nilmamano.com" target="_blank" rel="noopener">nilmamano.com</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
       </div>
     </footer>
 

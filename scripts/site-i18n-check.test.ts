@@ -200,16 +200,31 @@ function switchItems(block: string): SwitchItem[] {
   });
 }
 
-/** What the switch must say on `row`: four links, this page's own marked. */
+/** What the menu must list on `row`: every other language, in table order. */
 function expectedSwitch(row: Row): SwitchItem[] {
   const suffix = row.family === "hosted" ? "/hosted" : "";
-  return SUPPORTED_LANGUAGES.map(({ code, label }) => ({
-    href: SITE_LANGUAGE_PATH[code] + suffix || "/",
-    hreflang: code,
-    lang: code,
-    current: code === row.lang,
-    text: label,
-  }));
+  return SUPPORTED_LANGUAGES.filter(({ code }) => code !== row.lang).map(
+    ({ code, label }) => ({
+      href: SITE_LANGUAGE_PATH[code] + suffix || "/",
+      hreflang: code,
+      lang: code,
+      current: false,
+      text: label,
+    }),
+  );
+}
+
+/** The summary's language and visible text, icons dropped. */
+function switchSummary(block: string): { lang: string; text: string } {
+  const m = block.match(/<summary\b([^>]*)>([\s\S]*?)<\/summary\s*>/);
+  if (!m) return { lang: "", text: "" };
+  return {
+    lang: attributesOf(m[1]).lang ?? "",
+    text: m[2]
+      .replace(/<svg\b[\s\S]*?<\/svg\s*>/g, "")
+      .replace(/<[^>]+>/g, "")
+      .trim(),
+  };
 }
 
 /** The page with its HTML comments removed. */
@@ -337,9 +352,14 @@ describe("public site in four languages", () => {
       expect(found["x-default"]).toBe(found.en);
     });
 
-    it(`${name} carries the language switch once, with itself marked`, () => {
-      const blocks = blocksOf(read(row), "div", "lang-switch");
+    it(`${name} carries the language menu once, naming itself and linking the others`, () => {
+      const blocks = blocksOf(read(row), "details", "lang-switch");
       expect(blocks.length).toBe(1);
+      const own = SUPPORTED_LANGUAGES.find(({ code }) => code === row.lang);
+      expect(switchSummary(blocks[0])).toEqual({
+        lang: row.lang,
+        text: own?.label ?? "",
+      });
       expect(switchItems(blocks[0])).toEqual(expectedSwitch(row));
     });
 

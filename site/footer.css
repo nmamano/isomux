@@ -1,0 +1,144 @@
+/* Site footer, shared by the landing, hosted, about and legal pages. Colors
+   come from the theme variables each page defines (--text, --text-dim,
+   --accent, --border, --bg-surface, --bg-card, --max-width). Selectors are
+   classed so they win over each page's own element rules (h2, ul, li, a). */
+
+.site-footer {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 32px 24px 40px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px 48px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.site-footer .footer-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+.site-footer .footer-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.site-footer .footer-columns {
+  display: flex;
+  gap: 56px;
+}
+.site-footer .footer-column h2 {
+  margin: 0 0 10px;
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.site-footer .footer-column ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.site-footer .footer-column li {
+  margin: 0;
+}
+.site-footer .footer-column a {
+  color: var(--text-dim);
+}
+.site-footer .footer-column a:hover {
+  color: var(--accent);
+}
+
+/* Language menu. The summary names the page's own language; the panel lists
+   the others in the same order on every page. Labels are each language's own
+   name, so they are identical bytes in every version. A <details> opens and
+   closes with no script and is keyboard reachable through its summary. */
+.lang-switch {
+  position: relative;
+}
+.lang-switch summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  user-select: none;
+}
+.lang-switch summary::-webkit-details-marker {
+  display: none;
+}
+.lang-switch summary:hover {
+  border-color: var(--accent);
+}
+.lang-switch summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lang-switch svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.lang-switch .lang-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
+}
+.lang-switch[open] .lang-chevron {
+  transform: rotate(180deg);
+}
+/* Opens upward: the footer is the end of the page, so there is no room below. */
+.lang-switch .lang-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+}
+.lang-switch .lang-menu a {
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.lang-switch .lang-menu a:hover,
+.lang-switch .lang-menu a:focus-visible {
+  background: var(--bg-card);
+  color: var(--accent);
+  text-decoration: none;
+}
+.lang-switch .lang-menu a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+@media (max-width: 640px) {
+  .site-footer {
+    flex-direction: column;
+    padding: 24px 16px 32px;
+  }
+  .site-footer .footer-columns {
+    flex-direction: column;
+    gap: 22px;
+  }
+}

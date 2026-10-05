@@ -90,6 +90,7 @@
         } catch (e) {}
       })();
     </script>
+    <link rel="stylesheet" href="/footer.css" />
     <style>
       * {
         margin: 0;
@@ -583,39 +584,6 @@
         font-size: 0.85rem;
       }
 
-      /* ---- Footer ---- */
-      footer {
-        max-width: var(--max-width);
-        margin: 0 auto;
-        padding: 32px 24px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px 24px;
-        color: var(--text-dim);
-        font-size: 0.9rem;
-      }
-
-      .footer-links {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 24px;
-      }
-
-      /* Language switch. Same four items, same order, same place on every
-         page of the site; the page's own language is dimmed and marked
-         aria-current but stays a link. Labels are each language's own name,
-         so they are identical bytes in all four versions. */
-      .lang-switch {
-        display: flex;
-        gap: 16px;
-      }
-      .lang-switch a[aria-current="page"] {
-        color: var(--text-dim);
-      }
-
       /* ---- Responsive ---- */
       @media (max-width: 640px) {
         .hero {
@@ -642,11 +610,6 @@
         .cards,
         .plans {
           grid-template-columns: 1fr;
-        }
-        footer {
-          flex-direction: column;
-          gap: 12px;
-          text-align: center;
         }
       }
     </style>
@@ -898,32 +861,42 @@
     </p>
 
     <!-- Footer -->
-    <footer>
-      <a href="/ca">Isomux</a>
-
-      <div class="lang-switch">
-        <a href="/hosted" hreflang="en" lang="en">English</a>
-        <a href="/es/hosted" hreflang="es" lang="es">Español</a>
-        <a href="/ca/hosted" hreflang="ca" lang="ca" aria-current="page"
-          >Català</a
-        >
-        <a href="/zh/hosted" hreflang="zh" lang="zh">简体中文</a>
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <a class="footer-name" href="/ca">Isomux</a>
+        <details class="lang-switch">
+          <summary lang="ca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>Català<svg class="lang-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6" /></svg></summary>
+          <div class="lang-menu">
+            <a href="/hosted" hreflang="en" lang="en">English</a>
+            <a href="/es/hosted" hreflang="es" lang="es">Español</a>
+            <a href="/zh/hosted" hreflang="zh" lang="zh">简体中文</a>
+          </div>
+        </details>
       </div>
-
-      <div class="footer-links">
-        <a href="/about">Quant a</a>
-        <a href="/hosted-terms">Termes</a>
-        <a href="/hosted-privacy">Privacitat</a>
-        <a href="/hosted-refund">Reemborsaments</a>
-        <a
-          href="https://github.com/nmamano/isomux"
-          target="_blank"
-          rel="noopener"
-          >GitHub</a
-        >
-        <a href="https://nilmamano.com" target="_blank" rel="noopener"
-          >nilmamano.com</a
-        >
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Producte</h2>
+          <ul>
+            <li><a href="/ca/hosted">Hosted</a></li>
+            <li><a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Empresa</h2>
+          <ul>
+            <li><a href="/about">Quant a</a></li>
+            <li><a href="https://nilmamano.com/blog?category=isomux" target="_blank" rel="noopener">Blog</a></li>
+            <li><a href="https://nilmamano.com" target="_blank" rel="noopener">nilmamano.com</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Termes</a></li>
+            <li><a href="/hosted-privacy">Privacitat</a></li>
+            <li><a href="/hosted-refund">Reemborsaments</a></li>
+          </ul>
+        </div>
       </div>
     </footer>
 

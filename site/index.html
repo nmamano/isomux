@@ -101,6 +101,7 @@
         } catch (e) {}
       })();
     </script>
+    <link rel="stylesheet" href="/footer.css" />
     <style>
       * {
         margin: 0;
@@ -652,39 +653,6 @@
         font-size: 0.95rem;
       }
 
-      /* ---- Footer ---- */
-      footer {
-        max-width: var(--max-width);
-        margin: 0 auto;
-        padding: 32px 24px;
-        border-top: 1px solid var(--border);
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        align-items: center;
-        gap: 12px 24px;
-        color: var(--text-dim);
-        font-size: 0.9rem;
-      }
-
-      .footer-links {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 24px;
-      }
-
-      /* Language switch. Same four items, same order, same place on every
-         page of the site; the page's own language is dimmed and marked
-         aria-current but stays a link. Labels are each language's own name,
-         so they are identical bytes in all four versions. */
-      .lang-switch {
-        display: flex;
-        gap: 16px;
-      }
-      .lang-switch a[aria-current="page"] {
-        color: var(--text-dim);
-      }
-
       /* ---- Responsive ---- */
       @media (max-width: 640px) {
         .hero {
@@ -714,11 +682,6 @@
           grid-template-columns: 1fr;
         }
 
-        footer {
-          flex-direction: column;
-          gap: 12px;
-          text-align: center;
-        }
       }
 
       .badge-row {
@@ -1058,37 +1021,42 @@ bun run dev</pre
     </section>
 
     <!-- Footer -->
-    <footer>
-      <span>Isomux</span>
-
-      <div class="lang-switch">
-        <a href="/" hreflang="en" lang="en" aria-current="page">English</a>
-        <a href="/es" hreflang="es" lang="es">Español</a>
-        <a href="/ca" hreflang="ca" lang="ca">Català</a>
-        <a href="/zh" hreflang="zh" lang="zh">简体中文</a>
+    <footer class="site-footer">
+      <div class="footer-brand">
+        <span class="footer-name">Isomux</span>
+        <details class="lang-switch">
+          <summary lang="en"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>English<svg class="lang-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m18 15-6-6-6 6" /></svg></summary>
+          <div class="lang-menu">
+            <a href="/es" hreflang="es" lang="es">Español</a>
+            <a href="/ca" hreflang="ca" lang="ca">Català</a>
+            <a href="/zh" hreflang="zh" lang="zh">简体中文</a>
+          </div>
+        </details>
       </div>
-
-      <div class="footer-links">
-        <a href="/about">About</a>
-        <a href="/hosted">Hosted</a>
-        <a href="/hosted-terms">Terms</a>
-        <a href="/hosted-privacy">Privacy</a>
-        <a href="/hosted-refund">Refunds</a>
-        <a
-          href="https://github.com/nmamano/isomux"
-          target="_blank"
-          rel="noopener"
-          >GitHub</a
-        >
-        <a
-          href="https://nilmamano.com/blog?category=isomux"
-          target="_blank"
-          rel="noopener"
-          >Blog</a
-        >
-        <a href="https://nilmamano.com" target="_blank" rel="noopener"
-          >nilmamano.com</a
-        >
+      <div class="footer-columns">
+        <div class="footer-column">
+          <h2>Product</h2>
+          <ul>
+            <li><a href="/hosted">Hosted</a></li>
+            <li><a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener">GitHub</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Company</h2>
+          <ul>
+            <li><a href="/about">About</a></li>
+            <li><a href="https://nilmamano.com/blog?category=isomux" target="_blank" rel="noopener">Blog</a></li>
+            <li><a href="https://nilmamano.com" target="_blank" rel="noopener">nilmamano.com</a></li>
+          </ul>
+        </div>
+        <div class="footer-column">
+          <h2>Legal</h2>
+          <ul>
+            <li><a href="/hosted-terms">Terms</a></li>
+            <li><a href="/hosted-privacy">Privacy</a></li>
+            <li><a href="/hosted-refund">Refunds</a></li>
+          </ul>
+        </div>
       </div>
     </footer>
 

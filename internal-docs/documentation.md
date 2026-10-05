@@ -34,7 +34,8 @@ Keep these consistent across all surfaces below.
   - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with a link to `/docs/hosting` for always-on-server setups, and to `/hosted` for the managed version.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update this file, the README and the two translated copies in the same commit so they don't drift.
-- **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same four-item switch in the footer. `scripts/site-i18n-check.test.ts` holds the eight pages to that.
+- **Languages:** the English file is the source. Every edit to it is repeated in the Spanish, Catalan and Simplified Chinese copies in the same commit; a copy that keeps an English sentence is a bug, not a fallback. All four carry the same five `rel=alternate hreflang` links and the same language menu in the footer (a `<details>` that names the page's language and links the others). `scripts/site-i18n-check.test.ts` holds the eight pages to that.
+- **Footer:** one layout on the landing, hosted, about and legal pages: three columns (Product, Company, Legal), styled by the shared `site/footer.css`. Each page repeats the markup; a link change goes in all twelve. The about and legal pages are English only and carry no language menu.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`). `cleanUrls` serves the copies at `/es` and `/ca`; both appear in the sitemap (`STATIC_PATHS` in `scripts/build-docs.ts`).
 
 ## 2b. Hosted landing page (isomux.com/hosted)
