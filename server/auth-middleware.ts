@@ -372,7 +372,7 @@ function logOffBoxToken(identity: Identity): void {
   const holder =
     identity.agentId ?? identity.runId ?? identity.appName ?? "unknown";
   console.warn(
-    `[auth] refused a ${identity.scope} token from off-box (${holder}); agent, cron-run and app tokens work only from this machine`,
+    `[auth] refused an off-box ${identity.scope} token (${holder}); agent, cron-run and app tokens work only from this machine`,
   );
 }
 
