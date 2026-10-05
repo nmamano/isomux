@@ -243,6 +243,11 @@ import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
 import { webhookRegistry } from "./webhooks/registry.ts";
 import {
+  createWebhookIngress,
+  matchWebhookIngressPath,
+  type WebhookIngress,
+} from "./webhooks/ingress.ts";
+import {
   webhooksHandlers,
   webhookTargetPrecondition,
 } from "./routes/handlers/webhooks.ts";
@@ -1186,8 +1191,27 @@ function nextConnectionId(): string {
 }
 
 const browsers = new Set<ServerWebSocket<OfficeWsData>>();
-// The start of the in-memory webhook counters: this process's boot.
-const WEBHOOK_COUNTERS_SINCE = Date.now();
+// The public webhook route's state (counters, limits, delivery logs). Built
+// per boot in startServer, before the listener.
+let webhookIngress: WebhookIngress | null = null;
+function currentWebhookIngress(): WebhookIngress {
+  if (!webhookIngress) throw new Error("webhook ingress is not built yet");
+  return webhookIngress;
+}
+
+// A webhook's agent target: the hook OWNER (not the calling agent) must reach
+// the agent's room, as messageTargetAgentId requires for apps. Checked when the
+// target is set and again on each dispatch.
+function webhookAgentReachable(
+  userId: string | null,
+  agentId: string,
+): "ok" | "invalid_id" | "unavailable" {
+  if (!isSafeScopeId(agentId)) return "invalid_id";
+  const owner = userId ? getUserById(userId) : null;
+  const target = agentManager.getAgent(agentId);
+  if (!owner || !target) return "unavailable";
+  return accessibleRoomIdsFor(owner).has(target.roomId) ? "ok" : "unavailable";
+}
 
 // Centralized Idempotency-Key cache. Process-global; reset per boot in
 // resetServerModuleState so a repeated in-process harness boot starts clean.
@@ -2666,8 +2690,8 @@ function buildExecutorDeps(
           : identity.userId !== null &&
             getUserById(identity.userId)?.role === "owner",
       publicOrigin: () => buildPublicOrigin().origin,
-      // The pre-verify counters arrive with ingress (S3).
-      counters: () => ({ counters: {}, countersSince: WEBHOOK_COUNTERS_SINCE }),
+      counters: (id) => currentWebhookIngress().counters(id),
+      forget: (id) => currentWebhookIngress().forget(id),
       announce: (wire) =>
         pushWebhookEventToEachWs(wire.userId, {
           type: "webhook_upserted",
@@ -2684,15 +2708,7 @@ function buildExecutorDeps(
     "webhookTargetAllowed",
     webhookTargetPrecondition({
       get: (id) => webhookRegistry.get(id),
-      agentReachableByUser: (userId, agentId) => {
-        if (!isSafeScopeId(agentId)) return "invalid_id";
-        const owner = userId ? getUserById(userId) : null;
-        const target = agentManager.getAgent(agentId);
-        if (!owner || !target) return "unavailable";
-        return accessibleRoomIdsFor(owner).has(target.roomId)
-          ? "ok"
-          : "unavailable";
-      },
+      agentReachableByUser: webhookAgentReachable,
       cronjobExists: (cronjobId) =>
         cronjobManager.listCronjobs().some((job) => job.id === cronjobId),
       callerManagesCronjob: (identity, cronjobId) =>
@@ -6136,6 +6152,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
+        // POST /hooks/:id - the public webhook delivery route
+        // (internal-docs/webhooks-design.md section 1; PUBLIC_ROUTES carries
+        // hooks.deliver). Before the auth wall: the signature is the only
+        // gate. Office host only, because the app-host divert above has run.
+        const webhookId = matchWebhookIngressPath(url.pathname);
+        if (webhookId !== null) {
+          return currentWebhookIngress().handle(req, webhookId);
+        }
+
         if (
           url.pathname === "/.well-known/security.txt" &&
           (req.method === "GET" || req.method === "HEAD")
@@ -7159,6 +7184,9 @@ export interface StartServerOpts {
   awaitRestore?: boolean;
   // Suppress the boot banners / "running at" log (tests).
   quiet?: boolean;
+  // The webhook ingress clock (dedup window, limits, row times). Tests pass a
+  // fake clock; production uses Date.now.
+  webhookNow?: () => number;
 }
 
 export interface ServerHandle {
@@ -7268,6 +7296,20 @@ export async function startServer(
     // Then their addresses, on the units the pass above may just have written.
     reconcileAppUrlsAtBoot();
   }
+  // Before the listener: the delivery logs load (and a crash's `pending` rows
+  // become retryable) before the first delivery can arrive.
+  webhookIngress = createWebhookIngress({
+    registry: webhookRegistry,
+    now: opts.webhookNow,
+    agentReachableByUser: webhookAgentReachable,
+    prepareAgent: (agentId) => agentManager.prepareEnqueue(agentId),
+    // As sendAsApp: no steer, so a delivery never interrupts a turn.
+    enqueueToAgent: (agentId, sender, text) => {
+      const result = agentManager.enqueueMessage(agentId, { sender, text });
+      return result.ok ? { ok: true } : { ok: false, code: result.error };
+    },
+  });
+  webhookIngress.recover();
   executorDeps = buildExecutorDeps(opts.getBackupStatus, opts.installKind);
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

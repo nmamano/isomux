@@ -1863,6 +1863,16 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     auth: pub,
     emits: [],
   }),
+  // The public webhook delivery route (internal-docs/webhooks-design.md
+  // section 1). The signature over the raw body is the only gate; buildServer
+  // answers it before the auth wall, on the office host only.
+  defineRoute({
+    opId: "hooks.deliver",
+    method: "POST",
+    path: "/hooks/:id",
+    auth: pub,
+    emits: [],
+  }),
 ];
 
 export const ALL_ROUTES: readonly RouteDef[] = [

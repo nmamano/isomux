@@ -45,6 +45,7 @@ import {
   formatAppSenderPrefix,
   formatCronjobSenderPrefix,
   formatApiTokenName,
+  formatWebhookSenderPrefix,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -5814,6 +5815,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         };
       case "app":
         return { sender_app_name: sender.appName };
+      case "webhook":
+        return {
+          sender_webhook_id: sender.webhookId,
+          sender_webhook_name: sender.webhookName,
+        };
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -5840,6 +5846,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // for agent-to-agent messages.
       case "app":
         return `${formatAppSenderPrefix(sender.appName)} `;
+      // A delivery from outside the office. The data block in the text says
+      // what the JSON is worth; the label says where it came from.
+      case "webhook":
+        return `${formatWebhookSenderPrefix(sender.webhookName)} `;
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -6098,6 +6108,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // dropped as malformed on boot replay, silently, which is why it is tested
     // through a real reload rather than only against the live queue.
     if (s.kind === "app") return typeof s.appName === "string";
+    if (s.kind === "webhook")
+      return (
+        typeof s.webhookId === "string" && typeof s.webhookName === "string"
+      );
     return false;
   }
 

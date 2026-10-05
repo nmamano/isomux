@@ -1321,6 +1321,7 @@ Coses que pots fer per ell:
   "common.sender.agentInRoom": '{name} · agent · Sala "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · programació",
+  "common.sender.webhook": "{name} · webhook",
   "cards.userMessage.expand": "Expandeix el missatge",
   "cards.userMessage.collapse": "Contrau el missatge",
   "cards.userMessage.toRemoteBoss": "Al membre remot",

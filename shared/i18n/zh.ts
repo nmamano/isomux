@@ -1174,6 +1174,7 @@ App 的一些原则：
   "common.sender.agentInRoom": "{name} · 智能体 · 房间「{room}」",
   "common.sender.app": "{name} · App",
   "common.sender.cronjob": "{name} · 定时任务",
+  "common.sender.webhook": "{name} · Webhook",
   "cards.userMessage.expand": "展开消息",
   "cards.userMessage.collapse": "折叠消息",
   "cards.userMessage.toRemoteBoss": "发送给远程成员",

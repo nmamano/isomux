@@ -1304,6 +1304,7 @@ Never ask for or repeat secrets (API keys, tokens, passwords). Point people to S
   "common.sender.agentInRoom": '{name} · agent · Room "{room}"',
   "common.sender.app": "{name} · app",
   "common.sender.cronjob": "{name} · schedule",
+  "common.sender.webhook": "{name} · webhook",
   "cards.userMessage.expand": "Expand message",
   "cards.userMessage.collapse": "Collapse message",
   "cards.userMessage.toRemoteBoss": "To remote member",

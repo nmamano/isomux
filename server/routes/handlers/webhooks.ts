@@ -1,6 +1,6 @@
 // Webhook resource handlers (opIds webhooks.{list,get,create,update,delete,
 // deliveries,dryRun,readSecret,rotateSecret}) and the webhookTargetAllowed
-// precondition. The public delivery route is S3. See
+// precondition. The public delivery route is server/webhooks/ingress.ts. See
 // internal-docs/webhooks-design.md sections 2, 4 and 7.
 //
 // [ownership] userId/username/createdBy come from the TOKEN identity, never the
@@ -31,9 +31,7 @@ import {
   type WebhookFields,
   type WebhookRegistry,
 } from "../../webhooks/registry.ts";
-import { findMatchingRule, renderArgs } from "../../webhooks/match.ts";
-import { buildWebhookBlock } from "../../webhooks/block.ts";
-import { formatWebhookSenderPrefix } from "../../../shared/identity.ts";
+import { isWebhookPing, planWebhookDelivery } from "../../webhooks/ingress.ts";
 import type { Identity } from "../../identity/index.ts";
 import type {
   WebhookRecord,
@@ -58,8 +56,11 @@ export interface WebhooksDeps {
   hasOfficeWideReach(identity: Identity): boolean;
   // The public origin; the hook URL is `${origin}/hooks/${id}`.
   publicOrigin(): string;
-  // Pre-verify counters (design section 6). In memory; S3 supplies them.
+  // Pre-verify counters (design section 6). In memory, from ingress.
   counters(id: string): Pick<WebhookWire, "counters" | "countersSince">;
+  // Drop ingress's in-memory state (counters, limits, the log's index) of a
+  // deleted hook. Called after the delete commits.
+  forget(id: string): void;
   // Tell the hook owner's and the office owners' sockets. Called only after a
   // committed change, with the same wire object the response carries.
   announce(wire: WebhookWire): void;
@@ -323,6 +324,7 @@ export function webhooksHandlers(
     "webhooks.delete": guarded((ctx) => {
       const record = registry.remove(ctx.params.id);
       if (!record) return fail(404, "not_found");
+      announced(() => deps.forget(record.id));
       announced(() => deps.announceRemoved(record));
       return noContent();
     }),
@@ -350,7 +352,7 @@ export function webhooksHandlers(
     // What a delivery would do, by the stages after the signature check
     // (design section 1, stages 8 and 10). No dispatch, no row. The event is
     // the raw header value: rules match it exactly, and the block reduces it
-    // for display. Ingress (S3) matches the same raw value.
+    // for display. Ingress runs the same two functions on the same raw value.
     "webhooks.dryRun": guarded((ctx) => {
       const record = recordOr404(ctx.params.id);
       if (!record) return fail(404, "not_found");
@@ -368,36 +370,19 @@ export function webhooksHandlers(
       }
       const event = body.event;
       let result: WebhookDryRunRes;
-      // A GitHub ping never reaches a rule, also not a "*" rule.
-      if (record.scheme === "github-hmac-sha256" && event === "ping") {
+      if (isWebhookPing(record, event)) {
         result = { outcome: "ping" };
       } else {
-        const matched = findMatchingRule(record.rules, event, body.payload);
-        if (!matched) {
-          result = { outcome: "no_match" };
-        } else {
-          const args = renderArgs(matched.rule.args, {
-            payload: body.payload,
-            event,
-            delivery: "",
-          });
-          const { target } = record;
-          const block = buildWebhookBlock({
-            name: record.name,
-            scheme: record.scheme,
-            event,
-            deliveryId: "",
-            ruleIndex: matched.index,
-            args,
-            note: target.kind === "agent" ? (target.note ?? null) : null,
-            // The agent message starts with the sender prefix and a space.
-            reservedChars:
-              target.kind === "agent"
-                ? formatWebhookSenderPrefix(record.name).length + 1
-                : 0,
-          });
-          result = { outcome: "match", ruleIndex: matched.index, args, block };
-        }
+        const plan = planWebhookDelivery(record, event, body.payload, "");
+        result =
+          plan.kind === "no_match"
+            ? { outcome: "no_match" }
+            : {
+                outcome: "match",
+                ruleIndex: plan.ruleIndex,
+                args: plan.args,
+                block: plan.block,
+              };
       }
       return ok(result);
     }),

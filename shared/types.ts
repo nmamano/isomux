@@ -416,7 +416,12 @@ export interface QueuedMessage {
     // name is also the reason nothing here needs escaping - app names are
     // [a-z0-9-] by registration, so no name can forge the prefix delimiters the
     // flush text uses.
-    | { kind: "app"; appName: string };
+    | { kind: "app"; appName: string }
+    // A signed delivery from an outside service, through a webhook the owner
+    // registered (internal-docs/webhooks-design.md section 4a). The id and the
+    // name come from the hook record, never from the request. Names are
+    // [a-z0-9-], so the prefix needs no escaping either.
+    | { kind: "webhook"; webhookId: string; webhookName: string };
   text: string; // what we show in chat (raw user input)
   // What we send to the SDK in place of `text`. Set when the queued item is a
   // pre-expanded slash command (e.g. /subagent-review → full skill prompt).

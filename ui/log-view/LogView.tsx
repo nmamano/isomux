@@ -433,10 +433,14 @@ function QueueChips({
                   })
                 : msg.sender.kind === "app"
                   ? i18n.t("common.sender.app", { name: msg.sender.appName })
-                  : formatIdentity({
-                      username: msg.sender.username,
-                      device: msg.sender.device,
-                    }) || i18n.t("common.you");
+                  : msg.sender.kind === "webhook"
+                    ? i18n.t("common.sender.webhook", {
+                        name: msg.sender.webhookName,
+                      })
+                    : formatIdentity({
+                        username: msg.sender.username,
+                        device: msg.sender.device,
+                      }) || i18n.t("common.you");
           const attachmentCount = msg.attachments?.length ?? 0;
           return (
             <div

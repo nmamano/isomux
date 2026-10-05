@@ -7,7 +7,11 @@
 
 import { describe, it, expect } from "bun:test";
 import type { LogEntry } from "../../shared/types.ts";
-import { describeMessageSender, serializeEntries } from "./LogEntryCard.tsx";
+import {
+  describeMessageSender,
+  senderIsHuman,
+  serializeEntries,
+} from "./LogEntryCard.tsx";
 import { translatorFor } from "../../shared/i18n/translate.ts";
 
 // The catalog's English, so every label below is the one the card showed
@@ -107,6 +111,22 @@ describe("describeMessageSender", () => {
       label: 'Nil (API token "test" (pat-123))',
       fromHuman: false,
     });
+  });
+
+  it("a WEBHOOK sender is labelled as a webhook, is not human and is not editable", () => {
+    // The metadata agent-manager stamps for a webhook delivery. The JSON in it
+    // comes from an outside service, so it must never read as the reader's
+    // own message, and the edit affordance (senderIsHuman) must refuse it.
+    const metadata = {
+      sender_webhook_id: "wh_3f9a0c1d2e4b5a69",
+      sender_webhook_name: "pr-review",
+      username: "Nil",
+    };
+    expect(describeMessageSender(EN, metadata)).toEqual({
+      label: EN.t("common.sender.webhook", { name: "pr-review" }),
+      fromHuman: false,
+    });
+    expect(senderIsHuman(metadata)).toBe(false);
   });
 
   it("a cron sender is not made human by carrying a username alongside", () => {

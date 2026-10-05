@@ -51,6 +51,8 @@ Stages, in order. Stages 1 to 6 run before the signature has been verified. They
 
 The claim comes before every other verified stage, so each verified outcome, `ping` included, goes through dedup before it can touch the log.
 
+Two stages await, and the hook can change during an await. After the body read, the server runs stages 1 and 3 again on the current record and secret, so a hook deleted, disabled or rotated during the read gets the answer its current state gives, and a deleted hook writes nothing. At stage 12, after the usage-cap reading that `prepareEnqueue` awaits, the server checks again that the hook exists, is enabled, still targets that agent, and that its owner still reaches the agent's room, in the same synchronous step as the enqueue.
+
 Body cap: 5 MiB, the Gas City value. GitHub caps payloads at 25 MB and does not send larger ones (GitHub docs, "Webhook events and payloads", read 2026-10-05). A typical pull request payload is well under 1 MiB (unchecked). The handler rejects early when `Content-Length` is above the cap, and it also counts bytes while it reads the stream. The global `maxRequestBodySize` (512 MB) stays for uploads, so the handler cannot rely on it.
 
 Raw body: the handler reads the stream into one `Uint8Array` and computes the HMAC over those bytes. It parses only after the verify succeeds.
@@ -244,7 +246,9 @@ What happens when the key has a row:
 | `ping`, `bad_payload`, `no_match`, `dispatched` (final) | add 1 to `duplicates` | 200 |
 | `dispatch_limited`, `target_unavailable` (can retry) | set the row to `pending`, add 1 to `attempts`, run stages 9 to 13 again, write the new outcome on the same row | as the new outcome |
 
-A retry reads the event from the stored row, not from the new request. So changing the event header on a retry changes nothing.
+A retry reads the event from the stored row, not from the new request. So changing the event header on a retry changes nothing. A retry whose body does not parse (for example under a wrong, unsigned Content-Type) answers 400 and keeps the row's earlier retryable outcome, with the attempt counted, so a later valid copy can still dispatch (PM ruling, 2026-10-05).
+
+A failed log write: at the claim, the server changes nothing and answers 500. After the outcome, the server keeps the outcome in memory, logs the error and answers 500, so an immediate redelivery does not dispatch again (PM ruling, 2026-10-05).
 
 A crash can leave a `pending` row. At boot the server sets it to `target_unavailable` with the detail "server restarted", so a redelivery can retry it. If the crash came after the dispatch and before the row write, that retry dispatches a second time. The message queue is at-least-once for the same reason (`QueuedMessage` in `shared/types.ts`).
 
@@ -261,7 +265,7 @@ Results:
 Two limits per hook. Both live in memory and reset on restart. They are sanity bounds, not quotas.
 
 - Ingress: token bucket, 300 per minute with a burst of 60 (the Gas City default). It runs before the body read and the HMAC, so a flood costs little. Unknown ids get 404 before the limiter, so they never drain a real hook's bucket.
-- Dispatch: 10 per minute and 500 per rolling 24 hours, the app-message values (`server/app-message-limits.ts`). It counts deliveries that reach a target, because each one costs a billed turn. The implementation reuses `createAppMessageLimiter()`, renamed to a neutral module if needed.
+- Dispatch: the app-message limiter (`createAppMessageLimiter()` in `server/app-message-limits.ts`), keyed by hook id. 10 dispatch attempts per minute: every matched delivery spends one, also when the target then refuses it. 500 accepted dispatches per rolling 24 hours: only a delivery the target accepted spends one, because only that costs a billed turn (PM ruling, 2026-10-05).
 
 Counters: each hook keeps `{reason: {count, lastAt}}` for the pre-verify reasons `disabled`, `method`, `secret_missing`, `rate_limited`, `body_too_large` and `bad_signature`, plus `countersSince`. They are in memory. An anonymous caller can only raise a number. It cannot write a row and cannot push real rows out of the log.
 

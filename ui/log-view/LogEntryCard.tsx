@@ -418,7 +418,8 @@ export function senderIsHuman(
   if (
     metadata?.sender_agent_name ||
     metadata?.sender_app_name ||
-    metadata?.sender_cronjob_name
+    metadata?.sender_cronjob_name ||
+    metadata?.sender_webhook_name
   )
     return false;
   // A personal API token is the human's authority, but the message came from a
@@ -463,6 +464,15 @@ export function describeMessageSender(
       label: i18n.t("common.sender.cronjob", {
         name: senderCronjobName,
       }),
+      fromHuman: false,
+    };
+  }
+  // A delivery from an outside service. Not a member, and its JSON is the
+  // sender's data, so it must never read as the reader's own message.
+  const senderWebhookName = metadata?.sender_webhook_name as string | undefined;
+  if (senderWebhookName) {
+    return {
+      label: i18n.t("common.sender.webhook", { name: senderWebhookName }),
       fromHuman: false,
     };
   }

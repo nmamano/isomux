@@ -4,11 +4,12 @@
 // Files under STATE_ROOT/webhooks:
 //   webhooks.json             {webhooks: WebhookRecord[]}
 //   secrets.json              {[id]: {secret, rotatedAt}}  mode 0600, dir 0700
-//   <id>/deliveries.json      WebhookDelivery[], newest last (written by S3)
+//   <id>/deliveries.json      WebhookDelivery[], newest last (written by
+//                             deliveries.ts)
 //
 // THE SECRET HAS ITS OWN FILE so that no list or read of a record can return it
-// by accident. Only readSecret and rotateSecret hand it out, and only the two
-// human secret routes call them.
+// by accident. Only readSecret and rotateSecret hand it out. The two human
+// secret routes call them, and ingress calls readSecret to verify a delivery.
 //
 // CORRUPTION FAILS LOUD, as in server/app-registry.ts: a malformed file raises
 // `registry_corrupt` on every operation, reads included. An empty worldview
@@ -50,7 +51,7 @@ export const WEBHOOK_MAX_MATCH_ENTRIES = 10;
 export const WEBHOOK_MAX_RULE_FIELD_CHARS = 1000;
 export const WEBHOOK_DELIVERY_LOG_MAX = 500;
 
-const WEBHOOK_ID_PATTERN = /^wh_[0-9a-f]{16}$/;
+export const WEBHOOK_ID_PATTERN = /^wh_[0-9a-f]{16}$/;
 // An HTTP header name (RFC 9110 token).
 const HEADER_NAME_PATTERN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/;
 const SCHEMES: readonly WebhookScheme[] = ["github-hmac-sha256", "hmac-sha256"];
@@ -396,7 +397,8 @@ export interface WebhookRegistry {
   // has that id.
   remove(id: string): WebhookRecord | null;
   secretState(id: string): "set" | "missing";
-  // The two human secret routes only.
+  // The two human secret routes, and ingress to verify a delivery. Never put
+  // into any other response.
   readSecret(id: string): string | null;
   // The new secret; the old one stops working at once. Null when no hook has
   // that id.
