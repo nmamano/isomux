@@ -78,7 +78,7 @@ PARKED FOR NIL items.
 ## Slices
 
 - [x] S1 - pure core (verify, match, block): 541fcef2, 102 tests; intro line variants for hmac-sha256 and empty event or delivery id are in block.ts
-- [ ] S2 - registry, API, auth
+- [x] S2 - registry, API, auth: 19845377; the system-prompt line landed here (system-prompt.test requires every reference topic to be advertised)
 - [ ] S3 - ingress and the agent target
 - [ ] S4 - cronjob target, and the "none" schedule (ruling 7)
 - [ ] S5 - UI and docs
@@ -144,3 +144,49 @@ Decide with the reviewer: module split between registry and handlers, the wire
 shape details not fixed by the design.
 
 Locked: rulings above; design sections 2 and 7.
+
+## PICKUP S3 (Worker 1 / Reviewer 1)
+
+Goal: design section 11, S3: `server/webhooks/ingress.ts` (the public
+`POST /hooks/:id` handler, design section 1 stages), `server/webhooks/deliveries.ts`
+(the log, the dedup index and the counters, design sections 5 and 6), the
+wiring in `buildServer` before the auth wall, `hooks.deliver` in
+`PUBLIC_ROUTES`, and the agent target: the `webhook` sender kind in the four
+places design section 4a names, delivered with `prepareEnqueue` and
+`enqueueMessage` without steer. The cronjob target is S4: until then a
+delivery whose hook targets a cronjob gets `target_unavailable` with a detail
+that says so, and S4 replaces that branch.
+
+What S2 left (merged as 19845377): `server/webhooks/registry.ts` (records,
+secrets, a read-only `readDeliveries`, which may move to deliveries.ts),
+`formatWebhookSenderPrefix` in shared/identity.ts, the routes and the dry run.
+`counters`/`countersSince` on the wire come from a deps hook that returns `{}`
+and boot time today; S3 feeds it the real counters.
+
+Mechanics and traps:
+- Match the raw event header exactly, and treat `ping` as ping only for
+  `github-hmac-sha256`, as the dry run does. Reuse the S1 core and the dry
+  run's code path; do not write a second matcher.
+- Stages 1 to 6 write no row; an anonymous caller can only raise a counter.
+  Unknown ids get 404 before the rate limiter.
+- The claim (stage 7) is one synchronous step with no await between lookup and
+  append. The dedup window rebuilds from deliveries.json at boot, and a
+  `pending` row left by a crash becomes `target_unavailable` ("server
+  restarted").
+- The body cap is enforced while reading the stream, also without
+  `Content-Length`. The global `maxRequestBodySize` is not the cap.
+- Reuse `createAppMessageLimiter()` for the dispatch limit (rename to a
+  neutral module only if needed).
+- The route does not depend on forwarding headers, and an app hostname never
+  reaches the handler.
+- Tests go through `buildServer`'s fetch with a real HMAC, as design section
+  11 lists, with a fake clock for the window tests.
+
+Acceptance: every S3 test in design section 11 exists and passes; a mutant that
+puts an await between the dedup lookup and the append fails the concurrent
+test; a mutant that writes a row for a bad signature fails.
+
+Decide with the reviewer: the module split between ingress and deliveries, the
+deps shape for the office wiring.
+
+Locked: rulings above; design sections 1, 5 and 6.
