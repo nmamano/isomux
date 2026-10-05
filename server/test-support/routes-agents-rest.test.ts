@@ -25,6 +25,7 @@ import { loadRecentCwds } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
+import type { AgentPermissionMode } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -1796,5 +1797,106 @@ describe("agents.previewSystemPrompt REST", () => {
     ]) {
       expect((await preview({ ...draft, ...invalid })).status).toBe(422);
     }
+  });
+});
+
+// Task a7bdd069: an agent that spawns an agent without naming a mode passes on
+// a mode that does not prompt (the full engine table is in
+// agent-validators.test.ts). A mode in the request wins; member spawns keep
+// their default.
+describe("agents.spawn REST: mode of an agent-spawned agent", () => {
+  async function setup(
+    operatorType: "claude" | "codex",
+    operatorMode: AgentPermissionMode,
+    operatorSandbox?: "read-only",
+  ) {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerRecord = getUserByName(owner.username);
+    if (!ownerRecord) throw new Error("seeded owner record missing");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const operator = await srv.agentManager.spawn(
+      "Operator",
+      srv.stateRoot,
+      operatorMode,
+      0,
+      undefined,
+      r1,
+      undefined,
+      operatorType === "codex" ? "gpt-5.5" : "sonnet",
+      undefined,
+      owner.username,
+      operatorType,
+      operatorSandbox,
+      ownerRecord.id,
+    );
+    if (!operator) throw new Error("operator spawn failed");
+    expect(operator.permissionMode).toBe(operatorMode);
+    await srv.agentManager.setPrivileged(operator.id, true);
+    const bearer = getAgentTokenRaw(operator.id);
+    if (!bearer) throw new Error("operator token missing");
+    const spawn = async (desk: number, extra: Record<string, unknown> = {}) => {
+      const res = await req(srv, "POST", "/api/agents", {
+        bearer,
+        body: {
+          name: `Child${desk}`,
+          cwd: srv.stateRoot,
+          roomId: r1,
+          desk,
+          ...extra,
+        },
+      });
+      expect(res.status).toBe(201);
+      return (
+        res.body as {
+          agent: { permissionMode: string; codexSandbox?: string };
+        }
+      ).agent;
+    };
+    return { srv, owner, r1, spawn };
+  }
+
+  it("a Claude spawner in default mode gets an auto child, not a prompting one", async () => {
+    const { spawn } = await setup("claude", "default");
+    expect((await spawn(1)).permissionMode).toBe("auto");
+  });
+
+  it("a Claude spawner in bypass mode gets a bypass child", async () => {
+    const { spawn } = await setup("claude", "bypassPermissions");
+    expect((await spawn(1)).permissionMode).toBe("bypassPermissions");
+  });
+
+  it("a mode in the request wins, including a prompting one", async () => {
+    const { spawn } = await setup("claude", "bypassPermissions");
+    expect((await spawn(1, { permissionMode: "default" })).permissionMode).toBe(
+      "default",
+    );
+  });
+
+  it("a Codex never spawner passes on its sandbox; a sandbox in the request wins", async () => {
+    const { spawn } = await setup("codex", "never", "read-only");
+    const codexChild = { agentType: "codex", modelFamily: "gpt-5.5" };
+    const inherited = await spawn(1, codexChild);
+    expect(inherited.permissionMode).toBe("never");
+    expect(inherited.codexSandbox).toBe("read-only");
+    const asked = await spawn(2, {
+      ...codexChild,
+      codexSandbox: "workspace-write",
+    });
+    expect(asked.permissionMode).toBe("never");
+    expect(asked.codexSandbox).toBe("workspace-write");
+  });
+
+  it("a member spawn with no mode is unchanged (default)", async () => {
+    const { srv, owner, r1 } = await setup("claude", "bypassPermissions");
+    const res = await req(srv, "POST", "/api/agents", {
+      rawSessionId: owner.rawSessionId,
+      body: { name: "MemberChild", cwd: srv.stateRoot, roomId: r1, desk: 1 },
+    });
+    expect(res.status).toBe(201);
+    expect(
+      (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
+    ).toBe("default");
   });
 });

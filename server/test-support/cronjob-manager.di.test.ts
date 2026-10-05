@@ -151,6 +151,7 @@ describe("CronjobManager DI (disk-free seam)", () => {
           ...makeFakeCronPersistence(),
           appendRunLog: (_job, _run, _session, entry) => {
             written.push(entry);
+            return true;
           },
         },
       }),

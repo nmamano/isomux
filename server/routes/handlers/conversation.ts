@@ -48,6 +48,7 @@ import type {
 } from "../../internal-types.ts";
 // Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
+import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 import { formatApiTokenDevice } from "../../../shared/identity.ts";
 
@@ -241,9 +242,6 @@ function malformedAttachmentSpec(a: unknown): boolean {
 // 7b's malformedAgentFields on the container TYPE, and additionally validates
 // each attachment ELEMENT (the WS command never element-validated; the REST
 // surface is the one a hand-crafted body reaches).
-// Member sends only (Isomux PM ruling, task 51de8814); the agent and
-// API-token branches keep their own rules.
-export const USER_CLIENT_MESSAGE_ID_MAX = 128;
 
 function malformedSendFields(b: Record<string, unknown>): boolean {
   if (b.device !== undefined && typeof b.device !== "string") return true;

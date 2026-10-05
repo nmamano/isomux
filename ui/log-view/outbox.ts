@@ -3,7 +3,8 @@
 // server acknowledges it. A failed attempt stays as its own record, with its
 // original text, attachments and id, until the member resends, edits or
 // discards it. Resend reuses the id, so the server can tell a resend of an
-// accepted attempt from a new message.
+// accepted attempt from a new message. Cronjob run chats use the same outbox
+// (task 44872c41).
 //
 // Module state, not component state: an attempt in flight must settle even
 // when its chat is closed. Each attempt is written to its own localStorage key
@@ -25,7 +26,11 @@ export type OutboxError =
 
 export interface OutboxAttempt {
   id: string; // also the clientMessageId sent to the server
+  // The chat the attempt belongs to: the agent id, or for a cronjob run its
+  // stream id (cronjobRunStreamId).
   agentId: string;
+  // Set for a cronjob run chat: the attempt posts to the run's messages route.
+  cronRun?: { jobId: string; runId: string };
   text: string;
   attachments?: Attachment[];
   device?: string;
@@ -104,9 +109,15 @@ function parseAttempt(raw: string | null): OutboxAttempt | null {
       (v.attachments !== undefined && !Array.isArray(v.attachments))
     )
       return null;
+    const cronRun =
+      typeof v.cronRun?.jobId === "string" &&
+      typeof v.cronRun.runId === "string"
+        ? { jobId: v.cronRun.jobId, runId: v.cronRun.runId }
+        : undefined;
     return {
       id: v.id,
       agentId: v.agentId,
+      ...(cronRun ? { cronRun } : {}),
       text: v.text,
       ...(v.attachments ? { attachments: v.attachments } : {}),
       ...(typeof v.device === "string" ? { device: v.device } : {}),
@@ -125,8 +136,9 @@ function parseAttempt(raw: string | null): OutboxAttempt | null {
 }
 
 // Load `user`'s saved attempts for the agents that still exist and drop the
-// keys of agents that do not (as the drafts are pruned). Called once the office
-// knows who the member is and which agents they can see.
+// keys of agents that do not (as the drafts are pruned). A cronjob run attempt
+// is always kept: runs are never deleted. Called once the office knows who the
+// member is and which agents they can see.
 export function restoreOutbox(
   user: string,
   liveAgentIds: ReadonlySet<string>,
@@ -139,7 +151,10 @@ export function restoreOutbox(
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith(prefix)) continue;
       const attempt = parseAttempt(localStorage.getItem(key));
-      if (!attempt || !liveAgentIds.has(attempt.agentId)) {
+      if (
+        !attempt ||
+        (!attempt.cronRun && !liveAgentIds.has(attempt.agentId))
+      ) {
         localStorage.removeItem(key);
         continue;
       }
@@ -161,14 +176,29 @@ function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function post(attempt: OutboxAttempt) {
-  apiFetch("POST", `/api/agents/${attempt.agentId}/messages`, {
+function request(attempt: OutboxAttempt): Promise<unknown> {
+  const device = attempt.device ? { device: attempt.device } : {};
+  if (attempt.cronRun) {
+    const { jobId, runId } = attempt.cronRun;
+    return apiFetch(
+      "POST",
+      `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
+        runId,
+      )}/messages`,
+      { text: attempt.text, clientMessageId: attempt.id, ...device },
+    );
+  }
+  return apiFetch("POST", `/api/agents/${attempt.agentId}/messages`, {
     text: attempt.text,
     clientMessageId: attempt.id,
-    ...(attempt.device ? { device: attempt.device } : {}),
+    ...device,
     ...(attempt.attachments ? { attachments: attempt.attachments } : {}),
     ...(attempt.sendNow ? { sendNow: true } : {}),
-  }).then(
+  });
+}
+
+function post(attempt: OutboxAttempt) {
+  request(attempt).then(
     () => remove(attempt.id),
     (err: unknown) => {
       // A discarded or edited attempt is gone; nothing to mark.
@@ -189,6 +219,7 @@ function post(attempt: OutboxAttempt) {
 // browser cannot save the attempt: the composer is then the only copy.
 export function sendAttempt(input: {
   agentId: string;
+  cronRun?: { jobId: string; runId: string };
   text: string;
   attachments?: Attachment[];
   device?: string;
@@ -197,6 +228,7 @@ export function sendAttempt(input: {
   const attempt: OutboxAttempt = {
     id: newId(),
     agentId: input.agentId,
+    ...(input.cronRun ? { cronRun: input.cronRun } : {}),
     text: input.text,
     ...(input.attachments && input.attachments.length > 0
       ? { attachments: input.attachments }

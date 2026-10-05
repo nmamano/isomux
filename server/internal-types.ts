@@ -497,3 +497,9 @@ export type UserSendAcceptance =
       code: string;
       message: string;
     };
+
+// A cron run-message outcome (task 44872c41). `deduped`: a resend whose
+// clientMessageId matched an accepted attempt; nothing was sent again.
+export type RunSendResult =
+  | { ok: true; deduped?: boolean }
+  | Extract<UserSendAcceptance, { ok: false }>;

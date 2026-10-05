@@ -952,6 +952,8 @@ export type CronUpdateReq = Partial<{
 export interface CronRunMessageReq {
   text: string;
   device?: string;
+  // Member composer attempt id: a resend with the same id is not sent twice.
+  clientMessageId?: string;
 }
 
 // Cronjobs-prompt write body (cron.setPrompt). Inline `{ value }` in the spec.

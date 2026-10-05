@@ -15,6 +15,8 @@ import { formatDateTime } from "../../shared/i18n/time.ts";
 import type { MessageKey } from "../../shared/i18n/translate.ts";
 import { noTranslate } from "../no-translate.ts";
 import { appendBlockToDraft } from "../log-view/draft-append.ts";
+import { sendAttempt, takeAttempt } from "../log-view/outbox.ts";
+import { OutboxRows } from "../log-view/OutboxRows.tsx";
 import { errMessage } from "../../shared/errors.ts";
 
 // Keys, not words: a table of finished text would freeze the language it was
@@ -84,6 +86,8 @@ export function CronjobRunView({
   // Why the last edit request was rejected before it reached the server's
   // edit path. Its text is already back in the composer.
   const [editError, setEditError] = useState<string | null>(null);
+  // The browser refused to save the last attempt, so it was not sent.
+  const [saveError, setSaveError] = useState(false);
   const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(
     null,
   );
@@ -254,17 +258,18 @@ export function CronjobRunView({
   function handleSend() {
     const text = input.trim();
     if (!text || !canResume) return;
-    // Fire-and-forget: the user_message and the run's reply stream back via live
-    // cron_run_log_entry / log_entry events, so the { messageId } ack is ignored.
-    // .catch stays silent for parity with the old fire-and-forget WS command (a
-    // non-owner / unknown-run was dropped without a user-visible error).
-    apiFetch(
-      "POST",
-      `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
-        runId,
-      )}/messages`,
-      { text, device: device || undefined },
-    ).catch(() => {});
+    // The outbox records the attempt as pending before the composer clears,
+    // and keeps it until the server accepts it (task 44872c41). The
+    // user_message and the run's reply stream back via live log events.
+    const recorded = sendAttempt({
+      agentId: streamId,
+      cronRun: { jobId, runId },
+      text,
+      device: device || undefined,
+    });
+    // Not saved, so not sent: the composer keeps the only copy.
+    setSaveError(!recorded);
+    if (!recorded) return;
     setInput("");
     setEditError(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -282,6 +287,13 @@ export function CronjobRunView({
       ta.setSelectionRange(ta.value.length, ta.value.length);
       autoResize(ta);
     });
+  }
+
+  // Edit on a not-sent row: its text comes back into the composer and the
+  // attempt is dropped.
+  function editFailedAttempt(id: string) {
+    const attempt = takeAttempt(id);
+    if (attempt?.text) restoreFailedEdit(attempt.text);
   }
 
   function handleSubmitEdit(id: string, newText: string) {
@@ -647,6 +659,29 @@ export function CronjobRunView({
               ⚠ {t("logView.editFailedBanner", { error: editError })}
             </div>
           )}
+          {saveError && (
+            <div
+              role="alert"
+              data-outbox-save-failed
+              style={{
+                marginBottom: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: "var(--red-bg, rgba(192,57,43,0.12))",
+                border: "1px solid var(--red, #c0392b)",
+                color: "var(--red-text)",
+                fontSize: isMobile ? 12 : 11,
+                fontWeight: 600,
+              }}
+            >
+              ⚠ {t("logView.outbox.saveFailed")}
+            </div>
+          )}
+          <OutboxRows
+            agentId={streamId}
+            isMobile={isMobile}
+            onEdit={editFailedAttempt}
+          />
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <span
               style={{

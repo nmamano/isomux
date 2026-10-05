@@ -3,6 +3,7 @@ import {
   modelFamilyMismatchError,
   resolveInteractiveModelSelection,
   resolveAgentEngineSettings,
+  spawnedAgentMode,
   validateCodexSandbox,
   validateCronjobPermissionMode,
   validateEffort,
@@ -185,5 +186,110 @@ describe("OpenCode cron validation", () => {
     expect(validateCronjobPermissionMode("opencode", "default")).toBe(
       "bypassPermissions",
     );
+  });
+});
+
+// Task a7bdd069: one test per row of SPAWN_MODE_CARRY_OVER. Expectations are
+// written out, not read from the table.
+describe("spawnedAgentMode", () => {
+  const modes = {
+    claude: ["default", "acceptEdits", "bypassPermissions", "auto"],
+    codex: ["untrusted", "on-request", "never"],
+    opencode: ["default", "bypassPermissions"],
+  } as const;
+  type Engine = keyof typeof modes;
+  function childModes(from: Engine, to: Engine): Record<string, unknown> {
+    return Object.fromEntries(
+      modes[from].map((m) => [
+        m,
+        spawnedAgentMode(
+          {
+            agentType: from,
+            permissionMode: m,
+            codexSandbox: from === "codex" ? "read-only" : undefined,
+          },
+          to,
+        ),
+      ]),
+    );
+  }
+
+  it("claude -> claude: auto and bypass carry over; prompting modes become auto", () => {
+    expect(childModes("claude", "claude")).toEqual({
+      default: { permissionMode: "auto" },
+      acceptEdits: { permissionMode: "auto" },
+      bypassPermissions: { permissionMode: "bypassPermissions" },
+      auto: { permissionMode: "auto" },
+    });
+  });
+
+  it("claude -> codex: always never with full access", () => {
+    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    expect(childModes("claude", "codex")).toEqual({
+      default: full,
+      acceptEdits: full,
+      bypassPermissions: full,
+      auto: full,
+    });
+  });
+
+  it("claude -> opencode: always bypass (the 2026-08-30 default stays)", () => {
+    const bypass = { permissionMode: "bypassPermissions" };
+    expect(childModes("claude", "opencode")).toEqual({
+      default: bypass,
+      acceptEdits: bypass,
+      bypassPermissions: bypass,
+      auto: bypass,
+    });
+  });
+
+  it("codex -> claude: always auto", () => {
+    const auto = { permissionMode: "auto" };
+    expect(childModes("codex", "claude")).toEqual({
+      untrusted: auto,
+      "on-request": auto,
+      never: auto,
+    });
+  });
+
+  it("codex -> codex: never carries over with the spawner's sandbox; prompting modes become never with full access", () => {
+    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    expect(childModes("codex", "codex")).toEqual({
+      untrusted: full,
+      "on-request": full,
+      never: { permissionMode: "never", codexSandbox: "read-only" },
+    });
+  });
+
+  it("codex -> opencode: always bypass", () => {
+    const bypass = { permissionMode: "bypassPermissions" };
+    expect(childModes("codex", "opencode")).toEqual({
+      untrusted: bypass,
+      "on-request": bypass,
+      never: bypass,
+    });
+  });
+
+  it("opencode -> claude: bypass carries over; Ask becomes auto", () => {
+    expect(childModes("opencode", "claude")).toEqual({
+      default: { permissionMode: "auto" },
+      bypassPermissions: { permissionMode: "bypassPermissions" },
+    });
+  });
+
+  it("opencode -> codex: always never with full access", () => {
+    const full = { permissionMode: "never", codexSandbox: "danger-full-access" };
+    expect(childModes("opencode", "codex")).toEqual({
+      default: full,
+      bypassPermissions: full,
+    });
+  });
+
+  it("opencode -> opencode: always bypass", () => {
+    const bypass = { permissionMode: "bypassPermissions" };
+    expect(childModes("opencode", "opencode")).toEqual({
+      default: bypass,
+      bypassPermissions: bypass,
+    });
   });
 });

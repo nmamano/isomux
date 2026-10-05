@@ -19,6 +19,7 @@ import {
   claudeFamilySupportsMaxEffort,
   isClaudeFamily,
   type AgentBackendType,
+  type AgentInfo,
   type AgentPermissionMode,
   type CodexSandboxMode,
   type CronjobPermissionMode,
@@ -190,6 +191,54 @@ export function validateCodexSandbox(
   // Cron relies on undefined to retain the adapter's workspace-write fallback;
   // agent defaults belong in resolveAgentEngineSettings below.
   return undefined;
+}
+
+// Mode of an agent spawned by an agent whose request names no permissionMode
+// (task a7bdd069; Nil 2026-10-05, mapping by Isomux PM). The child never
+// starts in a prompting mode: the spawner's mode carries over only when it
+// does not prompt and means the same in the child's engine; any other mode
+// becomes the child's never-prompting mode.
+export const NEVER_PROMPTING_MODE = {
+  claude: "auto",
+  codex: "never",
+  opencode: "bypassPermissions",
+} as const satisfies Record<AgentBackendType, AgentPermissionMode>;
+
+// Spawner engine -> child engine -> the spawner modes that carry over.
+export const SPAWN_MODE_CARRY_OVER: Record<
+  AgentBackendType,
+  Record<AgentBackendType, readonly AgentPermissionMode[]>
+> = {
+  claude: {
+    claude: ["auto", "bypassPermissions"],
+    codex: [],
+    opencode: ["bypassPermissions"],
+  },
+  codex: { claude: [], codex: ["never"], opencode: [] },
+  opencode: {
+    claude: ["bypassPermissions"],
+    codex: [],
+    opencode: ["bypassPermissions"],
+  },
+};
+
+// A Codex child also gets a sandbox: the spawner's when its mode carried over
+// (codex -> codex), else danger-full-access.
+export function spawnedAgentMode(
+  spawner: Pick<AgentInfo, "agentType" | "permissionMode" | "codexSandbox">,
+  childType: AgentBackendType,
+): { permissionMode: AgentPermissionMode; codexSandbox?: CodexSandboxMode } {
+  const carries = SPAWN_MODE_CARRY_OVER[spawner.agentType][childType].includes(
+    spawner.permissionMode,
+  );
+  const permissionMode = carries
+    ? spawner.permissionMode
+    : NEVER_PROMPTING_MODE[childType];
+  if (childType !== "codex") return { permissionMode };
+  return {
+    permissionMode,
+    codexSandbox: (carries && spawner.codexSandbox) || "danger-full-access",
+  };
 }
 
 export function resolveAgentEngineSettings(

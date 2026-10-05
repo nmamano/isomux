@@ -2534,22 +2534,22 @@ function buildExecutorDeps(
       allRunsByJob: () => cronjobManager.getAllRunsByJob(),
       runTranscript: (jobId, runId) =>
         cronjobManager.getRunTranscript(jobId, runId),
-      // Run-message + RUN-affordance core ops. sendRunMessage/
-      // editRunMessage are fire-and-forget: void-discard the manager's
-      // background promise (like the legacy WS arms), so the HTTP response
-      // never blocks on the turn/fork. The handler threads a messageId override
-      // so the persisted user_message entry id === the route ack.
+      // Run-message + RUN-affordance core ops. sendRunMessage resolves on
+      // acceptance (the user_message is in the run log) or refusal, never on
+      // the turn. editRunMessage is fire-and-forget: void-discard the
+      // manager's background promise, so the HTTP response never blocks on
+      // the fork. The handler threads a messageId override so the persisted
+      // user_message entry id === the route ack.
       findRun: (jobId, runId) => cronjobManager.findRun(jobId, runId),
-      sendRunMessage: (jobId, runId, text, username, device, opts) => {
-        void cronjobManager.sendRunMessage(
+      sendRunMessage: (jobId, runId, text, username, device, opts) =>
+        cronjobManager.sendRunMessage(
           jobId,
           runId,
           text,
           username,
           device,
           opts,
-        );
-      },
+        ),
       editRunMessage: (
         jobId,
         runId,

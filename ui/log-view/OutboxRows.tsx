@@ -138,15 +138,21 @@ export function OutboxRows({
                   </span>
                 )}
                 <button
+                  data-outbox-action="resend"
                   style={button()}
                   onClick={() => resendAttempt(attempt.id)}
                 >
                   {i18n.t("logView.outbox.resend")}
                 </button>
-                <button style={button()} onClick={() => onEdit(attempt.id)}>
+                <button
+                  data-outbox-action="edit"
+                  style={button()}
+                  onClick={() => onEdit(attempt.id)}
+                >
                   {i18n.t("common.edit")}
                 </button>
                 <button
+                  data-outbox-action="discard"
                   style={button(true)}
                   onClick={() => discardAttempt(attempt.id)}
                 >

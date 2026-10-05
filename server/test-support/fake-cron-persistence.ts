@@ -66,7 +66,7 @@ export function makeFakeCronPersistence(): CronPersistence {
     rollRunSessionUsageOnResume: () => {},
     accumulateRunSessionUsage: () => ({ ...zeroUsage }),
     appendRunSessionUsageSnapshot: () => {},
-    appendRunLog: () => {},
+    appendRunLog: () => true,
     loadRunLog: () => [],
     loadRunLogWithAncestors: () => [],
   };

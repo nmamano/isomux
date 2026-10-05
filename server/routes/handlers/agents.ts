@@ -49,6 +49,10 @@ const deskRangeMessage = (
   room?: Pick<import("../../../shared/types.ts").RoomWire, "type">,
 ) => `desk must be a whole number from 0 to ${roomSlotCount(room) - 1}`;
 import { AGENT_TEMPLATES } from "../../../shared/agent-templates.ts";
+import {
+  NEVER_PROMPTING_MODE,
+  spawnedAgentMode,
+} from "../../agent-validators.ts";
 import type {
   SpawnReq,
   EditAgentReq,
@@ -375,13 +379,32 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           !AGENT_TEMPLATES.some((profile) => profile.key === b.profileKey))
       )
         return fail(422, "invalid_request", "malformed agent field");
+      // An agent that spawns an agent without naming a mode passes on a mode
+      // that does not prompt (task a7bdd069). A mode in the request wins, and
+      // a codexSandbox in the request wins over the inherited one.
+      let permissionMode = b.permissionMode;
+      let codexSandbox = b.codexSandbox;
+      const childType = b.agentType ?? "claude";
+      const spawner =
+        ctx.identity.scope === "agent" && ctx.identity.agentId
+          ? deps.getAgent(ctx.identity.agentId)
+          : undefined;
+      if (
+        (permissionMode === undefined || permissionMode === null) &&
+        spawner &&
+        Object.hasOwn(NEVER_PROMPTING_MODE, childType)
+      ) {
+        const inherited = spawnedAgentMode(spawner, childType);
+        permissionMode = inherited.permissionMode;
+        codexSandbox = codexSandbox ?? inherited.codexSandbox;
+      }
       const { username } = deps.attributionFor(ctx.identity);
       const r = await deps.spawn({
         name: b.name,
         cwd: b.cwd,
         roomId: b.roomId,
         desk: b.desk,
-        permissionMode: b.permissionMode,
+        permissionMode,
         profileKey: b.profileKey,
         customInstructions: b.customInstructions,
         outfit: b.outfit,
@@ -389,7 +412,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         model: b.model,
         effort: b.effort,
         agentType: b.agentType,
-        codexSandbox: b.codexSandbox,
+        codexSandbox,
         username,
         userId: ctx.identity.userId,
       });

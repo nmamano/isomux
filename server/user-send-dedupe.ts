@@ -12,6 +12,10 @@ import type { UserSendAcceptance } from "./internal-types.ts";
 
 export const USER_SEND_DEDUPE_MAX_PER_AGENT = 500;
 export const USER_SEND_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
+// Longest accepted clientMessageId; the composer sends a UUID. Member sends
+// only (Isomux PM ruling, task 51de8814): agent and API-token senders keep
+// their own rules. Cron run-messages use the same bound (task 44872c41).
+export const USER_CLIENT_MESSAGE_ID_MAX = 128;
 
 type Slot =
   | { kind: "accepted"; at: number }

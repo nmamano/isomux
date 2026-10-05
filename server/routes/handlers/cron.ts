@@ -27,6 +27,8 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
+import type { RunSendResult } from "../../internal-types.ts";
+import { USER_CLIENT_MESSAGE_ID_MAX } from "../../user-send-dedupe.ts";
 import type { Cronjob, CronjobRun, LogEntry } from "../../../shared/types.ts";
 import type {
   CronCreateReq,
@@ -77,8 +79,8 @@ export interface CronDeps {
     text: string,
     username: string | undefined,
     device: string | undefined,
-    opts: { messageId?: string },
-  ): void;
+    opts: { messageId?: string; clientMessageId?: string },
+  ): Promise<RunSendResult>;
   editRunMessage(
     jobId: string,
     runId: string,
@@ -244,25 +246,50 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       return run ? ok({ run, entries }) : fail(404, "not_found");
     },
 
-    // 3a.2b - run-messages (fire-and-forget; the manager threads our messageId
-    // into the persisted user_message so the ack === the eventual transcript
-    // entry id). Resumability / cwd / provider errors stay transcript-level (not
-    // HTTP) to preserve the original fire-and-forget contract; only an unknown run is a cheap
-    // 404 pre-flight. The cronjobOwnerOrOfficeOwner guard already ran.
-    "cron.runMessage": (ctx) => {
+    // 3a.2b - run-messages. The manager threads our messageId into the
+    // persisted user_message so the ack === the transcript entry id. The 200
+    // means the message is in the run log (task 44872c41); every refusal
+    // (unknown run, busy run, unresumable session, usage cap, resume failure)
+    // is an HTTP error with its code, so the composer keeps the attempt. The
+    // turn itself streams in the background. A clientMessageId resend of an
+    // accepted attempt answers 200 with an empty messageId and sends nothing.
+    // The cronjobOwnerOrOfficeOwner guard already ran.
+    "cron.runMessage": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<CronRunMessageReq>;
       if (typeof body.text !== "string" || body.text.length === 0) {
         return fail(400, "invalid_request", "text is required");
+      }
+      if (
+        body.clientMessageId !== undefined &&
+        typeof body.clientMessageId !== "string"
+      ) {
+        return fail(422, "invalid_request", "clientMessageId must be a string");
+      }
+      if (
+        body.clientMessageId !== undefined &&
+        body.clientMessageId.length > USER_CLIENT_MESSAGE_ID_MAX
+      ) {
+        return fail(
+          422,
+          "invalid_client_message_id",
+          `clientMessageId must be at most ${USER_CLIENT_MESSAGE_ID_MAX} characters.`,
+        );
       }
       const { id: jobId, runId } = ctx.params;
       if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
       const messageId = crypto.randomUUID();
       const { username } = deps.attributionFor(ctx.identity);
       const device = typeof body.device === "string" ? body.device : undefined;
-      deps.sendRunMessage(jobId, runId, body.text, username, device, {
-        messageId,
-      });
-      return ok({ messageId });
+      const r = await deps.sendRunMessage(
+        jobId,
+        runId,
+        body.text,
+        username,
+        device,
+        { messageId, clientMessageId: body.clientMessageId },
+      );
+      if (!r.ok) return fail(r.status, r.code, r.message);
+      return ok({ messageId: r.deduped ? "" : messageId });
     },
 
     "cron.editRunMessage": (ctx) => {

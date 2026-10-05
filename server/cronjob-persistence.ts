@@ -468,12 +468,14 @@ export function appendRunSessionUsageSnapshot(
   saveRunSessionsMap(jobId, runId, map);
 }
 
+// False when the write failed; the error is logged here. Only the run-message
+// acceptance path acts on it (task 44872c41).
 export function appendRunLog(
   jobId: string,
   runId: string,
   sessionId: string,
   entry: LogEntry,
-) {
+): boolean {
   entry = prepareLogEntry(entry);
   try {
     mkdirSync(runDir(jobId, runId), { recursive: true });
@@ -481,11 +483,13 @@ export function appendRunLog(
       sessionLogFile(jobId, runId, sessionId),
       JSON.stringify(entry) + "\n",
     );
+    return true;
   } catch (err) {
     console.error(
       `Failed to write run log ${jobId}/${runId}/${sessionId}:`,
       err,
     );
+    return false;
   }
 }
 

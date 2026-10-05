@@ -87,3 +87,34 @@ it("takeAttempt hands back the attachments and forgets the attempt", async () =>
   outbox.restoreOutbox("Boss", new Set(["a1"]));
   expect(outbox.outboxFor("a1")).toEqual([]);
 });
+
+// Task 44872c41: runs are never deleted, so a cronjob run attempt is kept
+// across a reload even though its stream id is no live agent, and it resends
+// to the run's route.
+it("restores a cronjob run attempt and resends it to the run's route", async () => {
+  const paths: string[] = [];
+  setApiShim(async (_method, path) => {
+    paths.push(path);
+    throw new TypeError("Failed to fetch");
+  });
+  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  const sent = outbox.sendAttempt({
+    agentId: "cronrun-r1",
+    cronRun: { jobId: "j1", runId: "r1" },
+    text: "follow up",
+  });
+  await settle();
+
+  outbox._resetOutboxForTests();
+  outbox.restoreOutbox("Boss", new Set(["a1"]));
+  const [restored] = outbox.outboxFor("cronrun-r1");
+  expect(restored.id).toBe(sent!.id);
+  expect(restored.cronRun).toEqual({ jobId: "j1", runId: "r1" });
+
+  outbox.resendAttempt(restored.id);
+  await settle();
+  expect(paths).toEqual([
+    "/api/cronjobs/j1/runs/r1/messages",
+    "/api/cronjobs/j1/runs/r1/messages",
+  ]);
+});

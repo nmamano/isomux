@@ -96,6 +96,8 @@ import {
   environmentSourceRevisionForUserId as defaultResolveEnvironmentRevision,
 } from "./env-loader.ts";
 import { mintRunToken, revokeRunToken } from "./identity/tokens.ts";
+import { createUserSendDedupe } from "./user-send-dedupe.ts";
+import type { RunSendResult, UserSendAcceptance } from "./internal-types.ts";
 import { getUserByName as defaultResolveUser } from "./users.ts";
 // The cron persistence surface is injected as a whole (see CronPersistence /
 // CronjobManagerDeps below). Imported as a namespace so the production factory
@@ -247,6 +249,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
   // during the awaits in editRunMessage (getSessionMessages → forkSession),
   // fork twice, and end up overwriting each other's ActiveRun entries.
   const startingRuns = new Set<string>();
+  // Duplicate check for member run-messages that carry a clientMessageId, keyed
+  // by run (task 44872c41). Same contract as agent sends: in memory only.
+  const runSendDedupe = createUserSendDedupe();
 
   let cronjobs: Cronjob[] = [];
   let cronjobsPrompt: string | null = null;
@@ -947,7 +952,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // `extra.id` overrides the generated entry id, so a REST boundary can thread
     // a correlation/ack id and the response's messageId === the persisted entry id.
     extra?: Partial<Pick<LogEntry, "id" | "diff" | "file" | "terminal">>,
-  ) {
+    // mustPersist: a failed disk write is not broadcast, and the call returns
+    // false (run-message acceptance, task 44872c41). Otherwise it returns true.
+    opts?: { mustPersist?: boolean },
+  ): boolean {
     if (kind === "error" && active.failedEditText !== undefined)
       metadata = { [FAILED_EDIT_TEXT_KEY]: active.failedEditText, ...metadata };
     const entry = prepareLogEntry({
@@ -961,13 +969,20 @@ How to answer questions about Isomux itself: the source lives at https://github.
       ...(extra ?? {}),
     });
     if (active.sessionId) {
-      appendRunLog(active.jobId, active.runId, active.sessionId, entry);
+      const saved = appendRunLog(
+        active.jobId,
+        active.runId,
+        active.sessionId,
+        entry,
+      );
+      if (!saved && opts?.mustPersist) return false;
       active.lastWrittenEntryId = entry.id;
     } else {
       // Pre-init: buffer until processCronjobMessage(system/init) flushes us.
       active.pendingEntries.push(entry);
     }
     eventHandler({ type: "log_entry", entry });
+    return true;
   }
 
   // Consume the backend's normalized event stream until the run's single turn
@@ -980,6 +995,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
   async function consumeUntilTurnCompleted(active: ActiveRun) {
     try {
       for await (const ev of active.session.stream()) {
+        // A replaced run (a refused send undid its resume, and a retry
+        // installed a new one) must not write into the run's log.
+        if (activeRuns.get(active.runId) !== active) return;
         processNormalizedEvent(active, ev);
         if (ev.kind === "approval_request") {
           const reason =
@@ -1079,7 +1097,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // timeout handler). The first one wins; later calls no-op. Without this,
     // a send-fail's finalizeRun(failed) gets clobbered by runConsumer reaching
     // finalizeRun(completed) right after session.close() ends the stream.
-    if (!activeRuns.has(active.runId)) return;
+    // Identity, not presence: a late close of a replaced run must not end the
+    // run that took its slot (task 44872c41).
+    if (activeRuns.get(active.runId) !== active) return;
     activeRuns.delete(active.runId);
     // Run ended; revoke its bearer token. Mirrors the mint in fire() (primary
     // turn) and in buildRunSessionOptions (resumed sendRunMessage/editRunMessage
@@ -1695,8 +1715,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // Send a follow-up message into a finalized run by resuming the leaf session.
-  // No-op if the run is missing, currently in flight, or has no real SDK
-  // session to resume (skipped or pre-init failed).
+  // Resolves once the message is accepted (its user_message is in the run log)
+  // or refused; it never waits for the turn. Every refusal is an HTTP-shaped
+  // result, so the composer keeps the attempt (task 44872c41).
   async function sendRunMessage(
     jobId: string,
     runId: string,
@@ -1704,55 +1725,111 @@ How to answer questions about Isomux itself: the source lives at https://github.
     username?: string,
     device?: string,
     // REST boundary threads a messageId so the persisted/broadcast user_message
-    // entry id equals the route response's ack. WS callers omit it (generated id).
-    opts?: { messageId?: string },
-  ): Promise<void> {
+    // entry id equals the route response's ack. clientMessageId dedupes a
+    // resend of an attempt that was accepted but whose response was lost.
+    opts?: { messageId?: string; clientMessageId?: string },
+  ): Promise<RunSendResult> {
+    if (!opts?.clientMessageId)
+      return sendRunMessageInner(jobId, runId, text, username, device, opts);
+    // Keyed by sender as well, so one member cannot answer for another
+    // member's attempt id.
+    const claim = runSendDedupe.claim(
+      runId,
+      `${username ?? ""}\u0000${opts.clientMessageId}`,
+    );
+    if (claim.kind === "accepted") return { ok: true, deduped: true };
+    if (claim.kind === "in_flight")
+      return claim.wait.then((r) => (r.ok ? { ok: true, deduped: true } : r));
+    let result: UserSendAcceptance = {
+      ok: false,
+      status: 500,
+      code: "acceptance_missing",
+      message: "The message did not reach an acceptance decision.",
+    };
+    try {
+      result = await sendRunMessageInner(
+        jobId,
+        runId,
+        text,
+        username,
+        device,
+        opts,
+      );
+      return result;
+    } finally {
+      claim.settle(result);
+    }
+  }
+
+  async function sendRunMessageInner(
+    jobId: string,
+    runId: string,
+    text: string,
+    username: string | undefined,
+    device: string | undefined,
+    opts: { messageId?: string } | undefined,
+  ): Promise<UserSendAcceptance> {
+    const notResumable = (message: string): UserSendAcceptance => ({
+      ok: false,
+      status: 409,
+      code: "run_not_resumable",
+      message,
+    });
     const run = findRun(jobId, runId);
-    if (!run) return;
+    if (!run)
+      return {
+        ok: false,
+        status: 404,
+        code: "run_not_found",
+        message: "No such run.",
+      };
     // Synchronous claim - must happen before any await so a concurrent
     // send/edit for the same runId bails immediately. installResumedActive's
     // activeRuns.set keeps the slot held; the `finally` below releases it.
-    if (activeRuns.has(runId) || startingRuns.has(runId)) return;
+    if (activeRuns.has(runId) || startingRuns.has(runId))
+      return {
+        ok: false,
+        status: 409,
+        code: "run_busy",
+        message: "The run is busy. Send again when it stops.",
+      };
     if (run.status === "skipped") {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        "Cannot resume a skipped run - it never opened a session.",
-      );
-      return;
+      const message = "Cannot resume a skipped run - it never opened a session.";
+      emitRunErrorEntry(jobId, runId, message);
+      return notResumable(message);
     }
     const leaf = run.currentSessionId ?? run.rootSessionId;
     if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        "Cannot resume: the original run never reached backend init.",
-      );
-      return;
+      const message = "Cannot resume: the original run never reached backend init.";
+      emitRunErrorEntry(jobId, runId, message);
+      return notResumable(message);
     }
     try {
       validateCwd(run.cwdSnapshot);
     } catch (err) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Cannot resume: cwd is invalid: ${errMessage(err)}`,
-      );
-      return;
+      const message = `Cannot resume: cwd is invalid: ${errMessage(err)}`;
+      emitRunErrorEntry(jobId, runId, message);
+      return notResumable(message);
     }
     const precheckError = checkResumableSession(run, leaf);
     if (precheckError) {
       emitRunErrorEntry(jobId, runId, precheckError);
-      return;
+      return notResumable(precheckError);
     }
 
     startingRuns.add(runId);
     try {
       const cap = await runTurnCap(run, username);
-      if (cap.kind === "abandon") return;
+      if (cap.kind === "abandon")
+        return {
+          ok: false,
+          status: 409,
+          code: "run_changed",
+          message: "The run changed before the message was sent.",
+        };
       if (cap.kind === "refused") {
         emitRunErrorEntry(jobId, runId, cap.text);
-        return;
+        return { ok: false, status: 429, code: "usage_cap", message: cap.text };
       }
       let session: BackendSession;
       try {
@@ -1765,10 +1842,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // Resume failed before installResumedActive, so finalizeRun never runs
         // for it - revoke here so the token doesn't outlive the attempt.
         revokeRunToken(jobId, runId);
-        emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
-        return;
+        const message = `Failed to resume: ${errMessage(err)}`;
+        emitRunErrorEntry(jobId, runId, message);
+        return { ok: false, status: 500, code: "resume_failed", message };
       }
 
+      // installResumedActive marks the row "running"; a refused send puts it
+      // back.
+      const before = {
+        status: run.status,
+        endedAt: run.endedAt,
+        errorReason: run.errorReason,
+      };
       let active: ActiveRun;
       try {
         active = installResumedActive(run, session, leaf);
@@ -1778,21 +1863,41 @@ How to answer questions about Isomux itself: the source lives at https://github.
         // close the orphaned session. finalizeRun only owns the token once
         // install fully succeeds.
         abortResumedRunToken(jobId, runId, session);
-        emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
-        return;
+        const message = `Failed to resume: ${errMessage(err)}`;
+        emitRunErrorEntry(jobId, runId, message);
+        return { ok: false, status: 500, code: "resume_failed", message };
       }
       const meta: Record<string, unknown> | undefined =
         username || device
           ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
           : undefined;
-      writeLog(
+      const saved = writeLog(
         active,
         "user_message",
         text,
         meta,
         undefined,
         opts?.messageId ? { id: opts.messageId } : undefined,
+        { mustPersist: true },
       );
+      if (!saved) {
+        // Nothing was sent: undo the resume so the run is as it was, and the
+        // member can send the same attempt again.
+        active.killed = true;
+        if (active.hardTimeoutTimer) {
+          scheduler.clearTimeout(active.hardTimeoutTimer);
+          active.hardTimeoutTimer = null;
+        }
+        abortResumedRunToken(jobId, runId, session);
+        const restored = updateRun(jobId, runId, before);
+        if (restored) eventHandler({ type: "cronjob_run_updated", run: restored });
+        return {
+          ok: false,
+          status: 500,
+          code: "persist_failed",
+          message: "The message could not be saved.",
+        };
+      }
 
       const prefix = formatPrefix({ username, device });
       const prefixedText = prefix ? `${prefix}${text}` : text;
@@ -1809,6 +1914,8 @@ How to answer questions about Isomux itself: the source lives at https://github.
           finalizeRun(active, "failed", errMessage(err));
         }
       })();
+      // The text is in the run log; a later send failure is a turn error.
+      return { ok: true };
     } finally {
       startingRuns.delete(runId);
     }
