@@ -974,7 +974,7 @@ function RunsTable({
                 ) : r.trigger === "webhook" ? (
                   <StatusShape kind="hook" />
                 ) : (
-                  "⏲"
+                  <StatusShape kind="clock" />
                 )}
               </td>
               <td style={{ padding: cellPad, fontSize: 12, fontWeight: 600 }}>

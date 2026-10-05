@@ -3,7 +3,7 @@ export function StatusShape({
   kind,
   rotate = 0,
 }: {
-  kind: "triangle" | "dot" | "check" | "warning" | "hook";
+  kind: "triangle" | "dot" | "check" | "warning" | "hook" | "clock";
   rotate?: number;
 }) {
   // Same CSS circle as AppsView's StateDot, inheriting the surrounding color.
@@ -48,6 +48,12 @@ export function StatusShape({
           <path d="M6 1.2 L11.2 10.6 H0.8 Z" />
           <path d="M6 4.6 V7" />
           <circle cx="6" cy="8.8" r="0.4" fill="currentColor" />
+        </>
+      )}
+      {kind === "clock" && (
+        <>
+          <circle cx="6" cy="6" r="4.8" />
+          <path d="M6 3.4 V6 L7.8 7.2" />
         </>
       )}
       {kind === "hook" && (
