@@ -82,7 +82,7 @@ PARKED FOR NIL items.
 - [x] S1 - pure core (verify, match, block): 541fcef2, 102 tests; intro line variants for hmac-sha256 and empty event or delivery id are in block.ts
 - [x] S2 - registry, API, auth: 19845377; the system-prompt line landed here (system-prompt.test requires every reference topic to be advertised)
 - [x] S3 - ingress and the agent target: d022a0e8; a cronjob target answers target_unavailable ("cronjob targets are not supported yet") until S4
-- [ ] S4 - cronjob target, and the "none" schedule (ruling 7)
+- [x] S4 - cronjob target, and the "none" schedule (ruling 7): 54addcfc; "none" reads "On demand"
 - [ ] S5 - UI and docs
 
 ## PICKUP S1 (Worker 1 / Reviewer 1)
@@ -234,3 +234,56 @@ Decide with the reviewer: how the dialog presents "none", the human-readable
 schedule text for it (put it verbatim in the report).
 
 Locked: rulings above; design section 4b except where ruling 7 overrides it.
+
+## PICKUP S5 (Worker 1 / Reviewer 1)
+
+Goal: design section 11, S5, and design sections 8 and 9: the Webhooks panel
+as a second tab on the Schedules page (ruling 2), with the list, the hook
+detail ("Set up in GitHub" with the URL, content type, the secret behind
+"Show" for members only, the rule event names, and "Rotate secret" with a
+confirm step), rules and target editing in a dialog like `CronjobDialog`, the
+counters, the delivery log, and the dry run. The run views show webhook runs
+with the hook name and link to the delivery. The docs surfaces in
+internal-docs/documentation.md.
+
+What S1-S4 left (merged up to 54addcfc): every route, the events
+`webhook_upserted`/`webhook_deleted`, the sender label in the log view, the
+trigger keys `schedules.trigger.webhook`/`webhookBy`, and the "On demand"
+schedule.
+
+Also in this slice:
+- Flake risk: server/webhooks/deliveries.test.ts "trims to the row limit, and
+  a trimmed body is new again" takes 2-4 s alone against the 5 s default and
+  timed out once in S4's scoped batch. Make it fast (for example a smaller
+  injected row limit or cheaper setup); do not raise its timeout. Measure it
+  before and after, and give both numbers in the report.
+- The cronjob list's "Last run" reads `lastFireAt`, which only scheduled fires
+  set, so an "On demand" job always shows "-". PM ruling: "Last run" shows the
+  newest run of any trigger (scheduled, manual or webhook).
+
+Mechanics and traps:
+- The secret is shown only to a human session; the "Show" and "Rotate"
+  controls are absent for anyone the routes refuse. The UI never caches the
+  secret beyond the open detail.
+- Design section 9: the panel always shows "GitHub must reach this address
+  from the internet." under the URL, and says the office has no public address
+  when the public origin is localhost or loopback.
+- Glyphs are SVG or `StatusShape`, never dingbats (iOS renders them as
+  emoji).
+- Mobile: the panel works at 390px.
+- Docs: README and landing are Nil's copy; propose wording in the report only.
+  docs/features.md and api/chat.ts (both still describe recurring schedules
+  only) get short drafts in the slice, quoted verbatim in the report. The
+  agent-reference page text from S2 and S3 is also up for Nil's cut: quote its
+  final form.
+- `ui/demo-server.ts` gets a fixture hook so the demo shows the panel; that
+  adds `build:demo` to the gates.
+
+Acceptance: DOM tests for the list, the secret button (hidden for non-owners
+and agents), the dry run, and the "Last run" fix; the four-locale i18n test;
+the system-prompt snapshot if touched; headless-Chrome screenshots of the
+panel at desktop and 390px width, and of a webhook run in the run view.
+
+Decide with the reviewer: the panel layout, the dialog fields.
+
+Locked: rulings above; design sections 8 and 9.
