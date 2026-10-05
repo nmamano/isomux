@@ -36,6 +36,19 @@ On 2026-10-03, after the rebase onto current main, the same arguments render:
 
 The manager section's two arrow characters make bytes exceed characters by four. The privileged block adds 606 bytes. Main renders 37,302 to 53,228 bytes for the same six cases on that date.
 
+On 2026-10-05 the index became one situation per line (Nil, 2026-10-04: an agent that does not think of a feature never fetches its page), and the privileged page split into five. The same arguments render:
+
+| Engine | Agent | Characters | Bytes | Whitespace-separated words |
+| --- | --- | ---: | ---: | ---: |
+| Claude | Ordinary | 6,137 | 6,141 | 1,021 |
+| Claude | Privileged | 7,174 | 7,178 | 1,196 |
+| Codex | Ordinary | 5,426 | 5,430 | 904 |
+| Codex | Privileged | 6,463 | 6,467 | 1,079 |
+| OpenCode | Ordinary | 5,757 | 5,761 | 955 |
+| OpenCode | Privileged | 6,794 | 6,798 | 1,130 |
+
+The privileged block adds 1,037 bytes. The 75-run check above predates this wording; task 73b70f84 holds the situation-coverage method and its check.
+
 ## What stays inline
 
 The prompt keeps information that the agent must apply before it knows that it needs a reference:
@@ -74,7 +87,7 @@ The prompt lists these features with a topic name beside each one:
 | Cronjob inspection | The agent fetches `GET /api/agent-reference/cronjobs`. |
 | Shared memory | The agent fetches `GET /api/agent-reference/memory`. |
 | Inline diagrams | The agent fetches `GET /api/agent-reference/visuals`. |
-| Privileged agent, room, and cron operations | A privileged agent fetches `GET /api/agent-reference/operator`. |
+| Privileged agent, room, cronjob, members-chat, and member operations | A privileged agent fetches `agent-management`, `rooms`, `cronjob-management`, `members-chat`, or `members`, one page per situation. |
 | Session closeout | The agent invokes the built-in `/wrap-session` skill when the session goal is complete. |
 
 Each topic holds the current route, method, parameters, response shape, scope, error cases, and one safe example. Long operating procedures remain skills. `/wrap-session` and `/handoff` are examples: the prompt lists them as features, and the skill carries the workflow.

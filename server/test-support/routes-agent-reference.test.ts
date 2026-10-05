@@ -7,6 +7,8 @@ import {
 } from "../identity/tokens.ts";
 import {
   AGENT_REFERENCE_TOPICS,
+  PRIVILEGED_REFERENCE_TOPICS,
+  type AgentReferenceTopic,
   AGENT_REFERENCE_VERSION,
 } from "../agent-reference.ts";
 import { OpenCodeAuthorityBroker } from "../backends/opencode/authority-broker.ts";
@@ -71,7 +73,10 @@ describe("agent reference routes", () => {
     expect(body.version).toBe(AGENT_REFERENCE_VERSION);
     expect(body.topics.map((entry) => entry.topic).sort()).toEqual(
       Object.keys(AGENT_REFERENCE_TOPICS)
-        .filter((topic) => topic !== "operator")
+        .filter(
+          (topic) =>
+            !PRIVILEGED_REFERENCE_TOPICS.has(topic as AgentReferenceTopic),
+        )
         .sort(),
     );
   });
@@ -137,7 +142,7 @@ describe("agent reference routes", () => {
     ).toBe(404);
   });
 
-  it("pins all six identity classes and privileged operator visibility", async () => {
+  it("pins all six identity classes and privileged page visibility", async () => {
     const { srv, owner, ownerUser, token } = await setup();
     const api = await mintApiToken({
       userId: ownerUser.id,
@@ -199,10 +204,11 @@ describe("agent reference routes", () => {
       expect(topic.status, `${call.name} topic`).toBe(call.status);
       if (call.status === 200) {
         const body = (await list.json()) as { topics: { topic: string }[] };
-        expect(
-          body.topics.some((entry) => entry.topic === "operator"),
-          `${call.name} operator visibility`,
-        ).toBe(call.name === "privileged");
+        for (const topic of PRIVILEGED_REFERENCE_TOPICS)
+          expect(
+            body.topics.some((entry) => entry.topic === topic),
+            `${call.name} ${topic} visibility`,
+          ).toBe(call.name === "privileged");
       }
     }
   });
@@ -306,8 +312,8 @@ describe("agent reference usage events", () => {
     });
     expect(event).toMatchObject({ category: "conversation-lifecycle" });
     expect(event && "topics" in event ? [...event.topics].sort() : []).toEqual([
+      "agent-management",
       "conversation-lifecycle",
-      "operator",
     ]);
   });
 });

@@ -17,10 +17,24 @@ export const AGENT_REFERENCE_TOPICS = {
   cronjobs: "Cronjob inspection",
   memory: "Shared memory",
   visuals: "Inline diagrams",
-  operator: "Privileged agent, room, cronjob, and members-chat operations",
+  "agent-management": "Privileged agent setup and conversation driving",
+  rooms: "Privileged room management",
+  "cronjob-management": "Privileged cronjob management",
+  "members-chat": "Privileged members-chat use",
+  members: "Privileged member creation",
 } as const;
 
 export type AgentReferenceTopic = keyof typeof AGENT_REFERENCE_TOPICS;
+
+// Pages only a privileged agent sees.
+export const PRIVILEGED_REFERENCE_TOPICS: ReadonlySet<AgentReferenceTopic> =
+  new Set([
+    "agent-management",
+    "rooms",
+    "cronjob-management",
+    "members-chat",
+    "members",
+  ]);
 
 // Written right after a route the OpenCode authority broker refuses, at each
 // place a topic names it. The broker allowlist test checks both directions.
@@ -33,24 +47,24 @@ export const OPENCODE_UNAVAILABLE_MARK = "(not available to OpenCode agents)";
 export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   Record<string, AgentReferenceTopic>
 > = {
-  "agents.spawn": "operator",
-  "agents.kill": "operator",
-  "agents.revive": "operator",
+  "agents.spawn": "agent-management",
+  "agents.kill": "agent-management",
+  "agents.revive": "agent-management",
   "agents.abort": "messaging",
-  "agents.update": "operator",
-  "agents.move": "operator",
-  "agents.setTopic": "operator",
-  "agents.regenerateTopic": "operator",
-  "rooms.swapDesks": "operator",
+  "agents.update": "agent-management",
+  "agents.move": "agent-management",
+  "agents.setTopic": "agent-management",
+  "agents.regenerateTopic": "agent-management",
+  "rooms.swapDesks": "agent-management",
   "agents.sendMessage": "messaging",
   "agents.listScheduledMessages": "scheduled-messages",
   "agents.cancelScheduledMessage": "scheduled-messages",
-  "agents.editMessage": "operator",
-  "agents.cancelQueued": "operator",
-  "agents.sendNow": "operator",
+  "agents.editMessage": "agent-management",
+  "agents.cancelQueued": "agent-management",
+  "agents.sendNow": "agent-management",
   "agents.newConversation": "conversation-lifecycle",
   "agents.handoff": "conversation-lifecycle",
-  "agents.resume": "operator",
+  "agents.resume": "agent-management",
   "agents.listSessions": "conversation-history",
   "agents.readFile": "chat-affordances",
   "agents.diff": "chat-affordances",
@@ -61,21 +75,21 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "agents.contextUsage": "usage",
   "agents.subscriptionUsage": "usage",
   "agents.logs": "conversation-history",
-  "membersChat.page": "operator",
-  "membersChat.post": "operator",
-  "membersChat.pin": "operator",
-  "membersChat.thumbsUp": "operator",
-  "membersChat.edit": "operator",
-  "membersChat.delete": "operator",
-  "membersChat.markRead": "operator",
-  "membersChat.upload": "operator",
-  "membersChat.getFile": "operator",
-  "rooms.create": "operator",
-  "rooms.close": "operator",
-  "rooms.rename": "operator",
-  "rooms.getSettings": "operator",
-  "users.create": "operator",
-  "rooms.setSettings": "operator",
+  "membersChat.page": "members-chat",
+  "membersChat.post": "members-chat",
+  "membersChat.pin": "members-chat",
+  "membersChat.thumbsUp": "members-chat",
+  "membersChat.edit": "members-chat",
+  "membersChat.delete": "members-chat",
+  "membersChat.markRead": "members-chat",
+  "membersChat.upload": "members-chat",
+  "membersChat.getFile": "members-chat",
+  "rooms.create": "rooms",
+  "rooms.close": "rooms",
+  "rooms.rename": "rooms",
+  "rooms.getSettings": "rooms",
+  "users.create": "members",
+  "rooms.setSettings": "rooms",
   "apiTokenInbox.send": "messaging",
   "tasks.list": "tasks",
   "tasks.get": "tasks",
@@ -97,18 +111,18 @@ export const AGENT_ROUTE_REFERENCE_TOPICS: Readonly<
   "memory.read": "memory",
   "memory.append": "memory",
   "memory.replace": "memory",
-  "cron.list": "operator",
-  "cron.get": "operator",
-  "cron.readSystemPrompt": "operator",
-  "cron.create": "operator",
-  "cron.update": "operator",
-  "cron.delete": "operator",
-  "cron.runNow": "operator",
-  "cron.listRuns": "operator",
-  "cron.listAllRuns": "operator",
-  "cron.getRun": "operator",
-  "cron.runMessage": "operator",
-  "cron.editRunMessage": "operator",
+  "cron.list": "cronjob-management",
+  "cron.get": "cronjob-management",
+  "cron.readSystemPrompt": "cronjob-management",
+  "cron.create": "cronjob-management",
+  "cron.update": "cronjob-management",
+  "cron.delete": "cronjob-management",
+  "cron.runNow": "cronjob-management",
+  "cron.listRuns": "cronjob-management",
+  "cron.listAllRuns": "cronjob-management",
+  "cron.getRun": "cronjob-management",
+  "cron.runMessage": "cronjob-management",
+  "cron.editRunMessage": "cronjob-management",
 } as const;
 
 export const AGENT_ROUTE_REFERENCE_EXEMPTIONS: Readonly<
@@ -169,7 +183,7 @@ export function agentReferenceTopics(identity: Identity) {
   return topicNames
     .filter(
       (topic) =>
-        topic !== "operator" ||
+        !PRIVILEGED_REFERENCE_TOPICS.has(topic) ||
         (identity.scope === "agent" &&
           identity.capabilities.includes("agent:manage")),
     )

@@ -2,7 +2,7 @@
 // authority broker, and every route the broker refuses must be marked as
 // unavailable to OpenCode agents at each place a reference names it. The
 // routes come from what the agent actually reads: the fetch command in its
-// system prompt (privileged, so the operator pointer is in) and every topic
+// system prompt (privileged, so the privileged pages are in) and every topic
 // as the reference route serves it, not from a hand-copied list.
 
 import { afterEach, describe, expect, it } from "bun:test";
@@ -144,7 +144,7 @@ describe("OpenCode broker allowlist", () => {
     const routes = [...new Set(occurrences.map((o) => o.route))].sort();
     // Guards against a prompt, reference, or parser change that leaves
     // nothing to check.
-    expect(routes).toContain("GET /api/agent-reference/<topic>");
+    expect(routes).toContain("GET /api/agent-reference/<page>");
     expect(routes).toContain("GET /agents");
     expect(routes).toContain("POST /api/apps");
     expect(routes).toContain("GET /api/members-chat");
